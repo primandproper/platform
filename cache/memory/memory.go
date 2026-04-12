@@ -1,0 +1,136 @@
+package memory
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/primandproper/platform/cache"
+	"github.com/primandproper/platform/errors"
+	"github.com/primandproper/platform/observability/logging"
+	"github.com/primandproper/platform/observability/metrics"
+	"github.com/primandproper/platform/observability/tracing"
+)
+
+const name = "in_memory_cache"
+
+type inMemoryCacheImpl[T any] struct {
+	logger           logging.Logger
+	tracer           tracing.Tracer
+	cacheHitCounter  metrics.Int64Counter
+	cacheMissCounter metrics.Int64Counter
+	cacheSetCounter  metrics.Int64Counter
+	cacheDelCounter  metrics.Int64Counter
+	latencyHist      metrics.Float64Histogram
+	cache            map[string]*T
+	cacheMu          sync.RWMutex
+}
+
+// NewInMemoryCache builds an in-memory cache.
+func NewInMemoryCache[T any](logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (cache.Cache[T], error) {
+	mp := metrics.EnsureMetricsProvider(metricsProvider)
+
+	cacheHitCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache hit counter")
+	}
+
+	cacheMissCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_misses", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache miss counter")
+	}
+
+	cacheSetCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_sets", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache set counter")
+	}
+
+	cacheDelCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_deletes", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache delete counter")
+	}
+
+	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache latency histogram")
+	}
+
+	return &inMemoryCacheImpl[T]{
+		logger:           logging.NewNamedLogger(logger, name),
+		tracer:           tracing.NewNamedTracer(tracerProvider, name),
+		cacheHitCounter:  cacheHitCounter,
+		cacheMissCounter: cacheMissCounter,
+		cacheSetCounter:  cacheSetCounter,
+		cacheDelCounter:  cacheDelCounter,
+		latencyHist:      latencyHist,
+		cache:            make(map[string]*T),
+	}, nil
+}
+
+func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
+	_, span := i.tracer.StartSpan(ctx)
+	defer span.End()
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	i.cacheMu.RLock()
+	defer i.cacheMu.RUnlock()
+
+	if val, ok := i.cache[key]; ok {
+		i.cacheHitCounter.Add(ctx, 1)
+		return val, nil
+	}
+
+	i.cacheMissCounter.Add(ctx, 1)
+
+	return nil, cache.ErrNotFound
+}
+
+func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T) error {
+	_, span := i.tracer.StartSpan(ctx)
+	defer span.End()
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	i.cacheMu.Lock()
+	defer i.cacheMu.Unlock()
+
+	i.cache[key] = value
+	i.cacheSetCounter.Add(ctx, 1)
+
+	return nil
+}
+
+func (i *inMemoryCacheImpl[T]) Delete(ctx context.Context, key string) error {
+	_, span := i.tracer.StartSpan(ctx)
+	defer span.End()
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	i.cacheMu.Lock()
+	defer i.cacheMu.Unlock()
+
+	delete(i.cache, key)
+	i.cacheDelCounter.Add(ctx, 1)
+
+	return nil
+}
+
+func (i *inMemoryCacheImpl[T]) Ping(ctx context.Context) error {
+	_, span := i.tracer.StartSpan(ctx)
+	defer span.End()
+
+	i.logger.Debug("ping")
+
+	return nil
+}

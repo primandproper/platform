@@ -1,0 +1,416 @@
+package sse
+
+import (
+	"bufio"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/primandproper/platform/eventstream"
+	"github.com/primandproper/platform/observability/tracing"
+
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
+)
+
+func TestNewUpgrader(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		u := NewUpgrader(tracing.NewNoopTracerProvider())
+		test.NotNil(t, u)
+	})
+}
+
+func TestUpgrader_UpgradeToEventStream(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+		defer resp.Body.Close()
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+		defer stream.Close()
+
+		test.EqOp(t, "text/event-stream", resp.Header.Get("Content-Type"))
+		test.EqOp(t, "no-cache", resp.Header.Get("Cache-Control"))
+		test.EqOp(t, "keep-alive", resp.Header.Get("Connection"))
+	})
+
+	T.Run("response writer does not support flushing", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		u := NewUpgrader(tracing.NewNoopTracerProvider())
+		w := &nonFlushableResponseWriter{header: http.Header{}}
+		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", http.NoBody)
+
+		stream, err := u.UpgradeToEventStream(w, r)
+		test.Nil(t, stream)
+		test.Error(t, err)
+		test.StrContains(t, err.Error(), "streaming not supported")
+	})
+}
+
+func TestSSEStream_Send(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+		defer resp.Body.Close()
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+		defer stream.Close()
+
+		sendErr := stream.Send(t.Context(), &eventstream.Event{
+			Type:    "test_event",
+			Payload: json.RawMessage(`{"msg":"hello"}`),
+		})
+		must.NoError(t, sendErr)
+
+		scanner := bufio.NewScanner(resp.Body)
+
+		// Read "event: test_event"
+		must.True(t, scanner.Scan())
+		test.EqOp(t, "event: test_event", scanner.Text())
+
+		// Read "data: {\"msg\":\"hello\"}"
+		must.True(t, scanner.Scan())
+		test.EqOp(t, `data: {"msg":"hello"}`, scanner.Text())
+
+		// Read empty line (event separator)
+		must.True(t, scanner.Scan())
+		test.EqOp(t, "", scanner.Text())
+	})
+
+	T.Run("event without type", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+		defer resp.Body.Close()
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+		defer stream.Close()
+
+		sendErr := stream.Send(t.Context(), &eventstream.Event{
+			Payload: json.RawMessage(`{"x":1}`),
+		})
+		must.NoError(t, sendErr)
+
+		scanner := bufio.NewScanner(resp.Body)
+
+		// No "event:" line, just data
+		must.True(t, scanner.Scan())
+		test.EqOp(t, `data: {"x":1}`, scanner.Text())
+
+		// Empty line (event separator)
+		must.True(t, scanner.Scan())
+		test.EqOp(t, "", scanner.Text())
+	})
+
+	T.Run("multiple events", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+		defer resp.Body.Close()
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+		defer stream.Close()
+
+		for i, name := range []string{"first", "second", "third"} {
+			sendErr := stream.Send(t.Context(), &eventstream.Event{
+				Type:    "msg",
+				Payload: json.RawMessage(`"` + name + `"`),
+			})
+			must.NoError(t, sendErr, must.Sprintf("send %d", i))
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		for _, name := range []string{"first", "second", "third"} {
+			must.True(t, scanner.Scan())
+			test.EqOp(t, "event: msg", scanner.Text())
+
+			must.True(t, scanner.Scan())
+			test.EqOp(t, `data: "`+name+`"`, scanner.Text())
+
+			must.True(t, scanner.Scan())
+			test.EqOp(t, "", scanner.Text())
+		}
+	})
+
+	T.Run("send after close returns error", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+		defer resp.Body.Close()
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+
+		must.NoError(t, stream.Close())
+
+		sendErr := stream.Send(t.Context(), &eventstream.Event{
+			Type:    "test",
+			Payload: json.RawMessage(`{}`),
+		})
+		test.Error(t, sendErr)
+		test.StrContains(t, sendErr.Error(), "stream closed")
+	})
+}
+
+func TestSSEStream_Done(T *testing.T) {
+	T.Parallel()
+
+	T.Run("closes on Close", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+		defer resp.Body.Close()
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+
+		done := stream.Done()
+		must.NoError(t, stream.Close())
+
+		select {
+		case <-done:
+			// expected: channel closed
+		case <-time.After(time.Second):
+			t.Fatalf("Done() channel was not closed after Close()")
+		}
+	})
+
+	T.Run("closes on client disconnect", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+
+		// Close the client connection, which cancels the request context
+		resp.Body.Close()
+
+		// The done channel should close because the request context was cancelled
+		select {
+		case <-stream.Done():
+			// expected
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Done() channel was not closed after client disconnect")
+		}
+	})
+}
+
+func TestSSEStream_Close(T *testing.T) {
+	T.Parallel()
+
+	T.Run("idempotent", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+		defer resp.Body.Close()
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+
+		// Close should be idempotent (context.CancelFunc is safe to call multiple times)
+		test.NoError(t, stream.Close())
+		test.NoError(t, stream.Close())
+	})
+}
+
+// nonFlushableResponseWriter is a minimal ResponseWriter that does NOT implement http.Flusher.
+type nonFlushableResponseWriter struct {
+	header http.Header
+}
+
+func (w *nonFlushableResponseWriter) Header() http.Header         { return w.header }
+func (w *nonFlushableResponseWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (w *nonFlushableResponseWriter) WriteHeader(int)             {}
+
+func TestSSEStream_Send_verifies_SSE_format(T *testing.T) {
+	T.Parallel()
+
+	T.Run("output is valid SSE", func(t *testing.T) {
+		t.Parallel()
+
+		streamReady := make(chan eventstream.EventStream, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := NewUpgrader(tracing.NewNoopTracerProvider())
+			stream, err := u.UpgradeToEventStream(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			streamReady <- stream
+			<-stream.Done()
+		}))
+		defer server.Close()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
+		must.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		must.NoError(t, err)
+		defer resp.Body.Close()
+
+		stream := <-streamReady
+		must.NotNil(t, stream)
+		defer stream.Close()
+
+		sendErr := stream.Send(t.Context(), &eventstream.Event{
+			Type:    "update",
+			Payload: json.RawMessage(`{"id":"abc","status":"done"}`),
+		})
+		must.NoError(t, sendErr)
+
+		// Read raw bytes and verify the exact SSE format
+		buf := make([]byte, 4096)
+		n, readErr := resp.Body.Read(buf)
+		must.NoError(t, readErr)
+
+		output := string(buf[:n])
+		expected := "event: update\ndata: {\"id\":\"abc\",\"status\":\"done\"}\n\n"
+		test.EqOp(t, expected, output)
+	})
+}

@@ -1,0 +1,54 @@
+package config
+
+import (
+	"context"
+	"testing"
+
+	"github.com/primandproper/platform/notifications/mobile"
+	"github.com/primandproper/platform/observability/logging"
+	"github.com/primandproper/platform/observability/metrics"
+	"github.com/primandproper/platform/observability/tracing"
+
+	"github.com/samber/do/v2"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
+)
+
+func TestRegisterPushSender(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
+		do.ProvideValue(i, logging.NewNoopLogger())
+		do.ProvideValue(i, tracing.NewNoopTracerProvider())
+		do.ProvideValue[metrics.Provider](i, nil)
+		do.ProvideValue(i, Config{Provider: ProviderNoop})
+
+		RegisterPushSender(i)
+
+		sender, err := do.Invoke[mobile.PushNotificationSender](i)
+		must.NoError(t, err)
+		test.NotNil(t, sender)
+	})
+}
+
+func TestProvidePushSender(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		sender, err := ProvidePushSender(
+			t.Context(),
+			Config{Provider: ProviderNoop},
+			logging.NewNoopLogger(),
+			tracing.NewNoopTracerProvider(),
+			nil,
+		)
+		must.NoError(t, err)
+		test.NotNil(t, sender)
+	})
+}

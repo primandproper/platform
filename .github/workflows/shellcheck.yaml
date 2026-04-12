@@ -1,0 +1,22 @@
+---
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .scripts/**/*.sh
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+name: shellcheck
+jobs:
+  shellcheck:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Run shellcheck
+        run: make shellcheck

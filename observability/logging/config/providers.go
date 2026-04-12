@@ -1,0 +1,12 @@
+package loggingcfg
+
+import (
+	"context"
+
+	"github.com/primandproper/platform/observability/logging"
+)
+
+// ProvideLogger provides a Logger from config.
+func ProvideLogger(ctx context.Context, cfg *Config) (logging.Logger, error) {
+	return cfg.ProvideLogger(ctx)
+}

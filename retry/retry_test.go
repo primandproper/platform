@@ -1,0 +1,100 @@
+package retry
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
+)
+
+func TestExponentialBackoffPolicy_Execute(T *testing.T) {
+	T.Parallel()
+
+	T.Run("success on first attempt", func(t *testing.T) {
+		t.Parallel()
+
+		policy := NewExponentialBackoffPolicy(Config{MaxAttempts: 3})
+		ctx := context.Background()
+		attempts := 0
+
+		err := policy.Execute(ctx, func(ctx context.Context) error {
+			attempts++
+			return nil
+		})
+
+		must.NoError(t, err)
+		test.EqOp(t, 1, attempts)
+	})
+
+	T.Run("success after retries", func(t *testing.T) {
+		t.Parallel()
+
+		policy := NewExponentialBackoffPolicy(Config{
+			MaxAttempts:  5,
+			InitialDelay: 1,
+			MaxDelay:     10,
+			UseJitter:    false,
+		})
+		ctx := context.Background()
+		attempts := 0
+
+		err := policy.Execute(ctx, func(ctx context.Context) error {
+			attempts++
+			if attempts < 3 {
+				return errors.New("transient")
+			}
+			return nil
+		})
+
+		must.NoError(t, err)
+		test.EqOp(t, 3, attempts)
+	})
+
+	T.Run("returns last error after max attempts", func(t *testing.T) {
+		t.Parallel()
+
+		policy := NewExponentialBackoffPolicy(Config{
+			MaxAttempts:  3,
+			InitialDelay: 1,
+			MaxDelay:     10,
+			UseJitter:    false,
+		})
+		ctx := context.Background()
+		attempts := 0
+		expectedErr := errors.New("final failure")
+
+		err := policy.Execute(ctx, func(ctx context.Context) error {
+			attempts++
+			if attempts < 3 {
+				return errors.New("transient")
+			}
+			return expectedErr
+		})
+
+		must.Error(t, err)
+		test.ErrorIs(t, err, expectedErr)
+		test.EqOp(t, 3, attempts)
+	})
+
+	T.Run("respects context cancellation", func(t *testing.T) {
+		t.Parallel()
+
+		policy := NewExponentialBackoffPolicy(Config{
+			MaxAttempts:  10,
+			InitialDelay: time.Hour,
+			UseJitter:    false,
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := policy.Execute(ctx, func(ctx context.Context) error {
+			return errors.New("fail")
+		})
+
+		must.Error(t, err)
+		test.ErrorIs(t, err, context.Canceled)
+	})
+}

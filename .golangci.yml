@@ -1,0 +1,215 @@
+version: "2"
+run:
+  issues-exit-code: 1
+  tests: true
+  allow-parallel-runners: true
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+linters:
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - contextcheck
+    - copyloopvar
+    - decorder
+    - dogsled
+    - durationcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - forbidigo
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - goconst
+    - gocritic
+    - godot
+    - goheader
+    - gomoddirectives
+    - gomodguard
+    - goprintffuncname
+    - gosec
+    - gosmopolitan
+    - grouper
+    - importas
+    - loggercheck
+    - mirror
+    - misspell
+    - nakedret
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - paralleltest
+    - predeclared
+    - promlinter
+    - reassign
+    - sqlclosecheck
+    - tagalign
+    - testableexamples
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+    - zerologlint
+  disable:
+    - containedctx
+    - cyclop
+    - depguard
+    - dupl
+    - dupword
+    - err113
+    - exhaustive
+    - exhaustruct
+    - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - gocyclo
+    - godox
+    - interfacebloat
+    - ireturn
+    - lll
+    - maintidx
+    - makezero
+    - musttag
+    - nestif
+    - nlreturn
+    - nonamedreturns
+    - prealloc
+    - revive
+    - rowserrcheck
+    - tagliatelle
+    - testpackage
+    - varnamelen
+    - wrapcheck
+    - wsl
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    forbidigo:
+      forbid:
+        - pattern: ^t\.SkipNow\(\)$
+      exclude-godoc-examples: false
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - captLocal
+        - singleCaseSwitch
+        - sloppyReassign
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+      settings:
+        rangeValCopy:
+          sizeThreshold: 32
+    govet:
+      enable-all: true
+      settings:
+        shadow:
+          strict: true
+    misspell:
+      locale: US
+      ignore-rules:
+        - cancelled
+        - cancelling
+    nakedret:
+      max-func-lines: 4
+    unparam:
+      check-exported: false
+    unused:
+      field-writes-are-uses: false
+      post-statements-are-reads: true
+      exported-fields-are-used: false
+      parameters-are-used: true
+      local-variables-are-used: true
+      generated-is-used: true
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - bodyclose
+          - errcheck
+          - forcetypeassert
+          - goconst
+          - gosec
+          - nilnil
+          - unparam
+          - unused
+          - contextcheck
+        path: (.+)_test\.go
+      - linters:
+          - errcheck
+          - forcetypeassert
+          - mnd
+        path: mock_?.*\.go
+      - linters:
+          - forcetypeassert
+        path: encoding/mock
+      - linters:
+          - forcetypeassert
+        path: messagequeue/mock
+      - linters:
+          - forcetypeassert
+        path: routing/mock
+      - linters:
+          - forcetypeassert
+        path: uploads/mock
+      - linters:
+          - forcetypeassert
+        path: uploads/images/mock.go
+      - linters:
+          - gocritic
+        text: 'captLocal: `T'' should not be capitalized'
+      - linters:
+          - gosec
+        text: 'G304:'
+      - linters:
+          - gosec
+        text: 'G118:'
+      - linters:
+          - gosec
+        text: 'G115:'
+      - linters:
+          - gosec
+        text: 'G117:'
+      # //go:fix is valid in Go 1.23+; gocheckcompilerdirectives does not recognize it yet
+      - linters:
+          - gocheckcompilerdirectives
+        text: '//go:fix'
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+formatters:
+  enable:
+    - gci
+    - gofmt
+  settings:
+    gci:
+      sections:
+        - standard
+        - prefix(github.com/primandproper/platform)
+        - prefix(github.com/primandproper/platform)
+        - default
+      custom-order: true
+    gofmt:
+      simplify: true

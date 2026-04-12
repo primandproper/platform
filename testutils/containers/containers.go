@@ -1,0 +1,51 @@
+// Package containers provides shared helpers for starting testcontainers
+// with uniform retry behavior. It exists so every container builder in the
+// repo can opt into the same backoff policy instead of each rolling its own.
+//
+// Container startup flakes for many non-deterministic reasons — Docker daemon
+// cold starts, port conflicts, image pull stalls, transient network blips —
+// and a single attempt is too brittle for a large integration test suite.
+package containers
+
+import (
+	"context"
+	"time"
+
+	"github.com/primandproper/platform/retry"
+)
+
+const (
+	defaultMaxAttempts  = 5
+	defaultInitialDelay = time.Second
+)
+
+// DefaultRetryConfig returns the retry.Config used by StartWithRetry. Callers
+// that need bespoke retry behavior can start from this and tweak individual
+// fields before calling retry.NewExponentialBackoffPolicy themselves.
+func DefaultRetryConfig() retry.Config {
+	return retry.Config{
+		MaxAttempts:  defaultMaxAttempts,
+		InitialDelay: defaultInitialDelay,
+		UseJitter:    false,
+	}
+}
+
+// StartWithRetry invokes start with exponential backoff retry on failure. It
+// is a thin wrapper over the retry package so that every container builder in
+// the repo gets the same backoff policy for free.
+//
+// The callback receives the same ctx that was passed in, and is expected to
+// return the concrete container type from its module's Run function (e.g.
+// *postgres.PostgresContainer, *redis.RedisContainer). Callers handle the
+// error themselves — typically via must.NoError(t, err) — so that this helper
+// stays decoupled from the testing package.
+func StartWithRetry[C any](ctx context.Context, start func(context.Context) (C, error)) (C, error) {
+	var container C
+	policy := retry.NewExponentialBackoffPolicy(DefaultRetryConfig())
+	err := policy.Execute(ctx, func(ctx context.Context) error {
+		var startErr error
+		container, startErr = start(ctx)
+		return startErr
+	})
+	return container, err
+}
