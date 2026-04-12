@@ -208,7 +208,7 @@ formatters:
       sections:
         - standard
         - prefix(github.com/primandproper/platform)
-        - prefix(github.com/primandproper/platform)
+        - prefix(github.com/primandproper)
         - default
       custom-order: true
     gofmt:
