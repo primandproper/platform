@@ -26,7 +26,8 @@ const (
 
 // Config contains settings regarding search indices.
 type Config struct {
-	_              struct{}                  `json:"-"`
+	_ struct{} `json:"-"`
+
 	Algolia        *algolia.Config           `env:"init"     envPrefix:"ALGOLIA_"         json:"algolia"`
 	Elasticsearch  *elasticsearch.Config     `env:"init"     envPrefix:"ELASTICSEARCH_"   json:"elasticsearch"`
 	Provider       string                    `env:"PROVIDER" json:"provider"`
