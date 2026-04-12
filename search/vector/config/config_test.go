@@ -35,7 +35,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Provider: PgvectorProvider,
+			Provider: PGvectorProvider,
 			Pgvector: &pgvector.Config{
 				Dimension: 3,
 				Metric:    vectorsearch.DistanceCosine,
@@ -70,7 +70,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 	T.Run("pgvector provider without config", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Provider: PgvectorProvider}
+		cfg := &Config{Provider: PGvectorProvider}
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
@@ -161,7 +161,7 @@ func TestConfig_ProvideIndex(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Provider: PgvectorProvider,
+			Provider: PGvectorProvider,
 			Pgvector: &pgvector.Config{
 				Dimension: 3,
 				Metric:    vectorsearch.DistanceCosine,
