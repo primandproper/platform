@@ -5,8 +5,8 @@ import (
 
 	"github.com/primandproper/platform/capitalism"
 	"github.com/primandproper/platform/capitalism/stripe"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -20,8 +20,8 @@ func TestRegisterPaymentManager(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{APIKey: t.Name()},

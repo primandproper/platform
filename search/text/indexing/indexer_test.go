@@ -9,10 +9,10 @@ import (
 	"github.com/primandproper/platform/messagequeue"
 	msgconfig "github.com/primandproper/platform/messagequeue/config"
 	mockpublishers "github.com/primandproper/platform/messagequeue/mock"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	textsearch "github.com/primandproper/platform/search/text"
 
 	"github.com/shoenig/test"
@@ -29,8 +29,8 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -72,8 +72,8 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -109,8 +109,8 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 		messageQueueProvider := &mockpublishers.PublisherProviderMock{}
 
 		// Mock metrics provider to return error - need to return a valid interface and error
@@ -134,8 +134,8 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -172,8 +172,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -227,8 +227,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -275,8 +275,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -318,8 +318,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -361,8 +361,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -402,8 +402,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -461,8 +461,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{

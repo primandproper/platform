@@ -65,7 +65,7 @@ func EnsureLogger(logger Logger) Logger {
 		return logger
 	}
 
-	return NewNoopLogger()
+	return noopLoggerSingleton
 }
 
 // NewNamedLogger creates a named Logger from the given Logger.

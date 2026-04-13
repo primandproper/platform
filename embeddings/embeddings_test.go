@@ -1,7 +1,10 @@
-package embeddings
+package embeddings_test
 
 import (
 	"testing"
+
+	"github.com/primandproper/platform/embeddings"
+	embeddingsnoop "github.com/primandproper/platform/embeddings/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -14,9 +17,9 @@ func TestNoopEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		embedder := NewNoopEmbedder()
+		embedder := embeddingsnoop.NewEmbedder()
 
-		result, err := embedder.GenerateEmbedding(ctx, &Input{
+		result, err := embedder.GenerateEmbedding(ctx, &embeddings.Input{
 			Content: "hello world",
 		})
 

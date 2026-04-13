@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 )
 
 func Test_tracingErrorHandler_Handle(T *testing.T) {
@@ -13,6 +13,6 @@ func Test_tracingErrorHandler_Handle(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		errorHandler{logger: logging.NewNoopLogger()}.Handle(errors.New("blah"))
+		errorHandler{logger: loggingnoop.NewLogger()}.Handle(errors.New("blah"))
 	})
 }

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics/otelgrpc"
 
 	"github.com/shoenig/test"
@@ -65,7 +65,7 @@ func TestProvideMetricsProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := ProvideMetricsProvider(t.Context(), logging.NewNoopLogger(), cfg)
+		provider, err := ProvideMetricsProvider(t.Context(), loggingnoop.NewLogger(), cfg)
 		must.NoError(t, err)
 		test.NotNil(t, provider)
 	})
@@ -78,7 +78,7 @@ func TestProvideMetricsProvider(T *testing.T) {
 			CollectorEndpoint: "localhost:4317",
 		}
 
-		provider, err := ProvideMetricsProvider(t.Context(), logging.NewNoopLogger(), cfg)
+		provider, err := ProvideMetricsProvider(t.Context(), loggingnoop.NewLogger(), cfg)
 		test.Nil(t, provider)
 		test.Error(t, err)
 	})

@@ -15,8 +15,8 @@ import (
 	mockcircuitbreaking "github.com/primandproper/platform/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
 	"github.com/primandproper/platform/identifiers"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/testutils/containers"
 
 	"github.com/shoenig/test"
@@ -195,8 +195,8 @@ func TestElasticsearch_Container(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 
 		im, err := ProvideIndexManager[example](ctx, logger, tracerProvider, infra.cfg, "provide_lt_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 		test.NoError(t, err)
@@ -209,7 +209,7 @@ func TestElasticsearch_Container(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		ready := elasticsearchIsReadyToInit(ctx, infra.cfg, logger, 5)
 		test.True(t, ready)
@@ -558,7 +558,7 @@ func Test_elasticsearchIsReadyToInit_Unit(T *testing.T) {
 			Address: "http://localhost:19291",
 		}
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		ready := elasticsearchIsReadyToInit(context.Background(), cfg, logger, 1)
 		// This will either return true (if the info request returns non-error) or false
 		// With unreachable server, the error path is taken but the condition is
@@ -583,7 +583,7 @@ func Test_elasticsearchIsReadyToInit_Unit(T *testing.T) {
 			Address: server.URL,
 		}
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		ready := elasticsearchIsReadyToInit(context.Background(), cfg, logger, 3)
 		test.True(t, ready)
 	})
@@ -620,8 +620,8 @@ func TestProvideIndexManager_Unit(T *testing.T) {
 			Address: server.URL,
 		}
 
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 		cb := &mockcircuitbreaking.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
@@ -672,8 +672,8 @@ func TestProvideIndexManager_Unit(T *testing.T) {
 			Address: server.URL,
 		}
 
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 		cb := &mockcircuitbreaking.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform/eventstream"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/shoenig/test"
@@ -21,7 +21,7 @@ func TestNewUpgrader(T *testing.T) {
 	T.Run("nil config uses defaults", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), nil)
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, u)
 		test.EqOp(t, defaultHeartbeatInterval, u.heartbeatInterval)
 		test.EqOp(t, defaultBufferSize, u.wsUpgrader.ReadBufferSize)
@@ -31,7 +31,7 @@ func TestNewUpgrader(T *testing.T) {
 	T.Run("custom config", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{
 			HeartbeatInterval: 10 * time.Second,
 			ReadBufferSize:    2048,
 			WriteBufferSize:   4096,
@@ -49,7 +49,7 @@ func TestUpgrader_UpgradeToEventStream(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{HeartbeatInterval: time.Hour})
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{HeartbeatInterval: time.Hour})
 		streamReady := make(chan eventstream.EventStream, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			stream, err := u.UpgradeToEventStream(w, r)
@@ -78,7 +78,7 @@ func TestUpgrader_UpgradeToBidirectionalStream(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{HeartbeatInterval: time.Hour})
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{HeartbeatInterval: time.Hour})
 		streamReady := make(chan eventstream.BidirectionalEventStream, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			stream, err := u.UpgradeToBidirectionalStream(w, r)
@@ -109,7 +109,7 @@ func TestWSStream_Send(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{HeartbeatInterval: time.Hour})
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{HeartbeatInterval: time.Hour})
 		received := make(chan *eventstream.Event, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			stream, err := u.UpgradeToEventStream(w, r)
@@ -150,7 +150,7 @@ func TestWSStream_Send(T *testing.T) {
 	T.Run("send after close returns error", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{HeartbeatInterval: time.Hour})
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{HeartbeatInterval: time.Hour})
 		streamReady := make(chan eventstream.EventStream, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			stream, err := u.UpgradeToEventStream(w, r)
@@ -181,7 +181,7 @@ func TestWSStream_Done(T *testing.T) {
 	T.Run("closes on Close", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{HeartbeatInterval: time.Hour})
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{HeartbeatInterval: time.Hour})
 		streamReady := make(chan eventstream.EventStream, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			stream, err := u.UpgradeToEventStream(w, r)
@@ -216,7 +216,7 @@ func TestWSStream_Close(T *testing.T) {
 	T.Run("idempotent", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{HeartbeatInterval: time.Hour})
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{HeartbeatInterval: time.Hour})
 		streamReady := make(chan eventstream.EventStream, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			stream, err := u.UpgradeToEventStream(w, r)
@@ -244,7 +244,7 @@ func TestBidirectionalWSStream_Receive(T *testing.T) {
 	T.Run("receives client messages", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{HeartbeatInterval: time.Hour})
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{HeartbeatInterval: time.Hour})
 		streamReady := make(chan eventstream.BidirectionalEventStream, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			stream, err := u.UpgradeToBidirectionalStream(w, r)
@@ -283,7 +283,7 @@ func TestBidirectionalWSStream_Receive(T *testing.T) {
 	T.Run("channel closes when stream is closed", func(t *testing.T) {
 		t.Parallel()
 
-		u := NewUpgrader(nil, tracing.NewNoopTracerProvider(), &Config{HeartbeatInterval: time.Hour})
+		u := NewUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{HeartbeatInterval: time.Hour})
 		streamReady := make(chan eventstream.BidirectionalEventStream, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			stream, err := u.UpgradeToBidirectionalStream(w, r)

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -67,7 +67,7 @@ func TestStandardSecretGenerator_GenerateBase32EncodedString(T *testing.T) {
 		ctx := t.Context()
 		exampleLength := 123
 
-		s := NewGenerator(nil, tracing.NewNoopTracerProvider())
+		s := NewGenerator(nil, tracingnoop.NewTracerProvider())
 		value, err := s.GenerateBase32EncodedString(ctx, exampleLength)
 
 		test.NotEq(t, "", value)
@@ -81,7 +81,7 @@ func TestStandardSecretGenerator_GenerateBase32EncodedString(T *testing.T) {
 		ctx := t.Context()
 		exampleLength := 123
 
-		s, ok := NewGenerator(nil, tracing.NewNoopTracerProvider()).(*standardGenerator)
+		s, ok := NewGenerator(nil, tracingnoop.NewTracerProvider()).(*standardGenerator)
 		must.True(t, ok)
 		s.randReader = &erroneousReader{}
 		value, err := s.GenerateBase32EncodedString(ctx, exampleLength)
@@ -100,7 +100,7 @@ func TestStandardSecretGenerator_GenerateBase64EncodedString(T *testing.T) {
 		ctx := t.Context()
 		exampleLength := 123
 
-		s := NewGenerator(nil, tracing.NewNoopTracerProvider())
+		s := NewGenerator(nil, tracingnoop.NewTracerProvider())
 		value, err := s.GenerateBase64EncodedString(ctx, exampleLength)
 
 		test.NotEq(t, "", value)
@@ -114,7 +114,7 @@ func TestStandardSecretGenerator_GenerateBase64EncodedString(T *testing.T) {
 		ctx := t.Context()
 		exampleLength := 123
 
-		s, ok := NewGenerator(nil, tracing.NewNoopTracerProvider()).(*standardGenerator)
+		s, ok := NewGenerator(nil, tracingnoop.NewTracerProvider()).(*standardGenerator)
 		must.True(t, ok)
 		s.randReader = &erroneousReader{}
 		value, err := s.GenerateBase64EncodedString(ctx, exampleLength)
@@ -133,7 +133,7 @@ func TestStandardSecretGenerator_GenerateRawBytes(T *testing.T) {
 		ctx := t.Context()
 		exampleLength := 123
 
-		s := NewGenerator(nil, tracing.NewNoopTracerProvider())
+		s := NewGenerator(nil, tracingnoop.NewTracerProvider())
 		value, err := s.GenerateRawBytes(ctx, exampleLength)
 
 		test.SliceNotEmpty(t, value)
@@ -147,7 +147,7 @@ func TestStandardSecretGenerator_GenerateRawBytes(T *testing.T) {
 		ctx := t.Context()
 		exampleLength := 123
 
-		s, ok := NewGenerator(nil, tracing.NewNoopTracerProvider()).(*standardGenerator)
+		s, ok := NewGenerator(nil, tracingnoop.NewTracerProvider()).(*standardGenerator)
 		must.True(t, ok)
 		s.randReader = &erroneousReader{}
 		value, err := s.GenerateRawBytes(ctx, exampleLength)

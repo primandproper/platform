@@ -11,13 +11,14 @@ import (
 	"github.com/primandproper/platform/errors"
 	"github.com/primandproper/platform/observability/logging"
 	"github.com/primandproper/platform/observability/profiling"
+	profilingnoop "github.com/primandproper/platform/observability/profiling/noop"
 )
 
 // ProvideProfilingProvider creates a pprof-based profiling provider that exposes
 // /debug/pprof endpoints on an HTTP server.
 func ProvideProfilingProvider(ctx context.Context, logger logging.Logger, cfg *Config) (profiling.Provider, error) {
 	if cfg == nil {
-		return profiling.NewNoopProvider(), nil
+		return profilingnoop.NewProvider(), nil
 	}
 
 	port := cfg.Port

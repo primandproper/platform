@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/notifications/async"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -20,8 +20,8 @@ func TestRegisterAsyncNotifier(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, nil)
 		do.ProvideValue(i, &Config{})
 

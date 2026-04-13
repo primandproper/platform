@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform/embeddings"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
 
 	"github.com/shoenig/test"
@@ -39,7 +39,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), nil, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(t.Context(), nil, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.Error(t, err)
 		must.Nil(t, emb)
 	})
@@ -47,7 +47,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(t.Context(), &Config{}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -57,7 +57,7 @@ func TestNewEmbedder(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: "http://custom:11434",
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -67,7 +67,7 @@ func TestNewEmbedder(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			Timeout: 5 * time.Second,
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -95,7 +95,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: ts.URL,
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -128,7 +128,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL:      ts.URL,
 			DefaultModel: "nomic-embed-text",
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -152,7 +152,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: ts.URL,
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -175,7 +175,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: ts.URL,
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -200,7 +200,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: ts.URL,
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -220,7 +220,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: ts.URL,
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -247,7 +247,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL:      ts.URL,
 			DefaultModel: "mxbai-embed-large",
-		}, logging.NewNoopLogger(), tracing.NewTracerForTest("test"))
+		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -265,7 +265,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		e := &embedder{
 			cfg:    &Config{BaseURL: string([]byte{0x7f})},
-			logger: logging.NewNoopLogger(),
+			logger: loggingnoop.NewLogger(),
 			tracer: tracing.NewTracerForTest("test"),
 			client: &http.Client{},
 		}
@@ -282,7 +282,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		body := `{"embeddings":[[0.1,0.2]]}`
 		e := &embedder{
 			cfg:    &Config{BaseURL: "http://localhost"},
-			logger: logging.NewNoopLogger(),
+			logger: loggingnoop.NewLogger(),
 			tracer: tracing.NewTracerForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -305,7 +305,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		e := &embedder{
 			cfg:    &Config{BaseURL: "http://localhost"},
-			logger: logging.NewNoopLogger(),
+			logger: loggingnoop.NewLogger(),
 			tracer: tracing.NewTracerForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

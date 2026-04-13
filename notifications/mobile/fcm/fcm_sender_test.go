@@ -10,9 +10,11 @@ import (
 
 	"github.com/primandproper/platform/errors"
 	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	firebase "firebase.google.com/go/v4"
 	"github.com/shoenig/test"
@@ -50,8 +52,8 @@ func createTestFCMSenderWithTransport(t *testing.T, fn roundTripFunc) *Sender {
 
 	return &Sender{
 		client:       client,
-		tracer:       tracing.NewNamedTracer(tracing.NewNoopTracerProvider(), o11yName),
-		logger:       logging.NewNamedLogger(logging.NewNoopLogger(), o11yName),
+		tracer:       tracing.NewNamedTracer(tracingnoop.NewTracerProvider(), o11yName),
+		logger:       logging.NewNamedLogger(loggingnoop.NewLogger(), o11yName),
 		sendCounter:  sendCounter,
 		errorCounter: errorCounter,
 	}
@@ -61,8 +63,8 @@ func TestNewSender(T *testing.T) {
 	T.Parallel()
 
 	ctx := T.Context()
-	logger := logging.NewNoopLogger()
-	tracingProvider := tracing.NewNoopTracerProvider()
+	logger := loggingnoop.NewLogger()
+	tracingProvider := tracingnoop.NewTracerProvider()
 
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()

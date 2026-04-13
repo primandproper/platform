@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/profiling"
 
 	"github.com/samber/do/v2"
@@ -20,7 +20,7 @@ func TestRegisterProfilingProvider(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, logging.NewNoopLogger())
+		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, &Config{})
 
 		RegisterProfilingProvider(i)

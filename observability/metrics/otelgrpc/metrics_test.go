@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 
 	"github.com/shoenig/test"
@@ -71,7 +71,7 @@ func TestSetupMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		provider, shutdown, err := setupMetricsProvider(ctx, logger, "test-service", nil)
 		test.Nil(t, provider)
@@ -84,7 +84,7 @@ func TestSetupMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -103,7 +103,7 @@ func TestSetupMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -122,7 +122,7 @@ func TestSetupMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -145,7 +145,7 @@ func TestProvideMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		provider, err := ProvideMetricsProvider(ctx, logger, "test-service", nil)
 		test.Nil(t, provider)
@@ -157,7 +157,7 @@ func TestProvideMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -181,7 +181,7 @@ func TestProviderImpl_MeterProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -217,7 +217,7 @@ func TestProviderImpl_NewFloat64Counter(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -244,7 +244,7 @@ func TestProviderImpl_NewFloat64Gauge(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -271,7 +271,7 @@ func TestProviderImpl_NewFloat64UpDownCounter(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -298,7 +298,7 @@ func TestProviderImpl_NewFloat64Histogram(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -325,7 +325,7 @@ func TestProviderImpl_NewInt64Counter(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -352,7 +352,7 @@ func TestProviderImpl_NewInt64Gauge(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -379,7 +379,7 @@ func TestProviderImpl_NewInt64UpDownCounter(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -406,7 +406,7 @@ func TestProviderImpl_NewInt64Histogram(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,
@@ -433,7 +433,7 @@ func TestProviderImpl_ServiceNamePrefixing(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			CollectorEndpoint:    "localhost:4317",
 			CollectionInterval:   30 * time.Second,

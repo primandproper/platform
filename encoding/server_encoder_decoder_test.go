@@ -12,8 +12,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -83,7 +83,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 			t.Parallel()
 
 			ex := &example{Name: "name"}
-			encoderDecoder, ok := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), tc.contentType).(*serverEncoderDecoder)
+			encoderDecoder, ok := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), tc.contentType).(*serverEncoderDecoder)
 			must.True(t, ok)
 
 			ctx := t.Context()
@@ -100,7 +100,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 
 		ex := &example{Name: "name"}
-		encoderDecoder, ok := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeEmoji).(*serverEncoderDecoder)
+		encoderDecoder, ok := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeEmoji).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		ctx := t.Context()
@@ -116,7 +116,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 		expectation := "name"
 		ex := &example{Name: expectation}
-		encoderDecoder, ok := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
+		encoderDecoder, ok := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		ctx := t.Context()
@@ -130,7 +130,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 		expectation := "name"
 		ex := &broken{Name: json.Number(expectation)}
-		encoderDecoder, ok := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
+		encoderDecoder, ok := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		ctx := t.Context()
@@ -148,7 +148,7 @@ func TestServerEncoderDecoder_MustEncodeJSON(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeJSON)
+		encoderDecoder := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
 
 		expected := `{"name":"TestServerEncoderDecoder_MustEncodeJSON/standard"}
 `
@@ -161,7 +161,7 @@ func TestServerEncoderDecoder_MustEncodeJSON(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeJSON)
+		encoderDecoder := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
 
 		defer func() {
 			test.NotNil(t, recover())
@@ -201,7 +201,7 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			encoderDecoder := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), tc.contentType)
+			encoderDecoder := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), tc.contentType)
 
 			actual := string(encoderDecoder.MustEncode(ctx, &example{Name: t.Name()}))
 
@@ -213,7 +213,7 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeEmoji)
+		encoderDecoder := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeEmoji)
 
 		actual := string(encoderDecoder.MustEncode(ctx, &example{Name: t.Name()}))
 		test.NotEq(t, "", actual)
@@ -223,7 +223,7 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder, ok := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
+		encoderDecoder, ok := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		defer func() {
@@ -241,7 +241,7 @@ func TestServerEncoderDecoder_EncodeResponseWithStatus(T *testing.T) {
 		t.Parallel()
 		expectation := "name"
 		ex := &example{Name: expectation}
-		encoderDecoder := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeJSON)
+		encoderDecoder := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
 
 		ctx := t.Context()
 		res := httptest.NewRecorder()
@@ -296,7 +296,7 @@ func TestServerEncoderDecoder_DecodeRequest(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			encoderDecoder := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), tc.contentType)
+			encoderDecoder := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), tc.contentType)
 
 			bs, err := tc.marshaller(e)
 			must.NoError(t, err)
@@ -352,7 +352,7 @@ func Test_serverEncoderDecoder_DecodeBytes(T *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 
-			encoderDecoder := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), tc.contentType)
+			encoderDecoder := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), tc.contentType)
 
 			var dest *example
 			test.NoError(t, encoderDecoder.DecodeBytes(ctx, tc.data, &dest))
@@ -369,7 +369,7 @@ func TestServerEncoderDecoder_RespondWithData(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder, ok := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
+		encoderDecoder, ok := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		res := httptest.NewRecorder()
@@ -432,7 +432,7 @@ func TestServerEncoderDecoder_DecodeRequest_bodyCloseError(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder := ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), ContentTypeJSON)
+		encoderDecoder := ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
 
 		data, err := json.Marshal(&example{Name: "test"})
 		must.NoError(t, err)

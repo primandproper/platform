@@ -8,8 +8,8 @@ import (
 
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
 	"github.com/primandproper/platform/email"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
@@ -22,9 +22,9 @@ func TestNewSendGridEmailer(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		client, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracing.NewNoopTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, client)
 		must.NoError(t, err)
 	})
@@ -36,13 +36,13 @@ func TestSendGridEmailer_SendEmail(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		ts := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 			res.WriteHeader(http.StatusAccepted)
 		}))
 
-		c, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracing.NewNoopTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
+		c, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracingnoop.NewTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, c)
 		must.NoError(t, err)
 
@@ -64,7 +64,7 @@ func TestSendGridEmailer_SendEmail(T *testing.T) {
 	T.Run("with error executing request", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		ts := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 			time.Sleep(time.Hour)
@@ -72,7 +72,7 @@ func TestSendGridEmailer_SendEmail(T *testing.T) {
 		client := ts.Client()
 		client.Timeout = time.Millisecond
 
-		c, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracing.NewNoopTracerProvider(), client, cbnoop.NewCircuitBreaker(), nil)
+		c, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracingnoop.NewTracerProvider(), client, cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, c)
 		must.NoError(t, err)
 
@@ -95,13 +95,13 @@ func TestSendGridEmailer_SendEmail(T *testing.T) {
 	T.Run("with invalid response code", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		ts := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 			res.WriteHeader(http.StatusInternalServerError)
 		}))
 
-		c, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracing.NewNoopTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
+		c, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracingnoop.NewTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, c)
 		must.NoError(t, err)
 
@@ -128,13 +128,13 @@ func TestSendGridEmailer_sendDynamicTemplateEmail(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		ts := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 			res.WriteHeader(http.StatusAccepted)
 		}))
 
-		c, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracing.NewNoopTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
+		c, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracingnoop.NewTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, c)
 		must.NoError(t, err)
 

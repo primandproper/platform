@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform/observability/keys"
 	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -30,7 +31,7 @@ func NewZapLogger(lvl logging.Level) logging.Logger {
 		l, err := zap.NewDevelopment(zap.AddCallerSkip(1))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: failed to create development zap logger, falling back to noop: %v\n", err)
-			return logging.NewNoopLogger()
+			return loggingnoop.NewLogger()
 		}
 
 		return &zapLogger{logger: l, atomicLevel: atomicLevel}
@@ -39,7 +40,7 @@ func NewZapLogger(lvl logging.Level) logging.Logger {
 		l, err := zap.NewProduction(zap.AddCallerSkip(1))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: failed to create production zap logger, falling back to noop: %v\n", err)
-			return logging.NewNoopLogger()
+			return loggingnoop.NewLogger()
 		}
 
 		return &zapLogger{logger: l, atomicLevel: atomicLevel}

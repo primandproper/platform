@@ -7,10 +7,10 @@ import (
 	"github.com/primandproper/platform/messagequeue"
 	msgconfig "github.com/primandproper/platform/messagequeue/config"
 	mockpublishers "github.com/primandproper/platform/messagequeue/mock"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -41,8 +41,8 @@ func TestRegisterIndexScheduler(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, t.Context())
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, metricsProvider)
 		do.ProvideValue[messagequeue.PublisherProvider](i, messageQueueProvider)
 		do.ProvideValue(i, &msgconfig.QueuesConfig{SearchIndexRequestsTopicName: "test_topic"})

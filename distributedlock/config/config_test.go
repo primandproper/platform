@@ -12,10 +12,11 @@ import (
 	"github.com/primandproper/platform/distributedlock"
 	pglock "github.com/primandproper/platform/distributedlock/postgres"
 	redislock "github.com/primandproper/platform/distributedlock/redis"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -103,9 +104,9 @@ func TestProvideLocker(T *testing.T) {
 		_, err := ProvideLocker(
 			t.Context(),
 			nil,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		test.ErrorIs(t, err, distributedlock.ErrNilConfig)
@@ -116,9 +117,9 @@ func TestProvideLocker(T *testing.T) {
 		l, err := ProvideLocker(
 			t.Context(),
 			&Config{Provider: MemoryProvider},
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -133,9 +134,9 @@ func TestProvideLocker(T *testing.T) {
 		l, err := ProvideLocker(
 			t.Context(),
 			&Config{Provider: NoopProvider},
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -147,9 +148,9 @@ func TestProvideLocker(T *testing.T) {
 		l, err := ProvideLocker(
 			t.Context(),
 			&Config{Provider: "unknown"},
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -161,9 +162,9 @@ func TestProvideLocker(T *testing.T) {
 		l, err := ProvideLocker(
 			t.Context(),
 			&Config{},
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -175,9 +176,9 @@ func TestProvideLocker(T *testing.T) {
 		l, err := ProvideLocker(
 			t.Context(),
 			&Config{Provider: "   "},
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -195,9 +196,9 @@ func TestProvideLocker(T *testing.T) {
 					KeyPrefix: "lock:",
 				},
 			},
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -212,9 +213,9 @@ func TestProvideLocker(T *testing.T) {
 				Provider: PostgresProvider,
 				Postgres: &pglock.Config{},
 			},
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			&stubDBClient{},
 		)
 		must.NoError(t, err)
@@ -242,8 +243,8 @@ func TestProvideLocker(T *testing.T) {
 		l, err := ProvideLocker(
 			t.Context(),
 			cfg,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			mp,
 			nil,
 		)

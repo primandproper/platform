@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/primandproper/platform/messagequeue"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -23,8 +23,8 @@ func buildRedisBackedConsumer(t *testing.T, cfg *Config, topic string, handlerFu
 	t.Helper()
 
 	provider := ProvideRedisConsumerProvider(
-		logging.NewNoopLogger(),
-		tracing.NewNoopTracerProvider(),
+		loggingnoop.NewLogger(),
+		tracingnoop.NewTracerProvider(),
 		nil,
 		*cfg,
 	)
@@ -134,7 +134,7 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 			}
 		}()
 
-		conPro := ProvideRedisConsumerProvider(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, *cfg)
+		conPro := ProvideRedisConsumerProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, *cfg)
 		must.NotNil(t, conPro)
 
 		hf := func(context.Context, []byte) error { return nil }
@@ -158,7 +158,7 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 			}
 		}()
 
-		conPro := ProvideRedisConsumerProvider(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, *cfg)
+		conPro := ProvideRedisConsumerProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, *cfg)
 		must.NotNil(t, conPro)
 
 		hf := func(context.Context, []byte) error { return nil }
@@ -179,12 +179,12 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 	T.Run("with empty topic", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
 
-		conPro := ProvideRedisConsumerProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		conPro := ProvideRedisConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NotNil(t, conPro)
 
 		actual, err := conPro.ProvideConsumer(t.Context(), "", nil)
@@ -206,7 +206,7 @@ func Test_provideRedisConsumer(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			provideRedisConsumer(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, nil, "t", nil)
+			provideRedisConsumer(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, nil, "t", nil)
 		})
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})

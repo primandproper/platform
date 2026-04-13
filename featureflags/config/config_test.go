@@ -10,10 +10,11 @@ import (
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
 	"github.com/primandproper/platform/featureflags/launchdarkly"
 	"github.com/primandproper/platform/featureflags/posthog"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -119,7 +120,7 @@ func TestConfig_ProvideFeatureFlagManager(T *testing.T) {
 			Provider: "",
 		}
 
-		ffm, err := cfg.ProvideFeatureFlagManager(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.ProvideFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, ffm)
 	})
@@ -131,7 +132,7 @@ func TestConfig_ProvideFeatureFlagManager(T *testing.T) {
 			Provider: "something_unknown",
 		}
 
-		ffm, err := cfg.ProvideFeatureFlagManager(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.ProvideFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, ffm)
 	})
@@ -143,7 +144,7 @@ func TestConfig_ProvideFeatureFlagManager(T *testing.T) {
 			Provider: ProviderLaunchDarkly,
 		}
 
-		ffm, err := cfg.ProvideFeatureFlagManager(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.ProvideFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, ffm)
 	})
@@ -155,7 +156,7 @@ func TestConfig_ProvideFeatureFlagManager(T *testing.T) {
 			Provider: ProviderPostHog,
 		}
 
-		ffm, err := cfg.ProvideFeatureFlagManager(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.ProvideFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, ffm)
 	})
@@ -168,7 +169,7 @@ func TestConfig_ProvideFeatureFlagManager(T *testing.T) {
 		}
 
 		// Will fail because LaunchDarkly config is nil, but proves the normalization works
-		ffm, err := cfg.ProvideFeatureFlagManager(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.ProvideFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, ffm)
 	})
@@ -185,7 +186,7 @@ func TestProvideFeatureFlagManager(T *testing.T) {
 			Provider: "",
 		}
 
-		ffm, err := ProvideFeatureFlagManager(ctx, cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), http.DefaultClient)
+		ffm, err := ProvideFeatureFlagManager(ctx, cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), http.DefaultClient)
 		must.NoError(t, err)
 		must.NotNil(t, ffm)
 	})
@@ -207,7 +208,7 @@ func TestProvideFeatureFlagManager(T *testing.T) {
 			CircuitBreaker: cbCfg,
 		}
 
-		ffm, err := ProvideFeatureFlagManager(ctx, cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, http.DefaultClient)
+		ffm, err := ProvideFeatureFlagManager(ctx, cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, http.DefaultClient)
 		must.Error(t, err)
 		must.Nil(t, ffm)
 

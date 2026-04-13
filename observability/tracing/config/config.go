@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform/observability/logging"
 	"github.com/primandproper/platform/observability/tracing"
 	"github.com/primandproper/platform/observability/tracing/cloudtrace"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/observability/tracing/oteltrace"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -58,7 +59,7 @@ func (c *Config) ProvideTracerProvider(ctx context.Context, l logging.Logger) (t
 		return tp, nil
 	default:
 		logger.Info("invalid tracing provider")
-		return tracing.NewNoopTracerProvider(), nil
+		return tracingnoop.NewTracerProvider(), nil
 	}
 }
 

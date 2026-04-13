@@ -6,7 +6,7 @@ import (
 	"github.com/primandproper/platform/embeddings/cohere"
 	"github.com/primandproper/platform/embeddings/ollama"
 	"github.com/primandproper/platform/embeddings/openai"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
 
 	"github.com/shoenig/test"
@@ -89,7 +89,7 @@ func TestConfig_ProvideEmbedder_Empty(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ""}
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		tracer := tracing.NewTracerForTest("test")
 
 		embedder, err := cfg.ProvideEmbedder(t.Context(), logger, tracer)
@@ -110,7 +110,7 @@ func TestConfig_ProvideEmbedder_OpenAI(T *testing.T) {
 				APIKey: "test-key",
 			},
 		}
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		tracer := tracing.NewTracerForTest("test")
 
 		embedder, err := cfg.ProvideEmbedder(t.Context(), logger, tracer)
@@ -129,7 +129,7 @@ func TestConfig_ProvideEmbedder_Ollama(T *testing.T) {
 			Provider: ProviderOllama,
 			Ollama:   &ollama.Config{},
 		}
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		tracer := tracing.NewTracerForTest("test")
 
 		embedder, err := cfg.ProvideEmbedder(t.Context(), logger, tracer)
@@ -150,7 +150,7 @@ func TestConfig_ProvideEmbedder_Cohere(T *testing.T) {
 				APIKey: "test-key",
 			},
 		}
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		tracer := tracing.NewTracerForTest("test")
 
 		embedder, err := cfg.ProvideEmbedder(t.Context(), logger, tracer)

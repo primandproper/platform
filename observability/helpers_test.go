@@ -3,7 +3,7 @@ package observability
 import (
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
 
 	"github.com/shoenig/test"
@@ -16,7 +16,7 @@ func TestObserveValues(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		result := ObserveValues(map[string]any{"key": "value", "other": 123}, span, logger)
@@ -26,7 +26,7 @@ func TestObserveValues(T *testing.T) {
 	T.Run("with nil span", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		result := ObserveValues(map[string]any{"key": "value"}, nil, logger)
 		test.NotNil(t, result)
@@ -53,7 +53,7 @@ func TestObserveValues(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		result := ObserveValues(map[string]any{}, span, logger)

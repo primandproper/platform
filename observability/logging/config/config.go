@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/logging/otelgrpc"
 	"github.com/primandproper/platform/observability/logging/slog"
 	"github.com/primandproper/platform/observability/logging/zap"
@@ -57,7 +58,7 @@ func (cfg *Config) ProvideLogger(ctx context.Context) (logger logging.Logger, er
 	case ProviderOtelSlog:
 		logger, err = otelgrpc.NewOtelSlogLogger(ctx, cfg.Level, cfg.ServiceName, cfg.OtelSlog)
 	default:
-		logger = logging.NewNoopLogger()
+		logger = loggingnoop.NewLogger()
 	}
 
 	return logger, err

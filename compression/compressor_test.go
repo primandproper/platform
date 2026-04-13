@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/encoding"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -58,7 +58,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 			Name: "testing",
 		}
 
-		encoder := encoding.ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), encoding.ContentTypeJSON)
+		encoder := encoding.ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
 
 		expected := "KLUv_QQAmQAAeyJuYW1lIjoidGVzdGluZyJ9Ch6HXww="
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
@@ -79,7 +79,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 			Name: "testing",
 		}
 
-		encoder := encoding.ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), encoding.ContentTypeJSON)
+		encoder := encoding.ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
 
 		expected := "_wYAAFMyc1R3TwEXAABui7jXeyJuYW1lIjoidGVzdGluZyJ9Cg=="
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
@@ -102,7 +102,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 			Name: "testing",
 		}
 
-		encoder := encoding.ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), encoding.ContentTypeJSON)
+		encoder := encoding.ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
 
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 		test.Error(t, err)
@@ -130,7 +130,7 @@ func Test_compressor_DecompressBytes(T *testing.T) {
 				Name: "testing",
 			}
 
-			encoder := encoding.ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), encoding.ContentTypeJSON)
+			encoder := encoding.ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
 
 			compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 			test.NoError(t, err)
@@ -156,7 +156,7 @@ func Test_compressor_DecompressBytes(T *testing.T) {
 			Name: "testing",
 		}
 
-		encoder := encoding.ProvideServerEncoderDecoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), encoding.ContentTypeJSON)
+		encoder := encoding.ProvideServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
 
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 		test.NoError(t, err)

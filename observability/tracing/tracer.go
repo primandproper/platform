@@ -48,15 +48,10 @@ func (n *noopTracerProvider) ForceFlush(context.Context) error {
 	return nil
 }
 
-// NewNoopTracerProvider is a shadow for Otel's NewNoopTracerProvider.
-var NewNoopTracerProvider = func() TracerProvider {
-	return &noopTracerProvider{}
-}
-
 func EnsureTracerProvider(tracerProvider TracerProvider) TracerProvider {
 	if tracerProvider != nil {
 		return tracerProvider
 	}
 
-	return NewNoopTracerProvider()
+	return &noopTracerProvider{}
 }

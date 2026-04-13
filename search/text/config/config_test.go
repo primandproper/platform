@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	circuitbreakingcfg "github.com/primandproper/platform/circuitbreaking/config"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/search/text/algolia"
 	"github.com/primandproper/platform/search/text/elasticsearch"
 
@@ -201,9 +202,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 
 		// This will fail because we don't have a real Elasticsearch instance
 		// but we're testing the interface compliance
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
-		metricsProvider := metrics.NewNoopMetricsProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
+		metricsProvider := metricsnoop.NewMetricsProvider()
 		index, err := ProvideIndex[testStruct](ctx, logger, tracerProvider, metricsProvider, cfg, "test-index")
 		test.Error(t, err)
 		test.Nil(t, index)
@@ -222,9 +223,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 		}
 
 		// This will succeed because we're using a real Algolia client
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
-		metricsProvider := metrics.NewNoopMetricsProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
+		metricsProvider := metricsnoop.NewMetricsProvider()
 		index, err := ProvideIndex[testStruct](ctx, logger, tracerProvider, metricsProvider, cfg, "test-index")
 		test.NoError(t, err)
 		test.NotNil(t, index)
@@ -238,9 +239,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 			Provider: "unknown-provider",
 		}
 
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
-		metricsProvider := metrics.NewNoopMetricsProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
+		metricsProvider := metricsnoop.NewMetricsProvider()
 		index, err := ProvideIndex[testStruct](ctx, logger, tracerProvider, metricsProvider, cfg, "test-index")
 		test.NoError(t, err)
 		test.NotNil(t, index)
@@ -254,9 +255,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 			Provider: "",
 		}
 
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
-		metricsProvider := metrics.NewNoopMetricsProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
+		metricsProvider := metricsnoop.NewMetricsProvider()
 		index, err := ProvideIndex[testStruct](ctx, logger, tracerProvider, metricsProvider, cfg, "test-index")
 		test.NoError(t, err)
 		test.NotNil(t, index)
@@ -270,9 +271,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 			Provider: "   ",
 		}
 
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
-		metricsProvider := metrics.NewNoopMetricsProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
+		metricsProvider := metricsnoop.NewMetricsProvider()
 		index, err := ProvideIndex[testStruct](ctx, logger, tracerProvider, metricsProvider, cfg, "test-index")
 		test.NoError(t, err)
 		test.NotNil(t, index)
@@ -300,8 +301,8 @@ func TestConfig_ProvideIndex(T *testing.T) {
 			},
 		}
 
-		logger := logging.NewNoopLogger()
-		tracerProvider := tracing.NewNoopTracerProvider()
+		logger := loggingnoop.NewLogger()
+		tracerProvider := tracingnoop.NewTracerProvider()
 		index, err := ProvideIndex[testStruct](ctx, logger, tracerProvider, mp, cfg, "test-index")
 		test.Error(t, err)
 		test.Nil(t, index)

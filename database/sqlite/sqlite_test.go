@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/primandproper/platform/database"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/shoenig/test"
@@ -74,7 +75,7 @@ func buildTestClient(t *testing.T) (*Client, sqlmock.Sqlmock) {
 			maxPingAttempts: 1,
 			pingWaitPeriod:  time.Second,
 		},
-		logger:   logging.NewNoopLogger(),
+		logger:   loggingnoop.NewLogger(),
 		timeFunc: defaultTimeFunc,
 		tracer:   tracing.NewTracerForTest("test"),
 	}
@@ -127,7 +128,7 @@ func TestQuerier_IsReady(T *testing.T) {
 			readDB:  readDB,
 			writeDB: writeDB,
 			config:  &testClientConfig{pingWaitPeriod: time.Millisecond, maxPingAttempts: 1},
-			logger:  logging.NewNoopLogger(),
+			logger:  loggingnoop.NewLogger(),
 			tracer:  tracing.NewTracerForTest("test"),
 		}
 
@@ -165,7 +166,7 @@ func TestProvideDatabaseClient(T *testing.T) {
 			maxPingAttempts:  1,
 		}
 
-		actual, err := ProvideDatabaseClient(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), exampleConfig, nil)
+		actual, err := ProvideDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -177,7 +178,7 @@ func TestProvideDatabaseClient(T *testing.T) {
 
 		exampleConfig := &testClientConfig{}
 
-		actual, err := ProvideDatabaseClient(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), exampleConfig, nil)
+		actual, err := ProvideDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
 		test.Nil(t, actual)
 		test.Error(t, err)
 	})
@@ -192,7 +193,7 @@ func TestProvideDatabaseClient(T *testing.T) {
 			maxPingAttempts:      1,
 		}
 
-		actual, err := ProvideDatabaseClient(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), exampleConfig, nil)
+		actual, err := ProvideDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -207,7 +208,7 @@ func TestProvideDatabaseClient(T *testing.T) {
 			maxPingAttempts:       1,
 		}
 
-		actual, err := ProvideDatabaseClient(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), exampleConfig, nil)
+		actual, err := ProvideDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -222,7 +223,7 @@ func TestProvideDatabaseClient(T *testing.T) {
 			maxPingAttempts:  1,
 		}
 
-		actual, err := ProvideDatabaseClient(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), exampleConfig, metrics.NewNoopMetricsProvider())
+		actual, err := ProvideDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, metricsnoop.NewMetricsProvider())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -237,7 +238,7 @@ func TestProvideDatabaseClient(T *testing.T) {
 			maxPingAttempts:      1,
 		}
 
-		actual, err := ProvideDatabaseClient(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), exampleConfig, metrics.NewNoopMetricsProvider())
+		actual, err := ProvideDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, metricsnoop.NewMetricsProvider())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -356,7 +357,7 @@ func TestClient_Close(T *testing.T) {
 		c := &Client{
 			readDB:  readDB,
 			writeDB: writeDB,
-			logger:  logging.NewNoopLogger(),
+			logger:  loggingnoop.NewLogger(),
 			tracer:  tracing.NewTracerForTest("test"),
 		}
 
@@ -388,7 +389,7 @@ func TestClient_Close(T *testing.T) {
 		c := &Client{
 			readDB:  readDB,
 			writeDB: writeDB,
-			logger:  logging.NewNoopLogger(),
+			logger:  loggingnoop.NewLogger(),
 			tracer:  tracing.NewTracerForTest("test"),
 		}
 

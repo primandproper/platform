@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/panicking"
 	"github.com/primandproper/platform/routing"
 
@@ -136,7 +136,7 @@ func TestProvideHTTPServer(T *testing.T) {
 
 		x, err := ProvideHTTPServer(
 			Config{Port: 8080},
-			logging.NewNoopLogger(),
+			loggingnoop.NewLogger(),
 			nil,
 			nil,
 			"custom_service",
@@ -151,7 +151,7 @@ func TestProvideHTTPServer(T *testing.T) {
 
 		x, err := ProvideHTTPServer(
 			Config{Port: 8080},
-			logging.NewNoopLogger(),
+			loggingnoop.NewLogger(),
 			nil,
 			nil,
 			"",
@@ -170,7 +170,7 @@ func TestProvideHTTPServer(T *testing.T) {
 				SSLCertificateKeyFile: "/some/key.pem",
 				Port:                  8443,
 			},
-			logging.NewNoopLogger(),
+			loggingnoop.NewLogger(),
 			nil,
 			nil,
 			"",
@@ -201,7 +201,7 @@ func TestServer_Shutdown(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := ProvideHTTPServer(Config{Port: 0}, logging.NewNoopLogger(), nil, nil, "")
+		s, err := ProvideHTTPServer(Config{Port: 0}, loggingnoop.NewLogger(), nil, nil, "")
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -217,7 +217,7 @@ func TestServer_Shutdown(T *testing.T) {
 			forceFlushFunc: func(_ context.Context) error { return errors.New("flush failed") },
 		}
 
-		s, err := ProvideHTTPServer(Config{Port: 0}, logging.NewNoopLogger(), nil, mtp, "")
+		s, err := ProvideHTTPServer(Config{Port: 0}, loggingnoop.NewLogger(), nil, mtp, "")
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -236,11 +236,11 @@ func TestServer_Serve(T *testing.T) {
 		t.Parallel()
 
 		srv := &server{
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			router:         stubRouter{},
 			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     provideStdLibHTTPServer(0),
-			tracerProvider: tracing.NewNoopTracerProvider(),
+			tracerProvider: tracingnoop.NewTracerProvider(),
 			config:         Config{},
 		}
 
@@ -262,11 +262,11 @@ func TestServer_Serve(T *testing.T) {
 		certFile, keyFile := generateTestTLSCerts(t)
 
 		srv := &server{
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			router:         stubRouter{},
 			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     provideStdLibHTTPServer(0),
-			tracerProvider: tracing.NewNoopTracerProvider(),
+			tracerProvider: tracingnoop.NewTracerProvider(),
 			config: Config{
 				SSLCertificateFile:    certFile,
 				SSLCertificateKeyFile: keyFile,
@@ -288,11 +288,11 @@ func TestServer_Serve(T *testing.T) {
 		t.Parallel()
 
 		srv := &server{
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			router:         stubRouter{},
 			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     provideStdLibHTTPServer(0),
-			tracerProvider: tracing.NewNoopTracerProvider(),
+			tracerProvider: tracingnoop.NewTracerProvider(),
 			config: Config{
 				SSLCertificateFile:    "/nonexistent/cert.pem",
 				SSLCertificateKeyFile: "/nonexistent/key.pem",
@@ -316,11 +316,11 @@ func TestServer_Serve(T *testing.T) {
 		httpSrv := provideStdLibHTTPServer(uint16(port))
 
 		srv := &server{
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			router:         stubRouter{},
 			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     httpSrv,
-			tracerProvider: tracing.NewNoopTracerProvider(),
+			tracerProvider: tracingnoop.NewTracerProvider(),
 			config:         Config{},
 		}
 

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/primandproper/platform/notifications/async"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/shoenig/test"
@@ -24,7 +24,7 @@ func TestNewNotifier(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, logging.NewNoopLogger(), tracing.NewNoopTracerProvider())
+		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		must.NoError(t, err)
 		must.NotNil(t, n)
 	})
@@ -32,7 +32,7 @@ func TestNewNotifier(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(nil, logging.NewNoopLogger(), tracing.NewNoopTracerProvider())
+		n, err := NewNotifier(nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		test.Error(t, err)
 		test.Nil(t, n)
 	})
@@ -44,7 +44,7 @@ func TestNotifier_Publish(T *testing.T) {
 	T.Run("no connected clients", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, logging.NewNoopLogger(), tracing.NewNoopTracerProvider())
+		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		must.NoError(t, err)
 
 		err = n.Publish(context.Background(), "test-channel", &async.Event{
@@ -57,7 +57,7 @@ func TestNotifier_Publish(T *testing.T) {
 	T.Run("with connected client", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, logging.NewNoopLogger(), tracing.NewNoopTracerProvider())
+		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		must.NoError(t, err)
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +95,7 @@ func TestNotifier_AcceptConnection(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, logging.NewNoopLogger(), tracing.NewNoopTracerProvider())
+		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		must.NoError(t, err)
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +118,7 @@ func TestNotifier_Close(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, logging.NewNoopLogger(), tracing.NewNoopTracerProvider())
+		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		must.NoError(t, err)
 
 		test.NoError(t, n.Close())

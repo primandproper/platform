@@ -25,16 +25,3 @@ type CompletionResult struct {
 type Provider interface {
 	Completion(ctx context.Context, params CompletionParams) (*CompletionResult, error)
 }
-
-// NewNoopProvider returns a no-op provider that returns empty responses.
-func NewNoopProvider() Provider {
-	return &noopProvider{}
-}
-
-// noopProvider is a no-op implementation of Provider.
-type noopProvider struct{}
-
-// Completion implements Provider.
-func (*noopProvider) Completion(_ context.Context, _ CompletionParams) (*CompletionResult, error) {
-	return &CompletionResult{Content: ""}, nil
-}

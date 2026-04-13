@@ -14,10 +14,10 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/errors"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -42,7 +42,7 @@ func createTestSenderWithTransport(t *testing.T, fn roundTripFunc) *Sender {
 		TeamID:      "TEAM123",
 		BundleID:    "com.example.app",
 	}
-	sender, err := NewSender(cfg, tracing.NewNoopTracerProvider(), logging.NewNoopLogger(), nil)
+	sender, err := NewSender(cfg, tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), nil)
 	must.NoError(t, err)
 
 	sender.client.HTTPClient = &http.Client{Transport: fn}
@@ -74,8 +74,8 @@ func createTestP8File(t *testing.T) string {
 func TestNewSender(T *testing.T) {
 	T.Parallel()
 
-	logger := logging.NewNoopLogger()
-	tracingProvider := tracing.NewNoopTracerProvider()
+	logger := loggingnoop.NewLogger()
+	tracingProvider := tracingnoop.NewTracerProvider()
 
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
@@ -332,7 +332,7 @@ func TestSender_Send_rejectsInvalidDeviceToken(T *testing.T) {
 		BundleID:    "com.example.app",
 		Production:  false,
 	}
-	sender, err := NewSender(cfg, tracing.NewNoopTracerProvider(), logging.NewNoopLogger(), nil)
+	sender, err := NewSender(cfg, tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), nil)
 	must.NoError(T, err)
 
 	ctx := T.Context()

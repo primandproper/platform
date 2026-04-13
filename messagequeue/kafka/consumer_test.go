@@ -5,10 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/shoenig/test"
@@ -57,7 +58,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: nil,
 			handlerFunc: func(context.Context, []byte) error {
@@ -85,7 +86,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: nil,
 			handlerFunc: func(context.Context, []byte) error {
@@ -113,7 +114,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: nil,
 			handlerFunc: func(context.Context, []byte) error {
@@ -147,7 +148,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: nil,
 			handlerFunc: func(context.Context, []byte) error {
@@ -184,7 +185,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: nil,
 			handlerFunc: func(context.Context, []byte) error {
@@ -223,7 +224,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		handlerCalled := false
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
 			handlerFunc: func(_ context.Context, data []byte) error {
@@ -263,7 +264,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
@@ -302,7 +303,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
@@ -339,7 +340,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		c := &kafkaConsumer{
 			reader:          reader,
-			logger:          logging.NewNoopLogger(),
+			logger:          loggingnoop.NewLogger(),
 			tracer:          tracing.NewTracerForTest(t.Name()),
 			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
@@ -368,8 +369,8 @@ func TestProvideKafkaConsumerProvider(T *testing.T) {
 		}
 
 		actual := ProvideKafkaConsumerProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -391,8 +392,8 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 		}
 
 		provider := ProvideKafkaConsumerProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -416,8 +417,8 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 		}
 
 		provider := ProvideKafkaConsumerProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -446,8 +447,8 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 		}
 
 		provider := ProvideKafkaConsumerProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			mp,
 			cfg,
 		)
@@ -473,8 +474,8 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 		}
 
 		provider := ProvideKafkaConsumerProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)

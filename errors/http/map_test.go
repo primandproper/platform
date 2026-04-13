@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform/circuitbreaking"
 	"github.com/primandproper/platform/database"
 	platformerrors "github.com/primandproper/platform/errors"
+
 	"github.com/shoenig/test"
 )
 

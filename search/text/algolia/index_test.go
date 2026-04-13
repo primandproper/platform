@@ -10,8 +10,9 @@ import (
 	"github.com/primandproper/platform/circuitbreaking"
 	mockcircuitbreaking "github.com/primandproper/platform/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	algoliasearch "github.com/algolia/algoliasearch-client-go/v3/algolia/search"
 	algoliatransport "github.com/algolia/algoliasearch-client-go/v3/algolia/transport"
@@ -68,7 +69,7 @@ func buildTestIndexManagerWithMockServer(t *testing.T, handler http.Handler, cb 
 	})
 
 	return &indexManager[example]{
-		logger:         logging.NewNoopLogger(),
+		logger:         loggingnoop.NewLogger(),
 		tracer:         tracing.NewTracerForTest("test"),
 		circuitBreaker: cb,
 		client:         client.InitIndex("test"),
@@ -79,8 +80,8 @@ func buildTestIndexManager(t *testing.T) *indexManager[example] {
 	t.Helper()
 
 	im, err := ProvideIndexManager[example](
-		logging.NewNoopLogger(),
-		tracing.NewNoopTracerProvider(),
+		loggingnoop.NewLogger(),
+		tracingnoop.NewTracerProvider(),
 		&Config{AppID: "fake", APIKey: "fake"},
 		"test",
 		cbnoop.NewCircuitBreaker(),
@@ -96,8 +97,8 @@ func buildTestIndexManagerWithCircuitBreaker(t *testing.T, cb circuitbreaking.Ci
 	t.Helper()
 
 	im, err := ProvideIndexManager[example](
-		logging.NewNoopLogger(),
-		tracing.NewNoopTracerProvider(),
+		loggingnoop.NewLogger(),
+		tracingnoop.NewTracerProvider(),
 		&Config{AppID: "fake", APIKey: "fake"},
 		"test",
 		cb,

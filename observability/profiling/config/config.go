@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform/observability/logging"
 	"github.com/primandproper/platform/observability/profiling"
+	profilingnoop "github.com/primandproper/platform/observability/profiling/noop"
 	"github.com/primandproper/platform/observability/profiling/pprof"
 	"github.com/primandproper/platform/observability/profiling/pyroscope"
 
@@ -38,7 +39,7 @@ func (c *Config) ProvideProfilingProvider(ctx context.Context, logger logging.Lo
 	switch p {
 	case ProviderPyroscope:
 		if c.Pyroscope == nil {
-			return profiling.NewNoopProvider(), nil
+			return profilingnoop.NewProvider(), nil
 		}
 		// Set default upload rate if not specified.
 		if c.Pyroscope.UploadRate == 0 {
@@ -51,7 +52,7 @@ func (c *Config) ProvideProfilingProvider(ctx context.Context, logger logging.Lo
 		}
 		return pprof.ProvideProfilingProvider(ctx, logger, c.Pprof)
 	default:
-		return profiling.NewNoopProvider(), nil
+		return profilingnoop.NewProvider(), nil
 	}
 }
 

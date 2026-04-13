@@ -5,6 +5,7 @@ import (
 
 	"github.com/primandproper/platform/errors"
 	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
 	o11yutils "github.com/primandproper/platform/observability/utils"
 
@@ -22,7 +23,7 @@ func (h errorHandler) Handle(err error) {
 }
 
 func init() {
-	otel.SetErrorHandler(errorHandler{logger: logging.NewNoopLogger().WithName("otel_errors")})
+	otel.SetErrorHandler(errorHandler{logger: loggingnoop.NewLogger().WithName("otel_errors")})
 }
 
 // SetupCloudTrace creates a new trace provider instance and registers it as global trace provider.

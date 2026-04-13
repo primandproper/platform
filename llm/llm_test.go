@@ -1,7 +1,10 @@
-package llm
+package llm_test
 
 import (
 	"testing"
+
+	"github.com/primandproper/platform/llm"
+	llmnoop "github.com/primandproper/platform/llm/noop"
 
 	"github.com/shoenig/test"
 )
@@ -13,11 +16,11 @@ func TestNoopProvider_Completion(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		provider := NewNoopProvider()
+		provider := llmnoop.NewProvider()
 
-		result, err := provider.Completion(ctx, CompletionParams{
+		result, err := provider.Completion(ctx, llm.CompletionParams{
 			Model: "test",
-			Messages: []Message{
+			Messages: []llm.Message{
 				{Role: "user", Content: "hello"},
 			},
 		})

@@ -16,6 +16,7 @@ import (
 	"github.com/primandproper/platform/distributedlock"
 	"github.com/primandproper/platform/identifiers"
 	"github.com/primandproper/platform/observability/metrics"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/testutils/containers"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -102,7 +103,7 @@ type errorAtCallProvider struct {
 
 func newErrorAtCallProvider(int64FailIdx int, histFail bool) *errorAtCallProvider {
 	return &errorAtCallProvider{
-		Provider:              metrics.NewNoopMetricsProvider(),
+		Provider:              metricsnoop.NewMetricsProvider(),
 		errOnInt64Counter:     int64FailIdx,
 		errOnFloat64Histogram: histFail,
 	}

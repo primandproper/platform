@@ -28,7 +28,7 @@ func TestNewNamedTracer(T *testing.T) {
 	T.Run("with valid provider", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewNamedTracer(NewNoopTracerProvider(), t.Name()))
+		test.NotNil(t, NewNamedTracer(&noopTracerProvider{}, t.Name()))
 	})
 }
 

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	"github.com/primandproper/platform/observability/metrics/otelgrpc"
 
@@ -21,7 +21,7 @@ func TestRegisterMetricsProvider(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, t.Context())
-		do.ProvideValue(i, logging.NewNoopLogger())
+		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, &Config{
 			ServiceName:       t.Name(),
 			CollectorEndpoint: "localhost:4317",

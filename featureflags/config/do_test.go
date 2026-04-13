@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/featureflags"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -22,9 +22,9 @@ func TestRegisterFeatureFlagManager(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, t.Context())
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
-		do.ProvideValue(i, metrics.NewNoopMetricsProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
+		do.ProvideValue(i, metricsnoop.NewMetricsProvider())
 		do.ProvideValue(i, http.DefaultClient)
 		do.ProvideValue(i, &Config{})
 

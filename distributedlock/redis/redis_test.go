@@ -13,9 +13,11 @@ import (
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
 	"github.com/primandproper/platform/distributedlock"
 	"github.com/primandproper/platform/identifiers"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/testutils/containers"
 
 	"github.com/redis/go-redis/v9"
@@ -157,7 +159,7 @@ type errorAtCallProvider struct {
 
 func newErrorAtCallProvider(int64FailIdx int, histFail bool) *errorAtCallProvider {
 	return &errorAtCallProvider{
-		Provider:              metrics.NewNoopMetricsProvider(),
+		Provider:              metricsnoop.NewMetricsProvider(),
 		errOnInt64Counter:     int64FailIdx,
 		errOnFloat64Histogram: histFail,
 	}
@@ -182,7 +184,7 @@ func (p *errorAtCallProvider) NewFloat64Histogram(name string, options ...metric
 // can exercise the per-method logic without going through buildRedisClient.
 func newUnitLocker(t *testing.T, client redisClient, cb circuitbreaking.CircuitBreaker) *locker {
 	t.Helper()
-	mp := metrics.NewNoopMetricsProvider()
+	mp := metricsnoop.NewMetricsProvider()
 	acquireCounter, err := mp.NewInt64Counter("redis_distributed_lock_acquires")
 	must.NoError(t, err)
 	releaseCounter, err := mp.NewInt64Counter("redis_distributed_lock_releases")
@@ -199,8 +201,8 @@ func newUnitLocker(t *testing.T, client redisClient, cb circuitbreaking.CircuitB
 		cb = cbnoop.NewCircuitBreaker()
 	}
 	return &locker{
-		logger:         logging.NewNoopLogger(),
-		tracer:         tracing.NewNamedTracer(tracing.NewNoopTracerProvider(), "test"),
+		logger:         loggingnoop.NewLogger(),
+		tracer:         tracing.NewNamedTracer(tracingnoop.NewTracerProvider(), "test"),
 		client:         client,
 		circuitBreaker: cb,
 		acquireCounter: acquireCounter,

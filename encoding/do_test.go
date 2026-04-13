@@ -3,8 +3,8 @@ package encoding
 import (
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -19,8 +19,8 @@ func TestRegisterServerEncoderDecoder(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, Config{ContentType: "application/json"})
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 
 		RegisterServerEncoderDecoder(i)
 

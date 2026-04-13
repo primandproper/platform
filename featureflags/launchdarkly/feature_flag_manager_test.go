@@ -11,9 +11,10 @@ import (
 	mockCircuitBreaker "github.com/primandproper/platform/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
 	"github.com/primandproper/platform/featureflags"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
 	"github.com/launchdarkly/go-server-sdk-evaluation/v2/ldmodel"
@@ -108,7 +109,7 @@ func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker) *featureF
 
 	cfg := &Config{SDKKey: t.Name()}
 
-	ffm, err := NewFeatureFlagManager(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cb, func(config ld.Config) ld.Config {
+	ffm, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cb, func(config ld.Config) ld.Config {
 		config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
 		return config
 	})
@@ -150,8 +151,8 @@ func buildTestManagerWithFlags(t *testing.T, flags []ldstoretypes.KeyedItemDescr
 		ldClient:       client,
 		ofClient:       ofClient,
 		circuitBreaker: cbnoop.NewCircuitBreaker(),
-		logger:         logging.NewNoopLogger(),
-		tracer:         tracing.NewNamedTracer(tracing.NewNoopTracerProvider(), serviceName),
+		logger:         loggingnoop.NewLogger(),
+		tracer:         tracing.NewNamedTracer(tracingnoop.NewTracerProvider(), serviceName),
 		evalCounter:    evalCounter,
 		errorCounter:   errorCounter,
 		latencyHist:    latencyHist,
@@ -166,7 +167,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{SDKKey: t.Name()}
 
-		actual, err := NewFeatureFlagManager(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
+		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
 			config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
 			return config
 		})
@@ -179,7 +180,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{SDKKey: t.Name()}
 
-		actual, err := NewFeatureFlagManager(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, nil, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, actual)
 	})
@@ -187,7 +188,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		actual, err := NewFeatureFlagManager(nil, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, actual)
 	})
@@ -197,7 +198,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{}
 
-		actual, err := NewFeatureFlagManager(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
+		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
 			config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
 			return config
 		})
@@ -210,7 +211,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{SDKKey: t.Name(), InitTimeout: 0}
 
-		actual, err := NewFeatureFlagManager(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
+		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
 			config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
 			return config
 		})

@@ -4,23 +4,19 @@ import (
 	"context"
 
 	"github.com/primandproper/platform/email"
-	"github.com/primandproper/platform/observability/logging"
 )
 
 var _ email.Emailer = (*emailer)(nil)
 
 // emailer doesn't send emails.
-type emailer struct {
-	logger logging.Logger
-}
+type emailer struct{}
 
 // NewEmailer returns a new no-op Emailer.
 func NewEmailer() (email.Emailer, error) {
-	return &emailer{logger: logging.NewNoopLogger()}, nil
+	return &emailer{}, nil
 }
 
-// SendEmail sends an email.
-func (e *emailer) SendEmail(context.Context, *email.OutboundEmailMessage) error {
-	e.logger.Info("NoopEmailer.SendEmail: no-op")
+// SendEmail is a no-op.
+func (*emailer) SendEmail(context.Context, *email.OutboundEmailMessage) error {
 	return nil
 }

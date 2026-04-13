@@ -8,10 +8,6 @@ import (
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 )
 
-func NewNoopMetricsProvider() Provider {
-	return &noopProvider{}
-}
-
 type noopProvider struct{}
 
 // NewFloat64Counter is a no-op method.

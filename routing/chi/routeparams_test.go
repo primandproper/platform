@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/testutils"
 
 	"github.com/go-chi/chi/v5"
@@ -32,7 +32,7 @@ func Test_BuildRouteParamIDFetcher(T *testing.T) {
 
 		ctx := t.Context()
 		exampleKey := "blah"
-		fn := r.BuildRouteParamIDFetcher(logging.NewNoopLogger(), exampleKey, "thing")
+		fn := r.BuildRouteParamIDFetcher(loggingnoop.NewLogger(), exampleKey, "thing")
 		expected := uint64(123)
 		req := testutils.BuildTestRequest(t).WithContext(
 			context.WithValue(
@@ -59,7 +59,7 @@ func Test_BuildRouteParamIDFetcher(T *testing.T) {
 
 		ctx := t.Context()
 		exampleKey := "blah"
-		fn := r.BuildRouteParamIDFetcher(logging.NewNoopLogger(), exampleKey, "thing")
+		fn := r.BuildRouteParamIDFetcher(loggingnoop.NewLogger(), exampleKey, "thing")
 		expected := uint64(0)
 
 		req := testutils.BuildTestRequest(t)

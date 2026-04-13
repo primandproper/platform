@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -113,7 +113,7 @@ func TestNewGRPCServer(T *testing.T) {
 		}
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, logging.NewNoopLogger(), nil, nil, nil, rf)
+		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil, rf)
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -146,7 +146,7 @@ func TestNewGRPCServer(T *testing.T) {
 			TLSCertificateKeyFile: keyFile,
 		}
 
-		server, err := NewGRPCServer(cfg, logging.NewNoopLogger(), nil, nil, nil)
+		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -179,7 +179,7 @@ func TestLoggingInterceptor(T *testing.T) {
 	T.Run("logs error when handler fails", func(t *testing.T) {
 		t.Parallel()
 
-		interceptor := LoggingInterceptor(logging.NewNoopLogger())
+		interceptor := LoggingInterceptor(loggingnoop.NewLogger())
 		test.NotNil(t, interceptor)
 
 		expectedErr := errStub
@@ -212,7 +212,7 @@ func TestServer_Shutdown(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, logging.NewNoopLogger(), nil, nil, nil)
+		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil)
 		must.NoError(t, err)
 
 		server.Shutdown(context.Background())
@@ -226,7 +226,7 @@ func TestServer_Shutdown(T *testing.T) {
 		}
 
 		cfg := &Config{Port: 0}
-		srv, err := NewGRPCServer(cfg, logging.NewNoopLogger(), mtp, nil, nil)
+		srv, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), mtp, nil, nil)
 		must.NoError(t, err)
 
 		srv.Shutdown(context.Background())
@@ -246,7 +246,7 @@ func TestNewGRPCServer_withInterceptors(T *testing.T) {
 		}
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, logging.NewNoopLogger(), nil, []grpc.UnaryServerInterceptor{unaryInterceptor}, nil)
+		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, []grpc.UnaryServerInterceptor{unaryInterceptor}, nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -260,7 +260,7 @@ func TestNewGRPCServer_withInterceptors(T *testing.T) {
 		}
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, logging.NewNoopLogger(), nil, nil, []grpc.StreamServerInterceptor{streamInterceptor})
+		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, []grpc.StreamServerInterceptor{streamInterceptor})
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -289,7 +289,7 @@ func TestServer_Serve(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Port: 0}
-		srv, err := NewGRPCServer(cfg, logging.NewNoopLogger(), nil, nil, nil)
+		srv, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil)
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -318,7 +318,7 @@ func TestServer_Serve(T *testing.T) {
 		port := lis.Addr().(*net.TCPAddr).Port
 
 		cfg := &Config{Port: uint16(port)}
-		srv, err := NewGRPCServer(cfg, logging.NewNoopLogger(), nil, nil, nil)
+		srv, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil)
 		must.NoError(t, err)
 
 		// Should return immediately because the port is already in use.

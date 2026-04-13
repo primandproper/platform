@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing/cloudtrace"
 	"github.com/primandproper/platform/observability/tracing/oteltrace"
 
@@ -23,7 +23,7 @@ func TestConfig_ProvideTracerProvider(T *testing.T) {
 
 		tracerProvider, err := cfg.ProvideTracerProvider(
 			t.Context(),
-			logging.NewNoopLogger(),
+			loggingnoop.NewLogger(),
 		)
 
 		test.NoError(t, err)
@@ -45,7 +45,7 @@ func TestConfig_ProvideTracerProvider(T *testing.T) {
 
 		tracerProvider, err := cfg.ProvideTracerProvider(
 			t.Context(),
-			logging.NewNoopLogger(),
+			loggingnoop.NewLogger(),
 		)
 
 		test.NoError(t, err)
@@ -72,7 +72,7 @@ func TestConfig_ProvideTracerProvider_CloudTrace(t *testing.T) {
 
 	tracerProvider, err := cfg.ProvideTracerProvider(
 		t.Context(),
-		logging.NewNoopLogger(),
+		loggingnoop.NewLogger(),
 	)
 
 	must.NoError(t, err)
@@ -97,7 +97,7 @@ func TestConfig_ProvideTracerProvider_CloudTraceError(t *testing.T) {
 
 	tracerProvider, err := cfg.ProvideTracerProvider(
 		t.Context(),
-		logging.NewNoopLogger(),
+		loggingnoop.NewLogger(),
 	)
 
 	test.Error(t, err)
@@ -121,7 +121,7 @@ func TestConfig_ProvideTracerProvider_OtelError(T *testing.T) {
 			},
 		}
 
-		tracerProvider, err := cfg.ProvideTracerProvider(t.Context(), logging.NewNoopLogger())
+		tracerProvider, err := cfg.ProvideTracerProvider(t.Context(), loggingnoop.NewLogger())
 		test.Error(t, err)
 		test.Nil(t, tracerProvider)
 	})
@@ -143,7 +143,7 @@ func TestConfig_ProvideTracer_Error(T *testing.T) {
 			},
 		}
 
-		tracer, err := cfg.ProvideTracer(t.Context(), logging.NewNoopLogger(), t.Name())
+		tracer, err := cfg.ProvideTracer(t.Context(), loggingnoop.NewLogger(), t.Name())
 		test.Error(t, err)
 		test.Nil(t, tracer)
 	})
@@ -157,7 +157,7 @@ func TestConfig_ProvideTracer(T *testing.T) {
 
 		cfg := &Config{}
 
-		tracer, err := cfg.ProvideTracer(t.Context(), logging.NewNoopLogger(), t.Name())
+		tracer, err := cfg.ProvideTracer(t.Context(), loggingnoop.NewLogger(), t.Name())
 		test.NoError(t, err)
 		test.NotNil(t, tracer)
 	})
@@ -175,7 +175,7 @@ func TestConfig_ProvideTracer(T *testing.T) {
 			},
 		}
 
-		tracer, err := cfg.ProvideTracer(t.Context(), logging.NewNoopLogger(), t.Name())
+		tracer, err := cfg.ProvideTracer(t.Context(), loggingnoop.NewLogger(), t.Name())
 		test.NoError(t, err)
 		test.NotNil(t, tracer)
 	})
@@ -249,7 +249,7 @@ func TestProvideTracerProvider(T *testing.T) {
 
 		cfg := &Config{}
 
-		tracerProvider, err := ProvideTracerProvider(t.Context(), cfg, logging.NewNoopLogger())
+		tracerProvider, err := ProvideTracerProvider(t.Context(), cfg, loggingnoop.NewLogger())
 		test.NoError(t, err)
 		test.NotNil(t, tracerProvider)
 	})

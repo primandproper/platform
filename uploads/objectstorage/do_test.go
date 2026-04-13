@@ -3,9 +3,10 @@ package objectstorage
 import (
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
-	"github.com/primandproper/platform/observability/tracing"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/uploads"
 
 	"github.com/samber/do/v2"
@@ -21,9 +22,9 @@ func TestRegisterUploadManager(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, t.Context())
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
-		do.ProvideValue[metrics.Provider](i, metrics.NewNoopMetricsProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
+		do.ProvideValue[metrics.Provider](i, metricsnoop.NewMetricsProvider())
 		do.ProvideValue(i, &Config{
 			BucketName: t.Name(),
 			Provider:   MemoryProvider,

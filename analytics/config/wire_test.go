@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/analytics/segment"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test/must"
 )
@@ -19,9 +19,9 @@ func TestProvideCollector(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{}
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		actual, err := ProvideEventReporter(ctx, cfg, logger, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		actual, err := ProvideEventReporter(ctx, cfg, logger, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		must.NoError(t, err)
 		must.NotNil(t, actual)
 	})
@@ -38,9 +38,9 @@ func TestProvideCollector(T *testing.T) {
 				},
 			},
 		}
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		actual, err := ProvideEventReporter(ctx, cfg, logger, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		actual, err := ProvideEventReporter(ctx, cfg, logger, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		must.NoError(t, err)
 		must.NotNil(t, actual)
 	})
