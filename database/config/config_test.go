@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -650,7 +650,7 @@ func TestProvideDatabase(T *testing.T) {
 			},
 		}
 
-		client, err := ProvideDatabase(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg, nil, nil)
+		client, err := ProvideDatabase(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil, nil)
 		must.NoError(t, err)
 		must.NotNil(t, client)
 	})
@@ -676,7 +676,7 @@ func TestProvideDatabase(T *testing.T) {
 			},
 		}
 
-		client, err := ProvideDatabase(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg, nil, nil)
+		client, err := ProvideDatabase(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil, nil)
 		must.NoError(t, err)
 		must.NotNil(t, client)
 	})
@@ -694,7 +694,7 @@ func TestProvideDatabase(T *testing.T) {
 			},
 		}
 
-		client, err := ProvideDatabase(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg, nil, nil)
+		client, err := ProvideDatabase(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil, nil)
 		must.NoError(t, err)
 		must.NotNil(t, client)
 	})
@@ -713,7 +713,7 @@ func TestProvideDatabase(T *testing.T) {
 			},
 		}
 
-		client, err := ProvideDatabase(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg, nil, nil)
+		client, err := ProvideDatabase(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil, nil)
 		must.NoError(t, err)
 		must.NotNil(t, client)
 	})
@@ -732,7 +732,7 @@ func TestProvideDatabase(T *testing.T) {
 			},
 		}
 
-		client, err := ProvideDatabase(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg, nil, metrics.NewNoopMetricsProvider())
+		client, err := ProvideDatabase(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil, metricsnoop.NewMetricsProvider())
 		must.NoError(t, err)
 		must.NotNil(t, client)
 	})
@@ -752,7 +752,7 @@ func TestProvideDatabase(T *testing.T) {
 		}
 
 		migrator := &stubMigrator{}
-		client, err := ProvideDatabase(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg, migrator, nil)
+		client, err := ProvideDatabase(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, migrator, nil)
 		must.NoError(t, err)
 		must.NotNil(t, client)
 		test.True(t, migrator.called)
@@ -771,7 +771,7 @@ func TestProvideDatabase(T *testing.T) {
 			},
 		}
 
-		client, err := ProvideDatabase(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg, nil, nil)
+		client, err := ProvideDatabase(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil, nil)
 		test.Nil(t, client)
 		test.Error(t, err)
 	})
@@ -791,7 +791,7 @@ func TestProvideDatabase(T *testing.T) {
 		}
 
 		migrator := &stubMigrator{err: errStubMigrator}
-		client, err := ProvideDatabase(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg, migrator, nil)
+		client, err := ProvideDatabase(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, migrator, nil)
 		test.Nil(t, client)
 		test.Error(t, err)
 		test.True(t, migrator.called)

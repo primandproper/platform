@@ -6,8 +6,8 @@ import (
 	"github.com/primandproper/platform/messagequeue/kafka"
 	"github.com/primandproper/platform/messagequeue/pubsub"
 	"github.com/primandproper/platform/messagequeue/sqs"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -56,7 +56,7 @@ func TestProvideConsumerProvider(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := ProvideConsumerProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, nil)
+		p, err := ProvideConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil)
 		test.Nil(t, p)
 		test.ErrorIs(t, err, ErrNilConfig)
 	})
@@ -70,7 +70,7 @@ func TestProvideConsumerProvider(T *testing.T) {
 			},
 		}
 
-		p, err := ProvideConsumerProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+		p, err := ProvideConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -85,7 +85,7 @@ func TestProvideConsumerProvider(T *testing.T) {
 			},
 		}
 
-		p, err := ProvideConsumerProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+		p, err := ProvideConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -100,7 +100,7 @@ func TestProvideConsumerProvider(T *testing.T) {
 			},
 		}
 
-		p, err := ProvideConsumerProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+		p, err := ProvideConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -115,7 +115,7 @@ func TestProvideConsumerProvider(T *testing.T) {
 			},
 		}
 
-		p, err := ProvideConsumerProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+		p, err := ProvideConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 		test.Nil(t, p)
 		test.Error(t, err)
 	})
@@ -123,7 +123,7 @@ func TestProvideConsumerProvider(T *testing.T) {
 	T.Run("with unknown provider falls back to noop", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := ProvideConsumerProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, &Config{})
+		p, err := ProvideConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, &Config{})
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -141,7 +141,7 @@ func TestProvideConsumerProvider_PubSubEmulator(t *testing.T) {
 		},
 	}
 
-	p, err := ProvideConsumerProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+	p, err := ProvideConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 	must.NoError(t, err)
 	test.NotNil(t, p)
 }
@@ -152,7 +152,7 @@ func TestProvidePublisherProvider(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := ProvidePublisherProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, nil)
+		p, err := ProvidePublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil)
 		test.Nil(t, p)
 		test.ErrorIs(t, err, ErrNilConfig)
 	})
@@ -166,7 +166,7 @@ func TestProvidePublisherProvider(T *testing.T) {
 			},
 		}
 
-		p, err := ProvidePublisherProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+		p, err := ProvidePublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -181,7 +181,7 @@ func TestProvidePublisherProvider(T *testing.T) {
 			},
 		}
 
-		p, err := ProvidePublisherProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+		p, err := ProvidePublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -196,7 +196,7 @@ func TestProvidePublisherProvider(T *testing.T) {
 			},
 		}
 
-		p, err := ProvidePublisherProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+		p, err := ProvidePublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -211,7 +211,7 @@ func TestProvidePublisherProvider(T *testing.T) {
 			},
 		}
 
-		p, err := ProvidePublisherProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+		p, err := ProvidePublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 		test.Nil(t, p)
 		test.Error(t, err)
 	})
@@ -219,7 +219,7 @@ func TestProvidePublisherProvider(T *testing.T) {
 	T.Run("with unknown provider falls back to noop", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := ProvidePublisherProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, &Config{})
+		p, err := ProvidePublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, &Config{})
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -237,7 +237,7 @@ func TestProvidePublisherProvider_PubSubEmulator(t *testing.T) {
 		},
 	}
 
-	p, err := ProvidePublisherProvider(t.Context(), logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, cfg)
+	p, err := ProvidePublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
 	must.NoError(t, err)
 	test.NotNil(t, p)
 }

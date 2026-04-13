@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
 
 	"github.com/shoenig/test"
@@ -19,7 +19,7 @@ func TestBuildLoggingMiddleware(T *testing.T) {
 
 		ctx := t.Context()
 		tracer := tracing.NewTracerForTest("")
-		middleware := buildLoggingMiddleware(logging.NewNoopLogger(), tracer, false)
+		middleware := buildLoggingMiddleware(loggingnoop.NewLogger(), tracer, false)
 
 		test.NotNil(t, middleware)
 

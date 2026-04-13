@@ -15,7 +15,7 @@ func TestEnsureMetricsProvider(T *testing.T) {
 	T.Run("returns provided provider when non-nil", func(t *testing.T) {
 		t.Parallel()
 
-		p := NewNoopMetricsProvider()
+		var p Provider = &noopProvider{}
 		actual := EnsureMetricsProvider(p)
 		test.Eq(t, p, actual)
 	})
@@ -33,7 +33,7 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("NewFloat64Counter", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		c, err := p.NewFloat64Counter("test_counter")
 		must.NoError(t, err)
 		test.NotNil(t, c)
@@ -42,7 +42,7 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("NewFloat64Gauge", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		g, err := p.NewFloat64Gauge("test_gauge")
 		must.NoError(t, err)
 		test.NotNil(t, g)
@@ -51,7 +51,7 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("NewFloat64UpDownCounter", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		c, err := p.NewFloat64UpDownCounter("test_updown")
 		must.NoError(t, err)
 		test.NotNil(t, c)
@@ -60,7 +60,7 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("NewFloat64Histogram", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		h, err := p.NewFloat64Histogram("test_histogram")
 		must.NoError(t, err)
 		test.NotNil(t, h)
@@ -69,7 +69,7 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("NewInt64Counter", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		c, err := p.NewInt64Counter("test_counter")
 		must.NoError(t, err)
 		test.NotNil(t, c)
@@ -78,7 +78,7 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("NewInt64Gauge", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		g, err := p.NewInt64Gauge("test_gauge")
 		must.NoError(t, err)
 		test.NotNil(t, g)
@@ -87,7 +87,7 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("NewInt64UpDownCounter", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		c, err := p.NewInt64UpDownCounter("test_updown")
 		must.NoError(t, err)
 		test.NotNil(t, c)
@@ -96,7 +96,7 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("NewInt64Histogram", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		h, err := p.NewInt64Histogram("test_histogram")
 		must.NoError(t, err)
 		test.NotNil(t, h)
@@ -105,14 +105,14 @@ func TestNoopProvider(T *testing.T) {
 
 	T.Run("Shutdown", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		err := p.Shutdown(context.Background())
 		test.NoError(t, err)
 	})
 
 	T.Run("MeterProvider", func(t *testing.T) {
 		t.Parallel()
-		p := NewNoopMetricsProvider()
+		p := &noopProvider{}
 		mp := p.MeterProvider()
 		test.NotNil(t, mp)
 	})

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/profiling"
 
 	"github.com/shoenig/test"
@@ -18,7 +18,7 @@ func TestProvideProfilingProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		p, err := ProvideProfilingProvider(ctx, logger, "test-service", nil)
 		must.NoError(t, err)
@@ -29,7 +29,7 @@ func TestProvideProfilingProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			ServerAddress: "http://localhost:99999",
 			UploadRate:    15 * time.Second,
@@ -46,7 +46,7 @@ func TestProvideProfilingProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			ServerAddress:      "http://localhost:99999",
 			UploadRate:         15 * time.Second,
@@ -65,7 +65,7 @@ func TestProvideProfilingProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			ServerAddress: "http://localhost:99999",
 			UploadRate:    15 * time.Second,
@@ -87,7 +87,7 @@ func TestProvider_Start(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			ServerAddress: "http://localhost:99999",
 			UploadRate:    15 * time.Second,
@@ -108,7 +108,7 @@ func TestProvider_Shutdown(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			ServerAddress: "http://localhost:99999",
 			UploadRate:    15 * time.Second,

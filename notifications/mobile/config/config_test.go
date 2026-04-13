@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/notifications/mobile"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -121,8 +121,8 @@ func TestConfig_ProvidePushSender(T *testing.T) {
 	T.Parallel()
 
 	ctx := T.Context()
-	logger := logging.NewNoopLogger()
-	tracer := tracing.NewNoopTracerProvider()
+	logger := loggingnoop.NewLogger()
+	tracer := tracingnoop.NewTracerProvider()
 
 	T.Run("with empty provider returns noop", func(t *testing.T) {
 		t.Parallel()

@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/messagequeue"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -22,7 +22,7 @@ func TestBuildPubSubPublisher(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		publisher := buildPubSubPublisher(logging.NewNoopLogger(), nil, tracing.NewNoopTracerProvider(), nil, "test-topic")
+		publisher := buildPubSubPublisher(loggingnoop.NewLogger(), nil, tracingnoop.NewTracerProvider(), nil, "test-topic")
 		must.NotNil(t, publisher)
 	})
 
@@ -40,7 +40,7 @@ func TestBuildPubSubPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			buildPubSubPublisher(logging.NewNoopLogger(), nil, tracing.NewNoopTracerProvider(), mp, "t")
+			buildPubSubPublisher(loggingnoop.NewLogger(), nil, tracingnoop.NewTracerProvider(), mp, "t")
 		})
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})
@@ -62,7 +62,7 @@ func TestBuildPubSubPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			buildPubSubPublisher(logging.NewNoopLogger(), nil, tracing.NewNoopTracerProvider(), mp, "t")
+			buildPubSubPublisher(loggingnoop.NewLogger(), nil, tracingnoop.NewTracerProvider(), mp, "t")
 		})
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 	})
@@ -80,7 +80,7 @@ func TestBuildPubSubPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			buildPubSubPublisher(logging.NewNoopLogger(), nil, tracing.NewNoopTracerProvider(), mp, "t")
+			buildPubSubPublisher(loggingnoop.NewLogger(), nil, tracingnoop.NewTracerProvider(), mp, "t")
 		})
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
@@ -93,7 +93,7 @@ func TestProvidePubSubPublisherProvider(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		provider := ProvidePubSubPublisherProvider(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, nil, "test-project")
+		provider := ProvidePubSubPublisherProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil, "test-project")
 		must.NotNil(t, provider)
 	})
 }
@@ -135,7 +135,7 @@ func TestPublisherProvider_ProvidePublisher(T *testing.T) {
 	T.Run("with empty topic", func(t *testing.T) {
 		t.Parallel()
 
-		provider := ProvidePubSubPublisherProvider(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, nil, "test-project")
+		provider := ProvidePubSubPublisherProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil, "test-project")
 
 		pub, err := provider.ProvidePublisher(t.Context(), "")
 		test.Nil(t, pub)

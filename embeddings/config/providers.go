@@ -6,6 +6,7 @@ import (
 
 	"github.com/primandproper/platform/embeddings"
 	"github.com/primandproper/platform/embeddings/cohere"
+	embeddingsnoop "github.com/primandproper/platform/embeddings/noop"
 	"github.com/primandproper/platform/embeddings/ollama"
 	"github.com/primandproper/platform/embeddings/openai"
 	"github.com/primandproper/platform/observability/logging"
@@ -22,6 +23,6 @@ func ProvideEmbedder(ctx context.Context, c *Config, logger logging.Logger, trac
 	case ProviderCohere:
 		return cohere.NewEmbedder(ctx, c.Cohere, logger, tracer)
 	default:
-		return embeddings.NewNoopEmbedder(), nil
+		return embeddingsnoop.NewEmbedder(), nil
 	}
 }

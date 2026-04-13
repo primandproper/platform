@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/capitalism/stripe"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -62,7 +62,7 @@ func TestProvideCapitalismImplementation(T *testing.T) {
 			Stripe:   &stripe.Config{APIKey: t.Name()},
 		}
 
-		pm, err := ProvideCapitalismImplementation(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg)
+		pm, err := ProvideCapitalismImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg)
 		must.NoError(t, err)
 		test.NotNil(t, pm)
 	})
@@ -74,7 +74,7 @@ func TestProvideCapitalismImplementation(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		pm, err := ProvideCapitalismImplementation(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), cfg)
+		pm, err := ProvideCapitalismImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg)
 		test.Nil(t, pm)
 		test.Error(t, err)
 	})

@@ -6,6 +6,7 @@ import (
 
 	"github.com/primandproper/platform/observability/logging"
 	"github.com/primandproper/platform/observability/metrics"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/observability/metrics/otelgrpc"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -31,14 +32,14 @@ type (
 // ProvideMetricsProvider provides a metrics provider.
 func (c *Config) ProvideMetricsProvider(ctx context.Context, logger logging.Logger) (metrics.Provider, error) {
 	if !c.Enabled {
-		return metrics.NewNoopMetricsProvider(), nil
+		return metricsnoop.NewMetricsProvider(), nil
 	}
 
 	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
 	case ProviderOtel:
 		return otelgrpc.ProvideMetricsProvider(ctx, logger, c.ServiceName, c.Otel)
 	default:
-		return metrics.NewNoopMetricsProvider(), nil
+		return metricsnoop.NewMetricsProvider(), nil
 	}
 }
 

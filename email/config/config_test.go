@@ -13,10 +13,11 @@ import (
 	"github.com/primandproper/platform/email/resend"
 	"github.com/primandproper/platform/email/sendgrid"
 	"github.com/primandproper/platform/email/ses"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -141,7 +142,7 @@ func TestConfig_ProvideEmailer(T *testing.T) {
 		T.Run(fmt.Sprintf("with %s", provider), func(t *testing.T) {
 			t.Parallel()
 
-			logger := logging.NewNoopLogger()
+			logger := loggingnoop.NewLogger()
 			cfg := &Config{
 				Provider: provider,
 				Sendgrid: &sendgrid.Config{APIToken: t.Name()},
@@ -151,7 +152,7 @@ func TestConfig_ProvideEmailer(T *testing.T) {
 				Postmark: &postmark.Config{ServerToken: t.Name()},
 			}
 
-			actual, err := cfg.ProvideEmailer(t.Context(), logger, tracing.NewNoopTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+			actual, err := cfg.ProvideEmailer(t.Context(), logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 			test.NotNil(t, actual)
 			test.NoError(t, err)
 		})
@@ -160,13 +161,13 @@ func TestConfig_ProvideEmailer(T *testing.T) {
 	T.Run("with ses provider", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			Provider: ProviderSES,
 			SES:      &ses.Config{Region: "us-east-1"},
 		}
 
-		actual, err := cfg.ProvideEmailer(t.Context(), logger, tracing.NewNoopTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		actual, err := cfg.ProvideEmailer(t.Context(), logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -174,12 +175,12 @@ func TestConfig_ProvideEmailer(T *testing.T) {
 	T.Run("with invalid provider", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			Provider: "",
 		}
 
-		actual, err := cfg.ProvideEmailer(t.Context(), logger, tracing.NewNoopTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		actual, err := cfg.ProvideEmailer(t.Context(), logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -197,9 +198,9 @@ func TestProvideEmailer(T *testing.T) {
 		emailer, err := ProvideEmailer(
 			t.Context(),
 			cfg,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			&http.Client{},
 		)
 		must.NoError(t, err)
@@ -218,9 +219,9 @@ func TestProvideEmailer(T *testing.T) {
 		emailer, err := ProvideEmailer(
 			t.Context(),
 			cfg,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			&http.Client{},
 		)
 		must.NoError(t, err)
@@ -245,8 +246,8 @@ func TestProvideEmailer(T *testing.T) {
 		emailer, err := ProvideEmailer(
 			t.Context(),
 			cfg,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			mp,
 			&http.Client{},
 		)

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	textsearch "github.com/primandproper/platform/search/text"
 
 	"github.com/shoenig/test"
@@ -36,7 +36,7 @@ func TestQueryFilter_AttachToLogger(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
@@ -55,7 +55,7 @@ func TestQueryFilter_AttachToLogger(T *testing.T) {
 	T.Run("with nil", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		test.NotNil(t, (*QueryFilter)(nil).AttachToLogger(logger))
 	})

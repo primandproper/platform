@@ -9,8 +9,8 @@ import (
 
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
 	"github.com/primandproper/platform/email"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test/must"
 )
@@ -30,11 +30,11 @@ func TestNewMailgunEmailer(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		config := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name()}
 
-		client, err := NewMailgunEmailer(config, logger, tracing.NewNoopTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewMailgunEmailer(config, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, client)
 		must.NoError(t, err)
 	})
@@ -42,9 +42,9 @@ func TestNewMailgunEmailer(T *testing.T) {
 	T.Run("with missing config", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		client, err := NewMailgunEmailer(nil, logger, tracing.NewNoopTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewMailgunEmailer(nil, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		must.Nil(t, client)
 		must.Error(t, err)
 	})
@@ -52,11 +52,11 @@ func TestNewMailgunEmailer(T *testing.T) {
 	T.Run("with missing config domain", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		config := &Config{PrivateAPIKey: t.Name()}
 
-		client, err := NewMailgunEmailer(config, logger, tracing.NewNoopTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewMailgunEmailer(config, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		must.Nil(t, client)
 		must.Error(t, err)
 	})
@@ -64,11 +64,11 @@ func TestNewMailgunEmailer(T *testing.T) {
 	T.Run("with missing config private key", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		config := &Config{Domain: exampleDomain}
 
-		client, err := NewMailgunEmailer(config, logger, tracing.NewNoopTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewMailgunEmailer(config, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		must.Nil(t, client)
 		must.Error(t, err)
 	})
@@ -76,11 +76,11 @@ func TestNewMailgunEmailer(T *testing.T) {
 	T.Run("with missing HTTP client", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		config := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name()}
 
-		client, err := NewMailgunEmailer(config, logger, tracing.NewNoopTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewMailgunEmailer(config, logger, tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil)
 		must.Nil(t, client)
 		must.Error(t, err)
 	})
@@ -92,7 +92,7 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		ts := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 			json.NewEncoder(res).Encode(sendMessageResponse{
@@ -103,7 +103,7 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 
 		cfg := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name()}
 
-		c, err := NewMailgunEmailer(cfg, logger, tracing.NewNoopTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
+		c, err := NewMailgunEmailer(cfg, logger, tracingnoop.NewTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, c)
 		must.NoError(t, err)
 
@@ -125,7 +125,7 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 	T.Run("with error executing request", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		ts := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 			time.Sleep(time.Hour)
@@ -136,7 +136,7 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 
 		cfg := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name()}
 
-		c, err := NewMailgunEmailer(cfg, logger, tracing.NewNoopTracerProvider(), client, cbnoop.NewCircuitBreaker(), nil)
+		c, err := NewMailgunEmailer(cfg, logger, tracingnoop.NewTracerProvider(), client, cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, c)
 		must.NoError(t, err)
 		ctx := t.Context()
@@ -156,7 +156,7 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 	T.Run("with invalid response code", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		ts := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 			res.WriteHeader(http.StatusInternalServerError)
@@ -164,7 +164,7 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 
 		cfg := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name()}
 
-		c, err := NewMailgunEmailer(cfg, logger, tracing.NewNoopTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
+		c, err := NewMailgunEmailer(cfg, logger, tracingnoop.NewTracerProvider(), ts.Client(), cbnoop.NewCircuitBreaker(), nil)
 		must.NotNil(t, c)
 		must.NoError(t, err)
 

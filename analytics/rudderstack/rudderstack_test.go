@@ -6,10 +6,10 @@ import (
 
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
 	"github.com/primandproper/platform/identifiers"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -22,13 +22,13 @@ func TestNewRudderstackEventReporter(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			APIKey:       t.Name(),
 			DataPlaneURL: t.Name(),
 		}
 
-		collector, err := NewRudderstackEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 	})
@@ -36,9 +36,9 @@ func TestNewRudderstackEventReporter(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		collector, err := NewRudderstackEventReporter(logger, tracing.NewNoopTracerProvider(), nil, nil, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(logger, tracingnoop.NewTracerProvider(), nil, nil, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 	})
@@ -46,13 +46,13 @@ func TestNewRudderstackEventReporter(T *testing.T) {
 	T.Run("with empty API key", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			APIKey:       "",
 			DataPlaneURL: t.Name(),
 		}
 
-		collector, err := NewRudderstackEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 	})
@@ -60,13 +60,13 @@ func TestNewRudderstackEventReporter(T *testing.T) {
 	T.Run("with empty DataPlane URL", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			APIKey:       t.Name(),
 			DataPlaneURL: "",
 		}
 
-		collector, err := NewRudderstackEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 	})
@@ -86,7 +86,7 @@ func TestNewRudderstackEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewRudderstackEventReporter(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, cfg, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -114,7 +114,7 @@ func TestNewRudderstackEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewRudderstackEventReporter(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, cfg, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -128,13 +128,13 @@ func TestRudderstackEventReporter_Close(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{
 			APIKey:       t.Name(),
 			DataPlaneURL: t.Name(),
 		}
 
-		collector, err := NewRudderstackEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 
@@ -149,7 +149,7 @@ func TestRudderstackEventReporter_AddUser(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		exampleUserID := identifiers.New()
 		properties := map[string]any{
 			"test.name": t.Name(),
@@ -160,7 +160,7 @@ func TestRudderstackEventReporter_AddUser(T *testing.T) {
 			DataPlaneURL: t.Name(),
 		}
 
-		collector, err := NewRudderstackEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 
@@ -175,7 +175,7 @@ func TestRudderstackEventReporter_EventOccurred(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		exampleUserID := identifiers.New()
 		properties := map[string]any{
 			"test.name": t.Name(),
@@ -186,7 +186,7 @@ func TestRudderstackEventReporter_EventOccurred(T *testing.T) {
 			DataPlaneURL: t.Name(),
 		}
 
-		collector, err := NewRudderstackEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 
@@ -201,7 +201,7 @@ func TestRudderstackEventReporter_EventOccurredAnonymous(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		exampleAnonymousID := identifiers.New()
 		properties := map[string]any{
 			"test.name": t.Name(),
@@ -212,7 +212,7 @@ func TestRudderstackEventReporter_EventOccurredAnonymous(T *testing.T) {
 			DataPlaneURL: t.Name(),
 		}
 
-		collector, err := NewRudderstackEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
+		collector, err := NewRudderstackEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 

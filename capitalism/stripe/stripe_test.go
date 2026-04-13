@@ -10,8 +10,8 @@ import (
 	"time"
 
 	mockencoding "github.com/primandproper/platform/encoding/mock"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/random"
 
 	"github.com/shoenig/test"
@@ -31,8 +31,8 @@ func TestNewStripePaymentManager(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
-		pm := ProvideStripePaymentManager(logger, tracing.NewNoopTracerProvider(), &Config{})
+		logger := loggingnoop.NewLogger()
+		pm := ProvideStripePaymentManager(logger, tracingnoop.NewTracerProvider(), &Config{})
 
 		test.NotNil(t, pm)
 	})
@@ -40,8 +40,8 @@ func TestNewStripePaymentManager(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
-		pm := ProvideStripePaymentManager(logger, tracing.NewNoopTracerProvider(), nil)
+		logger := loggingnoop.NewLogger()
+		pm := ProvideStripePaymentManager(logger, tracingnoop.NewTracerProvider(), nil)
 
 		test.NotNil(t, pm)
 	})

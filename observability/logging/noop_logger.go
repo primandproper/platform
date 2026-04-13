@@ -9,10 +9,7 @@ import (
 // noopLogger is a default Logger we can provide that does nothing in case of dire emergencies.
 type noopLogger struct{}
 
-var logger = new(noopLogger)
-
-// NewNoopLogger provides our noop Logger to dependency manager.
-func NewNoopLogger() Logger { return logger }
+var noopLoggerSingleton Logger = new(noopLogger)
 
 // Info satisfies our interface.
 func (l *noopLogger) Info(string) {}

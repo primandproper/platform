@@ -6,6 +6,7 @@ import (
 
 	"github.com/primandproper/platform/llm"
 	"github.com/primandproper/platform/llm/anthropic"
+	llmnoop "github.com/primandproper/platform/llm/noop"
 	"github.com/primandproper/platform/llm/openai"
 	"github.com/primandproper/platform/observability/logging"
 	"github.com/primandproper/platform/observability/metrics"
@@ -47,6 +48,6 @@ func (c *Config) ProvideLLMProvider(ctx context.Context, logger logging.Logger, 
 	case ProviderAnthropic:
 		return anthropic.NewProvider(c.Anthropic, logger, tracerProvider, metricsProvider)
 	default:
-		return llm.NewNoopProvider(), nil
+		return llmnoop.NewProvider(), nil
 	}
 }

@@ -6,10 +6,10 @@ import (
 
 	"github.com/primandproper/platform/llm/anthropic"
 	"github.com/primandproper/platform/llm/openai"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -99,7 +99,7 @@ func TestConfig_ProvideLLMProvider(T *testing.T) {
 		ctx := t.Context()
 		cfg := &Config{Provider: ""}
 
-		provider, err := cfg.ProvideLLMProvider(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil)
+		provider, err := cfg.ProvideLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -110,7 +110,7 @@ func TestConfig_ProvideLLMProvider(T *testing.T) {
 		ctx := t.Context()
 		cfg := &Config{Provider: "unknown"}
 
-		provider, err := cfg.ProvideLLMProvider(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil)
+		provider, err := cfg.ProvideLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -126,7 +126,7 @@ func TestConfig_ProvideLLMProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := cfg.ProvideLLMProvider(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil)
+		provider, err := cfg.ProvideLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -142,7 +142,7 @@ func TestConfig_ProvideLLMProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := cfg.ProvideLLMProvider(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil)
+		provider, err := cfg.ProvideLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -164,7 +164,7 @@ func TestConfig_ProvideLLMProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := cfg.ProvideLLMProvider(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp)
+		provider, err := cfg.ProvideLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp)
 		test.Nil(t, provider)
 		test.Error(t, err)
 
@@ -188,7 +188,7 @@ func TestConfig_ProvideLLMProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := cfg.ProvideLLMProvider(ctx, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp)
+		provider, err := cfg.ProvideLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp)
 		test.Nil(t, provider)
 		test.Error(t, err)
 
@@ -204,7 +204,7 @@ func TestProvideLLMProvider(T *testing.T) {
 
 		cfg := &Config{}
 
-		provider, err := ProvideLLMProvider(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil)
+		provider, err := ProvideLLMProvider(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		must.NoError(t, err)
 		test.NotNil(t, provider)
 	})

@@ -9,7 +9,7 @@ import (
 
 	"github.com/primandproper/platform/circuitbreaking"
 	mockcircuitbreaking "github.com/primandproper/platform/circuitbreaking/mock"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -37,7 +37,7 @@ func buildTestIndexManagerForUnit(t *testing.T, cb circuitbreaking.CircuitBreake
 	}
 
 	return &indexManager[example]{
-		logger:         logging.NewNoopLogger(),
+		logger:         loggingnoop.NewLogger(),
 		tracer:         tracing.NewTracerForTest("test"),
 		circuitBreaker: cb,
 		esClient:       client,
@@ -56,7 +56,7 @@ func buildTestIndexManagerWithServer(t *testing.T, server *httptest.Server, cb c
 	}
 
 	return &indexManager[example]{
-		logger:         logging.NewNoopLogger(),
+		logger:         loggingnoop.NewLogger(),
 		tracer:         tracing.NewTracerForTest("test"),
 		circuitBreaker: cb,
 		esClient:       client,

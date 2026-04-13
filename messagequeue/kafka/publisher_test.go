@@ -10,10 +10,12 @@ import (
 	"github.com/primandproper/platform/encoding"
 	mockencoding "github.com/primandproper/platform/encoding/mock"
 	"github.com/primandproper/platform/messagequeue"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/shoenig/test"
@@ -49,7 +51,7 @@ func buildTestPublisher(t *testing.T) (*kafkaPublisher, *mockKafkaWriter) {
 
 	writer := &mockKafkaWriter{}
 
-	mp := metrics.NewNoopMetricsProvider()
+	mp := metricsnoop.NewMetricsProvider()
 
 	publishedCounter, err := mp.NewInt64Counter("test_published")
 	must.NoError(t, err)
@@ -62,8 +64,8 @@ func buildTestPublisher(t *testing.T) (*kafkaPublisher, *mockKafkaWriter) {
 
 	pub := &kafkaPublisher{
 		writer:            writer,
-		encoder:           encoding.ProvideClientEncoder(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), encoding.ContentTypeJSON),
-		logger:            logging.NewNoopLogger(),
+		encoder:           encoding.ProvideClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON),
+		logger:            loggingnoop.NewLogger(),
 		tracer:            tracing.NewTracerForTest(t.Name()),
 		publishedCounter:  publishedCounter,
 		publishErrCounter: publishErrCounter,
@@ -247,8 +249,8 @@ func TestProvideKafkaPublisherProvider(T *testing.T) {
 		}
 
 		actual := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -270,8 +272,8 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -293,8 +295,8 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -317,8 +319,8 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -352,8 +354,8 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			mp,
 			cfg,
 		)
@@ -385,8 +387,8 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			mp,
 			cfg,
 		)
@@ -419,8 +421,8 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			mp,
 			cfg,
 		)
@@ -448,8 +450,8 @@ func Test_publisherProvider_Ping(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -474,8 +476,8 @@ func Test_publisherProvider_Close(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)
@@ -492,14 +494,14 @@ func Test_publisherProvider_Close(T *testing.T) {
 			closeFunc: func() error { return nil },
 		}
 
-		mp := metrics.NewNoopMetricsProvider()
+		mp := metricsnoop.NewMetricsProvider()
 		publishedCounter, _ := mp.NewInt64Counter("test_published")
 		publishErrCounter, _ := mp.NewInt64Counter("test_publish_errors")
 		latencyHist, _ := mp.NewFloat64Histogram("test_publish_latency_ms")
 
 		pp.publisherCache[t.Name()] = &kafkaPublisher{
 			writer:            mw,
-			logger:            logging.NewNoopLogger(),
+			logger:            loggingnoop.NewLogger(),
 			tracer:            tracing.NewTracerForTest(t.Name()),
 			publishedCounter:  publishedCounter,
 			publishErrCounter: publishErrCounter,
@@ -520,8 +522,8 @@ func Test_publisherProvider_Close(T *testing.T) {
 		}
 
 		provider := ProvideKafkaPublisherProvider(
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			nil,
 			cfg,
 		)

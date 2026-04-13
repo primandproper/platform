@@ -3,9 +3,9 @@ package secretscfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/secrets"
 
 	"github.com/samber/do/v2"
@@ -21,8 +21,8 @@ func TestRegisterSecretSource(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, t.Context())
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, nil)
 		do.ProvideValue(i, &Config{Provider: ProviderNoop})
 

@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/messagequeue"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/shoenig/test"
@@ -51,8 +51,8 @@ func buildRedisBackedPublisher(t *testing.T, cfg *Config, topic string) messageq
 
 	ctx := t.Context()
 	provider := ProvideRedisPublisherProvider(
-		logging.NewNoopLogger(),
-		tracing.NewNoopTracerProvider(),
+		loggingnoop.NewLogger(),
+		tracingnoop.NewTracerProvider(),
 		nil,
 		*cfg,
 	)
@@ -70,12 +70,12 @@ func Test_redisPublisher_Publish(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := ProvideRedisPublisherProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider := ProvideRedisPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -109,12 +109,12 @@ func Test_redisPublisher_Publish(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := ProvideRedisPublisherProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider := ProvideRedisPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -142,12 +142,12 @@ func Test_redisPublisher_PublishAsync(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := ProvideRedisPublisherProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider := ProvideRedisPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -180,12 +180,12 @@ func Test_redisPublisher_PublishAsync(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := ProvideRedisPublisherProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider := ProvideRedisPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -211,12 +211,12 @@ func TestProvideRedisPublisherProvider(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		actual := ProvideRedisPublisherProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		actual := ProvideRedisPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		test.NotNil(t, actual)
 	})
 }
@@ -228,12 +228,12 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := ProvideRedisPublisherProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider := ProvideRedisPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NotNil(t, provider)
 
 		actual, err := provider.ProvidePublisher(ctx, t.Name())
@@ -245,12 +245,12 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := ProvideRedisPublisherProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider := ProvideRedisPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NotNil(t, provider)
 
 		actual, err := provider.ProvidePublisher(ctx, t.Name())
@@ -266,12 +266,12 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := ProvideRedisPublisherProvider(logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider := ProvideRedisPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NotNil(t, provider)
 
 		actual, err := provider.ProvidePublisher(ctx, "")
@@ -286,7 +286,7 @@ func Test_provideRedisPublisher(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		publisher := provideRedisPublisher(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, nil, "test-topic")
+		publisher := provideRedisPublisher(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil, "test-topic")
 		must.NotNil(t, publisher)
 	})
 
@@ -304,7 +304,7 @@ func Test_provideRedisPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			provideRedisPublisher(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, nil, "t")
+			provideRedisPublisher(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, nil, "t")
 		})
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})
@@ -326,7 +326,7 @@ func Test_provideRedisPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			provideRedisPublisher(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, nil, "t")
+			provideRedisPublisher(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, nil, "t")
 		})
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 	})
@@ -344,7 +344,7 @@ func Test_provideRedisPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			provideRedisPublisher(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, nil, "t")
+			provideRedisPublisher(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, nil, "t")
 		})
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())

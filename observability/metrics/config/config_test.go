@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics/otelgrpc"
 
 	"github.com/shoenig/test"
@@ -17,7 +17,7 @@ func TestConfig_ProvideMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{}
-		metricsProvider, err := cfg.ProvideMetricsProvider(t.Context(), logging.NewNoopLogger())
+		metricsProvider, err := cfg.ProvideMetricsProvider(t.Context(), loggingnoop.NewLogger())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)
@@ -37,7 +37,7 @@ func TestConfig_ProvideMetricsProvider(T *testing.T) {
 			},
 		}
 
-		metricsProvider, err := cfg.ProvideMetricsProvider(t.Context(), logging.NewNoopLogger())
+		metricsProvider, err := cfg.ProvideMetricsProvider(t.Context(), loggingnoop.NewLogger())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)
@@ -51,7 +51,7 @@ func TestConfig_ProvideMetricsProvider(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		metricsProvider, err := cfg.ProvideMetricsProvider(t.Context(), logging.NewNoopLogger())
+		metricsProvider, err := cfg.ProvideMetricsProvider(t.Context(), loggingnoop.NewLogger())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)
@@ -64,7 +64,7 @@ func TestConfig_ProvideMetricsProvider(T *testing.T) {
 			Enabled: false,
 		}
 
-		metricsProvider, err := cfg.ProvideMetricsProvider(t.Context(), logging.NewNoopLogger())
+		metricsProvider, err := cfg.ProvideMetricsProvider(t.Context(), loggingnoop.NewLogger())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)
@@ -130,7 +130,7 @@ func TestProvideMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{}
-		metricsProvider, err := ProvideMetricsProvider(t.Context(), logging.NewNoopLogger(), cfg)
+		metricsProvider, err := ProvideMetricsProvider(t.Context(), loggingnoop.NewLogger(), cfg)
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)

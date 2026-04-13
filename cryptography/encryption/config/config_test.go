@@ -3,8 +3,8 @@ package config
 import (
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 )
@@ -50,8 +50,8 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 func TestProvideEncryptorDecryptor(T *testing.T) {
 	T.Parallel()
 
-	tracerProvider := tracing.NewNoopTracerProvider()
-	logger := logging.NewNoopLogger()
+	tracerProvider := tracingnoop.NewTracerProvider()
+	logger := loggingnoop.NewLogger()
 	key := []byte(testKey)
 
 	T.Run("aes provider", func(t *testing.T) {

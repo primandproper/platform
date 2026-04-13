@@ -13,8 +13,8 @@ import (
 
 	"github.com/primandproper/platform/notifications/mobile/apns"
 	"github.com/primandproper/platform/notifications/mobile/fcm"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -56,8 +56,8 @@ func TestMultiPlatformPushSender_SendPush(T *testing.T) {
 	T.Parallel()
 
 	ctx := T.Context()
-	logger := logging.NewNoopLogger()
-	tracer := tracing.NewNoopTracerProvider()
+	logger := loggingnoop.NewLogger()
+	tracer := tracingnoop.NewTracerProvider()
 
 	T.Run("ios returns ErrPlatformNotSupported when apnsSender nil", func(t *testing.T) {
 		t.Parallel()

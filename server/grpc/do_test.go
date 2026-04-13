@@ -3,8 +3,8 @@ package grpc
 import (
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -20,8 +20,8 @@ func TestRegisterGRPCServer(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, &Config{Port: 0})
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, []grpc.UnaryServerInterceptor(nil))
 		do.ProvideValue(i, []grpc.StreamServerInterceptor(nil))
 		do.ProvideValue(i, []RegistrationFunc(nil))

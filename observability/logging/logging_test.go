@@ -32,7 +32,7 @@ func TestEnsureLogger(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, EnsureLogger(NewNoopLogger()))
+		test.NotNil(t, EnsureLogger(noopLoggerSingleton))
 	})
 
 	T.Run("with nil", func(t *testing.T) {
@@ -48,7 +48,7 @@ func TestNewNamedLogger(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewNamedLogger(NewNoopLogger(), "test"))
+		test.NotNil(t, NewNamedLogger(noopLoggerSingleton, "test"))
 	})
 
 	T.Run("with nil logger", func(t *testing.T) {
@@ -64,56 +64,56 @@ func TestNoopLogger(T *testing.T) {
 	T.Run("NewNoopLogger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewNoopLogger()
+		l := noopLoggerSingleton
 		test.NotNil(t, l)
 	})
 
 	T.Run("Info", func(t *testing.T) {
 		t.Parallel()
 
-		NewNoopLogger().Info("test")
+		noopLoggerSingleton.Info("test")
 	})
 
 	T.Run("Debug", func(t *testing.T) {
 		t.Parallel()
 
-		NewNoopLogger().Debug("test")
+		noopLoggerSingleton.Debug("test")
 	})
 
 	T.Run("Error", func(t *testing.T) {
 		t.Parallel()
 
-		NewNoopLogger().Error("test", errors.New("blah"))
+		noopLoggerSingleton.Error("test", errors.New("blah"))
 	})
 
 	T.Run("SetRequestIDFunc", func(t *testing.T) {
 		t.Parallel()
 
-		NewNoopLogger().SetRequestIDFunc(func(*http.Request) string { return "" })
+		noopLoggerSingleton.SetRequestIDFunc(func(*http.Request) string { return "" })
 	})
 
 	T.Run("WithName", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewNoopLogger().WithName("test"))
+		test.NotNil(t, noopLoggerSingleton.WithName("test"))
 	})
 
 	T.Run("Clone", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewNoopLogger().Clone())
+		test.NotNil(t, noopLoggerSingleton.Clone())
 	})
 
 	T.Run("WithValues", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewNoopLogger().WithValues(map[string]any{"key": "value"}))
+		test.NotNil(t, noopLoggerSingleton.WithValues(map[string]any{"key": "value"}))
 	})
 
 	T.Run("WithValue", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewNoopLogger().WithValue("key", "value"))
+		test.NotNil(t, noopLoggerSingleton.WithValue("key", "value"))
 	})
 
 	T.Run("WithRequest", func(t *testing.T) {
@@ -122,19 +122,19 @@ func TestNoopLogger(T *testing.T) {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com", http.NoBody)
 		must.NoError(t, err)
 
-		test.NotNil(t, NewNoopLogger().WithRequest(req))
+		test.NotNil(t, noopLoggerSingleton.WithRequest(req))
 	})
 
 	T.Run("WithResponse", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewNoopLogger().WithResponse(&http.Response{}))
+		test.NotNil(t, noopLoggerSingleton.WithResponse(&http.Response{}))
 	})
 
 	T.Run("WithError", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewNoopLogger().WithError(errors.New("blah")))
+		test.NotNil(t, noopLoggerSingleton.WithError(errors.New("blah")))
 	})
 
 	T.Run("WithSpan", func(t *testing.T) {
@@ -145,7 +145,7 @@ func TestNoopLogger(T *testing.T) {
 		_, s := noop.NewTracerProvider().Tracer("test").Start(ctx, "test")
 
 		_ = span
-		test.NotNil(t, NewNoopLogger().WithSpan(s))
+		test.NotNil(t, noopLoggerSingleton.WithSpan(s))
 	})
 }
 

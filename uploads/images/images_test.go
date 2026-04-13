@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/testutils"
 
 	"github.com/shoenig/test"
@@ -193,7 +193,7 @@ func TestNewMediaUploadProcessor(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 		test.NotNil(t, p)
 	})
 }
@@ -325,7 +325,7 @@ func Test_uploadProcessor_Process(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 		expectedFieldName := "avatar"
 
 		imgBytes := buildPNGBytes(t)
@@ -344,7 +344,7 @@ func Test_uploadProcessor_Process(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 		expectedFieldName := "avatar"
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://tests.verygoodsoftwarenotvirus.ru", http.NoBody)
@@ -359,7 +359,7 @@ func Test_uploadProcessor_Process(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 		expectedFieldName := "avatar"
 
 		req := newAvatarUploadRequest(t, "avatar.png", bytes.NewBufferString(""))
@@ -373,7 +373,7 @@ func Test_uploadProcessor_Process(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 		expectedFieldName := "document"
 
 		body := &bytes.Buffer{}
@@ -401,7 +401,7 @@ func Test_uploadProcessor_ProcessFiles(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 
 		imgBytes := buildPNGBytes(t).Bytes()
 		req := newMultiFileUploadRequest(t, map[string][]byte{
@@ -417,7 +417,7 @@ func Test_uploadProcessor_ProcessFiles(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 
 		pngBytes := buildPNGBytes(t).Bytes()
 		jpegBytes := buildJPEGBytes(t).Bytes()
@@ -435,7 +435,7 @@ func Test_uploadProcessor_ProcessFiles(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", http.NoBody)
 		must.NoError(t, err)
@@ -449,7 +449,7 @@ func Test_uploadProcessor_ProcessFiles(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 
 		req := newMultiFileUploadRequest(t, map[string][]byte{
 			"photo.png": []byte("not a real png"),
@@ -464,7 +464,7 @@ func Test_uploadProcessor_ProcessFiles(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 
 		req := newMultiFileUploadRequest(t, map[string][]byte{
 			"notes.txt": []byte("just a text file"),
@@ -479,7 +479,7 @@ func Test_uploadProcessor_ProcessFiles(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		p := NewMediaUploadProcessor(nil, tracing.NewNoopTracerProvider())
+		p := NewMediaUploadProcessor(nil, tracingnoop.NewTracerProvider())
 
 		imgBytes := buildPNGBytes(t).Bytes()
 		req := newMultiFileUploadRequest(t, map[string][]byte{

@@ -7,9 +7,10 @@ import (
 
 	"github.com/primandproper/platform/errors"
 	"github.com/primandproper/platform/notifications/async"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -34,7 +35,7 @@ func TestNewNotifier(T *testing.T) {
 			Key:     "key",
 			Secret:  "secret",
 			Cluster: "us2",
-		}, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil)
+		}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		must.NoError(t, err)
 		must.NotNil(t, n)
 	})
@@ -42,7 +43,7 @@ func TestNewNotifier(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(nil, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil)
+		n, err := NewNotifier(nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		test.Error(t, err)
 		test.Nil(t, n)
 	})
@@ -54,13 +55,13 @@ func TestNotifier_Publish(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		mp := metrics.NewNoopMetricsProvider()
+		mp := metricsnoop.NewMetricsProvider()
 		sendCounter, _ := mp.NewInt64Counter("test_sends")
 		errorCounter, _ := mp.NewInt64Counter("test_errors")
 
 		var capturedChannel, capturedEvent string
 		n := &Notifier{
-			logger:       logging.NewNoopLogger(),
+			logger:       loggingnoop.NewLogger(),
 			tracer:       tracing.NewTracerForTest("test"),
 			sendCounter:  sendCounter,
 			errorCounter: errorCounter,
@@ -85,12 +86,12 @@ func TestNotifier_Publish(T *testing.T) {
 	T.Run("trigger error", func(t *testing.T) {
 		t.Parallel()
 
-		mp := metrics.NewNoopMetricsProvider()
+		mp := metricsnoop.NewMetricsProvider()
 		sendCounter, _ := mp.NewInt64Counter("test_sends")
 		errorCounter, _ := mp.NewInt64Counter("test_errors")
 
 		n := &Notifier{
-			logger:       logging.NewNoopLogger(),
+			logger:       loggingnoop.NewLogger(),
 			tracer:       tracing.NewTracerForTest("test"),
 			sendCounter:  sendCounter,
 			errorCounter: errorCounter,
@@ -115,7 +116,7 @@ func TestNotifier_Close(T *testing.T) {
 		t.Parallel()
 
 		n := &Notifier{
-			logger: logging.NewNoopLogger(),
+			logger: loggingnoop.NewLogger(),
 			tracer: tracing.NewTracerForTest("test"),
 		}
 

@@ -8,7 +8,6 @@ import (
 	"github.com/primandproper/platform/circuitbreaking"
 	"github.com/primandproper/platform/database"
 	platformerrors "github.com/primandproper/platform/errors"
-	"github.com/primandproper/platform/types"
 
 	"github.com/shoenig/test"
 )
@@ -26,7 +25,7 @@ func TestPlatformMapper_Map(T *testing.T) {
 		t.Parallel()
 		code, msg, ok := PlatformMapper.Map(sql.ErrNoRows)
 		test.True(t, ok)
-		test.EqOp(t, types.ErrDataNotFound, code)
+		test.EqOp(t, ErrDataNotFound, code)
 		test.EqOp(t, "data not found", msg)
 	})
 
@@ -34,7 +33,7 @@ func TestPlatformMapper_Map(T *testing.T) {
 		t.Parallel()
 		code, msg, ok := PlatformMapper.Map(database.ErrUserAlreadyExists)
 		test.True(t, ok)
-		test.EqOp(t, types.ErrValidatingRequestInput, code)
+		test.EqOp(t, ErrValidatingRequestInput, code)
 		test.EqOp(t, "user already exists", msg)
 	})
 
@@ -42,7 +41,7 @@ func TestPlatformMapper_Map(T *testing.T) {
 		t.Parallel()
 		code, msg, ok := PlatformMapper.Map(circuitbreaking.ErrCircuitBroken)
 		test.True(t, ok)
-		test.EqOp(t, types.ErrCircuitBroken, code)
+		test.EqOp(t, ErrCircuitBroken, code)
 		test.EqOp(t, "service temporarily unavailable", msg)
 	})
 
@@ -50,35 +49,35 @@ func TestPlatformMapper_Map(T *testing.T) {
 		t.Parallel()
 		code, _, ok := PlatformMapper.Map(platformerrors.ErrNilInputParameter)
 		test.True(t, ok)
-		test.EqOp(t, types.ErrValidatingRequestInput, code)
+		test.EqOp(t, ErrValidatingRequestInput, code)
 	})
 
 	T.Run("ErrEmptyInputParameter maps to ErrValidatingRequestInput", func(t *testing.T) {
 		t.Parallel()
 		code, _, ok := PlatformMapper.Map(platformerrors.ErrEmptyInputParameter)
 		test.True(t, ok)
-		test.EqOp(t, types.ErrValidatingRequestInput, code)
+		test.EqOp(t, ErrValidatingRequestInput, code)
 	})
 
 	T.Run("ErrNilInputProvided maps to ErrValidatingRequestInput", func(t *testing.T) {
 		t.Parallel()
 		code, _, ok := PlatformMapper.Map(platformerrors.ErrNilInputProvided)
 		test.True(t, ok)
-		test.EqOp(t, types.ErrValidatingRequestInput, code)
+		test.EqOp(t, ErrValidatingRequestInput, code)
 	})
 
 	T.Run("ErrInvalidIDProvided maps to ErrValidatingRequestInput", func(t *testing.T) {
 		t.Parallel()
 		code, _, ok := PlatformMapper.Map(platformerrors.ErrInvalidIDProvided)
 		test.True(t, ok)
-		test.EqOp(t, types.ErrValidatingRequestInput, code)
+		test.EqOp(t, ErrValidatingRequestInput, code)
 	})
 
 	T.Run("ErrEmptyInputProvided maps to ErrValidatingRequestInput", func(t *testing.T) {
 		t.Parallel()
 		code, _, ok := PlatformMapper.Map(platformerrors.ErrEmptyInputProvided)
 		test.True(t, ok)
-		test.EqOp(t, types.ErrValidatingRequestInput, code)
+		test.EqOp(t, ErrValidatingRequestInput, code)
 	})
 
 	T.Run("unknown error returns ok=false", func(t *testing.T) {
@@ -94,53 +93,53 @@ func TestToAPIError(T *testing.T) {
 	T.Run("nil error", func(t *testing.T) {
 		t.Parallel()
 		code, msg := ToAPIError(nil)
-		test.EqOp(t, types.ErrNothingSpecific, code)
+		test.EqOp(t, ErrNothingSpecific, code)
 		test.EqOp(t, "", msg)
 	})
 
 	T.Run("known platform error uses PlatformMapper", func(t *testing.T) {
 		t.Parallel()
 		code, msg := ToAPIError(sql.ErrNoRows)
-		test.EqOp(t, types.ErrDataNotFound, code)
+		test.EqOp(t, ErrDataNotFound, code)
 		test.EqOp(t, "data not found", msg)
 	})
 
 	T.Run("unknown error returns fallback", func(t *testing.T) {
 		t.Parallel()
 		code, msg := ToAPIError(errors.New("totally unknown error that no mapper handles"))
-		test.EqOp(t, types.ErrTalkingToDatabase, code)
+		test.EqOp(t, ErrTalkingToDatabase, code)
 		test.EqOp(t, "an error occurred", msg)
 	})
 
 	T.Run("circuit broken error", func(t *testing.T) {
 		t.Parallel()
 		code, msg := ToAPIError(circuitbreaking.ErrCircuitBroken)
-		test.EqOp(t, types.ErrCircuitBroken, code)
+		test.EqOp(t, ErrCircuitBroken, code)
 		test.EqOp(t, "service temporarily unavailable", msg)
 	})
 
 	T.Run("ErrNilInputParameter", func(t *testing.T) {
 		t.Parallel()
 		code, msg := ToAPIError(platformerrors.ErrNilInputParameter)
-		test.EqOp(t, types.ErrValidatingRequestInput, code)
+		test.EqOp(t, ErrValidatingRequestInput, code)
 		test.EqOp(t, "invalid input", msg)
 	})
 
 	T.Run("ErrUserAlreadyExists", func(t *testing.T) {
 		t.Parallel()
 		code, msg := ToAPIError(database.ErrUserAlreadyExists)
-		test.EqOp(t, types.ErrValidatingRequestInput, code)
+		test.EqOp(t, ErrValidatingRequestInput, code)
 		test.EqOp(t, "user already exists", msg)
 	})
 }
 
 type testHTTPMapper struct {
 	err  error
-	code types.ErrorCode
+	code ErrorCode
 	msg  string
 }
 
-func (m testHTTPMapper) Map(err error) (types.ErrorCode, string, bool) {
+func (m testHTTPMapper) Map(err error) (ErrorCode, string, bool) {
 	if errors.Is(err, m.err) {
 		return m.code, m.msg, true
 	}
@@ -159,7 +158,7 @@ func TestRegisterHTTPErrorMapper(T *testing.T) {
 		RegisterHTTPErrorMapper(mapper)
 
 		code, msg := ToAPIError(customErr)
-		test.EqOp(t, types.ErrorCode("E_CUSTOM"), code)
+		test.EqOp(t, ErrorCode("E_CUSTOM"), code)
 		test.EqOp(t, "custom message", msg)
 	})
 }

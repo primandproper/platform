@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/messagequeue"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -77,7 +77,7 @@ func Test_sqsConsumer_Consume(T *testing.T) {
 			return nil
 		}
 
-		consumer := provideSQSConsumer(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, mmr, queueURL, handler)
+		consumer := provideSQSConsumer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, mmr, queueURL, handler)
 		stopChan := make(chan bool, 1)
 		errs := make(chan error, 4)
 
@@ -120,7 +120,7 @@ func Test_sqsConsumer_Consume(T *testing.T) {
 			return anticipatedErr
 		}
 
-		consumer := provideSQSConsumer(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, mmr, queueURL, handler)
+		consumer := provideSQSConsumer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, mmr, queueURL, handler)
 		stopChan := make(chan bool, 1)
 		errs := make(chan error, 4)
 
@@ -143,10 +143,10 @@ func TestProvideSQSConsumerProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := Config{}
 
-		actual, err := ProvideSQSConsumerProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		actual, err := ProvideSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, actual)
 	})
@@ -159,10 +159,10 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := Config{}
 
-		provider, err := ProvideSQSConsumerProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider, err := ProvideSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 
@@ -175,11 +175,11 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := Config{}
 		topic := "https://sqs.us-east-1.amazonaws.com/123/cached-queue"
 
-		provider, err := ProvideSQSConsumerProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider, err := ProvideSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 
@@ -197,10 +197,10 @@ func Test_consumerProvider_ProvideConsumer(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := Config{}
 
-		provider, err := ProvideSQSConsumerProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil, cfg)
+		provider, err := ProvideSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 
@@ -217,7 +217,7 @@ func Test_provideSQSConsumer(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		consumer := provideSQSConsumer(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), nil, nil, "https://sqs.us-east-1.amazonaws.com/123/test", nil)
+		consumer := provideSQSConsumer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil, "https://sqs.us-east-1.amazonaws.com/123/test", nil)
 		must.NotNil(t, consumer)
 	})
 
@@ -231,7 +231,7 @@ func Test_provideSQSConsumer(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			provideSQSConsumer(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, nil, "t", nil)
+			provideSQSConsumer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, nil, "t", nil)
 		})
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})

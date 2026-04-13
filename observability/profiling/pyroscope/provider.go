@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform/errors"
 	"github.com/primandproper/platform/observability/logging"
 	"github.com/primandproper/platform/observability/profiling"
+	profilingnoop "github.com/primandproper/platform/observability/profiling/noop"
 
 	"github.com/grafana/pyroscope-go"
 )
@@ -15,7 +16,7 @@ import (
 // ProvideProfilingProvider creates a Pyroscope-based profiling provider.
 func ProvideProfilingProvider(ctx context.Context, logger logging.Logger, serviceName string, cfg *Config) (profiling.Provider, error) {
 	if cfg == nil {
-		return profiling.NewNoopProvider(), nil
+		return profilingnoop.NewProvider(), nil
 	}
 
 	if cfg.EnableMutexProfile {

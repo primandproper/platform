@@ -11,9 +11,10 @@ import (
 
 	"github.com/primandproper/platform/cache"
 	mockcircuitbreaking "github.com/primandproper/platform/circuitbreaking/mock"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/observability/tracing"
 	"github.com/primandproper/platform/testutils/containers"
 
@@ -47,7 +48,7 @@ func gobEncodeExample(t *testing.T, e *example) string {
 func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *mockcircuitbreaking.CircuitBreakerMock) {
 	t.Helper()
 
-	mp := metrics.NewNoopMetricsProvider()
+	mp := metricsnoop.NewMetricsProvider()
 
 	hitCounter, err := mp.NewInt64Counter("test_hits")
 	must.NoError(t, err)
@@ -71,7 +72,7 @@ func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *m
 	cb := &mockcircuitbreaking.CircuitBreakerMock{}
 
 	return &redisCacheImpl[example]{
-		logger:           logging.NewNoopLogger(),
+		logger:           loggingnoop.NewLogger(),
 		tracer:           tracing.NewNamedTracer(nil, "test"),
 		cacheHitCounter:  hitCounter,
 		cacheMissCounter: missCounter,
@@ -259,7 +260,7 @@ func TestNewRedisCache(T *testing.T) {
 
 		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
 
-		noopMP := metrics.NewNoopMetricsProvider()
+		noopMP := metricsnoop.NewMetricsProvider()
 		h, histErr := noopMP.NewFloat64Histogram("test")
 		must.NoError(t, histErr)
 

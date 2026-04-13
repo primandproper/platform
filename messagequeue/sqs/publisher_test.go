@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/messagequeue"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/shoenig/test"
@@ -36,9 +36,9 @@ func Test_sqsPublisher_Publish(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		provider := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		provider := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -71,9 +71,9 @@ func Test_sqsPublisher_Publish(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		provider := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		provider := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -101,9 +101,9 @@ func Test_sqsPublisher_PublishAsync(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		provider := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		provider := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -135,9 +135,9 @@ func Test_sqsPublisher_PublishAsync(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		provider := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		provider := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -160,9 +160,9 @@ func Test_sqsPublisher_PublishAsync(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		provider := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		provider := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, provider)
 
 		a, err := provider.ProvidePublisher(ctx, t.Name())
@@ -198,9 +198,9 @@ func TestProvideSQSPublisherProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		actual := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		actual := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		test.NotNil(t, actual)
 	})
 }
@@ -212,9 +212,9 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		provider := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		provider := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, provider)
 
 		actual, err := provider.ProvidePublisher(ctx, t.Name())
@@ -226,9 +226,9 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		provider := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		provider := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, provider)
 
 		actual, err := provider.ProvidePublisher(ctx, t.Name())
@@ -244,9 +244,9 @@ func Test_publisherProvider_ProvidePublisher(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
-		provider := ProvideSQSPublisherProvider(ctx, logger, tracing.NewNoopTracerProvider(), nil)
+		provider := ProvideSQSPublisherProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil)
 		must.NotNil(t, provider)
 
 		actual, err := provider.ProvidePublisher(ctx, "")
@@ -261,7 +261,7 @@ func Test_provideSQSPublisher(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		publisher := provideSQSPublisher(logging.NewNoopLogger(), nil, tracing.NewNoopTracerProvider(), nil, "test-topic")
+		publisher := provideSQSPublisher(loggingnoop.NewLogger(), nil, tracingnoop.NewTracerProvider(), nil, "test-topic")
 		must.NotNil(t, publisher)
 	})
 
@@ -279,7 +279,7 @@ func Test_provideSQSPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			provideSQSPublisher(logging.NewNoopLogger(), nil, tracing.NewNoopTracerProvider(), mp, "t")
+			provideSQSPublisher(loggingnoop.NewLogger(), nil, tracingnoop.NewTracerProvider(), mp, "t")
 		})
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})
@@ -301,7 +301,7 @@ func Test_provideSQSPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			provideSQSPublisher(logging.NewNoopLogger(), nil, tracing.NewNoopTracerProvider(), mp, "t")
+			provideSQSPublisher(loggingnoop.NewLogger(), nil, tracingnoop.NewTracerProvider(), mp, "t")
 		})
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 	})
@@ -319,7 +319,7 @@ func Test_provideSQSPublisher(T *testing.T) {
 		}
 
 		test.Panic(t, func() {
-			provideSQSPublisher(logging.NewNoopLogger(), nil, tracing.NewNoopTracerProvider(), mp, "t")
+			provideSQSPublisher(loggingnoop.NewLogger(), nil, tracingnoop.NewTracerProvider(), mp, "t")
 		})
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())

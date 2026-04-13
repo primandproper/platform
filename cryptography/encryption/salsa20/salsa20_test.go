@@ -3,8 +3,8 @@ package salsa20
 import (
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/random"
 
 	"github.com/shoenig/test"
@@ -22,7 +22,7 @@ func TestStandardEncryptor(T *testing.T) {
 		secret, err := random.GenerateHexEncodedString(ctx, 16)
 		must.NoError(t, err)
 
-		encryptor, err := NewEncryptorDecryptor(tracing.NewNoopTracerProvider(), logging.NewNoopLogger(), []byte(secret))
+		encryptor, err := NewEncryptorDecryptor(tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), []byte(secret))
 		must.NotNil(t, encryptor)
 		must.NoError(t, err)
 

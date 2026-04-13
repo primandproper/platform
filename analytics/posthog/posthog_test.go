@@ -6,10 +6,10 @@ import (
 
 	cbnoop "github.com/primandproper/platform/circuitbreaking/noop"
 	"github.com/primandproper/platform/identifiers"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -22,10 +22,10 @@ func TestNewPostHogEventReporter(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{APIKey: t.Name()}
 
-		collector, err := NewPostHogEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewPostHogEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 	})
@@ -33,10 +33,10 @@ func TestNewPostHogEventReporter(T *testing.T) {
 	T.Run("with empty API key", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{}
 
-		collector, err := NewPostHogEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewPostHogEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 	})
@@ -51,7 +51,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewPostHogEventReporter(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, t.Name(), cbnoop.NewCircuitBreaker())
+		collector, err := NewPostHogEventReporter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, t.Name(), cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -74,7 +74,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewPostHogEventReporter(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), mp, t.Name(), cbnoop.NewCircuitBreaker())
+		collector, err := NewPostHogEventReporter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, t.Name(), cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -88,10 +88,10 @@ func TestPostHogEventReporter_Close(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{APIKey: t.Name()}
 
-		collector, err := NewPostHogEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewPostHogEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 
@@ -106,14 +106,14 @@ func TestPostHogEventReporter_AddUser(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{APIKey: t.Name()}
 		exampleUserID := identifiers.New()
 		properties := map[string]any{
 			"test.name": t.Name(),
 		}
 
-		collector, err := NewPostHogEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewPostHogEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 
@@ -128,14 +128,14 @@ func TestPostHogEventReporter_EventOccurred(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{APIKey: t.Name()}
 		exampleUserID := identifiers.New()
 		properties := map[string]any{
 			"test.name": t.Name(),
 		}
 
-		collector, err := NewPostHogEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewPostHogEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 
@@ -150,14 +150,14 @@ func TestPostHogEventReporter_EventOccurredAnonymous(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		cfg := &Config{APIKey: t.Name()}
 		exampleAnonymousID := identifiers.New()
 		properties := map[string]any{
 			"test.name": t.Name(),
 		}
 
-		collector, err := NewPostHogEventReporter(logger, tracing.NewNoopTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewPostHogEventReporter(logger, tracingnoop.NewTracerProvider(), nil, cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 

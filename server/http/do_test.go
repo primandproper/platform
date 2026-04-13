@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/routing"
 
 	"github.com/samber/do/v2"
@@ -21,9 +21,9 @@ func TestRegisterHTTPServer(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, Config{Port: 8080, StartupDeadline: time.Second})
-		do.ProvideValue(i, logging.NewNoopLogger())
+		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue[routing.Router](i, nil)
-		do.ProvideValue(i, tracing.NewNoopTracerProvider())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 
 		RegisterHTTPServer(i, "test_service")
 

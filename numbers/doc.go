@@ -1,4 +1,4 @@
 /*
-Package numbers provides numeric utility functions for rounding, scaling, and yield adjustment calculations.
+Package numbers provides numeric types, utilities, and range abstractions for rounding, scaling, and yield adjustment calculations.
 */
 package numbers

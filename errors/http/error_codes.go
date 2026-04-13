@@ -1,4 +1,4 @@
-package types
+package http
 
 var (
 	// this just ensures that we don't have any duplicated codes.

@@ -6,8 +6,9 @@ import (
 	"github.com/primandproper/platform/circuitbreaking"
 	cbmock "github.com/primandproper/platform/circuitbreaking/mock"
 	"github.com/primandproper/platform/circuitbreaking/noop"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/observability/tracing"
 
 	"github.com/shoenig/test"
@@ -17,7 +18,7 @@ import (
 
 func noopUploaderMetrics(t *testing.T) (saveCounter, readCounter, saveErrCounter, readErrCounter metrics.Int64Counter, latencyHist metrics.Float64Histogram) {
 	t.Helper()
-	mp := metrics.NewNoopMetricsProvider()
+	mp := metricsnoop.NewMetricsProvider()
 
 	saveCounter, err := mp.NewInt64Counter("test_saves")
 	must.NoError(t, err)
@@ -53,7 +54,7 @@ func TestUploader_ReadFile(T *testing.T) {
 		saveCounter, readCounter, saveErrCounter, readErrCounter, latencyHist := noopUploaderMetrics(t)
 		u := &Uploader{
 			bucket:         b,
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			tracer:         tracing.NewTracerForTest(t.Name()),
 			circuitBreaker: noop.NewCircuitBreaker(),
 			saveCounter:    saveCounter,
@@ -77,7 +78,7 @@ func TestUploader_ReadFile(T *testing.T) {
 		saveCounter, readCounter, saveErrCounter, readErrCounter, latencyHist := noopUploaderMetrics(t)
 		u := &Uploader{
 			bucket:         memblob.OpenBucket(&memblob.Options{}),
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			tracer:         tracing.NewTracerForTest(t.Name()),
 			circuitBreaker: noop.NewCircuitBreaker(),
 			saveCounter:    saveCounter,
@@ -104,7 +105,7 @@ func TestUploader_ReadFile(T *testing.T) {
 		saveCounter, readCounter, saveErrCounter, readErrCounter, latencyHist := noopUploaderMetrics(t)
 		u := &Uploader{
 			bucket:         memblob.OpenBucket(&memblob.Options{}),
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			tracer:         tracing.NewTracerForTest(t.Name()),
 			circuitBreaker: cb,
 			saveCounter:    saveCounter,
@@ -138,7 +139,7 @@ func TestUploader_ReadFile(T *testing.T) {
 		saveCounter, readCounter, saveErrCounter, readErrCounter, latencyHist := noopUploaderMetrics(t)
 		u := &Uploader{
 			bucket:         b,
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			tracer:         tracing.NewTracerForTest(t.Name()),
 			circuitBreaker: cb,
 			saveCounter:    saveCounter,
@@ -166,7 +167,7 @@ func TestUploader_SaveFile(T *testing.T) {
 		saveCounter, readCounter, saveErrCounter, readErrCounter, latencyHist := noopUploaderMetrics(t)
 		u := &Uploader{
 			bucket:         memblob.OpenBucket(&memblob.Options{}),
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			tracer:         tracing.NewTracerForTest(t.Name()),
 			circuitBreaker: noop.NewCircuitBreaker(),
 			saveCounter:    saveCounter,
@@ -191,7 +192,7 @@ func TestUploader_SaveFile(T *testing.T) {
 		saveCounter, readCounter, saveErrCounter, readErrCounter, latencyHist := noopUploaderMetrics(t)
 		u := &Uploader{
 			bucket:         memblob.OpenBucket(&memblob.Options{}),
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			tracer:         tracing.NewTracerForTest(t.Name()),
 			circuitBreaker: cb,
 			saveCounter:    saveCounter,
@@ -221,7 +222,7 @@ func TestUploader_SaveFile(T *testing.T) {
 		saveCounter, readCounter, saveErrCounter, readErrCounter, latencyHist := noopUploaderMetrics(t)
 		u := &Uploader{
 			bucket:         b,
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			tracer:         tracing.NewTracerForTest(t.Name()),
 			circuitBreaker: cb,
 			saveCounter:    saveCounter,
@@ -245,7 +246,7 @@ func TestUploader_SaveFile(T *testing.T) {
 		saveCounter, readCounter, saveErrCounter, readErrCounter, latencyHist := noopUploaderMetrics(t)
 		u := &Uploader{
 			bucket:         memblob.OpenBucket(&memblob.Options{}),
-			logger:         logging.NewNoopLogger(),
+			logger:         loggingnoop.NewLogger(),
 			tracer:         tracing.NewTracerForTest(t.Name()),
 			circuitBreaker: noop.NewCircuitBreaker(),
 			saveCounter:    saveCounter,

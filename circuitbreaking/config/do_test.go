@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/circuitbreaking"
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -20,8 +20,8 @@ func TestRegisterCircuitBreaker(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue(i, t.Context())
-		do.ProvideValue(i, logging.NewNoopLogger())
-		do.ProvideValue(i, metrics.NewNoopMetricsProvider())
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, metricsnoop.NewMetricsProvider())
 		do.ProvideValue(i, cfg)
 
 		RegisterCircuitBreaker(i)

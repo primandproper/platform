@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 )
@@ -205,13 +205,13 @@ func TestNewUploadManager(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		l := logging.NewNoopLogger()
+		l := loggingnoop.NewLogger()
 		cfg := &Config{
 			BucketName: t.Name(),
 			Provider:   MemoryProvider,
 		}
 
-		x, err := NewUploadManager(ctx, l, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
 		test.NotNil(t, x)
 		test.NoError(t, err)
 	})
@@ -220,9 +220,9 @@ func TestNewUploadManager(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		l := logging.NewNoopLogger()
+		l := loggingnoop.NewLogger()
 
-		x, err := NewUploadManager(ctx, l, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), nil)
+		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), nil)
 		test.Nil(t, x)
 		test.Error(t, err)
 	})
@@ -231,10 +231,10 @@ func TestNewUploadManager(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		l := logging.NewNoopLogger()
+		l := loggingnoop.NewLogger()
 		cfg := &Config{}
 
-		x, err := NewUploadManager(ctx, l, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
 		test.Nil(t, x)
 		test.Error(t, err)
 	})
@@ -243,7 +243,7 @@ func TestNewUploadManager(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		l := logging.NewNoopLogger()
+		l := loggingnoop.NewLogger()
 		tempDir := os.TempDir()
 
 		cfg := &Config{
@@ -252,7 +252,7 @@ func TestNewUploadManager(T *testing.T) {
 			FilesystemConfig: &FilesystemConfig{RootDirectory: tempDir},
 		}
 
-		x, err := NewUploadManager(ctx, l, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
 		test.NotNil(t, x)
 		test.NoError(t, err)
 	})
@@ -261,14 +261,14 @@ func TestNewUploadManager(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		l := logging.NewNoopLogger()
+		l := loggingnoop.NewLogger()
 		cfg := &Config{
 			BucketName:   t.Name(),
 			Provider:     MemoryProvider,
 			BucketPrefix: "prefix/",
 		}
 
-		x, err := NewUploadManager(ctx, l, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
 		test.NotNil(t, x)
 		test.NoError(t, err)
 	})
@@ -277,14 +277,14 @@ func TestNewUploadManager(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		l := logging.NewNoopLogger()
+		l := loggingnoop.NewLogger()
 		cfg := &Config{
 			BucketName: t.Name(),
 			Provider:   GCPCloudStorageProvider,
 			GCP:        &GCPConfig{BucketName: t.Name()},
 		}
 
-		x, err := NewUploadManager(ctx, l, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
 		test.Nil(t, x)
 		test.Error(t, err)
 	})

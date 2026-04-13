@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -88,7 +89,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 	T.Run("with error creating latency histogram", func(t *testing.T) {
 		t.Parallel()
 
-		noopMP := metrics.NewNoopMetricsProvider()
+		noopMP := metricsnoop.NewMetricsProvider()
 		h, histErr := noopMP.NewFloat64Histogram("test")
 		must.NoError(t, histErr)
 

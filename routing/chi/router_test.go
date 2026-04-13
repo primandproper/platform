@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/routing"
 
 	"github.com/go-chi/chi/v5"
@@ -16,7 +17,7 @@ import (
 )
 
 func buildRouterForTest() routing.Router {
-	return NewRouter(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), &Config{})
+	return NewRouter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), &Config{})
 }
 
 func TestNewRouter(T *testing.T) {
@@ -25,7 +26,7 @@ func TestNewRouter(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewRouter(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), &Config{}))
+		test.NotNil(t, NewRouter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), &Config{}))
 	})
 }
 
@@ -35,7 +36,7 @@ func Test_buildChiMux(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, buildChiMux(logging.NewNoopLogger(), tracing.NewTracerForTest(t.Name()), metrics.NewNoopMetricsProvider(), &Config{}))
+		test.NotNil(t, buildChiMux(loggingnoop.NewLogger(), tracing.NewTracerForTest(t.Name()), metricsnoop.NewMetricsProvider(), &Config{}))
 	})
 }
 
@@ -271,7 +272,7 @@ func Test_router_clone(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		r := buildRouter(nil, nil, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), &Config{})
+		r := buildRouter(nil, nil, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), &Config{})
 
 		test.NotNil(t, r.clone())
 	})
@@ -283,8 +284,8 @@ func Test_router_BuildRouteParamIDFetcher(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		r := buildRouter(nil, nil, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), &Config{})
-		l := logging.NewNoopLogger()
+		r := buildRouter(nil, nil, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), &Config{})
+		l := loggingnoop.NewLogger()
 		ctx := t.Context()
 		exampleKey := "blah"
 
@@ -311,8 +312,8 @@ func Test_router_BuildRouteParamIDFetcher(T *testing.T) {
 	T.Run("without appropriate value attached to context", func(t *testing.T) {
 		t.Parallel()
 
-		r := buildRouter(nil, nil, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), &Config{})
-		l := logging.NewNoopLogger()
+		r := buildRouter(nil, nil, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), &Config{})
+		l := loggingnoop.NewLogger()
 		ctx := t.Context()
 		exampleKey := "blah"
 
@@ -334,7 +335,7 @@ func Test_router_BuildRouteParamStringIDFetcher(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		r := buildRouter(nil, nil, tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider(), &Config{})
+		r := buildRouter(nil, nil, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), &Config{})
 		ctx := t.Context()
 		exampleKey := "blah"
 

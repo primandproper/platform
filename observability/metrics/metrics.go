@@ -127,7 +127,7 @@ func (y *Int64HistogramImpl) Record(ctx context.Context, incr int64, options ...
 
 func EnsureMetricsProvider(mp Provider) Provider {
 	if mp == nil {
-		return NewNoopMetricsProvider()
+		return &noopProvider{}
 	}
 
 	return mp

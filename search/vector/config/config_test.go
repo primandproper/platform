@@ -10,10 +10,11 @@ import (
 	"time"
 
 	circuitbreakingcfg "github.com/primandproper/platform/circuitbreaking/config"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	vectorsearch "github.com/primandproper/platform/search/vector"
 	"github.com/primandproper/platform/search/vector/pgvector"
 	"github.com/primandproper/platform/search/vector/qdrant"
@@ -97,9 +98,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 
 		idx, err := ProvideIndex[testStruct](
 			t.Context(),
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			nil,
 			nil,
 			"idx",
@@ -113,9 +114,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 
 		idx, err := ProvideIndex[testStruct](
 			t.Context(),
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			&Config{Provider: "unknown"},
 			nil,
 			"idx",
@@ -130,9 +131,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 
 		idx, err := ProvideIndex[testStruct](
 			t.Context(),
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			&Config{},
 			nil,
 			"idx",
@@ -146,9 +147,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 
 		idx, err := ProvideIndex[testStruct](
 			t.Context(),
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			&Config{Provider: "   "},
 			nil,
 			"idx",
@@ -170,9 +171,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 
 		idx, err := ProvideIndex[testStruct](
 			t.Context(),
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			cfg,
 			nil,
 			"idx",
@@ -210,9 +211,9 @@ func TestConfig_ProvideIndex(T *testing.T) {
 
 		idx, err := ProvideIndex[testStruct](
 			t.Context(),
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 			cfg,
 			nil,
 			"stub",
@@ -243,8 +244,8 @@ func TestConfig_ProvideIndex(T *testing.T) {
 
 		idx, err := ProvideIndex[testStruct](
 			ctx,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			mp,
 			cfg,
 			nil,

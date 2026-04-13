@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/profiling/pprof"
 	"github.com/primandproper/platform/observability/profiling/pyroscope"
 
@@ -79,7 +79,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 func TestConfig_ProvideProfilingProvider(T *testing.T) {
 	T.Parallel()
 
-	logger := logging.NewNoopLogger()
+	logger := loggingnoop.NewLogger()
 
 	T.Run("default provider returns noop", func(t *testing.T) {
 		t.Parallel()

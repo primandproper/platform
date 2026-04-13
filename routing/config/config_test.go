@@ -3,9 +3,9 @@ package routingcfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
-	"github.com/primandproper/platform/observability/metrics"
-	"github.com/primandproper/platform/observability/tracing"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/routing/chi"
 
 	"github.com/shoenig/test"
@@ -49,7 +49,7 @@ func TestProvideRouter(T *testing.T) {
 			Chi:      &chi.Config{ServiceName: t.Name()},
 		}
 
-		router, err := ProvideRouter(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		router, err := ProvideRouter(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		must.NoError(t, err)
 		test.NotNil(t, router)
 	})
@@ -61,7 +61,7 @@ func TestProvideRouter(T *testing.T) {
 			Provider: "bogus",
 		}
 
-		router, err := ProvideRouter(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		router, err := ProvideRouter(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		test.Nil(t, router)
 		test.Error(t, err)
 	})
@@ -78,7 +78,7 @@ func TestConfig_ProvideRouter(T *testing.T) {
 			Chi:      &chi.Config{ServiceName: t.Name()},
 		}
 
-		router, err := cfg.ProvideRouter(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		router, err := cfg.ProvideRouter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		must.NoError(t, err)
 		test.NotNil(t, router)
 	})
@@ -90,7 +90,7 @@ func TestConfig_ProvideRouter(T *testing.T) {
 			Provider: "bogus",
 		}
 
-		router, err := cfg.ProvideRouter(logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		router, err := cfg.ProvideRouter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		test.Nil(t, router)
 		test.Error(t, err)
 	})
@@ -135,7 +135,7 @@ func TestProvideRouterViaConfig(T *testing.T) {
 			Chi:      &chi.Config{ServiceName: t.Name()},
 		}
 
-		router, err := ProvideRouterViaConfig(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		router, err := ProvideRouterViaConfig(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		must.NoError(t, err)
 		test.NotNil(t, router)
 	})
@@ -147,7 +147,7 @@ func TestProvideRouterViaConfig(T *testing.T) {
 			Provider: "bogus",
 		}
 
-		router, err := ProvideRouterViaConfig(cfg, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		router, err := ProvideRouterViaConfig(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		test.Nil(t, router)
 		test.Error(t, err)
 	})

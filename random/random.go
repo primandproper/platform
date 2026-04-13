@@ -11,7 +11,9 @@ import (
 
 	"github.com/primandproper/platform/observability"
 	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 )
 
 const (
@@ -21,7 +23,7 @@ const (
 var (
 	_ Generator = (*standardGenerator)(nil)
 
-	defaultGenerator = NewGenerator(logging.NewNoopLogger(), tracing.NewNoopTracerProvider())
+	defaultGenerator = NewGenerator(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 )
 
 func init() {

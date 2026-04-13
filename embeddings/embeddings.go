@@ -31,22 +31,3 @@ type Embedding struct {
 type Embedder interface {
 	GenerateEmbedding(ctx context.Context, input *Input) (*Embedding, error)
 }
-
-type noopEmbedder struct{}
-
-// NewNoopEmbedder returns an Embedder that returns an empty vector and no error.
-// Intended for tests and local development.
-func NewNoopEmbedder() Embedder {
-	return &noopEmbedder{}
-}
-
-func (n *noopEmbedder) GenerateEmbedding(_ context.Context, input *Input) (*Embedding, error) {
-	return &Embedding{
-		Vector:      []float32{},
-		SourceText:  input.Content,
-		Model:       "noop",
-		Provider:    "noop",
-		Dimensions:  0,
-		GeneratedAt: time.Now(),
-	}, nil
-}

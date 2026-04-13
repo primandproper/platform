@@ -5,10 +5,11 @@ import (
 	"fmt"
 
 	"github.com/primandproper/platform/llm"
+	llmnoop "github.com/primandproper/platform/llm/noop"
 )
 
-func ExampleNewNoopProvider() {
-	provider := llm.NewNoopProvider()
+func Example() {
+	provider := llmnoop.NewProvider()
 
 	result, err := provider.Completion(context.Background(), llm.CompletionParams{
 		Model: "example-model",

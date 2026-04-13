@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
 
 	"github.com/shoenig/test"
@@ -19,7 +19,7 @@ func TestPrepareAndLogError(T *testing.T) {
 
 		ctx := t.Context()
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		test.Error(t, PrepareAndLogError(err, logger, span, "things and %s", "stuff"))
@@ -29,7 +29,7 @@ func TestPrepareAndLogError(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		test.NoError(t, PrepareAndLogError(nil, logger, span, "things and %s", "stuff"))
@@ -39,7 +39,7 @@ func TestPrepareAndLogError(T *testing.T) {
 		t.Parallel()
 
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		test.Error(t, PrepareAndLogError(err, logger, nil, "things and %s", "stuff"))
 	})
@@ -59,7 +59,7 @@ func TestPrepareAndLogError(T *testing.T) {
 
 		ctx := t.Context()
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		test.Error(t, PrepareAndLogError(err, logger, span, ""))
@@ -117,7 +117,7 @@ func TestAcknowledgeError(T *testing.T) {
 
 		ctx := t.Context()
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		AcknowledgeError(err, logger, span, "things and %s", "stuff")
@@ -127,7 +127,7 @@ func TestAcknowledgeError(T *testing.T) {
 		t.Parallel()
 
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		AcknowledgeError(err, logger, nil, "things and %s", "stuff")
 	})
@@ -146,7 +146,7 @@ func TestAcknowledgeError(T *testing.T) {
 		t.Parallel()
 
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		AcknowledgeError(err, logger, nil, "")
 	})
@@ -160,7 +160,7 @@ func TestPrepareAndLogGRPCStatus(T *testing.T) {
 
 		ctx := t.Context()
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		test.Error(t, PrepareAndLogGRPCStatus(err, logger, span, codes.Internal, "things and %s", "stuff"))
@@ -170,7 +170,7 @@ func TestPrepareAndLogGRPCStatus(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		test.NoError(t, PrepareAndLogGRPCStatus(nil, logger, span, codes.Internal, "things and %s", "stuff"))
@@ -180,7 +180,7 @@ func TestPrepareAndLogGRPCStatus(T *testing.T) {
 		t.Parallel()
 
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 
 		test.Error(t, PrepareAndLogGRPCStatus(err, logger, nil, codes.Internal, "things and %s", "stuff"))
 	})
@@ -200,7 +200,7 @@ func TestPrepareAndLogGRPCStatus(T *testing.T) {
 
 		ctx := t.Context()
 		err := errors.New("blah")
-		logger := logging.NewNoopLogger()
+		logger := loggingnoop.NewLogger()
 		_, span := tracing.StartSpan(ctx)
 
 		test.Error(t, PrepareAndLogGRPCStatus(err, logger, span, codes.Internal, ""))

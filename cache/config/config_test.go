@@ -6,10 +6,11 @@ import (
 
 	"github.com/primandproper/platform/cache/redis"
 	circuitbreakingcfg "github.com/primandproper/platform/circuitbreaking/config"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/metrics"
 	mockmetrics "github.com/primandproper/platform/observability/metrics/mock"
-	"github.com/primandproper/platform/observability/tracing"
+	metricsnoop "github.com/primandproper/platform/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -68,7 +69,7 @@ func TestProvideCache(T *testing.T) {
 
 		c, err := ProvideCache[example](t.Context(), &Config{
 			Provider: ProviderMemory,
-		}, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 
 		must.NoError(t, err)
 		test.NotNil(t, c)
@@ -86,9 +87,9 @@ func TestProvideCache(T *testing.T) {
 		c, err := ProvideCache[example](
 			t.Context(),
 			cfg,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 		)
 
 		must.NoError(t, err)
@@ -107,9 +108,9 @@ func TestProvideCache(T *testing.T) {
 		c, err := ProvideCache[example](
 			t.Context(),
 			cfg,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
-			metrics.NewNoopMetricsProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
 		)
 
 		must.NoError(t, err)
@@ -139,8 +140,8 @@ func TestProvideCache(T *testing.T) {
 		c, err := ProvideCache[example](
 			t.Context(),
 			cfg,
-			logging.NewNoopLogger(),
-			tracing.NewNoopTracerProvider(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
 			mp,
 		)
 
@@ -152,7 +153,7 @@ func TestProvideCache(T *testing.T) {
 	T.Run("invalid provider", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := ProvideCache[example](t.Context(), &Config{}, logging.NewNoopLogger(), tracing.NewNoopTracerProvider(), metrics.NewNoopMetricsProvider())
+		_, err := ProvideCache[example](t.Context(), &Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 
 		test.Error(t, err)
 	})

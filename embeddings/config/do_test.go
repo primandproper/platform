@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform/embeddings"
-	"github.com/primandproper/platform/observability/logging"
+	loggingnoop "github.com/primandproper/platform/observability/logging/noop"
 	"github.com/primandproper/platform/observability/tracing"
 
 	"github.com/samber/do/v2"
@@ -19,7 +19,7 @@ func TestRegisterEmbedder(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
-		do.ProvideValue(i, logging.NewNoopLogger())
+		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracing.NewTracerForTest("test"))
 		do.ProvideValue(i, &Config{})
 

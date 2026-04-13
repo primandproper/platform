@@ -2,13 +2,11 @@ package http
 
 import (
 	"sync"
-
-	"github.com/primandproper/platform/types"
 )
 
 // HTTPErrorMapper maps domain errors to (ErrorCode, message). ok=false means no match.
 type HTTPErrorMapper interface {
-	Map(err error) (code types.ErrorCode, msg string, ok bool)
+	Map(err error) (code ErrorCode, msg string, ok bool)
 }
 
 var (
@@ -24,12 +22,12 @@ func RegisterHTTPErrorMapper(m HTTPErrorMapper) {
 	domainMappers = append(domainMappers, m)
 }
 
-// ToAPIError maps known sentinel errors to types.ErrorCode and a safe user-facing message.
+// ToAPIError maps known sentinel errors to ErrorCode and a safe user-facing message.
 // It tries PlatformMapper first, then each registered domain mapper.
-// Returns (code, message). Use types.ErrTalkingToDatabase and "an error occurred" as fallback for unknown errors.
-func ToAPIError(err error) (code types.ErrorCode, msg string) {
+// Returns (code, message). Use ErrTalkingToDatabase and "an error occurred" as fallback for unknown errors.
+func ToAPIError(err error) (code ErrorCode, msg string) {
 	if err == nil {
-		return types.ErrNothingSpecific, ""
+		return ErrNothingSpecific, ""
 	}
 	if c, m, ok := PlatformMapper.Map(err); ok {
 		return c, m
@@ -42,5 +40,5 @@ func ToAPIError(err error) (code types.ErrorCode, msg string) {
 			return c, m
 		}
 	}
-	return types.ErrTalkingToDatabase, "an error occurred"
+	return ErrTalkingToDatabase, "an error occurred"
 }
