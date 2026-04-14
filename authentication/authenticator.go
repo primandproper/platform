@@ -2,17 +2,6 @@ package authentication
 
 import (
 	"context"
-
-	platformerrors "github.com/primandproper/platform/errors"
-)
-
-var (
-	// ErrInvalidTOTPToken indicates that a provided two-factor code is invalid.
-	ErrInvalidTOTPToken = platformerrors.New("invalid two factor code")
-	// ErrTOTPRequired indicates that the user has TOTP enabled but did not provide a code.
-	ErrTOTPRequired = platformerrors.New("TOTP code required but not provided")
-	// ErrPasswordDoesNotMatch indicates that a provided passwords does not match.
-	ErrPasswordDoesNotMatch = platformerrors.New("password does not match")
 )
 
 type (
@@ -21,10 +10,18 @@ type (
 		HashPassword(ctx context.Context, password string) (string, error)
 	}
 
-	// Authenticator authenticates users.
+	// Authenticator hashes passwords and verifies them against a stored hash.
+	//
+	// Second-factor verification (TOTP, WebAuthn, backup codes, etc.) is
+	// intentionally NOT part of this interface. Callers compose password
+	// verification with any second-factor verifier they need — see the
+	// authentication/totp package for the TOTP verifier.
 	Authenticator interface {
 		Hasher
 
-		CredentialsAreValid(ctx context.Context, hash, password, totpSecret, totpCode string) (bool, error)
+		// PasswordMatches reports whether password matches hash. A non-match
+		// returns (false, nil); only genuine errors (malformed hash, runtime
+		// failure) populate err.
+		PasswordMatches(ctx context.Context, hash, password string) (bool, error)
 	}
 )

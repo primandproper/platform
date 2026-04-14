@@ -35,19 +35,10 @@ func NewPASETOSigner(logger logging.Logger, tracerProvider tracing.TracerProvide
 	return s, nil
 }
 
-// Application-specific claim keys the Parse* helpers look up. Callers that want
-// these populated must supply them via extraClaims when calling IssueToken.
-const (
-	subjectKey   = "sub"
-	jtiKey       = "jti"
-	accountIDKey = "account_id"
-	sessionIDKey = "sid"
-)
-
 // IssueToken issues a new PASETO token. The issuer owns the standard claims
 // (exp, nbf, iat, aud, iss, sub, jti); callers supply any application-specific
-// claims (account_id, sid, etc.) via extraClaims. Passing a reserved-claim key
-// in extraClaims returns ErrReservedClaim.
+// claims via extraClaims. Passing a reserved-claim key in extraClaims returns
+// ErrReservedClaim.
 func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
 	_, span := s.tracer.StartSpan(ctx)
 	defer span.End()
@@ -59,13 +50,13 @@ func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Dur
 	jti = identifiers.New()
 
 	payload := map[string]any{
-		"aud":      s.audience,
-		"iss":      s.issuer,
-		jtiKey:     jti,
-		subjectKey: subject,
-		"iat":      time.Now().UTC(),
-		"exp":      time.Now().Add(expiry).UTC(),
-		"nbf":      time.Now().Add(-1 * time.Minute).UTC(),
+		"aud": s.audience,
+		"iss": s.issuer,
+		"jti": jti,
+		"sub": subject,
+		"iat": time.Now().UTC(),
+		"exp": time.Now().Add(expiry).UTC(),
+		"nbf": time.Now().Add(-1 * time.Minute).UTC(),
 	}
 	for k, v := range extraClaims {
 		if _, reserved := tokens.ReservedClaimKeys[k]; reserved {
@@ -82,49 +73,17 @@ func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Dur
 	return tokenStr, jti, nil
 }
 
-// ParseUserIDFromToken parses a AccessToken and returns the associated user ID.
-func (s *signer) ParseUserIDFromToken(ctx context.Context, providedToken string) (string, error) {
-	userID, _, err := s.ParseUserIDAndAccountIDFromToken(ctx, providedToken)
-	return userID, err
-}
-
-// ParseUserIDAndAccountIDFromToken parses a PASETO token and returns the user ID and optional account ID.
-func (s *signer) ParseUserIDAndAccountIDFromToken(ctx context.Context, providedToken string) (userID, accountID string, err error) {
+// ParseToken parses and decrypts a PASETO token and returns its claims.
+func (s *signer) ParseToken(ctx context.Context, providedToken string) (tokens.Claims, error) {
 	_, span := s.tracer.StartSpan(ctx)
 	defer span.End()
 
-	parsedToken, err := s.decryptToken(providedToken)
+	parsed, err := s.decryptToken(providedToken)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
-	return claimString(parsedToken, subjectKey), claimString(parsedToken, accountIDKey), nil
-}
-
-// ParseSessionIDFromToken extracts the session ID from a PASETO token.
-func (s *signer) ParseSessionIDFromToken(ctx context.Context, providedToken string) (string, error) {
-	_, span := s.tracer.StartSpan(ctx)
-	defer span.End()
-
-	parsedToken, err := s.decryptToken(providedToken)
-	if err != nil {
-		return "", err
-	}
-
-	return claimString(parsedToken, sessionIDKey), nil
-}
-
-// ParseJTIFromToken extracts the JTI from a PASETO token.
-func (s *signer) ParseJTIFromToken(ctx context.Context, providedToken string) (string, error) {
-	_, span := s.tracer.StartSpan(ctx)
-	defer span.End()
-
-	parsedToken, err := s.decryptToken(providedToken)
-	if err != nil {
-		return "", err
-	}
-
-	return claimString(parsedToken, jtiKey), nil
+	return pasetoClaims(parsed), nil
 }
 
 func (s *signer) decryptToken(providedToken string) (map[string]any, error) {
@@ -140,10 +99,41 @@ func (s *signer) decryptToken(providedToken string) (map[string]any, error) {
 	return parsedToken, nil
 }
 
-func claimString(claims map[string]any, key string) string {
-	v, ok := claims[key].(string)
-	if !ok {
-		return ""
+// pasetoClaims adapts a PASETO payload map to tokens.Claims.
+type pasetoClaims map[string]any
+
+func (c pasetoClaims) Subject() string {
+	if s, ok := c["sub"].(string); ok {
+		return s
 	}
-	return v
+	return ""
+}
+
+func (c pasetoClaims) JTI() string {
+	if s, ok := c["jti"].(string); ok {
+		return s
+	}
+	return ""
+}
+
+func (c pasetoClaims) ExpiresAt() time.Time {
+	switch v := c["exp"].(type) {
+	case time.Time:
+		return v.UTC()
+	case string:
+		if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Time{}
+}
+
+func (c pasetoClaims) Get(key string) (any, bool) {
+	v, ok := c[key]
+	return v, ok
+}
+
+func (c pasetoClaims) GetString(key string) (string, bool) {
+	v, ok := c[key].(string)
+	return v, ok
 }

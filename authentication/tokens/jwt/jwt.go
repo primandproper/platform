@@ -13,13 +13,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Application-specific claim keys the Parse* helpers look up. Callers that want
-// these populated must supply them via extraClaims when calling IssueToken.
-const (
-	accountIDKey = "account_id"
-	sessionIDKey = "sid"
-)
-
 type (
 	signer struct {
 		tracer     tracing.Tracer
@@ -44,8 +37,8 @@ func NewJWTSigner(logger logging.Logger, tracerProvider tracing.TracerProvider, 
 
 // IssueToken issues a new JSON web token. The issuer owns the standard claims
 // (exp, nbf, iat, aud, iss, sub, jti); callers supply any application-specific
-// claims (account_id, sid, etc.) via extraClaims. Passing a reserved-claim key
-// in extraClaims returns ErrReservedClaim.
+// claims via extraClaims. Passing a reserved-claim key in extraClaims returns
+// ErrReservedClaim.
 func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
 	_, span := s.tracer.StartSpan(ctx)
 	defer span.End()
@@ -82,73 +75,22 @@ func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Dur
 	return tokenStr, jti, nil
 }
 
-// ParseUserIDFromToken parses a AccessToken and returns the associated user ID.
-func (s *signer) ParseUserIDFromToken(ctx context.Context, token string) (string, error) {
-	userID, _, err := s.ParseUserIDAndAccountIDFromToken(ctx, token)
-	return userID, err
-}
-
-// ParseUserIDAndAccountIDFromToken parses a JWT and returns the user ID and optional account ID.
-func (s *signer) ParseUserIDAndAccountIDFromToken(ctx context.Context, tokenString string) (userID, accountID string, err error) {
+// ParseToken parses and verifies a JWT and returns its claims.
+func (s *signer) ParseToken(ctx context.Context, tokenString string) (tokens.Claims, error) {
 	_, span := s.tracer.StartSpan(ctx)
 	defer span.End()
 
 	parsedToken, err := s.parseToken(tokenString)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
-	subject, err := parsedToken.Claims.GetSubject()
-	if err != nil {
-		return "", "", err
+	mapClaims, ok := parsedToken.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("unexpected JWT claims type %T", parsedToken.Claims)
 	}
 
-	// Extract optional account_id claim
-	if claims, ok := parsedToken.Claims.(jwt.MapClaims); ok {
-		if aid, ok2 := claims[accountIDKey].(string); ok2 && aid != "" {
-			return subject, aid, nil
-		}
-	}
-
-	return subject, "", nil
-}
-
-// ParseSessionIDFromToken extracts the session ID claim from a JWT.
-func (s *signer) ParseSessionIDFromToken(ctx context.Context, tokenString string) (string, error) {
-	_, span := s.tracer.StartSpan(ctx)
-	defer span.End()
-
-	parsedToken, err := s.parseToken(tokenString)
-	if err != nil {
-		return "", err
-	}
-
-	if claims, ok := parsedToken.Claims.(jwt.MapClaims); ok {
-		if sid, ok2 := claims[sessionIDKey].(string); ok2 {
-			return sid, nil
-		}
-	}
-
-	return "", nil
-}
-
-// ParseJTIFromToken extracts the JTI claim from a JWT.
-func (s *signer) ParseJTIFromToken(ctx context.Context, tokenString string) (string, error) {
-	_, span := s.tracer.StartSpan(ctx)
-	defer span.End()
-
-	parsedToken, err := s.parseToken(tokenString)
-	if err != nil {
-		return "", err
-	}
-
-	if claims, ok := parsedToken.Claims.(jwt.MapClaims); ok {
-		if jti, ok2 := claims["jti"].(string); ok2 {
-			return jti, nil
-		}
-	}
-
-	return "", nil
+	return jwtClaims{inner: mapClaims}, nil
 }
 
 func (s *signer) parseToken(tokenString string) (*jwt.Token, error) {
@@ -164,4 +106,42 @@ func (s *signer) parseToken(tokenString string) (*jwt.Token, error) {
 	}
 
 	return parsedToken, nil
+}
+
+// jwtClaims adapts jwt.MapClaims to tokens.Claims.
+type jwtClaims struct {
+	inner jwt.MapClaims
+}
+
+func (c jwtClaims) Subject() string {
+	sub, err := c.inner.GetSubject()
+	if err != nil {
+		return ""
+	}
+	return sub
+}
+
+func (c jwtClaims) JTI() string {
+	if s, ok := c.inner["jti"].(string); ok {
+		return s
+	}
+	return ""
+}
+
+func (c jwtClaims) ExpiresAt() time.Time {
+	exp, err := c.inner.GetExpirationTime()
+	if err != nil || exp == nil {
+		return time.Time{}
+	}
+	return exp.UTC()
+}
+
+func (c jwtClaims) Get(key string) (any, bool) {
+	v, ok := c.inner[key]
+	return v, ok
+}
+
+func (c jwtClaims) GetString(key string) (string, bool) {
+	v, ok := c.inner[key].(string)
+	return v, ok
 }

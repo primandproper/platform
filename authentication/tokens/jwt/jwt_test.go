@@ -10,8 +10,8 @@ import (
 	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 const (
@@ -29,23 +29,23 @@ func Test_signer_IssueJWT(T *testing.T) {
 		t.Parallel()
 
 		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
+		must.NoError(t, err)
 
 		ctx := t.Context()
 
 		actual, _, err := s.IssueToken(ctx, exampleSubject, exampleExpiry, nil)
-		assert.NoError(t, err)
+		test.NoError(t, err)
 
-		parsed, err := s.ParseUserIDFromToken(ctx, actual)
-		assert.NoError(t, err)
-		assert.Equal(t, exampleSubject, parsed)
+		claims, err := s.ParseToken(ctx, actual)
+		test.NoError(t, err)
+		test.EqOp(t, exampleSubject, claims.Subject())
 	})
 
-	T.Run("with account ID and session ID", func(t *testing.T) {
+	T.Run("with extra claims", func(t *testing.T) {
 		t.Parallel()
 
 		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
+		must.NoError(t, err)
 
 		ctx := t.Context()
 
@@ -56,57 +56,60 @@ func Test_signer_IssueJWT(T *testing.T) {
 			"account_id": accountID,
 			"sid":        sessionID,
 		})
-		assert.NoError(t, err)
-		assert.NotEmpty(t, tokenStr)
-		assert.NotEmpty(t, jti)
+		test.NoError(t, err)
+		test.NotEq(t, "", tokenStr)
+		test.NotEq(t, "", jti)
 
-		// Verify user ID
-		parsedUserID, err := s.ParseUserIDFromToken(ctx, tokenStr)
-		assert.NoError(t, err)
-		assert.Equal(t, exampleSubject, parsedUserID)
+		claims, err := s.ParseToken(ctx, tokenStr)
+		must.NoError(t, err)
 
-		// Verify account ID
-		parsedUserID, parsedAccountID, err := s.ParseUserIDAndAccountIDFromToken(ctx, tokenStr)
-		assert.NoError(t, err)
-		assert.Equal(t, exampleSubject, parsedUserID)
-		assert.Equal(t, accountID, parsedAccountID)
+		test.EqOp(t, exampleSubject, claims.Subject())
+		test.EqOp(t, jti, claims.JTI())
+		test.False(t, claims.ExpiresAt().IsZero())
 
-		// Verify session ID
-		parsedSessionID, err := s.ParseSessionIDFromToken(ctx, tokenStr)
-		assert.NoError(t, err)
-		assert.Equal(t, sessionID, parsedSessionID)
+		gotAccount, ok := claims.GetString("account_id")
+		test.True(t, ok)
+		test.EqOp(t, accountID, gotAccount)
+
+		gotSession, ok := claims.GetString("sid")
+		test.True(t, ok)
+		test.EqOp(t, sessionID, gotSession)
+
+		raw, ok := claims.Get("account_id")
+		test.True(t, ok)
+		test.Eq(t, any(accountID), raw)
 	})
 
 	T.Run("rejects reserved claim key", func(t *testing.T) {
 		t.Parallel()
 
 		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
+		must.NoError(t, err)
 
 		_, _, err = s.IssueToken(t.Context(), exampleSubject, exampleExpiry, map[string]any{
 			"sub": "attacker_id",
 		})
-		assert.ErrorIs(t, err, tokens.ErrReservedClaim)
+		test.ErrorIs(t, err, tokens.ErrReservedClaim)
 	})
 }
 
-func Test_signer_ParseJWT(T *testing.T) {
+func Test_signer_ParseToken(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
 		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
+		must.NoError(t, err)
 
 		ctx := t.Context()
 
 		issuedToken, _, err := s.IssueToken(ctx, exampleSubject, exampleExpiry, nil)
-		assert.NoError(t, err)
+		test.NoError(t, err)
 
-		actual, err := s.ParseUserIDFromToken(ctx, issuedToken)
-		assert.NoError(t, err)
-		assert.Equal(t, exampleSubject, actual)
+		claims, err := s.ParseToken(ctx, issuedToken)
+		test.NoError(t, err)
+		test.EqOp(t, exampleSubject, claims.Subject())
 	})
 
 	T.Run("with invalid algo", func(t *testing.T) {
@@ -116,115 +119,53 @@ func Test_signer_ParseJWT(T *testing.T) {
 
 		cryptoSigner := ed25519.PrivateKey(ed25519SigningKey)
 		tokenString, err := token.SignedString(cryptoSigner)
-		require.NoError(t, err)
+		must.NoError(t, err)
 
 		ctx := t.Context()
 
 		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
+		must.NoError(t, err)
 
-		actual, err := s.ParseUserIDFromToken(ctx, tokenString)
-		assert.Error(t, err)
-		assert.Empty(t, actual)
+		claims, err := s.ParseToken(ctx, tokenString)
+		test.Error(t, err)
+		test.Nil(t, claims)
 	})
 
 	T.Run("with invalid key", func(t *testing.T) {
 		t.Parallel()
 
 		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
+		must.NoError(t, err)
 
 		s.(*signer).signingKey = nil
 
 		ctx := t.Context()
 
-		actual, err := s.ParseUserIDFromToken(ctx, exampleToken)
-		assert.Error(t, err)
-		assert.Empty(t, actual)
+		claims, err := s.ParseToken(ctx, exampleToken)
+		test.Error(t, err)
+		test.Nil(t, claims)
 	})
-}
 
-func Test_signer_ParseSessionIDFromToken(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
+	T.Run("missing optional claim returns empty string", func(t *testing.T) {
 		t.Parallel()
 
 		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
-
-		ctx := t.Context()
-
-		sessionID := "session_abc"
-
-		tokenStr, _, err := s.IssueToken(ctx, exampleSubject, exampleExpiry, map[string]any{"sid": sessionID})
-		require.NoError(t, err)
-
-		actual, err := s.ParseSessionIDFromToken(ctx, tokenStr)
-		assert.NoError(t, err)
-		assert.Equal(t, sessionID, actual)
-	})
-
-	T.Run("with missing claim", func(t *testing.T) {
-		t.Parallel()
-
-		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
+		must.NoError(t, err)
 
 		ctx := t.Context()
 
 		tokenStr, _, err := s.IssueToken(ctx, exampleSubject, exampleExpiry, nil)
-		require.NoError(t, err)
+		must.NoError(t, err)
 
-		actual, err := s.ParseSessionIDFromToken(ctx, tokenStr)
-		assert.NoError(t, err)
-		assert.Empty(t, actual)
-	})
+		claims, err := s.ParseToken(ctx, tokenStr)
+		must.NoError(t, err)
 
-	T.Run("with invalid token", func(t *testing.T) {
-		t.Parallel()
+		gotSession, ok := claims.GetString("sid")
+		test.False(t, ok)
+		test.EqOp(t, "", gotSession)
 
-		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
-
-		ctx := t.Context()
-
-		actual, err := s.ParseSessionIDFromToken(ctx, "not-a-valid-token")
-		assert.Error(t, err)
-		assert.Empty(t, actual)
-	})
-}
-
-func Test_signer_ParseJTIFromToken(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
-		t.Parallel()
-
-		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
-
-		ctx := t.Context()
-
-		tokenStr, expectedJTI, err := s.IssueToken(ctx, exampleSubject, exampleExpiry, nil)
-		require.NoError(t, err)
-		require.NotEmpty(t, expectedJTI)
-
-		actual, err := s.ParseJTIFromToken(ctx, tokenStr)
-		assert.NoError(t, err)
-		assert.Equal(t, expectedJTI, actual)
-	})
-
-	T.Run("with invalid token", func(t *testing.T) {
-		t.Parallel()
-
-		s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
-		require.NoError(t, err)
-
-		ctx := t.Context()
-
-		actual, err := s.ParseJTIFromToken(ctx, "not-a-valid-token")
-		assert.Error(t, err)
-		assert.Empty(t, actual)
+		raw, ok := claims.Get("sid")
+		test.False(t, ok)
+		test.Nil(t, raw)
 	})
 }

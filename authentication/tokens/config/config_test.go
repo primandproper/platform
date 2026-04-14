@@ -8,8 +8,8 @@ import (
 	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 	"github.com/primandproper/platform/random"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 func TestConfig_ValidateWithContext(T *testing.T) {
@@ -26,7 +26,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
 		}
 
-		require.NoError(t, cfg.ValidateWithContext(ctx))
+		must.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("with missing key", func(t *testing.T) {
@@ -37,7 +37,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Provider: ProviderJWT,
 		}
 
-		require.Error(t, cfg.ValidateWithContext(ctx))
+		must.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("with invalid provider", func(t *testing.T) {
@@ -51,7 +51,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
 		}
 
-		require.Error(t, cfg.ValidateWithContext(ctx))
+		must.Error(t, cfg.ValidateWithContext(ctx))
 	})
 }
 
@@ -71,8 +71,8 @@ func TestConfig_ProvideTokenIssuer(T *testing.T) {
 		}
 
 		actual, err := cfg.ProvideTokenIssuer(logger, tracingnoop.NewTracerProvider())
-		assert.NotNil(t, actual)
-		assert.NoError(t, err)
+		test.NotNil(t, actual)
+		test.NoError(t, err)
 	})
 
 	T.Run("with invalid provider", func(t *testing.T) {
@@ -84,8 +84,8 @@ func TestConfig_ProvideTokenIssuer(T *testing.T) {
 		}
 
 		actual, err := cfg.ProvideTokenIssuer(logger, tracingnoop.NewTracerProvider())
-		assert.Nil(t, actual)
-		assert.Error(t, err)
+		test.Nil(t, actual)
+		test.Error(t, err)
 	})
 
 	T.Run("with PASETO provider", func(t *testing.T) {
@@ -100,8 +100,8 @@ func TestConfig_ProvideTokenIssuer(T *testing.T) {
 		}
 
 		actual, err := cfg.ProvideTokenIssuer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
-		require.NoError(t, err)
-		assert.NotNil(t, actual)
+		must.NoError(t, err)
+		test.NotNil(t, actual)
 	})
 
 	T.Run("with unknown provider falls back to noop", func(t *testing.T) {
@@ -116,8 +116,8 @@ func TestConfig_ProvideTokenIssuer(T *testing.T) {
 		}
 
 		actual, err := cfg.ProvideTokenIssuer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
-		require.NoError(t, err)
-		assert.NotNil(t, actual)
+		must.NoError(t, err)
+		test.NotNil(t, actual)
 	})
 
 	T.Run("with invalid base64 signing key", func(t *testing.T) {
@@ -131,8 +131,8 @@ func TestConfig_ProvideTokenIssuer(T *testing.T) {
 		}
 
 		actual, err := cfg.ProvideTokenIssuer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
-		assert.Error(t, err)
-		assert.Nil(t, actual)
+		test.Error(t, err)
+		test.Nil(t, actual)
 	})
 
 	T.Run("with wrong signing key length", func(t *testing.T) {
@@ -147,7 +147,7 @@ func TestConfig_ProvideTokenIssuer(T *testing.T) {
 		}
 
 		actual, err := cfg.ProvideTokenIssuer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
-		assert.Error(t, err)
-		assert.Nil(t, actual)
+		test.Error(t, err)
+		test.Nil(t, actual)
 	})
 }

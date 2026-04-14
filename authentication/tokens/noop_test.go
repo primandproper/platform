@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 func TestNewNoopTokenIssuer(T *testing.T) {
@@ -15,7 +15,7 @@ func TestNewNoopTokenIssuer(T *testing.T) {
 		t.Parallel()
 
 		issuer := NewNoopTokenIssuer()
-		require.NotNil(t, issuer)
+		must.NotNil(t, issuer)
 	})
 }
 
@@ -28,49 +28,30 @@ func TestNoopTokenIssuer(T *testing.T) {
 		issuer := NewNoopTokenIssuer()
 
 		tokenStr, jti, err := issuer.IssueToken(t.Context(), t.Name(), time.Minute, nil)
-		assert.NoError(t, err)
-		assert.Empty(t, tokenStr)
-		assert.Empty(t, jti)
+		test.NoError(t, err)
+		test.EqOp(t, "", tokenStr)
+		test.EqOp(t, "", jti)
 	})
 
-	T.Run("ParseUserIDFromToken returns empty string and no error", func(t *testing.T) {
+	T.Run("ParseToken returns empty claims and no error", func(t *testing.T) {
 		t.Parallel()
 
 		issuer := NewNoopTokenIssuer()
 
-		userID, err := issuer.ParseUserIDFromToken(t.Context(), t.Name())
-		assert.NoError(t, err)
-		assert.Empty(t, userID)
-	})
+		claims, err := issuer.ParseToken(t.Context(), t.Name())
+		must.NoError(t, err)
+		must.NotNil(t, claims)
 
-	T.Run("ParseUserIDAndAccountIDFromToken returns empty values and no error", func(t *testing.T) {
-		t.Parallel()
+		test.EqOp(t, "", claims.Subject())
+		test.EqOp(t, "", claims.JTI())
+		test.True(t, claims.ExpiresAt().IsZero())
 
-		issuer := NewNoopTokenIssuer()
+		v, ok := claims.Get("anything")
+		test.False(t, ok)
+		test.Nil(t, v)
 
-		userID, accountID, err := issuer.ParseUserIDAndAccountIDFromToken(t.Context(), t.Name())
-		assert.NoError(t, err)
-		assert.Empty(t, userID)
-		assert.Empty(t, accountID)
-	})
-
-	T.Run("ParseSessionIDFromToken returns empty string and no error", func(t *testing.T) {
-		t.Parallel()
-
-		issuer := NewNoopTokenIssuer()
-
-		sessionID, err := issuer.ParseSessionIDFromToken(t.Context(), t.Name())
-		assert.NoError(t, err)
-		assert.Empty(t, sessionID)
-	})
-
-	T.Run("ParseJTIFromToken returns empty string and no error", func(t *testing.T) {
-		t.Parallel()
-
-		issuer := NewNoopTokenIssuer()
-
-		jti, err := issuer.ParseJTIFromToken(t.Context(), t.Name())
-		assert.NoError(t, err)
-		assert.Empty(t, jti)
+		s, ok := claims.GetString("anything")
+		test.False(t, ok)
+		test.EqOp(t, "", s)
 	})
 }

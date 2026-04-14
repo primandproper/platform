@@ -12,26 +12,20 @@ func (n *noopTokenIssuer) IssueToken(context.Context, string, time.Duration, map
 	return "", "", nil
 }
 
-// ParseUserIDFromToken implements the interface.
-func (n *noopTokenIssuer) ParseUserIDFromToken(context.Context, string) (string, error) {
-	return "", nil
-}
-
-// ParseUserIDAndAccountIDFromToken implements the interface.
-func (n *noopTokenIssuer) ParseUserIDAndAccountIDFromToken(context.Context, string) (userID, accountID string, err error) {
-	return "", "", nil
-}
-
-// ParseSessionIDFromToken implements the interface.
-func (n *noopTokenIssuer) ParseSessionIDFromToken(context.Context, string) (string, error) {
-	return "", nil
-}
-
-// ParseJTIFromToken implements the interface.
-func (n *noopTokenIssuer) ParseJTIFromToken(context.Context, string) (string, error) {
-	return "", nil
+// ParseToken implements the interface.
+func (n *noopTokenIssuer) ParseToken(context.Context, string) (Claims, error) {
+	return noopClaims{}, nil
 }
 
 func NewNoopTokenIssuer() Issuer {
 	return &noopTokenIssuer{}
 }
+
+// noopClaims is an empty Claims implementation.
+type noopClaims struct{}
+
+func (noopClaims) Subject() string                 { return "" }
+func (noopClaims) JTI() string                     { return "" }
+func (noopClaims) ExpiresAt() time.Time            { return time.Time{} }
+func (noopClaims) Get(string) (any, bool)          { return nil, false }
+func (noopClaims) GetString(string) (string, bool) { return "", false }

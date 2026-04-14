@@ -10,8 +10,8 @@ import (
 	"github.com/primandproper/platform/random"
 
 	"github.com/samber/do/v2"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 func TestProvideTokenIssuer(T *testing.T) {
@@ -29,8 +29,8 @@ func TestProvideTokenIssuer(T *testing.T) {
 		}
 
 		issuer, err := ProvideTokenIssuer(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
-		require.NoError(t, err)
-		assert.NotNil(t, issuer)
+		must.NoError(t, err)
+		test.NotNil(t, issuer)
 	})
 }
 
@@ -56,7 +56,7 @@ func TestRegisterTokenIssuer(T *testing.T) {
 		RegisterTokenIssuer(i)
 
 		issuer, err := do.Invoke[tokens.Issuer](i)
-		require.NoError(t, err)
-		assert.NotNil(t, issuer)
+		must.NoError(t, err)
+		test.NotNil(t, issuer)
 	})
 }

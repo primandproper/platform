@@ -64,7 +64,6 @@ linters:
   disable:
     - containedctx
     - cyclop
-    - depguard
     - dupl
     - dupword
     - err113
@@ -94,6 +93,44 @@ linters:
     - wrapcheck
     - wsl
   settings:
+    depguard:
+      rules:
+        disallow-banned-packages:
+          deny:
+            - pkg: github.com/stretchr/testify/mock
+              desc: >-
+                Use matryer/moq for mocks. See any existing <pkg>/mock/doc.go
+                for the go:generate pattern (e.g. authentication/tokens/mock).
+                testify/mock is being migrated out via the /convert-mocks
+                skill; do not reintroduce it.
+            - pkg: github.com/stretchr/testify/assert
+              desc: >-
+                Use github.com/shoenig/test (package name `test`) for
+                non-fatal assertions. See existing tests (e.g.
+                database/errors_test.go) for examples. testify/assert is
+                being migrated out via the /convert-assertions skill; do
+                not reintroduce it.
+            - pkg: github.com/stretchr/testify/require
+              desc: >-
+                Use github.com/shoenig/test/must (package name `must`) for
+                fatal assertions. testify/require is being migrated out via
+                the /convert-assertions skill; do not reintroduce it.
+            - pkg: github.com/pkg/errors
+              desc: >-
+                Use github.com/cockroachdb/errors for rich error context.
+                Platform-level sentinels live in internalerrors/.
+            - pkg: io/ioutil
+              desc: >-
+                Deprecated since Go 1.16. Use io and os (e.g. io.ReadAll,
+                os.ReadFile, os.WriteFile) instead.
+            - pkg: math/rand
+              desc: >-
+                Use math/rand/v2. The v1 package has a globally-shared
+                Source and is race-prone; this repo standardized on v2.
+            - pkg: github.com/dgrijalva/jwt-go
+              desc: >-
+                Abandoned upstream with known CVEs. Use
+                github.com/golang-jwt/jwt/v5 (already a direct dep).
     errcheck:
       check-type-assertions: true
       check-blank: true

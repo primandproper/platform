@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/shoenig/test"
 )
 
 func TestConfig_ValidateWithContext(T *testing.T) {
@@ -20,7 +20,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Lifetime:              24 * time.Hour,
 		}
 
-		assert.NoError(t, cfg.ValidateWithContext(t.Context()))
+		test.NoError(t, cfg.ValidateWithContext(t.Context()))
 	})
 
 	T.Run("with lifetime below minimum", func(t *testing.T) {
@@ -33,7 +33,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Lifetime:              1 * time.Minute,
 		}
 
-		assert.Error(t, cfg.ValidateWithContext(t.Context()))
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
 	T.Run("with missing name", func(t *testing.T) {
@@ -44,7 +44,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Base64EncodedBlockKey: t.Name(),
 		}
 
-		assert.Error(t, cfg.ValidateWithContext(t.Context()))
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
 	T.Run("with missing hash key", func(t *testing.T) {
@@ -54,7 +54,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Base64EncodedBlockKey: t.Name(),
 		}
 
-		assert.Error(t, cfg.ValidateWithContext(t.Context()))
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
 	T.Run("with missing block key", func(t *testing.T) {
@@ -64,6 +64,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Base64EncodedHashKey: t.Name(),
 		}
 
-		assert.Error(t, cfg.ValidateWithContext(t.Context()))
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 }

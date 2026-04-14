@@ -9,8 +9,8 @@ import (
 	tracingnoop "github.com/primandproper/platform/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 func TestRegisterCookieManager(T *testing.T) {
@@ -34,7 +34,7 @@ func TestRegisterCookieManager(T *testing.T) {
 		RegisterCookieManager(i)
 
 		manager, err := do.Invoke[cookies.Manager](i)
-		require.NoError(t, err)
-		assert.NotNil(t, manager)
+		must.NoError(t, err)
+		test.NotNil(t, manager)
 	})
 }

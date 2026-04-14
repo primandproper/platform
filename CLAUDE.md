@@ -54,7 +54,18 @@ The Makefile `THIS` variable must be the full module path (`github.com/primandpr
 
 ## Testing
 
-- Tests use `stretchr/testify` (assert, require, mock)
+- **`stretchr/testify` is banned in its entirety** (`assert`, `require`, and `mock`).
+  The `depguard` linter enforces this — see `.golangci.yml`. Do not reintroduce
+  any testify import.
+  - Non-fatal assertions: `github.com/shoenig/test` (package `test`).
+    `test.EqOp` for comparable types, `test.Eq` for slices/maps/deep comparison.
+    Length/contains helpers have FLIPPED argument order: `test.SliceLen(t, n, slice)`.
+  - Fatal assertions: `github.com/shoenig/test/must` (package `must`).
+    Same function names as `test`.
+  - Mocks: `matryer/moq`, generated from interfaces. See any `<pkg>/mock/doc.go`
+    for the `//go:generate` directive pattern (e.g. `authentication/tokens/mock/doc.go`).
+  - The `/convert-assertions` and `/convert-mocks` skills document the migration
+    rules in detail.
 - Tests call `t.Parallel()` by default
 - Integration tests use `testcontainers-go` and live in separate directories excluded from `make test`
 - `make test` excludes: cmd, integration, mock, fakes, converters, utils, generated packages
