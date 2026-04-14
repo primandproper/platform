@@ -27,6 +27,9 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
+      - name: Vendor dependencies
+        run: make vendor
+
       - name: run tests with coverage
         env:
           RUN_CONTAINER_TESTS: "true"

@@ -35,20 +35,20 @@ func NewPASETOSigner(logger logging.Logger, tracerProvider tracing.TracerProvide
 	return s, nil
 }
 
-type tokenPayload struct {
-	Expiration time.Time
-	IssuedAt   time.Time
-	NotBefore  time.Time
-	Audience   string
-	Issuer     string
-	JTI        string
-	Subject    string
-	AccountID  string `json:"account_id,omitempty"`
-	SessionID  string `json:"sid,omitempty"`
-}
+// Application-specific claim keys the Parse* helpers look up. Callers that want
+// these populated must supply them via extraClaims when calling IssueToken.
+const (
+	subjectKey   = "sub"
+	jtiKey       = "jti"
+	accountIDKey = "account_id"
+	sessionIDKey = "sid"
+)
 
-// IssueToken issues a new PASETO token, optionally including account ID and session ID.
-func (s *signer) IssueToken(ctx context.Context, user tokens.User, expiry time.Duration, accountID, sessionID string) (tokenStr, jti string, err error) {
+// IssueToken issues a new PASETO token. The issuer owns the standard claims
+// (exp, nbf, iat, aud, iss, sub, jti); callers supply any application-specific
+// claims (account_id, sid, etc.) via extraClaims. Passing a reserved-claim key
+// in extraClaims returns ErrReservedClaim.
+func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
 	_, span := s.tracer.StartSpan(ctx)
 	defer span.End()
 
@@ -58,23 +58,23 @@ func (s *signer) IssueToken(ctx context.Context, user tokens.User, expiry time.D
 
 	jti = identifiers.New()
 
-	t := tokenPayload{
-		Audience:   s.audience,
-		Issuer:     s.issuer,
-		JTI:        jti,
-		Subject:    user.GetID(),
-		IssuedAt:   time.Now().UTC(),
-		Expiration: time.Now().Add(expiry).UTC(),
-		NotBefore:  time.Now().Add(-1 * time.Minute).UTC(),
+	payload := map[string]any{
+		"aud":      s.audience,
+		"iss":      s.issuer,
+		jtiKey:     jti,
+		subjectKey: subject,
+		"iat":      time.Now().UTC(),
+		"exp":      time.Now().Add(expiry).UTC(),
+		"nbf":      time.Now().Add(-1 * time.Minute).UTC(),
 	}
-	if accountID != "" {
-		t.AccountID = accountID
-	}
-	if sessionID != "" {
-		t.SessionID = sessionID
+	for k, v := range extraClaims {
+		if _, reserved := tokens.ReservedClaimKeys[k]; reserved {
+			return "", "", fmt.Errorf("%w: %q", tokens.ErrReservedClaim, k)
+		}
+		payload[k] = v
 	}
 
-	tokenStr, err = paseto.NewV2().Encrypt(s.signingKey, t, "footer")
+	tokenStr, err = paseto.NewV2().Encrypt(s.signingKey, payload, "footer")
 	if err != nil {
 		return "", "", fmt.Errorf("signing token with key length %d: %w", len(s.signingKey), err)
 	}
@@ -98,7 +98,7 @@ func (s *signer) ParseUserIDAndAccountIDFromToken(ctx context.Context, providedT
 		return "", "", err
 	}
 
-	return parsedToken.Subject, parsedToken.AccountID, nil
+	return claimString(parsedToken, subjectKey), claimString(parsedToken, accountIDKey), nil
 }
 
 // ParseSessionIDFromToken extracts the session ID from a PASETO token.
@@ -111,7 +111,7 @@ func (s *signer) ParseSessionIDFromToken(ctx context.Context, providedToken stri
 		return "", err
 	}
 
-	return parsedToken.SessionID, nil
+	return claimString(parsedToken, sessionIDKey), nil
 }
 
 // ParseJTIFromToken extracts the JTI from a PASETO token.
@@ -124,12 +124,12 @@ func (s *signer) ParseJTIFromToken(ctx context.Context, providedToken string) (s
 		return "", err
 	}
 
-	return parsedToken.JTI, nil
+	return claimString(parsedToken, jtiKey), nil
 }
 
-func (s *signer) decryptToken(providedToken string) (*tokenPayload, error) {
+func (s *signer) decryptToken(providedToken string) (map[string]any, error) {
 	var (
-		parsedToken tokenPayload
+		parsedToken map[string]any
 		footer      string
 	)
 	if err := paseto.NewV2().Decrypt(providedToken, s.signingKey, &parsedToken, &footer); err != nil {
@@ -137,5 +137,13 @@ func (s *signer) decryptToken(providedToken string) (*tokenPayload, error) {
 		return nil, err
 	}
 
-	return &parsedToken, nil
+	return parsedToken, nil
+}
+
+func claimString(claims map[string]any, key string) string {
+	v, ok := claims[key].(string)
+	if !ok {
+		return ""
+	}
+	return v
 }

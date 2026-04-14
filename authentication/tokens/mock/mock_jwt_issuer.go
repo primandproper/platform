@@ -15,8 +15,8 @@ type Issuer struct {
 	mock.Mock
 }
 
-func (m *Issuer) IssueToken(ctx context.Context, user tokens.User, expiry time.Duration, accountID, sessionID string) (tokenStr, jti string, err error) {
-	returnValues := m.Called(ctx, user, expiry, accountID, sessionID)
+func (m *Issuer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
+	returnValues := m.Called(ctx, subject, expiry, extraClaims)
 	return returnValues.String(0), returnValues.String(1), returnValues.Error(2)
 }
 

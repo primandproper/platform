@@ -13,6 +13,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Application-specific claim keys the Parse* helpers look up. Callers that want
+// these populated must supply them via extraClaims when calling IssueToken.
 const (
 	accountIDKey = "account_id"
 	sessionIDKey = "sid"
@@ -40,8 +42,11 @@ func NewJWTSigner(logger logging.Logger, tracerProvider tracing.TracerProvider, 
 	return s, nil
 }
 
-// IssueToken issues a new JSON web token, optionally including account ID and session ID claims.
-func (s *signer) IssueToken(ctx context.Context, user tokens.User, expiry time.Duration, accountID, sessionID string) (tokenStr, jti string, err error) {
+// IssueToken issues a new JSON web token. The issuer owns the standard claims
+// (exp, nbf, iat, aud, iss, sub, jti); callers supply any application-specific
+// claims (account_id, sid, etc.) via extraClaims. Passing a reserved-claim key
+// in extraClaims returns ErrReservedClaim.
+func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
 	_, span := s.tracer.StartSpan(ctx)
 	defer span.End()
 
@@ -57,14 +62,14 @@ func (s *signer) IssueToken(ctx context.Context, user tokens.User, expiry time.D
 		"iat": jwt.NewNumericDate(time.Now().UTC()),                       /* issued at */
 		"aud": s.audience,                                                 /* audience, i.e. server address */
 		"iss": s.issuer,                                                   /* issuer */
-		"sub": user.GetID(),                                               /* subject */
+		"sub": subject,                                                    /* subject */
 		"jti": jti,                                                        /* JWT ID */
 	}
-	if accountID != "" {
-		claims[accountIDKey] = accountID
-	}
-	if sessionID != "" {
-		claims[sessionIDKey] = sessionID
+	for k, v := range extraClaims {
+		if _, reserved := tokens.ReservedClaimKeys[k]; reserved {
+			return "", "", fmt.Errorf("%w: %q", tokens.ErrReservedClaim, k)
+		}
+		claims[k] = v
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

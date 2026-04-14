@@ -8,7 +8,7 @@ import (
 type noopTokenIssuer struct{}
 
 // IssueToken implements the interface.
-func (n *noopTokenIssuer) IssueToken(context.Context, User, time.Duration, string, string) (tokenStr, jti string, err error) {
+func (n *noopTokenIssuer) IssueToken(context.Context, string, time.Duration, map[string]any) (tokenStr, jti string, err error) {
 	return "", "", nil
 }
 

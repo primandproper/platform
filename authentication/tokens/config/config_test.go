@@ -39,6 +39,20 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		require.Error(t, cfg.ValidateWithContext(ctx))
 	})
+
+	T.Run("with invalid provider", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{
+			Provider:                "not-a-real-provider",
+			Issuer:                  t.Name(),
+			Audience:                t.Name(),
+			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
+		}
+
+		require.Error(t, cfg.ValidateWithContext(ctx))
+	})
 }
 
 func TestConfig_ProvideTokenIssuer(T *testing.T) {
@@ -72,5 +86,68 @@ func TestConfig_ProvideTokenIssuer(T *testing.T) {
 		actual, err := cfg.ProvideTokenIssuer(logger, tracingnoop.NewTracerProvider())
 		assert.Nil(t, actual)
 		assert.Error(t, err)
+	})
+
+	T.Run("with PASETO provider", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{
+			Provider:                ProviderPASETO,
+			Issuer:                  t.Name(),
+			Audience:                t.Name(),
+			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
+		}
+
+		actual, err := cfg.ProvideTokenIssuer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		require.NoError(t, err)
+		assert.NotNil(t, actual)
+	})
+
+	T.Run("with unknown provider falls back to noop", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{
+			Provider:                "some-unknown-provider",
+			Issuer:                  t.Name(),
+			Audience:                t.Name(),
+			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
+		}
+
+		actual, err := cfg.ProvideTokenIssuer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		require.NoError(t, err)
+		assert.NotNil(t, actual)
+	})
+
+	T.Run("with invalid base64 signing key", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Provider:                ProviderJWT,
+			Issuer:                  t.Name(),
+			Audience:                t.Name(),
+			Base64EncodedSigningKey: "not-valid-base64!!!",
+		}
+
+		actual, err := cfg.ProvideTokenIssuer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		assert.Error(t, err)
+		assert.Nil(t, actual)
+	})
+
+	T.Run("with wrong signing key length", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{
+			Provider:                ProviderJWT,
+			Issuer:                  t.Name(),
+			Audience:                t.Name(),
+			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 16)),
+		}
+
+		actual, err := cfg.ProvideTokenIssuer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		assert.Error(t, err)
+		assert.Nil(t, actual)
 	})
 }
