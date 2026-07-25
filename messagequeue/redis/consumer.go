@@ -6,12 +6,12 @@ import (
 	"io"
 	"sync"
 
-	"github.com/primandproper/platform-go/v6/messagequeue"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/keys"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
+	"github.com/primandproper/platform-go/v7/messagequeue"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 
 	"github.com/redis/go-redis/v9"
 )

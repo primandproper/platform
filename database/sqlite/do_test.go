@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/primandproper/platform-go/v6/database"
-	loggingnoop "github.com/primandproper/platform-go/v6/observability/logging/noop"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	tracingnoop "github.com/primandproper/platform-go/v6/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v7/database"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

@@ -14,12 +14,12 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
-	"github.com/primandproper/platform-go/v6/routing"
-	"github.com/primandproper/platform-go/v6/routing/backends/internal/httpmw"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v7/routing"
+	"github.com/primandproper/platform-go/v7/routing/backends/internal/httpmw"
 
 	"github.com/gin-gonic/gin"
 )

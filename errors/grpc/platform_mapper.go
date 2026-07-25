@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/primandproper/platform-go/v6/circuitbreaking"
-	"github.com/primandproper/platform-go/v6/database"
-	platformerrors "github.com/primandproper/platform-go/v6/errors"
+	"github.com/primandproper/platform-go/v7/circuitbreaking"
+	"github.com/primandproper/platform-go/v7/database"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
 
 	"google.golang.org/grpc/codes"
 )

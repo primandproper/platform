@@ -5,7 +5,7 @@ import (
 	stderrors "errors"
 	"io"
 
-	"github.com/primandproper/platform-go/v6/errors"
+	"github.com/primandproper/platform-go/v7/errors"
 
 	"github.com/klauspost/compress/s2"
 	"github.com/klauspost/compress/zstd"

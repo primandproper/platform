@@ -3,7 +3,7 @@ package numbers_test
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v6/numbers"
+	"github.com/primandproper/platform-go/v7/numbers"
 )
 
 func BenchmarkNumbers(b *testing.B) {

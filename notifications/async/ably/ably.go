@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/notifications/async"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
+	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/notifications/async"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 
 	ablyrest "github.com/ably/ably-go/ably"
 )

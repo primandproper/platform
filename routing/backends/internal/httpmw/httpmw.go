@@ -14,7 +14,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/routing"
+	"github.com/primandproper/platform-go/v7/routing"
 )
 
 const (

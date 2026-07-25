@@ -8,12 +8,12 @@ import (
 	"sync"
 	"testing"
 
-	circuitbreakingcfg "github.com/primandproper/platform-go/v6/circuitbreaking/config"
-	cbnoop "github.com/primandproper/platform-go/v6/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	metricsnoop "github.com/primandproper/platform-go/v6/observability/metrics/noop"
-	"github.com/primandproper/platform-go/v6/uploads"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v7/circuitbreaking/config"
+	cbnoop "github.com/primandproper/platform-go/v7/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v7/uploads"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"

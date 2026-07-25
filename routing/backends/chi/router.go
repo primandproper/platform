@@ -6,11 +6,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
-	"github.com/primandproper/platform-go/v6/routing"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v7/routing"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"

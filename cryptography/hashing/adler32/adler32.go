@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"hash/adler32"
 
-	"github.com/primandproper/platform-go/v6/cryptography/hashing"
+	"github.com/primandproper/platform-go/v7/cryptography/hashing"
 )
 
 var _ hashing.Hasher = (*adler32Hasher)(nil)

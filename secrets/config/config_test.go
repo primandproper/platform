@@ -6,11 +6,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v6/observability/metrics/mock"
-	"github.com/primandproper/platform-go/v6/secrets/gcp"
-	"github.com/primandproper/platform-go/v6/secrets/kubectl"
-	"github.com/primandproper/platform-go/v6/secrets/ssm"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v7/secrets/gcp"
+	"github.com/primandproper/platform-go/v7/secrets/kubectl"
+	"github.com/primandproper/platform-go/v7/secrets/ssm"
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/aws/aws-sdk-go-v2/aws"

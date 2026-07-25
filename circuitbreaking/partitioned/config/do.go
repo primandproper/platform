@@ -3,9 +3,9 @@ package partitionedcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v6/circuitbreaking/partitioned"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
+	"github.com/primandproper/platform-go/v7/circuitbreaking/partitioned"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
 
 	"github.com/samber/do/v2"
 )

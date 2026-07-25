@@ -3,10 +3,10 @@ package secretscfg
 import (
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v6/observability/logging/noop"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	tracingnoop "github.com/primandproper/platform-go/v6/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v6/secrets"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v7/secrets"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

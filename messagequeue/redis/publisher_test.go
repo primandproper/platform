@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/primandproper/platform-go/v6/messagequeue"
-	"github.com/primandproper/platform-go/v6/observability"
-	loggingnoop "github.com/primandproper/platform-go/v6/observability/logging/noop"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v6/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v6/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v7/messagequeue"
+	"github.com/primandproper/platform-go/v7/observability"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/shoenig/test"

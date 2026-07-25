@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/primandproper/platform-go/v6/routing"
+	"github.com/primandproper/platform-go/v7/routing"
 )
 
 // Ensure, that BackendMock does implement routing.Backend.

@@ -3,9 +3,9 @@ package redis
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v6/cache"
-	"github.com/primandproper/platform-go/v6/testutils/containers"
-	"github.com/primandproper/platform-go/v6/testutils/containers/redistest"
+	"github.com/primandproper/platform-go/v7/cache"
+	"github.com/primandproper/platform-go/v7/testutils/containers"
+	"github.com/primandproper/platform-go/v7/testutils/containers/redistest"
 
 	"github.com/shoenig/test/must"
 )

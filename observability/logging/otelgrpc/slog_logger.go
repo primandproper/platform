@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/observability/keys"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	o11yutils "github.com/primandproper/platform-go/v6/observability/utils"
-	"github.com/primandproper/platform-go/v6/version"
+	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability/keys"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	o11yutils "github.com/primandproper/platform-go/v7/observability/utils"
+	"github.com/primandproper/platform-go/v7/version"
 
 	slogmulti "github.com/samber/slog-multi"
 	"go.opentelemetry.io/contrib/bridges/otelslog"

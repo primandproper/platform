@@ -10,7 +10,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/primandproper/platform-go/v6/testutils"
+	"github.com/primandproper/platform-go/v7/testutils"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
