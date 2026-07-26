@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/circuitbreaking"
-	cbmock "github.com/primandproper/platform-go/v6/circuitbreaking/mock"
-	cbnoop "github.com/primandproper/platform-go/v6/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v6/database"
-	"github.com/primandproper/platform-go/v6/distributedlock"
-	"github.com/primandproper/platform-go/v6/identifiers"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	metricsnoop "github.com/primandproper/platform-go/v6/observability/metrics/noop"
-	"github.com/primandproper/platform-go/v6/testutils/containers"
+	"github.com/primandproper/platform-go/v7/circuitbreaking"
+	cbmock "github.com/primandproper/platform-go/v7/circuitbreaking/mock"
+	cbnoop "github.com/primandproper/platform-go/v7/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/distributedlock"
+	"github.com/primandproper/platform-go/v7/identifiers"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v7/testutils/containers"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -52,7 +52,7 @@ func (c *testDBClient) RollbackTransaction(_ context.Context, tx database.SQLQue
 	_ = tx.Rollback()
 }
 
-func (c *testDBClient) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutorAndTransactionManager) error) error {
+func (c *testDBClient) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutor) error) error {
 	return database.RunInTransaction(ctx, c.db, c.RollbackTransaction, fn)
 }
 

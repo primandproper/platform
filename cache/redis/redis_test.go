@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/cache"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v6/circuitbreaking/mock"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v6/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v6/observability/metrics/noop"
-	"github.com/primandproper/platform-go/v6/testutils/containers/redistest"
+	"github.com/primandproper/platform-go/v7/cache"
+	mockcircuitbreaking "github.com/primandproper/platform-go/v7/circuitbreaking/mock"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v7/testutils/containers/redistest"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/shoenig/test"
@@ -66,6 +66,7 @@ func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *m
 
 	return &redisCacheImpl[example]{
 		o11y:             obs,
+		codec:            cache.NewGobCodec[example](),
 		cacheHitCounter:  hitCounter,
 		cacheMissCounter: missCounter,
 		cacheSetCounter:  setCounter,
@@ -75,6 +76,7 @@ func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *m
 		client:           client,
 		circuitBreaker:   cb,
 		expiration:       time.Minute,
+		scanPageSize:     defaultScanPageSize,
 	}, client, cb, obs
 }
 
@@ -869,16 +871,13 @@ func Test_redisCacheImpl_SetMany_GetMany(T *testing.T) {
 		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, nil, nil)
 		must.NoError(t, err)
 
-		bc, ok := c.(cache.BatchCache[example])
-		must.True(t, ok)
-
 		items := map[string]*example{
 			"k1": {Name: "one"},
 			"k2": {Name: "two"},
 		}
-		test.NoError(t, bc.SetMany(ctx, items))
+		test.NoError(t, c.SetMany(ctx, items))
 
-		out, getErr := bc.GetMany(ctx, []string{"k1", "k2", "k3"})
+		out, getErr := c.GetMany(ctx, []string{"k1", "k2", "k3"})
 		test.NoError(t, getErr)
 		test.MapLen(t, 2, out)
 		test.Eq(t, items["k1"], out["k1"])
@@ -924,5 +923,595 @@ func Test_buildRedisClient(T *testing.T) {
 
 		c := buildRedisClient(cfg)
 		test.Nil(t, c)
+	})
+}
+
+func Test_redisCacheImpl_Set_ExpiryOptions_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithExpiry overrides the configured default", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetFunc = func(_ context.Context, _ string, _ any, expiration time.Duration) *redis.StatusCmd {
+			test.EqOp(t, 5*time.Minute, expiration)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+
+		err := impl.Set(ctx, exampleKey, &example{Name: t.Name()}, cache.WithExpiry(5*time.Minute))
+		test.NoError(t, err)
+		test.SliceLen(t, 1, client.SetCalls())
+	})
+
+	T.Run("NoExpiry stores without expiration", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetFunc = func(_ context.Context, _ string, _ any, expiration time.Duration) *redis.StatusCmd {
+			test.EqOp(t, time.Duration(0), expiration)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+
+		err := impl.Set(ctx, exampleKey, &example{Name: t.Name()}, cache.WithExpiry(cache.NoExpiry))
+		test.NoError(t, err)
+		test.SliceLen(t, 1, client.SetCalls())
+	})
+
+	T.Run("SetMany forwards the resolved expiry to the batch script", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.EvalFunc = func(_ context.Context, _ string, _ []string, args ...any) *redis.Cmd {
+			must.SliceNotEmpty(t, args)
+			gotExpiry, ok := args[0].(int64)
+			must.True(t, ok)
+			test.EqOp(t, (5 * time.Minute).Milliseconds(), gotExpiry)
+			cmd := redis.NewCmd(ctx)
+			cmd.SetVal(int64(1))
+			return cmd
+		}
+
+		err := impl.SetMany(ctx, map[string]*example{exampleKey: {Name: t.Name()}}, cache.WithExpiry(5*time.Minute))
+		test.NoError(t, err)
+		test.SliceLen(t, 1, client.EvalCalls())
+	})
+}
+
+// nameCodec stores only the Name field as raw bytes — a stand-in for a
+// consumer-supplied fixed-format codec.
+type nameCodec struct{}
+
+func (nameCodec) Encode(value *example) ([]byte, error) {
+	return []byte(value.Name), nil
+}
+
+func (nameCodec) Decode(data []byte) (*example, error) {
+	return &example{Name: string(data)}, nil
+}
+
+// nilCodec decodes every payload to a nil value without erroring, standing in
+// for a codec whose wire form has a legitimate "absent" encoding. The cache
+// treats that as a miss rather than handing back a nil pointer.
+type nilCodec struct{}
+
+func (nilCodec) Encode(*example) ([]byte, error) { return []byte("whatever"), nil }
+
+func (nilCodec) Decode([]byte) (*example, error) { return nil, nil }
+
+// brokenCodec fails to encode, standing in for a value the configured codec
+// cannot represent.
+type brokenCodec struct{}
+
+var errCodecBroken = errors.New("codec cannot encode this")
+
+func (brokenCodec) Encode(*example) ([]byte, error) { return nil, errCodecBroken }
+
+func (brokenCodec) Decode([]byte) (*example, error) { return nil, errCodecBroken }
+
+func Test_redisCacheImpl_OpenCircuit_Unit(T *testing.T) {
+	T.Parallel()
+
+	// An open breaker short-circuits every write path into a silent success:
+	// a cache that cannot be reached must not fail the request behind it.
+	openBreaker := func(t *testing.T) (*redisCacheImpl[example], *redisClientMock) {
+		t.Helper()
+
+		impl, client, cb, _ := buildTestImpl(t)
+		cb.CannotProceedFunc = func() bool { return true }
+
+		return impl, client
+	}
+
+	T.Run("Set is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client := openBreaker(t)
+
+		must.NoError(t, impl.Set(t.Context(), exampleKey, &example{Name: "spot"}))
+		test.SliceLen(t, 0, client.SetCalls())
+	})
+
+	T.Run("DeleteMany is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client := openBreaker(t)
+
+		must.NoError(t, impl.DeleteMany(t.Context(), []string{"a", "b"}))
+		test.SliceLen(t, 0, client.DelCalls())
+	})
+
+	T.Run("DeleteByPrefix is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client := openBreaker(t)
+		impl.namespace = "ns:"
+
+		must.NoError(t, impl.DeleteByPrefix(t.Context(), "p:"))
+		test.SliceLen(t, 0, client.ScanCalls())
+	})
+
+	T.Run("SetMany is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client := openBreaker(t)
+
+		must.NoError(t, impl.SetMany(t.Context(), map[string]*example{"a": {Name: "spot"}}))
+		test.SliceLen(t, 0, client.EvalCalls())
+	})
+}
+
+func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("Get treats a nil decode as a miss", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](nilCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.GetFunc = func(context.Context, string) *redis.StringCmd {
+			cmd := redis.NewStringCmd(ctx)
+			cmd.SetVal("whatever")
+			return cmd
+		}
+
+		got, err := impl.Get(ctx, exampleKey)
+		test.ErrorIs(t, err, cache.ErrNotFound)
+		test.Nil(t, got)
+	})
+
+	T.Run("GetMany treats a nil decode as a miss", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](nilCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.MGetFunc = func(context.Context, ...string) *redis.SliceCmd {
+			cmd := redis.NewSliceCmd(ctx)
+			cmd.SetVal([]any{"whatever"})
+			return cmd
+		}
+
+		out, err := impl.GetMany(ctx, []string{exampleKey})
+		must.NoError(t, err)
+		test.MapLen(t, 0, out)
+	})
+
+	T.Run("Set surfaces an encoding failure without touching the client", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](brokenCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+
+		test.Error(t, impl.Set(t.Context(), exampleKey, &example{Name: "spot"}))
+		test.SliceLen(t, 0, client.SetCalls())
+	})
+
+	T.Run("SetMany fails the whole batch before any write", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](brokenCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+
+		test.Error(t, impl.SetMany(t.Context(), map[string]*example{"a": {Name: "spot"}}))
+		test.SliceLen(t, 0, client.EvalCalls())
+	})
+}
+
+func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("Set stores the codec's bytes and Get decodes them", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](nameCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetFunc = func(_ context.Context, _ string, value any, _ time.Duration) *redis.StatusCmd {
+			s, isString := value.(string)
+			must.True(t, isString)
+			test.EqOp(t, "beeline", s)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+		client.GetFunc = func(_ context.Context, _ string) *redis.StringCmd {
+			cmd := redis.NewStringCmd(ctx)
+			cmd.SetVal("beeline")
+			return cmd
+		}
+
+		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "beeline"}))
+
+		got, err := impl.Get(ctx, exampleKey)
+		must.NoError(t, err)
+		test.EqOp(t, "beeline", got.Name)
+	})
+
+	T.Run("nil codec option is ignored, keeping the gob default", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](nil)(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		expected := gobEncodeExample(t, &example{Name: "beeline"})
+		client.SetFunc = func(_ context.Context, _ string, value any, _ time.Duration) *redis.StatusCmd {
+			s, isString := value.(string)
+			must.True(t, isString)
+			test.EqOp(t, expected, s)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+
+		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "beeline"}))
+	})
+}
+
+func Test_redisCacheImpl_Namespace_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("keys are namespaced on the wire and bare in results", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "beeline:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetFunc = func(_ context.Context, key string, _ any, _ time.Duration) *redis.StatusCmd {
+			test.EqOp(t, "beeline:"+exampleKey, key)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+		client.MGetFunc = func(_ context.Context, keys ...string) *redis.SliceCmd {
+			must.SliceLen(t, 1, keys)
+			test.EqOp(t, "beeline:"+exampleKey, keys[0])
+			cmd := redis.NewSliceCmd(ctx)
+			cmd.SetVal([]any{gobEncodeExample(t, &example{Name: "spot"})})
+			return cmd
+		}
+
+		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "spot"}))
+
+		out, err := impl.GetMany(ctx, []string{exampleKey})
+		must.NoError(t, err)
+		must.MapLen(t, 1, out)
+		// The result map is keyed by the caller's bare key, not the stored one.
+		must.NotNil(t, out[exampleKey])
+		test.EqOp(t, "spot", out[exampleKey].Name)
+	})
+}
+
+func Test_redisCacheImpl_Deletion_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("DeleteMany issues one DEL with namespaced keys", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.DelFunc = func(_ context.Context, keys ...string) *redis.IntCmd {
+			test.Eq(t, []string{"ns:a", "ns:b"}, keys)
+			cmd := redis.NewIntCmd(ctx)
+			cmd.SetVal(int64(len(keys)))
+			return cmd
+		}
+
+		must.NoError(t, impl.DeleteMany(ctx, []string{"a", "b"}))
+		test.SliceLen(t, 1, client.DelCalls())
+	})
+
+	T.Run("Flush without a namespace is refused", func(t *testing.T) {
+		t.Parallel()
+
+		impl, _, _, _ := buildTestImpl(t)
+
+		test.ErrorIs(t, impl.Flush(t.Context()), cache.ErrNamespaceRequired)
+	})
+
+	T.Run("DeleteByPrefix with no namespace and empty prefix is refused", func(t *testing.T) {
+		t.Parallel()
+
+		impl, _, _, _ := buildTestImpl(t)
+
+		test.ErrorIs(t, impl.DeleteByPrefix(t.Context(), ""), cache.ErrNamespaceRequired)
+	})
+
+	T.Run("Flush scans the namespace pattern and deletes what it finds", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		pages := [][]string{{"ns:a", "ns:b"}, {"ns:c"}}
+		cursors := []uint64{7, 0}
+		call := 0
+		client.ScanFunc = func(_ context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+			test.EqOp(t, "ns:*", match)
+			cmd := redis.NewScanCmd(ctx, nil)
+			cmd.SetVal(pages[call], cursors[call])
+			call++
+			return cmd
+		}
+
+		var deleted []string
+		client.DelFunc = func(_ context.Context, keys ...string) *redis.IntCmd {
+			deleted = append(deleted, keys...)
+			cmd := redis.NewIntCmd(ctx)
+			cmd.SetVal(int64(len(keys)))
+			return cmd
+		}
+
+		must.NoError(t, impl.Flush(ctx))
+		test.Eq(t, []string{"ns:a", "ns:b", "ns:c"}, deleted)
+		test.SliceLen(t, 2, client.ScanCalls())
+	})
+
+	T.Run("DeleteByPrefix escapes glob metacharacters in the prefix", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.ScanFunc = func(_ context.Context, _ uint64, match string, _ int64) *redis.ScanCmd {
+			test.EqOp(t, `ns:area\[1\]:*`, match)
+			cmd := redis.NewScanCmd(ctx, nil)
+			cmd.SetVal([]string{}, 0)
+			return cmd
+		}
+
+		must.NoError(t, impl.DeleteByPrefix(ctx, "area[1]:"))
+	})
+}
+
+func Test_redisCacheImpl_Deletion_Failures_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("DeleteMany with no keys never reaches the client", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, _, _ := buildTestImpl(t)
+
+		must.NoError(t, impl.DeleteMany(t.Context(), nil))
+		test.SliceLen(t, 0, client.DelCalls())
+	})
+
+	T.Run("DeleteMany reports a failed DEL and trips the breaker", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		var failed int
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() { failed++ }
+
+		client.DelFunc = func(context.Context, ...string) *redis.IntCmd {
+			cmd := redis.NewIntCmd(ctx)
+			cmd.SetErr(errors.New("connection reset"))
+			return cmd
+		}
+
+		test.Error(t, impl.DeleteMany(ctx, []string{"a"}))
+		test.EqOp(t, 1, failed)
+	})
+
+	T.Run("DeleteByPrefix reports a failed SCAN and trips the breaker", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		var failed int
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() { failed++ }
+
+		client.ScanFunc = func(context.Context, uint64, string, int64) *redis.ScanCmd {
+			cmd := redis.NewScanCmd(ctx, nil)
+			cmd.SetErr(errors.New("connection reset"))
+			return cmd
+		}
+
+		test.Error(t, impl.DeleteByPrefix(ctx, "p:"))
+		test.EqOp(t, 1, failed)
+	})
+
+	T.Run("DeleteByPrefix reports a failed DEL mid-scan", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() {}
+
+		client.ScanFunc = func(context.Context, uint64, string, int64) *redis.ScanCmd {
+			cmd := redis.NewScanCmd(ctx, nil)
+			// A non-zero cursor: the scan would continue if the DEL succeeded.
+			cmd.SetVal([]string{"ns:a"}, 9)
+			return cmd
+		}
+		client.DelFunc = func(context.Context, ...string) *redis.IntCmd {
+			cmd := redis.NewIntCmd(ctx)
+			cmd.SetErr(errors.New("connection reset"))
+			return cmd
+		}
+
+		test.Error(t, impl.DeleteByPrefix(ctx, "p:"))
+		// The failure stopped the cursor rather than looping forever.
+		test.SliceLen(t, 1, client.ScanCalls())
+	})
+
+	T.Run("a cluster client scans every master", func(t *testing.T) {
+		t.Parallel()
+
+		// A real ClusterClient is the only way into the ForEachMaster branch —
+		// the type is asserted, not interface-dispatched. Pointing it at a
+		// closed port makes the fan-out fail fast, which is enough to prove the
+		// branch was taken.
+		impl, _, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+		impl.isCluster = true
+		impl.client = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs:        []string{"127.0.0.1:1"},
+			DialTimeout:  100 * time.Millisecond,
+			ReadTimeout:  100 * time.Millisecond,
+			WriteTimeout: 100 * time.Millisecond,
+			MaxRedirects: 1,
+		})
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() {}
+
+		test.Error(t, impl.DeleteByPrefix(t.Context(), "p:"))
+	})
+}
+
+func TestWithScanPageSize(T *testing.T) {
+	T.Parallel()
+
+	// scanCount drives a one-page prefix deletion and reports the COUNT the
+	// cache actually handed to SCAN, so these assert the option reaches the
+	// wire rather than just landing in a struct field.
+	scanCount := func(t *testing.T, impl *redisCacheImpl[example], client *redisClientMock, cb *mockcircuitbreaking.CircuitBreakerMock) int64 {
+		t.Helper()
+
+		ctx := t.Context()
+		impl.namespace = "ns:"
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		var got int64
+		client.ScanFunc = func(_ context.Context, _ uint64, _ string, count int64) *redis.ScanCmd {
+			got = count
+			cmd := redis.NewScanCmd(ctx, nil)
+			cmd.SetVal([]string{}, 0)
+			return cmd
+		}
+
+		must.NoError(t, impl.DeleteByPrefix(ctx, "p:"))
+
+		return got
+	}
+
+	T.Run("the configured size reaches SCAN", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, cb, _ := buildTestImpl(t)
+		WithScanPageSize[example](25)(impl)
+
+		test.EqOp(t, int64(25), scanCount(t, impl, client, cb))
+	})
+
+	T.Run("the default reaches SCAN when the option is not supplied", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, cb, _ := buildTestImpl(t)
+
+		test.EqOp(t, int64(defaultScanPageSize), scanCount(t, impl, client, cb))
+	})
+
+	T.Run("a non-positive size is ignored", func(t *testing.T) {
+		t.Parallel()
+
+		for _, size := range []int64{0, -1} {
+			impl, client, cb, _ := buildTestImpl(t)
+			WithScanPageSize[example](size)(impl)
+
+			test.EqOp(t, int64(defaultScanPageSize), scanCount(t, impl, client, cb))
+		}
+	})
+
+	T.Run("NewRedisCache applies the option", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := NewRedisCache[example](
+			&Config{QueueAddresses: []string{"localhost:6379"}},
+			time.Minute, nil, nil, nil, nil,
+			WithScanPageSize[example](64),
+		)
+		must.NoError(t, err)
+
+		impl, ok := c.(*redisCacheImpl[example])
+		must.True(t, ok)
+		test.EqOp(t, int64(64), impl.scanPageSize)
 	})
 }

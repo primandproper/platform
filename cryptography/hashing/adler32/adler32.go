@@ -1,5 +1,9 @@
 // Package adler32 implements hashing.Hasher using the Adler-32 checksum.
 //
+// There is deliberately no package-level Checksum function here: the standard
+// library's hash/adler32.Checksum already returns the uint32 directly, and
+// re-exporting it would add a name without adding anything else.
+//
 // WARNING: Adler-32 is a NON-CRYPTOGRAPHIC checksum. It is fast and useful for
 // detecting accidental data corruption, but it provides NO security guarantees.
 // It MUST NOT be used for password hashing, digital signatures, integrity
@@ -8,10 +12,10 @@
 package adler32
 
 import (
-	"encoding/hex"
+	"encoding/binary"
 	"hash/adler32"
 
-	"github.com/primandproper/platform-go/v6/cryptography/hashing"
+	"github.com/primandproper/platform-go/v7/cryptography/hashing"
 )
 
 var _ hashing.Hasher = (*adler32Hasher)(nil)
@@ -20,7 +24,10 @@ type (
 	adler32Hasher struct{}
 )
 
-// NewAdler32Hasher returns a hashing.Hasher backed by the Adler-32 checksum.
+// NewAdler32Hasher returns a hashing.Hasher backed by the Adler-32 checksum,
+// rendered big-endian so the digest bytes read in the same order as the hex
+// string. Callers that want the checksum as a number should call
+// hash/adler32.Checksum directly.
 //
 // WARNING: this is a NON-CRYPTOGRAPHIC checksum and MUST NOT be used for
 // security, password, or tamper-resistance purposes. See the package doc.
@@ -28,11 +35,6 @@ func NewAdler32Hasher() hashing.Hasher {
 	return &adler32Hasher{}
 }
 
-func (s *adler32Hasher) Hash(content string) (string, error) {
-	h := adler32.New()
-	if _, err := h.Write([]byte(content)); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(h.Sum(nil)), nil
+func (s *adler32Hasher) Hash(content []byte) []byte {
+	return binary.BigEndian.AppendUint32(nil, adler32.Checksum(content))
 }

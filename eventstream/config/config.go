@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/eventstream"
-	"github.com/primandproper/platform-go/v6/eventstream/sse"
-	"github.com/primandproper/platform-go/v6/eventstream/websocket"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
+	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/eventstream"
+	"github.com/primandproper/platform-go/v7/eventstream/sse"
+	"github.com/primandproper/platform-go/v7/eventstream/websocket"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

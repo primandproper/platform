@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/primandproper/platform-go/v6/circuitbreaking"
-	platformerrors "github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/observability/keys"
+	"github.com/primandproper/platform-go/v7/circuitbreaking"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability/keys"
 )
 
 const (

@@ -7,12 +7,12 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"github.com/primandproper/platform-go/v6/encoding"
-	loggingnoop "github.com/primandproper/platform-go/v6/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v6/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v6/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v6/routing"
-	"github.com/primandproper/platform-go/v6/routing/backends/chi"
+	"github.com/primandproper/platform-go/v7/encoding"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v7/routing"
+	"github.com/primandproper/platform-go/v7/routing/backends/chi"
 )
 
 // The input for creating a user. Tags decide where each field is bound:

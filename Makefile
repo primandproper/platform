@@ -4,7 +4,7 @@ MYSELF   := $(shell id -u)
 MY_GROUP := $(shell id -g)
 
 # PATHS
-THIS          := github.com/primandproper/platform-go/v6
+THIS          := github.com/primandproper/platform-go/v7
 ARTIFACTS_DIR := artifacts
 SCRIPTS_DIR   := .scripts
 COVERAGE_OUT  := $(ARTIFACTS_DIR)/coverage.out
@@ -64,7 +64,7 @@ go_fix:
 
 .PHONY: goimports
 goimports:
-	$(SCRIPTS_DIR)/goimports.sh
+	$(SCRIPTS_DIR)/goimports.sh $(PWD)
 
 .PHONY: format_golang
 format_golang: go_fix goimports format_imports format_go_fieldalignment format_go_tag_alignment

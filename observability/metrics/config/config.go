@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	metricsnoop "github.com/primandproper/platform-go/v6/observability/metrics/noop"
-	"github.com/primandproper/platform-go/v6/observability/metrics/otelgrpc"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v7/observability/metrics/otelgrpc"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

@@ -3,17 +3,19 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"math"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/database"
-	"github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
+	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 
 	"github.com/XSAM/otelsql"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
@@ -22,22 +24,55 @@ const (
 	tracingName = "db_client"
 )
 
-// Client is the primary database querying client.
-type Client struct {
-	o11y     observability.Observer
-	timeFunc func() time.Time
-	config   database.ClientConfig
-	readDB   *sql.DB
-	writeDB  *sql.DB
+// PgxAccess is an optional capability exposing the native pgx connection pools, for
+// callers that need driver features the database/sql surface cannot express —
+// CopyFrom bulk loads, pgx.Batch, native array binding, or LISTEN/NOTIFY. Obtain it
+// by asserting on a Client:
+//
+//	native, ok := client.(postgres.PgxAccess)
+//
+// The returned pools are the very pools backing Reader, Writer, and RawAccess — the
+// database/sql handles are derived from them via a pool connector — so
+// MaxOpenConns caps the union of both surfaces, and a connection held idle by the
+// database/sql layer is unavailable to native callers until it is released.
+//
+// Like RawAccess, this is a deliberate step outside the portable Client surface; it
+// is also postgres-only, so callers asserting it accept a hard pgx dependency.
+type PgxAccess interface {
+	ReadPool() *pgxpool.Pool
+	WritePool() *pgxpool.Pool
 }
 
+// Client is the primary database querying client.
+type Client struct {
+	o11y      observability.Observer
+	timeFunc  func() time.Time
+	config    database.ClientConfig
+	readPool  *pgxpool.Pool
+	writePool *pgxpool.Pool
+	readDB    *sql.DB
+	writeDB   *sql.DB
+}
+
+var (
+	_ database.Client    = (*Client)(nil)
+	_ database.RawAccess = (*Client)(nil)
+	_ PgxAccess          = (*Client)(nil)
+)
+
 // NewDatabaseClient provides a new DataManager client.
-// If metricsProvider is non-nil, the DB driver will use it so SQL latency and other
-// db.sql.* metrics are emitted (e.g. db_sql_latency_milliseconds_bucket in Prometheus).
+//
+// Construction is pgx-native-first: each side opens a *pgxpool.Pool (reachable via
+// the PgxAccess capability) and derives its database/sql handle from that pool, so
+// both surfaces share one set of connections. The database/sql layer keeps its
+// otelsql instrumentation; if metricsProvider is non-nil, the driver emits SQL
+// latency and other db.sql.* metrics (e.g. db_sql_latency_milliseconds_bucket in
+// Prometheus). Native pool usage is not yet traced — instrument at the call site,
+// or thread a pgx tracer through here when a consumer needs it.
 func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, cfg database.ClientConfig, metricsProvider metrics.Provider) (database.Client, error) {
 	o11y := observability.NewObserver(tracingName, logger, tracerProvider)
 
-	_, op := o11y.Begin(ctx)
+	ctx, op := o11y.Begin(ctx)
 	defer op.End()
 
 	opts := []otelsql.Option{
@@ -59,8 +94,11 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 		opts = append(opts, otelsql.WithSpanOptions(otelsql.SpanOptions{DisableQuery: true}))
 	}
 
-	var readDB, writeDB *sql.DB
-	var err error
+	var (
+		readPool, writePool *pgxpool.Pool
+		readDB, writeDB     *sql.DB
+		err                 error
+	)
 
 	readConnStr := cfg.GetReadConnectionString()
 	writeConnStr := cfg.GetWriteConnectionString()
@@ -70,16 +108,28 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 		Set("db.write_configured", writeConnStr != "")
 
 	if readConnStr != "" {
-		readDB, err = connect(readConnStr, cfg, opts)
+		readPool, readDB, err = connect(ctx, readConnStr, cfg, opts)
 		if err != nil {
 			return nil, errors.Wrap(err, "connecting to read postgres database")
 		}
 	}
 
 	if writeConnStr != "" {
-		writeDB, err = connect(writeConnStr, cfg, opts)
+		writePool, writeDB, err = connect(ctx, writeConnStr, cfg, opts)
 		if err != nil {
-			return nil, errors.Wrap(err, "connecting to write postgres database")
+			err = errors.Wrap(err, "connecting to write postgres database")
+
+			// Don't leak the read side when the write side fails to construct.
+			if readDB != nil {
+				if closeErr := readDB.Close(); closeErr != nil {
+					err = errors.Join(err, errors.Wrap(closeErr, "closing read database after write connect failure"))
+				}
+			}
+			if readPool != nil {
+				readPool.Close()
+			}
+
+			return nil, err
 		}
 	}
 
@@ -88,10 +138,10 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 		return nil, errors.New("at least one of read or write connection string must be provided")
 	}
 	if readDB == nil {
-		readDB = writeDB
+		readPool, readDB = writePool, writeDB
 	}
 	if writeDB == nil {
-		writeDB = readDB
+		writePool, writeDB = readPool, readDB
 	}
 
 	if metricsProvider != nil {
@@ -107,27 +157,62 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 	}
 
 	c := &Client{
-		readDB:   readDB,
-		writeDB:  writeDB,
-		config:   cfg,
-		o11y:     o11y,
-		timeFunc: defaultTimeFunc,
+		readPool:  readPool,
+		writePool: writePool,
+		readDB:    readDB,
+		writeDB:   writeDB,
+		config:    cfg,
+		o11y:      o11y,
+		timeFunc:  defaultTimeFunc,
 	}
 
 	return c, nil
 }
 
-func connect(connStr string, cfg database.ClientConfig, opts []otelsql.Option) (*sql.DB, error) {
-	db, err := otelsql.Open("pgx", connStr, opts...)
+// connect opens the pgx pool for one side of the read/write split and derives its
+// database/sql handle from it. The pool is the single authority on connection
+// count and lifetime; the derived handle is capped to the same values so the two
+// layers can never disagree about the real limit.
+func connect(ctx context.Context, connStr string, cfg database.ClientConfig, opts []otelsql.Option) (*pgxpool.Pool, *sql.DB, error) {
+	poolCfg, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
-		return nil, errors.Wrap(err, "connecting to postgres database")
+		return nil, nil, errors.Wrap(err, "parsing postgres connection string")
 	}
 
+	// Zero config values keep pgxpool's parsed defaults (max(4, NumCPU) conns,
+	// 1h lifetime) rather than being forwarded, mirroring database/sql's
+	// "zero means unlimited" without giving pgxpool a nonsensical bound.
+	if n := cfg.GetMaxOpenConns(); n > 0 {
+		poolCfg.MaxConns = clampToInt32(n)
+	}
+	if d := cfg.GetConnMaxLifetime(); d > 0 {
+		poolCfg.MaxConnLifetime = d
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "creating postgres connection pool")
+	}
+
+	db := otelsql.OpenDB(stdlib.GetPoolConnector(pool), opts...)
+
+	// An idle connection at this layer is still checked out of the pgx pool, so
+	// MaxIdleConns bounds how many pool connections the database/sql surface may
+	// pin while unused.
 	db.SetMaxIdleConns(cfg.GetMaxIdleConns())
 	db.SetMaxOpenConns(cfg.GetMaxOpenConns())
 	db.SetConnMaxLifetime(cfg.GetConnMaxLifetime())
 
-	return db, nil
+	return pool, db, nil
+}
+
+// clampToInt32 converts a positive int to int32, saturating at MaxInt32.
+func clampToInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	return int32(n)
 }
 
 // ReadDB provides the database object.
@@ -139,6 +224,18 @@ func (q *Client) ReadDB() *sql.DB {
 // and WithTransaction on the Client interface.
 func (q *Client) WriteDB() *sql.DB {
 	return q.writeDB
+}
+
+// ReadPool provides the native pgx pool behind the read database. It satisfies
+// PgxAccess; see that interface's documentation for the sharing semantics.
+func (q *Client) ReadPool() *pgxpool.Pool {
+	return q.readPool
+}
+
+// WritePool provides the native pgx pool behind the write database. It satisfies
+// PgxAccess; see that interface's documentation for the sharing semantics.
+func (q *Client) WritePool() *pgxpool.Pool {
+	return q.writePool
 }
 
 // Reader returns a non-transactional executor for the read database.
@@ -153,14 +250,17 @@ func (q *Client) Writer() database.SQLQueryExecutor {
 
 // WithTransaction runs fn inside a transaction on the write database, committing on a
 // nil return and rolling back on error or panic. See database.RunInTransaction.
-func (q *Client) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutorAndTransactionManager) error) error {
+func (q *Client) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutor) error) error {
 	ctx, op := q.o11y.Begin(ctx)
 	defer op.End()
 
 	return database.RunInTransaction(ctx, q.writeDB, q.RollbackTransaction, fn)
 }
 
-// Close closes the database connection.
+// Close closes the database/sql layer first so its connections drain back to the
+// pools, then closes the pools themselves. pgxpool's Close blocks until every
+// connection is returned, so a connection leaked by a caller (an unclosed Rows,
+// an unreleased native Acquire) will hang Close rather than be abandoned.
 func (q *Client) Close() error {
 	var errs error
 
@@ -176,6 +276,15 @@ func (q *Client) Close() error {
 			q.o11y.Logger().Error("closing write database connection", err)
 			errs = errors.Join(errs, err)
 		}
+	}
+
+	// Pools are nil on clients constructed directly around a plain *sql.DB (tests);
+	// the derived handles above are the only layer in that case.
+	if q.readPool != nil {
+		q.readPool.Close()
+	}
+	if q.writePool != nil && q.writePool != q.readPool {
+		q.writePool.Close()
 	}
 
 	return errs

@@ -6,4 +6,4 @@ package mock
 
 // Regenerate the moq mocks via `go generate ./distributedlock/mock/`.
 
-//go:generate go tool github.com/matryer/moq -out locker_mock.go -pkg mock -rm -fmt goimports .. Locker:LockerMock Lock:LockMock
+//go:generate go tool github.com/matryer/moq -out locker_mock.go -pkg mock -rm -fmt goimports .. Locker:LockerMock Lock:LockMock ScopedLocker:ScopedLockerMock

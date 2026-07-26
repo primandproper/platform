@@ -3,34 +3,49 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/cache"
-	"github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
+	"github.com/primandproper/platform-go/v7/cache"
+	"github.com/primandproper/platform-go/v7/clock"
+	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 )
 
 const name = "in_memory_cache"
 
-var _ cache.BatchCache[struct{}] = (*inMemoryCacheImpl[struct{}])(nil)
+var _ cache.Cache[struct{}] = (*inMemoryCacheImpl[struct{}])(nil)
 
-type inMemoryCacheImpl[T any] struct {
-	o11y             observability.Observer
-	cacheHitCounter  metrics.Int64Counter
-	cacheMissCounter metrics.Int64Counter
-	cacheSetCounter  metrics.Int64Counter
-	cacheDelCounter  metrics.Int64Counter
-	latencyHist      metrics.Float64Histogram
-	cache            map[string]*T
-	cacheMu          sync.RWMutex
+// entry is one stored value; a zero expiresAt means the entry never expires.
+type entry[T any] struct {
+	expiresAt time.Time
+	value     *T
 }
 
-// NewInMemoryCache builds an in-memory cache.
-func NewInMemoryCache[T any](logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (cache.Cache[T], error) {
+type inMemoryCacheImpl[T any] struct {
+	o11y              observability.Observer
+	clock             clock.Clock
+	cacheHitCounter   metrics.Int64Counter
+	cacheMissCounter  metrics.Int64Counter
+	cacheSetCounter   metrics.Int64Counter
+	cacheDelCounter   metrics.Int64Counter
+	cacheEvictCounter metrics.Int64Counter
+	latencyHist       metrics.Float64Histogram
+	cache             map[string]entry[T]
+	defaultExpiry     time.Duration
+	cacheMu           sync.RWMutex
+}
+
+// NewInMemoryCache builds an in-memory cache. Writes expire after defaultExpiry
+// unless overridden per call with cache.WithExpiry; a non-positive defaultExpiry
+// means entries never expire by default. Expired entries are evicted lazily,
+// on the read that discovers them or when overwritten — there is no
+// background janitor, and the map is not otherwise size-bounded.
+func NewInMemoryCache[T any](defaultExpiry time.Duration, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (cache.Cache[T], error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
 	cacheHitCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
@@ -53,20 +68,63 @@ func NewInMemoryCache[T any](logger logging.Logger, tracerProvider tracing.Trace
 		return nil, errors.Wrap(err, "creating cache delete counter")
 	}
 
+	cacheEvictCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_evictions", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache eviction counter")
+	}
+
 	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache latency histogram")
 	}
 
 	return &inMemoryCacheImpl[T]{
-		o11y:             observability.NewObserver(name, logger, tracerProvider),
-		cacheHitCounter:  cacheHitCounter,
-		cacheMissCounter: cacheMissCounter,
-		cacheSetCounter:  cacheSetCounter,
-		cacheDelCounter:  cacheDelCounter,
-		latencyHist:      latencyHist,
-		cache:            make(map[string]*T),
+		o11y:              observability.NewObserver(name, logger, tracerProvider),
+		clock:             clock.NewClock(),
+		cacheHitCounter:   cacheHitCounter,
+		cacheMissCounter:  cacheMissCounter,
+		cacheSetCounter:   cacheSetCounter,
+		cacheDelCounter:   cacheDelCounter,
+		cacheEvictCounter: cacheEvictCounter,
+		latencyHist:       latencyHist,
+		cache:             make(map[string]entry[T]),
+		defaultExpiry:     defaultExpiry,
 	}, nil
+}
+
+// expired reports whether e's deadline has passed. A zero deadline never
+// expires.
+func (i *inMemoryCacheImpl[T]) expired(e entry[T]) bool {
+	return !e.expiresAt.IsZero() && !i.clock.Now().Before(e.expiresAt)
+}
+
+// newEntry stamps value with the deadline resolved from this call's options.
+func (i *inMemoryCacheImpl[T]) newEntry(value *T, opts []cache.WriteOption) entry[T] {
+	e := entry[T]{value: value}
+	if expiry := cache.EffectiveExpiry(i.defaultExpiry, opts...); expiry > 0 {
+		e.expiresAt = i.clock.Now().Add(expiry)
+	}
+
+	return e
+}
+
+// evictExpired removes key if it is still present and still expired, so a
+// concurrent overwrite between the read lock and this write lock is never
+// discarded.
+//
+// This is the only place an entry is dropped for having expired, so it is the
+// only place that counts an eviction. An expired entry that a Set or SetMany
+// overwrites before any read discovers it is replaced silently and never
+// counted: that is a write, not a TTL loss, and folding the two together would
+// make the counter useless for the question it exists to answer.
+func (i *inMemoryCacheImpl[T]) evictExpired(ctx context.Context, key string) {
+	i.cacheMu.Lock()
+	defer i.cacheMu.Unlock()
+
+	if cur, ok := i.cache[key]; ok && i.expired(cur) {
+		delete(i.cache, key)
+		i.cacheEvictCounter.Add(ctx, 1)
+	}
 }
 
 func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
@@ -80,11 +138,16 @@ func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) 
 	}()
 
 	i.cacheMu.RLock()
-	defer i.cacheMu.RUnlock()
+	e, ok := i.cache[key]
+	i.cacheMu.RUnlock()
 
-	if val, ok := i.cache[key]; ok {
+	if ok && !i.expired(e) {
 		i.cacheHitCounter.Add(ctx, 1)
-		return val, nil
+		return e.value, nil
+	}
+
+	if ok {
+		i.evictExpired(ctx, key)
 	}
 
 	i.cacheMissCounter.Add(ctx, 1)
@@ -92,7 +155,7 @@ func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) 
 	return nil, cache.ErrNotFound
 }
 
-func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T) error {
+func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 	op.Set("name", key)
@@ -102,10 +165,12 @@ func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T) er
 		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
+	e := i.newEntry(value, opts)
+
 	i.cacheMu.Lock()
 	defer i.cacheMu.Unlock()
 
-	i.cache[key] = value
+	i.cache[key] = e
 	i.cacheSetCounter.Add(ctx, 1)
 
 	return nil
@@ -140,24 +205,33 @@ func (i *inMemoryCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[
 		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	i.cacheMu.RLock()
-	defer i.cacheMu.RUnlock()
+	var expiredKeys []string
 
+	i.cacheMu.RLock()
 	out := make(map[string]*T, len(keys))
 	for _, key := range keys {
-		if val, ok := i.cache[key]; ok {
-			out[key] = val
+		e, ok := i.cache[key]
+		if ok && !i.expired(e) {
+			out[key] = e.value
 			i.cacheHitCounter.Add(ctx, 1)
 			continue
 		}
 
+		if ok {
+			expiredKeys = append(expiredKeys, key)
+		}
 		i.cacheMissCounter.Add(ctx, 1)
+	}
+	i.cacheMu.RUnlock()
+
+	for _, key := range expiredKeys {
+		i.evictExpired(ctx, key)
 	}
 
 	return out, nil
 }
 
-func (i *inMemoryCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T) error {
+func (i *inMemoryCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 	op.Set("length", len(items))
@@ -167,13 +241,89 @@ func (i *inMemoryCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T)
 		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
+	// One deadline for the whole batch: options apply to the call, not per item.
+	var expiresAt time.Time
+	if expiry := cache.EffectiveExpiry(i.defaultExpiry, opts...); expiry > 0 {
+		expiresAt = i.clock.Now().Add(expiry)
+	}
+
 	i.cacheMu.Lock()
 	defer i.cacheMu.Unlock()
 
 	for key, value := range items {
-		i.cache[key] = value
+		i.cache[key] = entry[T]{value: value, expiresAt: expiresAt}
 		i.cacheSetCounter.Add(ctx, 1)
 	}
+
+	return nil
+}
+
+// DeleteMany removes the given keys; keys that are absent are not an error.
+func (i *inMemoryCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error {
+	ctx, op := i.o11y.Begin(ctx)
+	defer op.End()
+	op.Set("length", len(keys))
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	i.cacheMu.Lock()
+	defer i.cacheMu.Unlock()
+
+	for _, key := range keys {
+		if _, ok := i.cache[key]; ok {
+			delete(i.cache, key)
+			i.cacheDelCounter.Add(ctx, 1)
+		}
+	}
+
+	return nil
+}
+
+// DeleteByPrefix removes every entry whose key begins with prefix. The memory
+// provider wholly owns its map, so an empty prefix is permitted and clears
+// everything.
+func (i *inMemoryCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
+	ctx, op := i.o11y.Begin(ctx)
+	defer op.End()
+	op.Set("prefix", prefix)
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	i.cacheMu.Lock()
+	defer i.cacheMu.Unlock()
+
+	for key := range i.cache {
+		if strings.HasPrefix(key, prefix) {
+			delete(i.cache, key)
+			i.cacheDelCounter.Add(ctx, 1)
+		}
+	}
+
+	return nil
+}
+
+// Flush removes every entry. The memory provider wholly owns its store, so no
+// namespace is needed.
+func (i *inMemoryCacheImpl[T]) Flush(ctx context.Context) error {
+	ctx, op := i.o11y.Begin(ctx)
+	defer op.End()
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	i.cacheMu.Lock()
+	defer i.cacheMu.Unlock()
+
+	i.cacheDelCounter.Add(ctx, int64(len(i.cache)))
+	i.cache = make(map[string]entry[T])
 
 	return nil
 }

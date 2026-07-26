@@ -8,10 +8,17 @@ import (
 
 // Config configures a Redis-backed consumer.
 type Config struct {
-	Username       string   `env:"USERNAME"        json:"username"           yaml:"username"`
-	Password       string   `env:"PASSWORD"        json:"password,omitempty" yaml:"password,omitempty"`
-	QueueAddresses []string `env:"QUEUE_ADDRESSES" json:"queueAddresses"     yaml:"queueAddresses"`
-	Cluster        bool     `env:"CLUSTER"         json:"cluster"            yaml:"cluster"`
+	Username string `env:"USERNAME" json:"username"           yaml:"username"`
+	Password string `env:"PASSWORD" json:"password,omitempty" yaml:"password,omitempty"`
+	// Namespace, when set, is transparently prepended to every key this cache
+	// stores. It marks which entries the cache owns in a possibly shared
+	// database, which is what makes Flush (and an empty-prefix
+	// DeleteByPrefix) safe — and therefore possible. Include a trailing
+	// delimiter if you want one (e.g. "myservice:"); the namespace is used
+	// verbatim.
+	Namespace      string   `env:"NAMESPACE"       json:"namespace"      yaml:"namespace"`
+	QueueAddresses []string `env:"QUEUE_ADDRESSES" json:"queueAddresses" yaml:"queueAddresses"`
+	Cluster        bool     `env:"CLUSTER"         json:"cluster"        yaml:"cluster"`
 }
 
 // clusterMode reports whether the client should run in Redis Cluster mode. A

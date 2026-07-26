@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v6/observability/logging/noop"
-	"github.com/primandproper/platform-go/v6/observability/tracing/cloudtrace"
-	"github.com/primandproper/platform-go/v6/observability/tracing/oteltrace"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/observability/tracing/cloudtrace"
+	"github.com/primandproper/platform-go/v7/observability/tracing/oteltrace"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

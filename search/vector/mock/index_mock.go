@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	vectorsearch "github.com/primandproper/platform-go/v6/search/vector"
+	vectorsearch "github.com/primandproper/platform-go/v7/search/vector"
 )
 
 // Ensure, that IndexMock does implement vectorsearch.Index.

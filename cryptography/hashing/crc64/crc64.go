@@ -1,4 +1,6 @@
-// Package crc64 implements hashing.Hasher using the CRC-64 (ISO) checksum.
+// Package crc64 implements hashing.Hasher using the CRC-64 (ISO) checksum,
+// and exposes ChecksumISO for callers that want the checksum as the integer
+// it natively is.
 //
 // WARNING: CRC-64 is a NON-CRYPTOGRAPHIC checksum. It is fast and useful for
 // detecting accidental data corruption, but it provides NO security guarantees.
@@ -8,11 +10,16 @@
 package crc64
 
 import (
-	"encoding/hex"
+	"encoding/binary"
 	"hash/crc64"
 
-	"github.com/primandproper/platform-go/v6/cryptography/hashing"
+	"github.com/primandproper/platform-go/v7/cryptography/hashing"
 )
+
+// isoTable is built once at package load. Building a CRC table is not free,
+// and it depends only on the polynomial, so per-call construction is pure
+// waste.
+var isoTable = crc64.MakeTable(crc64.ISO)
 
 var _ hashing.Hasher = (*crc64Hasher)(nil)
 
@@ -20,19 +27,29 @@ type (
 	crc64Hasher struct{}
 )
 
-// NewCRC64Hasher returns a hashing.Hasher backed by the CRC-64 (ISO) checksum.
+// NewCRC64ISOHasher returns a hashing.Hasher backed by the CRC-64 (ISO)
+// checksum, rendered big-endian so the digest bytes read in the same order as
+// the hex string. Callers that want the checksum as a number should use
+// ChecksumISO instead of decoding this.
+//
+// The polynomial is named because it is a choice: ISO and ECMA are both in
+// wide use and produce different checksums for the same input.
 //
 // WARNING: this is a NON-CRYPTOGRAPHIC checksum and MUST NOT be used for
 // security, password, or tamper-resistance purposes. See the package doc.
-func NewCRC64Hasher() hashing.Hasher {
+func NewCRC64ISOHasher() hashing.Hasher {
 	return &crc64Hasher{}
 }
 
-func (s *crc64Hasher) Hash(content string) (string, error) {
-	h := crc64.New(crc64.MakeTable(crc64.ISO))
-	if _, err := h.Write([]byte(content)); err != nil {
-		return "", err
-	}
+func (s *crc64Hasher) Hash(content []byte) []byte {
+	return binary.BigEndian.AppendUint64(nil, ChecksumISO(content))
+}
 
-	return hex.EncodeToString(h.Sum(nil)), nil
+// ChecksumISO returns the CRC-64 (ISO) checksum of content as the uint64 it
+// natively is, for bucketing, sharding, and advisory-lock IDs. It allocates
+// nothing.
+//
+// WARNING: this is a NON-CRYPTOGRAPHIC checksum. See the package doc.
+func ChecksumISO(content []byte) uint64 {
+	return crc64.Checksum(content, isoTable)
 }

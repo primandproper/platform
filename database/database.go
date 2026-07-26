@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v6/errors"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
 )
 
 var (
@@ -65,7 +65,12 @@ type (
 		Writer() SQLQueryExecutor
 		// WithTransaction begins a transaction on the write database, invokes fn with it as
 		// the sole executor, commits on a nil return, and rolls back on error or panic.
-		WithTransaction(ctx context.Context, fn func(tx SQLQueryExecutorAndTransactionManager) error) error
+		//
+		// fn receives only an executor, not the transaction handle: it cannot commit or
+		// roll back. Returning an error (or panicking) is the sole way to abort, and drives
+		// exactly one rollback — so fn can't roll back and then also return an error, which
+		// would otherwise trigger a redundant second rollback.
+		WithTransaction(ctx context.Context, fn func(querier SQLQueryExecutor) error) error
 		Close() error
 		CurrentTime() time.Time
 	}
@@ -78,7 +83,9 @@ type (
 	//	raw, ok := client.(database.RawAccess)
 	//
 	// Reaching for RawAccess is a deliberate step outside the safe Client surface; prefer
-	// Reader, Writer, and WithTransaction wherever they suffice.
+	// Reader, Writer, and WithTransaction wherever they suffice. Providers may expose
+	// further, provider-specific capabilities the same way — e.g. the postgres package's
+	// PgxAccess, which exposes the native pgx pools backing these handles.
 	RawAccess interface {
 		ReadDB() *sql.DB
 		WriteDB() *sql.DB

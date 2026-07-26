@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/circuitbreaking"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v6/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v6/distributedlock"
-	platformerrors "github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/identifiers"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/keys"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
+	"github.com/primandproper/platform-go/v7/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v7/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v7/distributedlock"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/identifiers"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -131,7 +131,7 @@ func NewRedisLocker(
 func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, key).Set("lock.ttl", ttl)
+	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, ttl)
 
 	if key == "" {
 		return nil, distributedlock.ErrEmptyKey
@@ -219,7 +219,7 @@ func (l *locker) release(ctx context.Context, fullKey, token string) error {
 func (l *locker) refresh(ctx context.Context, fullKey, token string, ttl time.Duration) error {
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
-	op.Set("lock.full_key", fullKey).Set("lock.ttl", ttl)
+	op.Set("lock.full_key", fullKey).Set(keys.LockTTLKey, ttl)
 
 	if ttl <= 0 {
 		return distributedlock.ErrInvalidTTL

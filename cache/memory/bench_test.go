@@ -11,7 +11,7 @@ type benchItem struct {
 }
 
 func BenchmarkInMemoryCache(b *testing.B) {
-	c, err := NewInMemoryCache[benchItem](nil, nil, nil)
+	c, err := NewInMemoryCache[benchItem](0, nil, nil, nil)
 	must.NoError(b, err)
 
 	ctx := b.Context()

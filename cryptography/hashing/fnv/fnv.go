@@ -1,4 +1,7 @@
-// Package fnv implements hashing.Hasher using the FNV-1a (128-bit) hash.
+// Package fnv implements hashing.Hasher using the FNV-1a hash, and exposes
+// Sum64a and Sum128a for callers that want the hash as the integer it natively
+// is. The standard library's hash/fnv has no package-level sum function, so
+// those exist to spare every caller the New/Write/Sum dance.
 //
 // WARNING: FNV-1a is a NON-CRYPTOGRAPHIC hash. It is fast and useful for hash
 // tables and detecting accidental data corruption, but it provides NO security
@@ -8,31 +11,78 @@
 package fnv
 
 import (
-	"encoding/hex"
+	"encoding/binary"
 	"hash/fnv"
 
-	"github.com/primandproper/platform-go/v6/cryptography/hashing"
+	"github.com/primandproper/platform-go/v7/cryptography/hashing"
 )
 
-var _ hashing.Hasher = (*fnvHasher)(nil)
+var (
+	_ hashing.Hasher = (*fnv64aHasher)(nil)
+	_ hashing.Hasher = (*fnv128aHasher)(nil)
+)
 
 type (
-	fnvHasher struct{}
+	fnv64aHasher  struct{}
+	fnv128aHasher struct{}
 )
 
-// NewFNVHasher returns a hashing.Hasher backed by the FNV-1a (128-bit) hash.
+// NewFNV64aHasher returns a hashing.Hasher backed by the FNV-1a (64-bit) hash,
+// rendered big-endian so the digest bytes read in the same order as the hex
+// string. 64 bits is the usual choice for FNV; callers that want the number
+// rather than a digest should use Sum64a.
 //
 // WARNING: this is a NON-CRYPTOGRAPHIC hash and MUST NOT be used for security,
 // password, or tamper-resistance purposes. See the package doc.
-func NewFNVHasher() hashing.Hasher {
-	return &fnvHasher{}
+func NewFNV64aHasher() hashing.Hasher {
+	return &fnv64aHasher{}
 }
 
-func (s *fnvHasher) Hash(content string) (string, error) {
-	h := fnv.New128a()
-	if _, err := h.Write([]byte(content)); err != nil {
-		return "", err
-	}
+func (s *fnv64aHasher) Hash(content []byte) []byte {
+	return binary.BigEndian.AppendUint64(nil, Sum64a(content))
+}
 
-	return hex.EncodeToString(h.Sum(nil)), nil
+// NewFNV128aHasher returns a hashing.Hasher backed by the FNV-1a (128-bit)
+// hash. Prefer NewFNV64aHasher unless a 16-byte digest is specifically
+// required: the extra width buys nothing for bucketing, which is what a
+// non-cryptographic hash is for.
+//
+// WARNING: this is a NON-CRYPTOGRAPHIC hash and MUST NOT be used for security,
+// password, or tamper-resistance purposes. See the package doc.
+func NewFNV128aHasher() hashing.Hasher {
+	return &fnv128aHasher{}
+}
+
+func (s *fnv128aHasher) Hash(content []byte) []byte {
+	sum := Sum128a(content)
+
+	return sum[:]
+}
+
+// Sum64a returns the FNV-1a (64-bit) hash of content as the uint64 it natively
+// is, for bucketing, sharding, and advisory-lock IDs.
+//
+// WARNING: this is a NON-CRYPTOGRAPHIC hash. See the package doc.
+func Sum64a(content []byte) uint64 {
+	h := fnv.New64a()
+	// hash.Hash guarantees Write never returns an error.
+	_, _ = h.Write(content)
+
+	return h.Sum64()
+}
+
+// Sum128a returns the FNV-1a (128-bit) hash of content. hash/fnv exposes the
+// 128-bit variant only through hash.Hash, so unlike Sum64a there is no integer
+// form to return.
+//
+// WARNING: this is a NON-CRYPTOGRAPHIC hash. See the package doc.
+func Sum128a(content []byte) [16]byte {
+	h := fnv.New128a()
+	// hash.Hash guarantees Write never returns an error.
+	_, _ = h.Write(content)
+
+	var out [16]byte
+	copy(out[:], h.Sum(nil))
+
+	return out
 }

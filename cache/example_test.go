@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/primandproper/platform-go/v6/cache"
-	"github.com/primandproper/platform-go/v6/cache/memory"
+	"github.com/primandproper/platform-go/v7/cache"
+	"github.com/primandproper/platform-go/v7/cache/memory"
 )
 
 func ExampleCache_setAndGet() {
 	ctx := context.Background()
-	c, err := memory.NewInMemoryCache[string](nil, nil, nil)
+	c, err := memory.NewInMemoryCache[string](0, nil, nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -30,26 +30,21 @@ func ExampleCache_setAndGet() {
 	// Output: cached-value
 }
 
-func ExampleBatchCache() {
+func ExampleCache_batch() {
 	ctx := context.Background()
-	c, err := memory.NewInMemoryCache[string](nil, nil, nil)
+	c, err := memory.NewInMemoryCache[string](0, nil, nil, nil)
 	if err != nil {
 		panic(err)
 	}
 
-	// Not every Cache supports batching, so obtain a BatchCache by asserting.
-	bc, ok := c.(cache.BatchCache[string])
-	if !ok {
-		panic("cache does not support batching")
-	}
-
+	// Batched reads and writes are part of Cache itself — no assertion needed.
 	one, two := "one", "two"
-	if err = bc.SetMany(ctx, map[string]*string{"k1": &one, "k2": &two}); err != nil {
+	if err = c.SetMany(ctx, map[string]*string{"k1": &one, "k2": &two}); err != nil {
 		panic(err)
 	}
 
 	// Missing keys are simply absent from the result.
-	results, err := bc.GetMany(ctx, []string{"k1", "k2", "missing"})
+	results, err := c.GetMany(ctx, []string{"k1", "k2", "missing"})
 	if err != nil {
 		panic(err)
 	}
@@ -61,9 +56,35 @@ func ExampleBatchCache() {
 	// one
 }
 
+// ExampleNewGobCodec shows the codec the serializing providers use by default.
+// Consumers reach for Codec only to replace it — redis.WithCodec accepts any
+// implementation whose Decode round-trips its own Encode. Note the migration
+// caveat: values written under one codec are unreadable through another.
+func ExampleNewGobCodec() {
+	type session struct {
+		UserID string
+		Roles  []string
+	}
+
+	codec := cache.NewGobCodec[session]()
+
+	encoded, err := codec.Encode(&session{UserID: "u-1", Roles: []string{"admin", "auditor"}})
+	if err != nil {
+		panic(err)
+	}
+
+	decoded, err := codec.Decode(encoded)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(decoded.UserID, decoded.Roles)
+	// Output: u-1 [admin auditor]
+}
+
 func ExampleCache_notFound() {
 	ctx := context.Background()
-	c, cacheErr := memory.NewInMemoryCache[string](nil, nil, nil)
+	c, cacheErr := memory.NewInMemoryCache[string](0, nil, nil, nil)
 	if cacheErr != nil {
 		panic(cacheErr)
 	}

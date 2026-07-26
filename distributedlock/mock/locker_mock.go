@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/distributedlock"
+	"github.com/primandproper/platform-go/v7/distributedlock"
 )
 
 // Ensure, that LockerMock does implement distributedlock.Locker.
@@ -357,5 +357,139 @@ func (mock *LockMock) TTLCalls() []struct {
 	mock.lockTTL.RLock()
 	calls = mock.calls.TTL
 	mock.lockTTL.RUnlock()
+	return calls
+}
+
+// Ensure, that ScopedLockerMock does implement distributedlock.ScopedLocker.
+// If this is not the case, regenerate this file with moq.
+var _ distributedlock.ScopedLocker = &ScopedLockerMock{}
+
+// ScopedLockerMock is a mock implementation of distributedlock.ScopedLocker.
+//
+//	func TestSomethingThatUsesScopedLocker(t *testing.T) {
+//
+//		// make and configure a mocked distributedlock.ScopedLocker
+//		mockedScopedLocker := &ScopedLockerMock{
+//			TryWithLockFunc: func(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
+//				panic("mock out the TryWithLock method")
+//			},
+//			WithLockFunc: func(ctx context.Context, key string, fn func(ctx context.Context) error) error {
+//				panic("mock out the WithLock method")
+//			},
+//		}
+//
+//		// use mockedScopedLocker in code that requires distributedlock.ScopedLocker
+//		// and then make assertions.
+//
+//	}
+type ScopedLockerMock struct {
+	// TryWithLockFunc mocks the TryWithLock method.
+	TryWithLockFunc func(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error)
+
+	// WithLockFunc mocks the WithLock method.
+	WithLockFunc func(ctx context.Context, key string, fn func(ctx context.Context) error) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// TryWithLock holds details about calls to the TryWithLock method.
+		TryWithLock []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Key is the key argument value.
+			Key string
+			// Fn is the fn argument value.
+			Fn func(ctx context.Context) error
+		}
+		// WithLock holds details about calls to the WithLock method.
+		WithLock []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Key is the key argument value.
+			Key string
+			// Fn is the fn argument value.
+			Fn func(ctx context.Context) error
+		}
+	}
+	lockTryWithLock sync.RWMutex
+	lockWithLock    sync.RWMutex
+}
+
+// TryWithLock calls TryWithLockFunc.
+func (mock *ScopedLockerMock) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
+	if mock.TryWithLockFunc == nil {
+		panic("ScopedLockerMock.TryWithLockFunc: method is nil but ScopedLocker.TryWithLock was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Key string
+		Fn  func(ctx context.Context) error
+	}{
+		Ctx: ctx,
+		Key: key,
+		Fn:  fn,
+	}
+	mock.lockTryWithLock.Lock()
+	mock.calls.TryWithLock = append(mock.calls.TryWithLock, callInfo)
+	mock.lockTryWithLock.Unlock()
+	return mock.TryWithLockFunc(ctx, key, fn)
+}
+
+// TryWithLockCalls gets all the calls that were made to TryWithLock.
+// Check the length with:
+//
+//	len(mockedScopedLocker.TryWithLockCalls())
+func (mock *ScopedLockerMock) TryWithLockCalls() []struct {
+	Ctx context.Context
+	Key string
+	Fn  func(ctx context.Context) error
+} {
+	var calls []struct {
+		Ctx context.Context
+		Key string
+		Fn  func(ctx context.Context) error
+	}
+	mock.lockTryWithLock.RLock()
+	calls = mock.calls.TryWithLock
+	mock.lockTryWithLock.RUnlock()
+	return calls
+}
+
+// WithLock calls WithLockFunc.
+func (mock *ScopedLockerMock) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
+	if mock.WithLockFunc == nil {
+		panic("ScopedLockerMock.WithLockFunc: method is nil but ScopedLocker.WithLock was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		Key string
+		Fn  func(ctx context.Context) error
+	}{
+		Ctx: ctx,
+		Key: key,
+		Fn:  fn,
+	}
+	mock.lockWithLock.Lock()
+	mock.calls.WithLock = append(mock.calls.WithLock, callInfo)
+	mock.lockWithLock.Unlock()
+	return mock.WithLockFunc(ctx, key, fn)
+}
+
+// WithLockCalls gets all the calls that were made to WithLock.
+// Check the length with:
+//
+//	len(mockedScopedLocker.WithLockCalls())
+func (mock *ScopedLockerMock) WithLockCalls() []struct {
+	Ctx context.Context
+	Key string
+	Fn  func(ctx context.Context) error
+} {
+	var calls []struct {
+		Ctx context.Context
+		Key string
+		Fn  func(ctx context.Context) error
+	}
+	mock.lockWithLock.RLock()
+	calls = mock.calls.WithLock
+	mock.lockWithLock.RUnlock()
 	return calls
 }

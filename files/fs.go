@@ -6,11 +6,11 @@ import (
 	"iter"
 	"os"
 
-	"github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v6/observability/logging/noop"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
-	tracingnoop "github.com/primandproper/platform-go/v6/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
 )
 
 // osFS opens files on the OS filesystem via os.Open. Unlike a general fs.FS it deliberately does not

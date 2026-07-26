@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	cbnoop "github.com/primandproper/platform-go/v6/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v6/database"
-	"github.com/primandproper/platform-go/v6/identifiers"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/keys"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v6/observability/metrics/mock"
-	vectorsearch "github.com/primandproper/platform-go/v6/search/vector"
-	"github.com/primandproper/platform-go/v6/testutils/containers"
+	cbnoop "github.com/primandproper/platform-go/v7/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/identifiers"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
+	vectorsearch "github.com/primandproper/platform-go/v7/search/vector"
+	"github.com/primandproper/platform-go/v7/testutils/containers"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/shoenig/test"
@@ -67,7 +67,7 @@ func (c *testDBClient) RollbackTransaction(_ context.Context, tx database.SQLQue
 	_ = tx.Rollback()
 }
 
-func (c *testDBClient) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutorAndTransactionManager) error) error {
+func (c *testDBClient) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutor) error) error {
 	return database.RunInTransaction(ctx, c.db, c.RollbackTransaction, fn)
 }
 

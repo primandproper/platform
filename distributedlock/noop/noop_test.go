@@ -1,6 +1,8 @@
 package noop
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -75,5 +77,57 @@ func TestLock_ReleaseAndRefresh(T *testing.T) {
 		must.NoError(t, err)
 		must.NoError(t, l.Refresh(t.Context(), 5*time.Second))
 		test.EqOp(t, 5*time.Second, l.TTL())
+	})
+}
+
+func TestNewScopedLocker(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithLock runs fn as if the lock were free", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewScopedLocker()
+		must.NotNil(t, s)
+
+		ran := false
+		must.NoError(t, s.WithLock(t.Context(), "chore", func(context.Context) error {
+			ran = true
+			return nil
+		}))
+		test.True(t, ran)
+	})
+
+	T.Run("WithLock passes fn's error through", func(t *testing.T) {
+		t.Parallel()
+
+		boom := errors.New("boom")
+		test.ErrorIs(t, NewScopedLocker().WithLock(t.Context(), "chore", func(context.Context) error {
+			return boom
+		}), boom)
+	})
+
+	T.Run("TryWithLock always reports acquired", func(t *testing.T) {
+		t.Parallel()
+
+		ran := false
+		acquired, err := NewScopedLocker().TryWithLock(t.Context(), "chore", func(context.Context) error {
+			ran = true
+			return nil
+		})
+		must.NoError(t, err)
+		test.True(t, acquired)
+		test.True(t, ran)
+	})
+
+	T.Run("TryWithLock passes fn's error through", func(t *testing.T) {
+		t.Parallel()
+
+		boom := errors.New("boom")
+		acquired, err := NewScopedLocker().TryWithLock(t.Context(), "chore", func(context.Context) error {
+			return boom
+		})
+		test.ErrorIs(t, err, boom)
+		// Acquisition succeeded; only fn failed.
+		test.True(t, acquired)
 	})
 }

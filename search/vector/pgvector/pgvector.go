@@ -9,16 +9,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/circuitbreaking"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v6/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v6/database"
-	platformerrors "github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/keys"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
-	vectorsearch "github.com/primandproper/platform-go/v6/search/vector"
+	"github.com/primandproper/platform-go/v7/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v7/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v7/database"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
+	vectorsearch "github.com/primandproper/platform-go/v7/search/vector"
 )
 
 const serviceName = "pgvector_index"
@@ -199,7 +199,7 @@ func (i *indexManager[T]) ensureTable(ctx context.Context) error {
 
 	// The advisory lock is transaction-scoped, so concurrent callers serialize until this
 	// transaction commits or rolls back — both released for us by WithTransaction.
-	if err := i.db.WithTransaction(ctx, func(tx database.SQLQueryExecutorAndTransactionManager) error {
+	if err := i.db.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, ensureSchemaLockKey); err != nil {
 			return op.Error(err, "acquiring pgvector schema advisory lock")
 		}
@@ -283,7 +283,7 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 
 	// Run the whole batch in one transaction so a mid-batch failure rolls back the
 	// rows already written rather than leaving a partial batch committed.
-	if err := i.db.WithTransaction(ctx, func(tx database.SQLQueryExecutorAndTransactionManager) error {
+	if err := i.db.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {
 		for n := range rows {
 			r := &rows[n]
 			if _, err := tx.ExecContext(ctx, stmt, r.id, r.embedding, r.payload); err != nil {

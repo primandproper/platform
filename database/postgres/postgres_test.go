@@ -3,14 +3,15 @@ package postgres
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/database"
-	"github.com/primandproper/platform-go/v6/observability"
-	loggingnoop "github.com/primandproper/platform-go/v6/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v6/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v6/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/observability"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/shoenig/test"
@@ -60,6 +61,17 @@ func (c *testClientConfig) GetMaxOpenConns() int {
 
 func (c *testClientConfig) GetConnMaxLifetime() time.Duration {
 	return 30 * time.Minute
+}
+
+// loggingClientConfig adds the optional GetLogQueries capability that
+// NewDatabaseClient discovers by interface assertion.
+type loggingClientConfig struct {
+	testClientConfig
+	logQueries bool
+}
+
+func (c *loggingClientConfig) GetLogQueries() bool {
+	return c.logQueries
 }
 
 func buildTestClient(t *testing.T) (*Client, sqlmock.Sqlmock) {
@@ -148,6 +160,35 @@ func TestQuerier_IsReady(T *testing.T) {
 		db.ExpectPing().WillReturnError(errors.New("blah"))
 
 		test.False(t, c.IsReady(ctx))
+	})
+
+	T.Run("a canceled context ends the retry wait", func(t *testing.T) {
+		t.Parallel()
+
+		c, db := buildTestClient(t)
+		// Several attempts an hour apart: without the cancellation check the
+		// call would sit here long past the caller's deadline.
+		c.config = &testClientConfig{pingWaitPeriod: time.Hour, maxPingAttempts: 3}
+
+		db.ExpectPing().WillReturnError(errors.New("blah"))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		test.False(t, c.IsReady(ctx))
+	})
+}
+
+func TestClient_ReaderWriter(T *testing.T) {
+	T.Parallel()
+
+	T.Run("hand back the non-transactional executors", func(t *testing.T) {
+		t.Parallel()
+
+		c, _ := buildTestClient(t)
+
+		test.Eq(t, database.SQLQueryExecutor(c.readDB), c.Reader())
+		test.Eq(t, database.SQLQueryExecutor(c.writeDB), c.Writer())
 	})
 }
 
@@ -239,6 +280,68 @@ func TestNewDatabaseClient(T *testing.T) {
 		actual, err := NewDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, metricsnoop.NewMetricsProvider())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
+	})
+
+	T.Run("a config that opts out of query logging suppresses db.statement", func(t *testing.T) {
+		t.Parallel()
+
+		// The flag is discovered by interface assertion, so the only way to
+		// reach the suppression branch is a config that carries the method.
+		exampleConfig := &loggingClientConfig{
+			testClientConfig: testClientConfig{
+				connectionString: "user=test password=test database=test host=localhost port=5432",
+				maxPingAttempts:  1,
+			},
+		}
+
+		actual, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.NotNil(t, actual)
+		test.NoError(t, err)
+	})
+
+	T.Run("a config that opts into query logging keeps db.statement", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &loggingClientConfig{
+			testClientConfig: testClientConfig{
+				connectionString: "user=test password=test database=test host=localhost port=5432",
+				maxPingAttempts:  1,
+			},
+			logQueries: true,
+		}
+
+		actual, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.NotNil(t, actual)
+		test.NoError(t, err)
+	})
+
+	T.Run("a failing write side does not leak the read side", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			readConnectionString:  "user=test password=test database=test host=localhost port=5432",
+			writeConnectionString: "postgres://user:pass@localhost:not-a-port/test",
+			maxPingAttempts:       1,
+		}
+
+		actual, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.Nil(t, actual)
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "connecting to write postgres database")
+	})
+
+	T.Run("an unparseable read connection string is reported", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			readConnectionString: "postgres://user:pass@localhost:not-a-port/test",
+			maxPingAttempts:      1,
+		}
+
+		actual, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.Nil(t, actual)
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "connecting to read postgres database")
 	})
 }
 
@@ -332,7 +435,7 @@ func TestClient_WithTransaction(T *testing.T) {
 		db.ExpectExec("UPDATE things").WillReturnResult(sqlmock.NewResult(1, 1))
 		db.ExpectCommit()
 
-		err := c.WithTransaction(ctx, func(tx database.SQLQueryExecutorAndTransactionManager) error {
+		err := c.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {
 			_, execErr := tx.ExecContext(ctx, "UPDATE things SET x = 1")
 			return execErr
 		})
@@ -351,7 +454,7 @@ func TestClient_WithTransaction(T *testing.T) {
 		db.ExpectRollback()
 
 		sentinel := errors.New("boom")
-		err := c.WithTransaction(ctx, func(_ database.SQLQueryExecutorAndTransactionManager) error {
+		err := c.WithTransaction(ctx, func(_ database.SQLQueryExecutor) error {
 			return sentinel
 		})
 
@@ -447,5 +550,104 @@ func TestClient_Close(T *testing.T) {
 		writeMock.ExpectClose().WillReturnError(errors.New("blah"))
 
 		test.Error(t, c.Close())
+	})
+}
+
+func TestClient_PgxAccess(T *testing.T) {
+	T.Parallel()
+
+	T.Run("single connection shares one pool across both sides", func(t *testing.T) {
+		t.Parallel()
+
+		// Only the read side is configured; the write side falls back to it and
+		// must share the same pool rather than opening a second one.
+		exampleConfig := &testClientConfig{
+			readConnectionString: "user=test password=test database=test host=localhost port=5432",
+			maxPingAttempts:      1,
+		}
+
+		client, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		must.NoError(t, err)
+		t.Cleanup(func() {
+			must.NoError(t, client.Close())
+		})
+
+		native, ok := client.(PgxAccess)
+		must.True(t, ok)
+
+		must.NotNil(t, native.ReadPool())
+		test.EqOp(t, native.ReadPool(), native.WritePool())
+	})
+
+	T.Run("split connections get distinct pools", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			readConnectionString:  "user=test password=test database=test host=localhost port=5432",
+			writeConnectionString: "user=test password=test database=other host=localhost port=5432",
+			maxPingAttempts:       1,
+		}
+
+		client, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		must.NoError(t, err)
+		t.Cleanup(func() {
+			must.NoError(t, client.Close())
+		})
+
+		native, ok := client.(PgxAccess)
+		must.True(t, ok)
+
+		must.NotNil(t, native.ReadPool())
+		must.NotNil(t, native.WritePool())
+		test.NotEqOp(t, native.ReadPool(), native.WritePool())
+	})
+
+	T.Run("pool config mirrors the client config", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			connectionString: "user=test password=test database=test host=localhost port=5432",
+			maxPingAttempts:  1,
+		}
+
+		client, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		must.NoError(t, err)
+		t.Cleanup(func() {
+			must.NoError(t, client.Close())
+		})
+
+		native, ok := client.(PgxAccess)
+		must.True(t, ok)
+
+		cfg := native.WritePool().Config()
+		test.EqOp(t, int32(exampleConfig.GetMaxOpenConns()), cfg.MaxConns)
+		test.EqOp(t, exampleConfig.GetConnMaxLifetime(), cfg.MaxConnLifetime)
+	})
+
+	T.Run("invalid connection string fails construction", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			connectionString: "host=localhost port=notanumber",
+			maxPingAttempts:  1,
+		}
+
+		client, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.Nil(t, client)
+		test.Error(t, err)
+	})
+}
+
+func TestClampToInt32(T *testing.T) {
+	T.Parallel()
+
+	T.Run("passes small values through and saturates large ones", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, int32(7), clampToInt32(7))
+		test.EqOp(t, int32(math.MaxInt32), clampToInt32(math.MaxInt32))
+		if math.MaxInt > math.MaxInt32 {
+			test.EqOp(t, int32(math.MaxInt32), clampToInt32(math.MaxInt))
+		}
 	})
 }

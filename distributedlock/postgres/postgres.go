@@ -11,17 +11,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/circuitbreaking"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v6/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v6/database"
-	"github.com/primandproper/platform-go/v6/distributedlock"
-	platformerrors "github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/identifiers"
-	"github.com/primandproper/platform-go/v6/observability"
-	"github.com/primandproper/platform-go/v6/observability/keys"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
+	"github.com/primandproper/platform-go/v7/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v7/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/distributedlock"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/identifiers"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 )
 
 const serviceName = "postgres_distributed_lock"
@@ -123,7 +123,7 @@ func NewPostgresLocker(
 func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, key).Set("lock.ttl", ttl)
+	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, ttl)
 
 	if key == "" {
 		return nil, distributedlock.ErrEmptyKey
@@ -167,9 +167,9 @@ func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 	}
 
 	lockID := hashLockID(l.namespace, key)
-	op.Set("lock.id", lockID)
+	op.Set(keys.LockIDKey, lockID)
 	var ok bool
-	if scanErr := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, lockID).Scan(&ok); scanErr != nil {
+	if scanErr := conn.QueryRowContext(ctx, queryAcquireSession, lockID).Scan(&ok); scanErr != nil {
 		// Best-effort return the conn to the pool.
 		if closeErr := conn.Close(); closeErr != nil {
 			op.Acknowledge(closeErr, "returning postgres conn to pool after failed advisory lock")
@@ -235,7 +235,7 @@ func (l *locker) Close() error {
 func (l *locker) release(ctx context.Context, h *lock) error {
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, h.key).Set("lock.id", h.lockID)
+	op.Set(keys.LockKeyKey, h.key).Set(keys.LockIDKey, h.lockID)
 
 	if l.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -284,7 +284,7 @@ func (l *locker) release(ctx context.Context, h *lock) error {
 func (l *locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error {
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, h.key).Set("lock.id", h.lockID).Set("lock.ttl", ttl)
+	op.Set(keys.LockKeyKey, h.key).Set(keys.LockIDKey, h.lockID).Set(keys.LockTTLKey, ttl)
 
 	if ttl <= 0 {
 		return distributedlock.ErrInvalidTTL
@@ -320,7 +320,7 @@ func (l *locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error 
 
 	// SELECT 1 verifies the conn is alive without altering server state.
 	var one int
-	if err := h.conn.QueryRowContext(ctx, `SELECT 1`).Scan(&one); err != nil {
+	if err := h.conn.QueryRowContext(ctx, queryPing).Scan(&one); err != nil {
 		l.errCounter.Add(ctx, 1)
 		l.circuitBreaker.Failed()
 		return distributedlock.ErrLockNotHeld
@@ -394,7 +394,7 @@ func (l *lock) releaseLocked(ctx context.Context) (err error) {
 	}()
 
 	var unlocked bool
-	if err = l.conn.QueryRowContext(ctx, `SELECT pg_advisory_unlock($1)`, l.lockID).Scan(&unlocked); err != nil {
+	if err = l.conn.QueryRowContext(ctx, queryReleaseSession, l.lockID).Scan(&unlocked); err != nil {
 		return platformerrors.Wrap(err, "calling pg_advisory_unlock")
 	}
 

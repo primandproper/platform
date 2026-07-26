@@ -5,14 +5,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v6/cache"
-	"github.com/primandproper/platform-go/v6/cache/memory"
-	"github.com/primandproper/platform-go/v6/cache/redis"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v6/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v6/errors"
-	"github.com/primandproper/platform-go/v6/observability/logging"
-	"github.com/primandproper/platform-go/v6/observability/metrics"
-	"github.com/primandproper/platform-go/v6/observability/tracing"
+	"github.com/primandproper/platform-go/v7/cache"
+	"github.com/primandproper/platform-go/v7/cache/memory"
+	"github.com/primandproper/platform-go/v7/cache/redis"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v7/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -30,7 +30,10 @@ type (
 		Redis          *redis.Config             `env:"init"     envPrefix:"REDIS_"            json:"redis"                yaml:"redis"`
 		Provider       string                    `env:"PROVIDER" json:"provider"               yaml:"provider"`
 		CircuitBreaker circuitbreakingcfg.Config `env:"init"     envPrefix:"CIRCUIT_BREAKING_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
-		Expiry         time.Duration             `env:"EXPIRY"   envDefault:"1h"               json:"expiry"               yaml:"expiry"`
+		// Expiry is the default expiry for writes that don't specify one via
+		// cache.WithExpiry; a non-positive value means entries never expire by
+		// default.
+		Expiry time.Duration `env:"EXPIRY" envDefault:"1h" json:"expiry" yaml:"expiry"`
 	}
 )
 
@@ -48,17 +51,13 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewCache[T any](ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (cache.Cache[T], error) {
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderMemory:
-		return memory.NewInMemoryCache[T](logger, tracerProvider, metricsProvider)
+		return memory.NewInMemoryCache[T](cfg.Expiry, logger, tracerProvider, metricsProvider)
 	case ProviderRedis:
 		cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, logger, metricsProvider)
 		if err != nil {
 			return nil, errors.Wrap(err, "initializing cache circuit breaker")
 		}
-		expiry := cfg.Expiry
-		if expiry <= 0 {
-			expiry = time.Hour
-		}
-		return redis.NewRedisCache[T](cfg.Redis, expiry, logger, tracerProvider, metricsProvider, cb)
+		return redis.NewRedisCache[T](cfg.Redis, cfg.Expiry, logger, tracerProvider, metricsProvider, cb)
 	default:
 		return nil, errors.Newf("invalid cache provider: %q", cfg.Provider)
 	}
