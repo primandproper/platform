@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	clockfake "github.com/primandproper/platform-go/v7/clock/fake"
 	"github.com/primandproper/platform-go/v7/eventcapture"
 )
 
@@ -111,9 +110,10 @@ func ExampleNewRecorder_aggregation() {
 	)
 
 	rec, err := eventcapture.NewRecorder[servedRequest](sink,
-		// A fake clock keeps the flush ticker from firing mid-example; a real
-		// deployment leaves the default clock alone.
-		eventcapture.WithClock[servedRequest](clockfake.New(start)),
+		// A flush interval longer than the example keeps the periodic tick from
+		// splitting the rollups across two flushes; a real deployment leaves the
+		// default cadence alone.
+		eventcapture.WithFlushInterval[servedRequest](time.Hour),
 		eventcapture.WithoutRawRecords[servedRequest](),
 		// Without this the Aggregator silently discards observations once
 		// maxKeys is reached; the Recorder cannot see inside the composition

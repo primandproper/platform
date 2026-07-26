@@ -5,11 +5,12 @@ import (
 	"time"
 )
 
-// Clock is an injectable source of time. Production code receives the wall
-// clock from NewClock; tests receive a manually-advanced clock from
-// clock/fake. The interface deliberately covers only reading time, sleeping
-// against it, and ticking on it — anything more (timers with resets, cron
-// scheduling) belongs to the caller.
+// Clock is an injectable source of time. Production and test code alike
+// receive the wall clock from NewClock: inside a testing/synctest bubble it
+// reads the bubble's fake time, so no test double is needed. The interface
+// deliberately covers only reading time, sleeping against it, and ticking on
+// it — anything more (timers with resets, cron scheduling) belongs to the
+// caller.
 type Clock interface {
 	// Now returns the current time.
 	Now() time.Time

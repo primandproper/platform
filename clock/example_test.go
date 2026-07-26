@@ -5,29 +5,41 @@ import (
 	"fmt"
 	"time"
 
-	clockfake "github.com/primandproper/platform-go/v7/clock/fake"
+	"github.com/primandproper/platform-go/v7/clock"
 )
 
-// Example demonstrates driving time-dependent code deterministically with the
-// fake clock: a goroutine sleeps for an hour of clock time, and the test
-// advances the clock instead of waiting.
+// expiringToken is the shape components take: it stamps and checks against an
+// injected Clock rather than calling time.Now directly, which is what lets a
+// test drive it under testing/synctest without waiting on real time.
+type expiringToken struct {
+	clock     clock.Clock
+	expiresAt time.Time
+}
+
+func newExpiringToken(c clock.Clock, ttl time.Duration) *expiringToken {
+	return &expiringToken{clock: c, expiresAt: c.Now().Add(ttl)}
+}
+
+func (t *expiringToken) expired() bool {
+	return !t.clock.Now().Before(t.expiresAt)
+}
+
+// Example wires a component to the production clock. Tests need no double:
+// inside a testing/synctest bubble this same Clock reads the bubble's fake
+// time, so time.Sleep moves the token to expiry in nanoseconds of wall time.
 func Example() {
-	fc := clockfake.New(time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC))
+	c := clock.NewClock()
 
-	done := make(chan error, 1)
-	go func() {
-		done <- fc.Sleep(context.Background(), time.Hour)
-	}()
+	tok := newExpiringToken(c, time.Hour)
+	fmt.Println("expired at issue:", tok.expired())
 
-	// Wait for the sleeper to register, then advance past its deadline.
-	fc.BlockUntil(1)
-	fc.Advance(time.Hour)
+	// Sleep is context-aware: a canceled context ends the pause immediately
+	// rather than stranding the goroutine for the full duration.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	fmt.Println("sleep:", c.Sleep(ctx, time.Hour))
 
-	if err := <-done; err != nil {
-		fmt.Println("sleep failed:", err)
-		return
-	}
-
-	fmt.Println(fc.Now().UTC().Format(time.RFC3339))
-	// Output: 2026-01-01T01:00:00Z
+	// Output:
+	// expired at issue: false
+	// sleep: context canceled
 }

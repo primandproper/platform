@@ -3,9 +3,8 @@ package eventcapture
 import (
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
-
-	clockfake "github.com/primandproper/platform-go/v7/clock/fake"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -27,17 +26,18 @@ func mustRecorder[E any](tb testing.TB, sink Sink, opts ...Option[E]) *Recorder[
 	return r
 }
 
-// recordingSink is a threadsafe in-memory Sink that signals every Flush, so
-// tests can wait for a tick to complete instead of sleeping.
+// recordingSink is a threadsafe in-memory Sink that counts every Flush. Tests
+// read the count after a synctest.Wait, which parks the flusher without moving
+// the clock — so the count is exactly the flushes that were actually due.
 type recordingSink struct {
-	flushes chan struct{}
 	records []any
 	mu      sync.Mutex
+	flushes int
 	closed  bool
 }
 
 func newRecordingSink() *recordingSink {
-	return &recordingSink{flushes: make(chan struct{}, 16)}
+	return &recordingSink{}
 }
 
 func (s *recordingSink) Write(record any) error {
@@ -49,12 +49,18 @@ func (s *recordingSink) Write(record any) error {
 }
 
 func (s *recordingSink) Flush() error {
-	select {
-	case s.flushes <- struct{}{}:
-	default:
-	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flushes++
 
 	return nil
+}
+
+func (s *recordingSink) flushCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.flushes
 }
 
 func (s *recordingSink) Close() error {
@@ -84,41 +90,55 @@ func (s *recordingSink) isClosed() bool {
 
 var testStart = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
+// flushInterval is the tick cadence the periodic-flush tests configure. Bubble
+// time makes it free, so the value is arbitrary — but the tests step to a
+// nanosecond either side of it, so they fail if the ticker ignores it.
+const flushInterval = time.Second
+
+// The Recorder tests run inside synctest bubbles: the flusher goroutine, the
+// event buffer, and the flush ticker all live in the bubble, so the default
+// clock rides bubble time and a Run/Close handshake that fails to complete is
+// reported as a deadlock instead of hanging on a timeout.
+
 func TestRecorder_RecordAndClose(T *testing.T) {
 	T.Parallel()
 
 	T.Run("events flow to the sink and Close drains and closes", func(t *testing.T) {
 		t.Parallel()
 
-		sink := newRecordingSink()
-		r := mustRecorder[testEvent](t, sink, WithClock[testEvent](clockfake.New(testStart)))
+		synctest.Test(t, func(t *testing.T) {
+			sink := newRecordingSink()
+			r := mustRecorder[testEvent](t, sink)
 
-		go r.Run()
+			go r.Run()
 
-		r.Record(&testEvent{Name: "one"})
-		r.Record(&testEvent{Name: "two"})
+			r.Record(&testEvent{Name: "one"})
+			r.Record(&testEvent{Name: "two"})
 
-		must.NoError(t, r.Close(t.Context()))
+			must.NoError(t, r.Close(t.Context()))
 
-		records := sink.snapshot()
-		must.SliceLen(t, 2, records)
-		first, ok := records[0].(*testEvent)
-		must.True(t, ok)
-		test.EqOp(t, "one", first.Name)
-		test.True(t, sink.isClosed())
-		test.EqOp(t, uint64(0), r.Dropped())
+			records := sink.snapshot()
+			must.SliceLen(t, 2, records)
+			first, ok := records[0].(*testEvent)
+			must.True(t, ok)
+			test.EqOp(t, "one", first.Name)
+			test.True(t, sink.isClosed())
+			test.EqOp(t, uint64(0), r.Dropped())
+		})
 	})
 
 	T.Run("Close is idempotent", func(t *testing.T) {
 		t.Parallel()
 
-		sink := newRecordingSink()
-		r := mustRecorder[testEvent](t, sink, WithClock[testEvent](clockfake.New(testStart)))
+		synctest.Test(t, func(t *testing.T) {
+			sink := newRecordingSink()
+			r := mustRecorder[testEvent](t, sink)
 
-		go r.Run()
+			go r.Run()
 
-		must.NoError(t, r.Close(t.Context()))
-		must.NoError(t, r.Close(t.Context()))
+			must.NoError(t, r.Close(t.Context()))
+			must.NoError(t, r.Close(t.Context()))
+		})
 	})
 
 	T.Run("a full buffer drops and counts instead of blocking", func(t *testing.T) {
@@ -126,10 +146,7 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 
 		sink := newRecordingSink()
 		// No Run(): nothing consumes, so the buffer genuinely fills.
-		r := mustRecorder[testEvent](t, sink,
-			WithBufferSize[testEvent](1),
-			WithClock[testEvent](clockfake.New(testStart)),
-		)
+		r := mustRecorder[testEvent](t, sink, WithBufferSize[testEvent](1))
 
 		r.Record(&testEvent{Name: "kept"})
 		r.Record(&testEvent{Name: "dropped-a"})
@@ -141,45 +158,47 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 	T.Run("WithoutRawRecords suppresses per-event writes", func(t *testing.T) {
 		t.Parallel()
 
-		sink := newRecordingSink()
-		var observed int
-		r := mustRecorder[testEvent](t, sink,
-			WithClock[testEvent](clockfake.New(testStart)),
-			WithoutRawRecords[testEvent](),
-			WithObserver[testEvent](func(*testEvent) { observed++ }),
-		)
+		synctest.Test(t, func(t *testing.T) {
+			sink := newRecordingSink()
+			var observed int
+			r := mustRecorder[testEvent](t, sink,
+				WithoutRawRecords[testEvent](),
+				WithObserver[testEvent](func(*testEvent) { observed++ }),
+			)
 
-		go r.Run()
+			go r.Run()
 
-		r.Record(&testEvent{Name: "only-observed"})
+			r.Record(&testEvent{Name: "only-observed"})
 
-		must.NoError(t, r.Close(t.Context()))
-		must.SliceLen(t, 0, sink.snapshot())
-		test.EqOp(t, 1, observed)
+			must.NoError(t, r.Close(t.Context()))
+			must.SliceLen(t, 0, sink.snapshot())
+			test.EqOp(t, 1, observed)
+		})
 	})
 
 	T.Run("WithTransform projects events before the sink", func(t *testing.T) {
 		t.Parallel()
 
-		sink := newRecordingSink()
-		r := mustRecorder[testEvent](t, sink,
-			WithClock[testEvent](clockfake.New(testStart)),
-			WithTransform[testEvent](func(ev *testEvent) any {
-				return map[string]string{"name": ev.Name}
-			}),
-		)
+		synctest.Test(t, func(t *testing.T) {
+			sink := newRecordingSink()
+			r := mustRecorder[testEvent](t, sink,
+				WithTransform[testEvent](func(ev *testEvent) any {
+					return map[string]string{"name": ev.Name}
+				}),
+			)
 
-		go r.Run()
+			go r.Run()
 
-		r.Record(&testEvent{Name: "projected"})
+			r.Record(&testEvent{Name: "projected"})
 
-		must.NoError(t, r.Close(t.Context()))
+			must.NoError(t, r.Close(t.Context()))
 
-		records := sink.snapshot()
-		must.SliceLen(t, 1, records)
-		projected, ok := records[0].(map[string]string)
-		must.True(t, ok)
-		test.EqOp(t, "projected", projected["name"])
+			records := sink.snapshot()
+			must.SliceLen(t, 1, records)
+			projected, ok := records[0].(map[string]string)
+			must.True(t, ok)
+			test.EqOp(t, "projected", projected["name"])
+		})
 	})
 }
 
@@ -189,94 +208,101 @@ func TestRecorder_PeriodicFlush(T *testing.T) {
 	T.Run("ticks run the flush hook and flush the sink", func(t *testing.T) {
 		t.Parallel()
 
-		sink := newRecordingSink()
-		fc := clockfake.New(testStart)
+		synctest.Test(t, func(t *testing.T) {
+			sink := newRecordingSink()
 
-		var hookCalls int
-		var sawFinal bool
-		var mu sync.Mutex
+			var hookCalls int
+			var sawFinal bool
+			var mu sync.Mutex
 
-		r := mustRecorder[testEvent](t, sink,
-			WithClock[testEvent](fc),
-			WithFlushInterval[testEvent](time.Second),
-			WithOnFlush[testEvent](func(_ time.Time, final bool, emit func(any)) {
-				mu.Lock()
-				defer mu.Unlock()
-				hookCalls++
-				if final {
-					sawFinal = true
-				} else {
-					emit("tick-record")
-				}
-			}),
-		)
+			r := mustRecorder[testEvent](t, sink,
+				WithFlushInterval[testEvent](flushInterval),
+				WithOnFlush[testEvent](func(_ time.Time, final bool, emit func(any)) {
+					mu.Lock()
+					defer mu.Unlock()
+					hookCalls++
+					if final {
+						sawFinal = true
+					} else {
+						emit("tick-record")
+					}
+				}),
+			)
 
-		go r.Run()
+			go r.Run()
 
-		// Wait for the flusher's ticker to register before advancing, so the
-		// tick lands deterministically.
-		fc.BlockUntil(1)
-		fc.Advance(time.Second)
+			// Close is idempotent, so the explicit one below still owns the
+			// assertions; this only unwinds the flusher if one of them fails
+			// first, turning a deadlocked bubble into a plain failure.
+			defer func() { _ = r.Close(t.Context()) }()
 
-		select {
-		case <-sink.flushes:
-		case <-time.After(5 * time.Second):
-			t.Fatal("flush tick never reached the sink")
-		}
+			// A nanosecond short of the interval. Wait parks the flusher without
+			// moving the clock, so the tick is pinned to its deadline rather than
+			// to whenever the bubble next goes idle.
+			time.Sleep(flushInterval - time.Nanosecond)
+			synctest.Wait()
+			must.EqOp(t, 0, sink.flushCount())
 
-		must.NoError(t, r.Close(t.Context()))
+			// Crossing the deadline fires exactly one tick.
+			time.Sleep(time.Nanosecond)
+			synctest.Wait()
+			must.EqOp(t, 1, sink.flushCount())
 
-		mu.Lock()
-		defer mu.Unlock()
-		// One periodic tick plus the final drain flush.
-		test.EqOp(t, 2, hookCalls)
-		test.True(t, sawFinal)
+			must.NoError(t, r.Close(t.Context()))
 
-		records := sink.snapshot()
-		must.SliceLen(t, 1, records)
-		test.Eq(t, any("tick-record"), records[0])
+			mu.Lock()
+			defer mu.Unlock()
+			// One periodic tick plus the final drain flush.
+			test.EqOp(t, 2, hookCalls)
+			test.True(t, sawFinal)
+
+			records := sink.snapshot()
+			must.SliceLen(t, 1, records)
+			test.Eq(t, any("tick-record"), records[0])
+		})
 	})
 
 	T.Run("WithOverflowSource is drained on every flush", func(t *testing.T) {
 		t.Parallel()
 
-		sink := newRecordingSink()
-		fc := clockfake.New(testStart)
+		synctest.Test(t, func(t *testing.T) {
+			sink := newRecordingSink()
 
-		var mu sync.Mutex
-		var polls int
+			var mu sync.Mutex
+			var polls int
 
-		r := mustRecorder[testEvent](t, sink,
-			WithClock[testEvent](fc),
-			WithFlushInterval[testEvent](time.Second),
-			WithOverflowSource[testEvent](func() uint64 {
-				mu.Lock()
-				defer mu.Unlock()
-				polls++
+			r := mustRecorder[testEvent](t, sink,
+				WithFlushInterval[testEvent](flushInterval),
+				WithOverflowSource[testEvent](func() uint64 {
+					mu.Lock()
+					defer mu.Unlock()
+					polls++
 
-				return 3
-			}),
-		)
+					return 3
+				}),
+			)
 
-		go r.Run()
+			go r.Run()
 
-		fc.BlockUntil(1)
-		fc.Advance(time.Second)
+			defer func() { _ = r.Close(t.Context()) }()
 
-		select {
-		case <-sink.flushes:
-		case <-time.After(5 * time.Second):
-			t.Fatal("flush tick never reached the sink")
-		}
+			time.Sleep(flushInterval - time.Nanosecond)
+			synctest.Wait()
+			must.EqOp(t, 0, sink.flushCount())
 
-		must.NoError(t, r.Close(t.Context()))
+			time.Sleep(time.Nanosecond)
+			synctest.Wait()
+			must.EqOp(t, 1, sink.flushCount())
 
-		mu.Lock()
-		defer mu.Unlock()
-		// The periodic tick plus the final drain flush: an Aggregator's
-		// overflow is reported and reset on both, so a shutdown never strands
-		// the last window's discards.
-		test.EqOp(t, 2, polls)
+			must.NoError(t, r.Close(t.Context()))
+
+			mu.Lock()
+			defer mu.Unlock()
+			// The periodic tick plus the final drain flush: an Aggregator's
+			// overflow is reported and reset on both, so a shutdown never strands
+			// the last window's discards.
+			test.EqOp(t, 2, polls)
+		})
 	})
 }
 

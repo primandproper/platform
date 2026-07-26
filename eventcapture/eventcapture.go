@@ -93,8 +93,9 @@ func WithFlushInterval[E any](d time.Duration) Option[E] {
 	}
 }
 
-// WithClock swaps the clock driving the flush ticker; tests pass a fake so
-// flush timing is deterministic.
+// WithClock swaps the clock driving the flush ticker. Tests generally do not
+// need it: under testing/synctest the default clock already runs on bubble
+// time.
 func WithClock[E any](c clock.Clock) Option[E] {
 	return func(r *Recorder[E]) {
 		if c != nil {

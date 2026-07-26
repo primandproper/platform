@@ -2,10 +2,10 @@ package memory
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/primandproper/platform-go/v7/cache"
-	clockfake "github.com/primandproper/platform-go/v7/clock/fake"
 	"github.com/primandproper/platform-go/v7/observability"
 
 	"github.com/shoenig/test"
@@ -185,9 +185,10 @@ func Test_inMemoryCacheImpl_Ping(T *testing.T) {
 	})
 }
 
-// newFakeClockCache builds a cache with the given default expiry whose time
-// only moves when the returned fake clock is advanced.
-func newFakeClockCache(t *testing.T, defaultExpiry time.Duration) (*inMemoryCacheImpl[example], *clockfake.Clock) {
+// newExpiryCache builds a cache with the given default expiry. The expiry
+// tests run inside a synctest bubble, where the production clock reads the
+// bubble's fake time, so time.Sleep moves expiry forward without a real wait.
+func newExpiryCache(t *testing.T, defaultExpiry time.Duration) *inMemoryCacheImpl[example] {
 	t.Helper()
 
 	c, err := NewInMemoryCache[example](defaultExpiry, nil, nil, nil)
@@ -196,10 +197,7 @@ func newFakeClockCache(t *testing.T, defaultExpiry time.Duration) (*inMemoryCach
 	impl, ok := c.(*inMemoryCacheImpl[example])
 	must.True(t, ok)
 
-	fc := clockfake.New(time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC))
-	impl.clock = fc
-
-	return impl, fc
+	return impl
 }
 
 func TestInMemoryCache_Expiry(T *testing.T) {
@@ -208,118 +206,134 @@ func TestInMemoryCache_Expiry(T *testing.T) {
 	T.Run("entries expire after the default expiry", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		c, fc := newFakeClockCache(t, time.Minute)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c := newExpiryCache(t, time.Minute)
 
-		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
 
-		_, err := c.Get(ctx, exampleKey)
-		must.NoError(t, err)
+			// Bubble time lands on the deadline exactly, so the boundary itself
+			// is testable: live a nanosecond before, gone a nanosecond later.
+			time.Sleep(time.Minute - time.Nanosecond)
+			_, err := c.Get(ctx, exampleKey)
+			must.NoError(t, err)
 
-		fc.Advance(time.Minute)
-
-		_, err = c.Get(ctx, exampleKey)
-		test.ErrorIs(t, err, cache.ErrNotFound)
+			time.Sleep(time.Nanosecond)
+			_, err = c.Get(ctx, exampleKey)
+			test.ErrorIs(t, err, cache.ErrNotFound)
+		})
 	})
 
 	T.Run("WithExpiry overrides the default per call", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		c, fc := newFakeClockCache(t, time.Minute)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c := newExpiryCache(t, time.Minute)
 
-		must.NoError(t, c.Set(ctx, "short", &example{Name: "short"}, cache.WithExpiry(time.Second)))
-		must.NoError(t, c.Set(ctx, "long", &example{Name: "long"}, cache.WithExpiry(time.Hour)))
+			must.NoError(t, c.Set(ctx, "short", &example{Name: "short"}, cache.WithExpiry(time.Second)))
+			must.NoError(t, c.Set(ctx, "long", &example{Name: "long"}, cache.WithExpiry(time.Hour)))
 
-		fc.Advance(time.Minute)
+			time.Sleep(time.Minute)
 
-		_, err := c.Get(ctx, "short")
-		test.ErrorIs(t, err, cache.ErrNotFound)
+			_, err := c.Get(ctx, "short")
+			test.ErrorIs(t, err, cache.ErrNotFound)
 
-		_, err = c.Get(ctx, "long")
-		test.NoError(t, err)
+			_, err = c.Get(ctx, "long")
+			test.NoError(t, err)
+		})
 	})
 
 	T.Run("NoExpiry pins an entry against expiry", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		c, fc := newFakeClockCache(t, time.Minute)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c := newExpiryCache(t, time.Minute)
 
-		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}, cache.WithExpiry(cache.NoExpiry)))
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}, cache.WithExpiry(cache.NoExpiry)))
 
-		fc.Advance(1000 * time.Hour)
+			time.Sleep(1000 * time.Hour)
 
-		_, err := c.Get(ctx, exampleKey)
-		test.NoError(t, err)
+			_, err := c.Get(ctx, exampleKey)
+			test.NoError(t, err)
+		})
 	})
 
 	T.Run("non-positive default means entries never expire", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		c, fc := newFakeClockCache(t, 0)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c := newExpiryCache(t, 0)
 
-		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
 
-		fc.Advance(1000 * time.Hour)
+			time.Sleep(1000 * time.Hour)
 
-		_, err := c.Get(ctx, exampleKey)
-		test.NoError(t, err)
+			_, err := c.Get(ctx, exampleKey)
+			test.NoError(t, err)
+		})
 	})
 
 	T.Run("SetMany applies one expiry to the batch and GetMany filters expired entries", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		c, fc := newFakeClockCache(t, time.Minute)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c := newExpiryCache(t, time.Minute)
 
-		must.NoError(t, c.SetMany(ctx, map[string]*example{
-			"a": {Name: "a"},
-			"b": {Name: "b"},
-		}, cache.WithExpiry(time.Second)))
-		must.NoError(t, c.Set(ctx, "c", &example{Name: "c"}))
+			must.NoError(t, c.SetMany(ctx, map[string]*example{
+				"a": {Name: "a"},
+				"b": {Name: "b"},
+			}, cache.WithExpiry(time.Second)))
+			must.NoError(t, c.Set(ctx, "c", &example{Name: "c"}))
 
-		fc.Advance(time.Second)
+			time.Sleep(time.Second)
 
-		out, err := c.GetMany(ctx, []string{"a", "b", "c"})
-		must.NoError(t, err)
-		must.MapLen(t, 1, out)
-		test.EqOp(t, "c", out["c"].Name)
+			out, err := c.GetMany(ctx, []string{"a", "b", "c"})
+			must.NoError(t, err)
+			must.MapLen(t, 1, out)
+			test.EqOp(t, "c", out["c"].Name)
+		})
 	})
 
 	T.Run("expired entries are evicted lazily on read", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		c, fc := newFakeClockCache(t, time.Second)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c := newExpiryCache(t, time.Second)
 
-		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
-		fc.Advance(time.Second)
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
+			time.Sleep(time.Second)
 
-		_, err := c.Get(ctx, exampleKey)
-		test.ErrorIs(t, err, cache.ErrNotFound)
+			_, err := c.Get(ctx, exampleKey)
+			test.ErrorIs(t, err, cache.ErrNotFound)
 
-		c.cacheMu.RLock()
-		_, stillPresent := c.cache[exampleKey]
-		c.cacheMu.RUnlock()
-		test.False(t, stillPresent)
+			c.cacheMu.RLock()
+			_, stillPresent := c.cache[exampleKey]
+			c.cacheMu.RUnlock()
+			test.False(t, stillPresent)
+		})
 	})
 
 	T.Run("overwriting an expired entry revives the key", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		c, fc := newFakeClockCache(t, time.Second)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c := newExpiryCache(t, time.Second)
 
-		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "old"}))
-		fc.Advance(time.Second)
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "old"}))
+			time.Sleep(time.Second)
 
-		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "new"}))
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "new"}))
 
-		got, err := c.Get(ctx, exampleKey)
-		must.NoError(t, err)
-		test.EqOp(t, "new", got.Name)
+			got, err := c.Get(ctx, exampleKey)
+			must.NoError(t, err)
+			test.EqOp(t, "new", got.Name)
+		})
 	})
 }
 
@@ -330,7 +344,7 @@ func TestInMemoryCache_Deletion(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		c, _ := newFakeClockCache(t, 0)
+		c := newExpiryCache(t, 0)
 
 		must.NoError(t, c.SetMany(ctx, map[string]*example{
 			"a": {Name: "a"}, "b": {Name: "b"}, "c": {Name: "c"},
@@ -348,7 +362,7 @@ func TestInMemoryCache_Deletion(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		c, _ := newFakeClockCache(t, 0)
+		c := newExpiryCache(t, 0)
 
 		must.NoError(t, c.SetMany(ctx, map[string]*example{
 			"area:1:x": {Name: "1x"}, "area:1:y": {Name: "1y"}, "area:2:x": {Name: "2x"},
@@ -366,7 +380,7 @@ func TestInMemoryCache_Deletion(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		c, _ := newFakeClockCache(t, 0)
+		c := newExpiryCache(t, 0)
 
 		must.NoError(t, c.SetMany(ctx, map[string]*example{
 			"a": {Name: "a"}, "b": {Name: "b"},

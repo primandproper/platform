@@ -87,8 +87,9 @@ type Sink struct {
 // Option configures a Sink.
 type Option func(*Sink)
 
-// WithClock swaps the clock used to stamp rotated files; tests pass a fake
-// for deterministic names.
+// WithClock swaps the clock used to stamp rotated files. Tests generally do
+// not need it: under testing/synctest the default clock already runs on
+// bubble time, which makes the stamps deterministic.
 func WithClock(c clock.Clock) Option {
 	return func(s *Sink) {
 		if c != nil {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
-	clockfake "github.com/primandproper/platform-go/v7/clock/fake"
 	"github.com/primandproper/platform-go/v7/distributedlock"
 	"github.com/primandproper/platform-go/v7/distributedlock/memory"
 
@@ -14,28 +14,34 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-const scopedTestKey = "scoped-test"
+const (
+	scopedTestKey = "scoped-test"
+	scopedLockTTL = time.Minute
 
-// newScopedFixture wires the generic adapter around a real memory locker with
-// a fake clock, so contention polling is driven by explicit Advance calls.
-func newScopedFixture(t *testing.T) (distributedlock.ScopedLocker, distributedlock.Locker, *clockfake.Clock) {
+	// scopedPollInterval is the contention poll cadence the fixture configures.
+	// Bubble time makes it free, so the value is arbitrary — but the contention
+	// test steps to either side of it, so it fails if polling ignores it.
+	scopedPollInterval = 100 * time.Millisecond
+)
+
+// newScopedFixture wires the generic adapter around a real memory locker. The
+// contention tests build it inside a synctest bubble, where the production
+// clock reads bubble time, so WithLock's poll sleeps cost no wall time.
+func newScopedFixture(t *testing.T) (distributedlock.ScopedLocker, distributedlock.Locker) {
 	t.Helper()
 
 	raw, err := memory.NewLocker(nil, nil, nil)
 	must.NoError(t, err)
 
-	fc := clockfake.New(time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC))
-
 	scoped, err := distributedlock.NewScopedLocker(
 		raw,
 		nil, nil, nil,
-		distributedlock.WithScopedClock(fc),
-		distributedlock.WithScopedLockTTL(time.Minute),
-		distributedlock.WithScopedPollInterval(100*time.Millisecond),
+		distributedlock.WithScopedLockTTL(scopedLockTTL),
+		distributedlock.WithScopedPollInterval(scopedPollInterval),
 	)
 	must.NoError(t, err)
 
-	return scoped, raw, fc
+	return scoped, raw
 }
 
 func TestNewScopedLocker(T *testing.T) {
@@ -56,7 +62,7 @@ func TestScopedLocker_TryWithLock(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		scoped, raw, _ := newScopedFixture(t)
+		scoped, raw := newScopedFixture(t)
 
 		ran := false
 		acquired, err := scoped.TryWithLock(ctx, scopedTestKey, func(context.Context) error {
@@ -83,7 +89,7 @@ func TestScopedLocker_TryWithLock(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		scoped, raw, _ := newScopedFixture(t)
+		scoped, raw := newScopedFixture(t)
 
 		held, err := raw.Acquire(ctx, scopedTestKey, time.Minute)
 		must.NoError(t, err)
@@ -102,7 +108,7 @@ func TestScopedLocker_TryWithLock(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		scoped, raw, _ := newScopedFixture(t)
+		scoped, raw := newScopedFixture(t)
 		boom := errors.New("boom")
 
 		acquired, err := scoped.TryWithLock(ctx, scopedTestKey, func(context.Context) error {
@@ -121,7 +127,7 @@ func TestScopedLocker_TryWithLock(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		scoped, raw, _ := newScopedFixture(t)
+		scoped, raw := newScopedFixture(t)
 
 		func() {
 			defer func() {
@@ -146,7 +152,7 @@ func TestScopedLocker_WithLock(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		scoped, _, _ := newScopedFixture(t)
+		scoped, _ := newScopedFixture(t)
 
 		ran := false
 		err := scoped.WithLock(ctx, scopedTestKey, func(context.Context) error {
@@ -161,59 +167,87 @@ func TestScopedLocker_WithLock(T *testing.T) {
 	T.Run("waits out contention by polling", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		scoped, raw, fc := newScopedFixture(t)
+		synctest.Test(t, func(t *testing.T) {
+			scoped, raw := newScopedFixture(t)
 
-		held, err := raw.Acquire(ctx, scopedTestKey, time.Minute)
-		must.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			// Unwind the waiter on the way out so a failed assertion reports
+			// itself rather than stranding the bubble in a deadlock.
+			defer cancel()
 
-		done := make(chan error, 1)
-		go func() {
-			done <- scoped.WithLock(ctx, scopedTestKey, func(context.Context) error {
-				return nil
-			})
-		}()
-
-		// The adapter is now asleep between polls. Release the lock, then let
-		// the next poll fire.
-		fc.BlockUntil(1)
-		must.NoError(t, held.Release(ctx))
-		fc.Advance(100 * time.Millisecond)
-
-		select {
-		case err = <-done:
+			held, err := raw.Acquire(ctx, scopedTestKey, scopedLockTTL)
 			must.NoError(t, err)
-		case <-time.After(5 * time.Second):
-			t.Fatal("WithLock did not acquire after the lock was released")
-		}
+
+			done := make(chan error, 1)
+			go func() {
+				done <- scoped.WithLock(ctx, scopedTestKey, func(context.Context) error {
+					return nil
+				})
+			}()
+
+			// Wait returns once the adapter is asleep between polls, so the
+			// release below is what the next poll observes.
+			synctest.Wait()
+			must.NoError(t, held.Release(ctx))
+
+			// Releasing alone must not wake it. Wait parks everything without
+			// moving the clock, so a result here would mean the adapter acquired
+			// outside its poll schedule.
+			synctest.Wait()
+			select {
+			case <-done:
+				t.Fatal("WithLock returned before its next poll came due")
+			default:
+			}
+
+			// Crossing the poll deadline is what lets it through. Both checks are
+			// non-blocking: a blocking receive would let the bubble idle forward
+			// to any later deadline and pass regardless of the interval.
+			time.Sleep(scopedPollInterval)
+			synctest.Wait()
+			select {
+			case err = <-done:
+				must.NoError(t, err)
+			default:
+				t.Fatal("WithLock did not acquire on the first poll after the release")
+			}
+		})
 	})
 
 	T.Run("a canceled context ends the wait", func(t *testing.T) {
 		t.Parallel()
 
-		scoped, raw, fc := newScopedFixture(t)
+		synctest.Test(t, func(t *testing.T) {
+			scoped, raw := newScopedFixture(t)
 
-		held, err := raw.Acquire(t.Context(), scopedTestKey, time.Minute)
-		must.NoError(t, err)
-		t.Cleanup(func() { _ = held.Release(t.Context()) })
+			held, err := raw.Acquire(t.Context(), scopedTestKey, time.Minute)
+			must.NoError(t, err)
+			t.Cleanup(func() { _ = held.Release(t.Context()) })
 
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan error, 1)
-		go func() {
-			done <- scoped.WithLock(ctx, scopedTestKey, func(context.Context) error {
-				t.Error("fn must not run; the lock is never released")
-				return nil
-			})
-		}()
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() {
+				done <- scoped.WithLock(ctx, scopedTestKey, func(context.Context) error {
+					t.Error("fn must not run; the lock is never released")
+					return nil
+				})
+			}()
 
-		fc.BlockUntil(1)
-		cancel()
+			// Cancel only once the adapter is parked in its poll sleep, so the
+			// wake has to come from the context rather than from a poll tick.
+			synctest.Wait()
+			cancel()
 
-		select {
-		case err = <-done:
-			test.ErrorIs(t, err, context.Canceled)
-		case <-time.After(5 * time.Second):
-			t.Fatal("WithLock did not observe cancellation")
-		}
+			// Non-blocking, for the same reason as above: a blocking receive
+			// would idle the bubble forward to the next poll and pass even if
+			// cancellation were ignored.
+			synctest.Wait()
+			select {
+			case err = <-done:
+				test.ErrorIs(t, err, context.Canceled)
+			default:
+				t.Fatal("WithLock did not observe cancellation")
+			}
+		})
 	})
 }

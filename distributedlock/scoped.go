@@ -75,8 +75,9 @@ func WithScopedPollInterval(interval time.Duration) ScopedOption {
 	}
 }
 
-// WithScopedClock swaps the clock used for contention polling; tests pass a
-// fake so WithLock's waiting is deterministic.
+// WithScopedClock swaps the clock used for contention polling. Tests
+// generally do not need it: under testing/synctest the default clock already
+// runs on bubble time, so WithLock's waiting is deterministic and instant.
 func WithScopedClock(c clock.Clock) ScopedOption {
 	return func(s *scopedLocker) {
 		if c != nil {
