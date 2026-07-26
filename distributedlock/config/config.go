@@ -116,7 +116,7 @@ func NewScopedLocker(
 			return nil, err
 		}
 
-		return distributedlock.NewScopedLocker(locker)
+		return distributedlock.NewScopedLocker(locker, logger, tracerProvider, metricsProvider)
 	default:
 		return noop.NewScopedLocker(), nil
 	}

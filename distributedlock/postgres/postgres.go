@@ -123,7 +123,7 @@ func NewPostgresLocker(
 func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, key).Set("lock.ttl", ttl)
+	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, ttl)
 
 	if key == "" {
 		return nil, distributedlock.ErrEmptyKey
@@ -167,7 +167,7 @@ func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 	}
 
 	lockID := hashLockID(l.namespace, key)
-	op.Set("lock.id", lockID)
+	op.Set(keys.LockIDKey, lockID)
 	var ok bool
 	if scanErr := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, lockID).Scan(&ok); scanErr != nil {
 		// Best-effort return the conn to the pool.
@@ -235,7 +235,7 @@ func (l *locker) Close() error {
 func (l *locker) release(ctx context.Context, h *lock) error {
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, h.key).Set("lock.id", h.lockID)
+	op.Set(keys.LockKeyKey, h.key).Set(keys.LockIDKey, h.lockID)
 
 	if l.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -284,7 +284,7 @@ func (l *locker) release(ctx context.Context, h *lock) error {
 func (l *locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error {
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, h.key).Set("lock.id", h.lockID).Set("lock.ttl", ttl)
+	op.Set(keys.LockKeyKey, h.key).Set(keys.LockIDKey, h.lockID).Set(keys.LockTTLKey, ttl)
 
 	if ttl <= 0 {
 		return distributedlock.ErrInvalidTTL

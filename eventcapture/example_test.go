@@ -53,11 +53,14 @@ type wireRequest struct {
 func Example() {
 	sink := &sliceSink{}
 
-	rec := eventcapture.NewRecorder[servedRequest](sink,
+	rec, err := eventcapture.NewRecorder[servedRequest](sink,
 		eventcapture.WithTransform[servedRequest](func(ev *servedRequest) any {
 			return wireRequest{Route: ev.Route, Status: ev.Status}
 		}),
 	)
+	if err != nil {
+		panic(err)
+	}
 
 	go rec.Run()
 
@@ -67,7 +70,7 @@ func Example() {
 	// Close belongs after the server has finished draining in-flight requests,
 	// not tied to a server context: it empties the buffer, runs a final flush,
 	// and closes the sink.
-	if err := rec.Close(context.Background()); err != nil {
+	if err = rec.Close(context.Background()); err != nil {
 		panic(err)
 	}
 
@@ -107,11 +110,15 @@ func ExampleNewRecorder_aggregation() {
 		eventcapture.WithKeyOrder[string, counts](strings.Compare),
 	)
 
-	rec := eventcapture.NewRecorder[servedRequest](sink,
+	rec, err := eventcapture.NewRecorder[servedRequest](sink,
 		// A fake clock keeps the flush ticker from firing mid-example; a real
 		// deployment leaves the default clock alone.
 		eventcapture.WithClock[servedRequest](clockfake.New(start)),
 		eventcapture.WithoutRawRecords[servedRequest](),
+		// Without this the Aggregator silently discards observations once
+		// maxKeys is reached; the Recorder cannot see inside the composition
+		// on its own.
+		eventcapture.WithOverflowSource[servedRequest](agg.TakeOverflow),
 		eventcapture.WithObserver[servedRequest](func(ev *servedRequest) {
 			agg.Observe(ev.Route, ev.At, func(c *counts) {
 				c.Requests++
@@ -130,6 +137,9 @@ func ExampleNewRecorder_aggregation() {
 			}
 		}),
 	)
+	if err != nil {
+		panic(err)
+	}
 
 	go rec.Run()
 
@@ -139,7 +149,7 @@ func ExampleNewRecorder_aggregation() {
 
 	// The final flush passes all=true, so the still-open minute is emitted
 	// rather than lost at shutdown.
-	if err := rec.Close(context.Background()); err != nil {
+	if err = rec.Close(context.Background()); err != nil {
 		panic(err)
 	}
 

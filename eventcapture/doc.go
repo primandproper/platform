@@ -15,6 +15,16 @@ goroutine consumes the channel, writing records through a pluggable Sink
 implements the same three methods). Sink errors are logged, never surfaced:
 the request that produced the event has long since been answered.
 
+Because nothing here fails loudly, the metrics are the only way to learn that
+capture has broken. Pass WithMetricsProvider and watch eventcapture_sink_errors
+(the sink is rejecting records), eventcapture_records_dropped (producers are
+outrunning the flusher — raise WithBufferSize or lower WithFlushInterval), and
+eventcapture_aggregation_overflow (a composition hit its key bound). Drops are
+accumulated on the hot path with an atomic and reported to the instrument at
+flush time, so Record itself never pays for an instrument call. Flushes are not
+traced — a root span every few seconds, parented to nothing, is noise — but
+Close is, since abandoning a drain at shutdown loses captured events.
+
 Recorder.Run deliberately takes no context: tied to a server context it would
 stop consuming before the server finished draining in-flight requests,
 silently dropping their events. Instead the owner calls Close after the
@@ -25,20 +35,12 @@ Aggregator folds events into per-(key, time-bucket) rollups for consumers
 that want densities instead of (or alongside) raw events; the key and counter
 types are the caller's. It is deliberately lock-free and must only be touched
 from the flusher goroutine — compose it through WithObserver (fold each
-event) and WithOnFlush (emit completed buckets), which both run there:
+event), WithOnFlush (emit completed buckets), and WithOverflowSource (report
+observations discarded at the key bound), all three of which run there. See
+ExampleNewRecorder_aggregation for the full composition.
 
-	agg := eventcapture.NewAggregator[Key, Counts](time.Minute, 10_000)
-	rec := eventcapture.NewRecorder[Event](sink,
-		eventcapture.WithObserver[Event](func(ev *Event) {
-			agg.Observe(ev.Key, ev.At, func(c *Counts) { c.fold(ev) })
-		}),
-		eventcapture.WithOnFlush[Event](func(now time.Time, final bool, emit func(any)) {
-			for _, b := range agg.Flush(now, final) {
-				emit(rollupRecord(b))
-			}
-		}),
-	)
-	go rec.Run()
-	defer rec.Close(ctx)
+Note that WithObserver names the per-event hook and has nothing to do with
+observability.Observer, which the Recorder builds internally from the logger
+and tracer provider it is given.
 */
 package eventcapture

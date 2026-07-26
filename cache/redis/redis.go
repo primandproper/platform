@@ -201,7 +201,7 @@ func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
 	x, err := i.decode(res)
 	if err != nil {
 		i.cacheErrCounter.Add(ctx, 1)
-		return nil, err
+		return nil, op.Error(err, "decoding cached value")
 	}
 
 	if x == nil {
@@ -232,7 +232,7 @@ func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts 
 	encoded, err := i.encode(value)
 	if err != nil {
 		i.cacheErrCounter.Add(ctx, 1)
-		return err
+		return op.Error(err, "encoding value for cache")
 	}
 
 	if setErr := i.client.Set(ctx, i.key(key), encoded, cache.EffectiveExpiry(i.expiration, opts...)).Err(); setErr != nil {
@@ -475,7 +475,7 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 			decoded, decodeErr := i.decode(s)
 			if decodeErr != nil {
 				i.cacheErrCounter.Add(ctx, 1)
-				return nil, decodeErr
+				return nil, op.Error(decodeErr, "decoding cached value")
 			}
 
 			if decoded == nil {
@@ -525,7 +525,7 @@ func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, op
 		s, err := i.encode(value)
 		if err != nil {
 			i.cacheErrCounter.Add(ctx, 1)
-			return err
+			return op.Error(err, "encoding value for cache")
 		}
 
 		sk := i.key(key)

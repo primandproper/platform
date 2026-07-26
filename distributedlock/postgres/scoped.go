@@ -107,7 +107,7 @@ func NewPostgresScopedLocker(
 func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, key)
+	op.Set(keys.LockKeyKey, key)
 
 	if key == "" {
 		return distributedlock.ErrEmptyKey
@@ -122,7 +122,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 	}()
 
 	lockID := hashLockID(s.namespace, key)
-	op.Set("lock.id", lockID)
+	op.Set(keys.LockIDKey, lockID)
 
 	var acquired bool
 	err := s.db.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {
@@ -153,7 +153,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
-	op.Set(keys.NameKey, key)
+	op.Set(keys.LockKeyKey, key)
 
 	if key == "" {
 		return false, distributedlock.ErrEmptyKey
@@ -168,7 +168,7 @@ func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx 
 	}()
 
 	lockID := hashLockID(s.namespace, key)
-	op.Set("lock.id", lockID)
+	op.Set(keys.LockIDKey, lockID)
 
 	var acquired bool
 	err := s.db.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {

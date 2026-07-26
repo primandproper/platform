@@ -21,7 +21,9 @@ func ExampleNewScopedLocker() {
 	}
 	defer func() { _ = locker.Close() }()
 
-	scoped, err := distributedlock.NewScopedLocker(locker)
+	// nil logger, tracer provider, and metrics provider fall back to noop
+	// implementations; a real service passes the ones it built at startup.
+	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -65,7 +67,9 @@ func ExampleScopedLocker_TryWithLock() {
 	}
 	defer func() { _ = locker.Close() }()
 
-	scoped, err := distributedlock.NewScopedLocker(locker)
+	// nil logger, tracer provider, and metrics provider fall back to noop
+	// implementations; a real service passes the ones it built at startup.
+	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
 	if err != nil {
 		panic(err)
 	}

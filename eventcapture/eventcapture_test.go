@@ -16,6 +16,17 @@ type testEvent struct {
 	Name string
 }
 
+// mustRecorder builds a Recorder, failing the test if its instruments cannot
+// be constructed.
+func mustRecorder[E any](tb testing.TB, sink Sink, opts ...Option[E]) *Recorder[E] {
+	tb.Helper()
+
+	r, err := NewRecorder[E](sink, opts...)
+	must.NoError(tb, err)
+
+	return r
+}
+
 // recordingSink is a threadsafe in-memory Sink that signals every Flush, so
 // tests can wait for a tick to complete instead of sleeping.
 type recordingSink struct {
@@ -80,7 +91,7 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 		t.Parallel()
 
 		sink := newRecordingSink()
-		r := NewRecorder[testEvent](sink, WithClock[testEvent](clockfake.New(testStart)))
+		r := mustRecorder[testEvent](t, sink, WithClock[testEvent](clockfake.New(testStart)))
 
 		go r.Run()
 
@@ -102,7 +113,7 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 		t.Parallel()
 
 		sink := newRecordingSink()
-		r := NewRecorder[testEvent](sink, WithClock[testEvent](clockfake.New(testStart)))
+		r := mustRecorder[testEvent](t, sink, WithClock[testEvent](clockfake.New(testStart)))
 
 		go r.Run()
 
@@ -115,7 +126,7 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 
 		sink := newRecordingSink()
 		// No Run(): nothing consumes, so the buffer genuinely fills.
-		r := NewRecorder[testEvent](sink,
+		r := mustRecorder[testEvent](t, sink,
 			WithBufferSize[testEvent](1),
 			WithClock[testEvent](clockfake.New(testStart)),
 		)
@@ -132,7 +143,7 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 
 		sink := newRecordingSink()
 		var observed int
-		r := NewRecorder[testEvent](sink,
+		r := mustRecorder[testEvent](t, sink,
 			WithClock[testEvent](clockfake.New(testStart)),
 			WithoutRawRecords[testEvent](),
 			WithObserver[testEvent](func(*testEvent) { observed++ }),
@@ -151,7 +162,7 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 		t.Parallel()
 
 		sink := newRecordingSink()
-		r := NewRecorder[testEvent](sink,
+		r := mustRecorder[testEvent](t, sink,
 			WithClock[testEvent](clockfake.New(testStart)),
 			WithTransform[testEvent](func(ev *testEvent) any {
 				return map[string]string{"name": ev.Name}
@@ -185,7 +196,7 @@ func TestRecorder_PeriodicFlush(T *testing.T) {
 		var sawFinal bool
 		var mu sync.Mutex
 
-		r := NewRecorder[testEvent](sink,
+		r := mustRecorder[testEvent](t, sink,
 			WithClock[testEvent](fc),
 			WithFlushInterval[testEvent](time.Second),
 			WithOnFlush[testEvent](func(_ time.Time, final bool, emit func(any)) {
@@ -224,6 +235,48 @@ func TestRecorder_PeriodicFlush(T *testing.T) {
 		records := sink.snapshot()
 		must.SliceLen(t, 1, records)
 		test.Eq(t, any("tick-record"), records[0])
+	})
+
+	T.Run("WithOverflowSource is drained on every flush", func(t *testing.T) {
+		t.Parallel()
+
+		sink := newRecordingSink()
+		fc := clockfake.New(testStart)
+
+		var mu sync.Mutex
+		var polls int
+
+		r := mustRecorder[testEvent](t, sink,
+			WithClock[testEvent](fc),
+			WithFlushInterval[testEvent](time.Second),
+			WithOverflowSource[testEvent](func() uint64 {
+				mu.Lock()
+				defer mu.Unlock()
+				polls++
+
+				return 3
+			}),
+		)
+
+		go r.Run()
+
+		fc.BlockUntil(1)
+		fc.Advance(time.Second)
+
+		select {
+		case <-sink.flushes:
+		case <-time.After(5 * time.Second):
+			t.Fatal("flush tick never reached the sink")
+		}
+
+		must.NoError(t, r.Close(t.Context()))
+
+		mu.Lock()
+		defer mu.Unlock()
+		// The periodic tick plus the final drain flush: an Aggregator's
+		// overflow is reported and reset on both, so a shutdown never strands
+		// the last window's discards.
+		test.EqOp(t, 2, polls)
 	})
 }
 

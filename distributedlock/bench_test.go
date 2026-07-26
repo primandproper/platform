@@ -24,7 +24,7 @@ func BenchmarkScopedLocker(b *testing.B) {
 	raw, err := memory.NewLocker(nil, nil, nil)
 	must.NoError(b, err)
 
-	scoped, err := distributedlock.NewScopedLocker(raw, distributedlock.WithScopedLockTTL(time.Minute))
+	scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil, distributedlock.WithScopedLockTTL(time.Minute))
 	must.NoError(b, err)
 
 	ctx := b.Context()

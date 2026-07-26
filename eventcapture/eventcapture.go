@@ -2,12 +2,17 @@ package eventcapture
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/primandproper/platform-go/v7/clock"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability"
 	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 )
 
 const (
@@ -17,6 +22,9 @@ const (
 	// DefaultFlushInterval is the flusher tick cadence when WithFlushInterval
 	// is not supplied.
 	DefaultFlushInterval = 5 * time.Second
+
+	// serviceName names the Recorder's logger, span, and metrics.
+	serviceName = "eventcapture"
 )
 
 // Sink persists captured records. Calls arrive from the Recorder's single
@@ -38,20 +46,29 @@ type Sink interface {
 // consumes the channel, writing raw events and running the configured hooks.
 // See the package documentation for the lifecycle rationale.
 type Recorder[E any] struct {
-	clock         clock.Clock
-	events        chan E
-	sink          Sink
-	logger        logging.Logger
-	stop          chan struct{}
-	done          chan struct{}
-	observe       func(*E)
-	onFlush       func(now time.Time, final bool, emit func(record any))
-	transform     func(*E) any
-	flushInterval time.Duration
-	dropped       atomic.Uint64
-	loggedDropped uint64 // flusher-goroutine only: high-water mark already logged
-	raw           bool
-	stopOnce      sync.Once
+	clock           clock.Clock
+	events          chan E
+	sink            Sink
+	o11y            observability.Observer
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
+	stop            chan struct{}
+	done            chan struct{}
+	observe         func(*E)
+	onFlush         func(now time.Time, final bool, emit func(record any))
+	transform       func(*E) any
+	overflow        func() uint64
+	writtenCounter  metrics.Int64Counter
+	droppedCounter  metrics.Int64Counter
+	overflowCounter metrics.Int64Counter
+	errCounter      metrics.Int64Counter
+	flushHist       metrics.Float64Histogram
+	flushInterval   time.Duration
+	dropped         atomic.Uint64
+	loggedDropped   uint64 // flusher-goroutine only: high-water mark already reported
+	raw             bool
+	stopOnce        sync.Once
 }
 
 // Option configures a Recorder.
@@ -86,10 +103,44 @@ func WithClock[E any](c clock.Clock) Option[E] {
 	}
 }
 
-// WithLogger attaches a logger for sink errors and drop reporting.
+// WithLogger attaches a logger for sink errors and drop reporting. It is
+// named after the package, so capture lines are attributable in aggregate
+// logs.
 func WithLogger[E any](logger logging.Logger) Option[E] {
 	return func(r *Recorder[E]) {
-		r.logger = logging.EnsureLogger(logger)
+		r.logger = logger
+	}
+}
+
+// WithTracerProvider attaches a tracer provider. The flusher deliberately does
+// not open a span per flush tick — a root span every few seconds, with no
+// caller to parent it to, is noise rather than signal. The tracer is used for
+// Close, where the drain is a real, once-per-process operation a shutdown
+// trace wants to account for.
+func WithTracerProvider[E any](tracerProvider tracing.TracerProvider) Option[E] {
+	return func(r *Recorder[E]) {
+		r.tracerProvider = tracerProvider
+	}
+}
+
+// WithMetricsProvider attaches a metrics provider, enabling the
+// eventcapture_* instruments. These are the only signal that a capture
+// pipeline has broken: per the package contract sink errors are never returned
+// to a caller, and dropped events never reach the sink at all.
+func WithMetricsProvider[E any](metricsProvider metrics.Provider) Option[E] {
+	return func(r *Recorder[E]) {
+		r.metricsProvider = metricsProvider
+	}
+}
+
+// WithOverflowSource registers a function the flusher polls each tick to
+// report observations an aggregation dropped for exceeding its key bound —
+// pass an Aggregator's TakeOverflow. Without it, a full Aggregator discards
+// observations silently, since the Recorder cannot see inside a composition
+// whose key and counter types belong to the caller.
+func WithOverflowSource[E any](fn func() uint64) Option[E] {
+	return func(r *Recorder[E]) {
+		r.overflow = fn
 	}
 }
 
@@ -129,15 +180,19 @@ func WithOnFlush[E any](fn func(now time.Time, final bool, emit func(record any)
 }
 
 // NewRecorder builds a Recorder over sink. Start it with `go r.Run()` and
-// stop it with Close.
-func NewRecorder[E any](sink Sink, opts ...Option[E]) *Recorder[E] {
+// stop it with Close. It returns an error only if the metrics provider cannot
+// build the Recorder's instruments.
+func NewRecorder[E any](sink Sink, opts ...Option[E]) (*Recorder[E], error) {
+	if sink == nil {
+		return nil, platformerrors.New("nil sink provided")
+	}
+
 	r := &Recorder[E]{
 		events:        make(chan E, DefaultBufferSize),
 		sink:          sink,
 		raw:           true,
 		flushInterval: DefaultFlushInterval,
 		clock:         clock.NewClock(),
-		logger:        logging.EnsureLogger(nil),
 		stop:          make(chan struct{}),
 		done:          make(chan struct{}),
 	}
@@ -147,7 +202,29 @@ func NewRecorder[E any](sink Sink, opts ...Option[E]) *Recorder[E] {
 		}
 	}
 
-	return r
+	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
+	r.logger = r.o11y.Logger()
+
+	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
+
+	var err error
+	if r.writtenCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_records_written", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating records written counter")
+	}
+	if r.droppedCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_records_dropped", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating records dropped counter")
+	}
+	if r.overflowCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_aggregation_overflow", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating aggregation overflow counter")
+	}
+	if r.errCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_sink_errors", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating sink error counter")
+	}
+	if r.flushHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_flush_latency_ms", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating flush latency histogram")
+	}
+
+	return r, nil
 }
 
 // Record hands one event to the flusher. It never blocks: when the buffer is
@@ -173,17 +250,23 @@ func (r *Recorder[E]) Dropped() uint64 {
 func (r *Recorder[E]) Run() {
 	defer close(r.done)
 
+	// Run deliberately takes no context (see the package documentation), but
+	// the instruments need one. Background is the honest choice: the flusher
+	// outlives every request whose events it is writing, so there is no
+	// caller's context these measurements belong to.
+	ctx := context.Background()
+
 	ticker := r.clock.NewTicker(r.flushInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case ev := <-r.events:
-			r.consume(&ev)
+			r.consume(ctx, &ev)
 		case <-ticker.Chan():
-			r.flush(r.clock.Now(), false)
+			r.flush(ctx, r.clock.Now(), false)
 		case <-r.stop:
-			r.drain()
+			r.drain(ctx)
 
 			return
 		}
@@ -192,29 +275,35 @@ func (r *Recorder[E]) Run() {
 
 // Close stops the flusher and waits for it to drain buffered events and close
 // the sink, up to ctx's deadline. Safe to call more than once.
+//
+// This is the one traced operation in the package: the drain is a real,
+// once-per-process step that a shutdown trace wants accounted for, and a
+// deadline hit here means captured events were abandoned.
 func (r *Recorder[E]) Close(ctx context.Context) error {
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
 	r.stopOnce.Do(func() { close(r.stop) })
 
 	select {
 	case <-r.done:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return op.Error(ctx.Err(), "draining capture buffer before close")
 	}
 }
 
-// consume applies one event to the configured paths. Sink errors are logged,
-// never surfaced: the request that produced the event has long been answered.
-func (r *Recorder[E]) consume(ev *E) {
+// consume applies one event to the configured paths. Sink errors are logged
+// and counted, never surfaced: the request that produced the event has long
+// been answered.
+func (r *Recorder[E]) consume(ctx context.Context, ev *E) {
 	if r.raw {
 		record := any(ev)
 		if r.transform != nil {
 			record = r.transform(ev)
 		}
 		if record != nil {
-			if err := r.sink.Write(record); err != nil {
-				r.logger.Error("writing captured event", err)
-			}
+			r.write(ctx, record, "writing captured event")
 		}
 	}
 
@@ -223,22 +312,50 @@ func (r *Recorder[E]) consume(ev *E) {
 	}
 }
 
-// flush runs the tick hook, reports drop counters, and flushes the sink.
-func (r *Recorder[E]) flush(now time.Time, final bool) {
+// write pushes one record through the sink, counting the outcome either way.
+func (r *Recorder[E]) write(ctx context.Context, record any, description string) {
+	if err := r.sink.Write(record); err != nil {
+		r.errCounter.Add(ctx, 1)
+		r.logger.Error(description, err)
+
+		return
+	}
+
+	r.writtenCounter.Add(ctx, 1)
+}
+
+// flush runs the tick hook, reports drop and overflow counters, and flushes
+// the sink.
+func (r *Recorder[E]) flush(ctx context.Context, now time.Time, final bool) {
+	startTime := time.Now()
+	defer func() {
+		r.flushHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
 	if r.onFlush != nil {
 		r.onFlush(now, final, func(record any) {
-			if err := r.sink.Write(record); err != nil {
-				r.logger.Error("writing flush-emitted record", err)
-			}
+			r.write(ctx, record, "writing flush-emitted record")
 		})
 	}
 
+	// Drops are counted on the hot path with an atomic and reported here, so
+	// Record never pays for an instrument call.
 	if d := r.dropped.Load(); d > r.loggedDropped {
-		r.logger.WithValues(map[string]any{"dropped": d - r.loggedDropped, "total": d}).Info("captured events dropped: buffer full")
+		delta := d - r.loggedDropped
+		r.droppedCounter.Add(ctx, int64(delta))
+		r.logger.WithValues(map[string]any{"dropped": delta, "total": d}).Info("captured events dropped: buffer full")
 		r.loggedDropped = d
 	}
 
+	if r.overflow != nil {
+		if ov := r.overflow(); ov > 0 {
+			r.overflowCounter.Add(ctx, int64(ov))
+			r.logger.WithValue("overflow", ov).Info("aggregation observations dropped: key bound reached")
+		}
+	}
+
 	if err := r.sink.Flush(); err != nil {
+		r.errCounter.Add(ctx, 1)
 		r.logger.Error("flushing capture sink", err)
 	}
 }
@@ -247,14 +364,15 @@ func (r *Recorder[E]) flush(now time.Time, final bool) {
 // closes the sink. New Record calls racing the drain may still land in the
 // buffer and are consumed too; anything sent after the final sweep is dropped
 // by the closed sink's error path, not lost silently mid-file.
-func (r *Recorder[E]) drain() {
+func (r *Recorder[E]) drain(ctx context.Context) {
 	for {
 		select {
 		case ev := <-r.events:
-			r.consume(&ev)
+			r.consume(ctx, &ev)
 		default:
-			r.flush(r.clock.Now(), true)
+			r.flush(ctx, r.clock.Now(), true)
 			if err := r.sink.Close(); err != nil {
+				r.errCounter.Add(ctx, 1)
 				r.logger.Error("closing capture sink", err)
 			}
 

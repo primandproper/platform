@@ -21,6 +21,17 @@
 // outlive a function scope (e.g. a lock held across asynchronous work), where
 // the raw Acquire/Release handle remains the right tool.
 //
+// Both ScopedLocker implementations emit the same shape of telemetry, so a
+// dashboard survives a provider swap: a span covering the whole
+// acquire-run-release operation, plus acquire, contention, and error counters
+// and a latency histogram. Contention is counted once per call in both, even
+// though the generic adapter reaches it by polling and postgres by waiting
+// server-side; the adapter additionally reports how long it waited
+// (scoped_lock_wait_ms) and how many polls that took. Watch
+// scoped_lock_release_failures in particular: it means a lock's TTL elapsed
+// while fn was still running, so mutual exclusion was not actually held for
+// the whole call.
+//
 // Provider semantics differ in one important respect: the redis and memory providers
 // enforce TTLs natively, while the postgres provider's TTL is advisory only — the
 // underlying pg_advisory_lock is held until either Release is called or the

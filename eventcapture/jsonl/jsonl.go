@@ -19,6 +19,7 @@ import (
 	"github.com/primandproper/platform-go/v7/clock"
 	"github.com/primandproper/platform-go/v7/errors"
 	"github.com/primandproper/platform-go/v7/eventcapture"
+	"github.com/primandproper/platform-go/v7/observability/logging"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -75,6 +76,7 @@ type Sink struct {
 	clock    clock.Clock
 	f        *os.File
 	w        *bufio.Writer
+	logger   logging.Logger
 	path     string
 	written  int64
 	maxBytes int64
@@ -95,6 +97,16 @@ func WithClock(c clock.Clock) Option {
 	}
 }
 
+// WithLogger attaches a logger. Rotation moves capture data to a new path and
+// pruning deletes it outright; without a logger both happen invisibly, and a
+// prune that keeps failing looks exactly like one that is working until the
+// disk fills.
+func WithLogger(logger logging.Logger) Option {
+	return func(s *Sink) {
+		s.logger = logging.NewNamedLogger(logger, "jsonl_capture_sink")
+	}
+}
+
 // NewSink opens (creating if needed, appending if present) the JSONL file at
 // cfg.Path. The live file's byte count is resumed from its current size, so
 // rotation thresholds survive a restart.
@@ -112,6 +124,7 @@ func NewSink(cfg *Config, opts ...Option) (*Sink, error) {
 		maxBytes: cfg.MaxBytes,
 		maxFiles: cfg.MaxFiles,
 		clock:    clock.NewClock(),
+		logger:   logging.NewNamedLogger(nil, "jsonl_capture_sink"),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -231,6 +244,8 @@ func (s *Sink) rotateLocked() error {
 		return errors.Wrap(err, "rotating sink file")
 	}
 
+	s.logger.WithValues(map[string]any{"rotated_to": rotated, "bytes": s.written}).Info("rotated capture file")
+
 	if err := s.openLocked(); err != nil {
 		return err
 	}
@@ -241,17 +256,25 @@ func (s *Sink) rotateLocked() error {
 
 // pruneLocked deletes the oldest rotated files until at most MaxFiles remain.
 // The rotation stamp is fixed-width, so lexical order is age order. Prune
-// failures are swallowed: losing old capture files beats failing a write.
+// failures do not fail the write — losing old capture files beats failing a
+// write — but they are logged, because a prune that never succeeds is
+// indistinguishable from one that is working right up until the disk fills.
 func (s *Sink) pruneLocked() {
 	rotated, err := filepath.Glob(s.path + ".*")
-	if err != nil || len(rotated) <= s.maxFiles {
+	if err != nil {
+		s.logger.Error("listing rotated capture files for pruning", err)
+
+		return
+	}
+	if len(rotated) <= s.maxFiles {
 		return
 	}
 
 	sort.Strings(rotated)
 	for _, old := range rotated[:len(rotated)-s.maxFiles] {
 		if removeErr := os.Remove(old); removeErr != nil {
-			continue // best effort; the next rotation retries
+			// Best effort; the next rotation retries.
+			s.logger.WithValue("path", old).Error("pruning rotated capture file", removeErr)
 		}
 	}
 }

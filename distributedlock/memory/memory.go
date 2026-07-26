@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v7/errors"
 	"github.com/primandproper/platform-go/v7/identifiers"
 	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
 	"github.com/primandproper/platform-go/v7/observability/logging"
 	"github.com/primandproper/platform-go/v7/observability/metrics"
 	"github.com/primandproper/platform-go/v7/observability/tracing"
@@ -88,7 +89,7 @@ func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
 
-	op.Set("lock.key", key).Set("lock.ttl", ttl)
+	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, ttl)
 
 	if key == "" {
 		return nil, distributedlock.ErrEmptyKey

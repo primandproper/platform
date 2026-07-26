@@ -83,4 +83,13 @@ const (
 	ConnectionURLKey = "connection_url"
 	// TopicKey is the standard key for referring to a message queue topic.
 	TopicKey = "topic"
+	// LockKeyKey is the standard key for referring to a distributed lock's name.
+	// Every lock provider attaches it, so a trace query can filter on one
+	// attribute regardless of which backend served the lock.
+	LockKeyKey = "lock.key"
+	// LockTTLKey is the standard key for referring to a distributed lock's TTL.
+	LockTTLKey = "lock.ttl"
+	// LockIDKey is the standard key for referring to a distributed lock's
+	// backend-level identifier, such as a Postgres advisory lock ID.
+	LockIDKey = "lock" + idSuffix
 )

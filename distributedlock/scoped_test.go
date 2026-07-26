@@ -28,6 +28,7 @@ func newScopedFixture(t *testing.T) (distributedlock.ScopedLocker, distributedlo
 
 	scoped, err := distributedlock.NewScopedLocker(
 		raw,
+		nil, nil, nil,
 		distributedlock.WithScopedClock(fc),
 		distributedlock.WithScopedLockTTL(time.Minute),
 		distributedlock.WithScopedPollInterval(100*time.Millisecond),
@@ -43,7 +44,7 @@ func TestNewScopedLocker(T *testing.T) {
 	T.Run("rejects a nil locker", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := distributedlock.NewScopedLocker(nil)
+		_, err := distributedlock.NewScopedLocker(nil, nil, nil, nil)
 		test.Error(t, err)
 	})
 }
