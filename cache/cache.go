@@ -110,9 +110,6 @@ func EffectiveExpiry(defaultExpiry time.Duration, opts ...WriteOption) time.Dura
 	if expiry == 0 {
 		expiry = defaultExpiry
 	}
-	if expiry < 0 {
-		expiry = 0
-	}
 
-	return expiry
+	return max(0, expiry)
 }

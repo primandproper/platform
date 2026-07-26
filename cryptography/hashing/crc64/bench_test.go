@@ -1,21 +1,38 @@
 package crc64
 
 import (
+	"bytes"
 	"fmt"
-	"strings"
 	"testing"
 )
 
 func BenchmarkCRC64Hasher_Hash(b *testing.B) {
-	hasher := NewCRC64Hasher()
+	hasher := NewCRC64ISOHasher()
 	for _, size := range []int{16, 256, 4096} {
-		content := strings.Repeat("a", size)
+		content := bytes.Repeat([]byte("a"), size)
 		b.Run(fmt.Sprintf("%dB", size), func(b *testing.B) {
 			for b.Loop() {
-				strSink, _ = hasher.Hash(content)
+				bytesSink = hasher.Hash(content)
 			}
 		})
 	}
 }
 
-var strSink string
+// BenchmarkChecksumISO is the allocation-free path the Hasher wraps; the delta
+// against BenchmarkCRC64Hasher_Hash is the cost of rendering the number as a
+// digest.
+func BenchmarkChecksumISO(b *testing.B) {
+	for _, size := range []int{16, 256, 4096} {
+		content := bytes.Repeat([]byte("a"), size)
+		b.Run(fmt.Sprintf("%dB", size), func(b *testing.B) {
+			for b.Loop() {
+				uintSink = ChecksumISO(content)
+			}
+		})
+	}
+}
+
+var (
+	bytesSink []byte
+	uintSink  uint64
+)

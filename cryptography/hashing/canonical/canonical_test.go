@@ -183,7 +183,7 @@ func TestSumWith(T *testing.T) {
 
 		viaSHA, err := Sum(v)
 		must.NoError(t, err)
-		viaFNV, err := SumWith(v, fnv.NewFNVHasher())
+		viaFNV, err := SumWith(v, fnv.NewFNV64aHasher())
 		must.NoError(t, err)
 
 		test.NotEqOp(t, viaSHA, viaFNV)

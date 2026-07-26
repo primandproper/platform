@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"hash/fnv"
 	"io/fs"
 	"time"
 
+	"github.com/primandproper/platform-go/v7/cryptography/hashing/fnv"
 	"github.com/primandproper/platform-go/v7/database"
 	"github.com/primandproper/platform-go/v7/errors"
 	"github.com/primandproper/platform-go/v7/observability"
@@ -39,20 +39,47 @@ const (
 
 var _ database.Migrator = (*Migrator)(nil)
 
+// Lock-wait defaults. Migrate probes every second rather than goose's 5s
+// default so a waiting replica notices the winner promptly, and gives up after
+// a minute — long enough for a peer's migrations, short enough that a
+// genuinely stuck lock fails the deploy instead of hanging it.
+const (
+	// DefaultLockProbeInterval is how often a waiting process re-checks the
+	// advisory lock.
+	DefaultLockProbeInterval = time.Second
+	// DefaultLockTimeout is how long Migrate waits to acquire the lock.
+	DefaultLockTimeout = time.Minute
+	// DefaultUnlockProbeInterval is how often a process re-tries releasing the
+	// advisory lock.
+	DefaultUnlockProbeInterval = time.Second
+	// DefaultUnlockTimeout is how long Migrate waits to release the lock.
+	DefaultUnlockTimeout = 30 * time.Second
+)
+
 // Migrator applies embedded goose SQL migrations. Construct with New; the
 // zero value is not usable.
 type Migrator struct {
-	o11y            observability.Observer
-	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
-	metricsProvider metrics.Provider
-	fsys            fs.FS
-	runCounter      metrics.Int64Counter
-	appliedCounter  metrics.Int64Counter
-	errCounter      metrics.Int64Counter
-	latencyHist     metrics.Float64Histogram
-	lockKey         string
-	dialect         Dialect
+	o11y                observability.Observer
+	logger              logging.Logger
+	tracerProvider      tracing.TracerProvider
+	metricsProvider     metrics.Provider
+	fsys                fs.FS
+	runCounter          metrics.Int64Counter
+	appliedCounter      metrics.Int64Counter
+	errCounter          metrics.Int64Counter
+	latencyHist         metrics.Float64Histogram
+	lockKey             string
+	dialect             Dialect
+	lockProbeInterval   time.Duration
+	lockTimeout         time.Duration
+	unlockProbeInterval time.Duration
+	unlockTimeout       time.Duration
+	// Derived from the four durations above by New, so Migrate never has to
+	// recompute a conversion that has already been validated.
+	lockPeriod      uint64
+	lockThreshold   uint64
+	unlockPeriod    uint64
+	unlockThreshold uint64
 	withoutLock     bool
 }
 
@@ -104,9 +131,46 @@ func WithoutLock() Option {
 	}
 }
 
-// New builds a Migrator over an fs.FS of goose SQL migration files (usually
-// an embed.FS subtree; files named like 00001_description.sql containing
-// `-- +goose Up` sections).
+// WithLockTimeout sets how long Migrate waits to acquire the Postgres advisory
+// lock, re-checking every probeInterval. Raise the timeout for a deployment
+// whose migrations legitimately run longer than a minute, so replicas queued
+// behind the winner do not give up mid-deploy.
+//
+// goose measures the probe interval in whole seconds, so probeInterval must be
+// a positive whole number of seconds and timeout must be at least one probe
+// interval; New rejects anything else. Defaults are DefaultLockProbeInterval
+// and DefaultLockTimeout.
+func WithLockTimeout(probeInterval, timeout time.Duration) Option {
+	return func(m *Migrator) {
+		m.lockProbeInterval = probeInterval
+		m.lockTimeout = timeout
+	}
+}
+
+// WithUnlockTimeout sets how long Migrate waits to release the Postgres
+// advisory lock, re-trying every probeInterval. It carries the same
+// whole-seconds constraint as WithLockTimeout. Defaults are
+// DefaultUnlockProbeInterval and DefaultUnlockTimeout.
+func WithUnlockTimeout(probeInterval, timeout time.Duration) Option {
+	return func(m *Migrator) {
+		m.unlockProbeInterval = probeInterval
+		m.unlockTimeout = timeout
+	}
+}
+
+// New builds a Migrator over an fs.FS of SQL migration files, usually an
+// embed.FS subtree. Files are named like 00001_description.sql; the leading
+// number orders them and must be unique.
+//
+// The `-- +goose Up` annotation is optional: New inserts it into any file that
+// omits one, so a migration can be plain SQL in a numbered file. Files that do
+// carry it are left exactly as written, and goose's other annotations
+// (StatementBegin/StatementEnd, NO TRANSACTION, ENVSUB) work as documented
+// upstream either way. Migrations are read once, here, so a malformed one
+// fails construction rather than the first Migrate.
+//
+// Only Up sections are ever applied — nothing in this package runs a Down — so
+// a Down section, if present, is inert.
 func New(dialect Dialect, migrations fs.FS, opts ...Option) (*Migrator, error) {
 	if migrations == nil {
 		return nil, errors.New("nil migrations filesystem provided")
@@ -115,9 +179,18 @@ func New(dialect Dialect, migrations fs.FS, opts ...Option) (*Migrator, error) {
 		return nil, err
 	}
 
+	annotated, err := annotateMigrations(migrations)
+	if err != nil {
+		return nil, err
+	}
+
 	m := &Migrator{
-		dialect: dialect,
-		fsys:    migrations,
+		dialect:             dialect,
+		fsys:                annotated,
+		lockProbeInterval:   DefaultLockProbeInterval,
+		lockTimeout:         DefaultLockTimeout,
+		unlockProbeInterval: DefaultUnlockProbeInterval,
+		unlockTimeout:       DefaultUnlockTimeout,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -125,12 +198,20 @@ func New(dialect Dialect, migrations fs.FS, opts ...Option) (*Migrator, error) {
 		}
 	}
 
+	// Converted here rather than in the options, which cannot report an error,
+	// so a bad timeout fails at construction instead of at first Migrate.
+	if m.lockPeriod, m.lockThreshold, err = gooseProbe("lock", m.lockProbeInterval, m.lockTimeout); err != nil {
+		return nil, err
+	}
+	if m.unlockPeriod, m.unlockThreshold, err = gooseProbe("unlock", m.unlockProbeInterval, m.unlockTimeout); err != nil {
+		return nil, err
+	}
+
 	m.o11y = observability.NewObserver(serviceName, m.logger, m.tracerProvider)
 	m.logger = m.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(m.metricsProvider)
 
-	var err error
 	if m.runCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_runs", serviceName)); err != nil {
 		return nil, errors.Wrap(err, "creating migration run counter")
 	}
@@ -201,13 +282,12 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 	if locked {
 		id := lockID(m.lockKey)
 		op.Set(keys.LockKeyKey, m.lockKey).Set(keys.LockIDKey, id)
+		op.Set("migrate.lock_timeout", m.lockTimeout)
 
 		locker, lockErr := lock.NewPostgresSessionLocker(
 			lock.WithLockID(id),
-			// Probe every second rather than goose's 5s default, so a waiting
-			// replica notices the winner promptly; give up after a minute.
-			lock.WithLockTimeout(1, 60),
-			lock.WithUnlockTimeout(1, 30),
+			lock.WithLockTimeout(m.lockPeriod, m.lockThreshold),
+			lock.WithUnlockTimeout(m.unlockPeriod, m.unlockThreshold),
 		)
 		if lockErr != nil {
 			m.errCounter.Add(ctx, 1)
@@ -228,8 +308,8 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 	}
 
 	// Logged before Up rather than after, because Up is where a losing replica
-	// blocks on the advisory lock for up to a minute. Without this line, that
-	// wait is indistinguishable from a hang.
+	// blocks on the advisory lock for up to the configured lock timeout.
+	// Without this line, that wait is indistinguishable from a hang.
 	if locked {
 		op.Logger().Info("acquiring migration lock and applying migrations")
 	}
@@ -255,6 +335,24 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// gooseProbe converts a probe interval and total timeout into the (period in
+// seconds, failure threshold) pair goose's lock options take. goose multiplies
+// the two back into the total wait, and rejects a sub-second period, so the
+// interval has to divide cleanly into seconds — rounding it silently would
+// hand back a different timeout than the caller asked for.
+func gooseProbe(what string, probeInterval, timeout time.Duration) (period, threshold uint64, err error) {
+	switch {
+	case probeInterval < time.Second:
+		return 0, 0, errors.Newf("%s probe interval must be at least 1s, got %s", what, probeInterval)
+	case probeInterval%time.Second != 0:
+		return 0, 0, errors.Newf("%s probe interval must be a whole number of seconds, got %s", what, probeInterval)
+	case timeout < probeInterval:
+		return 0, 0, errors.Newf("%s timeout (%s) must be at least one probe interval (%s)", what, timeout, probeInterval)
+	}
+
+	return uint64(probeInterval / time.Second), uint64(timeout / probeInterval), nil
+}
+
 // gooseDialect maps the package's Dialect to goose's, rejecting unknowns.
 func gooseDialect(d Dialect) (goose.Dialect, error) {
 	switch d {
@@ -273,8 +371,5 @@ func gooseDialect(d Dialect) (goose.Dialect, error) {
 // hash collision between two keys merely over-serializes their migrations —
 // never corruption.
 func lockID(key string) int64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte("platform-migrations:" + key))
-
-	return int64(h.Sum64())
+	return int64(fnv.Sum64a([]byte("platform-migrations:" + key)))
 }

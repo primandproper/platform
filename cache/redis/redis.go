@@ -22,9 +22,9 @@ import (
 
 const name = "redis_cache"
 
-// scanPageSize bounds how many keys a single SCAN iteration asks for during
-// prefix deletion.
-const scanPageSize = 1000
+// defaultScanPageSize bounds how many keys a single SCAN iteration asks for
+// during prefix deletion, when WithScanPageSize is not supplied.
+const defaultScanPageSize = 1000
 
 // batchSetScript stores every KEYS[i] with the value at ARGV[i+1], applying a
 // single millisecond TTL (ARGV[1]) to all of them in one round trip. Vanilla
@@ -45,22 +45,23 @@ return #KEYS
 
 var _ cache.Cache[struct{}] = (*redisCacheImpl[struct{}])(nil)
 
+// scanDelClient is the slice of redisClient that prefix deletion needs; it is
+// satisfied by both the cache's own client and the per-master *redis.Client
+// handles ForEachMaster yields in cluster mode. redisClient embeds it so the
+// two cannot drift.
+type scanDelClient interface {
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+}
+
 type redisClient interface {
+	scanDelClient
+
 	Get(ctx context.Context, key string) *redis.StringCmd
 	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Eval(ctx context.Context, script string, keys []string, args ...any) *redis.Cmd
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
-	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 	Ping(ctx context.Context) *redis.StatusCmd
-}
-
-// scanDelClient is the slice of redisClient that prefix deletion needs; it is
-// satisfied by both the cache's own client and the per-master *redis.Client
-// handles ForEachMaster yields in cluster mode.
-type scanDelClient interface {
-	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
 type redisCacheImpl[T any] struct {
@@ -76,6 +77,7 @@ type redisCacheImpl[T any] struct {
 	circuitBreaker   circuitbreaking.CircuitBreaker
 	namespace        string
 	expiration       time.Duration
+	scanPageSize     int64
 	isCluster        bool
 }
 
@@ -90,6 +92,23 @@ func WithCodec[T any](codec cache.Codec[T]) Option[T] {
 	return func(i *redisCacheImpl[T]) {
 		if codec != nil {
 			i.codec = codec
+		}
+	}
+}
+
+// WithScanPageSize sets the COUNT a single SCAN iteration asks for during
+// prefix deletion. It is a hint to redis, not a guarantee: an iteration may
+// return more or fewer keys.
+//
+// The default of 1000 trades round trips against per-command latency. Raise it
+// to sweep a large keyspace in fewer round trips; lower it on a latency-
+// sensitive shared instance, since redis serves SCAN on its single command
+// thread and a large COUNT blocks other clients for the duration. A
+// non-positive size is ignored, keeping the default.
+func WithScanPageSize[T any](size int64) Option[T] {
+	return func(i *redisCacheImpl[T]) {
+		if size > 0 {
+			i.scanPageSize = size
 		}
 	}
 }
@@ -150,6 +169,7 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, logger logging.
 		circuitBreaker:   circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		namespace:        cfg.Namespace,
 		expiration:       expiration,
+		scanPageSize:     defaultScanPageSize,
 		isCluster:        cfg.clusterMode(),
 	}
 	for _, opt := range opts {
@@ -396,7 +416,7 @@ func (i *redisCacheImpl[T]) scanAndDelete(ctx context.Context, c scanDelClient, 
 	)
 
 	for {
-		keys, next, err := c.Scan(ctx, cursor, pattern, scanPageSize).Result()
+		keys, next, err := c.Scan(ctx, cursor, pattern, i.scanPageSize).Result()
 		if err != nil {
 			return deleted, errors.Wrap(err, "scanning for keys")
 		}

@@ -76,6 +76,7 @@ func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *m
 		client:           client,
 		circuitBreaker:   cb,
 		expiration:       time.Minute,
+		scanPageSize:     defaultScanPageSize,
 	}, client, cb, obs
 }
 
@@ -1195,5 +1196,76 @@ func Test_redisCacheImpl_Deletion_Unit(T *testing.T) {
 		}
 
 		must.NoError(t, impl.DeleteByPrefix(ctx, "area[1]:"))
+	})
+}
+
+func TestWithScanPageSize(T *testing.T) {
+	T.Parallel()
+
+	// scanCount drives a one-page prefix deletion and reports the COUNT the
+	// cache actually handed to SCAN, so these assert the option reaches the
+	// wire rather than just landing in a struct field.
+	scanCount := func(t *testing.T, impl *redisCacheImpl[example], client *redisClientMock, cb *mockcircuitbreaking.CircuitBreakerMock) int64 {
+		t.Helper()
+
+		ctx := t.Context()
+		impl.namespace = "ns:"
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		var got int64
+		client.ScanFunc = func(_ context.Context, _ uint64, _ string, count int64) *redis.ScanCmd {
+			got = count
+			cmd := redis.NewScanCmd(ctx, nil)
+			cmd.SetVal([]string{}, 0)
+			return cmd
+		}
+
+		must.NoError(t, impl.DeleteByPrefix(ctx, "p:"))
+
+		return got
+	}
+
+	T.Run("the configured size reaches SCAN", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, cb, _ := buildTestImpl(t)
+		WithScanPageSize[example](25)(impl)
+
+		test.EqOp(t, int64(25), scanCount(t, impl, client, cb))
+	})
+
+	T.Run("the default reaches SCAN when the option is not supplied", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, cb, _ := buildTestImpl(t)
+
+		test.EqOp(t, int64(defaultScanPageSize), scanCount(t, impl, client, cb))
+	})
+
+	T.Run("a non-positive size is ignored", func(t *testing.T) {
+		t.Parallel()
+
+		for _, size := range []int64{0, -1} {
+			impl, client, cb, _ := buildTestImpl(t)
+			WithScanPageSize[example](size)(impl)
+
+			test.EqOp(t, int64(defaultScanPageSize), scanCount(t, impl, client, cb))
+		}
+	})
+
+	T.Run("NewRedisCache applies the option", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := NewRedisCache[example](
+			&Config{QueueAddresses: []string{"localhost:6379"}},
+			time.Minute, nil, nil, nil, nil,
+			WithScanPageSize[example](64),
+		)
+		must.NoError(t, err)
+
+		impl, ok := c.(*redisCacheImpl[example])
+		must.True(t, ok)
+		test.EqOp(t, int64(64), impl.scanPageSize)
 	})
 }

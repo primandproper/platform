@@ -53,12 +53,7 @@ func SumWith(v any, hasher hashing.Hasher, opts ...Option) (string, error) {
 		return "", err
 	}
 
-	digest, err := hasher.Hash(string(canon))
-	if err != nil {
-		return "", errors.Wrap(err, "hashing canonical form")
-	}
-
-	return digest, nil
+	return hashing.Hex(hasher, canon), nil
 }
 
 // Marshal returns v's canonical JSON encoding: encoding/json's output

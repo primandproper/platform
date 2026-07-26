@@ -27,16 +27,17 @@ type entry[T any] struct {
 }
 
 type inMemoryCacheImpl[T any] struct {
-	o11y             observability.Observer
-	clock            clock.Clock
-	cacheHitCounter  metrics.Int64Counter
-	cacheMissCounter metrics.Int64Counter
-	cacheSetCounter  metrics.Int64Counter
-	cacheDelCounter  metrics.Int64Counter
-	latencyHist      metrics.Float64Histogram
-	cache            map[string]entry[T]
-	defaultExpiry    time.Duration
-	cacheMu          sync.RWMutex
+	o11y              observability.Observer
+	clock             clock.Clock
+	cacheHitCounter   metrics.Int64Counter
+	cacheMissCounter  metrics.Int64Counter
+	cacheSetCounter   metrics.Int64Counter
+	cacheDelCounter   metrics.Int64Counter
+	cacheEvictCounter metrics.Int64Counter
+	latencyHist       metrics.Float64Histogram
+	cache             map[string]entry[T]
+	defaultExpiry     time.Duration
+	cacheMu           sync.RWMutex
 }
 
 // NewInMemoryCache builds an in-memory cache. Writes expire after defaultExpiry
@@ -67,21 +68,27 @@ func NewInMemoryCache[T any](defaultExpiry time.Duration, logger logging.Logger,
 		return nil, errors.Wrap(err, "creating cache delete counter")
 	}
 
+	cacheEvictCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_evictions", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache eviction counter")
+	}
+
 	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache latency histogram")
 	}
 
 	return &inMemoryCacheImpl[T]{
-		o11y:             observability.NewObserver(name, logger, tracerProvider),
-		clock:            clock.NewClock(),
-		cacheHitCounter:  cacheHitCounter,
-		cacheMissCounter: cacheMissCounter,
-		cacheSetCounter:  cacheSetCounter,
-		cacheDelCounter:  cacheDelCounter,
-		latencyHist:      latencyHist,
-		cache:            make(map[string]entry[T]),
-		defaultExpiry:    defaultExpiry,
+		o11y:              observability.NewObserver(name, logger, tracerProvider),
+		clock:             clock.NewClock(),
+		cacheHitCounter:   cacheHitCounter,
+		cacheMissCounter:  cacheMissCounter,
+		cacheSetCounter:   cacheSetCounter,
+		cacheDelCounter:   cacheDelCounter,
+		cacheEvictCounter: cacheEvictCounter,
+		latencyHist:       latencyHist,
+		cache:             make(map[string]entry[T]),
+		defaultExpiry:     defaultExpiry,
 	}, nil
 }
 
@@ -104,12 +111,19 @@ func (i *inMemoryCacheImpl[T]) newEntry(value *T, opts []cache.WriteOption) entr
 // evictExpired removes key if it is still present and still expired, so a
 // concurrent overwrite between the read lock and this write lock is never
 // discarded.
-func (i *inMemoryCacheImpl[T]) evictExpired(key string) {
+//
+// This is the only place an entry is dropped for having expired, so it is the
+// only place that counts an eviction. An expired entry that a Set or SetMany
+// overwrites before any read discovers it is replaced silently and never
+// counted: that is a write, not a TTL loss, and folding the two together would
+// make the counter useless for the question it exists to answer.
+func (i *inMemoryCacheImpl[T]) evictExpired(ctx context.Context, key string) {
 	i.cacheMu.Lock()
 	defer i.cacheMu.Unlock()
 
 	if cur, ok := i.cache[key]; ok && i.expired(cur) {
 		delete(i.cache, key)
+		i.cacheEvictCounter.Add(ctx, 1)
 	}
 }
 
@@ -133,7 +147,7 @@ func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) 
 	}
 
 	if ok {
-		i.evictExpired(key)
+		i.evictExpired(ctx, key)
 	}
 
 	i.cacheMissCounter.Add(ctx, 1)
@@ -211,7 +225,7 @@ func (i *inMemoryCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[
 	i.cacheMu.RUnlock()
 
 	for _, key := range expiredKeys {
-		i.evictExpired(key)
+		i.evictExpired(ctx, key)
 	}
 
 	return out, nil

@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -333,6 +336,140 @@ func TestInMemoryCache_Expiry(T *testing.T) {
 			got, err := c.Get(ctx, exampleKey)
 			must.NoError(t, err)
 			test.EqOp(t, "new", got.Name)
+		})
+	})
+}
+
+// countingCounter records what an instrument was asked to add, so a test can
+// assert a counter fired without standing up an SDK metrics pipeline.
+type countingCounter struct {
+	mu    sync.Mutex
+	total int64
+}
+
+func (c *countingCounter) Add(_ context.Context, incr int64, _ ...metric.AddOption) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.total += incr
+}
+
+func (c *countingCounter) Total() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.total
+}
+
+// newEvictionCountingCache builds an expiry cache with its eviction counter
+// swapped for one the test can read back.
+func newEvictionCountingCache(t *testing.T, defaultExpiry time.Duration) (*inMemoryCacheImpl[example], *countingCounter) {
+	t.Helper()
+
+	c := newExpiryCache(t, defaultExpiry)
+	counter := &countingCounter{}
+	c.cacheEvictCounter = counter
+
+	return c, counter
+}
+
+func TestInMemoryCache_EvictionCounter(T *testing.T) {
+	T.Parallel()
+
+	T.Run("counts an entry dropped by the read that discovers it expired", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c, evictions := newEvictionCountingCache(t, time.Second)
+
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
+			test.EqOp(t, int64(0), evictions.Total())
+
+			time.Sleep(time.Second)
+
+			_, err := c.Get(ctx, exampleKey)
+			test.ErrorIs(t, err, cache.ErrNotFound)
+			test.EqOp(t, int64(1), evictions.Total())
+		})
+	})
+
+	T.Run("counts each expired key GetMany discovers", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c, evictions := newEvictionCountingCache(t, time.Second)
+
+			must.NoError(t, c.SetMany(ctx, map[string]*example{
+				"a": {Name: "a"},
+				"b": {Name: "b"},
+				"c": {Name: "c"},
+			}))
+			time.Sleep(time.Second)
+
+			got, err := c.GetMany(ctx, []string{"a", "b", "c"})
+			must.NoError(t, err)
+			test.MapEmpty(t, got)
+			test.EqOp(t, int64(3), evictions.Total())
+		})
+	})
+
+	T.Run("a miss on an absent key is not an eviction", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		c, evictions := newEvictionCountingCache(t, time.Minute)
+
+		_, err := c.Get(ctx, "never-written")
+		test.ErrorIs(t, err, cache.ErrNotFound)
+		test.EqOp(t, int64(0), evictions.Total())
+	})
+
+	T.Run("a live entry read before its deadline is not an eviction", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		c, evictions := newEvictionCountingCache(t, time.Minute)
+
+		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
+
+		_, err := c.Get(ctx, exampleKey)
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), evictions.Total())
+	})
+
+	T.Run("overwriting an expired entry is a write, not an eviction", func(t *testing.T) {
+		t.Parallel()
+
+		// Documents the deliberate gap on evictExpired: a Set that lands on an
+		// expired entry before any read discovers it replaces it silently. The
+		// counter answers "how much am I losing to TTL", and folding overwrites
+		// in would double-count against cacheSetCounter.
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c, evictions := newEvictionCountingCache(t, time.Second)
+
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "old"}))
+			time.Sleep(time.Second)
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "new"}))
+
+			test.EqOp(t, int64(0), evictions.Total())
+		})
+	})
+
+	T.Run("an explicit Delete of an expired entry is a delete, not an eviction", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c, evictions := newEvictionCountingCache(t, time.Second)
+
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
+			time.Sleep(time.Second)
+			must.NoError(t, c.Delete(ctx, exampleKey))
+
+			test.EqOp(t, int64(0), evictions.Total())
 		})
 	})
 }

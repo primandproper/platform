@@ -17,7 +17,9 @@
 // holder's lock dies with its connection, and no session or connection is
 // pinned beyond fn's duration. Any other Locker gains the same surface through
 // the NewScopedLocker adapter, which polls a contended WithLock on a
-// configurable interval. Prefer ScopedLocker unless the hold genuinely must
+// configurable interval that backs off exponentially and is jittered, so a
+// crowd of waiters on one key does not hammer the underlying store. Prefer
+// ScopedLocker unless the hold genuinely must
 // outlive a function scope (e.g. a lock held across asynchronous work), where
 // the raw Acquire/Release handle remains the right tool.
 //

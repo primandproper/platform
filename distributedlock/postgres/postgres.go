@@ -169,7 +169,7 @@ func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 	lockID := hashLockID(l.namespace, key)
 	op.Set(keys.LockIDKey, lockID)
 	var ok bool
-	if scanErr := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, lockID).Scan(&ok); scanErr != nil {
+	if scanErr := conn.QueryRowContext(ctx, queryAcquireSession, lockID).Scan(&ok); scanErr != nil {
 		// Best-effort return the conn to the pool.
 		if closeErr := conn.Close(); closeErr != nil {
 			op.Acknowledge(closeErr, "returning postgres conn to pool after failed advisory lock")
@@ -320,7 +320,7 @@ func (l *locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error 
 
 	// SELECT 1 verifies the conn is alive without altering server state.
 	var one int
-	if err := h.conn.QueryRowContext(ctx, `SELECT 1`).Scan(&one); err != nil {
+	if err := h.conn.QueryRowContext(ctx, queryPing).Scan(&one); err != nil {
 		l.errCounter.Add(ctx, 1)
 		l.circuitBreaker.Failed()
 		return distributedlock.ErrLockNotHeld
@@ -394,7 +394,7 @@ func (l *lock) releaseLocked(ctx context.Context) (err error) {
 	}()
 
 	var unlocked bool
-	if err = l.conn.QueryRowContext(ctx, `SELECT pg_advisory_unlock($1)`, l.lockID).Scan(&unlocked); err != nil {
+	if err = l.conn.QueryRowContext(ctx, queryReleaseSession, l.lockID).Scan(&unlocked); err != nil {
 		return platformerrors.Wrap(err, "calling pg_advisory_unlock")
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/primandproper/platform-go/v7/clock"
@@ -19,10 +20,18 @@ const (
 	// DefaultScopedLockTTL is the TTL the generic scoped adapter passes to
 	// Acquire when WithScopedLockTTL is not supplied.
 	DefaultScopedLockTTL = 30 * time.Second
-	// DefaultScopedPollInterval is how often the generic scoped adapter re-tries
-	// a contended WithLock acquisition when WithScopedPollInterval is not
-	// supplied.
+	// DefaultScopedPollInterval is how long the generic scoped adapter waits
+	// before its first re-try of a contended WithLock acquisition, when
+	// WithScopedPollInterval is not supplied. Subsequent waits grow from here.
 	DefaultScopedPollInterval = 100 * time.Millisecond
+	// DefaultScopedPollBackoff is the factor each successive contended wait is
+	// multiplied by, when WithScopedPollBackoff is not supplied.
+	DefaultScopedPollBackoff = 2.0
+	// DefaultScopedMaxPollInterval caps the grown wait, when
+	// WithScopedPollBackoff is not supplied. It bounds how long a waiter can
+	// sit idle after the lock actually frees, which is the cost backoff trades
+	// against reduced load on the underlying store.
+	DefaultScopedMaxPollInterval = time.Second
 
 	// scopedServiceName names the adapter's spans, logger, and metrics. It is
 	// deliberately provider-agnostic: a dashboard built on scoped_lock_* works
@@ -67,11 +76,50 @@ func WithScopedLockTTL(ttl time.Duration) ScopedOption {
 	}
 }
 
-// WithScopedPollInterval sets how often WithLock re-tries a contended
-// acquisition. TryWithLock never polls.
+// WithScopedPollInterval sets the first wait WithLock takes after a contended
+// acquisition; later waits grow from it per WithScopedPollBackoff. It must be
+// positive — a non-positive interval would turn the wait into a spin, since
+// clock.Sleep returns immediately for a non-positive duration — and
+// NewScopedLocker rejects it. TryWithLock never polls.
 func WithScopedPollInterval(interval time.Duration) ScopedOption {
 	return func(s *scopedLocker) {
 		s.pollInterval = interval
+	}
+}
+
+// WithScopedPollBackoff sets how the contended wait grows: each successive
+// wait is multiplied by factor and clamped to maxInterval.
+//
+// Backoff exists because a fixed poll interval makes N waiters on one key a
+// thundering herd against the underlying store — N/interval requests per
+// second for as long as the holder runs, none of which can succeed. Growing
+// the interval trades a bounded amount of post-release latency (at most
+// maxInterval, and on average less because of the jitter) for a large drop in
+// that load.
+//
+// factor must be at least 1 and maxInterval at least the poll interval;
+// NewScopedLocker rejects anything else. A factor of exactly 1 disables growth
+// and restores a fixed interval, still jittered.
+func WithScopedPollBackoff(factor float64, maxInterval time.Duration) ScopedOption {
+	return func(s *scopedLocker) {
+		s.pollBackoff = factor
+		s.maxPollInterval = maxInterval
+	}
+}
+
+// WithScopedJitter replaces the source of randomness that spreads contended
+// waiters apart. fn must return a value in [0,1]; the adapter sleeps for half
+// the current interval plus that fraction of the other half, so waiters that
+// started together do not re-collide on every round.
+//
+// The default draws from math/rand/v2 and needs no seeding. Tests wanting a
+// fixed schedule can pass func() float64 { return 1 }, which yields exactly
+// the un-jittered interval. A nil fn is ignored.
+func WithScopedJitter(fn func() float64) ScopedOption {
+	return func(s *scopedLocker) {
+		if fn != nil {
+			s.jitter = fn
+		}
 	}
 }
 
@@ -91,6 +139,7 @@ type scopedLocker struct {
 	o11y            observability.Observer
 	locker          Locker
 	clock           clock.Clock
+	jitter          func() float64
 	acquireCounter  metrics.Int64Counter
 	contendCounter  metrics.Int64Counter
 	errCounter      metrics.Int64Counter
@@ -99,6 +148,31 @@ type scopedLocker struct {
 	waitHist        metrics.Float64Histogram
 	ttl             time.Duration
 	pollInterval    time.Duration
+	maxPollInterval time.Duration
+	pollBackoff     float64
+}
+
+// jitteredWait spreads waiters that started together, so they do not re-collide
+// on every round. Equal jitter — half the interval, plus a random share of the
+// other half — rather than full jitter, which can draw a near-zero wait and
+// turn a backing-off poller back into a hot one.
+func (s *scopedLocker) jitteredWait(interval time.Duration) time.Duration {
+	half := interval / 2
+
+	return half + time.Duration(s.jitter()*float64(half))
+}
+
+// grow advances the contended wait toward maxPollInterval. It is computed
+// stepwise rather than as pollInterval*factor^n so a long wait cannot overflow
+// the duration.
+func (s *scopedLocker) grow(interval time.Duration) time.Duration {
+	grown := time.Duration(float64(interval) * s.pollBackoff)
+	if grown < interval {
+		// Overflowed past the duration's range.
+		return s.maxPollInterval
+	}
+
+	return min(grown, s.maxPollInterval)
 }
 
 var _ ScopedLocker = (*scopedLocker)(nil)
@@ -155,6 +229,7 @@ func NewScopedLocker(
 		o11y:            observability.NewObserver(scopedServiceName, logger, tracerProvider),
 		locker:          locker,
 		clock:           clock.NewClock(),
+		jitter:          rand.Float64,
 		acquireCounter:  acquireCounter,
 		contendCounter:  contendCounter,
 		errCounter:      errCounter,
@@ -163,11 +238,26 @@ func NewScopedLocker(
 		waitHist:        waitHist,
 		ttl:             DefaultScopedLockTTL,
 		pollInterval:    DefaultScopedPollInterval,
+		maxPollInterval: DefaultScopedMaxPollInterval,
+		pollBackoff:     DefaultScopedPollBackoff,
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(s)
 		}
+	}
+
+	// Validated here rather than in the options, which cannot report an error.
+	// A non-positive poll interval is the dangerous one: clock.Sleep returns
+	// immediately for it, so WithLock would spin on a contended lock instead
+	// of waiting.
+	switch {
+	case s.pollInterval <= 0:
+		return nil, platformerrors.Newf("scoped poll interval must be positive, got %s", s.pollInterval)
+	case s.pollBackoff < 1:
+		return nil, platformerrors.Newf("scoped poll backoff factor must be at least 1, got %v", s.pollBackoff)
+	case s.maxPollInterval < s.pollInterval:
+		return nil, platformerrors.Newf("scoped max poll interval (%s) must be at least the poll interval (%s)", s.maxPollInterval, s.pollInterval)
 	}
 
 	return s, nil
@@ -190,6 +280,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 	// depth of the wait is carried by scoped_lock_wait_ms and the span's
 	// lock.polls attribute instead.
 	var polls int
+	wait := s.pollInterval
 	for {
 		held, err := s.locker.Acquire(ctx, key, s.ttl)
 		if err == nil {
@@ -210,7 +301,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 
 		polls++
 
-		if sleepErr := s.clock.Sleep(ctx, s.pollInterval); sleepErr != nil {
+		if sleepErr := s.clock.Sleep(ctx, s.jitteredWait(wait)); sleepErr != nil {
 			// Giving up still counts as contention — the caller waited and lost
 			// — but a canceled or expired context is the caller's deadline
 			// arriving, not an infrastructure failure, so it is traced without
@@ -220,6 +311,8 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 
 			return op.Error(sleepErr, "waiting for scoped lock")
 		}
+
+		wait = s.grow(wait)
 	}
 }
 
