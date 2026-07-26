@@ -23,14 +23,29 @@ var _ cache.Cache[any] = &CacheMock[any]{}
 //			DeleteFunc: func(ctx context.Context, key string) error {
 //				panic("mock out the Delete method")
 //			},
+//			DeleteByPrefixFunc: func(ctx context.Context, prefix string) error {
+//				panic("mock out the DeleteByPrefix method")
+//			},
+//			DeleteManyFunc: func(ctx context.Context, keys []string) error {
+//				panic("mock out the DeleteMany method")
+//			},
+//			FlushFunc: func(ctx context.Context) error {
+//				panic("mock out the Flush method")
+//			},
 //			GetFunc: func(ctx context.Context, key string) (*T, error) {
 //				panic("mock out the Get method")
+//			},
+//			GetManyFunc: func(ctx context.Context, keys []string) (map[string]*T, error) {
+//				panic("mock out the GetMany method")
 //			},
 //			PingFunc: func(ctx context.Context) error {
 //				panic("mock out the Ping method")
 //			},
-//			SetFunc: func(ctx context.Context, key string, value *T) error {
+//			SetFunc: func(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 //				panic("mock out the Set method")
+//			},
+//			SetManyFunc: func(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
+//				panic("mock out the SetMany method")
 //			},
 //		}
 //
@@ -42,14 +57,29 @@ type CacheMock[T any] struct {
 	// DeleteFunc mocks the Delete method.
 	DeleteFunc func(ctx context.Context, key string) error
 
+	// DeleteByPrefixFunc mocks the DeleteByPrefix method.
+	DeleteByPrefixFunc func(ctx context.Context, prefix string) error
+
+	// DeleteManyFunc mocks the DeleteMany method.
+	DeleteManyFunc func(ctx context.Context, keys []string) error
+
+	// FlushFunc mocks the Flush method.
+	FlushFunc func(ctx context.Context) error
+
 	// GetFunc mocks the Get method.
 	GetFunc func(ctx context.Context, key string) (*T, error)
+
+	// GetManyFunc mocks the GetMany method.
+	GetManyFunc func(ctx context.Context, keys []string) (map[string]*T, error)
 
 	// PingFunc mocks the Ping method.
 	PingFunc func(ctx context.Context) error
 
 	// SetFunc mocks the Set method.
-	SetFunc func(ctx context.Context, key string, value *T) error
+	SetFunc func(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error
+
+	// SetManyFunc mocks the SetMany method.
+	SetManyFunc func(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -60,12 +90,38 @@ type CacheMock[T any] struct {
 			// Key is the key argument value.
 			Key string
 		}
+		// DeleteByPrefix holds details about calls to the DeleteByPrefix method.
+		DeleteByPrefix []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Prefix is the prefix argument value.
+			Prefix string
+		}
+		// DeleteMany holds details about calls to the DeleteMany method.
+		DeleteMany []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Keys is the keys argument value.
+			Keys []string
+		}
+		// Flush holds details about calls to the Flush method.
+		Flush []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// Get holds details about calls to the Get method.
 		Get []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Key is the key argument value.
 			Key string
+		}
+		// GetMany holds details about calls to the GetMany method.
+		GetMany []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Keys is the keys argument value.
+			Keys []string
 		}
 		// Ping holds details about calls to the Ping method.
 		Ping []struct {
@@ -80,12 +136,28 @@ type CacheMock[T any] struct {
 			Key string
 			// Value is the value argument value.
 			Value *T
+			// Opts is the opts argument value.
+			Opts []cache.WriteOption
+		}
+		// SetMany holds details about calls to the SetMany method.
+		SetMany []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Items is the items argument value.
+			Items map[string]*T
+			// Opts is the opts argument value.
+			Opts []cache.WriteOption
 		}
 	}
-	lockDelete sync.RWMutex
-	lockGet    sync.RWMutex
-	lockPing   sync.RWMutex
-	lockSet    sync.RWMutex
+	lockDelete         sync.RWMutex
+	lockDeleteByPrefix sync.RWMutex
+	lockDeleteMany     sync.RWMutex
+	lockFlush          sync.RWMutex
+	lockGet            sync.RWMutex
+	lockGetMany        sync.RWMutex
+	lockPing           sync.RWMutex
+	lockSet            sync.RWMutex
+	lockSetMany        sync.RWMutex
 }
 
 // Delete calls DeleteFunc.
@@ -121,6 +193,110 @@ func (mock *CacheMock[T]) DeleteCalls() []struct {
 	mock.lockDelete.RLock()
 	calls = mock.calls.Delete
 	mock.lockDelete.RUnlock()
+	return calls
+}
+
+// DeleteByPrefix calls DeleteByPrefixFunc.
+func (mock *CacheMock[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
+	if mock.DeleteByPrefixFunc == nil {
+		panic("CacheMock.DeleteByPrefixFunc: method is nil but Cache.DeleteByPrefix was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Prefix string
+	}{
+		Ctx:    ctx,
+		Prefix: prefix,
+	}
+	mock.lockDeleteByPrefix.Lock()
+	mock.calls.DeleteByPrefix = append(mock.calls.DeleteByPrefix, callInfo)
+	mock.lockDeleteByPrefix.Unlock()
+	return mock.DeleteByPrefixFunc(ctx, prefix)
+}
+
+// DeleteByPrefixCalls gets all the calls that were made to DeleteByPrefix.
+// Check the length with:
+//
+//	len(mockedCache.DeleteByPrefixCalls())
+func (mock *CacheMock[T]) DeleteByPrefixCalls() []struct {
+	Ctx    context.Context
+	Prefix string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Prefix string
+	}
+	mock.lockDeleteByPrefix.RLock()
+	calls = mock.calls.DeleteByPrefix
+	mock.lockDeleteByPrefix.RUnlock()
+	return calls
+}
+
+// DeleteMany calls DeleteManyFunc.
+func (mock *CacheMock[T]) DeleteMany(ctx context.Context, keys []string) error {
+	if mock.DeleteManyFunc == nil {
+		panic("CacheMock.DeleteManyFunc: method is nil but Cache.DeleteMany was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Keys []string
+	}{
+		Ctx:  ctx,
+		Keys: keys,
+	}
+	mock.lockDeleteMany.Lock()
+	mock.calls.DeleteMany = append(mock.calls.DeleteMany, callInfo)
+	mock.lockDeleteMany.Unlock()
+	return mock.DeleteManyFunc(ctx, keys)
+}
+
+// DeleteManyCalls gets all the calls that were made to DeleteMany.
+// Check the length with:
+//
+//	len(mockedCache.DeleteManyCalls())
+func (mock *CacheMock[T]) DeleteManyCalls() []struct {
+	Ctx  context.Context
+	Keys []string
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Keys []string
+	}
+	mock.lockDeleteMany.RLock()
+	calls = mock.calls.DeleteMany
+	mock.lockDeleteMany.RUnlock()
+	return calls
+}
+
+// Flush calls FlushFunc.
+func (mock *CacheMock[T]) Flush(ctx context.Context) error {
+	if mock.FlushFunc == nil {
+		panic("CacheMock.FlushFunc: method is nil but Cache.Flush was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockFlush.Lock()
+	mock.calls.Flush = append(mock.calls.Flush, callInfo)
+	mock.lockFlush.Unlock()
+	return mock.FlushFunc(ctx)
+}
+
+// FlushCalls gets all the calls that were made to Flush.
+// Check the length with:
+//
+//	len(mockedCache.FlushCalls())
+func (mock *CacheMock[T]) FlushCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockFlush.RLock()
+	calls = mock.calls.Flush
+	mock.lockFlush.RUnlock()
 	return calls
 }
 
@@ -160,6 +336,42 @@ func (mock *CacheMock[T]) GetCalls() []struct {
 	return calls
 }
 
+// GetMany calls GetManyFunc.
+func (mock *CacheMock[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
+	if mock.GetManyFunc == nil {
+		panic("CacheMock.GetManyFunc: method is nil but Cache.GetMany was just called")
+	}
+	callInfo := struct {
+		Ctx  context.Context
+		Keys []string
+	}{
+		Ctx:  ctx,
+		Keys: keys,
+	}
+	mock.lockGetMany.Lock()
+	mock.calls.GetMany = append(mock.calls.GetMany, callInfo)
+	mock.lockGetMany.Unlock()
+	return mock.GetManyFunc(ctx, keys)
+}
+
+// GetManyCalls gets all the calls that were made to GetMany.
+// Check the length with:
+//
+//	len(mockedCache.GetManyCalls())
+func (mock *CacheMock[T]) GetManyCalls() []struct {
+	Ctx  context.Context
+	Keys []string
+} {
+	var calls []struct {
+		Ctx  context.Context
+		Keys []string
+	}
+	mock.lockGetMany.RLock()
+	calls = mock.calls.GetMany
+	mock.lockGetMany.RUnlock()
+	return calls
+}
+
 // Ping calls PingFunc.
 func (mock *CacheMock[T]) Ping(ctx context.Context) error {
 	if mock.PingFunc == nil {
@@ -193,7 +405,7 @@ func (mock *CacheMock[T]) PingCalls() []struct {
 }
 
 // Set calls SetFunc.
-func (mock *CacheMock[T]) Set(ctx context.Context, key string, value *T) error {
+func (mock *CacheMock[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 	if mock.SetFunc == nil {
 		panic("CacheMock.SetFunc: method is nil but Cache.Set was just called")
 	}
@@ -201,15 +413,17 @@ func (mock *CacheMock[T]) Set(ctx context.Context, key string, value *T) error {
 		Ctx   context.Context
 		Key   string
 		Value *T
+		Opts  []cache.WriteOption
 	}{
 		Ctx:   ctx,
 		Key:   key,
 		Value: value,
+		Opts:  opts,
 	}
 	mock.lockSet.Lock()
 	mock.calls.Set = append(mock.calls.Set, callInfo)
 	mock.lockSet.Unlock()
-	return mock.SetFunc(ctx, key, value)
+	return mock.SetFunc(ctx, key, value, opts...)
 }
 
 // SetCalls gets all the calls that were made to Set.
@@ -220,14 +434,56 @@ func (mock *CacheMock[T]) SetCalls() []struct {
 	Ctx   context.Context
 	Key   string
 	Value *T
+	Opts  []cache.WriteOption
 } {
 	var calls []struct {
 		Ctx   context.Context
 		Key   string
 		Value *T
+		Opts  []cache.WriteOption
 	}
 	mock.lockSet.RLock()
 	calls = mock.calls.Set
 	mock.lockSet.RUnlock()
+	return calls
+}
+
+// SetMany calls SetManyFunc.
+func (mock *CacheMock[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
+	if mock.SetManyFunc == nil {
+		panic("CacheMock.SetManyFunc: method is nil but Cache.SetMany was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Items map[string]*T
+		Opts  []cache.WriteOption
+	}{
+		Ctx:   ctx,
+		Items: items,
+		Opts:  opts,
+	}
+	mock.lockSetMany.Lock()
+	mock.calls.SetMany = append(mock.calls.SetMany, callInfo)
+	mock.lockSetMany.Unlock()
+	return mock.SetManyFunc(ctx, items, opts...)
+}
+
+// SetManyCalls gets all the calls that were made to SetMany.
+// Check the length with:
+//
+//	len(mockedCache.SetManyCalls())
+func (mock *CacheMock[T]) SetManyCalls() []struct {
+	Ctx   context.Context
+	Items map[string]*T
+	Opts  []cache.WriteOption
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Items map[string]*T
+		Opts  []cache.WriteOption
+	}
+	mock.lockSetMany.RLock()
+	calls = mock.calls.SetMany
+	mock.lockSetMany.RUnlock()
 	return calls
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v7/cache"
 )
 
-var _ cache.BatchCache[any] = (*Cache[any])(nil)
+var _ cache.Cache[any] = (*Cache[any])(nil)
 
 // Cache is a no-op Cache.
 type Cache[T any] struct{}
@@ -22,7 +22,7 @@ func (*Cache[T]) Get(context.Context, string) (*T, error) {
 }
 
 // Set is a no-op.
-func (*Cache[T]) Set(context.Context, string, *T) error {
+func (*Cache[T]) Set(context.Context, string, *T, ...cache.WriteOption) error {
 	return nil
 }
 
@@ -37,7 +37,22 @@ func (*Cache[T]) GetMany(context.Context, []string) (map[string]*T, error) {
 }
 
 // SetMany is a no-op.
-func (*Cache[T]) SetMany(context.Context, map[string]*T) error {
+func (*Cache[T]) SetMany(context.Context, map[string]*T, ...cache.WriteOption) error {
+	return nil
+}
+
+// DeleteMany is a no-op.
+func (*Cache[T]) DeleteMany(context.Context, []string) error {
+	return nil
+}
+
+// DeleteByPrefix is a no-op.
+func (*Cache[T]) DeleteByPrefix(context.Context, string) error {
+	return nil
+}
+
+// Flush is a no-op.
+func (*Cache[T]) Flush(context.Context) error {
 	return nil
 }
 

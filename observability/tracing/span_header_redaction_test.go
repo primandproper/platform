@@ -21,7 +21,7 @@ func assertHeadersRedacted(t *testing.T, ros sdktrace.ReadOnlySpan, prefix, beni
 	attrs := map[string]string{}
 	spanAttrs := ros.Attributes()
 	for i := range spanAttrs {
-		attrs[string(spanAttrs[i].Key)] = spanAttrs[i].Value.Emit()
+		attrs[string(spanAttrs[i].Key)] = spanAttrs[i].Value.String()
 	}
 
 	authKey := fmt.Sprintf("%s.%s", prefix, "Authorization")
@@ -94,7 +94,7 @@ func TestAttachResponseToSpan_redactsSensitiveHeaders(T *testing.T) {
 
 		attrs := map[string]string{}
 		for _, kv := range ros.Attributes() {
-			attrs[string(kv.Key)] = kv.Value.Emit()
+			attrs[string(kv.Key)] = kv.Value.String()
 		}
 
 		setCookieKey := fmt.Sprintf("%s.%s", keys.ResponseHeadersKey, http.CanonicalHeaderKey("set-cookie"))

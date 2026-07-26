@@ -1,9 +1,7 @@
 package redis
 
 import (
-	"bytes"
 	"context"
-	"encoding/gob"
 	stderrors "errors"
 	"fmt"
 	"strings"
@@ -24,6 +22,10 @@ import (
 
 const name = "redis_cache"
 
+// scanPageSize bounds how many keys a single SCAN iteration asks for during
+// prefix deletion.
+const scanPageSize = 1000
+
 // batchSetScript stores every KEYS[i] with the value at ARGV[i+1], applying a
 // single millisecond TTL (ARGV[1]) to all of them in one round trip. Vanilla
 // MSET cannot attach a TTL, so the writes and their expiry are issued together
@@ -41,7 +43,7 @@ end
 return #KEYS
 `
 
-var _ cache.BatchCache[struct{}] = (*redisCacheImpl[struct{}])(nil)
+var _ cache.Cache[struct{}] = (*redisCacheImpl[struct{}])(nil)
 
 type redisClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
@@ -49,11 +51,21 @@ type redisClient interface {
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Eval(ctx context.Context, script string, keys []string, args ...any) *redis.Cmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 	Ping(ctx context.Context) *redis.StatusCmd
+}
+
+// scanDelClient is the slice of redisClient that prefix deletion needs; it is
+// satisfied by both the cache's own client and the per-master *redis.Client
+// handles ForEachMaster yields in cluster mode.
+type scanDelClient interface {
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
 type redisCacheImpl[T any] struct {
 	o11y             observability.Observer
+	codec            cache.Codec[T]
 	cacheHitCounter  metrics.Int64Counter
 	cacheMissCounter metrics.Int64Counter
 	cacheSetCounter  metrics.Int64Counter
@@ -62,12 +74,33 @@ type redisCacheImpl[T any] struct {
 	latencyHist      metrics.Float64Histogram
 	client           redisClient
 	circuitBreaker   circuitbreaking.CircuitBreaker
+	namespace        string
 	expiration       time.Duration
 	isCluster        bool
 }
 
-// NewRedisCache builds a new redis-backed cache.
-func NewRedisCache[T any](cfg *Config, expiration time.Duration, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, cb circuitbreaking.CircuitBreaker) (cache.Cache[T], error) {
+// Option configures a redis cache at construction.
+type Option[T any] func(*redisCacheImpl[T])
+
+// WithCodec swaps the value codec. The default is cache.NewGobCodec; supply a
+// fixed-format codec when gob's per-value overhead matters (large batch
+// reads). Values written with one codec are unreadable through another — see
+// cache.Codec for the migration caveat.
+func WithCodec[T any](codec cache.Codec[T]) Option[T] {
+	return func(i *redisCacheImpl[T]) {
+		if codec != nil {
+			i.codec = codec
+		}
+	}
+}
+
+// NewRedisCache builds a new redis-backed cache. When cfg.Namespace is set,
+// every key is transparently prefixed with it: callers always use bare keys,
+// the namespace marks which entries this cache owns, and Flush becomes
+// possible (it deletes exactly the namespace's keys). Without a namespace,
+// Flush and an empty-prefix DeleteByPrefix return cache.ErrNamespaceRequired
+// rather than guess at ownership in a possibly shared database.
+func NewRedisCache[T any](cfg *Config, expiration time.Duration, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, cb circuitbreaking.CircuitBreaker, opts ...Option[T]) (cache.Cache[T], error) {
 	if cfg == nil || len(cfg.QueueAddresses) == 0 {
 		return nil, fmt.Errorf("at least one redis address is required")
 	}
@@ -104,8 +137,9 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, logger logging.
 		return nil, errors.Wrap(err, "creating cache latency histogram")
 	}
 
-	return &redisCacheImpl[T]{
+	impl := &redisCacheImpl[T]{
 		o11y:             observability.NewObserver(name, logger, tracerProvider),
+		codec:            cache.NewGobCodec[T](),
 		cacheHitCounter:  cacheHitCounter,
 		cacheMissCounter: cacheMissCounter,
 		cacheSetCounter:  cacheSetCounter,
@@ -114,9 +148,24 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, logger logging.
 		latencyHist:      latencyHist,
 		client:           buildRedisClient(cfg),
 		circuitBreaker:   circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		namespace:        cfg.Namespace,
 		expiration:       expiration,
 		isCluster:        cfg.clusterMode(),
-	}, nil
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(impl)
+		}
+	}
+
+	return impl, nil
+}
+
+// key returns the stored form of a caller key: the configured namespace
+// prepended. Every operation goes through this, so callers only ever see bare
+// keys.
+func (i *redisCacheImpl[T]) key(k string) string {
+	return i.namespace + k
 }
 
 func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
@@ -134,7 +183,7 @@ func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
 		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	res, err := i.client.Get(ctx, key).Result()
+	res, err := i.client.Get(ctx, i.key(key)).Result()
 	if err != nil {
 		// A key miss is a healthy response, not an infrastructure failure: don't count it
 		// as an error or trip the breaker, and surface the sentinel callers check for.
@@ -166,7 +215,7 @@ func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
 	return x, nil
 }
 
-func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T) error {
+func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 	op.Set("name", key)
@@ -186,7 +235,7 @@ func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T) error
 		return err
 	}
 
-	if setErr := i.client.Set(ctx, key, encoded, i.expiration).Err(); setErr != nil {
+	if setErr := i.client.Set(ctx, i.key(key), encoded, cache.EffectiveExpiry(i.expiration, opts...)).Err(); setErr != nil {
 		i.cacheErrCounter.Add(ctx, 1)
 		i.circuitBreaker.Failed()
 		return setErr
@@ -212,7 +261,7 @@ func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
 		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	if err := i.client.Del(ctx, key).Err(); err != nil {
+	if err := i.client.Del(ctx, i.key(key)).Err(); err != nil {
 		i.cacheErrCounter.Add(ctx, 1)
 		i.circuitBreaker.Failed()
 		return err
@@ -224,6 +273,153 @@ func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// DeleteMany removes the given keys. In cluster mode a multi-key DEL requires
+// every key to share a hash slot, so the keys are bucketed by slot and
+// deleted one DEL per slot; a single-node client deletes them in one DEL.
+func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error {
+	ctx, op := i.o11y.Begin(ctx)
+	defer op.End()
+	op.Set("length", len(keys))
+
+	if len(keys) == 0 {
+		return nil
+	}
+
+	if i.circuitBreaker.CannotProceed() {
+		return nil
+	}
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	stored := make([]string, len(keys))
+	for idx, k := range keys {
+		stored[idx] = i.key(k)
+	}
+
+	for _, group := range i.slotGroups(stored) {
+		if len(group) == 0 {
+			continue
+		}
+
+		deleted, err := i.client.Del(ctx, group...).Result()
+		if err != nil {
+			i.cacheErrCounter.Add(ctx, 1)
+			i.circuitBreaker.Failed()
+			return op.Error(err, "deleting many from cache")
+		}
+
+		i.cacheDelCounter.Add(ctx, deleted)
+	}
+
+	i.circuitBreaker.Succeeded()
+
+	return nil
+}
+
+// DeleteByPrefix removes every entry whose (caller-visible) key begins with
+// prefix, via a cursor SCAN over the namespaced pattern. Without a configured
+// namespace an empty prefix is refused with cache.ErrNamespaceRequired —
+// matching every key in a possibly shared database is not ownership.
+func (i *redisCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
+	ctx, op := i.o11y.Begin(ctx)
+	defer op.End()
+	op.Set("prefix", prefix)
+
+	if i.namespace == "" && prefix == "" {
+		return cache.ErrNamespaceRequired
+	}
+
+	if i.circuitBreaker.CannotProceed() {
+		return nil
+	}
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	pattern := escapeGlob(i.key(prefix)) + "*"
+
+	deleted, err := i.deleteByPattern(ctx, pattern)
+	i.cacheDelCounter.Add(ctx, deleted)
+	if err != nil {
+		i.cacheErrCounter.Add(ctx, 1)
+		i.circuitBreaker.Failed()
+		return op.Error(err, "deleting by prefix from cache")
+	}
+
+	i.circuitBreaker.Succeeded()
+
+	return nil
+}
+
+// Flush removes every entry this cache owns. Ownership is the configured
+// namespace; without one this cache cannot distinguish its entries in a
+// possibly shared database, and Flush returns cache.ErrNamespaceRequired
+// rather than reach for FLUSHDB.
+func (i *redisCacheImpl[T]) Flush(ctx context.Context) error {
+	if i.namespace == "" {
+		return cache.ErrNamespaceRequired
+	}
+
+	return i.DeleteByPrefix(ctx, "")
+}
+
+// deleteByPattern scans for pattern and deletes what it finds. SCAN is
+// per-node, so in cluster mode every master is scanned; on a single node the
+// cache's own client is scanned directly.
+func (i *redisCacheImpl[T]) deleteByPattern(ctx context.Context, pattern string) (int64, error) {
+	if clusterClient, ok := i.client.(*redis.ClusterClient); ok && i.isCluster {
+		var total int64
+		err := clusterClient.ForEachMaster(ctx, func(ctx context.Context, master *redis.Client) error {
+			n, scanErr := i.scanAndDelete(ctx, master, pattern)
+			total += n
+			return scanErr
+		})
+
+		return total, err
+	}
+
+	return i.scanAndDelete(ctx, i.client, pattern)
+}
+
+// scanAndDelete drives one client's cursor SCAN over pattern, deleting each
+// page. Pages are slot-grouped before DEL so cluster masters never see a
+// cross-slot multi-key command.
+func (i *redisCacheImpl[T]) scanAndDelete(ctx context.Context, c scanDelClient, pattern string) (int64, error) {
+	var (
+		deleted int64
+		cursor  uint64
+	)
+
+	for {
+		keys, next, err := c.Scan(ctx, cursor, pattern, scanPageSize).Result()
+		if err != nil {
+			return deleted, errors.Wrap(err, "scanning for keys")
+		}
+
+		for _, group := range i.slotGroups(keys) {
+			if len(group) == 0 {
+				continue
+			}
+
+			n, delErr := c.Del(ctx, group...).Result()
+			deleted += n
+			if delErr != nil {
+				return deleted, errors.Wrap(delErr, "deleting scanned keys")
+			}
+		}
+
+		cursor = next
+		if cursor == 0 {
+			return deleted, nil
+		}
+	}
+}
+
 func (i *redisCacheImpl[T]) Ping(ctx context.Context) error {
 	return i.client.Ping(ctx).Err()
 }
@@ -231,7 +427,7 @@ func (i *redisCacheImpl[T]) Ping(ctx context.Context) error {
 // GetMany fetches multiple keys, returning only those that were present. In
 // cluster mode MGET requires every key to share a hash slot, so the keys are
 // bucketed by slot and fetched one MGET per slot; a single-node client fetches
-// them all in one MGET.
+// them all in one MGET. Results are keyed by the caller's bare keys.
 func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
@@ -252,7 +448,15 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	for _, group := range i.slotGroups(keys) {
+	stored := make([]string, len(keys))
+	callerKey := make(map[string]string, len(keys))
+	for idx, k := range keys {
+		sk := i.key(k)
+		stored[idx] = sk
+		callerKey[sk] = k
+	}
+
+	for _, group := range i.slotGroups(stored) {
 		values, err := i.client.MGet(ctx, group...).Result()
 		if err != nil {
 			i.cacheErrCounter.Add(ctx, 1)
@@ -279,7 +483,7 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 				continue
 			}
 
-			out[group[idx]] = decoded
+			out[callerKey[group[idx]]] = decoded
 			i.cacheHitCounter.Add(ctx, 1)
 		}
 	}
@@ -289,12 +493,13 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 	return out, nil
 }
 
-// SetMany stores multiple values, each with the cache's configured expiration.
-// The writes and their expiry are applied together inside a single Lua script
+// SetMany stores multiple values, each with the expiration resolved from this
+// call's options (the cache's configured default when none are given). The
+// writes and their expiry are applied together inside a single Lua script
 // (see batchSetScript), which is both atomic and a single round trip. In cluster
 // mode EVAL requires every key to share a hash slot, so the batch is split per
 // slot.
-func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T) error {
+func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 	op.Set("length", len(items))
@@ -315,7 +520,7 @@ func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T) er
 	// Encode every value first so a single bad value fails the batch before any
 	// write is issued.
 	encoded := make(map[string]string, len(items))
-	keys := make([]string, 0, len(items))
+	stored := make([]string, 0, len(items))
 	for key, value := range items {
 		s, err := i.encode(value)
 		if err != nil {
@@ -323,14 +528,15 @@ func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T) er
 			return err
 		}
 
-		encoded[key] = s
-		keys = append(keys, key)
+		sk := i.key(key)
+		encoded[sk] = s
+		stored = append(stored, sk)
 	}
 
-	ttl := i.expiration.Milliseconds()
-	for _, group := range i.slotGroups(keys) {
+	expiry := cache.EffectiveExpiry(i.expiration, opts...).Milliseconds()
+	for _, group := range i.slotGroups(stored) {
 		args := make([]any, 0, len(group)+1)
-		args = append(args, ttl)
+		args = append(args, expiry)
 		for _, key := range group {
 			args = append(args, encoded[key])
 		}
@@ -343,15 +549,15 @@ func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T) er
 	}
 
 	i.circuitBreaker.Succeeded()
-	i.cacheSetCounter.Add(ctx, int64(len(keys)))
+	i.cacheSetCounter.Add(ctx, int64(len(stored)))
 
 	return nil
 }
 
-// slotGroups splits keys into batches that are safe for a single MGET/EVAL. A
-// single-node client has no hash-slot restriction, so all keys go in one group;
-// a cluster client requires every key in a call to map to the same slot, so the
-// keys are bucketed by slot.
+// slotGroups splits keys into batches that are safe for a single
+// MGET/EVAL/DEL. A single-node client has no hash-slot restriction, so all
+// keys go in one group; a cluster client requires every key in a call to map
+// to the same slot, so the keys are bucketed by slot.
 func (i *redisCacheImpl[T]) slotGroups(keys []string) [][]string {
 	if !i.isCluster {
 		return [][]string{keys}
@@ -377,20 +583,41 @@ func groupBySlot(keys []string) [][]string {
 	return groups
 }
 
-// encode gob-encodes value into the string form stored in Redis.
-func (*redisCacheImpl[T]) encode(value *T) (string, error) {
-	var b bytes.Buffer
-	if err := gob.NewEncoder(&b).Encode(value); err != nil {
+// escapeGlob backslash-escapes SCAN MATCH glob metacharacters so a literal
+// prefix containing *, ?, [, ], or \ matches itself rather than acting as a
+// pattern.
+func escapeGlob(s string) string {
+	if !strings.ContainsAny(s, `*?[]\`) {
+		return s
+	}
+
+	var b strings.Builder
+	b.Grow(len(s) + 4)
+	for _, r := range s {
+		switch r {
+		case '*', '?', '[', ']', '\\':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+
+	return b.String()
+}
+
+// encode runs the configured codec, yielding the string form stored in Redis.
+func (i *redisCacheImpl[T]) encode(value *T) (string, error) {
+	b, err := i.codec.Encode(value)
+	if err != nil {
 		return "", errors.Wrap(err, "encoding for cache")
 	}
 
-	return b.String(), nil
+	return string(b), nil
 }
 
-// decode reverses encode, gob-decoding a stored string back into a *T.
-func (*redisCacheImpl[T]) decode(s string) (*T, error) {
-	var x *T
-	if err := gob.NewDecoder(strings.NewReader(s)).Decode(&x); err != nil {
+// decode reverses encode through the configured codec.
+func (i *redisCacheImpl[T]) decode(s string) (*T, error) {
+	x, err := i.codec.Decode([]byte(s))
+	if err != nil {
 		return nil, errors.Wrap(err, "decoding from cache")
 	}
 

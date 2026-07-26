@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -447,5 +448,104 @@ func TestClient_Close(T *testing.T) {
 		writeMock.ExpectClose().WillReturnError(errors.New("blah"))
 
 		test.Error(t, c.Close())
+	})
+}
+
+func TestClient_PgxAccess(T *testing.T) {
+	T.Parallel()
+
+	T.Run("single connection shares one pool across both sides", func(t *testing.T) {
+		t.Parallel()
+
+		// Only the read side is configured; the write side falls back to it and
+		// must share the same pool rather than opening a second one.
+		exampleConfig := &testClientConfig{
+			readConnectionString: "user=test password=test database=test host=localhost port=5432",
+			maxPingAttempts:      1,
+		}
+
+		client, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		must.NoError(t, err)
+		t.Cleanup(func() {
+			must.NoError(t, client.Close())
+		})
+
+		native, ok := client.(PgxAccess)
+		must.True(t, ok)
+
+		must.NotNil(t, native.ReadPool())
+		test.EqOp(t, native.ReadPool(), native.WritePool())
+	})
+
+	T.Run("split connections get distinct pools", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			readConnectionString:  "user=test password=test database=test host=localhost port=5432",
+			writeConnectionString: "user=test password=test database=other host=localhost port=5432",
+			maxPingAttempts:       1,
+		}
+
+		client, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		must.NoError(t, err)
+		t.Cleanup(func() {
+			must.NoError(t, client.Close())
+		})
+
+		native, ok := client.(PgxAccess)
+		must.True(t, ok)
+
+		must.NotNil(t, native.ReadPool())
+		must.NotNil(t, native.WritePool())
+		test.NotEqOp(t, native.ReadPool(), native.WritePool())
+	})
+
+	T.Run("pool config mirrors the client config", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			connectionString: "user=test password=test database=test host=localhost port=5432",
+			maxPingAttempts:  1,
+		}
+
+		client, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		must.NoError(t, err)
+		t.Cleanup(func() {
+			must.NoError(t, client.Close())
+		})
+
+		native, ok := client.(PgxAccess)
+		must.True(t, ok)
+
+		cfg := native.WritePool().Config()
+		test.EqOp(t, int32(exampleConfig.GetMaxOpenConns()), cfg.MaxConns)
+		test.EqOp(t, exampleConfig.GetConnMaxLifetime(), cfg.MaxConnLifetime)
+	})
+
+	T.Run("invalid connection string fails construction", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			connectionString: "host=localhost port=notanumber",
+			maxPingAttempts:  1,
+		}
+
+		client, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.Nil(t, client)
+		test.Error(t, err)
+	})
+}
+
+func TestClampToInt32(T *testing.T) {
+	T.Parallel()
+
+	T.Run("passes small values through and saturates large ones", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, int32(7), clampToInt32(7))
+		test.EqOp(t, int32(math.MaxInt32), clampToInt32(math.MaxInt32))
+		if math.MaxInt > math.MaxInt32 {
+			test.EqOp(t, int32(math.MaxInt32), clampToInt32(math.MaxInt))
+		}
 	})
 }

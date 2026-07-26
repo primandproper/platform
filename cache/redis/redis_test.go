@@ -66,6 +66,7 @@ func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *m
 
 	return &redisCacheImpl[example]{
 		o11y:             obs,
+		codec:            cache.NewGobCodec[example](),
 		cacheHitCounter:  hitCounter,
 		cacheMissCounter: missCounter,
 		cacheSetCounter:  setCounter,
@@ -869,16 +870,13 @@ func Test_redisCacheImpl_SetMany_GetMany(T *testing.T) {
 		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, nil, nil)
 		must.NoError(t, err)
 
-		bc, ok := c.(cache.BatchCache[example])
-		must.True(t, ok)
-
 		items := map[string]*example{
 			"k1": {Name: "one"},
 			"k2": {Name: "two"},
 		}
-		test.NoError(t, bc.SetMany(ctx, items))
+		test.NoError(t, c.SetMany(ctx, items))
 
-		out, getErr := bc.GetMany(ctx, []string{"k1", "k2", "k3"})
+		out, getErr := c.GetMany(ctx, []string{"k1", "k2", "k3"})
 		test.NoError(t, getErr)
 		test.MapLen(t, 2, out)
 		test.Eq(t, items["k1"], out["k1"])
@@ -924,5 +922,278 @@ func Test_buildRedisClient(T *testing.T) {
 
 		c := buildRedisClient(cfg)
 		test.Nil(t, c)
+	})
+}
+
+func Test_redisCacheImpl_Set_ExpiryOptions_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithExpiry overrides the configured default", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetFunc = func(_ context.Context, _ string, _ any, expiration time.Duration) *redis.StatusCmd {
+			test.EqOp(t, 5*time.Minute, expiration)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+
+		err := impl.Set(ctx, exampleKey, &example{Name: t.Name()}, cache.WithExpiry(5*time.Minute))
+		test.NoError(t, err)
+		test.SliceLen(t, 1, client.SetCalls())
+	})
+
+	T.Run("NoExpiry stores without expiration", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetFunc = func(_ context.Context, _ string, _ any, expiration time.Duration) *redis.StatusCmd {
+			test.EqOp(t, time.Duration(0), expiration)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+
+		err := impl.Set(ctx, exampleKey, &example{Name: t.Name()}, cache.WithExpiry(cache.NoExpiry))
+		test.NoError(t, err)
+		test.SliceLen(t, 1, client.SetCalls())
+	})
+
+	T.Run("SetMany forwards the resolved expiry to the batch script", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.EvalFunc = func(_ context.Context, _ string, _ []string, args ...any) *redis.Cmd {
+			must.SliceNotEmpty(t, args)
+			gotExpiry, ok := args[0].(int64)
+			must.True(t, ok)
+			test.EqOp(t, (5 * time.Minute).Milliseconds(), gotExpiry)
+			cmd := redis.NewCmd(ctx)
+			cmd.SetVal(int64(1))
+			return cmd
+		}
+
+		err := impl.SetMany(ctx, map[string]*example{exampleKey: {Name: t.Name()}}, cache.WithExpiry(5*time.Minute))
+		test.NoError(t, err)
+		test.SliceLen(t, 1, client.EvalCalls())
+	})
+}
+
+// nameCodec stores only the Name field as raw bytes — a stand-in for a
+// consumer-supplied fixed-format codec.
+type nameCodec struct{}
+
+func (nameCodec) Encode(value *example) ([]byte, error) {
+	return []byte(value.Name), nil
+}
+
+func (nameCodec) Decode(data []byte) (*example, error) {
+	return &example{Name: string(data)}, nil
+}
+
+func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("Set stores the codec's bytes and Get decodes them", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](nameCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetFunc = func(_ context.Context, _ string, value any, _ time.Duration) *redis.StatusCmd {
+			s, isString := value.(string)
+			must.True(t, isString)
+			test.EqOp(t, "beeline", s)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+		client.GetFunc = func(_ context.Context, _ string) *redis.StringCmd {
+			cmd := redis.NewStringCmd(ctx)
+			cmd.SetVal("beeline")
+			return cmd
+		}
+
+		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "beeline"}))
+
+		got, err := impl.Get(ctx, exampleKey)
+		must.NoError(t, err)
+		test.EqOp(t, "beeline", got.Name)
+	})
+
+	T.Run("nil codec option is ignored, keeping the gob default", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](nil)(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		expected := gobEncodeExample(t, &example{Name: "beeline"})
+		client.SetFunc = func(_ context.Context, _ string, value any, _ time.Duration) *redis.StatusCmd {
+			s, isString := value.(string)
+			must.True(t, isString)
+			test.EqOp(t, expected, s)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+
+		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "beeline"}))
+	})
+}
+
+func Test_redisCacheImpl_Namespace_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("keys are namespaced on the wire and bare in results", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "beeline:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetFunc = func(_ context.Context, key string, _ any, _ time.Duration) *redis.StatusCmd {
+			test.EqOp(t, "beeline:"+exampleKey, key)
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+			return cmd
+		}
+		client.MGetFunc = func(_ context.Context, keys ...string) *redis.SliceCmd {
+			must.SliceLen(t, 1, keys)
+			test.EqOp(t, "beeline:"+exampleKey, keys[0])
+			cmd := redis.NewSliceCmd(ctx)
+			cmd.SetVal([]any{gobEncodeExample(t, &example{Name: "spot"})})
+			return cmd
+		}
+
+		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "spot"}))
+
+		out, err := impl.GetMany(ctx, []string{exampleKey})
+		must.NoError(t, err)
+		must.MapLen(t, 1, out)
+		// The result map is keyed by the caller's bare key, not the stored one.
+		must.NotNil(t, out[exampleKey])
+		test.EqOp(t, "spot", out[exampleKey].Name)
+	})
+}
+
+func Test_redisCacheImpl_Deletion_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("DeleteMany issues one DEL with namespaced keys", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.DelFunc = func(_ context.Context, keys ...string) *redis.IntCmd {
+			test.Eq(t, []string{"ns:a", "ns:b"}, keys)
+			cmd := redis.NewIntCmd(ctx)
+			cmd.SetVal(int64(len(keys)))
+			return cmd
+		}
+
+		must.NoError(t, impl.DeleteMany(ctx, []string{"a", "b"}))
+		test.SliceLen(t, 1, client.DelCalls())
+	})
+
+	T.Run("Flush without a namespace is refused", func(t *testing.T) {
+		t.Parallel()
+
+		impl, _, _, _ := buildTestImpl(t)
+
+		test.ErrorIs(t, impl.Flush(t.Context()), cache.ErrNamespaceRequired)
+	})
+
+	T.Run("DeleteByPrefix with no namespace and empty prefix is refused", func(t *testing.T) {
+		t.Parallel()
+
+		impl, _, _, _ := buildTestImpl(t)
+
+		test.ErrorIs(t, impl.DeleteByPrefix(t.Context(), ""), cache.ErrNamespaceRequired)
+	})
+
+	T.Run("Flush scans the namespace pattern and deletes what it finds", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		pages := [][]string{{"ns:a", "ns:b"}, {"ns:c"}}
+		cursors := []uint64{7, 0}
+		call := 0
+		client.ScanFunc = func(_ context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+			test.EqOp(t, "ns:*", match)
+			cmd := redis.NewScanCmd(ctx, nil)
+			cmd.SetVal(pages[call], cursors[call])
+			call++
+			return cmd
+		}
+
+		var deleted []string
+		client.DelFunc = func(_ context.Context, keys ...string) *redis.IntCmd {
+			deleted = append(deleted, keys...)
+			cmd := redis.NewIntCmd(ctx)
+			cmd.SetVal(int64(len(keys)))
+			return cmd
+		}
+
+		must.NoError(t, impl.Flush(ctx))
+		test.Eq(t, []string{"ns:a", "ns:b", "ns:c"}, deleted)
+		test.SliceLen(t, 2, client.ScanCalls())
+	})
+
+	T.Run("DeleteByPrefix escapes glob metacharacters in the prefix", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.ScanFunc = func(_ context.Context, _ uint64, match string, _ int64) *redis.ScanCmd {
+			test.EqOp(t, `ns:area\[1\]:*`, match)
+			cmd := redis.NewScanCmd(ctx, nil)
+			cmd.SetVal([]string{}, 0)
+			return cmd
+		}
+
+		must.NoError(t, impl.DeleteByPrefix(ctx, "area[1]:"))
 	})
 }

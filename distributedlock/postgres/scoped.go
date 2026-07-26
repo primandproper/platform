@@ -1,0 +1,204 @@
+package postgres
+
+import (
+	"context"
+	stderrors "errors"
+	"fmt"
+	"time"
+
+	"github.com/primandproper/platform-go/v7/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v7/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/distributedlock"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
+	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
+)
+
+const scopedServiceName = "postgres_scoped_lock"
+
+// errScopedNotAcquired is the internal sentinel TryWithLock threads through the
+// transaction boundary on contention. It is deliberately not
+// distributedlock.ErrLockNotAcquired so an fn that itself returns that sentinel
+// cannot be mistaken for a contended acquisition.
+var errScopedNotAcquired = platformerrors.New("scoped advisory lock contended")
+
+var _ distributedlock.ScopedLocker = (*scopedLocker)(nil)
+
+// scopedLocker implements distributedlock.ScopedLocker with transaction-scoped
+// advisory locks. Each call opens a throwaway transaction that exists only to
+// hold the lock while fn runs: the lock dies with the transaction on return,
+// on error, on panic, or — crucially — with the connection if the process
+// crashes mid-fn. There is no session pinning, no outstanding-lock
+// bookkeeping, and no TTL: the lock is held exactly as long as fn runs.
+type scopedLocker struct {
+	o11y           observability.Observer
+	db             database.Client
+	circuitBreaker circuitbreaking.CircuitBreaker
+	acquireCounter metrics.Int64Counter
+	contendCounter metrics.Int64Counter
+	errCounter     metrics.Int64Counter
+	latencyHist    metrics.Float64Histogram
+	namespace      int32
+}
+
+// NewPostgresScopedLocker constructs a transaction-scoped
+// distributedlock.ScopedLocker. Unlike NewPostgresLocker it needs only the
+// safe database.Client surface (WithTransaction), not RawAccess.
+//
+// fn runs while the calling transaction holds the advisory lock, but receives
+// only a context: any database work fn performs goes through its own
+// connections and is NOT part of the lock-holding transaction. WithLock waits
+// in the database (pg_advisory_xact_lock queues server-side, so waiters need
+// no polling and are granted the lock in request order); each in-flight call
+// occupies one write-pool connection for fn's duration.
+func NewPostgresScopedLocker(
+	cfg *Config,
+	db database.Client,
+	logger logging.Logger,
+	tracerProvider tracing.TracerProvider,
+	metricsProvider metrics.Provider,
+	cb circuitbreaking.CircuitBreaker,
+) (distributedlock.ScopedLocker, error) {
+	if cfg == nil {
+		return nil, distributedlock.ErrNilConfig
+	}
+	if db == nil {
+		return nil, distributedlock.ErrNilDatabaseClient
+	}
+
+	mp := metrics.EnsureMetricsProvider(metricsProvider)
+
+	acquireCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_acquires", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating acquire counter")
+	}
+	contendCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_contended", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating contention counter")
+	}
+	errCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_errors", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating error counter")
+	}
+	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating latency histogram")
+	}
+
+	return &scopedLocker{
+		o11y:           observability.NewObserver(scopedServiceName, logger, tracerProvider),
+		db:             db,
+		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		acquireCounter: acquireCounter,
+		contendCounter: contendCounter,
+		errCounter:     errCounter,
+		latencyHist:    latencyHist,
+		namespace:      cfg.Namespace,
+	}, nil
+}
+
+// WithLock implements distributedlock.ScopedLocker. The wait happens in the
+// database: pg_advisory_xact_lock blocks until the lock is granted, and a
+// canceled ctx aborts the wait through the driver.
+func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+	op.Set(keys.NameKey, key)
+
+	if key == "" {
+		return distributedlock.ErrEmptyKey
+	}
+	if s.circuitBreaker.CannotProceed() {
+		return circuitbreaking.ErrCircuitBroken
+	}
+
+	startTime := time.Now()
+	defer func() {
+		s.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	lockID := hashLockID(s.namespace, key)
+	op.Set("lock.id", lockID)
+
+	var acquired bool
+	err := s.db.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {
+		if _, execErr := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, lockID); execErr != nil {
+			return platformerrors.Wrap(execErr, "acquiring transaction-scoped advisory lock")
+		}
+
+		acquired = true
+		s.acquireCounter.Add(ctx, 1)
+
+		return fn(ctx)
+	})
+
+	// Only a failure to acquire is an infrastructure signal; fn's own errors
+	// pass through without tripping the breaker or the error counter.
+	if !acquired && err != nil {
+		s.errCounter.Add(ctx, 1)
+		s.circuitBreaker.Failed()
+		return op.Error(err, "acquiring scoped advisory lock")
+	}
+
+	s.circuitBreaker.Succeeded()
+
+	return err
+}
+
+// TryWithLock implements distributedlock.ScopedLocker without waiting.
+func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+	op.Set(keys.NameKey, key)
+
+	if key == "" {
+		return false, distributedlock.ErrEmptyKey
+	}
+	if s.circuitBreaker.CannotProceed() {
+		return false, circuitbreaking.ErrCircuitBroken
+	}
+
+	startTime := time.Now()
+	defer func() {
+		s.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	lockID := hashLockID(s.namespace, key)
+	op.Set("lock.id", lockID)
+
+	var acquired bool
+	err := s.db.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {
+		var got bool
+		if scanErr := tx.QueryRowContext(ctx, `SELECT pg_try_advisory_xact_lock($1)`, lockID).Scan(&got); scanErr != nil {
+			return platformerrors.Wrap(scanErr, "calling pg_try_advisory_xact_lock")
+		}
+		if !got {
+			return errScopedNotAcquired
+		}
+
+		acquired = true
+		s.acquireCounter.Add(ctx, 1)
+
+		return fn(ctx)
+	})
+
+	if stderrors.Is(err, errScopedNotAcquired) {
+		s.contendCounter.Add(ctx, 1)
+		s.circuitBreaker.Succeeded()
+		return false, nil
+	}
+
+	if !acquired && err != nil {
+		s.errCounter.Add(ctx, 1)
+		s.circuitBreaker.Failed()
+		return false, op.Error(err, "trying scoped advisory lock")
+	}
+
+	s.circuitBreaker.Succeeded()
+
+	return acquired, err
+}

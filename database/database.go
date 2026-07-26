@@ -83,7 +83,9 @@ type (
 	//	raw, ok := client.(database.RawAccess)
 	//
 	// Reaching for RawAccess is a deliberate step outside the safe Client surface; prefer
-	// Reader, Writer, and WithTransaction wherever they suffice.
+	// Reader, Writer, and WithTransaction wherever they suffice. Providers may expose
+	// further, provider-specific capabilities the same way — e.g. the postgres package's
+	// PgxAccess, which exposes the native pgx pools backing these handles.
 	RawAccess interface {
 		ReadDB() *sql.DB
 		WriteDB() *sql.DB

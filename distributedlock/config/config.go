@@ -83,3 +83,41 @@ func NewLocker(
 		return noop.NewLocker(), nil
 	}
 }
+
+// NewScopedLocker constructs a distributedlock.ScopedLocker for the configured
+// provider. The postgres provider gets the native transaction-scoped
+// implementation (server-side waiting, no TTL); redis and memory wrap their
+// Locker in the generic scoped adapter with its defaults. As with NewLocker,
+// db is required only for PostgresProvider, and unknown or empty providers
+// fall back to the noop implementation.
+func NewScopedLocker(
+	ctx context.Context,
+	cfg *Config,
+	logger logging.Logger,
+	tracerProvider tracing.TracerProvider,
+	metricsProvider metrics.Provider,
+	db database.Client,
+) (distributedlock.ScopedLocker, error) {
+	if cfg == nil {
+		return nil, distributedlock.ErrNilConfig
+	}
+
+	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	case PostgresProvider:
+		circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, logger, metricsProvider)
+		if err != nil {
+			return nil, errors.Wrap(err, "initializing distributedlock circuit breaker")
+		}
+
+		return pglock.NewPostgresScopedLocker(cfg.Postgres, db, logger, tracerProvider, metricsProvider, circuitBreaker)
+	case RedisProvider, MemoryProvider:
+		locker, err := NewLocker(ctx, cfg, logger, tracerProvider, metricsProvider, db)
+		if err != nil {
+			return nil, err
+		}
+
+		return distributedlock.NewScopedLocker(locker)
+	default:
+		return noop.NewScopedLocker(), nil
+	}
+}

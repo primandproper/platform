@@ -10,6 +10,17 @@
 // compositions on top of this atom and live in consuming applications, not in
 // platform.
 //
+// For the common run-fn-while-held shape, ScopedLocker (WithLock/TryWithLock)
+// removes the handle entirely: the lock is released when fn returns, panics
+// included. The postgres provider implements it natively with
+// transaction-scoped advisory locks — waiters queue server-side, a crashed
+// holder's lock dies with its connection, and no session or connection is
+// pinned beyond fn's duration. Any other Locker gains the same surface through
+// the NewScopedLocker adapter, which polls a contended WithLock on a
+// configurable interval. Prefer ScopedLocker unless the hold genuinely must
+// outlive a function scope (e.g. a lock held across asynchronous work), where
+// the raw Acquire/Release handle remains the right tool.
+//
 // Provider semantics differ in one important respect: the redis and memory providers
 // enforce TTLs natively, while the postgres provider's TTL is advisory only — the
 // underlying pg_advisory_lock is held until either Release is called or the

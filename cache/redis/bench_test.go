@@ -3,7 +3,6 @@ package redis
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/cache"
 	"github.com/primandproper/platform-go/v7/testutils/containers"
 	"github.com/primandproper/platform-go/v7/testutils/containers/redistest"
 
@@ -25,16 +24,13 @@ func BenchmarkRedisCache(b *testing.B) {
 	c, err := NewRedisCache[benchCacheItem](cfg, 0, nil, nil, nil, nil)
 	must.NoError(b, err)
 
-	bc, ok := c.(cache.BatchCache[benchCacheItem])
-	must.True(b, ok)
-
 	ctx := b.Context()
 	val := &benchCacheItem{Name: "value"}
 	must.NoError(b, c.Set(ctx, "key", val))
 
 	keys := []string{"k1", "k2", "k3"}
 	items := map[string]*benchCacheItem{"k1": val, "k2": val, "k3": val}
-	must.NoError(b, bc.SetMany(ctx, items))
+	must.NoError(b, c.SetMany(ctx, items))
 
 	b.Run("Get", func(b *testing.B) {
 		for b.Loop() {
@@ -50,13 +46,13 @@ func BenchmarkRedisCache(b *testing.B) {
 
 	b.Run("GetMany", func(b *testing.B) {
 		for b.Loop() {
-			_, _ = bc.GetMany(ctx, keys)
+			_, _ = c.GetMany(ctx, keys)
 		}
 	})
 
 	b.Run("SetMany", func(b *testing.B) {
 		for b.Loop() {
-			_ = bc.SetMany(ctx, items)
+			_ = c.SetMany(ctx, items)
 		}
 	})
 }

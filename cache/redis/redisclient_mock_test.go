@@ -36,6 +36,9 @@ var _ redisClient = &redisClientMock{}
 //			PingFunc: func(ctx context.Context) *redis.StatusCmd {
 //				panic("mock out the Ping method")
 //			},
+//			ScanFunc: func(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+//				panic("mock out the Scan method")
+//			},
 //			SetFunc: func(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd {
 //				panic("mock out the Set method")
 //			},
@@ -60,6 +63,9 @@ type redisClientMock struct {
 
 	// PingFunc mocks the Ping method.
 	PingFunc func(ctx context.Context) *redis.StatusCmd
+
+	// ScanFunc mocks the Scan method.
+	ScanFunc func(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 
 	// SetFunc mocks the Set method.
 	SetFunc func(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
@@ -103,6 +109,17 @@ type redisClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// Scan holds details about calls to the Scan method.
+		Scan []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Cursor is the cursor argument value.
+			Cursor uint64
+			// Match is the match argument value.
+			Match string
+			// Count is the count argument value.
+			Count int64
+		}
 		// Set holds details about calls to the Set method.
 		Set []struct {
 			// Ctx is the ctx argument value.
@@ -120,6 +137,7 @@ type redisClientMock struct {
 	lockGet  sync.RWMutex
 	lockMGet sync.RWMutex
 	lockPing sync.RWMutex
+	lockScan sync.RWMutex
 	lockSet  sync.RWMutex
 }
 
@@ -304,6 +322,50 @@ func (mock *redisClientMock) PingCalls() []struct {
 	mock.lockPing.RLock()
 	calls = mock.calls.Ping
 	mock.lockPing.RUnlock()
+	return calls
+}
+
+// Scan calls ScanFunc.
+func (mock *redisClientMock) Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+	if mock.ScanFunc == nil {
+		panic("redisClientMock.ScanFunc: method is nil but redisClient.Scan was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Cursor uint64
+		Match  string
+		Count  int64
+	}{
+		Ctx:    ctx,
+		Cursor: cursor,
+		Match:  match,
+		Count:  count,
+	}
+	mock.lockScan.Lock()
+	mock.calls.Scan = append(mock.calls.Scan, callInfo)
+	mock.lockScan.Unlock()
+	return mock.ScanFunc(ctx, cursor, match, count)
+}
+
+// ScanCalls gets all the calls that were made to Scan.
+// Check the length with:
+//
+//	len(mockedredisClient.ScanCalls())
+func (mock *redisClientMock) ScanCalls() []struct {
+	Ctx    context.Context
+	Cursor uint64
+	Match  string
+	Count  int64
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Cursor uint64
+		Match  string
+		Count  int64
+	}
+	mock.lockScan.RLock()
+	calls = mock.calls.Scan
+	mock.lockScan.RUnlock()
 	return calls
 }
 

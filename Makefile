@@ -64,7 +64,7 @@ go_fix:
 
 .PHONY: goimports
 goimports:
-	$(SCRIPTS_DIR)/goimports.sh
+	$(SCRIPTS_DIR)/goimports.sh $(PWD)
 
 .PHONY: format_golang
 format_golang: go_fix goimports format_imports format_go_fieldalignment format_go_tag_alignment
