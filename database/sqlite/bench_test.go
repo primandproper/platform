@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"path/filepath"
 	"testing"
 
 	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
@@ -9,13 +10,19 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// BenchmarkSQLiteClient exercises an in-memory SQLite database. The driver
-// (modernc.org/sqlite) is pure Go and needs no container, so this runs as part
-// of the default `make bench`.
+// BenchmarkSQLiteClient exercises a file-backed SQLite database in a temp
+// directory. The driver (modernc.org/sqlite) is pure Go and needs no
+// container, so this runs as part of the default `make bench`.
+//
+// It is deliberately not in-memory. A private ":memory:" DSN is rejected
+// outright — each pooled connection would get its own database — and even a
+// shared-cache one would measure a configuration nobody deploys, since
+// PRAGMA journal_mode=WAL silently stays "memory" on an in-memory database.
+// A file exercises the real read-pool/write-pool/WAL arrangement.
 func BenchmarkSQLiteClient(b *testing.B) {
 	ctx := b.Context()
 	cfg := &testClientConfig{
-		connectionString: ":memory:",
+		connectionString: filepath.Join(b.TempDir(), "bench.db"),
 		maxPingAttempts:  1,
 	}
 

@@ -59,7 +59,7 @@ func TestAnnotateSQL(T *testing.T) {
 	T.Run("inserts below a preamble annotation", func(t *testing.T) {
 		t.Parallel()
 
-		for _, preamble := range []string{"-- +goose NO TRANSACTION", "-- +goose ENVSUB ON"} {
+		for _, preamble := range []string{"-- +goose NO TRANSACTION", "-- +goose ENVSUB ON", "-- +goose ENVSUB OFF"} {
 			t.Run(preamble, func(t *testing.T) {
 				t.Parallel()
 

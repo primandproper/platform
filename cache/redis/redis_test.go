@@ -1008,6 +1008,147 @@ func (nameCodec) Decode(data []byte) (*example, error) {
 	return &example{Name: string(data)}, nil
 }
 
+// nilCodec decodes every payload to a nil value without erroring, standing in
+// for a codec whose wire form has a legitimate "absent" encoding. The cache
+// treats that as a miss rather than handing back a nil pointer.
+type nilCodec struct{}
+
+func (nilCodec) Encode(*example) ([]byte, error) { return []byte("whatever"), nil }
+
+func (nilCodec) Decode([]byte) (*example, error) { return nil, nil }
+
+// brokenCodec fails to encode, standing in for a value the configured codec
+// cannot represent.
+type brokenCodec struct{}
+
+var errCodecBroken = errors.New("codec cannot encode this")
+
+func (brokenCodec) Encode(*example) ([]byte, error) { return nil, errCodecBroken }
+
+func (brokenCodec) Decode([]byte) (*example, error) { return nil, errCodecBroken }
+
+func Test_redisCacheImpl_OpenCircuit_Unit(T *testing.T) {
+	T.Parallel()
+
+	// An open breaker short-circuits every write path into a silent success:
+	// a cache that cannot be reached must not fail the request behind it.
+	openBreaker := func(t *testing.T) (*redisCacheImpl[example], *redisClientMock) {
+		t.Helper()
+
+		impl, client, cb, _ := buildTestImpl(t)
+		cb.CannotProceedFunc = func() bool { return true }
+
+		return impl, client
+	}
+
+	T.Run("Set is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client := openBreaker(t)
+
+		must.NoError(t, impl.Set(t.Context(), exampleKey, &example{Name: "spot"}))
+		test.SliceLen(t, 0, client.SetCalls())
+	})
+
+	T.Run("DeleteMany is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client := openBreaker(t)
+
+		must.NoError(t, impl.DeleteMany(t.Context(), []string{"a", "b"}))
+		test.SliceLen(t, 0, client.DelCalls())
+	})
+
+	T.Run("DeleteByPrefix is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client := openBreaker(t)
+		impl.namespace = "ns:"
+
+		must.NoError(t, impl.DeleteByPrefix(t.Context(), "p:"))
+		test.SliceLen(t, 0, client.ScanCalls())
+	})
+
+	T.Run("SetMany is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client := openBreaker(t)
+
+		must.NoError(t, impl.SetMany(t.Context(), map[string]*example{"a": {Name: "spot"}}))
+		test.SliceLen(t, 0, client.EvalCalls())
+	})
+}
+
+func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("Get treats a nil decode as a miss", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](nilCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.GetFunc = func(context.Context, string) *redis.StringCmd {
+			cmd := redis.NewStringCmd(ctx)
+			cmd.SetVal("whatever")
+			return cmd
+		}
+
+		got, err := impl.Get(ctx, exampleKey)
+		test.ErrorIs(t, err, cache.ErrNotFound)
+		test.Nil(t, got)
+	})
+
+	T.Run("GetMany treats a nil decode as a miss", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](nilCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.MGetFunc = func(context.Context, ...string) *redis.SliceCmd {
+			cmd := redis.NewSliceCmd(ctx)
+			cmd.SetVal([]any{"whatever"})
+			return cmd
+		}
+
+		out, err := impl.GetMany(ctx, []string{exampleKey})
+		must.NoError(t, err)
+		test.MapLen(t, 0, out)
+	})
+
+	T.Run("Set surfaces an encoding failure without touching the client", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](brokenCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+
+		test.Error(t, impl.Set(t.Context(), exampleKey, &example{Name: "spot"}))
+		test.SliceLen(t, 0, client.SetCalls())
+	})
+
+	T.Run("SetMany fails the whole batch before any write", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, cb, _ := buildTestImpl(t)
+		WithCodec[example](brokenCodec{})(impl)
+
+		cb.CannotProceedFunc = func() bool { return false }
+
+		test.Error(t, impl.SetMany(t.Context(), map[string]*example{"a": {Name: "spot"}}))
+		test.SliceLen(t, 0, client.EvalCalls())
+	})
+}
+
 func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 	T.Parallel()
 
@@ -1196,6 +1337,111 @@ func Test_redisCacheImpl_Deletion_Unit(T *testing.T) {
 		}
 
 		must.NoError(t, impl.DeleteByPrefix(ctx, "area[1]:"))
+	})
+}
+
+func Test_redisCacheImpl_Deletion_Failures_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("DeleteMany with no keys never reaches the client", func(t *testing.T) {
+		t.Parallel()
+
+		impl, client, _, _ := buildTestImpl(t)
+
+		must.NoError(t, impl.DeleteMany(t.Context(), nil))
+		test.SliceLen(t, 0, client.DelCalls())
+	})
+
+	T.Run("DeleteMany reports a failed DEL and trips the breaker", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		var failed int
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() { failed++ }
+
+		client.DelFunc = func(context.Context, ...string) *redis.IntCmd {
+			cmd := redis.NewIntCmd(ctx)
+			cmd.SetErr(errors.New("connection reset"))
+			return cmd
+		}
+
+		test.Error(t, impl.DeleteMany(ctx, []string{"a"}))
+		test.EqOp(t, 1, failed)
+	})
+
+	T.Run("DeleteByPrefix reports a failed SCAN and trips the breaker", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		var failed int
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() { failed++ }
+
+		client.ScanFunc = func(context.Context, uint64, string, int64) *redis.ScanCmd {
+			cmd := redis.NewScanCmd(ctx, nil)
+			cmd.SetErr(errors.New("connection reset"))
+			return cmd
+		}
+
+		test.Error(t, impl.DeleteByPrefix(ctx, "p:"))
+		test.EqOp(t, 1, failed)
+	})
+
+	T.Run("DeleteByPrefix reports a failed DEL mid-scan", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() {}
+
+		client.ScanFunc = func(context.Context, uint64, string, int64) *redis.ScanCmd {
+			cmd := redis.NewScanCmd(ctx, nil)
+			// A non-zero cursor: the scan would continue if the DEL succeeded.
+			cmd.SetVal([]string{"ns:a"}, 9)
+			return cmd
+		}
+		client.DelFunc = func(context.Context, ...string) *redis.IntCmd {
+			cmd := redis.NewIntCmd(ctx)
+			cmd.SetErr(errors.New("connection reset"))
+			return cmd
+		}
+
+		test.Error(t, impl.DeleteByPrefix(ctx, "p:"))
+		// The failure stopped the cursor rather than looping forever.
+		test.SliceLen(t, 1, client.ScanCalls())
+	})
+
+	T.Run("a cluster client scans every master", func(t *testing.T) {
+		t.Parallel()
+
+		// A real ClusterClient is the only way into the ForEachMaster branch —
+		// the type is asserted, not interface-dispatched. Pointing it at a
+		// closed port makes the fan-out fail fast, which is enough to prove the
+		// branch was taken.
+		impl, _, cb, _ := buildTestImpl(t)
+		impl.namespace = "ns:"
+		impl.isCluster = true
+		impl.client = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs:        []string{"127.0.0.1:1"},
+			DialTimeout:  100 * time.Millisecond,
+			ReadTimeout:  100 * time.Millisecond,
+			WriteTimeout: 100 * time.Millisecond,
+			MaxRedirects: 1,
+		})
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() {}
+
+		test.Error(t, impl.DeleteByPrefix(t.Context(), "p:"))
 	})
 }
 

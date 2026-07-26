@@ -261,3 +261,136 @@ func TestNewLocker(T *testing.T) {
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})
 }
+
+func TestNewScopedLocker(T *testing.T) {
+	T.Parallel()
+
+	newScoped := func(t *testing.T, cfg *Config, db database.Client) (distributedlock.ScopedLocker, error) {
+		t.Helper()
+
+		return NewScopedLocker(
+			t.Context(),
+			cfg,
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+			db,
+		)
+	}
+
+	T.Run("nil config", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := newScoped(t, nil, nil)
+		test.ErrorIs(t, err, distributedlock.ErrNilConfig)
+	})
+
+	T.Run("memory provider returns a working scoped locker", func(t *testing.T) {
+		t.Parallel()
+
+		s, err := newScoped(t, &Config{Provider: MemoryProvider}, nil)
+		must.NoError(t, err)
+		must.NotNil(t, s)
+
+		ran := false
+		must.NoError(t, s.WithLock(t.Context(), "chore", func(context.Context) error {
+			ran = true
+			return nil
+		}))
+		test.True(t, ran)
+	})
+
+	T.Run("redis provider", func(t *testing.T) {
+		t.Parallel()
+
+		s, err := newScoped(t, &Config{
+			Provider: RedisProvider,
+			Redis: &redislock.Config{
+				Addresses: []string{"localhost:6379"},
+				KeyPrefix: "lock:",
+			},
+		}, nil)
+		must.NoError(t, err)
+		must.NotNil(t, s)
+	})
+
+	T.Run("postgres provider gets the native transaction-scoped implementation", func(t *testing.T) {
+		t.Parallel()
+
+		s, err := newScoped(t, &Config{
+			Provider: PostgresProvider,
+			Postgres: &pglock.Config{},
+		}, &stubDBClient{})
+		must.NoError(t, err)
+		must.NotNil(t, s)
+	})
+
+	T.Run("postgres provider without a database client", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := newScoped(t, &Config{
+			Provider: PostgresProvider,
+			Postgres: &pglock.Config{},
+		}, nil)
+		test.ErrorIs(t, err, distributedlock.ErrNilDatabaseClient)
+	})
+
+	T.Run("redis provider with no config fails through NewLocker", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := newScoped(t, &Config{Provider: RedisProvider}, nil)
+		test.Error(t, err)
+	})
+
+	for _, provider := range []string{NoopProvider, "unknown", "", "   "} {
+		T.Run("noop fallback for provider "+provider, func(t *testing.T) {
+			t.Parallel()
+
+			s, err := newScoped(t, &Config{Provider: provider}, nil)
+			must.NoError(t, err)
+			must.NotNil(t, s)
+
+			// The fallback still runs fn, so a deployment with nothing to
+			// coordinate with is not silently skipping work.
+			ran := false
+			must.NoError(t, s.WithLock(t.Context(), "chore", func(context.Context) error {
+				ran = true
+				return nil
+			}))
+			test.True(t, ran)
+		})
+	}
+
+	T.Run("circuit breaker init failure on the postgres path", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Provider: PostgresProvider,
+			Postgres: &pglock.Config{},
+			CircuitBreaker: circuitbreakingcfg.Config{
+				Name:                   "dlock-scoped-breaker",
+				ErrorRate:              50,
+				MinimumSampleThreshold: 10,
+			},
+		}
+
+		mp := &mockmetrics.ProviderMock{
+			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				test.EqOp(t, "dlock-scoped-breaker_circuit_breaker_tripped", counterName)
+				return &mockmetrics.Int64CounterMock{}, fmt.Errorf("counter init failure")
+			},
+		}
+
+		s, err := NewScopedLocker(
+			t.Context(),
+			cfg,
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			mp,
+			&stubDBClient{},
+		)
+		must.Error(t, err)
+		test.Nil(t, s)
+		test.StrContains(t, err.Error(), "distributedlock circuit breaker")
+	})
+}

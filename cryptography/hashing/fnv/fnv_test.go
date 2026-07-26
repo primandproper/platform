@@ -8,12 +8,7 @@ import (
 	"github.com/shoenig/test"
 )
 
-// The digests below are unchanged from before Hasher returned raw bytes, so
-// they double as a regression test that the refactor did not alter output.
-// Renaming these test functions changes t.Name() and therefore the expected
-// digest — adjust both together or not at all.
-
-func Test_fnvHasher_Hash(T *testing.T) {
+func TestNewFNV128aHasher(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -21,7 +16,7 @@ func Test_fnvHasher_Hash(T *testing.T) {
 
 		hasher := NewFNV128aHasher()
 
-		test.EqOp(t, "780242af2cb9fb3c85ad54840e9411ec", hashing.HexString(hasher, t.Name()))
+		test.EqOp(t, "a1b752dc545d890a5c2a2589fbd6a796", hashing.HexString(hasher, t.Name()))
 	})
 }
 

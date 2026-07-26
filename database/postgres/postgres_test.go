@@ -63,6 +63,17 @@ func (c *testClientConfig) GetConnMaxLifetime() time.Duration {
 	return 30 * time.Minute
 }
 
+// loggingClientConfig adds the optional GetLogQueries capability that
+// NewDatabaseClient discovers by interface assertion.
+type loggingClientConfig struct {
+	testClientConfig
+	logQueries bool
+}
+
+func (c *loggingClientConfig) GetLogQueries() bool {
+	return c.logQueries
+}
+
 func buildTestClient(t *testing.T) (*Client, sqlmock.Sqlmock) {
 	t.Helper()
 
@@ -149,6 +160,35 @@ func TestQuerier_IsReady(T *testing.T) {
 		db.ExpectPing().WillReturnError(errors.New("blah"))
 
 		test.False(t, c.IsReady(ctx))
+	})
+
+	T.Run("a canceled context ends the retry wait", func(t *testing.T) {
+		t.Parallel()
+
+		c, db := buildTestClient(t)
+		// Several attempts an hour apart: without the cancellation check the
+		// call would sit here long past the caller's deadline.
+		c.config = &testClientConfig{pingWaitPeriod: time.Hour, maxPingAttempts: 3}
+
+		db.ExpectPing().WillReturnError(errors.New("blah"))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		test.False(t, c.IsReady(ctx))
+	})
+}
+
+func TestClient_ReaderWriter(T *testing.T) {
+	T.Parallel()
+
+	T.Run("hand back the non-transactional executors", func(t *testing.T) {
+		t.Parallel()
+
+		c, _ := buildTestClient(t)
+
+		test.Eq(t, database.SQLQueryExecutor(c.readDB), c.Reader())
+		test.Eq(t, database.SQLQueryExecutor(c.writeDB), c.Writer())
 	})
 }
 
@@ -240,6 +280,68 @@ func TestNewDatabaseClient(T *testing.T) {
 		actual, err := NewDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, metricsnoop.NewMetricsProvider())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
+	})
+
+	T.Run("a config that opts out of query logging suppresses db.statement", func(t *testing.T) {
+		t.Parallel()
+
+		// The flag is discovered by interface assertion, so the only way to
+		// reach the suppression branch is a config that carries the method.
+		exampleConfig := &loggingClientConfig{
+			testClientConfig: testClientConfig{
+				connectionString: "user=test password=test database=test host=localhost port=5432",
+				maxPingAttempts:  1,
+			},
+		}
+
+		actual, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.NotNil(t, actual)
+		test.NoError(t, err)
+	})
+
+	T.Run("a config that opts into query logging keeps db.statement", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &loggingClientConfig{
+			testClientConfig: testClientConfig{
+				connectionString: "user=test password=test database=test host=localhost port=5432",
+				maxPingAttempts:  1,
+			},
+			logQueries: true,
+		}
+
+		actual, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.NotNil(t, actual)
+		test.NoError(t, err)
+	})
+
+	T.Run("a failing write side does not leak the read side", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			readConnectionString:  "user=test password=test database=test host=localhost port=5432",
+			writeConnectionString: "postgres://user:pass@localhost:not-a-port/test",
+			maxPingAttempts:       1,
+		}
+
+		actual, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.Nil(t, actual)
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "connecting to write postgres database")
+	})
+
+	T.Run("an unparseable read connection string is reported", func(t *testing.T) {
+		t.Parallel()
+
+		exampleConfig := &testClientConfig{
+			readConnectionString: "postgres://user:pass@localhost:not-a-port/test",
+			maxPingAttempts:      1,
+		}
+
+		actual, err := NewDatabaseClient(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), exampleConfig, nil)
+		test.Nil(t, actual)
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "connecting to read postgres database")
 	})
 }
 

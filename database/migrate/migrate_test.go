@@ -5,22 +5,75 @@ import (
 	"database/sql"
 	"embed"
 	"io/fs"
+	"net/http"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v7/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v7/testutils/containers"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 	"github.com/testcontainers/testcontainers-go"
 	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	_ "modernc.org/sqlite"
 )
+
+// capturingLogger records the lines written through it. Every derivation
+// (WithName, WithValues, ...) returns the same recorder, so lines a Migrator
+// emits through its observer's derived logger are captured too; anything not
+// overridden falls through to the no-op logger.
+type capturingLogger struct {
+	logging.Logger
+	infos  []string
+	errors []string
+	mu     sync.Mutex
+}
+
+func newCapturingLogger() *capturingLogger {
+	return &capturingLogger{Logger: loggingnoop.NewLogger()}
+}
+
+func (l *capturingLogger) Clone() logging.Logger                      { return l }
+func (l *capturingLogger) WithName(string) logging.Logger             { return l }
+func (l *capturingLogger) WithValues(map[string]any) logging.Logger   { return l }
+func (l *capturingLogger) WithValue(string, any) logging.Logger       { return l }
+func (l *capturingLogger) WithRequest(*http.Request) logging.Logger   { return l }
+func (l *capturingLogger) WithResponse(*http.Response) logging.Logger { return l }
+func (l *capturingLogger) WithError(error) logging.Logger             { return l }
+func (l *capturingLogger) WithSpan(trace.Span) logging.Logger         { return l }
+
+func (l *capturingLogger) Info(msg string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.infos = append(l.infos, msg)
+}
+
+func (l *capturingLogger) Error(msg string, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.errors = append(l.errors, msg+": "+err.Error())
+}
+
+func (l *capturingLogger) snapshot() (infos, errs []string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return append([]string(nil), l.infos...), append([]string(nil), l.errors...)
+}
 
 //go:embed testdata/migrations/*.sql
 var testMigrationsFS embed.FS
@@ -121,6 +174,124 @@ func TestNew(T *testing.T) {
 				test.Error(t, err)
 			})
 		}
+	})
+}
+
+func TestNew_Options(T *testing.T) {
+	T.Parallel()
+
+	T.Run("nil options are skipped and the rest are applied", func(t *testing.T) {
+		t.Parallel()
+
+		m, err := New(DialectPostgres, testMigrations(t),
+			nil,
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()),
+			WithLockKey("tenant-a"),
+			WithoutLock(),
+		)
+		must.NoError(t, err)
+
+		test.EqOp(t, "tenant-a", m.lockKey)
+		test.True(t, m.withoutLock)
+	})
+
+	T.Run("an instrument that cannot be built fails construction", func(t *testing.T) {
+		t.Parallel()
+
+		counters := []string{
+			"database_migrator_runs",
+			"database_migrator_applied",
+			"database_migrator_errors",
+		}
+
+		for i, failing := range counters {
+			t.Run(failing, func(t *testing.T) {
+				t.Parallel()
+
+				mp := &mockmetrics.ProviderMock{
+					NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+						if name == failing {
+							return nil, platformerrors.New("instrument unavailable")
+						}
+
+						return &mockmetrics.Int64CounterMock{}, nil
+					},
+				}
+
+				_, err := New(DialectSQLite, testMigrations(t), WithMetricsProvider(mp))
+				must.Error(t, err)
+				test.SliceLen(t, i+1, mp.NewInt64CounterCalls())
+			})
+		}
+
+		t.Run("database_migrator_latency_ms", func(t *testing.T) {
+			t.Parallel()
+
+			mp := &mockmetrics.ProviderMock{
+				NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+					return &mockmetrics.Int64CounterMock{}, nil
+				},
+				NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+					return nil, platformerrors.New("instrument unavailable")
+				},
+			}
+
+			_, err := New(DialectSQLite, testMigrations(t), WithMetricsProvider(mp))
+			must.Error(t, err)
+			test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
+		})
+	})
+}
+
+func TestGooseDialect(T *testing.T) {
+	T.Parallel()
+
+	T.Run("maps every supported dialect", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range []struct {
+			in   Dialect
+			want goose.Dialect
+		}{
+			{in: DialectPostgres, want: goose.DialectPostgres},
+			{in: DialectMySQL, want: goose.DialectMySQL},
+			{in: DialectSQLite, want: goose.DialectSQLite3},
+		} {
+			got, err := gooseDialect(tc.in)
+			must.NoError(t, err)
+			test.EqOp(t, tc.want, got)
+		}
+	})
+
+	T.Run("rejects an unknown dialect", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := gooseDialect(Dialect("oracle"))
+		test.Error(t, err)
+	})
+}
+
+func TestGooseLogger(T *testing.T) {
+	T.Parallel()
+
+	T.Run("routes goose output through the platform logger", func(t *testing.T) {
+		t.Parallel()
+
+		cl := newCapturingLogger()
+		g := &gooseLogger{logger: cl}
+
+		g.Printf("applied %d migrations", 3)
+		// Fatalf must not exit: goose calls it for conditions it also returns
+		// as errors, and the test reaching its assertions is the proof.
+		g.Fatalf("migration %s failed", "00003_orders.sql")
+
+		infos, errs := cl.snapshot()
+		must.SliceLen(t, 1, infos)
+		test.EqOp(t, "applied 3 migrations", infos[0])
+		must.SliceLen(t, 1, errs)
+		test.StrContains(t, errs[0], "00003_orders.sql failed")
 	})
 }
 
@@ -227,6 +398,67 @@ func TestMigrator_Migrate_SQLite(T *testing.T) {
 
 		// Idempotent, same as the annotated path.
 		must.NoError(t, m.Migrate(ctx, db))
+	})
+}
+
+func TestMigrator_Migrate_Failures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("an unresolvable dialect is reported", func(t *testing.T) {
+		t.Parallel()
+
+		m, err := New(DialectSQLite, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
+		must.NoError(t, err)
+
+		// New rejects an unknown dialect, so the only way to reach Migrate's
+		// own guard is to corrupt the field behind its back.
+		m.dialect = Dialect("oracle")
+
+		test.Error(t, m.Migrate(t.Context(), openSQLite(t)))
+	})
+
+	T.Run("a database that cannot be reached is reported", func(t *testing.T) {
+		t.Parallel()
+
+		db := openSQLite(t)
+		must.NoError(t, db.Close())
+
+		m, err := New(DialectSQLite, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
+		must.NoError(t, err)
+
+		test.Error(t, m.Migrate(t.Context(), db))
+	})
+
+	T.Run("the locked path is taken for postgres", func(t *testing.T) {
+		t.Parallel()
+
+		cl := newCapturingLogger()
+
+		// A postgres Migrator over a SQLite handle: enough to build the session
+		// locker and log the wait, and guaranteed to fail once goose actually
+		// speaks postgres to it. That failure is the point — it proves the
+		// locked branch ran without needing a container.
+		m, err := New(DialectPostgres, testMigrations(t), WithLockKey("scoped"), WithLogger(cl))
+		must.NoError(t, err)
+
+		test.Error(t, m.Migrate(t.Context(), openSQLite(t)))
+
+		infos, _ := cl.snapshot()
+		test.SliceContains(t, infos, "acquiring migration lock and applying migrations")
+	})
+
+	T.Run("WithoutLock skips the session locker", func(t *testing.T) {
+		t.Parallel()
+
+		cl := newCapturingLogger()
+
+		m, err := New(DialectPostgres, testMigrations(t), WithoutLock(), WithLogger(cl))
+		must.NoError(t, err)
+
+		test.Error(t, m.Migrate(t.Context(), openSQLite(t)))
+
+		infos, _ := cl.snapshot()
+		test.SliceNotContains(t, infos, "acquiring migration lock and applying migrations")
 	})
 }
 

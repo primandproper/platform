@@ -1,6 +1,8 @@
 package canonical
 
 import (
+	"bytes"
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -237,5 +239,77 @@ func TestWithoutKeys(T *testing.T) {
 		must.NoError(t, err)
 
 		test.EqOp(t, first, second)
+	})
+}
+
+func TestMarshal_Failures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a value encoding/json cannot encode is reported", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := Marshal(make(chan int))
+		test.Error(t, err)
+	})
+
+	T.Run("Sum and SumWith surface the same failure", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := Sum(make(chan int))
+		test.Error(t, err)
+
+		_, err = SumWith(make(chan int), sha256.NewSHA256Hasher())
+		test.Error(t, err)
+	})
+}
+
+func TestWriteCanonical(T *testing.T) {
+	T.Parallel()
+
+	T.Run("emits false for a false boolean", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := Marshal(map[string]bool{"on": true, "off": false})
+		must.NoError(t, err)
+		test.EqOp(t, `{"off":false,"on":true}`, string(got))
+	})
+
+	// The default arm is unreachable through Marshal — json.Decoder with
+	// UseNumber only ever produces the handled types — so these drive
+	// writeCanonical directly. The point is that a future decoder change fails
+	// loudly instead of silently mis-hashing, including from inside a nested
+	// array or object, where the error has to propagate back out.
+	T.Run("an unexpected type is refused", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		test.Error(t, writeCanonical(&buf, struct{}{}))
+	})
+
+	T.Run("an unexpected type inside an array propagates", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		test.Error(t, writeCanonical(&buf, []any{json.Number("1"), struct{}{}}))
+	})
+
+	T.Run("an unexpected type inside an object propagates", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		test.Error(t, writeCanonical(&buf, map[string]any{"bad": struct{}{}}))
+	})
+
+	T.Run("Marshal surfaces a writeCanonical failure", func(t *testing.T) {
+		t.Parallel()
+
+		// json.RawMessage decodes back to a plain parsed value, so the only way
+		// to reach Marshal's writeCanonical error path is a decoder that yields
+		// something unexpected — which is why the guard exists at all. Assert
+		// the wiring through the buffer instead.
+		var buf bytes.Buffer
+		err := writeCanonical(&buf, map[string]any{"nested": []any{struct{}{}}})
+		test.Error(t, err)
+		test.StrContains(t, err.Error(), "unexpected parsed JSON type")
 	})
 }

@@ -9,6 +9,9 @@ import (
 	"testing/synctest"
 	"time"
 
+	clockmock "github.com/primandproper/platform-go/v7/clock/mock"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -66,6 +69,44 @@ func rotatedSiblings(t *testing.T, path string) []string {
 	return rotated
 }
 
+func TestConfig_ValidateWithContext(T *testing.T) {
+	T.Parallel()
+
+	T.Run("path is required", func(t *testing.T) {
+		t.Parallel()
+
+		test.Error(t, (&Config{}).ValidateWithContext(t.Context()))
+	})
+
+	T.Run("a path is enough", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, (&Config{Path: "/var/log/capture.jsonl"}).ValidateWithContext(t.Context()))
+	})
+}
+
+func TestConfig_EnsureDefaults(T *testing.T) {
+	T.Parallel()
+
+	T.Run("fills unset knobs", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Path: "capture.jsonl"}
+		cfg.EnsureDefaults()
+		test.EqOp(t, DefaultMaxBytes, cfg.MaxBytes)
+		test.EqOp(t, DefaultMaxFiles, cfg.MaxFiles)
+	})
+
+	T.Run("leaves set knobs alone", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Path: "capture.jsonl", MaxBytes: 17, MaxFiles: 3}
+		cfg.EnsureDefaults()
+		test.EqOp(t, int64(17), cfg.MaxBytes)
+		test.EqOp(t, 3, cfg.MaxFiles)
+	})
+}
+
 func TestNewSink(T *testing.T) {
 	T.Parallel()
 
@@ -86,6 +127,33 @@ func TestNewSink(T *testing.T) {
 		s, err := NewSink(&Config{Path: path})
 		must.NoError(t, err)
 		must.NoError(t, s.Close())
+	})
+
+	T.Run("nil options are skipped", func(t *testing.T) {
+		t.Parallel()
+
+		s, err := NewSink(&Config{Path: testCapturePath(t)}, nil, WithLogger(loggingnoop.NewLogger()), WithClock(nil))
+		must.NoError(t, err)
+		must.NoError(t, s.Close())
+	})
+
+	T.Run("a parent path that is a file fails", func(t *testing.T) {
+		t.Parallel()
+
+		notADir := filepath.Join(t.TempDir(), "not-a-dir")
+		must.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
+
+		_, err := NewSink(&Config{Path: filepath.Join(notADir, "capture.jsonl")})
+		test.Error(t, err)
+	})
+
+	T.Run("a path that is a directory fails to open", func(t *testing.T) {
+		t.Parallel()
+
+		// The parent exists, so MkdirAll is a no-op and the failure comes from
+		// opening the directory itself for appending.
+		_, err := NewSink(&Config{Path: t.TempDir()})
+		test.Error(t, err)
 	})
 }
 
@@ -118,6 +186,47 @@ func TestSink_WriteAndFlush(T *testing.T) {
 		must.NoError(t, s.Close())
 
 		test.Error(t, s.Write(&record{Name: "late"}))
+		// Flushing a closed sink is a no-op rather than an error: Close already
+		// flushed, so there is nothing left owed to the file.
+		test.NoError(t, s.Flush())
+	})
+
+	T.Run("an unmarshalable record errors without touching the file", func(t *testing.T) {
+		t.Parallel()
+
+		path := testCapturePath(t)
+		s := newTestSink(t, path, DefaultMaxBytes, DefaultMaxFiles)
+
+		test.Error(t, s.Write(make(chan int)))
+		must.NoError(t, s.Flush())
+		test.SliceLen(t, 0, readLines(t, path))
+	})
+
+	T.Run("a write failure surfaces once the buffer has one", func(t *testing.T) {
+		t.Parallel()
+
+		s := newTestSink(t, testCapturePath(t), DefaultMaxBytes, DefaultMaxFiles)
+
+		must.NoError(t, s.Write(&record{Name: "buffered", Seq: 1}))
+		must.NoError(t, s.f.Close())
+		// The failed flush leaves the buffered writer in a sticky error state.
+		test.Error(t, s.Flush())
+
+		test.Error(t, s.Write(&record{Name: "doomed", Seq: 2}))
+	})
+
+	T.Run("Close surfaces a flush failure", func(t *testing.T) {
+		t.Parallel()
+
+		s := newTestSink(t, testCapturePath(t), DefaultMaxBytes, DefaultMaxFiles)
+
+		// Buffered, so the descriptor has not been touched yet.
+		must.NoError(t, s.Write(&record{Name: "buffered"}))
+		// Pull the descriptor out from under the buffer: the flush Close owes
+		// the file now has nowhere to go.
+		must.NoError(t, s.f.Close())
+
+		test.Error(t, s.Close())
 	})
 }
 
@@ -194,5 +303,101 @@ func TestSink_Rotation(T *testing.T) {
 		lines := readLines(t, path)
 		must.SliceLen(t, 1, lines)
 		test.EqOp(t, 2, lines[0].Seq)
+	})
+
+	T.Run("WithClock stamps the rotated name", func(t *testing.T) {
+		t.Parallel()
+
+		stamped := time.Date(2026, time.March, 4, 5, 6, 7, 0, time.UTC)
+		c := &clockmock.ClockMock{NowFunc: func() time.Time { return stamped }}
+
+		path := testCapturePath(t)
+		s, err := NewSink(&Config{Path: path, MaxBytes: 40, MaxFiles: 4}, WithClock(c))
+		must.NoError(t, err)
+		t.Cleanup(func() { _ = s.Close() })
+
+		must.NoError(t, s.Write(&record{Name: "first", Seq: 1}))
+		must.NoError(t, s.Write(&record{Name: "second", Seq: 2}))
+
+		rotated := rotatedSiblings(t, path)
+		must.SliceLen(t, 1, rotated)
+		test.EqOp(t, path+"."+stamped.Format(rotatedLayout), rotated[0])
+		test.SliceLen(t, 1, c.NowCalls())
+	})
+}
+
+func TestSink_RotationFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a rename failure surfaces on the write that triggered it", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		path := filepath.Join(dir, "capture.jsonl")
+		s := newTestSink(t, path, 40, 4)
+
+		must.NoError(t, s.Write(&record{Name: "first", Seq: 1}))
+
+		// Rotation renames within the parent directory, so revoking write
+		// permission on it is enough to fail the rename.
+		must.NoError(t, os.Chmod(dir, 0o500))
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+		test.Error(t, s.Write(&record{Name: "second", Seq: 2}))
+	})
+
+	T.Run("a flush failure surfaces before the rename", func(t *testing.T) {
+		t.Parallel()
+
+		path := testCapturePath(t)
+		s := newTestSink(t, path, 40, 4)
+
+		must.NoError(t, s.Write(&record{Name: "first", Seq: 1}))
+		must.NoError(t, s.f.Close())
+
+		test.Error(t, s.Write(&record{Name: "second", Seq: 2}))
+	})
+
+	T.Run("a prune listing failure does not fail the write", func(t *testing.T) {
+		t.Parallel()
+
+		// An unclosed bracket makes the glob pattern the pruner builds
+		// malformed, so listing rotated siblings fails. Rotation itself still
+		// has to succeed: losing old capture files beats failing a write.
+		path := filepath.Join(t.TempDir(), "capture[.jsonl")
+		s := newTestSink(t, path, 40, 1)
+
+		must.NoError(t, s.Write(&record{Name: "first", Seq: 1}))
+		must.NoError(t, s.Write(&record{Name: "second", Seq: 2}))
+		must.NoError(t, s.Flush())
+
+		lines := readLines(t, path)
+		must.SliceLen(t, 1, lines)
+		test.EqOp(t, 2, lines[0].Seq)
+	})
+
+	T.Run("an unremovable rotated file does not fail the write", func(t *testing.T) {
+		t.Parallel()
+
+		path := testCapturePath(t)
+
+		// A non-empty directory occupying a rotated file's name: it sorts
+		// oldest, so the pruner reaches for it first and os.Remove refuses.
+		stale := path + ".00000101T000000.000000000"
+		must.NoError(t, os.Mkdir(stale, 0o700))
+		must.NoError(t, os.WriteFile(filepath.Join(stale, "occupant"), []byte("x"), 0o600))
+
+		s := newTestSink(t, path, 40, 1)
+
+		must.NoError(t, s.Write(&record{Name: "first", Seq: 1}))
+		must.NoError(t, s.Write(&record{Name: "second", Seq: 2}))
+		must.NoError(t, s.Flush())
+
+		// The write landed, and the undeletable sibling is still there.
+		lines := readLines(t, path)
+		must.SliceLen(t, 1, lines)
+		test.EqOp(t, 2, lines[0].Seq)
+		_, err := os.Stat(stale)
+		test.NoError(t, err)
 	})
 }

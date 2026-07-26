@@ -8,9 +8,7 @@ import (
 	"github.com/shoenig/test"
 )
 
-// Renaming this test changes t.Name() and therefore the expected digest, which
-// is carried over unchanged from before Hasher returned raw bytes.
-func Test_sha512Hasher_Hash(T *testing.T) {
+func TestNewSHA512Hasher(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -18,7 +16,7 @@ func Test_sha512Hasher_Hash(T *testing.T) {
 
 		hasher := NewSHA512Hasher()
 
-		test.EqOp(t, "5928cb042c3cc8dc19dce0eb7caa4ad440e7c4b429503c42ef2fa3dc0fee9232a85db9276c690809f70c92ea68deb255bbd5dd1e9ecd71ade0db9eaaab205c21", hashing.HexString(hasher, t.Name()))
+		test.EqOp(t, "234611c57cb7c803c7b990fab3de4d0c5734ae877452e2b4951e595cb8fcbcbd8ca39d4e37b74e0370947851e757189827293d9955588bb10f278aec87cb96ba", hashing.HexString(hasher, t.Name()))
 	})
 
 	T.Run("digest is sixty-four bytes wide", func(t *testing.T) {

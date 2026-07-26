@@ -51,6 +51,28 @@ func TestNewPostgresScopedLocker(T *testing.T) {
 		_, err := NewPostgresScopedLocker(&Config{}, nil, nil, nil, nil, cbnoop.NewCircuitBreaker())
 		test.ErrorIs(t, err, distributedlock.ErrNilDatabaseClient)
 	})
+
+	// The three counters are built in order, so failing the Nth walks the
+	// constructor's error paths one at a time.
+	for idx := 1; idx <= 3; idx++ {
+		T.Run("int64 counter creation failure", func(t *testing.T) {
+			t.Parallel()
+
+			client, _ := buildSqlmockClient(t)
+
+			_, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, newErrorAtCallProvider(idx, false), cbnoop.NewCircuitBreaker())
+			test.Error(t, err)
+		})
+	}
+
+	T.Run("float64 histogram creation failure", func(t *testing.T) {
+		t.Parallel()
+
+		client, _ := buildSqlmockClient(t)
+
+		_, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, newErrorAtCallProvider(0, true), cbnoop.NewCircuitBreaker())
+		test.Error(t, err)
+	})
 }
 
 func TestPostgresScopedLocker_WithLock_Unit(T *testing.T) {
@@ -123,6 +145,35 @@ func TestPostgresScopedLocker_WithLock_Unit(T *testing.T) {
 		})
 		test.Error(t, err)
 	})
+
+	T.Run("a failed acquire trips the breaker", func(t *testing.T) {
+		t.Parallel()
+
+		client, mock := buildSqlmockClient(t)
+		var failed int
+		cb := &cbmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			FailedFunc:        func() { failed++ },
+		}
+
+		s, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, nil, cb)
+		must.NoError(t, err)
+
+		mock.ExpectBegin()
+		mock.ExpectExec(xactLockPattern).WithArgs(sqlmock.AnyArg()).WillReturnError(errors.New("connection reset"))
+		mock.ExpectRollback()
+
+		err = s.WithLock(t.Context(), "chore", func(context.Context) error {
+			t.Fatal("fn must not run when the lock was never acquired")
+			return nil
+		})
+
+		test.Error(t, err)
+		// Failing to acquire is an infrastructure signal, unlike an error from
+		// fn, which passes through untouched.
+		test.EqOp(t, 1, failed)
+		test.NoError(t, mock.ExpectationsWereMet())
+	})
 }
 
 func TestPostgresScopedLocker_TryWithLock_Unit(T *testing.T) {
@@ -189,6 +240,64 @@ func TestPostgresScopedLocker_TryWithLock_Unit(T *testing.T) {
 
 		test.True(t, acquired)
 		test.ErrorIs(t, err, distributedlock.ErrLockNotAcquired)
+		test.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	T.Run("rejects an empty key", func(t *testing.T) {
+		t.Parallel()
+
+		client, _ := buildSqlmockClient(t)
+		s := newTestScopedLocker(t, client)
+
+		acquired, err := s.TryWithLock(t.Context(), "", func(context.Context) error { return nil })
+		test.ErrorIs(t, err, distributedlock.ErrEmptyKey)
+		test.False(t, acquired)
+	})
+
+	T.Run("open circuit breaker refuses", func(t *testing.T) {
+		t.Parallel()
+
+		client, _ := buildSqlmockClient(t)
+		cb := &cbmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return true },
+		}
+
+		s, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, nil, cb)
+		must.NoError(t, err)
+
+		acquired, err := s.TryWithLock(t.Context(), "chore", func(context.Context) error {
+			t.Fatal("fn must not run with an open breaker")
+			return nil
+		})
+		test.Error(t, err)
+		test.False(t, acquired)
+	})
+
+	T.Run("a failed probe trips the breaker", func(t *testing.T) {
+		t.Parallel()
+
+		client, mock := buildSqlmockClient(t)
+		var failed int
+		cb := &cbmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			FailedFunc:        func() { failed++ },
+		}
+
+		s, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, nil, cb)
+		must.NoError(t, err)
+
+		mock.ExpectBegin()
+		mock.ExpectQuery(tryXactLockPattern).WithArgs(sqlmock.AnyArg()).WillReturnError(errors.New("connection reset"))
+		mock.ExpectRollback()
+
+		acquired, err := s.TryWithLock(t.Context(), "chore", func(context.Context) error {
+			t.Fatal("fn must not run when the probe never answered")
+			return nil
+		})
+
+		test.Error(t, err)
+		test.False(t, acquired)
+		test.EqOp(t, 1, failed)
 		test.NoError(t, mock.ExpectationsWereMet())
 	})
 }

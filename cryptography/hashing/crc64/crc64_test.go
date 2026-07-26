@@ -8,9 +8,7 @@ import (
 	"github.com/shoenig/test"
 )
 
-// Renaming this test changes t.Name() and therefore the expected digest, which
-// is carried over unchanged from before Hasher returned raw bytes.
-func Test_crc64Hasher_Hash(T *testing.T) {
+func TestNewCRC64ISOHasher(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -18,7 +16,7 @@ func Test_crc64Hasher_Hash(T *testing.T) {
 
 		hasher := NewCRC64ISOHasher()
 
-		test.EqOp(t, "cee81309a5f73f5c", hashing.HexString(hasher, t.Name()))
+		test.EqOp(t, "11f54c2a1d3ef986", hashing.HexString(hasher, t.Name()))
 	})
 
 	T.Run("digest is eight bytes wide", func(t *testing.T) {

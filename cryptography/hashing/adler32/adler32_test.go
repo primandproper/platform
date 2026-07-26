@@ -8,9 +8,7 @@ import (
 	"github.com/shoenig/test"
 )
 
-// Renaming this test changes t.Name() and therefore the expected digest, which
-// is carried over unchanged from before Hasher returned raw bytes.
-func Test_adler32Hasher_Hash(T *testing.T) {
+func TestNewAdler32Hasher(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -18,7 +16,7 @@ func Test_adler32Hasher_Hash(T *testing.T) {
 
 		hasher := NewAdler32Hasher()
 
-		test.EqOp(t, "c7060c2b", hashing.HexString(hasher, t.Name()))
+		test.EqOp(t, "a2770af3", hashing.HexString(hasher, t.Name()))
 	})
 
 	T.Run("digest is four bytes wide", func(t *testing.T) {

@@ -1,13 +1,24 @@
 package eventcapture
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	"github.com/primandproper/platform-go/v7/clock"
+	clockmock "github.com/primandproper/platform-go/v7/clock/mock"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type testEvent struct {
@@ -88,6 +99,91 @@ func (s *recordingSink) isClosed() bool {
 	return s.closed
 }
 
+// erroringSink fails every call, standing in for a capture destination that
+// has gone bad underneath a running Recorder. Per the package contract none of
+// these errors ever reach a caller, so tests assert on the counts instead.
+type erroringSink struct {
+	mu      sync.Mutex
+	writes  int
+	flushes int
+	closes  int
+}
+
+var errSinkBroken = platformerrors.New("sink is broken")
+
+func (s *erroringSink) Write(any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writes++
+
+	return errSinkBroken
+}
+
+func (s *erroringSink) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flushes++
+
+	return errSinkBroken
+}
+
+func (s *erroringSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closes++
+
+	return errSinkBroken
+}
+
+func (s *erroringSink) counts() (writes, flushes, closes int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.writes, s.flushes, s.closes
+}
+
+// discardHistogram satisfies metrics.Float64Histogram for tests that care only
+// about the counters. The metrics mock package generates no histogram double.
+type discardHistogram struct{}
+
+func (discardHistogram) Record(context.Context, float64, ...metric.RecordOption) {}
+
+// countingProvider is a metrics.Provider whose counters tally the increments
+// they are handed, keyed by instrument name.
+type countingProvider struct {
+	*mockmetrics.ProviderMock
+
+	totals map[string]int64
+	mu     sync.Mutex
+}
+
+func newCountingProvider() *countingProvider {
+	p := &countingProvider{totals: map[string]int64{}}
+	p.ProviderMock = &mockmetrics.ProviderMock{
+		NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+			return &mockmetrics.Int64CounterMock{
+				AddFunc: func(_ context.Context, incr int64, _ ...metric.AddOption) {
+					p.mu.Lock()
+					defer p.mu.Unlock()
+					p.totals[name] += incr
+				},
+			}, nil
+		},
+		NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+			return discardHistogram{}, nil
+		},
+	}
+
+	return p
+}
+
+func (p *countingProvider) total(name string) int64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.totals[name]
+}
+
 var testStart = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 // flushInterval is the tick cadence the periodic-flush tests configure. Bubble
@@ -99,6 +195,221 @@ const flushInterval = time.Second
 // event buffer, and the flush ticker all live in the bubble, so the default
 // clock rides bubble time and a Run/Close handshake that fails to complete is
 // reported as a deadlock instead of hanging on a timeout.
+
+func TestNewRecorder(T *testing.T) {
+	T.Parallel()
+
+	T.Run("rejects a nil sink", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewRecorder[testEvent](nil)
+		test.Error(t, err)
+	})
+
+	T.Run("nil options are skipped", func(t *testing.T) {
+		t.Parallel()
+
+		r, err := NewRecorder[testEvent](newRecordingSink(),
+			nil,
+			WithLogger[testEvent](loggingnoop.NewLogger()),
+			WithTracerProvider[testEvent](tracingnoop.NewTracerProvider()),
+			WithMetricsProvider[testEvent](metricsnoop.NewMetricsProvider()),
+			WithClock[testEvent](nil),
+			WithBufferSize[testEvent](0),
+			WithFlushInterval[testEvent](0),
+		)
+		must.NoError(t, err)
+		// The no-op option values left the defaults in place.
+		test.EqOp(t, DefaultBufferSize, cap(r.events))
+		test.EqOp(t, DefaultFlushInterval, r.flushInterval)
+	})
+
+	T.Run("an instrument that cannot be built fails construction", func(t *testing.T) {
+		t.Parallel()
+
+		// Each instrument is built in order, so failing the Nth counter walks
+		// the constructor's error paths one at a time.
+		counters := []string{
+			"eventcapture_records_written",
+			"eventcapture_records_dropped",
+			"eventcapture_aggregation_overflow",
+			"eventcapture_sink_errors",
+		}
+
+		for i, failing := range counters {
+			t.Run(failing, func(t *testing.T) {
+				t.Parallel()
+
+				mp := &mockmetrics.ProviderMock{
+					NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+						if name == failing {
+							return nil, platformerrors.New("instrument unavailable")
+						}
+
+						return &mockmetrics.Int64CounterMock{}, nil
+					},
+				}
+
+				_, err := NewRecorder[testEvent](newRecordingSink(), WithMetricsProvider[testEvent](mp))
+				must.Error(t, err)
+				test.SliceLen(t, i+1, mp.NewInt64CounterCalls())
+			})
+		}
+
+		t.Run("eventcapture_flush_latency_ms", func(t *testing.T) {
+			t.Parallel()
+
+			mp := &mockmetrics.ProviderMock{
+				NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+					return &mockmetrics.Int64CounterMock{}, nil
+				},
+				NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+					return nil, platformerrors.New("instrument unavailable")
+				},
+			}
+
+			_, err := NewRecorder[testEvent](newRecordingSink(), WithMetricsProvider[testEvent](mp))
+			must.Error(t, err)
+			test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
+		})
+	})
+}
+
+func TestRecorder_SinkFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("write, flush, and close errors are counted, not returned", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			sink := &erroringSink{}
+			mp := newCountingProvider()
+
+			r := mustRecorder[testEvent](t, sink,
+				WithLogger[testEvent](loggingnoop.NewLogger()),
+				WithMetricsProvider[testEvent](mp),
+			)
+
+			go r.Run()
+
+			r.Record(&testEvent{Name: "doomed"})
+
+			// Close drains: the event's write fails, then the final flush
+			// fails, then the sink's own Close fails — and Close still reports
+			// success, because the requests behind these events are long gone.
+			must.NoError(t, r.Close(t.Context()))
+
+			writes, flushes, closes := sink.counts()
+			test.EqOp(t, 1, writes)
+			test.EqOp(t, 1, flushes)
+			test.EqOp(t, 1, closes)
+
+			test.EqOp(t, int64(3), mp.total("eventcapture_sink_errors"))
+			test.EqOp(t, int64(0), mp.total("eventcapture_records_written"))
+		})
+	})
+
+	T.Run("dropped events are reported on the next flush", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			mp := newCountingProvider()
+
+			// Nothing is consuming yet, so the buffer fills for real.
+			r := mustRecorder[testEvent](t, newRecordingSink(),
+				WithBufferSize[testEvent](1),
+				WithLogger[testEvent](loggingnoop.NewLogger()),
+				WithMetricsProvider[testEvent](mp),
+			)
+
+			r.Record(&testEvent{Name: "kept"})
+			r.Record(&testEvent{Name: "dropped-a"})
+			r.Record(&testEvent{Name: "dropped-b"})
+			must.EqOp(t, uint64(2), r.Dropped())
+
+			go r.Run()
+
+			must.NoError(t, r.Close(t.Context()))
+
+			test.EqOp(t, int64(2), mp.total("eventcapture_records_dropped"))
+		})
+	})
+
+	T.Run("Close gives up when its context expires", func(t *testing.T) {
+		t.Parallel()
+
+		// No Run, so nothing ever drains and closes the done channel.
+		r := mustRecorder[testEvent](t, newRecordingSink())
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		test.Error(t, r.Close(ctx))
+	})
+}
+
+func TestRecorder_WithClock(T *testing.T) {
+	T.Parallel()
+
+	T.Run("the flush ticker rides the supplied clock", func(t *testing.T) {
+		t.Parallel()
+
+		ticks := make(chan time.Time, 1)
+		var stops int
+		var mu sync.Mutex
+
+		c := &clockmock.ClockMock{
+			NowFunc: func() time.Time { return testStart },
+			NewTickerFunc: func(time.Duration) clock.Ticker {
+				return &clockmock.TickerMock{
+					ChanFunc: func() <-chan time.Time { return ticks },
+					StopFunc: func() {
+						mu.Lock()
+						defer mu.Unlock()
+						stops++
+					},
+				}
+			},
+		}
+
+		sink := newRecordingSink()
+
+		// Periodic flushes report themselves here, so the test can wait for the
+		// tick to be consumed rather than racing Close against it.
+		ticked := make(chan time.Time, 1)
+		r := mustRecorder[testEvent](t, sink,
+			WithClock[testEvent](c),
+			WithOnFlush[testEvent](func(now time.Time, final bool, _ func(any)) {
+				if !final {
+					ticked <- now
+				}
+			}),
+		)
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			r.Run()
+		}()
+
+		// A tick the test controls outright: no wall time and no bubble needed.
+		ticks <- testStart
+		flushedAt := <-ticked
+
+		must.NoError(t, r.Close(t.Context()))
+		<-done
+
+		// The flusher timestamped the flush from the injected clock, not the wall.
+		test.EqOp(t, testStart, flushedAt)
+		// The tick's flush plus the final drain flush.
+		test.EqOp(t, 2, sink.flushCount())
+		test.SliceLen(t, 1, c.NewTickerCalls())
+
+		mu.Lock()
+		defer mu.Unlock()
+		test.EqOp(t, 1, stops)
+	})
+}
 
 func TestRecorder_RecordAndClose(T *testing.T) {
 	T.Parallel()
@@ -369,5 +680,37 @@ func TestAggregator(T *testing.T) {
 
 		buckets := agg.Flush(testStart.Add(time.Hour), true)
 		must.SliceLen(t, 2, buckets)
+	})
+
+	T.Run("a non-positive bucket falls back to one minute", func(t *testing.T) {
+		t.Parallel()
+
+		agg := NewAggregator[string, counts](0, 0, nil)
+
+		agg.Observe("a", testStart, func(c *counts) { c.total++ })
+
+		buckets := agg.Flush(testStart.Add(time.Hour), false)
+		must.SliceLen(t, 1, buckets)
+		test.EqOp(t, time.Minute, buckets[0].Size)
+	})
+
+	T.Run("without WithKeyOrder same-window buckets still all come out", func(t *testing.T) {
+		t.Parallel()
+
+		agg := NewAggregator[string, counts](time.Minute, 0)
+
+		inc := func(c *counts) { c.total++ }
+		agg.Observe("a", testStart, inc)
+		agg.Observe("b", testStart, inc)
+
+		// Same window, no key comparison configured: order is unspecified, so
+		// the assertion is on the set rather than the sequence.
+		buckets := agg.Flush(testStart.Add(time.Hour), false)
+		must.SliceLen(t, 2, buckets)
+		seen := map[string]int{}
+		for _, b := range buckets {
+			seen[b.Key] = b.Counts.total
+		}
+		test.Eq(t, map[string]int{"a": 1, "b": 1}, seen)
 	})
 }

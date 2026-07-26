@@ -7,12 +7,27 @@ import (
 	"testing/synctest"
 	"time"
 
+	clockmock "github.com/primandproper/platform-go/v7/clock/mock"
 	"github.com/primandproper/platform-go/v7/distributedlock"
 	"github.com/primandproper/platform-go/v7/distributedlock/memory"
+	dlmock "github.com/primandproper/platform-go/v7/distributedlock/mock"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
+
+// discardHistogram satisfies metrics.Float64Histogram for constructor tests
+// that only need some histograms to succeed. The metrics mock package
+// generates no histogram double.
+type discardHistogram struct{}
+
+func (discardHistogram) Record(context.Context, float64, ...metric.RecordOption) {}
 
 const (
 	scopedTestKey = "scoped-test"
@@ -141,6 +156,253 @@ func TestNewScopedLocker(T *testing.T) {
 		_, err = distributedlock.NewScopedLocker(raw, nil, nil, nil,
 			distributedlock.WithScopedPollBackoff(1, distributedlock.DefaultScopedMaxPollInterval))
 		test.NoError(t, err)
+	})
+
+	T.Run("nil options are skipped", func(t *testing.T) {
+		t.Parallel()
+
+		raw, err := memory.NewLocker(nil, nil, nil)
+		must.NoError(t, err)
+
+		_, err = distributedlock.NewScopedLocker(raw, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(),
+			nil,
+			distributedlock.WithScopedJitter(nil),
+			distributedlock.WithScopedClock(nil),
+		)
+		test.NoError(t, err)
+	})
+
+	T.Run("an instrument that cannot be built fails construction", func(t *testing.T) {
+		t.Parallel()
+
+		counters := []string{
+			"scoped_lock_acquires",
+			"scoped_lock_contended",
+			"scoped_lock_errors",
+			"scoped_lock_release_failures",
+		}
+
+		for i, failing := range counters {
+			t.Run(failing, func(t *testing.T) {
+				t.Parallel()
+
+				raw, err := memory.NewLocker(nil, nil, nil)
+				must.NoError(t, err)
+
+				mp := &mockmetrics.ProviderMock{
+					NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+						if name == failing {
+							return nil, errors.New("instrument unavailable")
+						}
+
+						return &mockmetrics.Int64CounterMock{}, nil
+					},
+				}
+
+				_, err = distributedlock.NewScopedLocker(raw, nil, nil, mp)
+				must.Error(t, err)
+				test.SliceLen(t, i+1, mp.NewInt64CounterCalls())
+			})
+		}
+
+		// Both histograms come from the same constructor, so failing the Nth
+		// call is what separates their two error paths.
+		for _, failAtCall := range []int{1, 2} {
+			t.Run("histogram", func(t *testing.T) {
+				t.Parallel()
+
+				raw, err := memory.NewLocker(nil, nil, nil)
+				must.NoError(t, err)
+
+				var calls int
+				mp := &mockmetrics.ProviderMock{
+					NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+						return &mockmetrics.Int64CounterMock{}, nil
+					},
+					NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+						calls++
+						if calls == failAtCall {
+							return nil, errors.New("instrument unavailable")
+						}
+
+						return discardHistogram{}, nil
+					},
+				}
+
+				_, err = distributedlock.NewScopedLocker(raw, nil, nil, mp)
+				must.Error(t, err)
+				test.EqOp(t, failAtCall, calls)
+			})
+		}
+	})
+}
+
+func TestScopedLocker_WithScopedClock(T *testing.T) {
+	T.Parallel()
+
+	T.Run("contended polling sleeps on the supplied clock", func(t *testing.T) {
+		t.Parallel()
+
+		// A clock whose Sleep returns instantly: the wait between polls is the
+		// test's to control, not the wall's.
+		c := &clockmock.ClockMock{
+			SleepFunc: func(context.Context, time.Duration) error { return nil },
+		}
+
+		var attempts int
+		raw := &dlmock.LockerMock{
+			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
+				attempts++
+				if attempts == 1 {
+					return nil, distributedlock.ErrLockNotAcquired
+				}
+
+				return &dlmock.LockMock{
+					ReleaseFunc: func(context.Context) error { return nil },
+				}, nil
+			},
+		}
+
+		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil,
+			distributedlock.WithScopedPollInterval(scopedPollInterval),
+			distributedlock.WithScopedJitter(noJitter),
+			distributedlock.WithScopedClock(c),
+		)
+		must.NoError(t, err)
+
+		must.NoError(t, scoped.WithLock(t.Context(), scopedTestKey, func(context.Context) error { return nil }))
+
+		// One refusal, one sleep on the injected clock, one success.
+		test.EqOp(t, 2, attempts)
+		must.SliceLen(t, 1, c.SleepCalls())
+		test.EqOp(t, scopedPollInterval, c.SleepCalls()[0].D)
+	})
+
+	T.Run("a growth factor that overflows clamps to the max poll interval", func(t *testing.T) {
+		t.Parallel()
+
+		c := &clockmock.ClockMock{
+			SleepFunc: func(context.Context, time.Duration) error { return nil },
+		}
+
+		var attempts int
+		raw := &dlmock.LockerMock{
+			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
+				attempts++
+				if attempts <= 2 {
+					return nil, distributedlock.ErrLockNotAcquired
+				}
+
+				return &dlmock.LockMock{
+					ReleaseFunc: func(context.Context) error { return nil },
+				}, nil
+			},
+		}
+
+		const maxPoll = time.Hour
+
+		// A factor this large pushes interval*factor past what a Duration can
+		// hold. The stepwise growth has to notice and clamp, not wrap around
+		// into a negative wait that would turn the poller hot.
+		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil,
+			distributedlock.WithScopedPollInterval(scopedPollInterval),
+			distributedlock.WithScopedPollBackoff(1e300, maxPoll),
+			distributedlock.WithScopedJitter(noJitter),
+			distributedlock.WithScopedClock(c),
+		)
+		must.NoError(t, err)
+
+		must.NoError(t, scoped.WithLock(t.Context(), scopedTestKey, func(context.Context) error { return nil }))
+
+		must.SliceLen(t, 2, c.SleepCalls())
+		test.EqOp(t, scopedPollInterval, c.SleepCalls()[0].D)
+		test.EqOp(t, maxPoll, c.SleepCalls()[1].D)
+	})
+}
+
+func TestScopedLocker_LockerFailures(T *testing.T) {
+	T.Parallel()
+
+	errAcquireBroken := errors.New("lock backend unreachable")
+
+	T.Run("WithLock surfaces a non-contention acquire error immediately", func(t *testing.T) {
+		t.Parallel()
+
+		raw := &dlmock.LockerMock{
+			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
+				return nil, errAcquireBroken
+			},
+		}
+
+		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil)
+		must.NoError(t, err)
+
+		// Not ErrLockNotAcquired, so there is nothing to wait out: it returns
+		// on the first attempt rather than polling a broken backend.
+		test.ErrorIs(t, scoped.WithLock(t.Context(), scopedTestKey, func(context.Context) error { return nil }), errAcquireBroken)
+		test.SliceLen(t, 1, raw.AcquireCalls())
+	})
+
+	T.Run("TryWithLock surfaces a non-contention acquire error", func(t *testing.T) {
+		t.Parallel()
+
+		raw := &dlmock.LockerMock{
+			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
+				return nil, errAcquireBroken
+			},
+		}
+
+		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil)
+		must.NoError(t, err)
+
+		acquired, err := scoped.TryWithLock(t.Context(), scopedTestKey, func(context.Context) error { return nil })
+		test.False(t, acquired)
+		test.ErrorIs(t, err, errAcquireBroken)
+	})
+
+	T.Run("a release failure is joined onto fn's result", func(t *testing.T) {
+		t.Parallel()
+
+		errReleaseBroken := errors.New("release rejected")
+
+		raw := &dlmock.LockerMock{
+			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
+				return &dlmock.LockMock{
+					ReleaseFunc: func(context.Context) error { return errReleaseBroken },
+				}, nil
+			},
+		}
+
+		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil)
+		must.NoError(t, err)
+
+		errFn := errors.New("fn failed")
+		err = scoped.WithLock(t.Context(), scopedTestKey, func(context.Context) error { return errFn })
+
+		// Both survive: the caller's own failure and the fact that the lock
+		// could not be handed back.
+		test.ErrorIs(t, err, errFn)
+		test.ErrorIs(t, err, errReleaseBroken)
+	})
+
+	T.Run("an expired lock is reported distinctly", func(t *testing.T) {
+		t.Parallel()
+
+		// ErrLockNotHeld on release means the TTL elapsed while fn was still
+		// running, so mutual exclusion was not actually held throughout.
+		raw := &dlmock.LockerMock{
+			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
+				return &dlmock.LockMock{
+					ReleaseFunc: func(context.Context) error { return distributedlock.ErrLockNotHeld },
+				}, nil
+			},
+		}
+
+		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil)
+		must.NoError(t, err)
+
+		err = scoped.WithLock(t.Context(), scopedTestKey, func(context.Context) error { return nil })
+		test.ErrorIs(t, err, distributedlock.ErrLockNotHeld)
 	})
 }
 
