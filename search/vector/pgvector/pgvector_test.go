@@ -15,14 +15,10 @@ import (
 	"github.com/primandproper/platform-go/v7/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
 	vectorsearch "github.com/primandproper/platform-go/v7/search/vector"
-	"github.com/primandproper/platform-go/v7/testutils/containers"
+	"github.com/primandproper/platform-go/v7/testutils/containers/pgtest"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"github.com/testcontainers/testcontainers-go"
-	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"go.opentelemetry.io/otel/metric"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 )
@@ -69,36 +65,6 @@ func (c *testDBClient) RollbackTransaction(_ context.Context, tx database.SQLQue
 
 func (c *testDBClient) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutor) error) error {
 	return database.RunInTransaction(ctx, c.db, c.RollbackTransaction, fn)
-}
-
-func buildContainerBackedPgvector(t *testing.T) (client *testDBClient, shutdown func(context.Context) error) {
-	t.Helper()
-
-	ctx := t.Context()
-	container, err := containers.StartWithRetry(ctx, func(ctx context.Context) (*postgrescontainer.PostgresContainer, error) {
-		return postgrescontainer.Run(
-			ctx,
-			pgvectorImage,
-			postgrescontainer.WithDatabase("vectortest"),
-			postgrescontainer.WithUsername("vectortest"),
-			postgrescontainer.WithPassword("vectortest"),
-			testcontainers.WithWaitStrategyAndDeadline(2*time.Minute, wait.ForLog("database system is ready to accept connections").WithOccurrence(2)),
-		)
-	})
-	must.NoError(t, err)
-	must.NotNil(t, container)
-
-	connStr, err := container.ConnectionString(ctx, "sslmode=disable")
-	must.NoError(t, err)
-
-	db, err := sql.Open("pgx", connStr)
-	must.NoError(t, err)
-	must.NoError(t, db.PingContext(ctx))
-
-	return &testDBClient{db: db}, func(ctx context.Context) error {
-		_ = db.Close()
-		return container.Terminate(ctx)
-	}
 }
 
 type doc struct {
@@ -543,169 +509,167 @@ func TestValidateWithContext(T *testing.T) {
 func TestPgvectorIndex_Container(T *testing.T) {
 	T.Parallel()
 
-	containers.SkipIfNotRunning(T)
+	// One container for every subtest below; they isolate themselves by index name.
+	pgtest.Run(T, func(_ context.Context, pg *pgtest.Instance) {
+		client := &testDBClient{db: pg.DB}
 
-	client, shutdown := buildContainerBackedPgvector(T)
-	T.Cleanup(func() {
-		_ = shutdown(context.Background())
-	})
+		T.Run("Upsert and Query roundtrip", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "rt_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-	T.Run("Upsert and Query roundtrip", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "rt_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc", Title: "alpha"}},
+				vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{0, 1, 0}, Metadata: &doc{Kind: "doc", Title: "beta"}},
+				vectorsearch.Vector[doc]{ID: "c", Embedding: []float32{0, 0, 1}, Metadata: &doc{Kind: "doc", Title: "gamma"}},
+			))
 
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc", Title: "alpha"}},
-			vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{0, 1, 0}, Metadata: &doc{Kind: "doc", Title: "beta"}},
-			vectorsearch.Vector[doc]{ID: "c", Embedding: []float32{0, 0, 1}, Metadata: &doc{Kind: "doc", Title: "gamma"}},
-		))
-
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{
-			Embedding: []float32{1, 0, 0},
-			TopK:      3,
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{
+				Embedding: []float32{1, 0, 0},
+				TopK:      3,
+			})
+			must.NoError(t, err)
+			must.SliceLen(t, 3, results)
+			test.EqOp(t, "a", results[0].ID)
+			must.NotNil(t, results[0].Metadata)
+			test.EqOp(t, "alpha", results[0].Metadata.Title)
+			test.InDelta(t, float32(0.0), results[0].Distance, float32(1e-5))
 		})
-		must.NoError(t, err)
-		must.SliceLen(t, 3, results)
-		test.EqOp(t, "a", results[0].ID)
-		must.NotNil(t, results[0].Metadata)
-		test.EqOp(t, "alpha", results[0].Metadata.Title)
-		test.InDelta(t, float32(0.0), results[0].Distance, float32(1e-5))
-	})
 
-	T.Run("Upsert updates existing row", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "upd_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+		T.Run("Upsert updates existing row", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "upd_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-		must.NoError(t, idx.Upsert(ctx, vectorsearch.Vector[doc]{ID: "x", Embedding: []float32{1, 0, 0}, Metadata: &doc{Title: "first"}}))
-		must.NoError(t, idx.Upsert(ctx, vectorsearch.Vector[doc]{ID: "x", Embedding: []float32{0, 1, 0}, Metadata: &doc{Title: "second"}}))
+			must.NoError(t, idx.Upsert(ctx, vectorsearch.Vector[doc]{ID: "x", Embedding: []float32{1, 0, 0}, Metadata: &doc{Title: "first"}}))
+			must.NoError(t, idx.Upsert(ctx, vectorsearch.Vector[doc]{ID: "x", Embedding: []float32{0, 1, 0}, Metadata: &doc{Title: "second"}}))
 
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{
-			Embedding: []float32{0, 1, 0},
-			TopK:      1,
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{
+				Embedding: []float32{0, 1, 0},
+				TopK:      1,
+			})
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
+			test.EqOp(t, "x", results[0].ID)
+			must.NotNil(t, results[0].Metadata)
+			test.EqOp(t, "second", results[0].Metadata.Title)
 		})
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		test.EqOp(t, "x", results[0].ID)
-		must.NotNil(t, results[0].Metadata)
-		test.EqOp(t, "second", results[0].Metadata.Title)
-	})
 
-	T.Run("TopK is respected", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "topk_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+		T.Run("TopK is respected", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "topk_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}},
-			vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{0, 1, 0}},
-			vectorsearch.Vector[doc]{ID: "c", Embedding: []float32{0, 0, 1}},
-		))
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}},
+				vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{0, 1, 0}},
+				vectorsearch.Vector[doc]{ID: "c", Embedding: []float32{0, 0, 1}},
+			))
 
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{
-			Embedding: []float32{1, 0, 0},
-			TopK:      2,
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{
+				Embedding: []float32{1, 0, 0},
+				TopK:      2,
+			})
+			must.NoError(t, err)
+			test.SliceLen(t, 2, results)
 		})
-		must.NoError(t, err)
-		test.SliceLen(t, 2, results)
-	})
 
-	T.Run("filter clause is applied", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "filt_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+		T.Run("filter clause is applied", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "filt_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc"}},
-			vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "image"}},
-		))
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc"}},
+				vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "image"}},
+			))
 
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{
-			Embedding: []float32{1, 0, 0},
-			TopK:      10,
-			Filter:    "metadata->>'kind' = 'doc'",
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{
+				Embedding: []float32{1, 0, 0},
+				TopK:      10,
+				Filter:    "metadata->>'kind' = 'doc'",
+			})
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
+			test.EqOp(t, "a", results[0].ID)
 		})
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		test.EqOp(t, "a", results[0].ID)
-	})
 
-	T.Run("Query rejects empty embedding", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "emb_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+		T.Run("Query rejects empty embedding", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "emb_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-		_, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: nil, TopK: 5})
-		must.ErrorIs(t, err, vectorsearch.ErrEmptyEmbedding)
-	})
+			_, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: nil, TopK: 5})
+			must.ErrorIs(t, err, vectorsearch.ErrEmptyEmbedding)
+		})
 
-	T.Run("Query rejects wrong dimension", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "dim_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+		T.Run("Query rejects wrong dimension", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "dim_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-		_, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0}, TopK: 5})
-		must.ErrorIs(t, err, vectorsearch.ErrDimensionMismatch)
-	})
+			_, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0}, TopK: 5})
+			must.ErrorIs(t, err, vectorsearch.ErrDimensionMismatch)
+		})
 
-	T.Run("Upsert rejects wrong dimension", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "udim_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+		T.Run("Upsert rejects wrong dimension", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "udim_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-		err := idx.Upsert(ctx, vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0}})
-		must.ErrorIs(t, err, vectorsearch.ErrDimensionMismatch)
-	})
+			err := idx.Upsert(ctx, vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0}})
+			must.ErrorIs(t, err, vectorsearch.ErrDimensionMismatch)
+		})
 
-	T.Run("Delete removes specific rows", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "del_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+		T.Run("Delete removes specific rows", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "del_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}},
-			vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{0, 1, 0}},
-			vectorsearch.Vector[doc]{ID: "c", Embedding: []float32{0, 0, 1}},
-		))
-		must.NoError(t, idx.Delete(ctx, "a", "c"))
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}},
+				vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{0, 1, 0}},
+				vectorsearch.Vector[doc]{ID: "c", Embedding: []float32{0, 0, 1}},
+			))
+			must.NoError(t, idx.Delete(ctx, "a", "c"))
 
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{0, 1, 0}, TopK: 10})
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		test.EqOp(t, "b", results[0].ID)
-	})
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{0, 1, 0}, TopK: 10})
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
+			test.EqOp(t, "b", results[0].ID)
+		})
 
-	T.Run("Wipe empties the index", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provideTestIndex(t, client, "wipe_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
+		T.Run("Wipe empties the index", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provideTestIndex(t, client, "wipe_"+identifiers.New(), 3, vectorsearch.DistanceCosine)
 
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}},
-			vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{0, 1, 0}},
-		))
-		must.NoError(t, idx.Wipe(ctx))
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "a", Embedding: []float32{1, 0, 0}},
+				vectorsearch.Vector[doc]{ID: "b", Embedding: []float32{0, 1, 0}},
+			))
+			must.NoError(t, idx.Wipe(ctx))
 
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 10})
-		must.NoError(t, err)
-		test.SliceEmpty(t, results)
-	})
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 10})
+			must.NoError(t, err)
+			test.SliceEmpty(t, results)
+		})
 
-	T.Run("NewIndex is idempotent for the same index", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		name := "idem_" + identifiers.New()
-		idx1 := provideTestIndex(t, client, name, 3, vectorsearch.DistanceCosine)
-		idx2 := provideTestIndex(t, client, name, 3, vectorsearch.DistanceCosine)
-		test.NotNil(t, idx1)
-		test.NotNil(t, idx2)
+		T.Run("NewIndex is idempotent for the same index", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			name := "idem_" + identifiers.New()
+			idx1 := provideTestIndex(t, client, name, 3, vectorsearch.DistanceCosine)
+			idx2 := provideTestIndex(t, client, name, 3, vectorsearch.DistanceCosine)
+			test.NotNil(t, idx1)
+			test.NotNil(t, idx2)
 
-		must.NoError(t, idx1.Upsert(ctx, vectorsearch.Vector[doc]{ID: "shared", Embedding: []float32{1, 0, 0}}))
+			must.NoError(t, idx1.Upsert(ctx, vectorsearch.Vector[doc]{ID: "shared", Embedding: []float32{1, 0, 0}}))
 
-		results, err := idx2.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 1})
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		test.EqOp(t, "shared", results[0].ID)
-	})
+			results, err := idx2.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 1})
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
+			test.EqOp(t, "shared", results[0].ID)
+		})
+	}, pgtest.WithImage(pgvectorImage), pgtest.WithCredentials("vectortest", "vectortest", "vectortest"))
 }

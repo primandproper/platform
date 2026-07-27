@@ -11,7 +11,6 @@ import (
 	cbnoop "github.com/primandproper/platform-go/v7/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v7/distributedlock"
 	"github.com/primandproper/platform-go/v7/identifiers"
-	"github.com/primandproper/platform-go/v7/testutils/containers"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/shoenig/test"
@@ -305,100 +304,97 @@ func TestPostgresScopedLocker_TryWithLock_Unit(T *testing.T) {
 func TestPostgresScopedLocker_Container(T *testing.T) {
 	T.Parallel()
 
-	containers.SkipIfNotRunning(T)
+	runWithContainerBackedPostgres(T, func(client *testDBClient) {
+		T.Run("mutual exclusion across concurrent holders", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			s := newTestScopedLocker(t, client)
+			key := "scoped_mutex_" + identifiers.New()
 
-	client, shutdown := buildContainerBackedPostgres(T)
-	T.Cleanup(func() { _ = shutdown(context.Background()) })
+			holding := make(chan struct{})
+			releaseHold := make(chan struct{})
+			holderDone := make(chan error, 1)
 
-	T.Run("mutual exclusion across concurrent holders", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		s := newTestScopedLocker(t, client)
-		key := "scoped_mutex_" + identifiers.New()
-
-		holding := make(chan struct{})
-		releaseHold := make(chan struct{})
-		holderDone := make(chan error, 1)
-
-		go func() {
-			holderDone <- s.WithLock(ctx, key, func(context.Context) error {
-				close(holding)
-				<-releaseHold
-				return nil
-			})
-		}()
-
-		<-holding
-
-		// While held, TryWithLock must refuse.
-		acquired, err := s.TryWithLock(ctx, key, func(context.Context) error { return nil })
-		must.NoError(t, err)
-		test.False(t, acquired)
-
-		close(releaseHold)
-		must.NoError(t, <-holderDone)
-
-		// Once released, TryWithLock succeeds.
-		acquired, err = s.TryWithLock(ctx, key, func(context.Context) error { return nil })
-		must.NoError(t, err)
-		test.True(t, acquired)
-	})
-
-	T.Run("WithLock queues behind a holder and proceeds when released", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		s := newTestScopedLocker(t, client)
-		key := "scoped_queue_" + identifiers.New()
-
-		holding := make(chan struct{})
-		releaseHold := make(chan struct{})
-		holderDone := make(chan error, 1)
-		waiterDone := make(chan error, 1)
-
-		go func() {
-			holderDone <- s.WithLock(ctx, key, func(context.Context) error {
-				close(holding)
-				<-releaseHold
-				return nil
-			})
-		}()
-
-		<-holding
-
-		go func() {
-			waiterDone <- s.WithLock(ctx, key, func(context.Context) error { return nil })
-		}()
-
-		// The waiter is queued server-side; releasing the holder lets it through.
-		close(releaseHold)
-		must.NoError(t, <-holderDone)
-
-		select {
-		case err := <-waiterDone:
-			must.NoError(t, err)
-		case <-time.After(30 * time.Second):
-			t.Fatal("queued WithLock never acquired after release")
-		}
-	})
-
-	T.Run("a panicking fn releases the lock", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		s := newTestScopedLocker(t, client)
-		key := "scoped_panic_" + identifiers.New()
-
-		func() {
-			defer func() {
-				must.NotNil(t, recover())
+			go func() {
+				holderDone <- s.WithLock(ctx, key, func(context.Context) error {
+					close(holding)
+					<-releaseHold
+					return nil
+				})
 			}()
 
-			_ = s.WithLock(ctx, key, func(context.Context) error {
-				panic("kaboom")
-			})
-		}()
+			<-holding
 
-		acquired, err := s.TryWithLock(ctx, key, func(context.Context) error { return nil })
-		must.NoError(t, err)
-		test.True(t, acquired)
+			// While held, TryWithLock must refuse.
+			acquired, err := s.TryWithLock(ctx, key, func(context.Context) error { return nil })
+			must.NoError(t, err)
+			test.False(t, acquired)
+
+			close(releaseHold)
+			must.NoError(t, <-holderDone)
+
+			// Once released, TryWithLock succeeds.
+			acquired, err = s.TryWithLock(ctx, key, func(context.Context) error { return nil })
+			must.NoError(t, err)
+			test.True(t, acquired)
+		})
+
+		T.Run("WithLock queues behind a holder and proceeds when released", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			s := newTestScopedLocker(t, client)
+			key := "scoped_queue_" + identifiers.New()
+
+			holding := make(chan struct{})
+			releaseHold := make(chan struct{})
+			holderDone := make(chan error, 1)
+			waiterDone := make(chan error, 1)
+
+			go func() {
+				holderDone <- s.WithLock(ctx, key, func(context.Context) error {
+					close(holding)
+					<-releaseHold
+					return nil
+				})
+			}()
+
+			<-holding
+
+			go func() {
+				waiterDone <- s.WithLock(ctx, key, func(context.Context) error { return nil })
+			}()
+
+			// The waiter is queued server-side; releasing the holder lets it through.
+			close(releaseHold)
+			must.NoError(t, <-holderDone)
+
+			select {
+			case err := <-waiterDone:
+				must.NoError(t, err)
+			case <-time.After(30 * time.Second):
+				t.Fatal("queued WithLock never acquired after release")
+			}
+		})
+
+		T.Run("a panicking fn releases the lock", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			s := newTestScopedLocker(t, client)
+			key := "scoped_panic_" + identifiers.New()
+
+			func() {
+				defer func() {
+					must.NotNil(t, recover())
+				}()
+
+				_ = s.WithLock(ctx, key, func(context.Context) error {
+					panic("kaboom")
+				})
+			}()
+
+			acquired, err := s.TryWithLock(ctx, key, func(context.Context) error { return nil })
+			must.NoError(t, err)
+			test.True(t, acquired)
+		})
 	})
 }

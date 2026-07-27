@@ -18,15 +18,12 @@ import (
 	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v7/testutils/containers"
+	"github.com/primandproper/platform-go/v7/testutils/containers/pgtest"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"github.com/testcontainers/testcontainers-go"
-	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	_ "modernc.org/sqlite"
@@ -80,8 +77,6 @@ var testMigrationsFS embed.FS
 
 //go:embed testdata/unannotated/*.sql
 var testUnannotatedFS embed.FS
-
-const postgresImage = "postgres:17-alpine"
 
 func testMigrations(t *testing.T) fs.FS {
 	t.Helper()
@@ -477,68 +472,54 @@ func TestLockID(T *testing.T) {
 func TestMigrator_Migrate_PostgresContainer(T *testing.T) {
 	T.Parallel()
 
-	containers.SkipIfNotRunning(T)
+	// The subtest opens its own pools off connStr, one per simulated replica.
+	pgtest.Run(T, func(_ context.Context, pg *pgtest.Instance) {
+		connStr := pg.ConnectionString
 
-	ctx := context.Background()
-	container, err := containers.StartWithRetry(ctx, func(ctx context.Context) (*postgrescontainer.PostgresContainer, error) {
-		return postgrescontainer.Run(
-			ctx,
-			postgresImage,
-			postgrescontainer.WithDatabase("migratetest"),
-			postgrescontainer.WithUsername("migratetest"),
-			postgrescontainer.WithPassword("migratetest"),
-			testcontainers.WithWaitStrategyAndDeadline(2*time.Minute, wait.ForLog("database system is ready to accept connections").WithOccurrence(2)),
-		)
-	})
-	must.NoError(T, err)
-	T.Cleanup(func() { _ = container.Terminate(context.Background()) })
+		T.Run("concurrent replicas serialize on the session lock", func(t *testing.T) {
+			t.Parallel()
 
-	connStr, err := container.ConnectionString(ctx, "sslmode=disable")
-	must.NoError(T, err)
+			const replicas = 3
 
-	T.Run("concurrent replicas serialize on the session lock", func(t *testing.T) {
-		t.Parallel()
+			// Each "replica" gets its own *sql.DB, as separate processes would.
+			errs := make([]error, replicas)
+			var wg sync.WaitGroup
+			for idx := range replicas {
+				wg.Go(func() {
+					db, openErr := sql.Open("pgx", connStr)
+					if openErr != nil {
+						errs[idx] = openErr
+						return
+					}
+					defer func() { _ = db.Close() }()
 
-		const replicas = 3
+					m, newErr := New(DialectPostgres, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
+					if newErr != nil {
+						errs[idx] = newErr
+						return
+					}
 
-		// Each "replica" gets its own *sql.DB, as separate processes would.
-		errs := make([]error, replicas)
-		var wg sync.WaitGroup
-		for idx := range replicas {
-			wg.Go(func() {
-				db, openErr := sql.Open("pgx", connStr)
-				if openErr != nil {
-					errs[idx] = openErr
-					return
-				}
-				defer func() { _ = db.Close() }()
-
-				m, newErr := New(DialectPostgres, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
-				if newErr != nil {
-					errs[idx] = newErr
-					return
-				}
-
-				errs[idx] = m.Migrate(t.Context(), db)
-			})
-		}
-		wg.Wait()
-
-		for idx, migrateErr := range errs {
-			if migrateErr != nil {
-				t.Fatalf("replica %d failed: %v", idx, migrateErr)
+					errs[idx] = m.Migrate(t.Context(), db)
+				})
 			}
-		}
+			wg.Wait()
 
-		// The winner migrated, the others waited and no-opped; the schema is
-		// whole, including both tables from the multi-statement migration.
-		db, openErr := sql.Open("pgx", connStr)
-		must.NoError(t, openErr)
-		defer func() { _ = db.Close() }()
+			for idx, migrateErr := range errs {
+				if migrateErr != nil {
+					t.Fatalf("replica %d failed: %v", idx, migrateErr)
+				}
+			}
 
-		test.EqOp(t, 0, countRows(t, db, "migrate_test_users"))
-		test.EqOp(t, 0, countRows(t, db, "migrate_test_widgets"))
-		test.EqOp(t, 0, countRows(t, db, "migrate_test_orders"))
-		test.EqOp(t, 0, countRows(t, db, "migrate_test_order_items"))
-	})
+			// The winner migrated, the others waited and no-opped; the schema is
+			// whole, including both tables from the multi-statement migration.
+			db, openErr := sql.Open("pgx", connStr)
+			must.NoError(t, openErr)
+			defer func() { _ = db.Close() }()
+
+			test.EqOp(t, 0, countRows(t, db, "migrate_test_users"))
+			test.EqOp(t, 0, countRows(t, db, "migrate_test_widgets"))
+			test.EqOp(t, 0, countRows(t, db, "migrate_test_orders"))
+			test.EqOp(t, 0, countRows(t, db, "migrate_test_order_items"))
+		})
+	}, pgtest.WithCredentials("migratetest", "migratetest", "migratetest"))
 }

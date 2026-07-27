@@ -26,15 +26,6 @@ import (
 
 const elasticsearchImage = "elasticsearch:8.10.2"
 
-// esTestInfra holds a single shared Elasticsearch container for all container-
-// backed subtests inside a package run. Subtests use unique index names to stay
-// isolated, mirroring the qdrant/pgvector/distributedlock shared-container
-// pattern.
-type esTestInfra struct {
-	cfg      *Config
-	shutdown func(context.Context) error
-}
-
 // extendWaitStrategyTimeout returns a PostCreates lifecycle hook that extends
 // the timeouts of the elasticsearch module's bundled wait strategies.
 //
@@ -80,36 +71,35 @@ func extendWaitStrategyTimeout(timeout time.Duration) testcontainers.ContainerHo
 	}
 }
 
-func buildEsTestInfra(t *testing.T) *esTestInfra {
-	t.Helper()
+// runWithContainerBackedElasticsearch boots one Elasticsearch container and
+// hands the suite a Config pointed at it. containers.Run owns the container, so
+// it outlives the closure's parallel subtests and is reaped once they finish.
+func runWithContainerBackedElasticsearch(tb testing.TB, fn func(cfg *Config)) {
+	tb.Helper()
 
-	elasticsearchContainer, err := containers.StartWithRetry(t.Context(), func(ctx context.Context) (*elasticsearchcontainers.ElasticsearchContainer, error) {
-		return elasticsearchcontainers.Run(
-			ctx,
-			elasticsearchImage,
-			elasticsearchcontainers.WithPassword("arbitraryPassword"),
-			testcontainers.WithAdditionalLifecycleHooks(testcontainers.ContainerLifecycleHooks{
-				PostCreates: []testcontainers.ContainerHook{
-					extendWaitStrategyTimeout(5 * time.Minute),
-				},
-			}),
-		)
-	})
-	must.NoError(t, err)
-	must.NotNil(t, elasticsearchContainer)
-
-	cfg := &Config{
-		Address:               elasticsearchContainer.Settings.Address,
-		IndexOperationTimeout: 0,
-		Username:              "elastic",
-		Password:              elasticsearchContainer.Settings.Password,
-		CACert:                elasticsearchContainer.Settings.CACert,
-	}
-
-	return &esTestInfra{
-		cfg:      cfg,
-		shutdown: func(ctx context.Context) error { return elasticsearchContainer.Terminate(ctx) },
-	}
+	containers.Run(tb,
+		func(ctx context.Context) (*elasticsearchcontainers.ElasticsearchContainer, error) {
+			return elasticsearchcontainers.Run(
+				ctx,
+				elasticsearchImage,
+				elasticsearchcontainers.WithPassword("arbitraryPassword"),
+				testcontainers.WithAdditionalLifecycleHooks(testcontainers.ContainerLifecycleHooks{
+					PostCreates: []testcontainers.ContainerHook{
+						extendWaitStrategyTimeout(5 * time.Minute),
+					},
+				}),
+			)
+		},
+		func(_ context.Context, container *elasticsearchcontainers.ElasticsearchContainer) {
+			fn(&Config{
+				Address:               container.Settings.Address,
+				IndexOperationTimeout: 0,
+				Username:              "elastic",
+				Password:              container.Settings.Password,
+				CACert:                container.Settings.CACert,
+			})
+		},
+	)
 }
 
 // TestElasticsearch_Container holds every subtest that needs a real
@@ -119,8 +109,6 @@ func buildEsTestInfra(t *testing.T) *esTestInfra {
 func TestElasticsearch_Container(T *testing.T) {
 	T.Parallel()
 
-	containers.SkipIfNotRunning(T)
-
 	// The elasticsearch:8.x images crash with SIGILL inside the bundled JDK
 	// when run under linux/arm64 on Docker Desktop for Mac, so the cert wait
 	// strategy times out and the suite flakes. Skip until ES ships a JDK
@@ -129,274 +117,273 @@ func TestElasticsearch_Container(T *testing.T) {
 		T.Skip("elasticsearch JDK crashes on linux/arm64 under Docker Desktop; skipping")
 	}
 
-	infra := buildEsTestInfra(T)
-	T.Cleanup(func() { _ = infra.shutdown(context.Background()) })
+	runWithContainerBackedElasticsearch(T, func(cfg *Config) {
+		// --- ensureIndices ---
 
-	// --- ensureIndices ---
+		T.Run("ensureIndices creates index when it does not exist", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("ensureIndices creates index when it does not exist", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			indexName := "ensure_create_" + identifiers.New()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, indexName, cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
+			test.NotNil(t, im)
 
-		ctx := t.Context()
-		indexName := "ensure_create_" + identifiers.New()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, indexName, cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
-		test.NotNil(t, im)
+			searchable := &example{
+				ID:   identifiers.New(),
+				Name: "test document",
+			}
 
-		searchable := &example{
-			ID:   identifiers.New(),
-			Name: "test document",
-		}
+			test.NoError(t, im.Index(ctx, searchable.ID, searchable))
+		})
 
-		test.NoError(t, im.Index(ctx, searchable.ID, searchable))
-	})
+		T.Run("ensureIndices handles existing index", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("ensureIndices handles existing index", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			indexName := "ensure_existing_" + identifiers.New()
+			im1, err := NewIndexManager[example](ctx, nil, nil, cfg, indexName, cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		indexName := "ensure_existing_" + identifiers.New()
-		im1, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, indexName, cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			im2, err := NewIndexManager[example](ctx, nil, nil, cfg, indexName, cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		im2, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, indexName, cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			test.NotNil(t, im1)
+			test.NotNil(t, im2)
 
-		test.NotNil(t, im1)
-		test.NotNil(t, im2)
+			searchable := &example{
+				ID:   identifiers.New(),
+				Name: "test document",
+			}
 
-		searchable := &example{
-			ID:   identifiers.New(),
-			Name: "test document",
-		}
+			test.NoError(t, im1.Index(ctx, searchable.ID, searchable))
+			test.NoError(t, im2.Index(ctx, searchable.ID+"_2", searchable))
+		})
 
-		test.NoError(t, im1.Index(ctx, searchable.ID, searchable))
-		test.NoError(t, im2.Index(ctx, searchable.ID+"_2", searchable))
-	})
+		// --- NewIndexManager ---
 
-	// --- NewIndexManager ---
+		T.Run("NewIndexManager standard", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("NewIndexManager standard", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "provide_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			test.NoError(t, err)
+			test.NotNil(t, im)
+		})
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "provide_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		test.NoError(t, err)
-		test.NotNil(t, im)
-	})
+		T.Run("NewIndexManager with logger and tracer", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("NewIndexManager with logger and tracer", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			logger := loggingnoop.NewLogger()
+			tracerProvider := tracingnoop.NewTracerProvider()
 
-		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
+			im, err := NewIndexManager[example](ctx, logger, tracerProvider, cfg, "provide_lt_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			test.NoError(t, err)
+			test.NotNil(t, im)
+		})
 
-		im, err := NewIndexManager[example](ctx, logger, tracerProvider, infra.cfg, "provide_lt_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		test.NoError(t, err)
-		test.NotNil(t, im)
-	})
+		// --- elasticsearchIsReadyToInit ---
 
-	// --- elasticsearchIsReadyToInit ---
+		T.Run("elasticsearchIsReadyToInit returns true with valid config", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("elasticsearchIsReadyToInit returns true with valid config", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			logger := loggingnoop.NewLogger()
 
-		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
+			ready := elasticsearchIsReadyToInit(ctx, cfg, logger, 5)
+			test.True(t, ready)
+		})
 
-		ready := elasticsearchIsReadyToInit(ctx, infra.cfg, logger, 5)
-		test.True(t, ready)
-	})
+		// --- provideElasticsearchClient ---
 
-	// --- provideElasticsearchClient ---
+		T.Run("provideElasticsearchClient succeeds", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("provideElasticsearchClient succeeds", func(t *testing.T) {
-		t.Parallel()
+			client, err := provideElasticsearchClient(cfg)
+			test.NoError(t, err)
+			test.NotNil(t, client)
+		})
 
-		client, err := provideElasticsearchClient(infra.cfg)
-		test.NoError(t, err)
-		test.NotNil(t, client)
-	})
+		// --- complete lifecycle ---
 
-	// --- complete lifecycle ---
+		T.Run("complete lifecycle", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("complete lifecycle", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "lifecycle_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			test.NoError(t, err)
+			test.NotNil(t, im)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "lifecycle_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		test.NoError(t, err)
-		test.NotNil(t, im)
+			searchable := &example{
+				ID:   identifiers.New(),
+				Name: t.Name(),
+			}
 
-		searchable := &example{
-			ID:   identifiers.New(),
-			Name: t.Name(),
-		}
+			test.NoError(t, im.Index(ctx, searchable.ID, searchable))
 
-		test.NoError(t, im.Index(ctx, searchable.ID, searchable))
+			time.Sleep(5 * time.Second)
 
-		time.Sleep(5 * time.Second)
+			results, err := im.Search(ctx, searchable.Name)
+			test.NoError(t, err)
+			must.SliceLen(t, 1, results)
+			test.Eq(t, searchable, results[0])
 
-		results, err := im.Search(ctx, searchable.Name)
-		test.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		test.Eq(t, searchable, results[0])
+			test.NoError(t, im.Delete(ctx, searchable.ID))
+		})
 
-		test.NoError(t, im.Delete(ctx, searchable.ID))
-	})
+		// --- Index ---
 
-	// --- Index ---
+		T.Run("Index successful", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Index successful", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "idx_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "idx_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			searchable := &example{
+				ID:   identifiers.New(),
+				Name: t.Name(),
+			}
 
-		searchable := &example{
-			ID:   identifiers.New(),
-			Name: t.Name(),
-		}
+			test.NoError(t, im.Index(ctx, searchable.ID, searchable))
+		})
 
-		test.NoError(t, im.Index(ctx, searchable.ID, searchable))
-	})
+		T.Run("Index json marshaling error", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Index json marshaling error", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "idx_json_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "idx_json_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			invalid := &invalidJSON{
+				Channel: make(chan int),
+			}
 
-		invalid := &invalidJSON{
-			Channel: make(chan int),
-		}
+			test.Error(t, im.Index(ctx, "test-id", invalid))
+		})
 
-		test.Error(t, im.Index(ctx, "test-id", invalid))
-	})
+		T.Run("Index with noop circuit breaker", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Index with noop circuit breaker", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			cb := cbnoop.NewCircuitBreaker()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "idx_cb_"+identifiers.New(), cb)
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		cb := cbnoop.NewCircuitBreaker()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "idx_cb_"+identifiers.New(), cb)
-		must.NoError(t, err)
+			searchable := &example{
+				ID:   identifiers.New(),
+				Name: t.Name(),
+			}
 
-		searchable := &example{
-			ID:   identifiers.New(),
-			Name: t.Name(),
-		}
+			test.NoError(t, im.Index(ctx, searchable.ID, searchable))
+		})
 
-		test.NoError(t, im.Index(ctx, searchable.ID, searchable))
-	})
+		// --- Search ---
 
-	// --- Search ---
+		T.Run("Search successful", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Search successful", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "search_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "search_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			searchable := &example{
+				ID:   identifiers.New(),
+				Name: "test search document",
+			}
+			must.NoError(t, im.Index(ctx, searchable.ID, searchable))
 
-		searchable := &example{
-			ID:   identifiers.New(),
-			Name: "test search document",
-		}
-		must.NoError(t, im.Index(ctx, searchable.ID, searchable))
+			time.Sleep(2 * time.Second)
 
-		time.Sleep(2 * time.Second)
+			results, err := im.Search(ctx, "test")
+			test.NoError(t, err)
+			test.SliceLen(t, 1, results)
+			test.EqOp(t, searchable.ID, results[0].ID)
+		})
 
-		results, err := im.Search(ctx, "test")
-		test.NoError(t, err)
-		test.SliceLen(t, 1, results)
-		test.EqOp(t, searchable.ID, results[0].ID)
-	})
+		T.Run("Search empty query error", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Search empty query error", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "search_empty_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "search_empty_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			results, err := im.Search(ctx, "")
+			test.Error(t, err)
+			test.Nil(t, results)
+			test.ErrorIs(t, err, ErrEmptyQueryProvided)
+		})
 
-		results, err := im.Search(ctx, "")
-		test.Error(t, err)
-		test.Nil(t, results)
-		test.ErrorIs(t, err, ErrEmptyQueryProvided)
-	})
+		T.Run("Search no results found", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Search no results found", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "search_noresult_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "search_noresult_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			results, err := im.Search(ctx, "nonexistent document")
+			test.NoError(t, err)
+			test.SliceLen(t, 0, results)
+		})
 
-		results, err := im.Search(ctx, "nonexistent document")
-		test.NoError(t, err)
-		test.SliceLen(t, 0, results)
-	})
+		// --- Delete ---
 
-	// --- Delete ---
+		T.Run("Delete successful", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Delete successful", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "del_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "del_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			searchable := &example{
+				ID:   identifiers.New(),
+				Name: "test delete document",
+			}
+			must.NoError(t, im.Index(ctx, searchable.ID, searchable))
 
-		searchable := &example{
-			ID:   identifiers.New(),
-			Name: "test delete document",
-		}
-		must.NoError(t, im.Index(ctx, searchable.ID, searchable))
+			test.NoError(t, im.Delete(ctx, searchable.ID))
+		})
 
-		test.NoError(t, im.Delete(ctx, searchable.ID))
-	})
+		T.Run("Delete non-existent document", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Delete non-existent document", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "del_nf_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "del_nf_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			test.NoError(t, im.Delete(ctx, "non-existent-id"))
+		})
 
-		test.NoError(t, im.Delete(ctx, "non-existent-id"))
-	})
+		// --- Wipe ---
 
-	// --- Wipe ---
+		T.Run("Wipe removes all documents", func(t *testing.T) {
+			t.Parallel()
 
-	T.Run("Wipe removes all documents", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "wipe_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
 
-		ctx := t.Context()
-		im, err := NewIndexManager[example](ctx, nil, nil, infra.cfg, "wipe_"+identifiers.New(), cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			searchable := &example{
+				ID:   identifiers.New(),
+				Name: "test wipe document",
+			}
+			must.NoError(t, im.Index(ctx, searchable.ID, searchable))
 
-		searchable := &example{
-			ID:   identifiers.New(),
-			Name: "test wipe document",
-		}
-		must.NoError(t, im.Index(ctx, searchable.ID, searchable))
+			time.Sleep(2 * time.Second)
 
-		time.Sleep(2 * time.Second)
+			results, err := im.Search(ctx, "wipe")
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
 
-		results, err := im.Search(ctx, "wipe")
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
+			test.NoError(t, im.Wipe(ctx))
 
-		test.NoError(t, im.Wipe(ctx))
+			time.Sleep(2 * time.Second)
 
-		time.Sleep(2 * time.Second)
-
-		results, err = im.Search(ctx, "wipe")
-		test.NoError(t, err)
-		test.SliceLen(t, 0, results)
+			results, err = im.Search(ctx, "wipe")
+			test.NoError(t, err)
+			test.SliceLen(t, 0, results)
+		})
 	})
 }
 
