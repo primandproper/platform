@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v7/cache/redis/slots"
-	"github.com/primandproper/platform-go/v7/testutils/containers"
 	"github.com/primandproper/platform-go/v7/testutils/containers/redistest"
 
 	"github.com/redis/go-redis/v9"
@@ -35,8 +34,6 @@ func startRedis(t *testing.T) *redis.Client {
 // the hashtag wrapping is off, this test fails loudly.
 func TestKeyGenerator_redisAgreesOnSlots(T *testing.T) {
 	T.Parallel()
-
-	containers.SkipIfNotRunning(T)
 
 	client := startRedis(T)
 
@@ -84,8 +81,6 @@ func TestKeyGenerator_redisAgreesOnSlots(T *testing.T) {
 func TestKeyGenerator_appendedUserDataPreservesSlot(T *testing.T) {
 	T.Parallel()
 
-	containers.SkipIfNotRunning(T)
-
 	client := startRedis(T)
 
 	gen, err := slots.NewKeyGenerator("key:version:", "", slots.FromClusterConfig(5, 2))
@@ -114,8 +109,6 @@ func TestKeyGenerator_appendedUserDataPreservesSlot(T *testing.T) {
 // "first hashtag wins" rule.
 func TestSlotForKey_redisAgrees(T *testing.T) {
 	T.Parallel()
-
-	containers.SkipIfNotRunning(T)
 
 	client := startRedis(T)
 

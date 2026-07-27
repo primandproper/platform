@@ -43,45 +43,70 @@ func WithClusterEnabled() Option {
 	return func(o *options) { o.clusterEnabled = true }
 }
 
-// Start brings up a redis container with the shared retry policy and wait
-// strategy, and registers termination as a tb.Cleanup so callers do not have
-// to remember to shut it down. The returned container exposes
-// ConnectionString and the rest of the rediscontainers.RedisContainer API.
-// It accepts testing.TB so both tests and benchmarks can use it.
+func newOptions(opts []Option) *options {
+	cfg := &options{image: DefaultImage}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return cfg
+}
+
+// Start brings up a redis container and returns it. It is containers.Run with
+// the redis-shaped setup already applied, so callers inherit the whole policy:
+// the RUN_CONTAINER_TESTS gate (the test skips without a Docker daemon), the
+// shared retry policy, and termination registered as a tb.Cleanup. The returned
+// container exposes ConnectionString and the rest of the
+// rediscontainers.RedisContainer API. It accepts testing.TB so both tests and
+// benchmarks can use it.
 //
-// Failures during startup call tb.Fatal via must.NoError. Callers that need
-// to handle startup failure differently (e.g. skip the test instead of
-// failing it) should use Try.
+// Because the gate lives here, callers must not also call
+// containers.SkipIfNotRunning — Start skips on their behalf.
+//
+// Failures during startup fail the test. Callers that need to handle startup
+// failure differently, or that need redis outside a testing.TB, should use Try.
 func Start(tb testing.TB, opts ...Option) *rediscontainers.RedisContainer {
 	tb.Helper()
 
-	container, shutdown, err := Try(tb.Context(), opts...)
-	must.NoError(tb, err)
-	must.NotNil(tb, container)
+	// containers.Run is closure-shaped because it owns teardown; Start hands the
+	// container back instead, so capture it on the way through.
+	var container *rediscontainers.RedisContainer
 
-	tb.Cleanup(func() {
-		shutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if sErr := shutdown(shutCtx); sErr != nil {
-			tb.Logf("redistest: container shutdown error: %v", sErr)
-		}
-	})
+	containers.Run(tb,
+		func(ctx context.Context) (*rediscontainers.RedisContainer, error) {
+			return run(ctx, newOptions(opts))
+		},
+		func(_ context.Context, started *rediscontainers.RedisContainer) {
+			container = started
+		},
+	)
+
 	return container
 }
 
 // Try brings up a redis container and returns it along with a shutdown
 // closure and any startup error. Prefer Start in tests — Try exists for the
 // few callers that want to handle container failures specially (skip vs.
-// fail) or that need to bring up Redis outside of a *testing.T context.
+// fail) or that need to bring up Redis outside of a testing.TB context, and so
+// it enforces neither the RUN_CONTAINER_TESTS gate nor any cleanup.
 //
 // The shutdown closure is safe to call even when err is non-nil (it is a
 // no-op in that case).
 func Try(ctx context.Context, opts ...Option) (container *rediscontainers.RedisContainer, shutdown func(context.Context) error, err error) {
-	cfg := options{image: DefaultImage}
-	for _, opt := range opts {
-		opt(&cfg)
+	container, err = containers.StartWithRetry(ctx, func(c context.Context) (*rediscontainers.RedisContainer, error) {
+		return run(c, newOptions(opts))
+	})
+	if err != nil {
+		return nil, func(context.Context) error { return nil }, err
 	}
 
+	shutdown = func(ctx context.Context) error { return container.Terminate(ctx) }
+	return container, shutdown, nil
+}
+
+// run is the single definition of what a redis container for this repo looks
+// like, shared by Start and Try. It performs one attempt; retry belongs to the
+// caller.
+func run(ctx context.Context, cfg *options) (*rediscontainers.RedisContainer, error) {
 	runOpts := []testcontainers.ContainerCustomizer{
 		rediscontainers.WithLogLevel(rediscontainers.LogLevelNotice),
 		testcontainers.WithWaitStrategyAndDeadline(2*time.Minute, wait.ForAll(
@@ -93,15 +118,7 @@ func Try(ctx context.Context, opts ...Option) (container *rediscontainers.RedisC
 		runOpts = append(runOpts, testcontainers.WithCmdArgs("--cluster-enabled", "yes"))
 	}
 
-	container, err = containers.StartWithRetry(ctx, func(c context.Context) (*rediscontainers.RedisContainer, error) {
-		return rediscontainers.Run(c, cfg.image, runOpts...)
-	})
-	if err != nil {
-		return nil, func(context.Context) error { return nil }, err
-	}
-
-	shutdown = func(ctx context.Context) error { return container.Terminate(ctx) }
-	return container, shutdown, nil
+	return rediscontainers.Run(ctx, cfg.image, runOpts...)
 }
 
 // Address returns the container's host:port string, suitable for

@@ -35,46 +35,39 @@ const pubsubEmulatorImage = "gcr.io/google.com/cloudsdktool/cloud-sdk:emulators"
 
 type pubsubTestInfra struct {
 	client    *pubsub.Client
-	shutdown  func(context.Context) error
 	projectID string
 }
 
-// buildPubSubTestInfra boots a single Pub/Sub emulator container and returns a
-// client + project ID that can be reused across many subtests. Subtests should
-// call (*pubsubTestInfra).newTopic to get a unique topic + subscription within
-// the shared project, mirroring the qdrant/pgvector pattern.
-func buildPubSubTestInfra(t *testing.T) *pubsubTestInfra {
-	t.Helper()
+// runWithContainerBackedPubSub boots a single Pub/Sub emulator container and
+// hands the suite a client + project ID that all of its subtests share. Subtests
+// call (*pubsubTestInfra).newTopic for a unique topic + subscription inside that
+// shared project. containers.Run owns the container, so it outlives the parallel
+// subtests the closure registers.
+func runWithContainerBackedPubSub(tb testing.TB, fn func(infra *pubsubTestInfra)) {
+	tb.Helper()
 
-	ctx := t.Context()
-
-	randomID, err := random.GenerateHexEncodedString(ctx, 8)
-	must.NoError(t, err)
+	randomID, err := random.GenerateHexEncodedString(tb.Context(), 8)
+	must.NoError(tb, err)
 	projectID := "project-" + randomID
 
-	pubsubContainer, err := containers.StartWithRetry(ctx, func(ctx context.Context) (*tcpubsub.Container, error) {
-		return tcpubsub.Run(
-			ctx,
-			pubsubEmulatorImage,
-			tcpubsub.WithProjectID(projectID),
-		)
-	})
-	must.NoError(t, err)
-	must.NotNil(t, pubsubContainer)
+	containers.Run(tb,
+		func(ctx context.Context) (*tcpubsub.Container, error) {
+			return tcpubsub.Run(ctx, pubsubEmulatorImage, tcpubsub.WithProjectID(projectID))
+		},
+		func(ctx context.Context, container *tcpubsub.Container) {
+			conn, connErr := grpc.NewClient(container.URI(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+			must.NoError(tb, connErr)
+			must.NotNil(tb, conn)
+			tb.Cleanup(func() { _ = conn.Close() })
 
-	conn, err := grpc.NewClient(pubsubContainer.URI(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	must.NoError(t, err)
-	must.NotNil(t, conn)
+			client, clientErr := pubsub.NewClient(ctx, projectID, option.WithGRPCConn(conn))
+			must.NoError(tb, clientErr)
+			must.NotNil(tb, client)
+			tb.Cleanup(func() { _ = client.Close() })
 
-	client, err := pubsub.NewClient(ctx, projectID, option.WithGRPCConn(conn))
-	must.NoError(t, err)
-	must.NotNil(t, client)
-
-	return &pubsubTestInfra{
-		client:    client,
-		projectID: projectID,
-		shutdown:  func(ctx context.Context) error { return pubsubContainer.Terminate(ctx) },
-	}
+			fn(&pubsubTestInfra{client: client, projectID: projectID})
+		},
+	)
 }
 
 // newTopic creates a fresh topic + subscription with a unique name inside the
@@ -229,250 +222,247 @@ func TestPubSubConsumerProvider_NewConsumer(T *testing.T) {
 func TestPubSub_Container(T *testing.T) {
 	T.Parallel()
 
-	containers.SkipIfNotRunning(T)
+	runWithContainerBackedPubSub(T, func(infra *pubsubTestInfra) {
+		T.Run("publisher publishes message", func(t *testing.T) {
+			t.Parallel()
 
-	infra := buildPubSubTestInfra(T)
-	T.Cleanup(func() { _ = infra.shutdown(context.Background()) })
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
 
-	T.Run("publisher publishes message", func(t *testing.T) {
-		t.Parallel()
+			logger := loggingnoop.NewLogger()
+			provider := NewPubSubPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client, infra.projectID)
+			must.NotNil(t, provider)
 
-		ctx := t.Context()
-		topicName := infra.newTopic(t)
+			publisher, err := provider.NewPublisher(ctx, topicName)
+			must.NoError(t, err)
+			must.NotNil(t, publisher)
 
-		logger := loggingnoop.NewLogger()
-		provider := NewPubSubPublisherProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client, infra.projectID)
-		must.NotNil(t, provider)
+			inputData := &struct {
+				Name string `json:"name"`
+			}{
+				Name: t.Name(),
+			}
 
-		publisher, err := provider.NewPublisher(ctx, topicName)
-		must.NoError(t, err)
-		must.NotNil(t, publisher)
-
-		inputData := &struct {
-			Name string `json:"name"`
-		}{
-			Name: t.Name(),
-		}
-
-		test.NoError(t, publisher.Publish(ctx, inputData))
-	})
-
-	T.Run("consumer provider caches consumers for same topic", func(t *testing.T) {
-		t.Parallel()
-
-		ctx := t.Context()
-		topicName := infra.newTopic(t)
-
-		logger := loggingnoop.NewLogger()
-		provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
-
-		handler := func(_ context.Context, _ []byte) error { return nil }
-
-		c1, err := provider.NewConsumer(ctx, topicName, handler)
-		must.NoError(t, err)
-		must.NotNil(t, c1)
-
-		c2, err := provider.NewConsumer(ctx, topicName, handler)
-		must.NoError(t, err)
-		test.True(t, c1 == c2)
-	})
-
-	T.Run("consumer receives published message", func(t *testing.T) {
-		t.Parallel()
-
-		ctx := t.Context()
-		topicName := infra.newTopic(t)
-
-		var called atomic.Bool
-		handler := func(_ context.Context, _ []byte) error {
-			called.Store(true)
-			return nil
-		}
-
-		logger := loggingnoop.NewLogger()
-		provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
-		consumer, err := provider.NewConsumer(ctx, topicName, handler)
-		must.NoError(t, err)
-
-		obs := observability.NewRecordingObserver()
-		consumer.(*pubSubConsumer).o11y = obs
-
-		messageData := []byte(`{"name":"test"}`)
-
-		stopChan := make(chan bool, 1)
-		errChan := make(chan error, 1)
-		done := make(chan struct{})
-		go func() {
-			consumer.Consume(ctx, stopChan, errChan)
-			close(done)
-		}()
-
-		// Publish a message.
-		publisher := infra.client.Publisher(topicName)
-		result := publisher.Publish(ctx, &pubsub.Message{Data: messageData})
-		<-result.Ready()
-		_, err = result.Get(ctx)
-		must.NoError(t, err)
-
-		// Wait for handler to be called.
-		deadline := time.Now().Add(10 * time.Second)
-		for !called.Load() && time.Now().Before(deadline) {
-			time.Sleep(100 * time.Millisecond)
-		}
-		test.True(t, called.Load())
-
-		stopChan <- true
-		// Wait for Consume to return so the background message callback (and its
-		// deferred op.End) has completed before reading the recorded observations.
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			t.Fatal("timed out waiting for Consume to return after stop signal")
-		}
-
-		select {
-		case err = <-errChan:
-			t.Fatalf("unexpected error: %v", err)
-		default:
-		}
-
-		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.TopicKey:  topicName,
-			keys.LengthKey: len(messageData),
+			test.NoError(t, publisher.Publish(ctx, inputData))
 		})
-		test.SliceEmpty(t, op.Errors)
-	})
 
-	T.Run("consumer handler error is sent to error channel", func(t *testing.T) {
-		t.Parallel()
+		T.Run("consumer provider caches consumers for same topic", func(t *testing.T) {
+			t.Parallel()
 
-		ctx := t.Context()
-		topicName := infra.newTopic(t)
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
 
-		expectedErr := fmt.Errorf("handler failure")
-		handler := func(_ context.Context, _ []byte) error {
-			return expectedErr
-		}
+			logger := loggingnoop.NewLogger()
+			provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
 
-		logger := loggingnoop.NewLogger()
-		provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
-		consumer, err := provider.NewConsumer(ctx, topicName, handler)
-		must.NoError(t, err)
+			handler := func(_ context.Context, _ []byte) error { return nil }
 
-		obs := observability.NewRecordingObserver()
-		consumer.(*pubSubConsumer).o11y = obs
+			c1, err := provider.NewConsumer(ctx, topicName, handler)
+			must.NoError(t, err)
+			must.NotNil(t, c1)
 
-		messageData := []byte(`{"name":"test"}`)
-
-		stopChan := make(chan bool, 1)
-		errChan := make(chan error, 1)
-		done := make(chan struct{})
-		go func() {
-			consumer.Consume(ctx, stopChan, errChan)
-			close(done)
-		}()
-
-		// Publish a message.
-		publisher := infra.client.Publisher(topicName)
-		result := publisher.Publish(ctx, &pubsub.Message{Data: messageData})
-		<-result.Ready()
-		_, err = result.Get(ctx)
-		must.NoError(t, err)
-
-		// Wait for the error to appear.
-		select {
-		case receivedErr := <-errChan:
-			test.ErrorIs(t, receivedErr, expectedErr)
-		case <-time.After(10 * time.Second):
-			t.Fatal("timed out waiting for handler error")
-		}
-
-		stopChan <- true
-		// Wait for Consume to return so the background message callback (and its
-		// deferred op.End) has completed before reading the recorded observations.
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			t.Fatal("timed out waiting for Consume to return after stop signal")
-		}
-
-		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.TopicKey:  topicName,
-			keys.LengthKey: len(messageData),
+			c2, err := provider.NewConsumer(ctx, topicName, handler)
+			must.NoError(t, err)
+			test.True(t, c1 == c2)
 		})
-		must.SliceLen(t, 1, op.Errors)
-		test.ErrorIs(t, op.Errors[0], expectedErr)
-	})
 
-	T.Run("consumer stops when stop channel is signaled", func(t *testing.T) {
-		t.Parallel()
+		T.Run("consumer receives published message", func(t *testing.T) {
+			t.Parallel()
 
-		ctx := t.Context()
-		topicName := infra.newTopic(t)
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
 
-		handler := func(_ context.Context, _ []byte) error { return nil }
+			var called atomic.Bool
+			handler := func(_ context.Context, _ []byte) error {
+				called.Store(true)
+				return nil
+			}
 
-		logger := loggingnoop.NewLogger()
-		provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
-		consumer, err := provider.NewConsumer(ctx, topicName, handler)
-		must.NoError(t, err)
+			logger := loggingnoop.NewLogger()
+			provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
+			consumer, err := provider.NewConsumer(ctx, topicName, handler)
+			must.NoError(t, err)
 
-		stopChan := make(chan bool, 1)
-		errChan := make(chan error, 1)
+			obs := observability.NewRecordingObserver()
+			consumer.(*pubSubConsumer).o11y = obs
 
-		done := make(chan struct{})
-		go func() {
-			consumer.Consume(ctx, stopChan, errChan)
-			close(done)
-		}()
+			messageData := []byte(`{"name":"test"}`)
 
-		stopChan <- true
+			stopChan := make(chan bool, 1)
+			errChan := make(chan error, 1)
+			done := make(chan struct{})
+			go func() {
+				consumer.Consume(ctx, stopChan, errChan)
+				close(done)
+			}()
 
-		select {
-		case <-done:
-			// Consume returned, success.
-		case <-time.After(10 * time.Second):
-			t.Fatal("timed out waiting for Consume to return after stop signal")
-		}
-	})
+			// Publish a message.
+			publisher := infra.client.Publisher(topicName)
+			result := publisher.Publish(ctx, &pubsub.Message{Data: messageData})
+			<-result.Ready()
+			_, err = result.Get(ctx)
+			must.NoError(t, err)
 
-	T.Run("consumer with nil stop channel does not panic", func(t *testing.T) {
-		t.Parallel()
+			// Wait for handler to be called.
+			deadline := time.Now().Add(10 * time.Second)
+			for !called.Load() && time.Now().Before(deadline) {
+				time.Sleep(100 * time.Millisecond)
+			}
+			test.True(t, called.Load())
 
-		ctx := t.Context()
-		topicName := infra.newTopic(t)
+			stopChan <- true
+			// Wait for Consume to return so the background message callback (and its
+			// deferred op.End) has completed before reading the recorded observations.
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("timed out waiting for Consume to return after stop signal")
+			}
 
-		var called atomic.Bool
-		handler := func(_ context.Context, _ []byte) error {
-			called.Store(true)
-			return nil
-		}
+			select {
+			case err = <-errChan:
+				t.Fatalf("unexpected error: %v", err)
+			default:
+			}
 
-		logger := loggingnoop.NewLogger()
-		provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
-		consumer, err := provider.NewConsumer(ctx, topicName, handler)
-		must.NoError(t, err)
+			op := obs.ObservedOperationWithData(t, map[string]any{
+				keys.TopicKey:  topicName,
+				keys.LengthKey: len(messageData),
+			})
+			test.SliceEmpty(t, op.Errors)
+		})
 
-		errChan := make(chan error, 1)
+		T.Run("consumer handler error is sent to error channel", func(t *testing.T) {
+			t.Parallel()
 
-		// Pass nil stopChan — should create its own internally.
-		done := make(chan struct{})
-		go func() {
-			consumer.Consume(ctx, nil, errChan)
-			close(done)
-		}()
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
 
-		// Publish a message to verify it still works.
-		publisher := infra.client.Publisher(topicName)
-		result := publisher.Publish(ctx, &pubsub.Message{Data: []byte(`{"name":"test"}`)})
-		<-result.Ready()
-		_, err = result.Get(ctx)
-		must.NoError(t, err)
+			expectedErr := fmt.Errorf("handler failure")
+			handler := func(_ context.Context, _ []byte) error {
+				return expectedErr
+			}
 
-		deadline := time.Now().Add(10 * time.Second)
-		for !called.Load() && time.Now().Before(deadline) {
-			time.Sleep(100 * time.Millisecond)
-		}
-		test.True(t, called.Load())
+			logger := loggingnoop.NewLogger()
+			provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
+			consumer, err := provider.NewConsumer(ctx, topicName, handler)
+			must.NoError(t, err)
+
+			obs := observability.NewRecordingObserver()
+			consumer.(*pubSubConsumer).o11y = obs
+
+			messageData := []byte(`{"name":"test"}`)
+
+			stopChan := make(chan bool, 1)
+			errChan := make(chan error, 1)
+			done := make(chan struct{})
+			go func() {
+				consumer.Consume(ctx, stopChan, errChan)
+				close(done)
+			}()
+
+			// Publish a message.
+			publisher := infra.client.Publisher(topicName)
+			result := publisher.Publish(ctx, &pubsub.Message{Data: messageData})
+			<-result.Ready()
+			_, err = result.Get(ctx)
+			must.NoError(t, err)
+
+			// Wait for the error to appear.
+			select {
+			case receivedErr := <-errChan:
+				test.ErrorIs(t, receivedErr, expectedErr)
+			case <-time.After(10 * time.Second):
+				t.Fatal("timed out waiting for handler error")
+			}
+
+			stopChan <- true
+			// Wait for Consume to return so the background message callback (and its
+			// deferred op.End) has completed before reading the recorded observations.
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("timed out waiting for Consume to return after stop signal")
+			}
+
+			op := obs.ObservedOperationWithData(t, map[string]any{
+				keys.TopicKey:  topicName,
+				keys.LengthKey: len(messageData),
+			})
+			must.SliceLen(t, 1, op.Errors)
+			test.ErrorIs(t, op.Errors[0], expectedErr)
+		})
+
+		T.Run("consumer stops when stop channel is signaled", func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
+
+			handler := func(_ context.Context, _ []byte) error { return nil }
+
+			logger := loggingnoop.NewLogger()
+			provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
+			consumer, err := provider.NewConsumer(ctx, topicName, handler)
+			must.NoError(t, err)
+
+			stopChan := make(chan bool, 1)
+			errChan := make(chan error, 1)
+
+			done := make(chan struct{})
+			go func() {
+				consumer.Consume(ctx, stopChan, errChan)
+				close(done)
+			}()
+
+			stopChan <- true
+
+			select {
+			case <-done:
+				// Consume returned, success.
+			case <-time.After(10 * time.Second):
+				t.Fatal("timed out waiting for Consume to return after stop signal")
+			}
+		})
+
+		T.Run("consumer with nil stop channel does not panic", func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
+
+			var called atomic.Bool
+			handler := func(_ context.Context, _ []byte) error {
+				called.Store(true)
+				return nil
+			}
+
+			logger := loggingnoop.NewLogger()
+			provider := NewPubSubConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, infra.client)
+			consumer, err := provider.NewConsumer(ctx, topicName, handler)
+			must.NoError(t, err)
+
+			errChan := make(chan error, 1)
+
+			// Pass nil stopChan — should create its own internally.
+			done := make(chan struct{})
+			go func() {
+				consumer.Consume(ctx, nil, errChan)
+				close(done)
+			}()
+
+			// Publish a message to verify it still works.
+			publisher := infra.client.Publisher(topicName)
+			result := publisher.Publish(ctx, &pubsub.Message{Data: []byte(`{"name":"test"}`)})
+			<-result.Ready()
+			_, err = result.Get(ctx)
+			must.NoError(t, err)
+
+			deadline := time.Now().Add(10 * time.Second)
+			for !called.Load() && time.Now().Before(deadline) {
+				time.Sleep(100 * time.Millisecond)
+			}
+			test.True(t, called.Load())
+		})
 	})
 }

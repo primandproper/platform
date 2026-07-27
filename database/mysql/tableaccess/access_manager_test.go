@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/pointer"
 	"github.com/primandproper/platform-go/v7/testutils/containers"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -59,37 +58,44 @@ func hashStringToNumber(s string) uint64 {
 	return h.Sum64()
 }
 
-func buildDatabaseConnectionForTest(t *testing.T, ctx context.Context) (*sql.DB, *mysqlcontainers.MySQLContainer) {
+// runWithTestMySQL boots a MySQL container for the calling test and hands its
+// closure a root connection to it. Credentials are derived from the test name so
+// the users and databases a test creates cannot collide with the ones it
+// connects as. containers.Run owns the container itself.
+func runWithTestMySQL(t *testing.T, fn func(ctx context.Context, adminDB *sql.DB)) {
 	t.Helper()
 
 	dbUsername := fmt.Sprintf("u%d", hashStringToNumber(t.Name()))
 	dbPassword := reverseString(dbUsername)
 	dbName := splitReverseConcat(dbUsername)
 
-	container, err := containers.StartWithRetry(ctx, func(ctx context.Context) (*mysqlcontainers.MySQLContainer, error) {
-		return mysqlcontainers.Run(
-			ctx,
-			defaultMySQLImage,
-			mysqlcontainers.WithDatabase(dbName),
-			mysqlcontainers.WithUsername(dbUsername),
-			mysqlcontainers.WithPassword(dbPassword),
-			testcontainers.WithWaitStrategyAndDeadline(2*time.Minute, wait.ForLog("ready for connections").WithOccurrence(2)),
-		)
-	})
-	must.NoError(t, err)
-	must.NotNil(t, container)
+	containers.Run(t,
+		func(ctx context.Context) (*mysqlcontainers.MySQLContainer, error) {
+			return mysqlcontainers.Run(
+				ctx,
+				defaultMySQLImage,
+				mysqlcontainers.WithDatabase(dbName),
+				mysqlcontainers.WithUsername(dbUsername),
+				mysqlcontainers.WithPassword(dbPassword),
+				testcontainers.WithWaitStrategyAndDeadline(2*time.Minute, wait.ForLog("ready for connections").WithOccurrence(2)),
+			)
+		},
+		func(ctx context.Context, container *mysqlcontainers.MySQLContainer) {
+			// Connect as root for admin operations (CREATE USER, GRANT, etc.).
+			// WithDefaultCredentials sets MYSQL_ROOT_PASSWORD to the same value as MYSQL_PASSWORD.
+			connStr := container.MustConnectionString(ctx, "allowCleartextPasswords=true", "multiStatements=true")
+			// Replace the non-root user with root in the DSN.
+			connStr = "root:" + dbPassword + "@" + connStr[strings.Index(connStr, "@")+1:]
 
-	// Connect as root for admin operations (CREATE USER, GRANT, etc.).
-	// WithDefaultCredentials sets MYSQL_ROOT_PASSWORD to the same value as MYSQL_PASSWORD.
-	connStr := container.MustConnectionString(ctx, "allowCleartextPasswords=true", "multiStatements=true")
-	// Replace the non-root user with root in the DSN.
-	connStr = "root:" + dbPassword + "@" + connStr[strings.Index(connStr, "@")+1:]
-	db, err := sql.Open("mysql", connStr)
-	must.NoError(t, err)
+			adminDB, err := sql.Open("mysql", connStr)
+			must.NoError(t, err)
+			t.Cleanup(func() { _ = adminDB.Close() })
 
-	must.NoError(t, db.PingContext(ctx))
+			must.NoError(t, adminDB.PingContext(ctx))
 
-	return db, container
+			fn(ctx, adminDB)
+		},
+	)
 }
 
 func TestQuoteIdent(T *testing.T) {
@@ -256,48 +262,36 @@ func TestManager_CreateUser(T *testing.T) {
 	T.Run("success", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		adminDB, container := buildDatabaseConnectionForTest(t, ctx)
-		defer func(container *mysqlcontainers.MySQLContainer, ctx context.Context, duration *time.Duration) {
-			if err := container.Stop(ctx, duration); err != nil {
-				t.Logf("could not stop container due to error: %v", err)
-			}
-		}(container, ctx, pointer.To(10*time.Second))
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
 
-		mgr := NewManager(adminDB)
+			username := "testuser"
+			password := "testpass123"
 
-		username := "testuser"
-		password := "testpass123"
+			err := mgr.CreateUser(ctx, username, password)
+			test.NoError(t, err)
 
-		err := mgr.CreateUser(ctx, username, password)
-		test.NoError(t, err)
-
-		exists, err := mgr.UserExists(ctx, username)
-		test.NoError(t, err)
-		test.True(t, exists)
+			exists, err := mgr.UserExists(ctx, username)
+			test.NoError(t, err)
+			test.True(t, exists)
+		})
 	})
 
 	T.Run("duplicate user", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		adminDB, container := buildDatabaseConnectionForTest(t, ctx)
-		defer func(container *mysqlcontainers.MySQLContainer, ctx context.Context, duration *time.Duration) {
-			if err := container.Stop(ctx, duration); err != nil {
-				t.Logf("could not stop container due to error: %v", err)
-			}
-		}(container, ctx, pointer.To(10*time.Second))
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
 
-		mgr := NewManager(adminDB)
+			username := "duplicateuser"
+			password := "testpass123"
 
-		username := "duplicateuser"
-		password := "testpass123"
+			err := mgr.CreateUser(ctx, username, password)
+			test.NoError(t, err)
 
-		err := mgr.CreateUser(ctx, username, password)
-		test.NoError(t, err)
-
-		err = mgr.CreateUser(ctx, username, password)
-		test.Error(t, err)
+			err = mgr.CreateUser(ctx, username, password)
+			test.Error(t, err)
+		})
 	})
 }
 
@@ -307,45 +301,33 @@ func TestManager_DeleteUser(T *testing.T) {
 	T.Run("success", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		adminDB, container := buildDatabaseConnectionForTest(t, ctx)
-		defer func(container *mysqlcontainers.MySQLContainer, ctx context.Context, duration *time.Duration) {
-			if err := container.Stop(ctx, duration); err != nil {
-				t.Logf("could not stop container due to error: %v", err)
-			}
-		}(container, ctx, pointer.To(10*time.Second))
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
 
-		mgr := NewManager(adminDB)
+			username := "tobedeleted"
+			password := "testpass123"
 
-		username := "tobedeleted"
-		password := "testpass123"
+			err := mgr.CreateUser(ctx, username, password)
+			test.NoError(t, err)
 
-		err := mgr.CreateUser(ctx, username, password)
-		test.NoError(t, err)
+			err = mgr.DeleteUser(ctx, username)
+			test.NoError(t, err)
 
-		err = mgr.DeleteUser(ctx, username)
-		test.NoError(t, err)
-
-		exists, err := mgr.UserExists(ctx, username)
-		test.NoError(t, err)
-		test.False(t, exists)
+			exists, err := mgr.UserExists(ctx, username)
+			test.NoError(t, err)
+			test.False(t, exists)
+		})
 	})
 
 	T.Run("delete non-existent user", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		adminDB, container := buildDatabaseConnectionForTest(t, ctx)
-		defer func(container *mysqlcontainers.MySQLContainer, ctx context.Context, duration *time.Duration) {
-			if err := container.Stop(ctx, duration); err != nil {
-				t.Logf("could not stop container due to error: %v", err)
-			}
-		}(container, ctx, pointer.To(10*time.Second))
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
 
-		mgr := NewManager(adminDB)
-
-		err := mgr.DeleteUser(ctx, "nonexistentuser")
-		test.NoError(t, err)
+			err := mgr.DeleteUser(ctx, "nonexistentuser")
+			test.NoError(t, err)
+		})
 	})
 }
 
@@ -355,27 +337,21 @@ func TestManager_CreateDatabase(T *testing.T) {
 	T.Run("success", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		adminDB, container := buildDatabaseConnectionForTest(t, ctx)
-		defer func(container *mysqlcontainers.MySQLContainer, ctx context.Context, duration *time.Duration) {
-			if err := container.Stop(ctx, duration); err != nil {
-				t.Logf("could not stop container due to error: %v", err)
-			}
-		}(container, ctx, pointer.To(10*time.Second))
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
 
-		mgr := NewManager(adminDB)
+			owner := "dbowner"
+			err := mgr.CreateUser(ctx, owner, "pass")
+			must.NoError(t, err)
 
-		owner := "dbowner"
-		err := mgr.CreateUser(ctx, owner, "pass")
-		must.NoError(t, err)
+			dbName := "testdb"
+			err = mgr.CreateDatabase(ctx, dbName, owner)
+			test.NoError(t, err)
 
-		dbName := "testdb"
-		err = mgr.CreateDatabase(ctx, dbName, owner)
-		test.NoError(t, err)
-
-		exists, err := mgr.DatabaseExists(ctx, dbName)
-		test.NoError(t, err)
-		test.True(t, exists)
+			exists, err := mgr.DatabaseExists(ctx, dbName)
+			test.NoError(t, err)
+			test.True(t, exists)
+		})
 	})
 }
 
@@ -385,30 +361,24 @@ func TestManager_DeleteDatabase(T *testing.T) {
 	T.Run("success", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		adminDB, container := buildDatabaseConnectionForTest(t, ctx)
-		defer func(container *mysqlcontainers.MySQLContainer, ctx context.Context, duration *time.Duration) {
-			if err := container.Stop(ctx, duration); err != nil {
-				t.Logf("could not stop container due to error: %v", err)
-			}
-		}(container, ctx, pointer.To(10*time.Second))
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
 
-		mgr := NewManager(adminDB)
+			owner := "deldbowner"
+			err := mgr.CreateUser(ctx, owner, "pass")
+			must.NoError(t, err)
 
-		owner := "deldbowner"
-		err := mgr.CreateUser(ctx, owner, "pass")
-		must.NoError(t, err)
+			dbName := "deldb"
+			err = mgr.CreateDatabase(ctx, dbName, owner)
+			must.NoError(t, err)
 
-		dbName := "deldb"
-		err = mgr.CreateDatabase(ctx, dbName, owner)
-		must.NoError(t, err)
+			err = mgr.DeleteDatabase(ctx, dbName)
+			test.NoError(t, err)
 
-		err = mgr.DeleteDatabase(ctx, dbName)
-		test.NoError(t, err)
-
-		exists, err := mgr.DatabaseExists(ctx, dbName)
-		test.NoError(t, err)
-		test.False(t, exists)
+			exists, err := mgr.DatabaseExists(ctx, dbName)
+			test.NoError(t, err)
+			test.False(t, exists)
+		})
 	})
 }
 
@@ -418,19 +388,13 @@ func TestManager_UserExists(T *testing.T) {
 	T.Run("nonexistent user", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		adminDB, container := buildDatabaseConnectionForTest(t, ctx)
-		defer func(container *mysqlcontainers.MySQLContainer, ctx context.Context, duration *time.Duration) {
-			if err := container.Stop(ctx, duration); err != nil {
-				t.Logf("could not stop container due to error: %v", err)
-			}
-		}(container, ctx, pointer.To(10*time.Second))
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
 
-		mgr := NewManager(adminDB)
-
-		exists, err := mgr.UserExists(ctx, "nonexistent_user_xyz")
-		test.NoError(t, err)
-		test.False(t, exists)
+			exists, err := mgr.UserExists(ctx, "nonexistent_user_xyz")
+			test.NoError(t, err)
+			test.False(t, exists)
+		})
 	})
 }
 
@@ -440,18 +404,12 @@ func TestManager_DatabaseExists(T *testing.T) {
 	T.Run("nonexistent database", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		adminDB, container := buildDatabaseConnectionForTest(t, ctx)
-		defer func(container *mysqlcontainers.MySQLContainer, ctx context.Context, duration *time.Duration) {
-			if err := container.Stop(ctx, duration); err != nil {
-				t.Logf("could not stop container due to error: %v", err)
-			}
-		}(container, ctx, pointer.To(10*time.Second))
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
 
-		mgr := NewManager(adminDB)
-
-		exists, err := mgr.DatabaseExists(ctx, "nonexistent_db_xyz")
-		test.NoError(t, err)
-		test.False(t, exists)
+			exists, err := mgr.DatabaseExists(ctx, "nonexistent_db_xyz")
+			test.NoError(t, err)
+			test.False(t, exists)
+		})
 	})
 }

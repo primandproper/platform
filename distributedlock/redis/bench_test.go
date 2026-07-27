@@ -5,7 +5,6 @@ import (
 	"time"
 
 	cbnoop "github.com/primandproper/platform-go/v7/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v7/testutils/containers"
 	"github.com/primandproper/platform-go/v7/testutils/containers/redistest"
 
 	"github.com/shoenig/test/must"
@@ -14,8 +13,6 @@ import (
 // BenchmarkRedisLocker_AcquireRelease is container-gated: it runs only when
 // RUN_CONTAINER_TESTS is set (e.g. `RUN_CONTAINER_TESTS=true make bench`).
 func BenchmarkRedisLocker_AcquireRelease(b *testing.B) {
-	containers.SkipIfNotRunning(b)
-
 	container := redistest.Start(b)
 	cfg := &Config{
 		Addresses: []string{redistest.Address(b, container)},

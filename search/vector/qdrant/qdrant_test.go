@@ -1086,203 +1086,201 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 // --------- container-backed integration tests ---------
 
-func buildContainerBackedQdrant(t *testing.T) (cfg *Config, shutdown func(context.Context) error) {
-	t.Helper()
+// runWithContainerBackedQdrant boots a qdrant container and hands the suite a
+// Config pointed at it. containers.Run owns the container.
+func runWithContainerBackedQdrant(tb testing.TB, fn func(cfg *Config)) {
+	tb.Helper()
 
-	ctx := t.Context()
-	req := testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        qdrantImage,
-			ExposedPorts: []string{"6333/tcp"},
-			WaitingFor:   wait.ForHTTP("/readyz").WithPort("6333/tcp").WithStartupTimeout(2 * time.Minute),
+	containers.Run(tb,
+		func(ctx context.Context) (testcontainers.Container, error) {
+			return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+				ContainerRequest: testcontainers.ContainerRequest{
+					Image:        qdrantImage,
+					ExposedPorts: []string{"6333/tcp"},
+					WaitingFor:   wait.ForHTTP("/readyz").WithPort("6333/tcp").WithStartupTimeout(2 * time.Minute),
+				},
+				Started: true,
+			})
 		},
-		Started: true,
-	}
-	container, err := containers.StartWithRetry(ctx, func(ctx context.Context) (testcontainers.Container, error) {
-		return testcontainers.GenericContainer(ctx, req)
-	})
-	must.NoError(t, err)
-	must.NotNil(t, container)
+		func(ctx context.Context, container testcontainers.Container) {
+			host, err := container.Host(ctx)
+			must.NoError(tb, err)
 
-	host, err := container.Host(ctx)
-	must.NoError(t, err)
-	port, err := container.MappedPort(ctx, "6333/tcp")
-	must.NoError(t, err)
+			port, err := container.MappedPort(ctx, "6333/tcp")
+			must.NoError(tb, err)
 
-	cfg = &Config{
-		BaseURL:   "http://" + net.JoinHostPort(host, port.Port()),
-		Dimension: 3,
-		Metric:    vectorsearch.DistanceCosine,
-		Timeout:   30 * time.Second,
-	}
-	return cfg, func(ctx context.Context) error { return container.Terminate(ctx) }
+			fn(&Config{
+				BaseURL:   "http://" + net.JoinHostPort(host, port.Port()),
+				Dimension: 3,
+				Metric:    vectorsearch.DistanceCosine,
+				Timeout:   30 * time.Second,
+			})
+		},
+	)
 }
 
 func TestQdrantIndex_Container(T *testing.T) {
 	T.Parallel()
 
-	containers.SkipIfNotRunning(T)
-
-	cfg, shutdown := buildContainerBackedQdrant(T)
-	T.Cleanup(func() { _ = shutdown(context.Background()) })
-
-	provide := func(t *testing.T, name string) vectorsearch.Index[doc] {
-		t.Helper()
-		idx, err := NewIndex[doc](t.Context(), nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
-		return idx
-	}
-
-	T.Run("Upsert and Query roundtrip", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provide(t, "rt_"+identifiers.New())
-
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "11111111-1111-1111-1111-111111111111", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc", Title: "alpha"}},
-			vectorsearch.Vector[doc]{ID: "22222222-2222-2222-2222-222222222222", Embedding: []float32{0, 1, 0}, Metadata: &doc{Kind: "doc", Title: "beta"}},
-			vectorsearch.Vector[doc]{ID: "33333333-3333-3333-3333-333333333333", Embedding: []float32{0, 0, 1}, Metadata: &doc{Kind: "doc", Title: "gamma"}},
-		))
-
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 3})
-		must.NoError(t, err)
-		must.SliceLen(t, 3, results)
-		test.EqOp(t, "11111111-1111-1111-1111-111111111111", results[0].ID)
-		must.NotNil(t, results[0].Metadata)
-		test.EqOp(t, "alpha", results[0].Metadata.Title)
-	})
-
-	T.Run("numeric IDs round-trip without scientific notation", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provide(t, "num_"+identifiers.New())
-
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "10000000", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc", Title: "big"}},
-		))
-
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 1})
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		test.EqOp(t, "10000000", results[0].ID)
-
-		// The same ID string must still target that point on delete.
-		must.NoError(t, idx.Delete(ctx, "10000000"))
-		after, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 1})
-		must.NoError(t, err)
-		test.SliceEmpty(t, after)
-	})
-
-	T.Run("TopK is respected", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provide(t, "topk_"+identifiers.New())
-
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "11111111-aaaa-aaaa-aaaa-111111111111", Embedding: []float32{1, 0, 0}},
-			vectorsearch.Vector[doc]{ID: "22222222-aaaa-aaaa-aaaa-222222222222", Embedding: []float32{0, 1, 0}},
-			vectorsearch.Vector[doc]{ID: "33333333-aaaa-aaaa-aaaa-333333333333", Embedding: []float32{0, 0, 1}},
-		))
-
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 2})
-		must.NoError(t, err)
-		test.SliceLen(t, 2, results)
-	})
-
-	T.Run("filter is applied", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provide(t, "filt_"+identifiers.New())
-
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "11111111-bbbb-bbbb-bbbb-111111111111", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc"}},
-			vectorsearch.Vector[doc]{ID: "22222222-bbbb-bbbb-bbbb-222222222222", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "image"}},
-		))
-
-		filter := map[string]any{
-			"must": []any{
-				map[string]any{
-					"key":   "kind",
-					"match": map[string]any{"value": "doc"},
-				},
-			},
+	runWithContainerBackedQdrant(T, func(cfg *Config) {
+		provide := func(t *testing.T, name string) vectorsearch.Index[doc] {
+			t.Helper()
+			idx, err := NewIndex[doc](t.Context(), nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
+			return idx
 		}
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 10, Filter: filter})
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		must.NotNil(t, results[0].Metadata)
-		test.EqOp(t, "doc", results[0].Metadata.Kind)
-	})
 
-	T.Run("Query rejects empty embedding", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provide(t, "emb_"+identifiers.New())
+		T.Run("Upsert and Query roundtrip", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provide(t, "rt_"+identifiers.New())
 
-		_, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: nil, TopK: 5})
-		must.ErrorIs(t, err, vectorsearch.ErrEmptyEmbedding)
-	})
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "11111111-1111-1111-1111-111111111111", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc", Title: "alpha"}},
+				vectorsearch.Vector[doc]{ID: "22222222-2222-2222-2222-222222222222", Embedding: []float32{0, 1, 0}, Metadata: &doc{Kind: "doc", Title: "beta"}},
+				vectorsearch.Vector[doc]{ID: "33333333-3333-3333-3333-333333333333", Embedding: []float32{0, 0, 1}, Metadata: &doc{Kind: "doc", Title: "gamma"}},
+			))
 
-	T.Run("Query rejects wrong dimension", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provide(t, "dim_"+identifiers.New())
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 3})
+			must.NoError(t, err)
+			must.SliceLen(t, 3, results)
+			test.EqOp(t, "11111111-1111-1111-1111-111111111111", results[0].ID)
+			must.NotNil(t, results[0].Metadata)
+			test.EqOp(t, "alpha", results[0].Metadata.Title)
+		})
 
-		_, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0}, TopK: 5})
-		must.ErrorIs(t, err, vectorsearch.ErrDimensionMismatch)
-	})
+		T.Run("numeric IDs round-trip without scientific notation", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provide(t, "num_"+identifiers.New())
 
-	T.Run("Delete removes specific points", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provide(t, "del_"+identifiers.New())
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "10000000", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc", Title: "big"}},
+			))
 
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "11111111-cccc-cccc-cccc-111111111111", Embedding: []float32{1, 0, 0}},
-			vectorsearch.Vector[doc]{ID: "22222222-cccc-cccc-cccc-222222222222", Embedding: []float32{0, 1, 0}},
-		))
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 1})
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
+			test.EqOp(t, "10000000", results[0].ID)
 
-		must.NoError(t, idx.Delete(ctx, "11111111-cccc-cccc-cccc-111111111111"))
+			// The same ID string must still target that point on delete.
+			must.NoError(t, idx.Delete(ctx, "10000000"))
+			after, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 1})
+			must.NoError(t, err)
+			test.SliceEmpty(t, after)
+		})
 
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{0, 1, 0}, TopK: 10})
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		test.EqOp(t, "22222222-cccc-cccc-cccc-222222222222", results[0].ID)
-	})
+		T.Run("TopK is respected", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provide(t, "topk_"+identifiers.New())
 
-	T.Run("Wipe drops and recreates", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		idx := provide(t, "wipe_"+identifiers.New())
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "11111111-aaaa-aaaa-aaaa-111111111111", Embedding: []float32{1, 0, 0}},
+				vectorsearch.Vector[doc]{ID: "22222222-aaaa-aaaa-aaaa-222222222222", Embedding: []float32{0, 1, 0}},
+				vectorsearch.Vector[doc]{ID: "33333333-aaaa-aaaa-aaaa-333333333333", Embedding: []float32{0, 0, 1}},
+			))
 
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "11111111-dddd-dddd-dddd-111111111111", Embedding: []float32{1, 0, 0}},
-		))
-		must.NoError(t, idx.Wipe(ctx))
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 2})
+			must.NoError(t, err)
+			test.SliceLen(t, 2, results)
+		})
 
-		results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 10})
-		must.NoError(t, err)
-		test.SliceEmpty(t, results)
+		T.Run("filter is applied", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provide(t, "filt_"+identifiers.New())
 
-		// Confirm the collection still accepts writes after wipe.
-		must.NoError(t, idx.Upsert(ctx,
-			vectorsearch.Vector[doc]{ID: "22222222-dddd-dddd-dddd-222222222222", Embedding: []float32{1, 0, 0}},
-		))
-	})
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "11111111-bbbb-bbbb-bbbb-111111111111", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "doc"}},
+				vectorsearch.Vector[doc]{ID: "22222222-bbbb-bbbb-bbbb-222222222222", Embedding: []float32{1, 0, 0}, Metadata: &doc{Kind: "image"}},
+			))
 
-	T.Run("NewIndex is idempotent", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		name := "idem_" + identifiers.New()
-		idx1, err := NewIndex[doc](ctx, nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
-		idx2, err := NewIndex[doc](ctx, nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
+			filter := map[string]any{
+				"must": []any{
+					map[string]any{
+						"key":   "kind",
+						"match": map[string]any{"value": "doc"},
+					},
+				},
+			}
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 10, Filter: filter})
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
+			must.NotNil(t, results[0].Metadata)
+			test.EqOp(t, "doc", results[0].Metadata.Kind)
+		})
 
-		must.NoError(t, idx1.Upsert(ctx, vectorsearch.Vector[doc]{ID: "11111111-eeee-eeee-eeee-111111111111", Embedding: []float32{1, 0, 0}}))
+		T.Run("Query rejects empty embedding", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provide(t, "emb_"+identifiers.New())
 
-		results, err := idx2.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 1})
-		must.NoError(t, err)
-		must.SliceLen(t, 1, results)
+			_, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: nil, TopK: 5})
+			must.ErrorIs(t, err, vectorsearch.ErrEmptyEmbedding)
+		})
+
+		T.Run("Query rejects wrong dimension", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provide(t, "dim_"+identifiers.New())
+
+			_, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0}, TopK: 5})
+			must.ErrorIs(t, err, vectorsearch.ErrDimensionMismatch)
+		})
+
+		T.Run("Delete removes specific points", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provide(t, "del_"+identifiers.New())
+
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "11111111-cccc-cccc-cccc-111111111111", Embedding: []float32{1, 0, 0}},
+				vectorsearch.Vector[doc]{ID: "22222222-cccc-cccc-cccc-222222222222", Embedding: []float32{0, 1, 0}},
+			))
+
+			must.NoError(t, idx.Delete(ctx, "11111111-cccc-cccc-cccc-111111111111"))
+
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{0, 1, 0}, TopK: 10})
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
+			test.EqOp(t, "22222222-cccc-cccc-cccc-222222222222", results[0].ID)
+		})
+
+		T.Run("Wipe drops and recreates", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			idx := provide(t, "wipe_"+identifiers.New())
+
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "11111111-dddd-dddd-dddd-111111111111", Embedding: []float32{1, 0, 0}},
+			))
+			must.NoError(t, idx.Wipe(ctx))
+
+			results, err := idx.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 10})
+			must.NoError(t, err)
+			test.SliceEmpty(t, results)
+
+			// Confirm the collection still accepts writes after wipe.
+			must.NoError(t, idx.Upsert(ctx,
+				vectorsearch.Vector[doc]{ID: "22222222-dddd-dddd-dddd-222222222222", Embedding: []float32{1, 0, 0}},
+			))
+		})
+
+		T.Run("NewIndex is idempotent", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			name := "idem_" + identifiers.New()
+			idx1, err := NewIndex[doc](ctx, nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
+			idx2, err := NewIndex[doc](ctx, nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
+			must.NoError(t, err)
+
+			must.NoError(t, idx1.Upsert(ctx, vectorsearch.Vector[doc]{ID: "11111111-eeee-eeee-eeee-111111111111", Embedding: []float32{1, 0, 0}}))
+
+			results, err := idx2.Query(ctx, vectorsearch.QueryRequest{Embedding: []float32{1, 0, 0}, TopK: 1})
+			must.NoError(t, err)
+			must.SliceLen(t, 1, results)
+		})
 	})
 }

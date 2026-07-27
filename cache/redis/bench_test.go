@@ -3,7 +3,6 @@ package redis
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/testutils/containers"
 	"github.com/primandproper/platform-go/v7/testutils/containers/redistest"
 
 	"github.com/shoenig/test/must"
@@ -16,8 +15,6 @@ type benchCacheItem struct {
 // BenchmarkRedisCache is container-gated: it runs only when RUN_CONTAINER_TESTS
 // is set (e.g. `RUN_CONTAINER_TESTS=true make bench`).
 func BenchmarkRedisCache(b *testing.B) {
-	containers.SkipIfNotRunning(b)
-
 	container := redistest.Start(b)
 	cfg := &Config{QueueAddresses: []string{redistest.Address(b, container)}}
 

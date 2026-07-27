@@ -1,7 +1,6 @@
 package pubsub
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v7/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v7/testutils/containers"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -151,47 +149,43 @@ func TestPublisherProvider_NewPublisher(T *testing.T) {
 // TestPubSubPublisher_Container holds the publisher subtests that need a real
 // emulator container to drive Publish end to end so we can assert the data it
 // observes. It boots its own container (the shared one in TestPubSub_Container
-// lives in another file) and gates on SkipIfNotRunning like every other
-// container-backed test.
+// lives in another file); runWithContainerBackedPubSub owns its lifecycle.
 func TestPubSubPublisher_Container(T *testing.T) {
 	T.Parallel()
 
-	containers.SkipIfNotRunning(T)
+	runWithContainerBackedPubSub(T, func(infra *pubsubTestInfra) {
+		T.Run("observes topic and length on publish", func(t *testing.T) {
+			t.Parallel()
 
-	infra := buildPubSubTestInfra(T)
-	T.Cleanup(func() { _ = infra.shutdown(context.Background()) })
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
 
-	T.Run("observes topic and length on publish", func(t *testing.T) {
-		t.Parallel()
+			provider := NewPubSubPublisherProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, infra.client, infra.projectID)
+			must.NotNil(t, provider)
 
-		ctx := t.Context()
-		topicName := infra.newTopic(t)
+			publisher, err := provider.NewPublisher(ctx, topicName)
+			must.NoError(t, err)
+			must.NotNil(t, publisher)
 
-		provider := NewPubSubPublisherProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, infra.client, infra.projectID)
-		must.NotNil(t, provider)
+			obs := observability.NewRecordingObserver()
+			publisher.(*pubSubPublisher).o11y = obs
 
-		publisher, err := provider.NewPublisher(ctx, topicName)
-		must.NoError(t, err)
-		must.NotNil(t, publisher)
+			inputData := &struct {
+				Name string `json:"name"`
+			}{
+				Name: t.Name(),
+			}
 
-		obs := observability.NewRecordingObserver()
-		publisher.(*pubSubPublisher).o11y = obs
+			test.NoError(t, publisher.Publish(ctx, inputData))
 
-		inputData := &struct {
-			Name string `json:"name"`
-		}{
-			Name: t.Name(),
-		}
-
-		test.NoError(t, publisher.Publish(ctx, inputData))
-
-		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.TopicKey: topicName,
+			op := obs.ObservedOperationWithData(t, map[string]any{
+				keys.TopicKey: topicName,
+			})
+			op.Observed(t, observability.ObservedKeyFunc(keys.LengthKey, func(v any) bool {
+				n, ok := v.(int)
+				return ok && n > 0
+			}))
+			test.SliceEmpty(t, op.Errors)
 		})
-		op.Observed(t, observability.ObservedKeyFunc(keys.LengthKey, func(v any) bool {
-			n, ok := v.(int)
-			return ok && n > 0
-		}))
-		test.SliceEmpty(t, op.Errors)
 	})
 }
