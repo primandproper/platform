@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"testing/fstest"
 	"time"
 
 	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/database/migrate"
 	"github.com/primandproper/platform-go/v7/database/sqlite"
 	platformerrors "github.com/primandproper/platform-go/v7/errors"
 	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
@@ -167,9 +169,38 @@ func ExampleWriter_Enqueue_rollback() {
 	// awaiting publication: 0
 }
 
-// ExampleStatements shows how the table gets created. The platform ships no
-// numbered migration file, because migration numbering belongs to the
-// consumer: these statements go into a migration at a number you control.
+// ExampleSQL shows the preferred way to create the table when you already run
+// database/migrate: the DDL is rendered from code and placed in your own
+// migration sequence at a version you choose, so nothing is copied into your
+// repository and nothing drifts as this package evolves.
+func ExampleSQL() {
+	ddl, err := migrations.SQL(migrations.DialectPostgres, outbox.DefaultTableName)
+	if err != nil {
+		panic(err)
+	}
+
+	// myMigrations is the embed.FS of your own numbered migration files. Pick a
+	// version in your sequence and never change it — goose keys applied
+	// migrations by version. A version a file on disk already uses fails here,
+	// not mid-deploy.
+	myMigrations := fstest.MapFS{}
+
+	m, err := migrate.New(migrate.DialectPostgres, myMigrations,
+		migrate.WithGeneratedMigration(37, "create_outbox_messages", ddl),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// m.Migrate(ctx, db) now creates the outbox table alongside your own schema.
+	_ = m
+
+	fmt.Println("outbox DDL staged as a migration")
+	// Output: outbox DDL staged as a migration
+}
+
+// ExampleStatements shows the same DDL as individually executable statements,
+// for callers not using database/migrate.
 func ExampleStatements() {
 	stmts, err := migrations.Statements(migrations.DialectPostgres, outbox.DefaultTableName)
 	if err != nil {

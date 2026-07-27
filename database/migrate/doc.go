@@ -25,6 +25,15 @@ also work, and stay above the inserted annotation.
 Migrations are read and checked once, when New is called, so a malformed file
 fails construction rather than the first Migrate.
 
+# Generated migrations
+
+A platform package that owns a table can render its own DDL, and
+WithGeneratedMigration splices that text into the sequence as if it were a file
+— so the table is created by your normal migration run instead of by DDL copied
+into your repository. outbox/migrations is the first of these. The version stays
+yours to pick, because numbering belongs to whoever owns the sequence; a version
+a file on disk already uses fails New rather than the first Migrate.
+
 # Locking
 
 The advisory lock ID is derived from a caller-supplied lock key: deployments

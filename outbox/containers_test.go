@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/database/migrate"
 	"github.com/primandproper/platform-go/v7/database/mysql"
 	"github.com/primandproper/platform-go/v7/database/postgres"
 	platformerrors "github.com/primandproper/platform-go/v7/errors"
@@ -383,6 +384,70 @@ func TestOutbox_MySQL(T *testing.T) {
 				})
 			})
 		}
+	})
+}
+
+// TestOutbox_MigratorIntegration_Containers is the end-to-end wiring a consumer
+// actually writes: hand migrations.SQL to database/migrate as a generated
+// migration, let the normal migration run create the table, then use it. It runs
+// against real servers because the point is that the generated migration
+// survives goose's own statement splitting on each dialect.
+func TestOutbox_MigratorIntegration_Containers(T *testing.T) {
+	T.Parallel()
+
+	assertUsable := func(t *testing.T, client database.Client, dialect Dialect, table string) {
+		t.Helper()
+
+		c := newStubClock()
+
+		w, err := NewWriter(dialect, WithWriterClock(c), WithWriterTableName(table))
+		must.NoError(t, err)
+
+		relay, rec := newTestRelay(t, client, c, func(cfg *RelayConfig) {
+			cfg.Dialect = dialect
+			cfg.ClaimMode = ClaimSkipLocked
+			cfg.TableName = table
+		})
+
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
+		}))
+
+		relay.cycle(t.Context())
+
+		test.Eq(t, []string{`{"id":"a"}`}, rec.payloads())
+	}
+
+	T.Run("postgres", func(t *testing.T) {
+		t.Parallel()
+
+		pgtest.Run(t, func(_ context.Context, pg *pgtest.Instance) {
+			client, err := postgres.NewDatabaseClient(
+				t.Context(),
+				loggingnoop.NewLogger(),
+				tracingnoop.NewTracerProvider(),
+				&testClientConfig{connectionString: pg.ConnectionString},
+				nil,
+			)
+			must.NoError(t, err)
+			t.Cleanup(func() { _ = client.Close() })
+
+			const table = "migrated_outbox"
+
+			migrateOutboxTable(t, client, migrate.DialectPostgres, migrations.DialectPostgres, table)
+			assertUsable(t, client, DialectPostgres, table)
+		})
+	})
+
+	T.Run("mysql", func(t *testing.T) {
+		t.Parallel()
+
+		runWithMySQL(t, func(_ context.Context, client database.Client) {
+			const table = "migrated_outbox"
+
+			migrateOutboxTable(t, client, migrate.DialectMySQL, migrations.DialectMySQL, table)
+			assertUsable(t, client, DialectMySQL, table)
+		})
 	})
 }
 

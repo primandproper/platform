@@ -25,6 +25,14 @@ with it:
 There is no way to enqueue outside a transaction by accident: holding a
 SQLQueryExecutor from WithTransaction means you are already in one.
 
+# Creating the table
+
+outbox/migrations renders the DDL for a dialect and table name. If you already
+run database/migrate, pass migrations.SQL to WithGeneratedMigration and the
+table is created by your normal migration run at a version you choose — no DDL
+copied into your repository. Statements returns the same DDL pre-split for
+callers using something else.
+
 # Wire compatibility
 
 Payload is marshaled to JSON at enqueue and republished as json.RawMessage,

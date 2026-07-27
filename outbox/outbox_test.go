@@ -2,9 +2,13 @@ package outbox
 
 import (
 	"testing"
+	"testing/fstest"
 
 	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/database/migrate"
 	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	"github.com/primandproper/platform-go/v7/outbox/migrations"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -161,6 +165,61 @@ func TestWriter_Enqueue(T *testing.T) {
 		test.Error(t, err)
 
 		test.EqOp(t, 0, countRows(t, client, "1=1"))
+	})
+}
+
+// migrateOutboxTable creates the outbox table through database/migrate rather
+// than by executing the DDL directly, which is how a consumer that already runs
+// migrations should be wiring it up.
+func migrateOutboxTable(t *testing.T, client database.Client, dialect migrate.Dialect, mDialect migrations.Dialect, table string) {
+	t.Helper()
+
+	ddl, err := migrations.SQL(mDialect, table)
+	must.NoError(t, err)
+
+	m, err := migrate.New(dialect, fstest.MapFS{},
+		migrate.WithGeneratedMigration(1, "create_"+table, ddl),
+		migrate.WithLogger(loggingnoop.NewLogger()),
+	)
+	must.NoError(t, err)
+
+	raw, ok := client.(database.RawAccess)
+	must.True(t, ok, must.Sprint("client does not expose RawAccess"))
+
+	must.NoError(t, m.Migrate(t.Context(), raw.WriteDB()))
+
+	// Idempotent, so a second replica booting against the same database is a
+	// no-op rather than a failure.
+	must.NoError(t, m.Migrate(t.Context(), raw.WriteDB()))
+}
+
+func TestOutbox_MigratorIntegration(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sqlite table created via migrate is usable", func(t *testing.T) {
+		t.Parallel()
+
+		const table = "migrated_outbox"
+
+		c := newStubClock()
+		client := newTestClient(t)
+
+		migrateOutboxTable(t, client, migrate.DialectSQLite, migrations.DialectSQLite, table)
+
+		w, err := NewWriter(DialectSQLite, WithWriterClock(c), WithWriterTableName(table))
+		must.NoError(t, err)
+
+		relay, rec := newTestRelay(t, client, c, func(cfg *RelayConfig) {
+			cfg.TableName = table
+		})
+
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
+		}))
+
+		relay.cycle(t.Context())
+
+		test.Eq(t, []string{`{"id":"a"}`}, rec.payloads())
 	})
 }
 

@@ -1,14 +1,25 @@
 /*
-Package migrations supplies the outbox table's DDL as statements the consumer
-splices into its own migration sequence.
+Package migrations supplies the outbox table's DDL, rendered for a dialect and
+table name.
 
-The platform deliberately does not ship these as a database/migrate FS.
-Migration files are numbered globally per consumer, so a platform-owned
-numbered file would collide with the consumer's own numbering the moment either
-side added one. Instead, Statements returns the DDL for a dialect and table
-name, and the consumer pastes it into a migration at a number it controls:
+The platform deliberately does not ship a numbered migration file. Migration
+files are numbered globally per consumer, so a platform-owned number would
+collide with the consumer's own the moment either side added one. The version is
+therefore always the consumer's to choose.
 
-	stmts, err := migrations.Statements(migrations.DialectPostgres, outbox.DefaultTableName)
+If you already run database/migrate, hand SQL to WithGeneratedMigration and the
+table is created by your normal migration run — no DDL copied into your
+repository, nothing to keep in sync as this package evolves:
+
+	ddl, err := migrations.SQL(migrations.DialectPostgres, outbox.DefaultTableName)
+	// ...
+	m, err := migrate.New(migrate.DialectPostgres, myMigrations,
+		migrate.WithGeneratedMigration(37, "create_outbox_messages", ddl),
+	)
+
+Statements is the same DDL split into individually executable statements, for
+callers running it some other way — a different migration tool, or a test that
+just wants the table.
 */
 package migrations
 
@@ -87,6 +98,29 @@ func Statements(dialect Dialect, tableName string) ([]string, error) {
 	}
 
 	return stmts, nil
+}
+
+// SQL renders the same DDL as Statements, joined back into one migration body.
+// It is what you hand to database/migrate's WithGeneratedMigration, so the
+// outbox table is created by the consumer's own migration run instead of being
+// copied into their repository:
+//
+//	ddl, err := migrations.SQL(migrations.DialectPostgres, outbox.DefaultTableName)
+//	// ...
+//	m, err := migrate.New(migrate.DialectPostgres, myMigrations,
+//		migrate.WithGeneratedMigration(37, "create_outbox_messages", ddl),
+//	)
+//
+// The comments are already stripped, which matters: goose splits a migration
+// into statements on semicolons, and a '--' comment containing one would be torn
+// in half exactly as it was here before Statements learned to strip first.
+func SQL(dialect Dialect, tableName string) (string, error) {
+	stmts, err := Statements(dialect, tableName)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.Join(stmts, ";\n\n") + ";\n", nil
 }
 
 // stripComments drops whole-line '--' comments and blank lines. It does not
