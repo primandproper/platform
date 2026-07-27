@@ -120,7 +120,7 @@ make generate       # Regenerate moq mocks after changing a mocked interface
 make revendor       # Clean and re-vendor dependencies
 ```
 
-Formatting runs locally with `gci`, `goimports`, `fieldalignment`, `tagalign`, and `gofmt`. Linting runs in Docker against the `golangci/golangci-lint` image (42+ linters, golangci-lint v2 format).
+Formatting runs locally with `gci`, `goimports`, `betteralign`, `tagalign`, and `gofmt`. Linting runs in Docker against the `golangci/golangci-lint` image (42+ linters, golangci-lint v2 format).
 
 ### Testing conventions
 

@@ -20,6 +20,10 @@ import (
 // See https://developer.apple.com/documentation/xcode/supporting-associated-domains.
 const AppleAppSiteAssociationPath = "/.well-known/apple-app-site-association"
 
+// allPaths is the component pattern that matches every path on the domain, used when a
+// config does not narrow Universal Links to specific paths.
+const allPaths = "*"
+
 var (
 	// appleTeamIDPattern matches an Apple Developer Team ID (App ID Prefix), which is
 	// ten alphanumeric characters.
@@ -32,8 +36,8 @@ var (
 type (
 	// AppleAppSiteAssociationConfig holds the configuration for the
 	// apple-app-site-association file iOS uses for Universal Links. It is optional:
-	// when both fields are empty the file is not served at all, so services without
-	// an iOS app are unaffected. When either field is set, both are required.
+	// when TeamID and BundleID are both empty the file is not served at all, so services
+	// without an iOS app are unaffected. When either is set, both are required.
 	AppleAppSiteAssociationConfig struct {
 		_ struct{} `json:"-" yaml:"-"`
 
@@ -41,11 +45,28 @@ type (
 		TeamID string `env:"TEAM_ID" json:"teamID,omitempty" yaml:"teamID,omitempty"`
 		// BundleID is the iOS app bundle identifier (e.g. "com.example.ios").
 		BundleID string `env:"BUNDLE_ID" json:"bundleID,omitempty" yaml:"bundleID,omitempty"`
+		// Paths restricts which URL paths open the app, as Apple component patterns
+		// (e.g. "/invitations/*"). Empty grants every path on the domain, which is what a
+		// service with no opinion wants; set it when only part of the site should deep-link
+		// into the app.
+		Paths []string `env:"PATHS" json:"paths,omitempty" yaml:"paths,omitempty"`
+		// WebCredentials adds the webcredentials service to the document, which is what
+		// lets iOS offer Password AutoFill and shared credentials for this domain. It is
+		// off by default: a domain claims it only when the app's entitlements list a
+		// matching "webcredentials:" associated domain.
+		WebCredentials bool `env:"WEB_CREDENTIALS" json:"webCredentials,omitempty" yaml:"webCredentials,omitempty"`
 	}
 
 	// appleAppSiteAssociation is the document served at AppleAppSiteAssociationPath.
 	appleAppSiteAssociation struct {
-		AppLinks appleAppLinks `json:"applinks"`
+		// WebCredentials is a pointer so an unset one is omitted entirely rather than
+		// serialized as an empty object, which iOS would read as a claim with no apps.
+		WebCredentials *appleWebCredentials `json:"webcredentials,omitempty"`
+		AppLinks       appleAppLinks        `json:"applinks"`
+	}
+
+	appleWebCredentials struct {
+		Apps []string `json:"apps"`
 	}
 
 	appleAppLinks struct {
@@ -76,8 +97,13 @@ func (cfg *AppleAppSiteAssociationConfig) Enabled() bool {
 
 // ValidateWithContext validates an AppleAppSiteAssociationConfig struct. An entirely
 // empty config is valid (the feature is simply off); a partially filled one is not.
+//
+// Setting any field counts as intent to serve the document, including Paths or
+// WebCredentials alone. That matters because those two are inert without the identifiers:
+// a config that scopes paths but whose TeamID never made it out of the environment would
+// otherwise validate clean and then quietly serve nothing.
 func (cfg *AppleAppSiteAssociationConfig) ValidateWithContext(ctx context.Context) error {
-	if cfg == nil || (cfg.TeamID == "" && cfg.BundleID == "") {
+	if cfg == nil || (cfg.TeamID == "" && cfg.BundleID == "" && len(cfg.Paths) == 0 && !cfg.WebCredentials) {
 		return nil
 	}
 
@@ -86,6 +112,7 @@ func (cfg *AppleAppSiteAssociationConfig) ValidateWithContext(ctx context.Contex
 		cfg,
 		validation.Field(&cfg.TeamID, validation.Required, validation.Match(appleTeamIDPattern).Error("must be ten alphanumeric characters")),
 		validation.Field(&cfg.BundleID, validation.Required, validation.Match(appleBundleIDPattern).Error("must be a bundle identifier")),
+		validation.Field(&cfg.Paths, validation.Each(validation.Required.Error("must not be blank"))),
 	)
 }
 
@@ -95,19 +122,40 @@ func (cfg *AppleAppSiteAssociationConfig) appID() string {
 	return fmt.Sprintf("%s.%s", cfg.TeamID, cfg.BundleID)
 }
 
-// document builds the apple-app-site-association document for the config, granting
-// the app every path on the domain.
+// components renders Paths as the component patterns Apple matches incoming URLs
+// against. An empty Paths grants every path on the domain.
+func (cfg *AppleAppSiteAssociationConfig) components() []appleAppLinkComponent {
+	if len(cfg.Paths) == 0 {
+		return []appleAppLinkComponent{{Path: allPaths}}
+	}
+
+	components := make([]appleAppLinkComponent, 0, len(cfg.Paths))
+	for _, path := range cfg.Paths {
+		components = append(components, appleAppLinkComponent{Path: path})
+	}
+
+	return components
+}
+
+// document builds the apple-app-site-association document for the config: the applinks
+// service always, scoped to Paths, plus webcredentials when the config claims it.
 func (cfg *AppleAppSiteAssociationConfig) document() appleAppSiteAssociation {
-	return appleAppSiteAssociation{
+	document := appleAppSiteAssociation{
 		AppLinks: appleAppLinks{
 			Details: []appleAppLinkDetail{
 				{
 					AppIDs:     []string{cfg.appID()},
-					Components: []appleAppLinkComponent{{Path: "*"}},
+					Components: cfg.components(),
 				},
 			},
 		},
 	}
+
+	if cfg.WebCredentials {
+		document.WebCredentials = &appleWebCredentials{Apps: []string{cfg.appID()}}
+	}
+
+	return document
 }
 
 // AppleAppSiteAssociationHandler returns an http.HandlerFunc that serves the

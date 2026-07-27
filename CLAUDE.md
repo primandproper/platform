@@ -29,7 +29,7 @@ Run tests for a single package:
 go test -race ./cache/...
 ```
 
-Linting runs in Docker (`golangci/golangci-lint` image). Formatting runs locally with `gci`, `goimports`, `fieldalignment`, `tagalign`, and `gofmt`.
+Linting runs in Docker (`golangci/golangci-lint` image). Formatting runs locally with `gci`, `goimports`, `betteralign`, `tagalign`, and `gofmt`.
 
 ## Import Ordering
 
