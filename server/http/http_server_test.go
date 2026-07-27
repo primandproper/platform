@@ -107,7 +107,7 @@ func TestNewHTTPServer(T *testing.T) {
 		t.Parallel()
 
 		x, err := NewHTTPServer(
-			Config{
+			&Config{
 				SSLCertificateFile:    "",
 				SSLCertificateKeyFile: "",
 				StartupDeadline:       0,
@@ -124,11 +124,20 @@ func TestNewHTTPServer(T *testing.T) {
 		test.NoError(t, err)
 	})
 
+	T.Run("with nil settings", func(t *testing.T) {
+		t.Parallel()
+
+		x, err := NewHTTPServer(nil, loggingnoop.NewLogger(), nil, nil, "")
+
+		test.NotNil(t, x)
+		test.NoError(t, err)
+	})
+
 	T.Run("with custom service name", func(t *testing.T) {
 		t.Parallel()
 
 		x, err := NewHTTPServer(
-			Config{Port: 8080},
+			&Config{Port: 8080},
 			loggingnoop.NewLogger(),
 			nil,
 			nil,
@@ -143,7 +152,7 @@ func TestNewHTTPServer(T *testing.T) {
 		t.Parallel()
 
 		x, err := NewHTTPServer(
-			Config{Port: 8080},
+			&Config{Port: 8080},
 			loggingnoop.NewLogger(),
 			nil,
 			nil,
@@ -158,7 +167,7 @@ func TestNewHTTPServer(T *testing.T) {
 		t.Parallel()
 
 		x, err := NewHTTPServer(
-			Config{
+			&Config{
 				SSLCertificateFile:    "/some/cert.pem",
 				SSLCertificateKeyFile: "/some/key.pem",
 				Port:                  8443,
@@ -180,7 +189,7 @@ func TestServer_Router(T *testing.T) {
 	T.Run("returns the router", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewHTTPServer(Config{Port: 0}, nil, nil, nil, "")
+		s, err := NewHTTPServer(&Config{Port: 0}, nil, nil, nil, "")
 		must.NoError(t, err)
 
 		// Router returns nil when nil was passed in
@@ -194,7 +203,7 @@ func TestServer_Shutdown(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewHTTPServer(Config{Port: 0}, loggingnoop.NewLogger(), nil, nil, "")
+		s, err := NewHTTPServer(&Config{Port: 0}, loggingnoop.NewLogger(), nil, nil, "")
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -210,7 +219,7 @@ func TestServer_Shutdown(T *testing.T) {
 			forceFlushFunc: func(_ context.Context) error { return errors.New("flush failed") },
 		}
 
-		s, err := NewHTTPServer(Config{Port: 0}, loggingnoop.NewLogger(), nil, mtp, "")
+		s, err := NewHTTPServer(&Config{Port: 0}, loggingnoop.NewLogger(), nil, mtp, "")
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -232,9 +241,9 @@ func TestServer_Serve(T *testing.T) {
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			panicker:       panicking.NewProductionPanicker(),
-			httpServer:     provideStdLibHTTPServer(Config{}),
+			httpServer:     provideStdLibHTTPServer(&Config{}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
-			config:         Config{},
+			config:         &Config{},
 		}
 
 		done := make(chan struct{})
@@ -258,9 +267,9 @@ func TestServer_Serve(T *testing.T) {
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			panicker:       panicking.NewProductionPanicker(),
-			httpServer:     provideStdLibHTTPServer(Config{}),
+			httpServer:     provideStdLibHTTPServer(&Config{}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
-			config: Config{
+			config: &Config{
 				SSLCertificateFile:    certFile,
 				SSLCertificateKeyFile: keyFile,
 			},
@@ -284,9 +293,9 @@ func TestServer_Serve(T *testing.T) {
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			panicker:       panicking.NewProductionPanicker(),
-			httpServer:     provideStdLibHTTPServer(Config{}),
+			httpServer:     provideStdLibHTTPServer(&Config{}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
-			config: Config{
+			config: &Config{
 				SSLCertificateFile:    "/nonexistent/cert.pem",
 				SSLCertificateKeyFile: "/nonexistent/key.pem",
 			},
@@ -311,7 +320,7 @@ func TestServer_Serve(T *testing.T) {
 
 		port := lis.Addr().(*net.TCPAddr).Port
 
-		httpSrv := provideStdLibHTTPServer(Config{Port: uint16(port)})
+		httpSrv := provideStdLibHTTPServer(&Config{Port: uint16(port)})
 
 		srv := &server{
 			logger:         loggingnoop.NewLogger(),
@@ -319,7 +328,7 @@ func TestServer_Serve(T *testing.T) {
 			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     httpSrv,
 			tracerProvider: tracingnoop.NewTracerProvider(),
-			config:         Config{},
+			config:         &Config{},
 		}
 
 		defer func() {
@@ -340,9 +349,9 @@ func TestServer_listen(T *testing.T) {
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			panicker:       panicking.NewProductionPanicker(),
-			httpServer:     provideStdLibHTTPServer(Config{Port: 0}),
+			httpServer:     provideStdLibHTTPServer(&Config{Port: 0}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
-			config:         Config{StartupDeadline: time.Second},
+			config:         &Config{StartupDeadline: time.Second},
 		}
 
 		listener, err := srv.listen()
@@ -358,9 +367,9 @@ func TestServer_listen(T *testing.T) {
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			panicker:       panicking.NewProductionPanicker(),
-			httpServer:     provideStdLibHTTPServer(Config{Port: 0}),
+			httpServer:     provideStdLibHTTPServer(&Config{Port: 0}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
-			config:         Config{},
+			config:         &Config{},
 		}
 
 		listener, err := srv.listen()
@@ -383,7 +392,7 @@ func Test_skipNoisePaths(T *testing.T) {
 	T.Run("apple app site association path is filtered out", func(t *testing.T) {
 		t.Parallel()
 
-		req := httptest.NewRequest(http.MethodGet, appleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		test.False(t, skipNoisePaths(req))
 	})
 
@@ -408,7 +417,7 @@ func Test_provideStdLibHTTPServer(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		srv := provideStdLibHTTPServer(Config{Port: 8080})
+		srv := provideStdLibHTTPServer(&Config{Port: 8080})
 
 		test.NotNil(t, srv)
 		test.EqOp(t, ":8080", srv.Addr)
@@ -422,7 +431,7 @@ func Test_provideStdLibHTTPServer(T *testing.T) {
 	T.Run("write timeout exceeds the router request timeout so it is reachable", func(t *testing.T) {
 		t.Parallel()
 
-		srv := provideStdLibHTTPServer(Config{})
+		srv := provideStdLibHTTPServer(&Config{})
 
 		test.Greater(t, maxTimeout, srv.WriteTimeout)
 	})
@@ -430,7 +439,7 @@ func Test_provideStdLibHTTPServer(T *testing.T) {
 	T.Run("honors configured timeouts", func(t *testing.T) {
 		t.Parallel()
 
-		srv := provideStdLibHTTPServer(Config{
+		srv := provideStdLibHTTPServer(&Config{
 			ReadTimeout:  7 * time.Second,
 			WriteTimeout: 200 * time.Second,
 			IdleTimeout:  90 * time.Second,
@@ -444,7 +453,7 @@ func Test_provideStdLibHTTPServer(T *testing.T) {
 	T.Run("with zero port", func(t *testing.T) {
 		t.Parallel()
 
-		srv := provideStdLibHTTPServer(Config{})
+		srv := provideStdLibHTTPServer(&Config{})
 
 		test.NotNil(t, srv)
 		test.EqOp(t, ":0", srv.Addr)

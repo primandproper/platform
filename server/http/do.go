@@ -13,8 +13,10 @@ import (
 // string is too generic a type to resolve unambiguously from the injector.
 func RegisterHTTPServer(i do.Injector, serviceName string) {
 	do.Provide[Server](i, func(i do.Injector) (Server, error) {
+		cfg := do.MustInvoke[Config](i)
+
 		return NewHTTPServer(
-			do.MustInvoke[Config](i),
+			&cfg,
 			do.MustInvoke[logging.Logger](i),
 			do.MustInvoke[*routing.Router](i),
 			do.MustInvoke[tracing.TracerProvider](i),

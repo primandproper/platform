@@ -12,6 +12,10 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
+		// AppleAppSiteAssociation, when populated, causes the server to serve the
+		// apple-app-site-association file at AppleAppSiteAssociationPath.
+		AppleAppSiteAssociation *AppleAppSiteAssociationConfig `env:",init" envPrefix:"APPLE_APP_SITE_ASSOCIATION_" json:"appleAppSiteAssociation,omitempty" yaml:"appleAppSiteAssociation,omitempty"`
+
 		SSLCertificateFile    string        `env:"SSL_CERTIFICATE_FILEPATH"     json:"sslCertificate,omitempty"    yaml:"sslCertificate,omitempty"`
 		SSLCertificateKeyFile string        `env:"SSL_CERTIFICATE_KEY_FILEPATH" json:"sslCertificateKey,omitempty" yaml:"sslCertificateKey,omitempty"`
 		StartupDeadline       time.Duration `env:"STARTUP_DEADLINE"             json:"startupDeadline,omitempty"   yaml:"startupDeadline,omitempty"`
@@ -32,5 +36,6 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		cfg,
 		validation.Field(&cfg.Port, validation.Required),
 		validation.Field(&cfg.StartupDeadline, validation.Required),
+		validation.Field(&cfg.AppleAppSiteAssociation),
 	)
 }
