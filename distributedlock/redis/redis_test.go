@@ -16,7 +16,6 @@ import (
 	"github.com/primandproper/platform-go/v7/observability/metrics"
 	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v7/testutils/containers"
 	"github.com/primandproper/platform-go/v7/testutils/containers/redistest"
 
 	"github.com/redis/go-redis/v9"
@@ -549,8 +548,6 @@ func TestBuildRedisClient(T *testing.T) {
 
 func TestRedisLocker_Container(T *testing.T) {
 	T.Parallel()
-
-	containers.SkipIfNotRunning(T)
 
 	cfg := buildContainerBackedRedisConfig(T)
 
