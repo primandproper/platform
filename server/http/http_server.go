@@ -19,11 +19,7 @@ import (
 	"golang.org/x/net/http2"
 )
 
-const (
-	defaultLoggerName = "api_server"
-
-	appleAppSiteAssociationPath = "/.well-known/apple-app-site-association"
-)
+const defaultLoggerName = "api_server"
 
 // skipNoisePaths returns false for paths that should not be traced (health checks, apple site association, etc).
 func skipNoisePaths(r *http.Request) bool {
@@ -31,7 +27,7 @@ func skipNoisePaths(r *http.Request) bool {
 	if strings.HasPrefix(path, "/_ops_/") {
 		return false
 	}
-	if path == appleAppSiteAssociationPath {
+	if path == AppleAppSiteAssociationPath {
 		return false
 	}
 	return true
@@ -51,19 +47,24 @@ type (
 		panicker       panicking.Panicker
 		httpServer     *http.Server
 		tracerProvider tracing.TracerProvider
-		config         Config
+		config         *Config
 	}
 )
 
 // NewHTTPServer builds a new server instance.
+// serverSettings may be nil, which is treated as a zero-valued Config.
 // serviceName, when non-empty, is used for the server's logger; otherwise "api_server" is used.
 func NewHTTPServer(
-	serverSettings Config,
+	serverSettings *Config,
 	logger logging.Logger,
 	router *routing.Router,
 	tracerProvider tracing.TracerProvider,
 	serviceName string,
 ) (Server, error) {
+	if serverSettings == nil {
+		serverSettings = &Config{}
+	}
+
 	loggerName := defaultLoggerName
 	if serviceName != "" {
 		loggerName = serviceName
@@ -77,6 +78,18 @@ func NewHTTPServer(
 		panicker:       panicking.NewProductionPanicker(),
 		httpServer:     provideStdLibHTTPServer(serverSettings),
 		tracerProvider: tracing.EnsureTracerProvider(tracerProvider),
+	}
+
+	if router != nil && serverSettings.AppleAppSiteAssociation.Enabled() {
+		// Registered on the backend rather than through routing's typed registration:
+		// the response shape is dictated by Apple, so it must not be enveloped, and it
+		// isn't part of the service's API surface, so it doesn't belong in the OpenAPI
+		// document either.
+		router.Backend().Handle(
+			http.MethodGet,
+			AppleAppSiteAssociationPath,
+			AppleAppSiteAssociationHandler(serverSettings.AppleAppSiteAssociation, srv.logger),
+		)
 	}
 
 	return srv, nil
@@ -171,7 +184,7 @@ const (
 )
 
 // provideStdLibHTTPServer provides an HTTP httpServer.
-func provideStdLibHTTPServer(cfg Config) *http.Server {
+func provideStdLibHTTPServer(cfg *Config) *http.Server {
 	readTO := cfg.ReadTimeout
 	if readTO <= 0 {
 		readTO = readTimeout
