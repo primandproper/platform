@@ -14,8 +14,8 @@ A Go library providing infrastructure abstractions for cloud-native services. Ea
 This repository follows a deliberately conservative release model:
 
 - **Only tagged releases are supported.** If it isn't behind a version tag, it can change or break without notice, and no support or compatibility is promised for it.
-- **`main` moves ahead of the latest release.** New work — including breaking changes — lands on `main` well before it is deemed release-worthy. The current major module path is `/v5`, and the latest supported release is **`v5.0.0`**. Anything on `main` beyond that tag is unreleased and subject to change.
-- **Semantic Versioning, enforced by Go's module paths.** Breaking changes increment the major version and the module import path (`/v4` → `/v5`), so a major bump can never silently break a consumer that hasn't opted in.
+- **`main` moves ahead of the latest release.** New work — including breaking changes — lands on `main` well before it is deemed release-worthy. The current major module path is `/v7`, and the latest supported release is **`v7.1.1`**. Anything on `main` beyond that tag is unreleased and subject to change.
+- **Semantic Versioning, enforced by Go's module paths.** Breaking changes increment the major version and the module import path (`/v6` → `/v7`), so a major bump can never silently break a consumer that hasn't opted in.
 - **No stability guarantees on unreleased APIs.** Interfaces, config shapes, and package boundaries on `main` are subject to change until they ship in a release.
 
 If you depend on this library, pin to a released tag. If you want to track upcoming work, `main` is fair game — just don't expect it to hold still.
@@ -55,6 +55,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | Package         | Purpose                    | Implementations                                   |
 |-----------------|----------------------------|---------------------------------------------------|
 | `messagequeue`  | Publish/subscribe & queues | kafka, pubsub, redis, sqs                         |
+| `outbox`        | Transactional outbox       | postgres, mysql, sqlite                           |
 | `eventstream`   | Server push to clients     | sse, websocket                                    |
 | `notifications` | User notifications         | async, mobile                                     |
 | `email`         | Transactional email        | mailgun, mailjet, postmark, resend, sendgrid, ses |

@@ -1,0 +1,181 @@
+package outbox_test
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/primandproper/platform-go/v7/database"
+	"github.com/primandproper/platform-go/v7/database/sqlite"
+	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v7/outbox"
+	"github.com/primandproper/platform-go/v7/outbox/migrations"
+)
+
+type order struct {
+	ID    string `json:"id"`
+	Total int    `json:"total"`
+}
+
+// exampleClientConfig is the minimum database.ClientConfig a SQLite client
+// needs. A real deployment builds this through database/config.
+type exampleClientConfig struct {
+	connectionString string
+}
+
+func (c *exampleClientConfig) GetReadConnectionString() string   { return c.connectionString }
+func (c *exampleClientConfig) GetWriteConnectionString() string  { return c.connectionString }
+func (c *exampleClientConfig) GetMaxPingAttempts() uint64        { return 1 }
+func (c *exampleClientConfig) GetPingWaitPeriod() time.Duration  { return time.Millisecond }
+func (c *exampleClientConfig) GetMaxIdleConns() int              { return 2 }
+func (c *exampleClientConfig) GetMaxOpenConns() int              { return 1 }
+func (c *exampleClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
+
+// exampleDatabase stands in for the consumer's own database wiring: a client
+// with the outbox table created.
+func exampleDatabase(ctx context.Context) (database.Client, func(), error) {
+	dir, err := os.MkdirTemp("", "outbox-example")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	client, err := sqlite.NewDatabaseClient(
+		ctx,
+		loggingnoop.NewLogger(),
+		tracingnoop.NewTracerProvider(),
+		&exampleClientConfig{connectionString: filepath.Join(dir, "example.db")},
+		nil,
+	)
+	if err != nil {
+		cleanup()
+
+		return nil, nil, err
+	}
+
+	stmts, err := migrations.Statements(migrations.DialectSQLite, outbox.DefaultTableName)
+	if err != nil {
+		cleanup()
+
+		return nil, nil, err
+	}
+
+	for _, stmt := range stmts {
+		if _, err = client.Writer().ExecContext(ctx, stmt); err != nil {
+			cleanup()
+
+			return nil, nil, err
+		}
+	}
+
+	return client, cleanup, nil
+}
+
+// insertOrder stands in for the caller's own state change.
+func insertOrder(context.Context, database.SQLQueryExecutor, order) error { return nil }
+
+func pendingMessages(ctx context.Context, client database.Client) int {
+	var n int
+	if err := client.Reader().
+		QueryRowContext(ctx, "SELECT COUNT(*) FROM "+outbox.DefaultTableName).
+		Scan(&n); err != nil {
+		panic(err)
+	}
+
+	return n
+}
+
+// ExampleWriter_Enqueue shows the whole point of the package: the event is
+// written by the same executor that wrote the state change, so it commits with
+// it — and cannot be lost by a commit that succeeds.
+func ExampleWriter_Enqueue() {
+	ctx := context.Background()
+
+	client, cleanup, err := exampleDatabase(ctx)
+	if err != nil {
+		panic(err)
+	}
+	defer cleanup()
+
+	writer, err := outbox.NewWriter(outbox.DialectSQLite)
+	if err != nil {
+		panic(err)
+	}
+
+	o := order{ID: "order-1", Total: 4200}
+
+	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		if insertErr := insertOrder(ctx, q, o); insertErr != nil {
+			return insertErr
+		}
+
+		// Same executor, same transaction. Nothing is published here — the
+		// Relay does that once the transaction has committed.
+		return writer.Enqueue(ctx, q, outbox.Message{
+			Topic: "orders",
+			// Messages sharing a Key publish in the order they were enqueued.
+			Key:     o.ID,
+			Payload: o,
+		})
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("awaiting publication:", pendingMessages(ctx, client))
+	// Output: awaiting publication: 1
+}
+
+// ExampleWriter_Enqueue_rollback shows the other half of the guarantee: an
+// event enqueued by a transaction that later fails never reaches the broker,
+// because it was never committed in the first place.
+func ExampleWriter_Enqueue_rollback() {
+	ctx := context.Background()
+
+	client, cleanup, err := exampleDatabase(ctx)
+	if err != nil {
+		panic(err)
+	}
+	defer cleanup()
+
+	writer, err := outbox.NewWriter(outbox.DialectSQLite)
+	if err != nil {
+		panic(err)
+	}
+
+	o := order{ID: "order-2", Total: 900}
+
+	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		if enqueueErr := writer.Enqueue(ctx, q, outbox.Message{Topic: "orders", Payload: o}); enqueueErr != nil {
+			return enqueueErr
+		}
+
+		// Something later in the transaction fails. Returning an error is the
+		// only way to abort, and it rolls the outbox row back too.
+		return platformerrors.New("payment declined")
+	})
+
+	fmt.Println("transaction failed:", err != nil)
+	fmt.Println("awaiting publication:", pendingMessages(ctx, client))
+	// Output:
+	// transaction failed: true
+	// awaiting publication: 0
+}
+
+// ExampleStatements shows how the table gets created. The platform ships no
+// numbered migration file, because migration numbering belongs to the
+// consumer: these statements go into a migration at a number you control.
+func ExampleStatements() {
+	stmts, err := migrations.Statements(migrations.DialectPostgres, outbox.DefaultTableName)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("statements:", len(stmts))
+	// Output: statements: 4
+}

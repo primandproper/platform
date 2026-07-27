@@ -11,7 +11,7 @@ The contract that shapes everything: capture must never block or fail the hot
 path. Record is a non-blocking bounded-channel send — a full buffer drops the
 event and counts the drop rather than waiting — and a single flusher
 goroutine consumes the channel, writing records through a pluggable Sink
-(JSONL file in eventcapture/jsonl today; a Kafka or object-store exporter
+(JSONL file in eventcapture/jsonl today; an object-store exporter
 implements the same three methods). Sink errors are logged, never surfaced:
 the request that produced the event has long since been answered.
 
