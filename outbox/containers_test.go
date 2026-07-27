@@ -266,6 +266,41 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		test.Eq(t, []string{`{"id":"first"}`, `{"id":"second"}`, `{"id":"third"}`}, rec.payloads())
 	})
 
+	t.Run("reports backlog depth and age", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		table := env.newTable(t)
+		w := env.writer(t, c, table)
+		relay, _ := env.relay(t, c, table)
+
+		depth, age, err := relay.backlog(t.Context())
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), depth)
+		test.EqOp(t, time.Duration(0), age)
+
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
+		}))
+
+		c.advance(90 * time.Second)
+
+		// MIN over a timestamp column is the one value this package reads back
+		// as a time, and every driver renders it differently — which is the
+		// whole reason coerceTime exists and the reason this runs per dialect.
+		depth, age, err = relay.backlog(t.Context())
+		must.NoError(t, err)
+		test.EqOp(t, int64(1), depth)
+		test.EqOp(t, 90*time.Second, age)
+
+		relay.cycle(t.Context())
+
+		depth, age, err = relay.backlog(t.Context())
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), depth)
+		test.EqOp(t, time.Duration(0), age)
+	})
+
 	t.Run("reaps published rows past retention", func(t *testing.T) {
 		t.Parallel()
 

@@ -304,6 +304,86 @@ func TestRelay_ordering(T *testing.T) {
 	})
 }
 
+func TestRelay_backlog(T *testing.T) {
+	T.Parallel()
+
+	T.Run("reports depth and the age of the oldest message", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		client := newTestClient(t)
+		relay, rec := newTestRelay(t, client, c)
+		w := newTestWriter(t, c)
+
+		// Nothing pending: no depth, and an age of zero rather than a stale
+		// reading left over from a previous sample.
+		depth, age, err := relay.backlog(t.Context())
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), depth)
+		test.EqOp(t, time.Duration(0), age)
+
+		enqueue(t, client, w, Message{Topic: "orders", Payload: map[string]any{"id": "old"}})
+
+		c.advance(90 * time.Second)
+
+		enqueue(t, client, w, Message{Topic: "orders", Payload: map[string]any{"id": "new"}})
+
+		depth, age, err = relay.backlog(t.Context())
+		must.NoError(t, err)
+		test.EqOp(t, int64(2), depth)
+
+		// Age tracks the oldest message, not the newest — that is the whole
+		// point of the signal.
+		test.EqOp(t, 90*time.Second, age)
+
+		// Publishing drains it back to nothing.
+		relay.cycle(t.Context())
+		test.SliceLen(t, 2, rec.payloads())
+
+		depth, age, err = relay.backlog(t.Context())
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), depth)
+		test.EqOp(t, time.Duration(0), age)
+	})
+
+	T.Run("excludes quarantined messages", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		client := newTestClient(t)
+		relay, rec := newTestRelay(t, client, c)
+
+		rec.fail(platformerrors.New("poison"))
+		enqueue(t, client, newTestWriter(t, c), Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
+
+		for range 3 {
+			relay.cycle(t.Context())
+			c.advance(time.Hour)
+		}
+
+		must.EqOp(t, 1, countRows(t, client, "quarantined = TRUE"))
+
+		// A permanently broken message must not read as a permanently growing
+		// backlog, or the signal is useless on exactly the day it matters.
+		depth, age, err := relay.backlog(t.Context())
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), depth)
+		test.EqOp(t, time.Duration(0), age)
+	})
+
+	T.Run("sampleBacklog records without erroring", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		client := newTestClient(t)
+		relay, _ := newTestRelay(t, client, c)
+
+		enqueue(t, client, newTestWriter(t, c), Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
+
+		relay.sampleBacklog(t.Context())
+	})
+}
+
 func TestRelay_reap(T *testing.T) {
 	T.Parallel()
 

@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/primandproper/platform-go/v7/clock"
@@ -10,7 +11,9 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v7/errors"
 	"github.com/primandproper/platform-go/v7/identifiers"
 	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
 	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/metrics"
 	"github.com/primandproper/platform-go/v7/observability/tracing"
 )
 
@@ -85,9 +88,12 @@ type Writer struct {
 	o11y   observability.Observer
 	logger logging.Logger
 
-	tracerProvider tracing.TracerProvider
-	dialect        Dialect
-	table          string
+	enqueuedCounter metrics.Int64Counter
+
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
+	dialect         Dialect
+	table           string
 }
 
 // WriterOption configures a Writer.
@@ -128,6 +134,16 @@ func WithWriterTracerProvider(tracerProvider tracing.TracerProvider) WriterOptio
 	}
 }
 
+// WithWriterMetricsProvider attaches a metrics provider, enabling
+// outbox_messages_enqueued. Pair it with the Relay's provider: enqueue rate
+// against publish rate is what tells you whether the relay is keeping up, and
+// neither number answers that alone.
+func WithWriterMetricsProvider(metricsProvider metrics.Provider) WriterOption {
+	return func(w *Writer) {
+		w.metricsProvider = metricsProvider
+	}
+}
+
 // NewWriter builds a Writer for the given dialect.
 func NewWriter(dialect Dialect, opts ...WriterOption) (*Writer, error) {
 	if !dialect.Valid() {
@@ -152,6 +168,13 @@ func NewWriter(dialect Dialect, opts ...WriterOption) (*Writer, error) {
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
 	w.logger = w.o11y.Logger()
 
+	mp := metrics.EnsureMetricsProvider(w.metricsProvider)
+
+	var err error
+	if w.enqueuedCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_messages_enqueued", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating messages enqueued counter")
+	}
+
 	return w, nil
 }
 
@@ -173,9 +196,14 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 		return nil
 	}
 
-	op.Set("message_count", len(msgs))
+	op.Set("outbox.message_count", len(msgs))
 
 	now := w.clock.Now().UTC()
+
+	// Topics are recorded on the span so a transaction that fans out to several
+	// destinations is legible from the trace alone, without joining against the
+	// counter.
+	topics := make([]string, 0, len(msgs))
 
 	rows := make([]enqueueRow, 0, len(msgs))
 	for i := range msgs {
@@ -200,12 +228,23 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 			payload:   payload,
 			createdAt: now,
 		})
+		topics = append(topics, msg.Topic)
 	}
+
+	op.Set(keys.TopicKey, topics)
 
 	query, args := buildInsert(w.dialect, w.table, rows)
 
 	if _, err := q.ExecContext(ctx, query, args...); err != nil {
 		return op.Error(err, "inserting outbox messages")
+	}
+
+	// Counted after the statement succeeds, but the transaction can still roll
+	// back afterwards — so this counts intent to publish, not committed rows.
+	// The gap is exactly the rollback rate, and comparing this against
+	// outbox_messages_published is how you see it.
+	for _, topic := range topics {
+		w.enqueuedCounter.Add(ctx, 1, topicAttr(topic))
 	}
 
 	return nil

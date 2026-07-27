@@ -15,12 +15,15 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v7/errors"
 	"github.com/primandproper/platform-go/v7/messagequeue"
 	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v7/observability/keys"
 	"github.com/primandproper/platform-go/v7/observability/logging"
 	"github.com/primandproper/platform-go/v7/observability/metrics"
 	"github.com/primandproper/platform-go/v7/observability/tracing"
 	"github.com/primandproper/platform-go/v7/retry"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -187,8 +190,11 @@ type Relay struct {
 	quarantinedCounter metrics.Int64Counter
 	reapedCounter      metrics.Int64Counter
 	claimErrCounter    metrics.Int64Counter
+	backlogGauge       metrics.Int64Gauge
+	backlogAgeGauge    metrics.Int64Gauge
 	batchHist          metrics.Float64Histogram
 	cycleHist          metrics.Float64Histogram
+	publishHist        metrics.Float64Histogram
 
 	tracerProvider  tracing.TracerProvider
 	metricsProvider metrics.Provider
@@ -293,6 +299,15 @@ func NewRelay(cfg *RelayConfig, client database.Client, provider messagequeue.Pu
 	if r.claimErrCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_claim_errors", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating claim error counter")
 	}
+	if r.backlogGauge, err = mp.NewInt64Gauge(fmt.Sprintf("%s_backlog_depth", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating backlog depth gauge")
+	}
+	if r.backlogAgeGauge, err = mp.NewInt64Gauge(fmt.Sprintf("%s_backlog_age_seconds", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating backlog age gauge")
+	}
+	if r.publishHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_publish_latency_ms", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating publish latency histogram")
+	}
 	if r.batchHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_claimed_batch_size", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating claimed batch size histogram")
 	}
@@ -332,6 +347,10 @@ func (r *Relay) Run() {
 			r.cycle(ctx)
 		case <-reapTicker.Chan():
 			r.reap(ctx)
+			// Sampled on the reap tick rather than every poll: it is an
+			// aggregate over the unpublished rows, and at poll cadence it would
+			// cost more than the work it reports on.
+			r.sampleBacklog(ctx)
 		}
 	}
 }
@@ -401,6 +420,7 @@ func (r *Relay) cycle(ctx context.Context) {
 		}
 
 		published = append(published, msgs[i].id)
+		r.publishedCounter.Add(ctx, 1, topicAttr(msgs[i].topic))
 	}
 
 	if len(published) == 0 {
@@ -413,20 +433,41 @@ func (r *Relay) cycle(ctx context.Context) {
 		// the package documentation describes.
 		op.Acknowledge(err, "marking outbox messages published")
 	}
-
-	r.publishedCounter.Add(ctx, int64(len(published)))
 }
 
 // publish sends one message to its topic. The payload is republished as
 // json.RawMessage so the broker receives exactly the bytes a direct Publish of
 // the original value would have produced.
+//
+// It carries its own span: the broker round trip is where a cycle spends its
+// time, and a single span over the whole batch cannot say which topic is slow.
 func (r *Relay) publish(ctx context.Context, msg *claimedMessage) error {
-	publisher, err := r.publisherFor(ctx, msg.topic)
-	if err != nil {
-		return err
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
+	op.Set(keys.TopicKey, msg.topic).
+		Set("outbox.message_id", msg.id).
+		Set("outbox.attempts", msg.attempts)
+
+	if msg.key != "" {
+		op.Set("outbox.partition_key", msg.key)
 	}
 
-	return publisher.Publish(ctx, json.RawMessage(msg.payload))
+	startTime := time.Now()
+	defer func() {
+		r.publishHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), topicAttr(msg.topic))
+	}()
+
+	publisher, err := r.publisherFor(ctx, msg.topic)
+	if err != nil {
+		return op.Error(err, "resolving publisher")
+	}
+
+	if err = publisher.Publish(ctx, json.RawMessage(msg.payload)); err != nil {
+		return op.Error(err, "publishing outbox message")
+	}
+
+	return nil
 }
 
 // publisherFor resolves and caches one Publisher per topic.
@@ -451,6 +492,15 @@ func (r *Relay) publisherFor(ctx context.Context, topic string) (messagequeue.Pu
 // claim selects a batch, leases it, and reads it back — all in one
 // transaction, so two relays cannot lease the same rows.
 func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
+	op.SetValues(map[string]any{
+		"outbox.claim_mode": string(r.cfg.ClaimMode),
+		"outbox.batch_size": r.cfg.BatchSize,
+		"db.system":         string(r.cfg.Dialect),
+	})
+
 	var claimed []claimedMessage
 
 	err := r.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
@@ -484,8 +534,10 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, op.Error(err, "claiming outbox batch")
 	}
+
+	op.Set("outbox.claimed", len(claimed))
 
 	return claimed, nil
 }
@@ -506,7 +558,7 @@ func (r *Relay) markPublished(ctx context.Context, ids []string) error {
 // by every future claim, so one permanently broken message cannot block the
 // queue behind it.
 func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause error) {
-	r.failedCounter.Add(ctx, 1)
+	r.failedCounter.Add(ctx, 1, topicAttr(msg.topic))
 
 	quarantine := uint(msg.attempts) >= r.cfg.Backoff.MaxAttempts
 
@@ -520,10 +572,10 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 	// that is failing is also holding up every later message for that key, so
 	// the log has to say which key is stalled.
 	logger := r.logger.WithValues(map[string]any{
-		"outbox_message_id": msg.id,
-		"topic":             msg.topic,
-		"partition_key":     msg.key,
-		"attempts":          msg.attempts,
+		"outbox.message_id":    msg.id,
+		keys.TopicKey:          msg.topic,
+		"outbox.partition_key": msg.key,
+		"outbox.attempts":      msg.attempts,
 	})
 
 	if _, err := r.client.Writer().ExecContext(ctx, query, args...); err != nil {
@@ -535,7 +587,7 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 	}
 
 	if quarantine {
-		r.quarantinedCounter.Add(ctx, 1)
+		r.quarantinedCounter.Add(ctx, 1, topicAttr(msg.topic))
 		logger.Error("quarantining outbox message after exhausting attempts", cause)
 
 		return
@@ -544,28 +596,143 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 	logger.WithValue("next_attempt", nextAttempt).Info("outbox publish failed, retry scheduled")
 }
 
+// sampleBacklog records how far behind the relay is. These two gauges are the
+// package's primary health signal: every other instrument is a rate or a
+// latency, and none of them can distinguish "publishing steadily" from
+// "publishing steadily while falling further behind".
+func (r *Relay) sampleBacklog(ctx context.Context) {
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
+	depth, age, err := r.backlog(ctx)
+	if err != nil {
+		op.Acknowledge(err, "sampling outbox backlog")
+
+		return
+	}
+
+	ageSeconds := int64(age.Seconds())
+
+	r.backlogGauge.Record(ctx, depth)
+	r.backlogAgeGauge.Record(ctx, ageSeconds)
+
+	op.SetValues(map[string]any{
+		"outbox.backlog_depth":       depth,
+		"outbox.backlog_age_seconds": ageSeconds,
+	})
+}
+
+// backlog reads how many messages are waiting and how old the oldest is. Split
+// out from sampleBacklog because this is the part with something to get wrong:
+// MIN over a timestamp column comes back through three different drivers.
+//
+// An empty backlog reports an age of zero rather than no age at all, so a
+// drained queue actively resets the gauge instead of leaving a stale reading
+// on the dashboard.
+func (r *Relay) backlog(ctx context.Context) (depth int64, age time.Duration, err error) {
+	var oldest any
+	if err = r.client.Reader().
+		QueryRowContext(ctx, buildBacklog(r.cfg.TableName)).
+		Scan(&depth, &oldest); err != nil {
+		return 0, 0, platformerrors.Wrap(err, "reading outbox backlog")
+	}
+
+	created, ok := coerceTime(oldest)
+	if !ok {
+		return depth, 0, nil
+	}
+
+	if age = r.clock.Since(created.UTC()); age < 0 {
+		age = 0
+	}
+
+	return depth, age, nil
+}
+
+// coerceTime normalizes whatever a driver hands back for MIN(created_at).
+//
+// It is scanned as `any` rather than sql.NullTime because the drivers disagree.
+// pgx and go-sql-driver return a time.Time, but modernc's SQLite driver stores a
+// bound time.Time as Go's own String() rendering and an aggregate over that
+// column loses the declared DATETIME affinity, so it comes back as a plain
+// string that sql.NullTime refuses outright.
+//
+// A NULL — an empty backlog — reports false, and the caller treats that as an
+// age of zero.
+func coerceTime(v any) (time.Time, bool) {
+	var s string
+
+	switch typed := v.(type) {
+	case nil:
+		return time.Time{}, false
+	case time.Time:
+		return typed, true
+	case string:
+		s = typed
+	case []byte:
+		s = string(typed)
+	default:
+		return time.Time{}, false
+	}
+
+	// Go's String() layout comes first: it is what the SQLite path actually
+	// produces, and the others are here so a driver change does not silently
+	// zero the gauge.
+	for _, layout := range []string{
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	} {
+		if parsed, parseErr := time.Parse(layout, s); parseErr == nil {
+			return parsed, true
+		}
+	}
+
+	return time.Time{}, false
+}
+
 // reap deletes published rows past the retention window.
 func (r *Relay) reap(ctx context.Context) {
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
 	before := r.clock.Now().UTC().Add(-r.cfg.Retention)
+
+	op.Set("outbox.retention_cutoff", before)
 
 	query, args := buildReap(r.cfg.Dialect, r.cfg.TableName, before, r.cfg.ReapBatchSize)
 
 	res, err := r.client.Writer().ExecContext(ctx, query, args...)
 	if err != nil {
-		r.logger.Error("reaping published outbox messages", err)
+		op.Acknowledge(err, "reaping published outbox messages")
 
 		return
 	}
 
 	affected, err := res.RowsAffected()
 	if err != nil {
+		op.Acknowledge(err, "counting reaped outbox messages")
+
 		return
 	}
 
+	op.Set("outbox.reaped", affected)
+
 	if affected > 0 {
 		r.reapedCounter.Add(ctx, affected)
-		r.logger.WithValue("reaped", affected).Debug("reaped published outbox messages")
+		op.Logger().Debug("reaped published outbox messages")
 	}
+}
+
+// topicAttr labels a measurement with its topic. One Relay serves every topic,
+// so without this the counters collapse into a single number and a topic whose
+// publisher is broken is invisible beside the ones that are fine. Topics are
+// low-cardinality by nature, which is what makes this safe as a metric
+// dimension.
+func topicAttr(topic string) metric.MeasurementOption {
+	return metric.WithAttributes(attribute.String(keys.TopicKey, topic))
 }
 
 // backoffFor computes the delay before a message's next attempt, using the

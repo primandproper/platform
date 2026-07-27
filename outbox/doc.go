@@ -65,6 +65,31 @@ check and claim freely. ClaimLease serializes on a single relay and preserves
 global order. Postgres and MySQL support both modes; SQLite has no SKIP LOCKED
 and always uses ClaimLease.
 
+# Watching it
+
+Nothing here fails loudly — publish errors are logged and retried, never
+surfaced — so the instruments are how you learn the outbox has stopped working.
+Pass WithRelayMetricsProvider and WithWriterMetricsProvider.
+
+The two that matter most are outbox_backlog_depth and outbox_backlog_age_seconds,
+sampled on the reap tick. Every other instrument is a rate or a latency, and none
+of them separates "publishing steadily" from "publishing steadily while falling
+further behind" — only the age does. A depth of 40,000 is unremarkable if the
+oldest message is four seconds old and an incident if it is four hours old.
+Quarantined rows are excluded from both, so a permanently broken message does not
+read as a permanently growing backlog.
+
+The rest: outbox_messages_enqueued against outbox_messages_published (the gap is
+the rollback rate), outbox_messages_failed, outbox_messages_quarantined — alert on
+any increase, since a quarantined message is a dropped event — outbox_claim_errors,
+outbox_messages_reaped, and the outbox_publish_latency_ms, outbox_cycle_latency_ms
+and outbox_claimed_batch_size distributions. Everything per-message carries a topic
+attribute, because one Relay serves every topic and a single broken publisher is
+invisible in the total.
+
+Spans cover Enqueue, each claim, each publish, and each reap. A cycle that claims
+nothing is not traced: a root span every poll interval is noise.
+
 # Failure
 
 A message that cannot be published has its attempt count incremented and its

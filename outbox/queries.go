@@ -14,6 +14,23 @@ const serviceName = "outbox"
 // SELECT and the Scan cannot drift apart.
 const messageColumns = "id, topic, partition_key, payload, attempts"
 
+// A note on timestamps, because one dialect does something surprising.
+//
+// Every time this package binds is a UTC time.Time, and every comparison is
+// against another such value. Postgres and MySQL store these as real temporal
+// types and compare them as such. SQLite does not: modernc's driver stores a
+// bound time.Time as Go's own String() rendering — "2026-07-27 12:00:00 +0000
+// UTC" — so `next_attempt <= ?` there is a string comparison.
+//
+// That is still correct, but for a reason worth writing down: the rendering
+// begins with a fixed-width "YYYY-MM-DD HH:MM:SS" prefix and everything is UTC,
+// so lexical order is chronological order. Sub-second values sort correctly too,
+// since a fractional part starts with '.' (0x2E) and a whole second continues
+// with ' ' (0x20), placing the whole second first.
+//
+// It stops being correct the moment a value is bound in a non-UTC location, so
+// do not remove the .UTC() calls at the binding sites.
+
 // validIdentifier reports whether s is safe to interpolate into query text as
 // a table name. Table names cannot be bound as parameters, so the set is
 // restricted to plain identifiers — optionally schema-qualified — rather than
@@ -185,6 +202,25 @@ func buildRecordFailure(d Dialect, table, id string, nextAttempt time.Time, last
 	)
 
 	return query, []any{nextAttempt, lastErr, quarantine, id}
+}
+
+// buildBacklog renders the health query: how many messages are waiting, and
+// when the oldest of them was created.
+//
+// Both come back from one round trip because they answer one question — is the
+// relay keeping up — and neither is useful alone. A depth of 40,000 is fine if
+// the oldest is four seconds old and an incident if it is four hours old.
+// Quarantined rows are excluded: they are never going to be published, so
+// counting them would make a permanently broken message look like a permanently
+// growing backlog.
+// It takes no dialect and binds no parameters — unlike every other builder here
+// — because it has nothing to vary: no placeholders, and the aggregate syntax is
+// identical on all three.
+func buildBacklog(table string) string {
+	return fmt.Sprintf(
+		"SELECT COUNT(*), MIN(created_at) FROM %s WHERE published_at IS NULL AND quarantined = FALSE",
+		table,
+	)
 }
 
 // buildReap renders the DELETE that removes published rows past the retention
