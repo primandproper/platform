@@ -115,10 +115,12 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/KimMachineGun/automemlimit v0.7.5 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
+	github.com/dkorunic/betteralign v0.14.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
@@ -133,6 +135,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/renameio/v2 v2.0.2 // indirect
 	github.com/google/wire v0.7.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -141,6 +144,7 @@ require (
 	github.com/mitchellh/mapstructure v1.1.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pierrec/lz4/v4 v4.1.27 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
@@ -367,7 +371,7 @@ require (
 tool (
 	github.com/4meepo/tagalign/cmd/tagalign
 	github.com/daixiang0/gci
+	github.com/dkorunic/betteralign/cmd/betteralign
 	github.com/matryer/moq
 	golang.org/x/tools/cmd/goimports
-	golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment
 )
