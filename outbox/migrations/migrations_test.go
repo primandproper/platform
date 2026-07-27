@@ -46,12 +46,34 @@ func TestStatements(T *testing.T) {
 	T.Run("strips comments and empty fragments", func(t *testing.T) {
 		t.Parallel()
 
-		stmts, err := Statements(DialectPostgres, "outbox_messages")
-		must.NoError(t, err)
+		for _, d := range []Dialect{DialectPostgres, DialectMySQL, DialectSQLite} {
+			stmts, err := Statements(d, "outbox_messages")
+			must.NoError(t, err)
 
-		for _, stmt := range stmts {
-			test.False(t, strings.HasPrefix(stmt, "--"))
-			test.EqOp(t, stmt, strings.TrimSpace(stmt))
+			for _, stmt := range stmts {
+				test.False(t, strings.Contains(stmt, "--"),
+					test.Sprintf("dialect %q leaked a comment: %s", d, stmt))
+				test.EqOp(t, stmt, strings.TrimSpace(stmt))
+			}
+		}
+	})
+
+	T.Run("survives a semicolon inside a comment", func(t *testing.T) {
+		t.Parallel()
+
+		// Regression: comments were stripped after splitting on ';', so a
+		// comment containing a semicolon was torn in half and its tail arrived
+		// at the head of the next statement as bogus SQL. MariaDB rejected the
+		// result; Postgres never saw it, because only the MySQL DDL happened to
+		// have prose with a semicolon in it.
+		for _, d := range []Dialect{DialectPostgres, DialectMySQL, DialectSQLite} {
+			stmts, err := Statements(d, "outbox_messages")
+			must.NoError(t, err)
+
+			for _, stmt := range stmts {
+				test.True(t, strings.HasPrefix(stmt, "CREATE "),
+					test.Sprintf("dialect %q produced a non-DDL fragment: %q", d, stmt))
+			}
 		}
 	})
 

@@ -75,9 +75,13 @@ func Statements(dialect Dialect, tableName string) ([]string, error) {
 
 	ddl = strings.ReplaceAll(ddl, tablePlaceholder, tableName)
 
+	// Comments come out before the split, not after. A '--' comment may contain
+	// a semicolon — prose routinely does — and splitting first tears such a
+	// comment in half, leaving its tail masquerading as SQL at the head of the
+	// next statement.
 	var stmts []string
-	for raw := range strings.SplitSeq(ddl, ";") {
-		if stmt := stripComments(raw); stmt != "" {
+	for raw := range strings.SplitSeq(stripComments(ddl), ";") {
+		if stmt := strings.TrimSpace(raw); stmt != "" {
 			stmts = append(stmts, stmt)
 		}
 	}
@@ -85,20 +89,20 @@ func Statements(dialect Dialect, tableName string) ([]string, error) {
 	return stmts, nil
 }
 
-// stripComments removes leading comment lines and surrounding whitespace, so a
-// statement is either real SQL or empty. Splitting on ';' is safe here only
-// because this package's own DDL contains no semicolons inside literals or
-// bodies.
-func stripComments(raw string) string {
+// stripComments drops whole-line '--' comments and blank lines. It does not
+// handle a '--' appearing after SQL on the same line, nor semicolons inside
+// string literals; this package's own DDL contains neither, and the round-trip
+// tests against real servers are what keep that true.
+func stripComments(ddl string) string {
 	var kept []string
 
-	for line := range strings.SplitSeq(raw, "\n") {
+	for line := range strings.SplitSeq(ddl, "\n") {
 		if trimmed := strings.TrimSpace(line); trimmed != "" && !strings.HasPrefix(trimmed, "--") {
 			kept = append(kept, line)
 		}
 	}
 
-	return strings.TrimSpace(strings.Join(kept, "\n"))
+	return strings.Join(kept, "\n")
 }
 
 // validIdentifier reports whether s is safe to interpolate as a table name.
