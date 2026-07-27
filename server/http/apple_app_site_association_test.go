@@ -1,10 +1,13 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/primandproper/platform-go/v7/encoding"
+	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -45,6 +48,22 @@ func TestAppleAppSiteAssociationConfig_Enabled(T *testing.T) {
 		test.False(t, cfg.Enabled())
 	})
 
+	T.Run("disabled when team ID is malformed", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY.com.example.ios", BundleID: "com.example.ios"}
+
+		test.False(t, cfg.Enabled())
+	})
+
+	T.Run("disabled when bundle ID is malformed", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: `com."example".ios`}
+
+		test.False(t, cfg.Enabled())
+	})
+
 	T.Run("disabled when nil", func(t *testing.T) {
 		t.Parallel()
 
@@ -69,6 +88,14 @@ func TestAppleAppSiteAssociationConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &AppleAppSiteAssociationConfig{}
+
+		test.NoError(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("nil config is valid", func(t *testing.T) {
+		t.Parallel()
+
+		var cfg *AppleAppSiteAssociationConfig
 
 		test.NoError(t, cfg.ValidateWithContext(t.Context()))
 	})
@@ -112,10 +139,11 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 	T.Run("serves the association document", func(t *testing.T) {
 		t.Parallel()
 
-		handler := AppleAppSiteAssociationHandler(&AppleAppSiteAssociationConfig{
-			TeamID:   "ABCD1234XY",
-			BundleID: "com.example.ios",
-		}, nil)
+		handler := AppleAppSiteAssociationHandler(
+			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
@@ -123,10 +151,10 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 		handler.ServeHTTP(res, req)
 
 		test.EqOp(t, http.StatusOK, res.Code)
-		test.EqOp(t, "application/json", res.Header().Get("Content-Type"))
+		test.StrContains(t, res.Header().Get("Content-Type"), "application/json")
 
 		var doc appleAppSiteAssociation
-		must.NoError(t, json.Unmarshal(res.Body.Bytes(), &doc))
+		must.NoError(t, encoding.DecodeJSON(res.Body.Bytes(), &doc))
 
 		must.SliceLen(t, 1, doc.AppLinks.Details)
 		test.Eq(t, []string{"ABCD1234XY.com.example.ios"}, doc.AppLinks.Details[0].AppIDs)
@@ -136,10 +164,11 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 	T.Run("renders the exact shape Apple expects", func(t *testing.T) {
 		t.Parallel()
 
-		handler := AppleAppSiteAssociationHandler(&AppleAppSiteAssociationConfig{
-			TeamID:   "ABCD1234XY",
-			BundleID: "com.example.ios",
-		}, nil)
+		handler := AppleAppSiteAssociationHandler(
+			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
@@ -148,15 +177,49 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		test.EqOp(
 			t,
-			`{"applinks":{"details":[{"appIDs":["ABCD1234XY.com.example.ios"],"components":[{"/":"*"}]}]}}`,
+			`{"applinks":{"details":[{"appIDs":["ABCD1234XY.com.example.ios"],"components":[{"/":"*"}]}]}}`+"\n",
 			res.Body.String(),
 		)
+	})
+
+	T.Run("tolerates a nil logger and tracer provider", func(t *testing.T) {
+		t.Parallel()
+
+		handler := AppleAppSiteAssociationHandler(
+			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
+			nil,
+			nil,
+		)
+
+		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		res := httptest.NewRecorder()
+
+		handler.ServeHTTP(res, req)
+
+		test.EqOp(t, http.StatusOK, res.Code)
 	})
 
 	T.Run("returns 404 when disabled", func(t *testing.T) {
 		t.Parallel()
 
-		handler := AppleAppSiteAssociationHandler(&AppleAppSiteAssociationConfig{}, nil)
+		handler := AppleAppSiteAssociationHandler(&AppleAppSiteAssociationConfig{}, nil, nil)
+
+		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		res := httptest.NewRecorder()
+
+		handler.ServeHTTP(res, req)
+
+		test.EqOp(t, http.StatusNotFound, res.Code)
+	})
+
+	T.Run("returns 404 when malformed", func(t *testing.T) {
+		t.Parallel()
+
+		handler := AppleAppSiteAssociationHandler(
+			&AppleAppSiteAssociationConfig{TeamID: "too-short", BundleID: "com.example.ios"},
+			nil,
+			nil,
+		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
@@ -169,7 +232,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 	T.Run("returns 404 when nil", func(t *testing.T) {
 		t.Parallel()
 
-		handler := AppleAppSiteAssociationHandler(nil, nil)
+		handler := AppleAppSiteAssociationHandler(nil, nil, nil)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()

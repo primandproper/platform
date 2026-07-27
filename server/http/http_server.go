@@ -88,7 +88,7 @@ func NewHTTPServer(
 		router.Backend().Handle(
 			http.MethodGet,
 			AppleAppSiteAssociationPath,
-			AppleAppSiteAssociationHandler(serverSettings.AppleAppSiteAssociation, srv.logger),
+			AppleAppSiteAssociationHandler(serverSettings.AppleAppSiteAssociation, srv.logger, srv.tracerProvider),
 		)
 	}
 

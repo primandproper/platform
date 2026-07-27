@@ -124,6 +124,15 @@ func TestNewHTTPServer(T *testing.T) {
 		test.NoError(t, err)
 	})
 
+	T.Run("with nil settings", func(t *testing.T) {
+		t.Parallel()
+
+		x, err := NewHTTPServer(nil, loggingnoop.NewLogger(), nil, nil, "")
+
+		test.NotNil(t, x)
+		test.NoError(t, err)
+	})
+
 	T.Run("with custom service name", func(t *testing.T) {
 		t.Parallel()
 

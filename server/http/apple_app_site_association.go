@@ -2,12 +2,13 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
 
+	"github.com/primandproper/platform-go/v7/encoding"
 	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v7/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -63,9 +64,14 @@ type (
 
 var _ validation.ValidatableWithContext = (*AppleAppSiteAssociationConfig)(nil)
 
-// Enabled indicates whether the apple-app-site-association file should be served.
+// Enabled indicates whether the apple-app-site-association file should be served,
+// which requires both identifiers to be present and well-formed. A malformed config
+// reports disabled here and an error from ValidateWithContext, so a service that
+// skips validation serves nothing rather than a document iOS would reject.
 func (cfg *AppleAppSiteAssociationConfig) Enabled() bool {
-	return cfg != nil && cfg.TeamID != "" && cfg.BundleID != ""
+	return cfg != nil &&
+		appleTeamIDPattern.MatchString(cfg.TeamID) &&
+		appleBundleIDPattern.MatchString(cfg.BundleID)
 }
 
 // ValidateWithContext validates an AppleAppSiteAssociationConfig struct. An entirely
@@ -105,39 +111,32 @@ func (cfg *AppleAppSiteAssociationConfig) document() appleAppSiteAssociation {
 }
 
 // AppleAppSiteAssociationHandler returns an http.HandlerFunc that serves the
-// apple-app-site-association document described by cfg as JSON. Register it at
+// apple-app-site-association document described by cfg. Register it at
 // AppleAppSiteAssociationPath; NewHTTPServer does so automatically when
 // Config.AppleAppSiteAssociation is enabled, so this is only needed to serve the
 // document from somewhere else (a different mux, a CDN origin, etc).
 //
-// A disabled config yields a handler that responds 404, so callers never have to
-// branch on whether the feature is configured.
-//
-// The document is rendered once at construction, so the handler only writes bytes.
-func AppleAppSiteAssociationHandler(cfg *AppleAppSiteAssociationConfig, logger logging.Logger) http.HandlerFunc {
+// A config that is empty or malformed yields a handler that responds 404, so callers
+// never have to branch on whether the feature is configured.
+func AppleAppSiteAssociationHandler(
+	cfg *AppleAppSiteAssociationConfig,
+	logger logging.Logger,
+	tracerProvider tracing.TracerProvider,
+) http.HandlerFunc {
 	if !cfg.Enabled() {
 		return http.NotFound
 	}
 
-	logger = logging.EnsureLogger(logger)
+	// Apple only accepts JSON here, so this uses its own JSON encoder rather than the
+	// service's configured one, which may be YAML, XML, or anything else.
+	enc := encoding.NewServerEncoderDecoder(
+		logging.EnsureLogger(logger),
+		tracing.EnsureTracerProvider(tracerProvider),
+		encoding.ContentTypeJSON,
+	)
+	document := cfg.document()
 
-	body, err := json.Marshal(cfg.document())
-	if err != nil {
-		logger.Error("rendering apple-app-site-association", err)
-
-		return func(res http.ResponseWriter, _ *http.Request) {
-			http.Error(res, "rendering apple-app-site-association", http.StatusInternalServerError)
-		}
-	}
-
-	return func(res http.ResponseWriter, _ *http.Request) {
-		// Apple requires an application/json content type and will not follow redirects.
-		res.Header().Set("Content-Type", "application/json")
-		res.WriteHeader(http.StatusOK)
-
-		if _, writeErr := res.Write(body); writeErr != nil {
-			// The status is already written, so the only thing left to do is record it.
-			logger.Error("writing apple-app-site-association", writeErr)
-		}
+	return func(res http.ResponseWriter, req *http.Request) {
+		enc.EncodeResponseWithStatus(req.Context(), res, document, http.StatusOK)
 	}
 }
