@@ -3,7 +3,7 @@ package random
 import (
 	"testing"
 
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
 func BenchmarkGenerator(b *testing.B) {

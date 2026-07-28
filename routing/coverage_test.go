@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/encoding"
-	httpx "github.com/primandproper/platform-go/v7/errors/http"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/encoding"
+	httpx "github.com/primandproper/platform-go/v8/errors/http"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

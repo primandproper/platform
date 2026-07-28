@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/encoding"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/encoding"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -218,7 +218,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		test.EqOp(
 			t,
-			`{"applinks":{"details":[{"appIDs":["ABCD1234XY.com.example.ios"],"components":[{"/":"*"}]}]}}`+"\n",
+			`{"applinks":{"details":[{"appIDs":["ABCD1234XY.com.example.ios"],"components":[{"/":"*"}]}]}}`,
 			res.Body.String(),
 		)
 	})
@@ -322,7 +322,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 		test.EqOp(
 			t,
 			`{"webcredentials":{"apps":["ABCD1234XY.com.example.ios"]},`+
-				`"applinks":{"details":[{"appIDs":["ABCD1234XY.com.example.ios"],"components":[{"/":"/invitations/*"}]}]}}`+"\n",
+				`"applinks":{"details":[{"appIDs":["ABCD1234XY.com.example.ios"],"components":[{"/":"/invitations/*"}]}]}}`,
 			res.Body.String(),
 		)
 	})

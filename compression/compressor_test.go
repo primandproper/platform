@@ -4,9 +4,9 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/encoding"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/encoding"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -70,7 +70,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 
 		encoder := encoding.NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
 
-		expected := "KLUv_QQAmQAAeyJuYW1lIjoidGVzdGluZyJ9Ch6HXww="
+		expected := "KLUv_QQAkQAAeyJuYW1lIjoidGVzdGluZyJ9h21pXw=="
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 		test.NoError(t, err)
 		actual := base64.URLEncoding.EncodeToString(compressed)
@@ -91,7 +91,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 
 		encoder := encoding.NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
 
-		expected := "_wYAAFMyc1R3TwEXAABui7jXeyJuYW1lIjoidGVzdGluZyJ9Cg=="
+		expected := "_wYAAFMyc1R3TwEWAAC9a5gJeyJuYW1lIjoidGVzdGluZyJ9"
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 		test.NoError(t, err)
 		actual := base64.URLEncoding.EncodeToString(compressed)

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/circuitbreaking/noop"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	"github.com/primandproper/platform-go/v7/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v8/circuitbreaking/noop"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
 
 	circuit "github.com/rubyist/circuitbreaker"
 	"github.com/shoenig/test"

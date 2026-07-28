@@ -7,14 +7,14 @@ import (
 	"io/fs"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/cryptography/hashing/fnv"
-	"github.com/primandproper/platform-go/v7/database"
-	"github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/observability"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/metrics"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v8/cryptography/hashing/fnv"
+	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
@@ -70,6 +70,7 @@ type Migrator struct {
 	latencyHist         metrics.Float64Histogram
 	lockKey             string
 	dialect             Dialect
+	generated           []generatedMigration
 	lockProbeInterval   time.Duration
 	lockTimeout         time.Duration
 	unlockProbeInterval time.Duration
@@ -110,6 +111,32 @@ func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
 func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 	return func(m *Migrator) {
 		m.metricsProvider = metricsProvider
+	}
+}
+
+// WithGeneratedMigration adds a migration whose SQL comes from code rather than
+// from a file in the migrations filesystem. It exists for platform packages that
+// own a table and can render its DDL — outbox is the first — so a consumer does
+// not have to copy that DDL into their repository and keep it in sync.
+//
+// The version is the caller's to choose, and that is deliberate: migration
+// numbering belongs to whoever owns the sequence, and a platform-chosen number
+// would sooner or later collide with a consumer's. Pick one in your sequence,
+// then never change it — goose keys applied migrations by version, so renumbering
+// an applied migration makes it look unapplied. A version already claimed by a
+// file on disk fails New rather than the first Migrate.
+//
+// The SQL is annotated and validated exactly like a file would be, so it may
+// contain several statements separated by semicolons:
+//
+//	ddl, err := outboxmigrations.SQL(outboxmigrations.DialectPostgres, outbox.DefaultTableName)
+//	// ...
+//	m, err := migrate.New(migrate.DialectPostgres, myMigrations,
+//		migrate.WithGeneratedMigration(37, "create_outbox_messages", ddl),
+//	)
+func WithGeneratedMigration(version uint64, name, body string) Option {
+	return func(m *Migrator) {
+		m.generated = append(m.generated, generatedMigration{version: version, name: name, body: body})
 	}
 }
 
@@ -196,6 +223,13 @@ func New(dialect Dialect, migrations fs.FS, opts ...Option) (*Migrator, error) {
 		if opt != nil {
 			opt(m)
 		}
+	}
+
+	// Merged after the options, since that is when the generated migrations are
+	// known, and before New returns, so a version collision fails construction
+	// rather than a deploy.
+	if m.fsys, err = mergeGenerated(m.fsys, m.generated); err != nil {
+		return nil, err
 	}
 
 	// Converted here rather than in the options, which cannot report an error,

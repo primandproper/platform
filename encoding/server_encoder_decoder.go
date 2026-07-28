@@ -8,12 +8,12 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/observability"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
-	"github.com/primandproper/platform-go/v7/panicking"
+	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v8/panicking"
 
 	"github.com/BurntSushi/toml"
 	"gopkg.in/yaml.v3"
@@ -51,10 +51,6 @@ type (
 		o11y        observability.Observer
 		panicker    panicking.Panicker
 		contentType ContentType
-	}
-
-	encoder interface {
-		Encode(any) error
 	}
 
 	decoder interface {
@@ -108,25 +104,6 @@ func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, des
 	return d.Decode(dest)
 }
 
-type emojiEncoder struct {
-	w io.Writer
-}
-
-func newEmojiEncoder(w io.Writer) encoder {
-	return &emojiEncoder{w: w}
-}
-
-func (e *emojiEncoder) Encode(a any) error {
-	encodedContent, err := marshalEmoji(a)
-	if err != nil {
-		return err
-	}
-
-	_, err = e.w.Write(encodedContent)
-
-	return err
-}
-
 type emojiDecoder struct {
 	r io.Reader
 }
@@ -153,28 +130,23 @@ func (e *serverEncoderDecoder) encodeResponse(ctx context.Context, res http.Resp
 
 	// choose the encoder from the configured content type, not the writer's pre-set header,
 	// so a configured encoder is honored even when the handler never sets a header.
-	var enc encoder
-	switch e.contentType {
-	case ContentTypeXML:
-		res.Header().Set(ContentTypeHeaderKey, contentTypeXML)
-		enc = xml.NewEncoder(res)
-	case ContentTypeTOML:
-		res.Header().Set(ContentTypeHeaderKey, contentTypeTOML)
-		enc = toml.NewEncoder(res)
-	case ContentTypeYAML:
-		res.Header().Set(ContentTypeHeaderKey, contentTypeYAML)
-		enc = yaml.NewEncoder(res)
-	case ContentTypeEmoji:
-		res.Header().Set(ContentTypeHeaderKey, contentTypeEmoji)
-		enc = newEmojiEncoder(res)
-	default:
-		res.Header().Set(ContentTypeHeaderKey, contentTypeJSON)
-		enc = json.NewEncoder(res)
+	header := ContentTypeToString(e.contentType)
+	if header == "" {
+		header = contentTypeJSON
 	}
 
+	res.Header().Set(ContentTypeHeaderKey, header)
 	res.WriteHeader(statusCode)
-	if err := enc.Encode(v); err != nil {
+
+	out, err := marshalFuncFor(e.contentType)(v)
+	if err != nil {
 		op.Acknowledge(err, "encoding response")
+
+		return
+	}
+
+	if _, err = res.Write(out); err != nil {
+		op.Acknowledge(err, "writing response")
 	}
 }
 
@@ -182,12 +154,12 @@ func (e *serverEncoderDecoder) MustEncodeJSON(ctx context.Context, v any) []byte
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	var b bytes.Buffer
-	if err := json.NewEncoder(&b).Encode(v); err != nil {
+	out, err := json.Marshal(v)
+	if err != nil {
 		e.panicker.Panic(errors.Wrap(err, "encoding JSON content"))
 	}
 
-	return b.Bytes()
+	return out
 }
 
 // MustEncode encodes data or else.
@@ -195,29 +167,12 @@ func (e *serverEncoderDecoder) MustEncode(ctx context.Context, v any) []byte {
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	var (
-		enc encoder
-		b   bytes.Buffer
-	)
-
-	switch e.contentType {
-	case ContentTypeXML:
-		enc = xml.NewEncoder(&b)
-	case ContentTypeTOML:
-		enc = toml.NewEncoder(&b)
-	case ContentTypeYAML:
-		enc = yaml.NewEncoder(&b)
-	case ContentTypeEmoji:
-		enc = newEmojiEncoder(&b)
-	default:
-		enc = json.NewEncoder(&b)
-	}
-
-	if err := enc.Encode(v); err != nil {
+	out, err := marshalFuncFor(e.contentType)(v)
+	if err != nil {
 		e.panicker.Panic(errors.Wrapf(err, "encoding %s content", ContentTypeToString(e.contentType)))
 	}
 
-	return b.Bytes()
+	return out
 }
 
 // RespondWithData encodes successful responses with data.

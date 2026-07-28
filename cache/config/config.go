@@ -5,14 +5,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/cache"
-	"github.com/primandproper/platform-go/v7/cache/memory"
-	"github.com/primandproper/platform-go/v7/cache/redis"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v7/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/metrics"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v8/cache"
+	"github.com/primandproper/platform-go/v8/cache/memory"
+	"github.com/primandproper/platform-go/v8/cache/redis"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v8/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

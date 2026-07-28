@@ -12,10 +12,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/observability"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -77,9 +77,12 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		contentType      ContentType
 		expectedResponse string
 	}{
+		// No trailing newline: JSON marshals to exactly json.Marshal's bytes.
+		// TOML and YAML below keep theirs because those formats end a document
+		// with one — that newline comes from the format, not from the encoder.
 		"json": {
 			contentType:      ContentTypeJSON,
-			expectedResponse: `{"name":"name"}` + "\n",
+			expectedResponse: `{"name":"name"}`,
 		},
 		"xml": {
 			contentType:      ContentTypeXML,
@@ -140,7 +143,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		res := httptest.NewRecorder()
 
 		encoderDecoder.encodeResponse(ctx, res, ex, http.StatusOK)
-		test.EqOp(t, fmt.Sprintf("{%q:%q}\n", "name", ex.Name), res.Body.String())
+		test.EqOp(t, fmt.Sprintf("{%q:%q}", "name", ex.Name), res.Body.String())
 	})
 
 	T.Run("honors configured content type without a pre-set header", func(t *testing.T) {
@@ -206,8 +209,7 @@ func TestServerEncoderDecoder_MustEncodeJSON(T *testing.T) {
 		ctx := t.Context()
 		encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
 
-		expected := `{"name":"TestServerEncoderDecoder_MustEncodeJSON/standard"}
-`
+		expected := `{"name":"TestServerEncoderDecoder_MustEncodeJSON/standard"}`
 		actual := string(encoderDecoder.MustEncodeJSON(ctx, &example{Name: t.Name()}))
 
 		test.EqOp(t, expected, actual)
@@ -236,7 +238,7 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 	}{
 		"json": {
 			contentType: ContentTypeJSON,
-			expected:    `{"name":"TestServerEncoderDecoder_MustEncode/json"}` + "\n",
+			expected:    `{"name":"TestServerEncoderDecoder_MustEncode/json"}`,
 		},
 		"xml": {
 			contentType: ContentTypeXML,
@@ -306,7 +308,7 @@ func TestServerEncoderDecoder_EncodeResponseWithStatus(T *testing.T) {
 		encoderDecoder.EncodeResponseWithStatus(ctx, res, ex, expected)
 
 		test.EqOp(t, expected, res.Code, test.Sprintf("expected code to be %d, but got %d", expected, res.Code))
-		test.EqOp(t, fmt.Sprintf("{%q:%q}\n", "name", ex.Name), res.Body.String())
+		test.EqOp(t, fmt.Sprintf("{%q:%q}", "name", ex.Name), res.Body.String())
 	})
 }
 
@@ -450,21 +452,24 @@ func Test_tomlDecoder_Decode(T *testing.T) {
 	})
 }
 
-func Test_emojiEncoder_Encode(T *testing.T) {
+// The emoji path no longer has a streaming encoder of its own — every content
+// type marshals to bytes and writes them — so the cases that adapter carried
+// belong to clientEncoder.Encode now.
+func Test_clientEncoder_Encode_errors(T *testing.T) {
 	T.Parallel()
 
 	T.Run("with marshal error", func(t *testing.T) {
 		t.Parallel()
 
-		enc := newEmojiEncoder(&bytes.Buffer{})
-		test.Error(t, enc.Encode(make(chan int)))
+		enc := NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeEmoji)
+		test.Error(t, enc.Encode(t.Context(), &bytes.Buffer{}, make(chan int)))
 	})
 
 	T.Run("with write error", func(t *testing.T) {
 		t.Parallel()
 
-		enc := newEmojiEncoder(&errWriter{})
-		test.Error(t, enc.Encode(&example{Name: "test"}))
+		enc := NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeEmoji)
+		test.Error(t, enc.Encode(t.Context(), &errWriter{}, &example{Name: "test"}))
 	})
 }
 

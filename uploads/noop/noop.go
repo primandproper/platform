@@ -6,7 +6,7 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/primandproper/platform-go/v7/uploads"
+	"github.com/primandproper/platform-go/v8/uploads"
 )
 
 var (

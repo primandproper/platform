@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/messagequeue"
-	"github.com/primandproper/platform-go/v7/observability"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	"github.com/primandproper/platform-go/v7/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v7/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/messagequeue"
+	"github.com/primandproper/platform-go/v8/observability"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/shoenig/test"
@@ -106,7 +106,7 @@ func Test_redisPublisher_Publish(T *testing.T) {
 
 		must.SliceLen(t, 1, mmp.publishArgs)
 		test.EqOp(t, actual.topic, mmp.publishArgs[0].channel)
-		test.Eq(t, any(fmt.Appendf(nil, `{"name":%q}%s`, t.Name(), string(byte(10)))), mmp.publishArgs[0].message)
+		test.Eq(t, any(fmt.Appendf(nil, `{"name":%q}`, t.Name())), mmp.publishArgs[0].message)
 
 		// The publish opened and ended an observed operation with no recorded error.
 		op := obs.ObservedOperationWithKeys(t)
@@ -228,7 +228,7 @@ func Test_redisPublisher_PublishAsync(T *testing.T) {
 
 		must.SliceLen(t, 1, mmp.publishArgs)
 		test.EqOp(t, actual.topic, mmp.publishArgs[0].channel)
-		test.Eq(t, any(fmt.Appendf(nil, `{"name":%q}%s`, t.Name(), string(byte(10)))), mmp.publishArgs[0].message)
+		test.Eq(t, any(fmt.Appendf(nil, `{"name":%q}`, t.Name())), mmp.publishArgs[0].message)
 	})
 
 	T.Run("with error encoding value", func(t *testing.T) {

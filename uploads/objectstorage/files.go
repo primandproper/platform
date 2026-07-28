@@ -7,9 +7,9 @@ import (
 	"iter"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/circuitbreaking"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	"github.com/primandproper/platform-go/v7/uploads"
+	"github.com/primandproper/platform-go/v8/circuitbreaking"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v8/uploads"
 
 	"gocloud.dev/blob"
 )

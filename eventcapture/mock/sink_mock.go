@@ -6,7 +6,7 @@ package mock
 import (
 	"sync"
 
-	"github.com/primandproper/platform-go/v7/eventcapture"
+	"github.com/primandproper/platform-go/v8/eventcapture"
 )
 
 // Ensure, that SinkMock does implement eventcapture.Sink.

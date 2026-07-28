@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/clock"
+	"github.com/primandproper/platform-go/v8/clock"
 )
 
 // Ensure, that ClockMock does implement clock.Clock.

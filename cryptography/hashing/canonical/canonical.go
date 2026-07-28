@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"slices"
 
-	"github.com/primandproper/platform-go/v7/cryptography/hashing"
-	"github.com/primandproper/platform-go/v7/cryptography/hashing/sha256"
-	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v8/cryptography/hashing"
+	"github.com/primandproper/platform-go/v8/cryptography/hashing/sha256"
+	"github.com/primandproper/platform-go/v8/errors"
 )
 
 // Option configures canonicalization.
