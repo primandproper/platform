@@ -1,0 +1,214 @@
+package authorization
+
+import (
+	"encoding/json"
+	"iter"
+	"maps"
+	"slices"
+	"strconv"
+
+	"github.com/primandproper/platform-go/v8/errors"
+)
+
+// Permission names an action a principal may be authorized to perform. It is a
+// bare string so that consumers can declare their own vocabulary as ordinary
+// constants:
+//
+//	const CreateRecipesPermission authorization.Permission = "create.recipes"
+//
+// A consumer with an existing Permission type adopts this one with a type
+// alias (`type Permission = authorization.Permission`), which leaves every
+// existing constant, map key, and switch compiling unchanged.
+type Permission string
+
+// PermissionSet is an immutable set of permissions.
+//
+// Every method is safe on a nil receiver, and a nil *PermissionSet grants
+// nothing. That is load-bearing rather than defensive: a principal with no
+// membership in some scope is represented by a nil set instead of an absent
+// map entry, so "no grants here" needs no special case at any call site.
+type PermissionSet struct {
+	perms map[Permission]struct{}
+}
+
+// NewPermissionSet returns a set containing perms. Duplicates collapse and
+// empty permissions are dropped. The set copies its input, so mutating the
+// caller's slice afterwards cannot change it.
+func NewPermissionSet(perms ...Permission) *PermissionSet {
+	m := make(map[Permission]struct{}, len(perms))
+	for _, p := range perms {
+		if p != "" {
+			m[p] = struct{}{}
+		}
+	}
+
+	return &PermissionSet{perms: m}
+}
+
+// Has reports whether p is in the set.
+func (s *PermissionSet) Has(p Permission) bool {
+	if s == nil || p == "" {
+		return false
+	}
+	_, ok := s.perms[p]
+
+	return ok
+}
+
+// HasAll reports whether every permission in perms is in the set.
+//
+// HasAll with no permissions is vacuously true, which is the mathematically
+// honest answer and also a hazard: a requirement that accidentally resolves to
+// zero permissions would authorize everyone. The fix belongs at the
+// declaration site rather than here — see RequirementsBuilder.Build in
+// authorization/grpc, which refuses to register a method with an empty
+// permission list precisely so this case cannot arise from configuration.
+func (s *PermissionSet) HasAll(perms ...Permission) bool {
+	for _, p := range perms {
+		if !s.Has(p) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// HasAny reports whether any permission in perms is in the set. HasAny with no
+// permissions is false: there is no witness.
+func (s *PermissionSet) HasAny(perms ...Permission) bool {
+	return slices.ContainsFunc(perms, s.Has)
+}
+
+// Len returns the number of permissions in the set.
+func (s *PermissionSet) Len() int {
+	if s == nil {
+		return 0
+	}
+
+	return len(s.perms)
+}
+
+// IsEmpty reports whether the set grants nothing.
+func (s *PermissionSet) IsEmpty() bool {
+	return s.Len() == 0
+}
+
+// All iterates the set in sorted order. The order is deterministic so that
+// encodings, golden files, and equality checks over serialized forms are
+// stable across runs.
+func (s *PermissionSet) All() iter.Seq[Permission] {
+	return func(yield func(Permission) bool) {
+		if s == nil {
+			return
+		}
+		for _, p := range slices.Sorted(maps.Keys(s.perms)) {
+			if !yield(p) {
+				return
+			}
+		}
+	}
+}
+
+// Slice returns the set's permissions in sorted order.
+func (s *PermissionSet) Slice() []Permission {
+	if s == nil {
+		return nil
+	}
+
+	return slices.Sorted(maps.Keys(s.perms))
+}
+
+// Union returns a new set containing everything in s and in others. Nil sets
+// contribute nothing.
+func (s *PermissionSet) Union(others ...*PermissionSet) *PermissionSet {
+	out := &PermissionSet{perms: make(map[Permission]struct{}, s.Len())}
+	maps.Copy(out.perms, s.safe())
+	for _, o := range others {
+		maps.Copy(out.perms, o.safe())
+	}
+
+	return out
+}
+
+// IsSubsetOf reports whether every permission in s is also in other. The empty
+// set is a subset of everything.
+func (s *PermissionSet) IsSubsetOf(other *PermissionSet) bool {
+	for p := range s.safe() {
+		if !other.Has(p) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal reports whether s and other contain exactly the same permissions. A nil
+// set and an empty set are equal, because both grant nothing.
+func (s *PermissionSet) Equal(other *PermissionSet) bool {
+	return s.Len() == other.Len() && s.IsSubsetOf(other)
+}
+
+// String is deliberately a summary rather than a listing. A set can hold
+// hundreds of permissions, and this type ends up attached to logs and spans —
+// dumping the whole policy into telemetry on every request would be both noisy
+// and a disclosure.
+func (s *PermissionSet) String() string {
+	return "PermissionSet(n=" + strconv.Itoa(s.Len()) + ")"
+}
+
+// safe returns the backing map, or an empty one for a nil receiver, so range
+// and copy operations need no nil check.
+func (s *PermissionSet) safe() map[Permission]struct{} {
+	if s == nil {
+		return nil
+	}
+
+	return s.perms
+}
+
+// MarshalJSON encodes the set as a sorted array of strings.
+func (s *PermissionSet) MarshalJSON() ([]byte, error) {
+	b, err := json.Marshal(s.Slice())
+	if err != nil {
+		return nil, errors.Wrap(err, "marshaling permission set")
+	}
+
+	return b, nil
+}
+
+// UnmarshalJSON decodes a JSON array of strings into the set.
+func (s *PermissionSet) UnmarshalJSON(data []byte) error {
+	var perms []Permission
+	if err := json.Unmarshal(data, &perms); err != nil {
+		return errors.Wrap(err, "unmarshaling permission set")
+	}
+	*s = *NewPermissionSet(perms...)
+
+	return nil
+}
+
+// GobEncode encodes the set as a sorted slice of permissions.
+//
+// PermissionSet's only field is unexported, so gob cannot encode it
+// structurally. This matters because cache.Cache's default codec is gob, and
+// authorization/cached stores resolved sets — without these methods the cache
+// silently round-trips an empty set.
+func (s *PermissionSet) GobEncode() ([]byte, error) {
+	b, err := json.Marshal(s.Slice())
+	if err != nil {
+		return nil, errors.Wrap(err, "gob-encoding permission set")
+	}
+
+	return b, nil
+}
+
+// GobDecode decodes a set encoded by GobEncode.
+func (s *PermissionSet) GobDecode(data []byte) error {
+	var perms []Permission
+	if err := json.Unmarshal(data, &perms); err != nil {
+		return errors.Wrap(err, "gob-decoding permission set")
+	}
+	*s = *NewPermissionSet(perms...)
+
+	return nil
+}

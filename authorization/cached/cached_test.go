@@ -1,0 +1,337 @@
+package cached
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/primandproper/platform-go/v8/authorization"
+	"github.com/primandproper/platform-go/v8/cache"
+	"github.com/primandproper/platform-go/v8/cache/memory"
+	cachemock "github.com/primandproper/platform-go/v8/cache/mock"
+	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
+)
+
+const (
+	permRead  authorization.Permission = "read.things"
+	permWrite authorization.Permission = "write.things"
+)
+
+// countingResolver records how often the inner resolver was consulted, which is
+// the only way to tell a hit from a miss from the outside.
+type countingResolver struct {
+	set   *authorization.PermissionSet
+	err   error
+	calls atomic.Int64
+}
+
+func (c *countingResolver) PermissionsForRoles(context.Context, ...string) (*authorization.PermissionSet, error) {
+	c.calls.Add(1)
+	if c.err != nil {
+		return nil, c.err
+	}
+
+	return c.set, nil
+}
+
+func (c *countingResolver) Roles(context.Context) ([]authorization.Role, error) {
+	c.calls.Add(1)
+
+	return []authorization.Role{{Name: "member"}}, c.err
+}
+
+func newMemoryCache(t *testing.T) cache.Cache[authorization.PermissionSet] {
+	t.Helper()
+
+	c, err := memory.NewInMemoryCache[authorization.PermissionSet](
+		0,
+		loggingnoop.NewLogger(),
+		tracingnoop.NewTracerProvider(),
+		metricsnoop.NewMetricsProvider(),
+	)
+	must.NoError(t, err)
+
+	return c
+}
+
+func newTestResolver(t *testing.T, inner authorization.PolicyResolver) *Resolver {
+	t.Helper()
+
+	r, err := NewResolver(inner, newMemoryCache(t), WithLogger(loggingnoop.NewLogger()))
+	must.NoError(t, err)
+
+	return r
+}
+
+func TestNewResolver(T *testing.T) {
+	T.Parallel()
+
+	T.Run("rejects a nil inner resolver", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewResolver(nil, newMemoryCache(t))
+
+		test.True(t, errors.Is(err, platformerrors.ErrNilInputParameter))
+	})
+
+	T.Run("rejects a nil cache", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewResolver(&countingResolver{}, nil)
+
+		test.True(t, errors.Is(err, platformerrors.ErrNilInputParameter))
+	})
+
+	T.Run("a non-positive TTL falls back to the default", func(t *testing.T) {
+		t.Parallel()
+
+		r, err := NewResolver(&countingResolver{}, newMemoryCache(t), WithTTL(-1))
+		must.NoError(t, err)
+
+		test.EqOp(t, DefaultTTL, r.ttl)
+	})
+}
+
+func TestResolver_Caching(T *testing.T) {
+	T.Parallel()
+
+	T.Run("resolves once and serves the rest from cache", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r := newTestResolver(t, inner)
+
+		for range 5 {
+			set, err := r.PermissionsForRoles(t.Context(), "member")
+			must.NoError(t, err)
+			test.True(t, set.Has(permRead))
+		}
+
+		test.EqOp(t, int64(1), inner.calls.Load())
+	})
+
+	// The key is sorted, so the same roles in a different order share an entry.
+	T.Run("role order shares a cache entry", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r := newTestResolver(t, inner)
+
+		_, err := r.PermissionsForRoles(t.Context(), "admin", "member")
+		must.NoError(t, err)
+
+		_, err = r.PermissionsForRoles(t.Context(), "member", "admin")
+		must.NoError(t, err)
+
+		test.EqOp(t, int64(1), inner.calls.Load())
+	})
+
+	T.Run("different role sets do not share an entry", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r := newTestResolver(t, inner)
+
+		_, err := r.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+
+		_, err = r.PermissionsForRoles(t.Context(), "admin")
+		must.NoError(t, err)
+
+		test.EqOp(t, int64(2), inner.calls.Load())
+	})
+
+	T.Run("no roles short-circuits without consulting anything", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r := newTestResolver(t, inner)
+
+		set, err := r.PermissionsForRoles(t.Context())
+		must.NoError(t, err)
+
+		test.True(t, set.IsEmpty())
+		test.EqOp(t, int64(0), inner.calls.Load())
+	})
+
+	// A PermissionSet's only field is unexported, so this also proves
+	// GobEncode/GobDecode are doing their job through the cache's default codec.
+	T.Run("cached sets survive the round trip intact", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead, permWrite)}
+		r := newTestResolver(t, inner)
+
+		first, err := r.PermissionsForRoles(t.Context(), "admin")
+		must.NoError(t, err)
+
+		second, err := r.PermissionsForRoles(t.Context(), "admin")
+		must.NoError(t, err)
+
+		test.EqOp(t, 2, second.Len())
+		test.True(t, first.Equal(second))
+	})
+
+	T.Run("propagates an inner resolution error", func(t *testing.T) {
+		t.Parallel()
+
+		sentinel := errors.New("policy store is down")
+		r := newTestResolver(t, &countingResolver{err: sentinel})
+
+		_, err := r.PermissionsForRoles(t.Context(), "member")
+
+		test.True(t, errors.Is(err, sentinel))
+	})
+
+	T.Run("Roles is not cached", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r := newTestResolver(t, inner)
+
+		_, err := r.Roles(t.Context())
+		must.NoError(t, err)
+
+		_, err = r.Roles(t.Context())
+		must.NoError(t, err)
+
+		test.EqOp(t, int64(2), inner.calls.Load())
+	})
+}
+
+// Authorization must not fail because a cache did. The inner resolver is still
+// authoritative and still reachable, so degrading to it is both correct and the
+// only answer that keeps requests flowing.
+func TestResolver_CacheFaultsDegradeToMisses(T *testing.T) {
+	T.Parallel()
+
+	faultyCache := func(getErr, setErr error) cache.Cache[authorization.PermissionSet] {
+		return &cachemock.CacheMock[authorization.PermissionSet]{
+			GetFunc: func(context.Context, string) (*authorization.PermissionSet, error) {
+				return nil, getErr
+			},
+			SetFunc: func(context.Context, string, *authorization.PermissionSet, ...cache.WriteOption) error {
+				return setErr
+			},
+		}
+	}
+
+	T.Run("an unreadable entry falls back to the resolver", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r, err := NewResolver(inner, faultyCache(errors.New("decode failure"), nil),
+			WithLogger(loggingnoop.NewLogger()))
+		must.NoError(t, err)
+
+		set, err := r.PermissionsForRoles(t.Context(), "member")
+
+		must.NoError(t, err)
+		test.True(t, set.Has(permRead))
+		test.EqOp(t, int64(1), inner.calls.Load())
+	})
+
+	T.Run("an unwritable cache still returns the right answer", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r, err := NewResolver(inner, faultyCache(cache.ErrNotFound, errors.New("cache is full")),
+			WithLogger(loggingnoop.NewLogger()))
+		must.NoError(t, err)
+
+		set, err := r.PermissionsForRoles(t.Context(), "member")
+
+		must.NoError(t, err)
+		test.True(t, set.Has(permRead))
+	})
+}
+
+func TestResolver_Invalidate(T *testing.T) {
+	T.Parallel()
+
+	T.Run("drops an exact role set", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r := newTestResolver(t, inner)
+
+		_, err := r.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+
+		must.NoError(t, r.Invalidate(t.Context(), "member"))
+
+		_, err = r.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+
+		test.EqOp(t, int64(2), inner.calls.Load())
+	})
+
+	T.Run("invalidating nothing is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		r := newTestResolver(t, &countingResolver{set: authorization.NewPermissionSet()})
+
+		test.NoError(t, r.Invalidate(t.Context()))
+	})
+
+	T.Run("InvalidateAll makes prior entries unreachable", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r := newTestResolver(t, inner)
+
+		_, err := r.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+
+		r.InvalidateAll()
+
+		_, err = r.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+
+		test.EqOp(t, int64(2), inner.calls.Load())
+	})
+}
+
+func TestResolver_Key(T *testing.T) {
+	T.Parallel()
+
+	// Entries written by an older binary must become unreachable rather than
+	// mis-decoded when the encoding changes, so the version rides the key.
+	T.Run("carries the format version", func(t *testing.T) {
+		t.Parallel()
+
+		r := newTestResolver(t, &countingResolver{})
+
+		test.True(t, strings.HasPrefix(r.key([]string{"member"}), keyFormatVersion+":"))
+	})
+
+	T.Run("changes with the generation", func(t *testing.T) {
+		t.Parallel()
+
+		r := newTestResolver(t, &countingResolver{})
+
+		before := r.key([]string{"member"})
+		r.InvalidateAll()
+
+		test.NotEq(t, before, r.key([]string{"member"}))
+	})
+
+	T.Run("does not mutate the caller's slice", func(t *testing.T) {
+		t.Parallel()
+
+		r := newTestResolver(t, &countingResolver{})
+
+		roles := []string{"zebra", "aardvark"}
+		_ = r.key(roles)
+
+		test.Eq(t, []string{"zebra", "aardvark"}, roles)
+	})
+}

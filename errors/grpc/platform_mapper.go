@@ -28,6 +28,8 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 		return codes.NotFound, true
 	case errors.Is(err, circuitbreaking.ErrCircuitBroken):
 		return codes.Unavailable, true
+	case errors.Is(err, platformerrors.ErrPermissionDenied):
+		return codes.PermissionDenied, true
 	case errors.Is(err, platformerrors.ErrNilInputParameter),
 		errors.Is(err, platformerrors.ErrEmptyInputParameter),
 		errors.Is(err, platformerrors.ErrNilInputProvided),

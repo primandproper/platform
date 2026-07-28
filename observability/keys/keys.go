@@ -69,6 +69,20 @@ const (
 	// UsernameKey is the standard key for referring to a username (request context).
 	UsernameKey = "user.username"
 
+	// AuthorizationMethodKey is the standard key for referring to the route or RPC
+	// method an authorization decision was made for.
+	AuthorizationMethodKey = "authorization.method"
+	// AuthorizationRequiredKey is the standard key for referring to the permissions
+	// a route or method required. It belongs on the span and the log, never on a
+	// response: it describes the policy, not the requester.
+	AuthorizationRequiredKey = "authorization.required"
+	// AuthorizationDecisionKey is the standard key for referring to the outcome of
+	// an authorization check ("allowed", "denied", "audited").
+	AuthorizationDecisionKey = "authorization.decision"
+	// AuthorizationRolesKey is the standard key for referring to the role names a
+	// policy resolution was performed for.
+	AuthorizationRolesKey = "authorization.roles"
+
 	// EmailSubjectKey is the standard key for referring to an outbound email's subject.
 	EmailSubjectKey = "email.subject"
 	// EmailToAddressKey is the standard key for referring to an outbound email's recipient address.
