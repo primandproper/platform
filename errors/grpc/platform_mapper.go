@@ -34,7 +34,10 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 	// succeed, and the client should ask again with the same key.
 	case errors.Is(err, idempotency.ErrInFlight):
 		return codes.Aborted, true
-	case errors.Is(err, idempotency.ErrFingerprintMismatch):
+	case errors.Is(err, idempotency.ErrFingerprintMismatch),
+		errors.Is(err, idempotency.ErrKeyRequired),
+		errors.Is(err, idempotency.ErrKeyTooLong),
+		errors.Is(err, idempotency.ErrKeyInvalid):
 		return codes.InvalidArgument, true
 	case errors.Is(err, platformerrors.ErrNilInputParameter),
 		errors.Is(err, platformerrors.ErrEmptyInputParameter),

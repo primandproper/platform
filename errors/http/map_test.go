@@ -63,6 +63,21 @@ func TestPlatformMapper_Map(T *testing.T) {
 		test.EqOp(t, http.StatusUnprocessableEntity, HTTPStatusForCode(code))
 	})
 
+	// A malformed key is bad input, not an idempotency outcome.
+	T.Run("key validation errors map to ErrValidatingRequestInput", func(t *testing.T) {
+		t.Parallel()
+		for _, err := range []error{
+			idempotency.ErrKeyRequired,
+			idempotency.ErrKeyTooLong,
+			idempotency.ErrKeyInvalid,
+		} {
+			code, _, ok := PlatformMapper.Map(err)
+			test.True(t, ok)
+			test.EqOp(t, ErrValidatingRequestInput, code)
+			test.EqOp(t, http.StatusBadRequest, HTTPStatusForCode(code))
+		}
+	})
+
 	// The manager wraps its sentinels on the way out, so the mapper has to
 	// match through the wrapping rather than on identity.
 	T.Run("maps a wrapped idempotency sentinel", func(t *testing.T) {

@@ -58,6 +58,19 @@ func TestPlatformMapper_Map(T *testing.T) {
 		test.EqOp(t, codes.InvalidArgument, code)
 	})
 
+	T.Run("key validation errors map to InvalidArgument", func(t *testing.T) {
+		t.Parallel()
+		for _, err := range []error{
+			idempotency.ErrKeyRequired,
+			idempotency.ErrKeyTooLong,
+			idempotency.ErrKeyInvalid,
+		} {
+			code, ok := PlatformMapper.Map(err)
+			test.True(t, ok)
+			test.EqOp(t, codes.InvalidArgument, code)
+		}
+	})
+
 	T.Run("ErrNilInputParameter maps to InvalidArgument", func(t *testing.T) {
 		t.Parallel()
 		code, ok := PlatformMapper.Map(platformerrors.ErrNilInputParameter)

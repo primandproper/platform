@@ -31,6 +31,12 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):
 		return ErrIdempotencyKeyReused, "this idempotency key was already used for a different request", true
+	// A malformed key is ordinary bad input, not an idempotency outcome, so it
+	// gets the input code and a 400 rather than one of the codes above.
+	case errors.Is(err, idempotency.ErrKeyRequired),
+		errors.Is(err, idempotency.ErrKeyTooLong),
+		errors.Is(err, idempotency.ErrKeyInvalid):
+		return ErrValidatingRequestInput, "invalid idempotency key", true
 	case errors.Is(err, platformerrors.ErrNilInputParameter),
 		errors.Is(err, platformerrors.ErrEmptyInputParameter),
 		errors.Is(err, platformerrors.ErrNilInputProvided),
