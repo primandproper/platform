@@ -2,6 +2,7 @@ package idempotency
 
 import (
 	"context"
+	stderrors "errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -9,10 +10,16 @@ import (
 
 	"github.com/primandproper/platform-go/v8/cache"
 	cachemock "github.com/primandproper/platform-go/v8/cache/mock"
+	"github.com/primandproper/platform-go/v8/clock"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v8/observability/metrics/mock"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 func TestNewManager(T *testing.T) {
@@ -734,4 +741,203 @@ func (l *lockerStub) WithLock(context.Context, string, func(context.Context) err
 
 func (l *lockerStub) TryWithLock(context.Context, string, func(context.Context) error) (bool, error) {
 	return false, l.err
+}
+
+func TestNewManager_Observability(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts observability options", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestManager(t,
+			WithLogger[payload](loggingnoop.NewLogger()),
+			WithTracerProvider[payload](tracingnoop.NewTracerProvider()),
+			WithMetricsProvider[payload](metrics.EnsureMetricsProvider(nil)),
+			WithClock[payload](clock.NewClock()),
+		)
+
+		test.NotNil(t, m.o11y)
+		test.NotNil(t, m.clock)
+	})
+
+	// Every instrument is built in the constructor, so a provider that cannot
+	// build one has to surface there rather than at the first Do.
+	T.Run("surfaces a failure to build any instrument", func(t *testing.T) {
+		t.Parallel()
+
+		boom := platformerrors.New("no meter")
+
+		instruments := []string{
+			"idempotency_requests",
+			"idempotency_claims_lost",
+			"idempotency_record_failures",
+			"idempotency_store_errors",
+			"idempotency_stale_records",
+		}
+
+		for _, failing := range instruments {
+			provider := &metricsmock.ProviderMock{
+				NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+					if name == failing {
+						return nil, boom
+					}
+
+					return &countingCounter{}, nil
+				},
+				NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+					return nil, nil
+				},
+			}
+
+			_, err := NewManager(newStore(t), newLocker(t), WithMetricsProvider[payload](provider))
+			test.ErrorIs(t, err, boom, test.Sprintf("building %s", failing))
+		}
+	})
+
+	T.Run("surfaces a failure to build the latency histogram", func(t *testing.T) {
+		t.Parallel()
+
+		boom := platformerrors.New("no meter")
+		provider := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				return &countingCounter{}, nil
+			},
+			NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+				return nil, boom
+			},
+		}
+
+		_, err := NewManager(newStore(t), newLocker(t), WithMetricsProvider[payload](provider))
+		test.ErrorIs(t, err, boom)
+	})
+}
+
+// TestManager_Do_StoreDegradation covers the store failing partway through,
+// which is where the difference between "refuse" and "carry on" lives. Each
+// case fails a specific call, since the earlier ones have to succeed to reach
+// the path under test.
+func TestManager_Do_StoreDegradation(T *testing.T) {
+	T.Parallel()
+
+	boom := platformerrors.New("store is down")
+
+	// The re-read inside the lock is the double-check. If it cannot run, the
+	// manager has no way to know whether someone else already claimed the key,
+	// so it must refuse rather than claim on top of them.
+	T.Run("a failed re-read under the lock refuses the request", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCountingStore(t)
+		store.getErr = boom
+		store.failGetAfter = 1 // the pre-lock read succeeds; the re-read does not
+
+		m := newManagerOver(t, store)
+		fn := newCountingFn("nope")
+
+		_, err := m.Do(t.Context(), testKey, testFingerprint, fn.run)
+
+		test.ErrorIs(t, err, ErrStoreUnavailable)
+		test.EqOp(t, int64(0), fn.Calls())
+	})
+
+	T.Run("a failed claim write refuses the request", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCountingStore(t)
+		store.setErr = boom
+		store.failSetAfter = 0 // the claim is the first write
+
+		m := newManagerOver(t, store)
+		fn := newCountingFn("nope")
+
+		_, err := m.Do(t.Context(), testKey, testFingerprint, fn.run)
+
+		test.ErrorIs(t, err, boom)
+		test.EqOp(t, int64(0), fn.Calls())
+	})
+
+	// The work already happened, so the caller is entitled to its result. What
+	// is lost is the replay, which is exactly what the counter is for.
+	T.Run("a failed completion write still returns the result", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCountingStore(t)
+		store.setErr = boom
+		store.failSetAfter = 1 // the claim succeeds; the completion does not
+
+		m := newManagerOver(t, store)
+		failures := &countingCounter{}
+		m.recordFailureCounter = failures
+
+		fn := newCountingFn("done")
+		result, err := m.Do(t.Context(), testKey, testFingerprint, fn.run)
+
+		must.NoError(t, err)
+		test.EqOp(t, "done", result.Value.Name)
+		test.EqOp(t, int64(1), failures.Total())
+	})
+
+	T.Run("a failed pre-completion read still returns the result", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCountingStore(t)
+		store.getErr = boom
+		store.failGetAfter = 2 // pre-lock read and re-read succeed; the ownership check does not
+
+		m := newManagerOver(t, store)
+		failures := &countingCounter{}
+		m.recordFailureCounter = failures
+
+		fn := newCountingFn("done")
+		result, err := m.Do(t.Context(), testKey, testFingerprint, fn.run)
+
+		must.NoError(t, err)
+		test.EqOp(t, "done", result.Value.Name)
+		test.EqOp(t, int64(1), failures.Total())
+	})
+
+	// Releasing is best-effort: a claim that cannot be deleted simply expires
+	// on its own InFlightTTL, so the caller sees their error rather than a
+	// second one about cleanup.
+	T.Run("a failed release surfaces the original error", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCountingStore(t)
+		store.deleteErr = boom
+		store.failDeleteAfter = 0
+
+		m := newManagerOver(t, store)
+
+		workErr := platformerrors.New("work failed")
+		fn := newCountingFn("never")
+		fn.err = workErr
+
+		_, err := m.Do(t.Context(), testKey, testFingerprint, fn.run)
+
+		test.ErrorIs(t, err, workErr)
+		test.False(t, stderrors.Is(err, boom))
+	})
+
+	// A provider that answers a miss with (nil, nil) rather than ErrNotFound
+	// must read as a miss, not as a record with no fields set.
+	T.Run("a nil record with no error reads as a miss", func(t *testing.T) {
+		t.Parallel()
+
+		store := &cachemock.CacheMock[Record[payload]]{
+			GetFunc: func(context.Context, string) (*Record[payload], error) {
+				return nil, nil
+			},
+			SetFunc:    func(context.Context, string, *Record[payload], ...cache.WriteOption) error { return nil },
+			DeleteFunc: func(context.Context, string) error { return nil },
+		}
+
+		m := newManagerOver(t, store)
+		fn := newCountingFn("ran")
+
+		result, err := m.Do(t.Context(), testKey, testFingerprint, fn.run)
+
+		must.NoError(t, err)
+		test.False(t, result.Replayed)
+		test.EqOp(t, int64(1), fn.Calls())
+	})
 }

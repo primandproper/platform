@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v8/errors"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -424,5 +426,66 @@ func TestWriteResponse(T *testing.T) {
 		writeResponse(res, &Response{StatusCode: http.StatusOK}, "")
 
 		test.EqOp(t, "", res.Header().Get(ReplayHeader))
+	})
+}
+
+// failingWriter fails every Write, standing in for a client that vanished
+// between the header and the body.
+type failingWriter struct {
+	*plainWriter
+	err error
+}
+
+func (w *failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestWriteResponse_WriteFailure(T *testing.T) {
+	T.Parallel()
+
+	// The status line is already gone by the time a body write fails, so the
+	// error is reported to the caller to log rather than turned into a
+	// response nobody can receive.
+	T.Run("surfaces a failure to write the body", func(t *testing.T) {
+		t.Parallel()
+
+		boom := platformerrors.New("connection reset")
+		res := &failingWriter{plainWriter: newPlainWriter(), err: boom}
+
+		err := writeResponse(res, &Response{StatusCode: http.StatusCreated, Body: []byte("body")}, ReplayHeader)
+
+		test.ErrorIs(t, err, boom)
+	})
+
+	T.Run("reports no error when there is no body to write", func(t *testing.T) {
+		t.Parallel()
+
+		res := &failingWriter{plainWriter: newPlainWriter(), err: platformerrors.New("unused")}
+
+		test.NoError(t, writeResponse(res, &Response{StatusCode: http.StatusNoContent}, ReplayHeader))
+	})
+}
+
+func TestRecorder_Hijack(T *testing.T) {
+	T.Parallel()
+
+	// Hijacking is how a handler takes over the connection for websockets. The
+	// recorder has to pass it through rather than swallow it, on both variants
+	// that carry it.
+	T.Run("forwards Hijack to the base writer", func(t *testing.T) {
+		t.Parallel()
+
+		for name, base := range map[string]http.ResponseWriter{
+			"hijacker only": &hijackerWriter{plainWriter: newPlainWriter()},
+			"both":          &bothWriter{plainWriter: newPlainWriter()},
+		} {
+			wrapped, _ := newRecorder(base, 1024)
+
+			hijacker, ok := wrapped.(http.Hijacker)
+			must.True(t, ok, must.Sprintf("%s should expose Hijacker", name))
+
+			conn, rw, err := hijacker.Hijack()
+			test.NoError(t, err, test.Sprintf("%s", name))
+			test.Nil(t, conn)
+			test.Nil(t, rw)
+		}
 	})
 }

@@ -2,15 +2,27 @@ package grpc
 
 import (
 	"context"
+	stderrors "errors"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/primandproper/platform-go/v8/cache"
+	cachemock "github.com/primandproper/platform-go/v8/cache/mock"
+	"github.com/primandproper/platform-go/v8/distributedlock"
+	dlmemory "github.com/primandproper/platform-go/v8/distributedlock/memory"
+	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/idempotency"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v8/observability/metrics/mock"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -403,6 +415,249 @@ func TestRecordable(T *testing.T) {
 
 		for _, code := range refused {
 			test.False(t, Recordable(&Response{StatusCode: uint32(code)}))
+		}
+	})
+}
+
+// badUTF8 is a message proto3 refuses to marshal: its string field is not
+// valid UTF-8. It stands in for any message that cannot be serialized.
+func badUTF8() *wrapperspb.StringValue {
+	return wrapperspb.String("\xff\xfe")
+}
+
+func TestFingerprint(T *testing.T) {
+	T.Parallel()
+
+	T.Run("is stable for the same call", func(t *testing.T) {
+		t.Parallel()
+
+		first, err := fingerprint(testMethod, "alice", str("req"))
+		must.NoError(t, err)
+
+		second, err := fingerprint(testMethod, "alice", str("req"))
+		must.NoError(t, err)
+
+		test.EqOp(t, first, second)
+	})
+
+	// Length-prefixing each part is what stops them running together: without
+	// it these two calls would hash identically.
+	T.Run("does not confuse adjacent parts", func(t *testing.T) {
+		t.Parallel()
+
+		first, err := fingerprint("/a", "bc", str("req"))
+		must.NoError(t, err)
+
+		second, err := fingerprint("/ab", "c", str("req"))
+		must.NoError(t, err)
+
+		test.NotEqOp(t, first, second)
+	})
+
+	T.Run("rejects a non-proto request", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := fingerprint(testMethod, "", "plain string")
+		test.ErrorIs(t, err, ErrNotProtoMessage)
+	})
+
+	T.Run("surfaces a marshaling failure", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := fingerprint(testMethod, "", badUTF8())
+		test.Error(t, err)
+		test.False(t, stderrors.Is(err, ErrNotProtoMessage))
+	})
+}
+
+func TestRecord(T *testing.T) {
+	T.Parallel()
+
+	T.Run("surfaces a marshaling failure", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := record(badUTF8(), nil, 0)
+		test.Error(t, err)
+	})
+}
+
+func TestReplay(T *testing.T) {
+	T.Parallel()
+
+	// A reply whose type this binary cannot find cannot be rebuilt. That
+	// happens when a record outlives the deploy that wrote it.
+	T.Run("reports an unknown message type", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := replay(&Response{MessageName: "not.A.Real.Message", Payload: []byte{}})
+		test.ErrorIs(t, err, ErrUnknownMessageType)
+	})
+
+	T.Run("reports a corrupt payload", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := replay(&Response{
+			MessageName: string(str("").ProtoReflect().Descriptor().FullName()),
+			Payload:     []byte{0xff, 0xff, 0xff},
+		})
+		test.Error(t, err)
+		test.False(t, stderrors.Is(err, ErrUnknownMessageType))
+	})
+}
+
+func TestInterceptor_ReplayFailure(T *testing.T) {
+	T.Parallel()
+
+	// A record that cannot be rebuilt must not fall back to running the
+	// handler: the work already happened, and re-running it is the duplicate
+	// this package exists to prevent.
+	T.Run("an unrebuildable record is Internal, not a re-run", func(t *testing.T) {
+		t.Parallel()
+
+		store := &cachemock.CacheMock[idempotency.Record[Response]]{
+			GetFunc: func(context.Context, string) (*idempotency.Record[Response], error) {
+				fp, fpErr := fingerprint(testMethod, "", str("req"))
+				must.NoError(t, fpErr)
+
+				return &idempotency.Record[Response]{
+					Fingerprint: fp,
+					ClaimID:     "seeded",
+					Version:     1,
+					State:       idempotency.StateCompleted,
+					Value:       &Response{MessageName: "not.A.Real.Message"},
+				}, nil
+			},
+			SetFunc: func(context.Context, string, *idempotency.Record[Response], ...cache.WriteOption) error {
+				return nil
+			},
+			DeleteFunc: func(context.Context, string) error { return nil },
+		}
+
+		locker, err := dlmemory.NewLocker(nil, nil, nil)
+		must.NoError(t, err)
+
+		scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+		must.NoError(t, err)
+
+		manager, err := NewManager(store, scoped)
+		must.NoError(t, err)
+
+		handler := newCountingHandler(str("ch_1"))
+		interceptor := newInterceptorFor(t, manager)
+
+		_, err = interceptor(keyed(t.Context(), testKey), str("req"), info(), handler.handle)
+
+		test.EqOp(t, codes.Internal, status.Code(err))
+		test.EqOp(t, int64(0), handler.Calls())
+	})
+}
+
+func TestInterceptor_Options(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithMetadataKey changes the entry read", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newCountingHandler(str("ch_1"))
+		interceptor := newTestInterceptor(t, WithMetadataKey("x-idem"))
+
+		// The default entry no longer participates.
+		for range 2 {
+			_, err := interceptor(keyed(t.Context(), testKey), str("req"), info(), handler.handle)
+			must.NoError(t, err)
+		}
+		test.EqOp(t, int64(2), handler.Calls())
+
+		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-idem", testKey))
+		for range 2 {
+			_, err := interceptor(ctx, str("req"), info(), handler.handle)
+			must.NoError(t, err)
+		}
+		test.EqOp(t, int64(3), handler.Calls())
+	})
+
+	// Metadata carrying the key with an empty value is the same as no key: an
+	// empty string would be a single shared record for every caller.
+	T.Run("an empty key value is treated as absent", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newCountingHandler(str("ch_1"))
+		interceptor := newTestInterceptor(t)
+		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs(MetadataKey, ""))
+
+		for range 2 {
+			_, err := interceptor(ctx, str("req"), info(), handler.handle)
+			must.NoError(t, err)
+		}
+
+		test.EqOp(t, int64(2), handler.Calls())
+	})
+
+	T.Run("a principal extractor failure does not run the handler", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newCountingHandler(str("ch_1"))
+		interceptor := newTestInterceptor(t, WithPrincipalExtractor(func(context.Context) (string, error) {
+			return "", platformerrors.New("no principal")
+		}))
+
+		_, err := interceptor(keyed(t.Context(), testKey), str("req"), info(), handler.handle)
+
+		test.Error(t, err)
+		test.EqOp(t, int64(0), handler.Calls())
+	})
+
+	// A request that cannot be marshaled is not the same as one that is not a
+	// proto message: the latter runs unguarded, this one is refused.
+	T.Run("an unmarshalable request is refused", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newCountingHandler(str("ch_1"))
+		interceptor := newTestInterceptor(t)
+
+		_, err := interceptor(keyed(t.Context(), testKey), badUTF8(), info(), handler.handle)
+
+		test.Error(t, err)
+		test.EqOp(t, int64(0), handler.Calls())
+	})
+
+	T.Run("accepts observability options", func(t *testing.T) {
+		t.Parallel()
+
+		interceptor := newTestInterceptor(t,
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+			WithMetricsProvider(metrics.EnsureMetricsProvider(nil)),
+			nil,
+		)
+
+		handler := newCountingHandler(str("ch_1"))
+		_, err := interceptor(keyed(t.Context(), testKey), str("req"), info(), handler.handle)
+
+		must.NoError(t, err)
+	})
+
+	T.Run("surfaces a failure to build an instrument", func(t *testing.T) {
+		t.Parallel()
+
+		boom := platformerrors.New("no meter")
+
+		for _, failing := range []string{
+			"idempotency_grpc_unsupported_calls",
+			"idempotency_grpc_replies_truncated",
+		} {
+			provider := &metricsmock.ProviderMock{
+				NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+					if name == failing {
+						return nil, boom
+					}
+
+					return nil, nil
+				},
+			}
+
+			_, err := NewUnaryServerInterceptor(newTestManager(t), WithMetricsProvider(provider))
+			test.ErrorIs(t, err, boom, test.Sprintf("building %s", failing))
 		}
 	})
 }

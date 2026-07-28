@@ -7,9 +7,13 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v8/cache"
+	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v8/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // size reports how many entries the map physically holds, expired or not.
@@ -281,5 +285,60 @@ func TestInMemoryCache_sweep(T *testing.T) {
 			test.EqOp(t, 0, size(c))
 			test.EqOp(t, int64(0), counter.Total())
 		})
+	})
+}
+
+// TestNewInMemoryCache_InstrumentFailures covers the constructor's instrument
+// wiring. Every instrument is built up front, so a provider that cannot build
+// one has to surface at construction rather than at the first cache operation.
+func TestNewInMemoryCache_InstrumentFailures(T *testing.T) {
+	T.Parallel()
+
+	boom := errors.New("no meter")
+
+	counters := []string{
+		"in_memory_cache_cache_hits",
+		"in_memory_cache_cache_misses",
+		"in_memory_cache_cache_sets",
+		"in_memory_cache_cache_deletes",
+		"in_memory_cache_cache_evictions",
+	}
+
+	for _, failing := range counters {
+		T.Run("fails to build "+failing, func(t *testing.T) {
+			t.Parallel()
+
+			provider := &metricsmock.ProviderMock{
+				NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+					if name == failing {
+						return nil, boom
+					}
+
+					return nil, nil
+				},
+				NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+					return nil, nil
+				},
+			}
+
+			_, err := NewInMemoryCache[example](0, nil, nil, provider)
+			test.ErrorIs(t, err, boom)
+		})
+	}
+
+	T.Run("fails to build the latency histogram", func(t *testing.T) {
+		t.Parallel()
+
+		provider := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				return nil, nil
+			},
+			NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+				return nil, boom
+			},
+		}
+
+		_, err := NewInMemoryCache[example](0, nil, nil, provider)
+		test.ErrorIs(t, err, boom)
 	})
 }

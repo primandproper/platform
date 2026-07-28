@@ -144,6 +144,113 @@ func grantingLocker(before func(ctx context.Context)) *dlmock.ScopedLockerMock {
 	}
 }
 
+// countingStore wraps a real store and lets a test fail a specific call.
+//
+// Failing the nth call rather than all of them is what makes the interesting
+// paths reachable: the claim's re-read, the completion write, and the release
+// are each a later call against a store whose earlier calls must succeed.
+type countingStore struct {
+	inner cache.Cache[Record[payload]]
+
+	getErr    error
+	setErr    error
+	deleteErr error
+
+	failGetAfter    int
+	failSetAfter    int
+	failDeleteAfter int
+
+	gets    int
+	sets    int
+	deletes int
+	mu      sync.Mutex
+}
+
+var _ cache.Cache[Record[payload]] = (*countingStore)(nil)
+
+func newCountingStore(tb testing.TB) *countingStore {
+	tb.Helper()
+
+	return &countingStore{inner: newStore(tb), failGetAfter: -1, failSetAfter: -1, failDeleteAfter: -1}
+}
+
+// shouldFail reports whether this call number is the one to fail.
+func shouldFail(n, failAfter int, err error) bool {
+	return err != nil && failAfter >= 0 && n > failAfter
+}
+
+func (s *countingStore) Get(ctx context.Context, key string) (*Record[payload], error) {
+	s.mu.Lock()
+	s.gets++
+	n := s.gets
+	s.mu.Unlock()
+
+	if shouldFail(n, s.failGetAfter, s.getErr) {
+		return nil, s.getErr
+	}
+
+	return s.inner.Get(ctx, key)
+}
+
+func (s *countingStore) Set(ctx context.Context, key string, value *Record[payload], opts ...cache.WriteOption) error {
+	s.mu.Lock()
+	s.sets++
+	n := s.sets
+	s.mu.Unlock()
+
+	if shouldFail(n, s.failSetAfter, s.setErr) {
+		return s.setErr
+	}
+
+	return s.inner.Set(ctx, key, value, opts...)
+}
+
+func (s *countingStore) Delete(ctx context.Context, key string) error {
+	s.mu.Lock()
+	s.deletes++
+	n := s.deletes
+	s.mu.Unlock()
+
+	if shouldFail(n, s.failDeleteAfter, s.deleteErr) {
+		return s.deleteErr
+	}
+
+	return s.inner.Delete(ctx, key)
+}
+
+func (s *countingStore) GetMany(ctx context.Context, keys []string) (map[string]*Record[payload], error) {
+	return s.inner.GetMany(ctx, keys)
+}
+
+func (s *countingStore) SetMany(ctx context.Context, items map[string]*Record[payload], opts ...cache.WriteOption) error {
+	return s.inner.SetMany(ctx, items, opts...)
+}
+
+func (s *countingStore) DeleteMany(ctx context.Context, keys []string) error {
+	return s.inner.DeleteMany(ctx, keys)
+}
+
+func (s *countingStore) DeleteByPrefix(ctx context.Context, prefix string) error {
+	return s.inner.DeleteByPrefix(ctx, prefix)
+}
+
+func (s *countingStore) Flush(ctx context.Context) error { return s.inner.Flush(ctx) }
+func (s *countingStore) Ping(ctx context.Context) error  { return s.inner.Ping(ctx) }
+
+// newManagerOver builds a Manager over a specific store.
+func newManagerOver(
+	tb testing.TB,
+	store cache.Cache[Record[payload]],
+	opts ...Option[payload],
+) *Manager[payload] {
+	tb.Helper()
+
+	m, err := NewManager(store, newLocker(tb), opts...)
+	must.NoError(tb, err)
+
+	return m
+}
+
 // seed writes a record directly, standing in for whatever another process left
 // behind.
 func seed(t *testing.T, m *Manager[payload], key string, record *Record[payload], expiry time.Duration) {

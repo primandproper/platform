@@ -132,16 +132,15 @@ func (m *middleware) serve(res http.ResponseWriter, req *http.Request, next http
 		return rec.response(m.cfg.replayedHeaders), nil
 	})
 	if err != nil {
-		if rec.wroteHeader {
-			// The handler already wrote; the status line is gone and there is
-			// nothing to turn into an error response. Only reachable when the
-			// manager fails after the work ran, which
-			// idempotency_record_failures already counts.
-			op.Acknowledge(err, "recording idempotent response")
-
-			return
-		}
-
+		// Safe to write a status here because the handler cannot have written
+		// one: the closure above never returns an error, so every error Do can
+		// return — key validation, a store read, a mismatch or in-flight
+		// record, a failed claim — is decided before the handler runs. A
+		// failure after it runs is counted by the manager and swallowed, since
+		// the caller is owed the result the work produced.
+		//
+		// A closure that could return an error would break that, and would
+		// need a wroteHeader guard before calling this.
 		m.writeError(ctx, res, op, err, "running idempotent handler")
 
 		return

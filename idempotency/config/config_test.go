@@ -6,7 +6,9 @@ import (
 	"time"
 
 	cachecfg "github.com/primandproper/platform-go/v8/cache/config"
+	"github.com/primandproper/platform-go/v8/distributedlock"
 	distributedlockcfg "github.com/primandproper/platform-go/v8/distributedlock/config"
+	pglock "github.com/primandproper/platform-go/v8/distributedlock/postgres"
 	"github.com/primandproper/platform-go/v8/idempotency"
 
 	"github.com/shoenig/test"
@@ -145,6 +147,53 @@ func TestNewManager(T *testing.T) {
 
 		m, err := NewManager(t.Context(), cfg, nil, nil, nil, nil,
 			idempotency.WithTTL[payload](2*time.Hour))
+		must.NoError(t, err)
+		must.NotNil(t, m)
+	})
+}
+
+func TestNewManager_BuildFailures(T *testing.T) {
+	T.Parallel()
+
+	type payload struct {
+		Name string
+	}
+
+	// An empty provider passes validation — ozzo's In skips empty values — and
+	// then fails at construction, so the error has to surface from there.
+	T.Run("surfaces a store build failure", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := memoryConfig()
+		cfg.Cache.Provider = ""
+
+		_, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil)
+		test.Error(t, err)
+	})
+
+	// The postgres locker needs a database client, and passing nil is the
+	// ordinary mistake for a service that configured the provider but not the
+	// dependency.
+	T.Run("surfaces a locker build failure", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := memoryConfig()
+		cfg.Lock = distributedlockcfg.Config{
+			Provider: distributedlockcfg.PostgresProvider,
+			Postgres: &pglock.Config{},
+		}
+
+		_, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil)
+		test.ErrorIs(t, err, distributedlock.ErrNilDatabaseClient)
+	})
+
+	T.Run("FailOpen selects the fail-open policy", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := memoryConfig()
+		cfg.FailOpen = true
+
+		m, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil)
 		must.NoError(t, err)
 		must.NotNil(t, m)
 	})

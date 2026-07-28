@@ -7,12 +7,19 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/idempotency"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v8/observability/metrics/mock"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestNewMiddleware(T *testing.T) {
@@ -524,3 +531,228 @@ func TestMiddleware_StoreFailure(T *testing.T) {
 // httpErrCodeInFlight is the platform error code a 409 carries. Spelled out
 // here so the assertion fails loudly if the code ever changes.
 const httpErrCodeInFlight = "E113"
+
+func TestNewMiddleware_Options(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithHeaderName changes the header read", func(t *testing.T) {
+		t.Parallel()
+
+		handler := okHandler()
+		wrapped := wrap(t, handler, newTestManager(t), WithHeaderName("X-Idem"))
+
+		// The default header no longer participates.
+		plain := post(t.Context(), testKey, "/charges", "{}")
+		do(wrapped, plain)
+		do(wrapped, plain)
+		test.EqOp(t, int64(2), handler.Calls())
+
+		keyed := post(t.Context(), "", "/charges", "{}")
+		keyed.Header.Set("X-Idem", testKey)
+		do(wrapped, keyed)
+
+		second := post(t.Context(), "", "/charges", "{}")
+		second.Header.Set("X-Idem", testKey)
+		test.EqOp(t, "true", do(wrapped, second).Header().Get(ReplayHeader))
+	})
+
+	T.Run("an empty replay header name suppresses the marker", func(t *testing.T) {
+		t.Parallel()
+
+		wrapped := wrap(t, okHandler(), newTestManager(t), WithReplayHeaderName(""))
+
+		do(wrapped, post(t.Context(), testKey, "/charges", "{}"))
+		second := do(wrapped, post(t.Context(), testKey, "/charges", "{}"))
+
+		test.EqOp(t, http.StatusCreated, second.Code)
+		test.EqOp(t, "", second.Header().Get(ReplayHeader))
+	})
+
+	T.Run("WithRetryAfter changes the 409 hint", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			started = make(chan struct{})
+			release = make(chan struct{})
+			once    sync.Once
+		)
+
+		handler := newCountingHandler(func(res http.ResponseWriter, _ *http.Request) {
+			once.Do(func() { close(started) })
+			<-release
+			res.WriteHeader(http.StatusCreated)
+		})
+		wrapped := wrap(t, handler, newTestManager(t), WithRetryAfter(30*time.Second))
+
+		go func() { do(wrapped, post(t.Context(), testKey, "/charges", "{}")) }()
+		<-started
+
+		second := do(wrapped, post(t.Context(), testKey, "/charges", "{}"))
+		close(release)
+
+		test.EqOp(t, "30", second.Header().Get("Retry-After"))
+	})
+
+	T.Run("accepts observability options", func(t *testing.T) {
+		t.Parallel()
+
+		wrapped := wrap(t, okHandler(), newTestManager(t),
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+			WithMetricsProvider(metrics.EnsureMetricsProvider(nil)),
+		)
+
+		test.EqOp(t, http.StatusCreated, do(wrapped, post(t.Context(), testKey, "/charges", "{}")).Code)
+	})
+
+	// The counter is built in the constructor, so a provider that cannot build
+	// it has to surface there rather than at the first request.
+	T.Run("surfaces a failure to build the counter", func(t *testing.T) {
+		t.Parallel()
+
+		boom := platformerrors.New("no meter")
+		provider := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				return nil, boom
+			},
+		}
+
+		_, err := NewMiddleware(newTestManager(t), WithMetricsProvider(provider))
+		test.ErrorIs(t, err, boom)
+	})
+
+	T.Run("ignores nil options", func(t *testing.T) {
+		t.Parallel()
+
+		wrapped := wrap(t, okHandler(), newTestManager(t), nil)
+
+		test.EqOp(t, http.StatusCreated, do(wrapped, post(t.Context(), testKey, "/charges", "{}")).Code)
+	})
+}
+
+func TestMiddleware_TraceDetails(T *testing.T) {
+	T.Parallel()
+
+	// The error envelope carries a trace ID so a rejection can be correlated
+	// with the request that caused it, matching what the router does.
+	T.Run("an error envelope carries the active trace ID", func(t *testing.T) {
+		t.Parallel()
+
+		tracerProvider := tracingnoop.NewTracerProvider()
+		wrapped := wrap(t, okHandler(), newTestManager(t), WithTracerProvider(tracerProvider))
+
+		res := do(wrapped, post(t.Context(), "has space", "/charges", "{}"))
+
+		test.EqOp(t, http.StatusBadRequest, res.Code)
+		test.StrContains(t, res.Body.String(), "details")
+	})
+}
+
+func TestMiddleware_NilBody(T *testing.T) {
+	T.Parallel()
+
+	// httptest builds a request with no body at all when given nil, which is
+	// also what a bodiless DELETE looks like on the wire.
+	T.Run("handles a request with no body", func(t *testing.T) {
+		t.Parallel()
+
+		handler := okHandler()
+		wrapped := wrap(t, handler, newTestManager(t))
+
+		build := func() *http.Request {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/charges/1", nil)
+			req.Body = nil
+			req.Header.Set(HeaderName, testKey)
+
+			return req
+		}
+
+		first := do(wrapped, build())
+		second := do(wrapped, build())
+
+		test.EqOp(t, http.StatusCreated, first.Code)
+		test.EqOp(t, int64(1), handler.Calls())
+		test.EqOp(t, "true", second.Header().Get(ReplayHeader))
+	})
+}
+
+// erroringBody fails on Read, standing in for a connection that dropped
+// mid-upload — a body failure that is not an over-size rejection.
+type erroringBody struct {
+	err error
+}
+
+func (b *erroringBody) Read([]byte) (int, error) { return 0, b.err }
+func (b *erroringBody) Close() error             { return nil }
+
+func TestMiddleware_BodyReadFailure(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a body that cannot be read is a 500, not a 413", func(t *testing.T) {
+		t.Parallel()
+
+		handler := okHandler()
+		wrapped := wrap(t, handler, newTestManager(t))
+
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/charges", nil)
+		req.Body = &erroringBody{err: platformerrors.New("connection reset")}
+		req.Header.Set(HeaderName, testKey)
+
+		res := do(wrapped, req)
+
+		// 413 is reserved for a body that was too large; this one was simply
+		// unreadable, and the handler must not run on a partial fingerprint.
+		test.EqOp(t, http.StatusInternalServerError, res.Code)
+		test.EqOp(t, int64(0), handler.Calls())
+	})
+}
+
+func TestMiddleware_ReplayWriteFailure(T *testing.T) {
+	T.Parallel()
+
+	// The replay's status is already on the wire when the body write fails, so
+	// the failure is logged rather than turned into a second response.
+	T.Run("a failed replay write does not panic", func(t *testing.T) {
+		t.Parallel()
+
+		handler := okHandler()
+		wrapped := wrap(t, handler, newTestManager(t))
+
+		do(wrapped, post(t.Context(), testKey, "/charges", "{}"))
+
+		res := &failingWriter{plainWriter: newPlainWriter(), err: platformerrors.New("connection reset")}
+		wrapped.ServeHTTP(res, post(t.Context(), testKey, "/charges", "{}"))
+
+		test.EqOp(t, int64(1), handler.Calls())
+		test.EqOp(t, http.StatusCreated, res.status)
+	})
+}
+
+func TestDetailsFromCtx(T *testing.T) {
+	T.Parallel()
+
+	// The envelope carries a trace ID so a rejection can be correlated with the
+	// request that produced it, matching what the router puts on its own.
+	T.Run("carries the active trace ID", func(t *testing.T) {
+		t.Parallel()
+
+		traceID, err := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
+		must.NoError(t, err)
+
+		spanID, err := trace.SpanIDFromHex("0102030405060708")
+		must.NoError(t, err)
+
+		ctx := trace.ContextWithSpanContext(t.Context(), trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID: traceID,
+			SpanID:  spanID,
+		}))
+
+		test.EqOp(t, traceID.String(), detailsFromCtx(ctx).TraceID)
+	})
+
+	T.Run("is empty without a span", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "", detailsFromCtx(t.Context()).TraceID)
+	})
+}
