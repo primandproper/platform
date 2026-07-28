@@ -6,11 +6,11 @@ import (
 	"io/fs"
 	"iter"
 
-	"github.com/primandproper/platform-go/v7/observability"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
 const o11yName = "files_reader"

@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v7/random"
+	"github.com/primandproper/platform-go/v8/random"
 )
 
 // Ensure, that GeneratorMock does implement random.Generator.

@@ -10,16 +10,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/clock"
-	"github.com/primandproper/platform-go/v7/database"
-	platformerrors "github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/messagequeue"
-	"github.com/primandproper/platform-go/v7/observability"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/metrics"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
-	"github.com/primandproper/platform-go/v7/retry"
+	"github.com/primandproper/platform-go/v8/clock"
+	"github.com/primandproper/platform-go/v8/database"
+	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/messagequeue"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v8/retry"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"go.opentelemetry.io/otel/attribute"
@@ -42,6 +42,27 @@ const (
 	// DefaultReapBatchSize caps one reap, so a large backlog is removed over
 	// several passes instead of one long-running DELETE.
 	DefaultReapBatchSize = 1000
+)
+
+// Observability keys for this package's spans and log fields. Declared once so
+// that a field set on a span and the same field logged alongside it cannot
+// drift apart, and so the outbox. prefix is applied uniformly — an un-namespaced
+// attribute name collides with every other component writing to the same trace.
+//
+// Keys that are not outbox-specific come from observability/keys instead;
+// keys.TopicKey is the one in use here.
+const (
+	messageIDKey       = "outbox.message_id"
+	messageCountKey    = "outbox.message_count"
+	partitionKeyKey    = "outbox.partition_key"
+	attemptsKey        = "outbox.attempts"
+	claimedKey         = "outbox.claimed"
+	claimModeKey       = "outbox.claim_mode"
+	batchSizeKey       = "outbox.batch_size"
+	backlogDepthKey    = "outbox.backlog_depth"
+	backlogAgeKey      = "outbox.backlog_age_seconds"
+	retentionCutoffKey = "outbox.retention_cutoff"
+	reapedKey          = "outbox.reaped"
 )
 
 // ClaimMode selects how the relay takes ownership of messages.
@@ -406,7 +427,7 @@ func (r *Relay) cycle(ctx context.Context) {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
 
-	op.Set("claimed", len(msgs))
+	op.Set(claimedKey, len(msgs))
 
 	// Published serially, in created_at order. The claim predicate admits at
 	// most one message per partition key per batch, so a failure here can never
@@ -446,11 +467,11 @@ func (r *Relay) publish(ctx context.Context, msg *claimedMessage) error {
 	defer op.End()
 
 	op.Set(keys.TopicKey, msg.topic).
-		Set("outbox.message_id", msg.id).
-		Set("outbox.attempts", msg.attempts)
+		Set(messageIDKey, msg.id).
+		Set(attemptsKey, msg.attempts)
 
 	if msg.key != "" {
-		op.Set("outbox.partition_key", msg.key)
+		op.Set(partitionKeyKey, msg.key)
 	}
 
 	startTime := time.Now()
@@ -496,9 +517,9 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 	defer op.End()
 
 	op.SetValues(map[string]any{
-		"outbox.claim_mode": string(r.cfg.ClaimMode),
-		"outbox.batch_size": r.cfg.BatchSize,
-		"db.system":         string(r.cfg.Dialect),
+		claimModeKey: string(r.cfg.ClaimMode),
+		batchSizeKey: r.cfg.BatchSize,
+		"db.system":  string(r.cfg.Dialect),
 	})
 
 	var claimed []claimedMessage
@@ -537,7 +558,7 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 		return nil, op.Error(err, "claiming outbox batch")
 	}
 
-	op.Set("outbox.claimed", len(claimed))
+	op.Set(claimedKey, len(claimed))
 
 	return claimed, nil
 }
@@ -572,10 +593,10 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 	// that is failing is also holding up every later message for that key, so
 	// the log has to say which key is stalled.
 	logger := r.logger.WithValues(map[string]any{
-		"outbox.message_id":    msg.id,
-		keys.TopicKey:          msg.topic,
-		"outbox.partition_key": msg.key,
-		"outbox.attempts":      msg.attempts,
+		messageIDKey:    msg.id,
+		keys.TopicKey:   msg.topic,
+		partitionKeyKey: msg.key,
+		attemptsKey:     msg.attempts,
 	})
 
 	if _, err := r.client.Writer().ExecContext(ctx, query, args...); err != nil {
@@ -617,8 +638,8 @@ func (r *Relay) sampleBacklog(ctx context.Context) {
 	r.backlogAgeGauge.Record(ctx, ageSeconds)
 
 	op.SetValues(map[string]any{
-		"outbox.backlog_depth":       depth,
-		"outbox.backlog_age_seconds": ageSeconds,
+		backlogDepthKey: depth,
+		backlogAgeKey:   ageSeconds,
 	})
 }
 
@@ -700,7 +721,7 @@ func (r *Relay) reap(ctx context.Context) {
 
 	before := r.clock.Now().UTC().Add(-r.cfg.Retention)
 
-	op.Set("outbox.retention_cutoff", before)
+	op.Set(retentionCutoffKey, before)
 
 	query, args := buildReap(r.cfg.Dialect, r.cfg.TableName, before, r.cfg.ReapBatchSize)
 
@@ -718,7 +739,7 @@ func (r *Relay) reap(ctx context.Context) {
 		return
 	}
 
-	op.Set("outbox.reaped", affected)
+	op.Set(reapedKey, affected)
 
 	if affected > 0 {
 		r.reapedCounter.Add(ctx, affected)

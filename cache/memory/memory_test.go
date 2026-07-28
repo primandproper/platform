@@ -7,8 +7,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/cache"
-	"github.com/primandproper/platform-go/v7/observability"
+	"github.com/primandproper/platform-go/v8/cache"
+	"github.com/primandproper/platform-go/v8/observability"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

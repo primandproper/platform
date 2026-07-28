@@ -3,8 +3,8 @@ package encoding
 import (
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
 type benchPayload struct {

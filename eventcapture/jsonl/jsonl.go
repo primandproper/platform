@@ -16,10 +16,10 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/primandproper/platform-go/v7/clock"
-	"github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/eventcapture"
-	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v8/clock"
+	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/eventcapture"
+	"github.com/primandproper/platform-go/v8/observability/logging"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

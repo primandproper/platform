@@ -7,9 +7,9 @@ import (
 	"iter"
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/uploads"
-	mockuploads "github.com/primandproper/platform-go/v7/uploads/mock"
+	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/uploads"
+	mockuploads "github.com/primandproper/platform-go/v8/uploads/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

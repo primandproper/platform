@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/testutils/containers"
+	"github.com/primandproper/platform-go/v8/testutils/containers"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/shoenig/test"

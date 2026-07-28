@@ -5,11 +5,11 @@ import (
 	"io"
 	"io/fs"
 
-	"github.com/primandproper/platform-go/v7/encoding"
-	"github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v8/encoding"
+	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 // Decode reads all of r and unmarshals it into a T as content type ct — any encoding the encoding

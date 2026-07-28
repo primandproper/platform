@@ -25,9 +25,10 @@ package migrations
 
 import (
 	_ "embed"
+	"regexp"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v7/errors"
+	platformerrors "github.com/primandproper/platform-go/v8/errors"
 )
 
 //go:embed postgres.sql
@@ -139,26 +140,16 @@ func stripComments(ddl string) string {
 	return strings.Join(kept, "\n")
 }
 
+// identifier matches a name safe to interpolate as a table name: a bare
+// identifier, optionally qualified by exactly one schema.
+//
+// This duplicates outbox.identifier deliberately. Only _test.go files in outbox
+// import this package, so importing outbox from here would close a cycle
+// through outbox_test.go. Keep the two patterns identical; the shared cases in
+// TestValidIdentifier_matchesOutbox guard the drift.
+var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+
 // validIdentifier reports whether s is safe to interpolate as a table name.
 func validIdentifier(s string) bool {
-	if s == "" {
-		return false
-	}
-
-	for i, part := range strings.Split(s, ".") {
-		if i > 1 || part == "" {
-			return false
-		}
-
-		for j, r := range part {
-			switch {
-			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
-			case j > 0 && r >= '0' && r <= '9':
-			default:
-				return false
-			}
-		}
-	}
-
-	return true
+	return identifier.MatchString(s)
 }

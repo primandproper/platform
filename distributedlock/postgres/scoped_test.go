@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	cbmock "github.com/primandproper/platform-go/v7/circuitbreaking/mock"
-	cbnoop "github.com/primandproper/platform-go/v7/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v7/distributedlock"
-	"github.com/primandproper/platform-go/v7/identifiers"
+	cbmock "github.com/primandproper/platform-go/v8/circuitbreaking/mock"
+	cbnoop "github.com/primandproper/platform-go/v8/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v8/distributedlock"
+	"github.com/primandproper/platform-go/v8/identifiers"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/shoenig/test"

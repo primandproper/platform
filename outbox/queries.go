@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -31,31 +32,20 @@ const messageColumns = "id, topic, partition_key, payload, attempts"
 // It stops being correct the moment a value is bound in a non-UTC location, so
 // do not remove the .UTC() calls at the binding sites.
 
-// validIdentifier reports whether s is safe to interpolate into query text as
-// a table name. Table names cannot be bound as parameters, so the set is
-// restricted to plain identifiers — optionally schema-qualified — rather than
+// identifier matches a name safe to interpolate into query text as a table
+// name: a bare identifier, optionally qualified by exactly one schema. Table
+// names cannot be bound as parameters, so the set is restricted rather than
 // escaped.
+//
+// ASCII only, and anchored at both ends. Go's regexp is RE2, where $ means end
+// of text rather than "before an optional trailing newline" as in Perl, so
+// there is no trailing-newline escape from the anchor.
+var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+
+// validIdentifier reports whether s is safe to interpolate into query text as
+// a table name.
 func validIdentifier(s string) bool {
-	if s == "" {
-		return false
-	}
-
-	for i, part := range strings.Split(s, ".") {
-		if i > 1 || part == "" {
-			return false
-		}
-
-		for j, r := range part {
-			switch {
-			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
-			case j > 0 && r >= '0' && r <= '9':
-			default:
-				return false
-			}
-		}
-	}
-
-	return true
+	return identifier.MatchString(s)
 }
 
 // placeholder renders the n-th bind marker (1-indexed) for the dialect.

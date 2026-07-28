@@ -35,15 +35,23 @@ callers using something else.
 
 # Wire compatibility
 
-Payload is marshaled to JSON at enqueue and republished as json.RawMessage,
-which marshals as its own bytes. The message the broker receives is therefore
-byte-identical to what a direct messagequeue.Publish of the same value would
-have produced, so adopting the outbox needs no consumer change.
+Payload is marshaled at enqueue with encoding.EncodeJSON and republished as
+json.RawMessage, which marshals as its own bytes. The message the broker
+receives is therefore byte-identical to what a direct messagequeue.Publish of
+the same value would have produced, so adopting the outbox needs no consumer
+change.
 
-That identity depends on the publisher encoding JSON — messagequeue/kafka
-constructs its encoder with encoding.ContentTypeJSON. A publisher built with a
-non-JSON ClientEncoder would double-encode the payload, so the Relay is
-JSON-only by contract.
+The encoding is pinned to JSON rather than taken from the caller. Both halves
+of the identity above depend on it: the Relay hands the stored bytes to the
+publisher inside a json.RawMessage, so bytes in any other encoding would be
+spliced verbatim into a JSON message rather than encoded into one. A publisher
+built with a non-JSON ClientEncoder would break it from the other side by
+double-encoding, so the Relay is JSON-only by contract.
+
+That contract is not enforced at runtime. messagequeue.Publisher is Publish(ctx,
+any) with no way to ask what encoding it speaks, so the Relay cannot check the
+publisher it is handed. It holds today because every publisher in this module —
+kafka, redis, sqs, pubsub — constructs its encoder with encoding.ContentTypeJSON.
 
 # Delivery semantics
 

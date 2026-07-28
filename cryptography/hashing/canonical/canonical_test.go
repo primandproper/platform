@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/cryptography/hashing/fnv"
-	"github.com/primandproper/platform-go/v7/cryptography/hashing/sha256"
+	"github.com/primandproper/platform-go/v8/cryptography/hashing/fnv"
+	"github.com/primandproper/platform-go/v8/cryptography/hashing/sha256"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing/fstest"
 
-	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v8/errors"
 )
 
 // generatedMigration is a migration supplied as text rather than as a file on
@@ -34,7 +36,7 @@ func (g *generatedMigration) validate() error {
 	if g.name == "" {
 		return errors.New("generated migration name is required")
 	}
-	if !validMigrationName(g.name) {
+	if !migrationName.MatchString(g.name) {
 		return errors.Newf(
 			"generated migration name %q must contain only letters, digits and underscores", g.name,
 		)
@@ -46,20 +48,15 @@ func (g *generatedMigration) validate() error {
 	return nil
 }
 
-// validMigrationName reports whether name is safe to place in a filename. The
-// name lands between the version prefix and the .sql suffix, so anything that
-// could introduce a path separator or a second extension is refused.
-func validMigrationName(name string) bool {
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
-		default:
-			return false
-		}
-	}
-
-	return true
-}
+// migrationName matches a name that is safe to place in a filename. The name
+// lands between the version prefix and the .sql suffix, so anything that could
+// introduce a path separator or a second extension is refused.
+//
+// Deliberately ASCII rather than unicode.IsLetter: the job is filename safety,
+// not language coverage. Admitting the full letter category would let two names
+// that render identically — homoglyphs, or the same string in NFC and NFD —
+// claim two different files, which is worse than refusing both.
+var migrationName = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 // mergeGenerated adds the generated migrations to an already-annotated
 // filesystem, failing on any version that a file on disk already claims.
@@ -129,25 +126,28 @@ func mergeGenerated(annotated fs.FS, generated []generatedMigration) (fs.FS, err
 }
 
 // migrationVersion extracts the leading numeric version from a migration
-// filename, the way goose orders them. It reports false for a name with no
-// numeric prefix, which goose would ignore anyway.
+// filename, the way goose orders them. It reports false for a name goose would
+// ignore anyway, and deliberately mirrors goose.NumericComponent rule for rule:
+// a .sql extension, a version delimited by the first underscore, and a value of
+// at least one. Divergence here would mean this package's collision check
+// reasons about a version goose never assigns.
+//
+// The bit size is 63, not 64: goose holds versions in an int64, so refusing
+// anything above MaxInt64 keeps "parsed here" equivalent to "loadable there"
+// rather than deferring the failure to the first Migrate.
 func migrationVersion(name string) (uint64, bool) {
 	if path.Ext(name) != ".sql" {
 		return 0, false
 	}
 
-	digits := 0
-	for digits < len(name) && name[digits] >= '0' && name[digits] <= '9' {
-		digits++
-	}
-
-	if digits == 0 {
+	before, _, found := strings.Cut(name, "_")
+	if !found {
 		return 0, false
 	}
 
-	var version uint64
-	for i := range digits {
-		version = version*10 + uint64(name[i]-'0')
+	version, err := strconv.ParseUint(before, 10, 63)
+	if err != nil || version == 0 {
+		return 0, false
 	}
 
 	return version, true

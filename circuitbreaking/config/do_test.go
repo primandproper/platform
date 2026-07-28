@@ -3,9 +3,9 @@ package circuitbreakingcfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/circuitbreaking"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v8/circuitbreaking"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

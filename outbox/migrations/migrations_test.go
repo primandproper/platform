@@ -8,6 +8,32 @@ import (
 	"github.com/shoenig/test/must"
 )
 
+// TestValidIdentifier_matchesOutbox pins this package's copy of the identifier
+// pattern to the same cases as outbox.TestValidIdentifier. The two copies exist
+// because importing outbox from here would close a cycle through
+// outbox_test.go; keeping the case lists identical is what stops them drifting.
+// Any case added there belongs here too.
+func TestValidIdentifier_matchesOutbox(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		valid := []string{"outbox_messages", "_outbox", "Outbox1", "events.outbox_messages"}
+		for _, s := range valid {
+			test.True(t, validIdentifier(s), test.Sprintf("expected %q to be valid", s))
+		}
+
+		invalid := []string{
+			"", " ", "1outbox", "out box", "outbox;DROP TABLE users", "outbox--", "a.b.c", ".outbox", "outbox.",
+			`outbox"`, "outbox'", "outbox`",
+		}
+		for _, s := range invalid {
+			test.False(t, validIdentifier(s), test.Sprintf("expected %q to be invalid", s))
+		}
+	})
+}
+
 func TestStatements(T *testing.T) {
 	T.Parallel()
 

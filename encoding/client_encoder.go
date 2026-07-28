@@ -8,11 +8,11 @@ import (
 	"encoding/xml"
 	"io"
 
-	"github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/observability"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/BurntSushi/toml"
 	"github.com/keith-turner/ecoji/v2"
@@ -20,10 +20,35 @@ import (
 )
 
 type (
-	// ClientEncoder is an encoder for a service client.
-	ClientEncoder interface {
-		ContentType() string
+	// Marshaler renders a value as bytes in one content type. It is the
+	// smallest thing most callers need, and it carries no transport: anything
+	// that has to turn a value into bytes — a queue payload, a cache entry, a
+	// database column — should depend on this rather than on ClientEncoder.
+	Marshaler interface {
+		Marshal(ctx context.Context, v any) ([]byte, error)
+	}
+
+	// Unmarshaler parses bytes of one content type into v.
+	Unmarshaler interface {
 		Unmarshal(ctx context.Context, data []byte, v any) error
+	}
+
+	// Codec is the transport-free pair, plus the content type it speaks.
+	// Prefer it over ClientEncoder wherever io.Writer and io.Reader are not
+	// part of the job.
+	Codec interface {
+		Marshaler
+		Unmarshaler
+
+		ContentType() string
+	}
+
+	// ClientEncoder is a Codec that can also stream. The streaming halves are
+	// separated out because they are the parts tied to a transport; a caller
+	// that only needs bytes should ask for Marshaler or Codec instead.
+	ClientEncoder interface {
+		Codec
+
 		Encode(ctx context.Context, dest io.Writer, v any) error
 		EncodeReader(ctx context.Context, data any) (io.Reader, error)
 	}
@@ -34,6 +59,30 @@ type (
 		contentType *contentType
 	}
 )
+
+// marshalFuncFor returns the byte-oriented marshaler for a content type, and
+// is the single dispatch every encode path in this package routes through.
+//
+// Byte-oriented deliberately. The streaming encoders — json.NewEncoder and its
+// counterparts — append a trailing newline, so a package that mixed the two
+// would answer the same question with two different byte slices depending on
+// which entry point you happened to call. Routing everything through here is
+// what makes MustEncodeJSON(v) equal json.Marshal(v) exactly, which callers
+// that compare or store the bytes depend on.
+func marshalFuncFor(ct ContentType) func(v any) ([]byte, error) {
+	switch ct {
+	case ContentTypeXML:
+		return xml.Marshal
+	case ContentTypeTOML:
+		return tomlMarshalFunc
+	case ContentTypeYAML:
+		return yaml.Marshal
+	case ContentTypeEmoji:
+		return marshalEmoji
+	default:
+		return json.Marshal
+	}
+}
 
 func (e *clientEncoder) Unmarshal(ctx context.Context, data []byte, v any) error {
 	_, op := e.o11y.Begin(ctx)
@@ -64,32 +113,32 @@ func (e *clientEncoder) Unmarshal(ctx context.Context, data []byte, v any) error
 	return nil
 }
 
-func (e *clientEncoder) Encode(ctx context.Context, dest io.Writer, data any) error {
+// Marshal renders v as bytes in this encoder's content type.
+func (e *clientEncoder) Marshal(ctx context.Context, v any) ([]byte, error) {
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	var err error
-
-	switch e.contentType {
-	case ContentTypeXML:
-		err = xml.NewEncoder(dest).Encode(data)
-	case ContentTypeTOML:
-		err = toml.NewEncoder(dest).Encode(data)
-	case ContentTypeYAML:
-		err = yaml.NewEncoder(dest).Encode(data)
-	case ContentTypeEmoji:
-		emojiEncoded, emojiEncodeErr := marshalEmoji(data)
-		if emojiEncodeErr != nil {
-			return emojiEncodeErr
-		}
-
-		_, err = dest.Write(emojiEncoded)
-	default:
-		err = json.NewEncoder(dest).Encode(data)
+	out, err := marshalFuncFor(e.contentType)(v)
+	if err != nil {
+		return nil, observability.PrepareError(err, op.Span(), "marshaling content")
 	}
 
+	op.Set(keys.LengthKey, len(out))
+
+	return out, nil
+}
+
+func (e *clientEncoder) Encode(ctx context.Context, dest io.Writer, data any) error {
+	ctx, op := e.o11y.Begin(ctx)
+	defer op.End()
+
+	out, err := e.Marshal(ctx, data)
 	if err != nil {
 		return observability.PrepareError(err, op.Span(), "encoding content")
+	}
+
+	if _, err = dest.Write(out); err != nil {
+		return observability.PrepareError(err, op.Span(), "writing encoded content")
 	}
 
 	return nil
@@ -132,30 +181,13 @@ func tomlMarshalFunc(v any) ([]byte, error) {
 }
 
 func (e *clientEncoder) EncodeReader(ctx context.Context, data any) (io.Reader, error) {
-	_, op := e.o11y.Begin(ctx)
+	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	var marshalFunc func(v any) ([]byte, error)
-
-	switch e.contentType {
-	case ContentTypeXML:
-		marshalFunc = xml.Marshal
-	case ContentTypeTOML:
-		marshalFunc = tomlMarshalFunc
-	case ContentTypeYAML:
-		marshalFunc = yaml.Marshal
-	case ContentTypeEmoji:
-		marshalFunc = marshalEmoji
-	default:
-		marshalFunc = json.Marshal
-	}
-
-	out, err := marshalFunc(data)
+	out, err := e.Marshal(ctx, data)
 	if err != nil {
 		return nil, observability.PrepareError(err, op.Span(), "marshaling content")
 	}
-
-	op.Set(keys.LengthKey, len(out))
 
 	return bytes.NewReader(out), nil
 }

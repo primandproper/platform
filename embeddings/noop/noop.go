@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/embeddings"
+	"github.com/primandproper/platform-go/v8/embeddings"
 )
 
 var _ embeddings.Embedder = (*Embedder)(nil)

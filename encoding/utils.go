@@ -5,8 +5,8 @@ import (
 	"context"
 	"io"
 
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
 func Decode(data []byte, ct *contentType, dest any) error {
@@ -21,18 +21,31 @@ func Decode(data []byte, ct *contentType, dest any) error {
 	return nil
 }
 
-// MustEncode encodes a given piece of data to a given encoding.
-func MustEncode(data any, ct *contentType) []byte {
+// Encode renders data in the given encoding, defaulting to JSON. It is the
+// error-returning counterpart of Decode, and the entry point to reach for when
+// something outside an HTTP handler needs bytes.
+func Encode(data any, ct *contentType) ([]byte, error) {
 	if ct == nil {
 		ct = ContentTypeJSON
 	}
 
-	var b bytes.Buffer
-	if err := NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ct).Encode(context.Background(), &b, data); err != nil {
+	return NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ct).
+		Marshal(context.Background(), data)
+}
+
+// EncodeJSON JSON encodes a piece of data.
+func EncodeJSON(data any) ([]byte, error) {
+	return Encode(data, ContentTypeJSON)
+}
+
+// MustEncode encodes a given piece of data to a given encoding.
+func MustEncode(data any, ct *contentType) []byte {
+	out, err := Encode(data, ct)
+	if err != nil {
 		panic(err)
 	}
 
-	return b.Bytes()
+	return out
 }
 
 // MustDecode encodes a given piece of data to a given encoding.

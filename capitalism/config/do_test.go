@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/capitalism"
-	"github.com/primandproper/platform-go/v7/capitalism/stripe"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/capitalism"
+	"github.com/primandproper/platform-go/v8/capitalism/stripe"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

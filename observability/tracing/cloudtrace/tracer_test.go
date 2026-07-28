@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 )
 
 func Test_tracingErrorHandler_Handle(T *testing.T) {

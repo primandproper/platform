@@ -3,7 +3,7 @@
 package noop
 
 import (
-	"github.com/primandproper/platform-go/v7/eventcapture"
+	"github.com/primandproper/platform-go/v8/eventcapture"
 )
 
 var _ eventcapture.Sink = (*Sink)(nil)

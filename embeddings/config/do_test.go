@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v7/embeddings"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v8/embeddings"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

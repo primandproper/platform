@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/primandproper/platform-go/v7/encoding"
+	"github.com/primandproper/platform-go/v8/encoding"
 )
 
 // Ensure, that ServerEncoderDecoderMock does implement encoding.ServerEncoderDecoder.
@@ -327,6 +327,9 @@ var _ encoding.ClientEncoder = &ClientEncoderMock{}
 //			EncodeReaderFunc: func(ctx context.Context, data any) (io.Reader, error) {
 //				panic("mock out the EncodeReader method")
 //			},
+//			MarshalFunc: func(ctx context.Context, v any) ([]byte, error) {
+//				panic("mock out the Marshal method")
+//			},
 //			UnmarshalFunc: func(ctx context.Context, data []byte, v any) error {
 //				panic("mock out the Unmarshal method")
 //			},
@@ -345,6 +348,9 @@ type ClientEncoderMock struct {
 
 	// EncodeReaderFunc mocks the EncodeReader method.
 	EncodeReaderFunc func(ctx context.Context, data any) (io.Reader, error)
+
+	// MarshalFunc mocks the Marshal method.
+	MarshalFunc func(ctx context.Context, v any) ([]byte, error)
 
 	// UnmarshalFunc mocks the Unmarshal method.
 	UnmarshalFunc func(ctx context.Context, data []byte, v any) error
@@ -370,6 +376,13 @@ type ClientEncoderMock struct {
 			// Data is the data argument value.
 			Data any
 		}
+		// Marshal holds details about calls to the Marshal method.
+		Marshal []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// V is the v argument value.
+			V any
+		}
 		// Unmarshal holds details about calls to the Unmarshal method.
 		Unmarshal []struct {
 			// Ctx is the ctx argument value.
@@ -383,6 +396,7 @@ type ClientEncoderMock struct {
 	lockContentType  sync.RWMutex
 	lockEncode       sync.RWMutex
 	lockEncodeReader sync.RWMutex
+	lockMarshal      sync.RWMutex
 	lockUnmarshal    sync.RWMutex
 }
 
@@ -486,6 +500,42 @@ func (mock *ClientEncoderMock) EncodeReaderCalls() []struct {
 	mock.lockEncodeReader.RLock()
 	calls = mock.calls.EncodeReader
 	mock.lockEncodeReader.RUnlock()
+	return calls
+}
+
+// Marshal calls MarshalFunc.
+func (mock *ClientEncoderMock) Marshal(ctx context.Context, v any) ([]byte, error) {
+	if mock.MarshalFunc == nil {
+		panic("ClientEncoderMock.MarshalFunc: method is nil but ClientEncoder.Marshal was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		V   any
+	}{
+		Ctx: ctx,
+		V:   v,
+	}
+	mock.lockMarshal.Lock()
+	mock.calls.Marshal = append(mock.calls.Marshal, callInfo)
+	mock.lockMarshal.Unlock()
+	return mock.MarshalFunc(ctx, v)
+}
+
+// MarshalCalls gets all the calls that were made to Marshal.
+// Check the length with:
+//
+//	len(mockedClientEncoder.MarshalCalls())
+func (mock *ClientEncoderMock) MarshalCalls() []struct {
+	Ctx context.Context
+	V   any
+} {
+	var calls []struct {
+		Ctx context.Context
+		V   any
+	}
+	mock.lockMarshal.RLock()
+	calls = mock.calls.Marshal
+	mock.lockMarshal.RUnlock()
 	return calls
 }
 

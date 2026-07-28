@@ -8,7 +8,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/primandproper/platform-go/v7/errors"
+	"github.com/primandproper/platform-go/v8/errors"
 
 	"github.com/disintegration/imaging"
 	"golang.org/x/image/draw"

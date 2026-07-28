@@ -3,12 +3,12 @@ package multisource
 import (
 	"testing"
 
-	analyticscfg "github.com/primandproper/platform-go/v7/analytics/config"
-	"github.com/primandproper/platform-go/v7/analytics/posthog"
-	"github.com/primandproper/platform-go/v7/analytics/segment"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
+	analyticscfg "github.com/primandproper/platform-go/v8/analytics/config"
+	"github.com/primandproper/platform-go/v8/analytics/posthog"
+	"github.com/primandproper/platform-go/v8/analytics/segment"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

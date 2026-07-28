@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/testutils/containers/pgtest"
+	"github.com/primandproper/platform-go/v8/testutils/containers/pgtest"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/shoenig/test"

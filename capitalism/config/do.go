@@ -1,10 +1,10 @@
 package config
 
 import (
-	"github.com/primandproper/platform-go/v7/capitalism"
-	"github.com/primandproper/platform-go/v7/capitalism/stripe"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v8/capitalism"
+	"github.com/primandproper/platform-go/v8/capitalism/stripe"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/samber/do/v2"
 )

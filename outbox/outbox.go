@@ -2,19 +2,19 @@ package outbox
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/clock"
-	"github.com/primandproper/platform-go/v7/database"
-	platformerrors "github.com/primandproper/platform-go/v7/errors"
-	"github.com/primandproper/platform-go/v7/identifiers"
-	"github.com/primandproper/platform-go/v7/observability"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/metrics"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v8/clock"
+	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/encoding"
+	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/identifiers"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 // DefaultTableName is the table Enqueue and the Relay operate on when no other
@@ -87,6 +87,13 @@ type Writer struct {
 	clock  clock.Clock
 	o11y   observability.Observer
 	logger logging.Logger
+
+	// marshaler is pinned to JSON rather than configurable. The Relay hands
+	// these bytes to the publisher inside a json.RawMessage, so any other
+	// encoding would be spliced verbatim into a JSON message rather than
+	// encoded into one. Held as the narrow encoding.Marshaler because bytes,
+	// not a transport, are all this needs.
+	marshaler encoding.Marshaler
 
 	enqueuedCounter metrics.Int64Counter
 
@@ -167,6 +174,7 @@ func NewWriter(dialect Dialect, opts ...WriterOption) (*Writer, error) {
 
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
 	w.logger = w.o11y.Logger()
+	w.marshaler = encoding.NewClientEncoder(w.logger, w.tracerProvider, encoding.ContentTypeJSON)
 
 	mp := metrics.EnsureMetricsProvider(w.metricsProvider)
 
@@ -196,7 +204,7 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 		return nil
 	}
 
-	op.Set("outbox.message_count", len(msgs))
+	op.Set(messageCountKey, len(msgs))
 
 	now := w.clock.Now().UTC()
 
@@ -216,7 +224,7 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 			return op.Error(platformerrors.Wrapf(ErrNilPayload, "topic %q", msg.Topic), "enqueuing outbox messages")
 		}
 
-		payload, err := json.Marshal(msg.Payload)
+		payload, err := w.marshaler.Marshal(ctx, msg.Payload)
 		if err != nil {
 			return op.Error(err, "marshaling outbox payload for topic %q", msg.Topic)
 		}

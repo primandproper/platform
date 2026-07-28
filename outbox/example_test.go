@@ -8,14 +8,14 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/database"
-	"github.com/primandproper/platform-go/v7/database/migrate"
-	"github.com/primandproper/platform-go/v7/database/sqlite"
-	platformerrors "github.com/primandproper/platform-go/v7/errors"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v7/outbox"
-	"github.com/primandproper/platform-go/v7/outbox/migrations"
+	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/migrate"
+	"github.com/primandproper/platform-go/v8/database/sqlite"
+	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/outbox"
+	"github.com/primandproper/platform-go/v8/outbox/migrations"
 )
 
 type order struct {

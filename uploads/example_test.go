@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"sort"
 
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v7/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v7/uploads"
-	"github.com/primandproper/platform-go/v7/uploads/objectstorage"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/uploads"
+	"github.com/primandproper/platform-go/v8/uploads/objectstorage"
 )
 
 func newManager() uploads.UploadManager {

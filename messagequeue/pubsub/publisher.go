@@ -8,13 +8,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/encoding"
-	"github.com/primandproper/platform-go/v7/messagequeue"
-	"github.com/primandproper/platform-go/v7/observability"
-	"github.com/primandproper/platform-go/v7/observability/keys"
-	"github.com/primandproper/platform-go/v7/observability/logging"
-	"github.com/primandproper/platform-go/v7/observability/metrics"
-	"github.com/primandproper/platform-go/v7/observability/tracing"
+	"github.com/primandproper/platform-go/v8/encoding"
+	"github.com/primandproper/platform-go/v8/messagequeue"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"cloud.google.com/go/pubsub/v2"
 )

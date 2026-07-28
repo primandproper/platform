@@ -2,10 +2,11 @@ package migrate
 
 import (
 	"io/fs"
+	"math"
 	"strings"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -43,6 +44,35 @@ func TestMigrationVersion(T *testing.T) {
 			test.EqOp(t, tc.ok, ok, test.Sprintf("name %q", name))
 			test.EqOp(t, tc.version, version, test.Sprintf("name %q", name))
 		}
+	})
+
+	// Names goose itself refuses. Claiming a version for a file goose skips
+	// would make the collision check in mergeGenerated guard a slot nothing
+	// occupies, so these have to report false rather than a best-effort number.
+	T.Run("names goose skips", func(t *testing.T) {
+		t.Parallel()
+
+		names := []string{
+			"0007.sql",                       // digits, but no separator
+			"0007outbox_widgets.sql",         // separator too late to delimit the version
+			"00000_zero.sql",                 // goose requires a version of at least one
+			"9223372036854775808_max.sql",    // MaxInt64 + 1, unrepresentable to goose
+			"99999999999999999999999_up.sql", // wide enough to wrap a uint64 accumulator
+		}
+
+		for _, name := range names {
+			version, ok := migrationVersion(name)
+			test.False(t, ok, test.Sprintf("name %q", name))
+			test.EqOp(t, uint64(0), version, test.Sprintf("name %q", name))
+		}
+	})
+
+	T.Run("largest version goose can hold", func(t *testing.T) {
+		t.Parallel()
+
+		version, ok := migrationVersion("9223372036854775807_max.sql")
+		test.True(t, ok)
+		test.EqOp(t, uint64(math.MaxInt64), version)
 	})
 }
 

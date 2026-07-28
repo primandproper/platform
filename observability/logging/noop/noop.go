@@ -3,7 +3,7 @@ package noop
 import (
 	"net/http"
 
-	"github.com/primandproper/platform-go/v7/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/logging"
 
 	"go.opentelemetry.io/otel/trace"
 )

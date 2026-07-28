@@ -1,7 +1,7 @@
 package noop
 
 import (
-	"github.com/primandproper/platform-go/v7/circuitbreaking"
+	"github.com/primandproper/platform-go/v8/circuitbreaking"
 )
 
 var _ circuitbreaking.CircuitBreaker = (*circuitBreaker)(nil)

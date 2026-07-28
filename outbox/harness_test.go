@@ -1,18 +1,18 @@
 package outbox
 
 import (
-	"context"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v7/clock"
-	"github.com/primandproper/platform-go/v7/database"
-	"github.com/primandproper/platform-go/v7/database/sqlite"
-	loggingnoop "github.com/primandproper/platform-go/v7/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v7/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v7/outbox/migrations"
+	"github.com/primandproper/platform-go/v8/clock"
+	clockmock "github.com/primandproper/platform-go/v8/clock/mock"
+	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/sqlite"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v8/outbox/migrations"
 
 	"github.com/shoenig/test/must"
 )
@@ -35,7 +35,17 @@ func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minu
 // stubClock is a manually advanced clock. The relay reads time at claim,
 // publish, and failure, so tests that assert on backoff need to control it
 // rather than race the wall clock.
+//
+// A synctest bubble would normally spare us a double entirely — that is the
+// contract clock.Clock advertises — but it advances fake time only once every
+// goroutine in the bubble is durably blocked, and these tests drive the relay
+// synchronously against a real SQLite file. Neither the cgo-free driver's
+// syscalls nor database/sql's background goroutines block durably, so time
+// would not jump on command. Hence a stub, built on the generated mock so the
+// methods nothing calls fail loudly instead of lying.
 type stubClock struct {
+	*clockmock.ClockMock
+
 	now time.Time
 	mu  sync.Mutex
 }
@@ -43,21 +53,32 @@ type stubClock struct {
 var _ clock.Clock = (*stubClock)(nil)
 
 func newStubClock() *stubClock {
-	return &stubClock{now: time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)}
+	c := &stubClock{now: time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)}
+
+	c.ClockMock = &clockmock.ClockMock{
+		NowFunc:   c.read,
+		SinceFunc: func(t time.Time) time.Duration { return c.read().Sub(t) },
+
+		// Reached only by Run, whose test sets both intervals to an hour so
+		// that the drain on Close does the publishing. A real ticker is
+		// therefore constructed and stopped without ever firing.
+		NewTickerFunc: clock.NewClock().NewTicker,
+
+		// SleepFunc is deliberately left nil. Nothing in the relay sleeps, and
+		// if that changes, moq panics — which is what we want, because the
+		// obvious stub (return nil) would silently ignore the context and let
+		// a cancellation bug pass.
+	}
+
+	return c
 }
 
-func (c *stubClock) Now() time.Time {
+func (c *stubClock) read() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	return c.now
 }
-
-func (c *stubClock) Since(t time.Time) time.Duration { return c.Now().Sub(t) }
-
-func (c *stubClock) Sleep(context.Context, time.Duration) error { return nil }
-
-func (c *stubClock) NewTicker(d time.Duration) clock.Ticker { return clock.NewClock().NewTicker(d) }
 
 func (c *stubClock) advance(d time.Duration) {
 	c.mu.Lock()
