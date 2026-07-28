@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v8/circuitbreaking"
 	"github.com/primandproper/platform-go/v8/database"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/idempotency"
 )
 
 // PlatformMapper maps platform-level errors to HTTP error codes and messages.
@@ -26,6 +27,10 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrValidatingRequestInput, "user already exists", true
 	case errors.Is(err, circuitbreaking.ErrCircuitBroken):
 		return ErrCircuitBroken, "service temporarily unavailable", true
+	case errors.Is(err, idempotency.ErrInFlight):
+		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
+	case errors.Is(err, idempotency.ErrFingerprintMismatch):
+		return ErrIdempotencyKeyReused, "this idempotency key was already used for a different request", true
 	case errors.Is(err, platformerrors.ErrNilInputParameter),
 		errors.Is(err, platformerrors.ErrEmptyInputParameter),
 		errors.Is(err, platformerrors.ErrNilInputProvided),

@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v8/circuitbreaking"
 	"github.com/primandproper/platform-go/v8/database"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/idempotency"
 
 	"github.com/shoenig/test"
 	"google.golang.org/grpc/codes"
@@ -41,6 +42,20 @@ func TestPlatformMapper_Map(T *testing.T) {
 		code, ok := PlatformMapper.Map(circuitbreaking.ErrCircuitBroken)
 		test.True(t, ok)
 		test.EqOp(t, codes.Unavailable, code)
+	})
+
+	T.Run("ErrInFlight maps to Aborted", func(t *testing.T) {
+		t.Parallel()
+		code, ok := PlatformMapper.Map(idempotency.ErrInFlight)
+		test.True(t, ok)
+		test.EqOp(t, codes.Aborted, code)
+	})
+
+	T.Run("ErrFingerprintMismatch maps to InvalidArgument", func(t *testing.T) {
+		t.Parallel()
+		code, ok := PlatformMapper.Map(idempotency.ErrFingerprintMismatch)
+		test.True(t, ok)
+		test.EqOp(t, codes.InvalidArgument, code)
 	})
 
 	T.Run("ErrNilInputParameter maps to InvalidArgument", func(t *testing.T) {
