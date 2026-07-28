@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/primandproper/platform-go/v8/authorization"
 	"github.com/primandproper/platform-go/v8/cache"
@@ -97,6 +98,33 @@ func TestNewResolver(T *testing.T) {
 		must.NoError(t, err)
 
 		test.EqOp(t, DefaultTTL, r.ttl)
+	})
+
+	T.Run("a positive TTL is honored", func(t *testing.T) {
+		t.Parallel()
+
+		r, err := NewResolver(&countingResolver{}, newMemoryCache(t), WithTTL(90*time.Second))
+		must.NoError(t, err)
+
+		test.EqOp(t, 90*time.Second, r.ttl)
+	})
+
+	T.Run("a nil option is ignored", func(t *testing.T) {
+		t.Parallel()
+
+		r, err := NewResolver(&countingResolver{}, newMemoryCache(t), nil)
+
+		must.NoError(t, err)
+		test.NotNil(t, r)
+	})
+
+	T.Run("a nil logger is replaced rather than dereferenced", func(t *testing.T) {
+		t.Parallel()
+
+		r, err := NewResolver(&countingResolver{}, newMemoryCache(t), WithLogger(nil))
+
+		must.NoError(t, err)
+		test.NotNil(t, r.logger)
 	})
 }
 
@@ -280,6 +308,24 @@ func TestResolver_Invalidate(T *testing.T) {
 		r := newTestResolver(t, &countingResolver{set: authorization.NewPermissionSet()})
 
 		test.NoError(t, r.Invalidate(t.Context()))
+	})
+
+	// Unlike a read fault, a failed invalidation is surfaced: the caller asked
+	// for stale authority to stop being served and it did not happen.
+	T.Run("surfaces a delete failure", func(t *testing.T) {
+		t.Parallel()
+
+		sentinel := errors.New("cache is unreachable")
+		r, err := NewResolver(
+			&countingResolver{set: authorization.NewPermissionSet(permRead)},
+			&cachemock.CacheMock[authorization.PermissionSet]{
+				DeleteFunc: func(context.Context, string) error { return sentinel },
+			},
+			WithLogger(loggingnoop.NewLogger()),
+		)
+		must.NoError(t, err)
+
+		test.ErrorIs(t, r.Invalidate(t.Context(), "member"), sentinel)
 	})
 
 	T.Run("InvalidateAll makes prior entries unreachable", func(t *testing.T) {

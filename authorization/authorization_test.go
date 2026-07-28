@@ -33,6 +33,7 @@ func TestPermissionSet_NilReceiver(T *testing.T) {
 		test.True(t, s.IsEmpty())
 		test.SliceEmpty(t, s.Slice())
 		test.EqOp(t, "PermissionSet(n=0)", s.String())
+		test.SliceEmpty(t, slices.Collect(s.All()))
 	})
 
 	T.Run("participates in set operations", func(t *testing.T) {

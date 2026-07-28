@@ -2,9 +2,13 @@ package authorizationcfg
 
 import (
 	"testing"
+	"time"
 
 	"github.com/primandproper/platform-go/v8/authorization"
+	"github.com/primandproper/platform-go/v8/authorization/cached"
 	authzdb "github.com/primandproper/platform-go/v8/authorization/database"
+	"github.com/primandproper/platform-go/v8/cache"
+	"github.com/primandproper/platform-go/v8/cache/memory"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
@@ -146,6 +150,78 @@ func TestNewPolicyResolver_Database(T *testing.T) {
 		})
 
 		test.Error(t, err)
+	})
+}
+
+// Supplying a cache is what turns the database provider from a query per
+// session build into a query per policy change, so the wrapping is worth
+// asserting rather than assuming.
+func TestNewPolicyResolver_Cached(T *testing.T) {
+	T.Parallel()
+
+	newCache := func(t *testing.T) cache.Cache[authorization.PermissionSet] {
+		t.Helper()
+
+		c, err := memory.NewInMemoryCache[authorization.PermissionSet](
+			0,
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+		)
+		must.NoError(t, err)
+
+		return c
+	}
+
+	T.Run("wraps the resolver when a cache is supplied", func(t *testing.T) {
+		t.Parallel()
+
+		resolver, err := NewPolicyResolver(
+			t.Context(),
+			&Config{Roles: []authorization.Role{
+				{Name: "member", Permissions: []authorization.Permission{permRead}},
+			}},
+			nil,
+			newCache(t),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+		)
+		must.NoError(t, err)
+
+		_, isCached := resolver.(*cached.Resolver)
+		test.True(t, isCached)
+
+		set, err := resolver.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+		test.True(t, set.Has(permRead))
+	})
+
+	T.Run("honors a configured TTL", func(t *testing.T) {
+		t.Parallel()
+
+		resolver, err := NewPolicyResolver(
+			t.Context(),
+			&Config{CacheTTL: 90 * time.Second},
+			nil,
+			newCache(t),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+		)
+
+		must.NoError(t, err)
+		test.NotNil(t, resolver)
+	})
+
+	T.Run("returns the bare resolver when no cache is supplied", func(t *testing.T) {
+		t.Parallel()
+
+		resolver, err := build(t, &Config{})
+		must.NoError(t, err)
+
+		_, isCached := resolver.(*cached.Resolver)
+		test.False(t, isCached)
 	})
 }
 
