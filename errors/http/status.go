@@ -8,14 +8,16 @@ import (
 // Codes not present here fall back to http.StatusInternalServerError, which keeps
 // unknown or server-side failures from leaking as anything other than a 500.
 var codeToStatus = map[ErrorCode]int{
-	ErrFetchingSessionContextData: http.StatusUnauthorized,       // E101
-	ErrDecodingRequestInput:       http.StatusBadRequest,         // E102
-	ErrValidatingRequestInput:     http.StatusBadRequest,         // E103
-	ErrDataNotFound:               http.StatusNotFound,           // E104
-	ErrMisbehavingDependency:      http.StatusBadGateway,         // E106
-	ErrUserIsBanned:               http.StatusForbidden,          // E109
-	ErrUserIsNotAuthorized:        http.StatusForbidden,          // E110
-	ErrCircuitBroken:              http.StatusServiceUnavailable, // E112
+	ErrFetchingSessionContextData: http.StatusUnauthorized,        // E101
+	ErrDecodingRequestInput:       http.StatusBadRequest,          // E102
+	ErrValidatingRequestInput:     http.StatusBadRequest,          // E103
+	ErrDataNotFound:               http.StatusNotFound,            // E104
+	ErrMisbehavingDependency:      http.StatusBadGateway,          // E106
+	ErrUserIsBanned:               http.StatusForbidden,           // E109
+	ErrUserIsNotAuthorized:        http.StatusForbidden,           // E110
+	ErrCircuitBroken:              http.StatusServiceUnavailable,  // E112
+	ErrIdempotencyKeyInFlight:     http.StatusConflict,            // E113
+	ErrIdempotencyKeyReused:       http.StatusUnprocessableEntity, // E114
 }
 
 // HTTPStatusForCode returns the HTTP status code that corresponds to an ErrorCode.

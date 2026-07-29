@@ -1,0 +1,117 @@
+package jobs_test
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/primandproper/platform-go/v8/distributedlock/memory"
+	"github.com/primandproper/platform-go/v8/jobs"
+	"github.com/primandproper/platform-go/v8/retry"
+)
+
+// ExampleNewPool consumes a topic with a bounded set of workers, retrying a
+// failing message and dead-lettering it once it has run out of attempts.
+func ExampleNewPool() {
+	ctx := context.Background()
+
+	// A real service passes the ConsumerProvider it built at startup — kafka,
+	// pubsub, redis, or sqs. This one is this package's test double.
+	queue := newFakeQueue()
+
+	handled := make(chan string, 1)
+	deadLetters := make(chan jobs.DeadLetter, 1)
+
+	pool, err := jobs.NewPool(ctx, &jobs.PoolConfig{
+		Topic:       "orders",
+		Concurrency: 4,
+		Retry:       retry.Config{MaxAttempts: 2, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond},
+	}, queue.provider, func(_ context.Context, payload []byte) error {
+		if string(payload) == "malformed" {
+			// Nothing will make this parse on a second attempt, so skip the
+			// remaining ones and go straight to the dead-letter path.
+			return retry.Unretryable(fmt.Errorf("cannot decode order"))
+		}
+
+		handled <- string(payload)
+
+		return nil
+	}, jobs.WithPoolDeadLetter(func(_ context.Context, msg jobs.DeadLetter) error {
+		deadLetters <- msg
+
+		return nil
+	}))
+	if err != nil {
+		panic(err)
+	}
+
+	go pool.Run()
+
+	queue.publish("order-1")
+	fmt.Println("handled:", <-handled)
+
+	queue.publish("malformed")
+
+	dead := <-deadLetters
+	fmt.Printf("dead-lettered %q after %d attempt(s)\n", dead.Payload, dead.Attempts)
+
+	// Close drains: the consumer stops, and the workers finish what they are
+	// already holding before it returns.
+	if err = pool.Close(ctx); err != nil {
+		panic(err)
+	}
+
+	// Output:
+	// handled: order-1
+	// dead-lettered "malformed" after 1 attempt(s)
+}
+
+// ExampleNewScheduler runs periodic work under a lease, so that only one
+// replica executes a given job per tick.
+func ExampleNewScheduler() {
+	ctx := context.Background()
+
+	// A fleet uses the postgres or redis locker. The memory locker is real
+	// mutual exclusion within one process, which is what a single-replica
+	// deployment — and this example — needs.
+	locker, err := memory.NewLocker(nil, nil, nil)
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = locker.Close() }()
+
+	scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, locker)
+	if err != nil {
+		panic(err)
+	}
+
+	swept := make(chan struct{}, 1)
+
+	if err = scheduler.Register(jobs.Job{
+		Name:     "sweep-expired-sessions",
+		Interval: time.Hour,
+		LeaseTTL: 5 * time.Minute,
+		// Without this the first sweep is an hour away, and a service that
+		// deploys more often than that would never run it at all.
+		RunOnStart: true,
+		Run: func(context.Context) error {
+			fmt.Println("sweeping expired sessions")
+			swept <- struct{}{}
+
+			return nil
+		},
+	}); err != nil {
+		panic(err)
+	}
+
+	go scheduler.Run()
+
+	<-swept
+
+	if err = scheduler.Close(ctx); err != nil {
+		panic(err)
+	}
+
+	// Output:
+	// sweeping expired sessions
+}

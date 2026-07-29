@@ -16,6 +16,8 @@ var (
 		string(ErrUserIsNotAuthorized):        ErrUserIsNotAuthorized,
 		string(ErrEncryptionIssue):            ErrEncryptionIssue,
 		string(ErrCircuitBroken):              ErrCircuitBroken,
+		string(ErrIdempotencyKeyInFlight):     ErrIdempotencyKeyInFlight,
+		string(ErrIdempotencyKeyReused):       ErrIdempotencyKeyReused,
 	}
 )
 
@@ -51,4 +53,12 @@ const (
 	ErrEncryptionIssue ErrorCode = "E111"
 	// ErrCircuitBroken is returned when a service is circuit broken.
 	ErrCircuitBroken ErrorCode = "E112"
+	// ErrIdempotencyKeyInFlight is returned when a request repeats an
+	// idempotency key whose work is still running. Whether that work will
+	// succeed is unknowable, so the repeat is refused rather than run again.
+	ErrIdempotencyKeyInFlight ErrorCode = "E113"
+	// ErrIdempotencyKeyReused is returned when an idempotency key is presented
+	// with a different request than the one it was first used for. Replaying
+	// the earlier response would hide a client bug.
+	ErrIdempotencyKeyReused ErrorCode = "E114"
 )
