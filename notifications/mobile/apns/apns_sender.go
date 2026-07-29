@@ -7,9 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/sideshow/apns2"
 	"github.com/sideshow/apns2/payload"
@@ -42,10 +40,12 @@ type Sender struct {
 }
 
 // NewSender creates an APNs sender from config.
-func NewSender(cfg *Config, tracerProvider tracing.TracerProvider, logger logging.Logger, metricsProvider metrics.Provider) (*Sender, error) {
+func NewSender(cfg *Config, opts ...Option) (*Sender, error) {
 	if cfg == nil || cfg.AuthKeyPath == "" || cfg.KeyID == "" || cfg.TeamID == "" || cfg.BundleID == "" {
 		return nil, errors.New("apns: missing required config (authKeyPath, keyID, teamID, bundleID)")
 	}
+
+	o := newOptions(opts)
 
 	authKey, err := token.AuthKeyFromFile(cfg.AuthKeyPath)
 	if err != nil {
@@ -68,7 +68,7 @@ func NewSender(cfg *Config, tracerProvider tracing.TracerProvider, logger loggin
 		client = client.Development()
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	sendCounter, err := mp.NewInt64Counter(o11yName + "_sends")
 	if err != nil {
@@ -83,7 +83,7 @@ func NewSender(cfg *Config, tracerProvider tracing.TracerProvider, logger loggin
 	return &Sender{
 		client:       client,
 		topic:        cfg.BundleID,
-		o11y:         observability.NewObserver(o11yName, logger, tracerProvider),
+		o11y:         observability.NewObserver(o11yName, o.logger, o.tracerProvider),
 		sendCounter:  sendCounter,
 		errorCounter: errorCounter,
 	}, nil

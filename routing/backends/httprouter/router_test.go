@@ -5,9 +5,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/routing"
 
 	"github.com/shoenig/test"
@@ -16,7 +13,7 @@ import (
 func newTestBackend(t *testing.T, cfg *Config) routing.Backend {
 	t.Helper()
 
-	return NewBackend(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
+	return NewBackend(cfg)
 }
 
 func TestNewBackend(T *testing.T) {

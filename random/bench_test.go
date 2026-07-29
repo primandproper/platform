@@ -2,12 +2,10 @@ package random
 
 import (
 	"testing"
-
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
 func BenchmarkGenerator(b *testing.B) {
-	g := NewGenerator(nil, tracingnoop.NewTracerProvider())
+	g := NewGenerator()
 	ctx := b.Context()
 
 	b.Run("HexEncodedString16", func(b *testing.B) {

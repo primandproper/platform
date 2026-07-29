@@ -12,7 +12,6 @@ import (
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -56,7 +55,7 @@ func TestBreakerCallback(T *testing.T) {
 func newRecordingEventReporter(t *testing.T) (*EventReporter, *observability.RecordingObserver) {
 	t.Helper()
 
-	reporter, err := NewSegmentEventReporter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, t.Name(), cbnoop.NewCircuitBreaker())
+	reporter, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, reporter)
 
@@ -75,9 +74,7 @@ func TestNewSegmentEventReporter(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
-		collector, err := NewSegmentEventReporter(logger, tracingnoop.NewTracerProvider(), nil, t.Name(), cbnoop.NewCircuitBreaker())
+		collector, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 	})
@@ -85,9 +82,7 @@ func TestNewSegmentEventReporter(T *testing.T) {
 	T.Run("with empty API key", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
-		collector, err := NewSegmentEventReporter(logger, tracingnoop.NewTracerProvider(), nil, "", cbnoop.NewCircuitBreaker())
+		collector, err := NewSegmentEventReporter("", cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 	})
@@ -102,7 +97,7 @@ func TestNewSegmentEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewSegmentEventReporter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, t.Name(), cbnoop.NewCircuitBreaker())
+		collector, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -125,7 +120,7 @@ func TestNewSegmentEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewSegmentEventReporter(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, t.Name(), cbnoop.NewCircuitBreaker())
+		collector, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -139,9 +134,7 @@ func TestSegmentEventReporter_Close(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
-		collector, err := NewSegmentEventReporter(logger, tracingnoop.NewTracerProvider(), nil, t.Name(), cbnoop.NewCircuitBreaker())
+		collector, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 

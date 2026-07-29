@@ -53,13 +53,13 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewBackend(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider) (routing.Backend, error) {
 	switch cfg.Provider {
 	case ProviderChi:
-		return chi.NewBackend(logger, tracerProvider, metricProvider, cfg.Chi), nil
+		return chi.NewBackend(cfg.Chi, chi.WithLogger(logger), chi.WithTracerProvider(tracerProvider), chi.WithMetricsProvider(metricProvider)), nil
 	case ProviderStdlib:
-		return stdlib.NewBackend(logger, tracerProvider, metricProvider, cfg.Stdlib), nil
+		return stdlib.NewBackend(cfg.Stdlib, stdlib.WithLogger(logger), stdlib.WithTracerProvider(tracerProvider), stdlib.WithMetricsProvider(metricProvider)), nil
 	case ProviderHTTPRouter:
-		return httprouter.NewBackend(logger, tracerProvider, metricProvider, cfg.HTTPRouter), nil
+		return httprouter.NewBackend(cfg.HTTPRouter, httprouter.WithLogger(logger), httprouter.WithTracerProvider(tracerProvider), httprouter.WithMetricsProvider(metricProvider)), nil
 	case ProviderGin:
-		return gin.NewBackend(logger, tracerProvider, metricProvider, cfg.Gin), nil
+		return gin.NewBackend(cfg.Gin, gin.WithLogger(logger), gin.WithTracerProvider(tracerProvider), gin.WithMetricsProvider(metricProvider)), nil
 	default:
 		return nil, errors.Newf("unknown provider: %s", cfg.Provider)
 	}
@@ -80,5 +80,7 @@ func NewRouter(
 		return nil, err
 	}
 
-	return routing.New(backend, enc, logger, tracerProvider, opts...), nil
+	routerOpts := append([]routing.RouterOption{routing.WithLogger(logger), routing.WithTracerProvider(tracerProvider)}, opts...)
+
+	return routing.New(backend, enc, routerOpts...), nil
 }

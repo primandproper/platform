@@ -56,14 +56,15 @@ type (
 // serviceName, when non-empty, is used for the server's logger; otherwise "api_server" is used.
 func NewHTTPServer(
 	serverSettings *Config,
-	logger logging.Logger,
 	router *routing.Router,
-	tracerProvider tracing.TracerProvider,
 	serviceName string,
+	opts ...Option,
 ) (Server, error) {
 	if serverSettings == nil {
 		serverSettings = &Config{}
 	}
+
+	o := newOptions(opts)
 
 	loggerName := defaultLoggerName
 	if serviceName != "" {
@@ -74,10 +75,10 @@ func NewHTTPServer(
 
 		// infra things,
 		router:         router,
-		logger:         logging.NewNamedLogger(logger, loggerName),
+		logger:         logging.NewNamedLogger(o.logger, loggerName),
 		panicker:       panicking.NewProductionPanicker(),
 		httpServer:     provideStdLibHTTPServer(serverSettings),
-		tracerProvider: tracing.EnsureTracerProvider(tracerProvider),
+		tracerProvider: tracing.EnsureTracerProvider(o.tracerProvider),
 	}
 
 	if router != nil && serverSettings.AppleAppSiteAssociation.Enabled() {

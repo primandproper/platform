@@ -25,13 +25,13 @@ const testKey = "d3f1a0c4-5b6e-4a2f-9c8d-1e2f3a4b5c6d"
 func newTestManager(tb testing.TB, opts ...idempotency.Option[Response]) *idempotency.Manager[Response] {
 	tb.Helper()
 
-	store, err := cachememory.NewInMemoryCache[idempotency.Record[Response]](0, nil, nil, nil)
+	store, err := cachememory.NewInMemoryCache[idempotency.Record[Response]](0)
 	must.NoError(tb, err)
 
-	locker, err := dlmemory.NewLocker(nil, nil, nil)
+	locker, err := dlmemory.NewLocker()
 	must.NoError(tb, err)
 
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	must.NoError(tb, err)
 
 	m, err := NewManager(store, scoped, opts...)
@@ -55,10 +55,10 @@ func newFailingStoreManager(tb testing.TB, opts ...idempotency.Option[Response])
 		DeleteFunc: func(context.Context, string) error { return nil },
 	}
 
-	locker, err := dlmemory.NewLocker(nil, nil, nil)
+	locker, err := dlmemory.NewLocker()
 	must.NoError(tb, err)
 
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	must.NoError(tb, err)
 
 	m, err := NewManager(store, scoped, opts...)

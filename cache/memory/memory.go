@@ -28,6 +28,9 @@ type entry[T any] struct {
 
 type inMemoryCacheImpl[T any] struct {
 	o11y              observability.Observer
+	logger            logging.Logger
+	tracerProvider    tracing.TracerProvider
+	metricsProvider   metrics.Provider
 	clock             clock.Clock
 	janitor           func()
 	cacheHitCounter   metrics.Int64Counter
@@ -49,56 +52,53 @@ type inMemoryCacheImpl[T any] struct {
 // them or when overwritten, and the map is not otherwise size-bounded. Pass
 // WithJanitor to sweep them on a timer instead — see that option for when the
 // lazy default is not enough.
-func NewInMemoryCache[T any](defaultExpiry time.Duration, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, opts ...Option[T]) (cache.Cache[T], error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	cacheHitCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache hit counter")
-	}
-
-	cacheMissCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_misses", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache miss counter")
-	}
-
-	cacheSetCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_sets", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache set counter")
-	}
-
-	cacheDelCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_deletes", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache delete counter")
-	}
-
-	cacheEvictCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_evictions", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache eviction counter")
-	}
-
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache latency histogram")
-	}
-
+func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option[T]) (cache.Cache[T], error) {
 	i := &inMemoryCacheImpl[T]{
-		o11y:              observability.NewObserver(name, logger, tracerProvider),
-		clock:             clock.NewClock(),
-		cacheHitCounter:   cacheHitCounter,
-		cacheMissCounter:  cacheMissCounter,
-		cacheSetCounter:   cacheSetCounter,
-		cacheDelCounter:   cacheDelCounter,
-		cacheEvictCounter: cacheEvictCounter,
-		latencyHist:       latencyHist,
-		cache:             make(map[string]entry[T]),
-		defaultExpiry:     defaultExpiry,
+		clock:         clock.NewClock(),
+		cache:         make(map[string]entry[T]),
+		defaultExpiry: defaultExpiry,
 	}
 
 	for _, opt := range opts {
 		if opt != nil {
 			opt(i)
 		}
+	}
+
+	i.o11y = observability.NewObserver(name, i.logger, i.tracerProvider)
+
+	mp := metrics.EnsureMetricsProvider(i.metricsProvider)
+
+	var err error
+
+	i.cacheHitCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache hit counter")
+	}
+
+	i.cacheMissCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_misses", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache miss counter")
+	}
+
+	i.cacheSetCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_sets", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache set counter")
+	}
+
+	i.cacheDelCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_deletes", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache delete counter")
+	}
+
+	i.cacheEvictCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_evictions", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache eviction counter")
+	}
+
+	i.latencyHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache latency histogram")
 	}
 
 	// Started last, so the sweep can never observe a partially built cache.

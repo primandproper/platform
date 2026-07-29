@@ -147,7 +147,7 @@ func (i *Instance) Open(tb testing.TB, connectionString string) *sql.DB {
 
 	tb.Cleanup(func() { closePool(tb, db) })
 
-	must.NoError(tb, db.PingContext(tb.Context()))
+	containers.PingUntilReady(tb, tb.Context(), db.PingContext)
 
 	return db
 }
@@ -188,7 +188,7 @@ func Run(tb testing.TB, fn func(ctx context.Context, pg *Instance), opts ...Opti
 				db.SetMaxOpenConns(cfg.maxOpenConns)
 			}
 
-			must.NoError(tb, db.PingContext(ctx))
+			containers.PingUntilReady(tb, ctx, db.PingContext)
 
 			fn(ctx, &Instance{
 				DB:               db,

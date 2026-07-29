@@ -22,7 +22,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 
 	T.Run("nil config returns error", func(t *testing.T) {
 		t.Parallel()
-		source, err := NewKubectlSecretSource(context.Background(), nil, nil, nil, nil, nil)
+		source, err := NewKubectlSecretSource(context.Background(), nil, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "config is required")
@@ -31,7 +31,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 	T.Run("missing namespace returns error", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, nil, nil, nil, nil)
+		source, err := NewKubectlSecretSource(context.Background(), cfg, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 	})
@@ -40,7 +40,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewKubectlSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 	})
@@ -56,7 +56,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, nil, nil, mp)
+		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -80,7 +80,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, nil, nil, mp)
+		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -105,7 +105,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, nil, nil, mp)
+		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -119,7 +119,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 func newRecordingSource(t *testing.T, cfg *Config, client SecretGetter) (*kubectlSecretSource, *observability.RecordingObserver) {
 	t.Helper()
 
-	source, err := NewKubectlSecretSource(context.Background(), cfg, client, nil, nil, nil)
+	source, err := NewKubectlSecretSource(context.Background(), cfg, client)
 	must.NoError(t, err)
 
 	k, ok := source.(*kubectlSecretSource)
@@ -161,7 +161,7 @@ func TestKubectlSecretSource_GetSecret(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewKubectlSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		_, err = source.GetSecret(context.Background(), "no-slash")
@@ -219,7 +219,7 @@ func TestKubectlSecretSource_Close(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewKubectlSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		err = source.Close()

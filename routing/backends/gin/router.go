@@ -48,18 +48,19 @@ type backend struct {
 // It sets gin to release mode, a process-global setting, to silence gin's
 // debug-mode route logging; the platform logging middleware provides request
 // logs instead.
-func NewBackend(logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider, cfg *Config) routing.Backend {
+func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 	gin.SetMode(gin.ReleaseMode)
 
-	tracerProvider = tracing.EnsureTracerProvider(tracerProvider)
-	o11y := observability.NewObserver("router", logging.EnsureLogger(logger), tracerProvider)
+	o := newOptions(opts)
+	tracerProvider := tracing.EnsureTracerProvider(o.tracerProvider)
+	o11y := observability.NewObserver("router", logging.EnsureLogger(o.logger), tracerProvider)
 
 	// gin.New, not gin.Default: recovery and logging come from the shared stack.
 	return &backend{
 		engine: gin.New(),
 		standard: httpmw.Standard(o11y, &httpmw.StackConfig{
 			TracerProvider:         tracerProvider,
-			MeterProvider:          metrics.EnsureMetricsProvider(metricProvider).MeterProvider(),
+			MeterProvider:          metrics.EnsureMetricsProvider(o.metricsProvider).MeterProvider(),
 			ServiceName:            cfg.ServiceName,
 			ValidDomains:           cfg.ValidDomains,
 			EnableCORSForLocalhost: cfg.EnableCORSForLocalhost,

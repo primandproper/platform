@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/authorization"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 
 	"github.com/shoenig/test"
@@ -27,7 +28,7 @@ func TestNewResolver(T *testing.T) {
 	T.Run("rejects a nil executor", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewResolver(&Config{Dialect: DialectSQLite}, nil)
+		_, err := NewResolver(&Config{Dialect: dialect.SQLite}, nil)
 
 		test.True(t, errors.Is(err, ErrNilExecutor))
 	})
@@ -37,7 +38,7 @@ func TestNewResolver(T *testing.T) {
 
 		_, err := NewResolver(&Config{Dialect: "cockroach"}, newTestClient(t).Writer())
 
-		test.True(t, errors.Is(err, ErrUnsupportedDialect))
+		test.True(t, errors.Is(err, dialect.ErrUnsupported))
 	})
 
 	// The prefix is interpolated into queries rather than bound, so it is
@@ -46,7 +47,7 @@ func TestNewResolver(T *testing.T) {
 		t.Parallel()
 
 		_, err := NewResolver(
-			&Config{Dialect: DialectSQLite, TablePrefix: "authz\"; DROP TABLE users; --"},
+			&Config{Dialect: dialect.SQLite, TablePrefix: "authz\"; DROP TABLE users; --"},
 			newTestClient(t).Writer(),
 		)
 
@@ -56,7 +57,7 @@ func TestNewResolver(T *testing.T) {
 	T.Run("an empty prefix uses the default", func(t *testing.T) {
 		t.Parallel()
 
-		r, err := NewResolver(&Config{Dialect: DialectSQLite}, newTestClient(t).Writer())
+		r, err := NewResolver(&Config{Dialect: dialect.SQLite}, newTestClient(t).Writer())
 		must.NoError(t, err)
 
 		test.EqOp(t, DefaultTablePrefix, r.prefix)
@@ -627,15 +628,15 @@ func TestDialect_Valid(T *testing.T) {
 	T.Run("accepts the supported dialects", func(t *testing.T) {
 		t.Parallel()
 
-		test.True(t, DialectPostgres.Valid())
-		test.True(t, DialectMySQL.Valid())
-		test.True(t, DialectSQLite.Valid())
+		test.True(t, dialect.Postgres.Valid())
+		test.True(t, dialect.MySQL.Valid())
+		test.True(t, dialect.SQLite.Valid())
 	})
 
 	T.Run("rejects anything else", func(t *testing.T) {
 		t.Parallel()
 
-		test.False(t, Dialect("").Valid())
-		test.False(t, Dialect("cockroach").Valid())
+		test.False(t, dialect.Dialect("").Valid())
+		test.False(t, dialect.Dialect("cockroach").Valid())
 	})
 }

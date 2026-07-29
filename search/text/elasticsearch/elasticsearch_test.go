@@ -125,7 +125,7 @@ func TestElasticsearch_Container(T *testing.T) {
 
 			ctx := t.Context()
 			indexName := "ensure_create_" + identifiers.New()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, indexName, cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, indexName, cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 			test.NotNil(t, im)
 
@@ -142,10 +142,10 @@ func TestElasticsearch_Container(T *testing.T) {
 
 			ctx := t.Context()
 			indexName := "ensure_existing_" + identifiers.New()
-			im1, err := NewIndexManager[example](ctx, nil, nil, cfg, indexName, cbnoop.NewCircuitBreaker())
+			im1, err := NewIndexManager[example](ctx, cfg, indexName, cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
-			im2, err := NewIndexManager[example](ctx, nil, nil, cfg, indexName, cbnoop.NewCircuitBreaker())
+			im2, err := NewIndexManager[example](ctx, cfg, indexName, cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			test.NotNil(t, im1)
@@ -166,7 +166,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "provide_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "provide_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			test.NoError(t, err)
 			test.NotNil(t, im)
 		})
@@ -178,7 +178,14 @@ func TestElasticsearch_Container(T *testing.T) {
 			logger := loggingnoop.NewLogger()
 			tracerProvider := tracingnoop.NewTracerProvider()
 
-			im, err := NewIndexManager[example](ctx, logger, tracerProvider, cfg, "provide_lt_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](
+				ctx,
+				cfg,
+				"provide_lt_"+identifiers.New(),
+				cbnoop.NewCircuitBreaker(),
+				WithLogger(logger),
+				WithTracerProvider(tracerProvider),
+			)
 			test.NoError(t, err)
 			test.NotNil(t, im)
 		})
@@ -211,7 +218,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "lifecycle_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "lifecycle_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			test.NoError(t, err)
 			test.NotNil(t, im)
 
@@ -238,7 +245,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "idx_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "idx_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			searchable := &example{
@@ -253,7 +260,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "idx_json_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "idx_json_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			invalid := &invalidJSON{
@@ -268,7 +275,7 @@ func TestElasticsearch_Container(T *testing.T) {
 
 			ctx := t.Context()
 			cb := cbnoop.NewCircuitBreaker()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "idx_cb_"+identifiers.New(), cb)
+			im, err := NewIndexManager[example](ctx, cfg, "idx_cb_"+identifiers.New(), cb)
 			must.NoError(t, err)
 
 			searchable := &example{
@@ -285,7 +292,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "search_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "search_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			searchable := &example{
@@ -306,7 +313,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "search_empty_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "search_empty_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			results, err := im.Search(ctx, "")
@@ -319,7 +326,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "search_noresult_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "search_noresult_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			results, err := im.Search(ctx, "nonexistent document")
@@ -333,7 +340,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "del_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "del_ok_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			searchable := &example{
@@ -349,7 +356,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "del_nf_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "del_nf_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			test.NoError(t, im.Delete(ctx, "non-existent-id"))
@@ -361,7 +368,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			im, err := NewIndexManager[example](ctx, nil, nil, cfg, "wipe_"+identifiers.New(), cbnoop.NewCircuitBreaker())
+			im, err := NewIndexManager[example](ctx, cfg, "wipe_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			searchable := &example{
@@ -649,7 +656,14 @@ func TestNewIndexManager_Unit(T *testing.T) {
 			SucceededFunc:     func() {},
 		}
 
-		im, err := NewIndexManager[example](context.Background(), logger, tracerProvider, cfg, "test", cb)
+		im, err := NewIndexManager[example](
+			context.Background(),
+			cfg,
+			"test",
+			cb,
+			WithLogger(logger),
+			WithTracerProvider(tracerProvider),
+		)
 		test.NoError(t, err)
 		test.NotNil(t, im)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -701,7 +715,14 @@ func TestNewIndexManager_Unit(T *testing.T) {
 			FailedFunc:        func() {},
 		}
 
-		im, err := NewIndexManager[example](context.Background(), logger, tracerProvider, cfg, "test", cb)
+		im, err := NewIndexManager[example](
+			context.Background(),
+			cfg,
+			"test",
+			cb,
+			WithLogger(logger),
+			WithTracerProvider(tracerProvider),
+		)
 		test.Error(t, err)
 		test.Nil(t, im)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())

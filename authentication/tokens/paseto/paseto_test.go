@@ -7,8 +7,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/authentication/tokens"
 	"github.com/primandproper/platform-go/v8/observability"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/o1egl/paseto/v2"
@@ -56,7 +54,7 @@ const (
 func newRecordingSigner(t *testing.T, signingKey []byte) (*signer, *observability.RecordingObserver) {
 	t.Helper()
 
-	issuer, err := NewPASETOSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), signingKey)
+	issuer, err := NewPASETOSigner("platform-test", t.Name(), signingKey)
 	must.NoError(t, err)
 
 	s, ok := issuer.(*signer)
@@ -74,7 +72,7 @@ func Test_signer_IssueToken(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -90,7 +88,7 @@ func Test_signer_IssueToken(T *testing.T) {
 	T.Run("with extra claims", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -129,7 +127,7 @@ func Test_signer_IssueToken(T *testing.T) {
 	T.Run("rejects reserved claim key", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		_, _, err = s.IssueToken(t.Context(), exampleSubject, exampleExpiry, map[string]any{
@@ -145,7 +143,7 @@ func Test_signer_ParseToken(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -198,7 +196,7 @@ func Test_signer_ParseToken(T *testing.T) {
 	T.Run("missing optional claim returns empty string", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()

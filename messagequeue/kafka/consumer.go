@@ -163,13 +163,15 @@ type consumerProvider struct {
 var _ messagequeue.ConsumerProvider = (*consumerProvider)(nil)
 
 // NewKafkaConsumerProvider returns a ConsumerProvider backed by Kafka.
-func NewKafkaConsumerProvider(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, cfg Config) messagequeue.ConsumerProvider {
+func NewKafkaConsumerProvider(cfg Config, opts ...Option) messagequeue.ConsumerProvider {
+	o := newOptions(opts)
+	logger := logging.EnsureLogger(o.logger)
 	logger.WithValue("brokers", cfg.Brokers).WithValue("group_id", cfg.GroupID).Info("setting up kafka consumer")
 
 	return &consumerProvider{
-		logger:          logging.EnsureLogger(logger),
-		tracerProvider:  tracerProvider,
-		metricsProvider: metricsProvider,
+		logger:          logger,
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
 		brokers:         cfg.Brokers,
 		groupID:         cfg.GroupID,
 		consumerCache:   map[string]messagequeue.Consumer{},

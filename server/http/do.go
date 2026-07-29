@@ -17,10 +17,10 @@ func RegisterHTTPServer(i do.Injector, serviceName string) {
 
 		return NewHTTPServer(
 			&cfg,
-			do.MustInvoke[logging.Logger](i),
 			do.MustInvoke[*routing.Router](i),
-			do.MustInvoke[tracing.TracerProvider](i),
 			serviceName,
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
 		)
 	})
 }

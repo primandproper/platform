@@ -135,8 +135,9 @@ type consumerProvider struct {
 }
 
 // NewRedisConsumerProvider returns a ConsumerProvider for a given address.
-func NewRedisConsumerProvider(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, cfg Config) messagequeue.ConsumerProvider {
-	o11y := observability.NewObserver("redis_consumer_provider", logger, tracerProvider)
+func NewRedisConsumerProvider(cfg Config, opts ...Option) messagequeue.ConsumerProvider {
+	o := newOptions(opts)
+	o11y := observability.NewObserver("redis_consumer_provider", o.logger, o.tracerProvider)
 	o11y.Logger().WithValue("queue_addresses", cfg.QueueAddresses).
 		WithValue(keys.UsernameKey, cfg.Username).
 		WithValue("password_empty", cfg.Password == "").Info("setting up redis consumer")
@@ -158,8 +159,8 @@ func NewRedisConsumerProvider(logger logging.Logger, tracerProvider tracing.Trac
 
 	return &consumerProvider{
 		o11y:            o11y,
-		tracerProvider:  tracerProvider,
-		metricsProvider: metricsProvider,
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
 		redisClient:     redisClient,
 		consumerCache:   map[string]messagequeue.Consumer{},
 	}

@@ -4,35 +4,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v8/database/dialect"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
-
-// TestValidIdentifier_matchesOutbox pins this package's copy of the identifier
-// pattern to the same cases as outbox.TestValidIdentifier. The two copies exist
-// because importing outbox from here would close a cycle through
-// outbox_test.go; keeping the case lists identical is what stops them drifting.
-// Any case added there belongs here too.
-func TestValidIdentifier_matchesOutbox(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
-		t.Parallel()
-
-		valid := []string{"outbox_messages", "_outbox", "Outbox1", "events.outbox_messages"}
-		for _, s := range valid {
-			test.True(t, validIdentifier(s), test.Sprintf("expected %q to be valid", s))
-		}
-
-		invalid := []string{
-			"", " ", "1outbox", "out box", "outbox;DROP TABLE users", "outbox--", "a.b.c", ".outbox", "outbox.",
-			`outbox"`, "outbox'", "outbox`",
-		}
-		for _, s := range invalid {
-			test.False(t, validIdentifier(s), test.Sprintf("expected %q to be invalid", s))
-		}
-	})
-}
 
 func TestStatements(T *testing.T) {
 	T.Parallel()
@@ -40,7 +16,7 @@ func TestStatements(T *testing.T) {
 	T.Run("renders the table name into every statement", func(t *testing.T) {
 		t.Parallel()
 
-		for _, d := range []Dialect{DialectPostgres, DialectMySQL, DialectSQLite} {
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
 			stmts, err := Statements(d, "events_outbox")
 			must.NoError(t, err)
 			must.True(t, len(stmts) > 0)
@@ -59,7 +35,7 @@ func TestStatements(T *testing.T) {
 
 		// Postgres declares indexes separately, so ordering matters here in a
 		// way it does not for MySQL's inline KEY clauses.
-		stmts, err := Statements(DialectPostgres, "outbox_messages")
+		stmts, err := Statements(dialect.Postgres, "outbox_messages")
 		must.NoError(t, err)
 		must.True(t, len(stmts) >= 2)
 
@@ -72,7 +48,7 @@ func TestStatements(T *testing.T) {
 	T.Run("strips comments and empty fragments", func(t *testing.T) {
 		t.Parallel()
 
-		for _, d := range []Dialect{DialectPostgres, DialectMySQL, DialectSQLite} {
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
 			stmts, err := Statements(d, "outbox_messages")
 			must.NoError(t, err)
 
@@ -92,7 +68,7 @@ func TestStatements(T *testing.T) {
 		// at the head of the next statement as bogus SQL. MariaDB rejected the
 		// result; Postgres never saw it, because only the MySQL DDL happened to
 		// have prose with a semicolon in it.
-		for _, d := range []Dialect{DialectPostgres, DialectMySQL, DialectSQLite} {
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
 			stmts, err := Statements(d, "outbox_messages")
 			must.NoError(t, err)
 
@@ -111,7 +87,7 @@ func TestStatements(T *testing.T) {
 			"next_attempt", "claimed_until", "published_at", "attempts", "last_error", "quarantined",
 		}
 
-		for _, d := range []Dialect{DialectPostgres, DialectMySQL, DialectSQLite} {
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
 			stmts, err := Statements(d, "outbox_messages")
 			must.NoError(t, err)
 
@@ -126,14 +102,14 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		_, err := Statements("cassandra", "outbox_messages")
-		test.ErrorIs(t, err, ErrUnsupportedDialect)
+		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 
 	T.Run("rejects a table name that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
 		for _, name := range []string{"", "outbox messages", "outbox; DROP TABLE users", "1outbox"} {
-			_, err := Statements(DialectPostgres, name)
+			_, err := Statements(dialect.Postgres, name)
 			test.ErrorIs(t, err, ErrInvalidTableName,
 				test.Sprintf("expected %q to be rejected", name))
 		}

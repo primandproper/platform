@@ -58,30 +58,30 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewSecretSource returns a SecretSource from config.
 func (cfg *Config) NewSecretSource(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
 	if cfg == nil {
-		return env.NewEnvSecretSource(logger, tracerProvider, metricsProvider)
+		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 	}
 
 	provider := strings.TrimSpace(strings.ToLower(cfg.Provider))
 	switch provider {
 	case "", ProviderEnv:
-		return env.NewEnvSecretSource(logger, tracerProvider, metricsProvider)
+		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 	case ProviderNoop:
 		return noop.NewSecretSource(), nil
 	case ProviderGCP:
 		if cfg.GCP == nil {
 			return nil, errors.New("gcp provider requires gcp config")
 		}
-		return gcp.NewGCPSecretSource(ctx, cfg.GCP, cfg.GCPClient, logger, tracerProvider, metricsProvider)
+		return gcp.NewGCPSecretSource(ctx, cfg.GCP, cfg.GCPClient, gcp.WithLogger(logger), gcp.WithTracerProvider(tracerProvider), gcp.WithMetricsProvider(metricsProvider))
 	case ProviderSSM:
 		if cfg.SSM == nil {
 			return nil, errors.New("ssm provider requires ssm config")
 		}
-		return ssm.NewSSMSecretSource(ctx, cfg.SSM, cfg.SSMClient, logger, tracerProvider, metricsProvider)
+		return ssm.NewSSMSecretSource(ctx, cfg.SSM, cfg.SSMClient, ssm.WithLogger(logger), ssm.WithTracerProvider(tracerProvider), ssm.WithMetricsProvider(metricsProvider))
 	case ProviderKubectl:
 		if cfg.Kubectl == nil {
 			return nil, errors.New("kubectl provider requires kubectl config")
 		}
-		return kubectl.NewKubectlSecretSource(ctx, cfg.Kubectl, cfg.KubectlClient, logger, tracerProvider, metricsProvider)
+		return kubectl.NewKubectlSecretSource(ctx, cfg.Kubectl, cfg.KubectlClient, kubectl.WithLogger(logger), kubectl.WithTracerProvider(tracerProvider), kubectl.WithMetricsProvider(metricsProvider))
 	default:
 		return nil, errors.Newf("unknown secret source provider: %q", cfg.Provider)
 	}

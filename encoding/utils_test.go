@@ -6,9 +6,6 @@ import (
 	"io"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -201,8 +198,8 @@ func TestEncodePathsAgree(T *testing.T) {
 		test.False(t, want[len(want)-1] == '\n', test.Sprint("json.Marshal must not end in a newline"))
 
 		ctx := t.Context()
-		clientEnc := NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
-		serverEnc := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
+		clientEnc := NewClientEncoder(ContentTypeJSON)
+		serverEnc := NewServerEncoderDecoder(ContentTypeJSON)
 
 		marshaled, err := clientEnc.Marshal(ctx, v)
 		must.NoError(t, err)

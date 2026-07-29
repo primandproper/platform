@@ -65,9 +65,13 @@ The Makefile `THIS` variable must be the full module path (`github.com/primandpr
   - Mocks: `matryer/moq`, generated from interfaces. See any `<pkg>/mock/doc.go`
     for the `//go:generate` directive pattern (e.g. `authentication/tokens/mock/doc.go`).
 - Tests call `t.Parallel()` by default
-- Integration tests use `testcontainers-go` and live in separate directories excluded from `make test`
-- `make test` excludes: cmd, integration, mock, fakes, converters, utils, generated packages
-- Test command: `CGO_ENABLED=1 go test -shuffle=on -race -vet=all -failfast`
+- Container-backed tests use `testcontainers-go`, live in-package (typically `containers_test.go`),
+  and gate on `RUN_CONTAINER_TESTS=true` — they skip otherwise. Stand containers up through the
+  `testutils/containers` helpers (`pgtest`, `mysqltest`, `redistest`), not raw testcontainers calls.
+- `make test` runs container tests by default and therefore needs a Docker daemon;
+  `.scripts/test.sh false` runs the suite without them
+- `make test` excludes packages matching: cmd, integration, mock, fakes, converters, utils, generated
+- Test command: `CGO_ENABLED=1 RUN_CONTAINER_TESTS=<true|false> go test -shuffle=on -race -vet=all -failfast`
 
 ## Linting
 

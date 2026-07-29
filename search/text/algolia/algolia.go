@@ -6,8 +6,6 @@ import (
 	"github.com/primandproper/platform-go/v8/circuitbreaking"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	textsearch "github.com/primandproper/platform-go/v8/search/text"
 
 	algolia "github.com/algolia/algoliasearch-client-go/v3/algolia/search"
@@ -28,15 +26,16 @@ type (
 )
 
 func NewIndexManager[T any](
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
 	cfg *Config,
 	indexName string,
 	circuitBreaker circuitbreaking.CircuitBreaker,
+	opts ...Option,
 ) (textsearch.Index[T], error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
+
+	o := newOptions(opts)
 
 	clientConfig := algolia.Configuration{
 		AppID:  cfg.AppID,
@@ -50,7 +49,7 @@ func NewIndexManager[T any](
 	}
 
 	im := &indexManager[T]{
-		o11y:           observability.NewObserver(fmt.Sprintf("search_%s", indexName), logger, tracerProvider),
+		o11y:           observability.NewObserver(fmt.Sprintf("search_%s", indexName), o.logger, o.tracerProvider),
 		client:         algolia.NewClientWithConfig(clientConfig).InitIndex(indexName),
 		circuitBreaker: circuitBreaker,
 	}

@@ -96,7 +96,7 @@ func TestNewPubSubPublisherProvider(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		provider := NewPubSubPublisherProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil, "test-project")
+		provider := NewPubSubPublisherProvider(nil, "test-project")
 		must.NotNil(t, provider)
 	})
 }
@@ -138,7 +138,7 @@ func TestPublisherProvider_NewPublisher(T *testing.T) {
 	T.Run("with empty topic", func(t *testing.T) {
 		t.Parallel()
 
-		provider := NewPubSubPublisherProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil, "test-project")
+		provider := NewPubSubPublisherProvider(nil, "test-project")
 
 		pub, err := provider.NewPublisher(t.Context(), "")
 		test.Nil(t, pub)
@@ -160,7 +160,7 @@ func TestPubSubPublisher_Container(T *testing.T) {
 			ctx := t.Context()
 			topicName := infra.newTopic(t)
 
-			provider := NewPubSubPublisherProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, infra.client, infra.projectID)
+			provider := NewPubSubPublisherProvider(infra.client, infra.projectID)
 			must.NotNil(t, provider)
 
 			publisher, err := provider.NewPublisher(ctx, topicName)

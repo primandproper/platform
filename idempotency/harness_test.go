@@ -33,7 +33,7 @@ type payload struct {
 func newStore(tb testing.TB) cache.Cache[Record[payload]] {
 	tb.Helper()
 
-	c, err := cachememory.NewInMemoryCache[Record[payload]](0, nil, nil, nil)
+	c, err := cachememory.NewInMemoryCache[Record[payload]](0)
 	must.NoError(tb, err)
 
 	return c
@@ -44,10 +44,10 @@ func newStore(tb testing.TB) cache.Cache[Record[payload]] {
 func newLocker(tb testing.TB) distributedlock.ScopedLocker {
 	tb.Helper()
 
-	locker, err := dlmemory.NewLocker(nil, nil, nil)
+	locker, err := dlmemory.NewLocker()
 	must.NoError(tb, err)
 
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	must.NoError(tb, err)
 
 	return scoped

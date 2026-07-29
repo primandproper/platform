@@ -22,7 +22,7 @@ var errArbitrary = errors.New("arbitrary")
 func newRecordingReporter(t *testing.T, reporters map[string]analytics.EventReporter) (*MultiSourceEventReporter, *observability.RecordingObserver) {
 	t.Helper()
 
-	m := NewMultiSourceEventReporter(reporters, nil, nil)
+	m := NewMultiSourceEventReporter(reporters)
 	must.NotNil(t, m)
 
 	obs := observability.NewRecordingObserver()
@@ -37,7 +37,7 @@ func TestNewMultiSourceEventReporter(T *testing.T) {
 	T.Run("with nil reporters map", func(t *testing.T) {
 		t.Parallel()
 
-		r := NewMultiSourceEventReporter(nil, nil, nil)
+		r := NewMultiSourceEventReporter(nil)
 		must.NotNil(t, r)
 		test.NotNil(t, r.reporters)
 	})
@@ -48,7 +48,7 @@ func TestNewMultiSourceEventReporter(T *testing.T) {
 		reporters := map[string]analytics.EventReporter{
 			"ios": noop.NewEventReporter(),
 		}
-		r := NewMultiSourceEventReporter(reporters, nil, nil)
+		r := NewMultiSourceEventReporter(reporters)
 		must.NotNil(t, r)
 		test.MapLen(t, 1, r.reporters)
 	})
@@ -66,7 +66,7 @@ func TestMultiSourceEventReporter_Close(T *testing.T) {
 		m := NewMultiSourceEventReporter(map[string]analytics.EventReporter{
 			"ios": ios,
 			"web": web,
-		}, nil, nil)
+		})
 
 		m.Close()
 
@@ -82,7 +82,7 @@ func TestMultiSourceEventReporter_Close(T *testing.T) {
 		m := NewMultiSourceEventReporter(map[string]analytics.EventReporter{
 			"ios": shared,
 			"web": shared,
-		}, nil, nil)
+		})
 
 		m.Close()
 
@@ -96,7 +96,7 @@ func TestMultiSourceEventReporter_Close(T *testing.T) {
 
 		m := NewMultiSourceEventReporter(map[string]analytics.EventReporter{
 			"ios": ios,
-		}, nil, nil)
+		})
 
 		m.Shutdown()
 
@@ -114,7 +114,7 @@ func TestMultiSourceEventReporter_getReporter(T *testing.T) {
 		reporters := map[string]analytics.EventReporter{
 			"ios": expected,
 		}
-		m := NewMultiSourceEventReporter(reporters, nil, nil)
+		m := NewMultiSourceEventReporter(reporters)
 
 		got := m.getReporter("ios")
 		test.Eq(t, expected, got)
@@ -123,7 +123,7 @@ func TestMultiSourceEventReporter_getReporter(T *testing.T) {
 	T.Run("returns noop for unknown source", func(t *testing.T) {
 		t.Parallel()
 
-		m := NewMultiSourceEventReporter(nil, nil, nil)
+		m := NewMultiSourceEventReporter(nil)
 
 		got := m.getReporter("unknown")
 		test.NotNil(t, got)
@@ -135,7 +135,7 @@ func TestMultiSourceEventReporter_getReporter(T *testing.T) {
 		reporters := map[string]analytics.EventReporter{
 			"ios": nil,
 		}
-		m := NewMultiSourceEventReporter(reporters, nil, nil)
+		m := NewMultiSourceEventReporter(reporters)
 
 		got := m.getReporter("ios")
 		test.NotNil(t, got)
@@ -178,7 +178,7 @@ func TestMultiSourceEventReporter_TrackEvent(T *testing.T) {
 	T.Run("uses noop for unknown source", func(t *testing.T) {
 		t.Parallel()
 
-		m := NewMultiSourceEventReporter(nil, nil, nil)
+		m := NewMultiSourceEventReporter(nil)
 
 		err := m.TrackEvent(context.Background(), "unknown", "signup", "user1", nil)
 		test.NoError(t, err)
@@ -276,7 +276,7 @@ func TestMultiSourceEventReporter_AddUser(T *testing.T) {
 	T.Run("uses noop for unknown source", func(t *testing.T) {
 		t.Parallel()
 
-		m := NewMultiSourceEventReporter(nil, nil, nil)
+		m := NewMultiSourceEventReporter(nil)
 
 		err := m.AddUser(context.Background(), "unknown", "user1", nil)
 		test.NoError(t, err)

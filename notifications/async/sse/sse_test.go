@@ -13,8 +13,6 @@ import (
 	"github.com/primandproper/platform-go/v8/notifications/async"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -25,7 +23,7 @@ import (
 func newRecordingNotifier(t *testing.T) (*Notifier, *observability.RecordingObserver) {
 	t.Helper()
 
-	n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+	n, err := NewNotifier(&Config{})
 	must.NoError(t, err)
 	must.NotNil(t, n)
 
@@ -58,7 +56,7 @@ func TestNewNotifier(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(&Config{})
 		must.NoError(t, err)
 		must.NotNil(t, n)
 	})
@@ -66,7 +64,7 @@ func TestNewNotifier(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(nil)
 		must.NoError(t, err)
 		must.NotNil(t, n)
 	})
@@ -101,7 +99,7 @@ func TestNotifier_Publish(T *testing.T) {
 	T.Run("with connected client", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(&Config{})
 		must.NoError(t, err)
 
 		ready := make(chan struct{})
@@ -180,7 +178,7 @@ func TestNotifier_Close(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(&Config{})
 		must.NoError(t, err)
 
 		test.NoError(t, n.Close())

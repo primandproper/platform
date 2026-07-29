@@ -66,6 +66,9 @@ type redisClient interface {
 
 type redisCacheImpl[T any] struct {
 	o11y             observability.Observer
+	logger           logging.Logger
+	tracerProvider   tracing.TracerProvider
+	metricsProvider  metrics.Provider
 	codec            cache.Codec[T]
 	cacheHitCounter  metrics.Int64Counter
 	cacheMissCounter metrics.Int64Counter
@@ -113,70 +116,87 @@ func WithScanPageSize[T any](size int64) Option[T] {
 	}
 }
 
+// WithLogger attaches a logger. An absent logger logs nowhere.
+func WithLogger[T any](logger logging.Logger) Option[T] {
+	return func(i *redisCacheImpl[T]) { i.logger = logger }
+}
+
+// WithTracerProvider attaches a tracer provider, enabling spans on every cache
+// operation. An absent tracer provider traces nowhere.
+func WithTracerProvider[T any](tracerProvider tracing.TracerProvider) Option[T] {
+	return func(i *redisCacheImpl[T]) { i.tracerProvider = tracerProvider }
+}
+
+// WithMetricsProvider attaches a metrics provider for the cache's hit, miss,
+// set, delete, and error counters and its latency histogram. An absent
+// provider records nothing.
+func WithMetricsProvider[T any](metricsProvider metrics.Provider) Option[T] {
+	return func(i *redisCacheImpl[T]) { i.metricsProvider = metricsProvider }
+}
+
 // NewRedisCache builds a new redis-backed cache. When cfg.Namespace is set,
 // every key is transparently prefixed with it: callers always use bare keys,
 // the namespace marks which entries this cache owns, and Flush becomes
 // possible (it deletes exactly the namespace's keys). Without a namespace,
 // Flush and an empty-prefix DeleteByPrefix return cache.ErrNamespaceRequired
 // rather than guess at ownership in a possibly shared database.
-func NewRedisCache[T any](cfg *Config, expiration time.Duration, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, cb circuitbreaking.CircuitBreaker, opts ...Option[T]) (cache.Cache[T], error) {
+func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreaking.CircuitBreaker, opts ...Option[T]) (cache.Cache[T], error) {
 	if cfg == nil || len(cfg.QueueAddresses) == 0 {
 		return nil, fmt.Errorf("at least one redis address is required")
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	cacheHitCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache hit counter")
-	}
-
-	cacheMissCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_misses", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache miss counter")
-	}
-
-	cacheSetCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_sets", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache set counter")
-	}
-
-	cacheDelCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_deletes", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache delete counter")
-	}
-
-	cacheErrCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_errors", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache error counter")
-	}
-
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating cache latency histogram")
-	}
-
 	impl := &redisCacheImpl[T]{
-		o11y:             observability.NewObserver(name, logger, tracerProvider),
-		codec:            cache.NewGobCodec[T](),
-		cacheHitCounter:  cacheHitCounter,
-		cacheMissCounter: cacheMissCounter,
-		cacheSetCounter:  cacheSetCounter,
-		cacheDelCounter:  cacheDelCounter,
-		cacheErrCounter:  cacheErrCounter,
-		latencyHist:      latencyHist,
-		client:           buildRedisClient(cfg),
-		circuitBreaker:   circuitbreakingcfg.EnsureCircuitBreaker(cb),
-		namespace:        cfg.Namespace,
-		expiration:       expiration,
-		scanPageSize:     defaultScanPageSize,
-		isCluster:        cfg.clusterMode(),
+		codec:          cache.NewGobCodec[T](),
+		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		namespace:      cfg.Namespace,
+		expiration:     expiration,
+		scanPageSize:   defaultScanPageSize,
+		isCluster:      cfg.clusterMode(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(impl)
 		}
 	}
+
+	impl.o11y = observability.NewObserver(name, impl.logger, impl.tracerProvider)
+
+	mp := metrics.EnsureMetricsProvider(impl.metricsProvider)
+
+	var err error
+
+	impl.cacheHitCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache hit counter")
+	}
+
+	impl.cacheMissCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_misses", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache miss counter")
+	}
+
+	impl.cacheSetCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_sets", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache set counter")
+	}
+
+	impl.cacheDelCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_deletes", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache delete counter")
+	}
+
+	impl.cacheErrCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_errors", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache error counter")
+	}
+
+	impl.latencyHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache latency histogram")
+	}
+
+	// Built last, so a failed constructor never leaves a connected client behind.
+	impl.client = buildRedisClient(cfg)
 
 	return impl, nil
 }

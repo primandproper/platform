@@ -11,7 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v8/observability/keys"
 	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	segment "github.com/segmentio/analytics-go/v3"
 )
@@ -61,12 +60,14 @@ func (cb *breakerCallback) Failure(_ segment.Message, err error) {
 }
 
 // NewSegmentEventReporter returns a new Segment-backed EventReporter.
-func NewSegmentEventReporter(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, apiKey string, circuitBreaker circuitbreaking.CircuitBreaker) (analytics.EventReporter, error) {
+func NewSegmentEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (analytics.EventReporter, error) {
 	if apiKey == "" {
 		return nil, ErrEmptyAPIToken
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	eventCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_events", name))
 	if err != nil {
@@ -78,7 +79,7 @@ func NewSegmentEventReporter(logger logging.Logger, tracerProvider tracing.Trace
 		return nil, platformerrors.Wrap(err, "creating error counter")
 	}
 
-	logger = logging.EnsureLogger(logger)
+	logger := logging.EnsureLogger(o.logger)
 
 	client, err := segment.NewWithConfig(apiKey, segment.Config{
 		Callback: &breakerCallback{
@@ -92,7 +93,7 @@ func NewSegmentEventReporter(logger logging.Logger, tracerProvider tracing.Trace
 	}
 
 	c := &EventReporter{
-		o11y:           observability.NewObserver(name, logger, tracerProvider),
+		o11y:           observability.NewObserver(name, logger, o.tracerProvider),
 		client:         client,
 		eventCounter:   eventCounter,
 		errorCounter:   errorCounter,

@@ -43,18 +43,20 @@ type (
 
 func NewGRPCServer(
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
 	unaryServerInterceptors []grpc.UnaryServerInterceptor,
 	streamServerInterceptors []grpc.StreamServerInterceptor,
-	registrationFunctions ...RegistrationFunc,
+	registrationFunctions []RegistrationFunc,
+	opts ...Option,
 ) (*Server, error) {
 	if cfg == nil {
 		return nil, perrors.ErrNilInputParameter
 	}
 
-	tp := tracing.EnsureTracerProvider(tracerProvider)
-	opts := []grpc.ServerOption{
+	o := newOptions(opts)
+	logger := o.logger
+
+	tp := tracing.EnsureTracerProvider(o.tracerProvider)
+	serverOpts := []grpc.ServerOption{
 		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithTracerProvider(tp))),
 		grpc.ChainUnaryInterceptor(append([]grpc.UnaryServerInterceptor{LoggingInterceptor(logger)}, unaryServerInterceptors...)...),
 		grpc.ChainStreamInterceptor(streamServerInterceptors...),
@@ -84,10 +86,10 @@ func NewGRPCServer(
 			},
 		}
 
-		opts = append(opts, grpc.Creds(credentials.NewTLS(config)))
+		serverOpts = append(serverOpts, grpc.Creds(credentials.NewTLS(config)))
 	}
 
-	grpcServer := grpc.NewServer(opts...)
+	grpcServer := grpc.NewServer(serverOpts...)
 	for _, rf := range registrationFunctions {
 		rf(grpcServer)
 	}

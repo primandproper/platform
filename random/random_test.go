@@ -7,7 +7,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -45,7 +44,7 @@ func (r *shortReader) Read(p []byte) (n int, err error) {
 func newRecordingGenerator(t *testing.T) (*standardGenerator, *observability.RecordingObserver) {
 	t.Helper()
 
-	s, ok := NewGenerator(nil, tracingnoop.NewTracerProvider()).(*standardGenerator)
+	s, ok := NewGenerator().(*standardGenerator)
 	must.True(t, ok)
 
 	obs := observability.NewRecordingObserver()

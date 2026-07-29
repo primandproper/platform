@@ -8,7 +8,7 @@ import (
 )
 
 func ExampleNewInMemoryRateLimiter() {
-	limiter, err := ratelimiting.NewInMemoryRateLimiter(nil, 10.0, 5)
+	limiter, err := ratelimiting.NewInMemoryRateLimiter(10.0, 5)
 	if err != nil {
 		panic(err)
 	}

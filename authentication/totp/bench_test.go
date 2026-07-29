@@ -5,14 +5,13 @@ import (
 	"time"
 
 	authtotp "github.com/primandproper/platform-go/v8/authentication/totp"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/pquerna/otp/totp"
 	"github.com/shoenig/test/must"
 )
 
 func BenchmarkVerifier_Verify(b *testing.B) {
-	v := authtotp.NewVerifier(tracingnoop.NewTracerProvider())
+	v := authtotp.NewVerifier()
 	ctx := b.Context()
 	const secret = "HEREISASECRETWHICHIVEMADEUPBECAUSEIWANNATESTRELIABLY"
 

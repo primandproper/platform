@@ -18,7 +18,7 @@ func BenchmarkRedisCache(b *testing.B) {
 	container := redistest.Start(b)
 	cfg := &Config{QueueAddresses: []string{redistest.Address(b, container)}}
 
-	c, err := NewRedisCache[benchCacheItem](cfg, 0, nil, nil, nil, nil)
+	c, err := NewRedisCache[benchCacheItem](cfg, 0, nil)
 	must.NoError(b, err)
 
 	ctx := b.Context()

@@ -25,7 +25,7 @@ import (
 func newRecordingSource(t *testing.T, cfg *Config, client GetParameterAPI) (*ssmSecretSource, *observability.RecordingObserver) {
 	t.Helper()
 
-	source, err := NewSSMSecretSource(context.Background(), cfg, client, nil, nil, nil)
+	source, err := NewSSMSecretSource(context.Background(), cfg, client)
 	must.NoError(t, err)
 	must.NotNil(t, source)
 
@@ -43,7 +43,7 @@ func TestNewSSMSecretSource(T *testing.T) {
 
 	T.Run("nil config returns error", func(t *testing.T) {
 		t.Parallel()
-		source, err := NewSSMSecretSource(context.Background(), nil, nil, nil, nil, nil)
+		source, err := NewSSMSecretSource(context.Background(), nil, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "config is required")
@@ -52,7 +52,7 @@ func TestNewSSMSecretSource(T *testing.T) {
 	T.Run("missing Region returns error", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Region: ""}
-		source, err := NewSSMSecretSource(context.Background(), cfg, nil, nil, nil, nil)
+		source, err := NewSSMSecretSource(context.Background(), cfg, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 	})
@@ -61,7 +61,7 @@ func TestNewSSMSecretSource(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Region: "us-east-1"}
 		mc := &mockSSMClient{value: "param-value"}
-		source, err := NewSSMSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewSSMSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 	})
@@ -77,7 +77,7 @@ func TestNewSSMSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Region: "us-east-1"}
-		source, err := NewSSMSecretSource(context.Background(), cfg, &mockSSMClient{}, nil, nil, mp)
+		source, err := NewSSMSecretSource(context.Background(), cfg, &mockSSMClient{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -101,7 +101,7 @@ func TestNewSSMSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Region: "us-east-1"}
-		source, err := NewSSMSecretSource(context.Background(), cfg, &mockSSMClient{}, nil, nil, mp)
+		source, err := NewSSMSecretSource(context.Background(), cfg, &mockSSMClient{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -126,7 +126,7 @@ func TestNewSSMSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Region: "us-east-1"}
-		source, err := NewSSMSecretSource(context.Background(), cfg, &mockSSMClient{}, nil, nil, mp)
+		source, err := NewSSMSecretSource(context.Background(), cfg, &mockSSMClient{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -192,7 +192,7 @@ func TestSSMSecretSource_GetSecret(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Region: "us-east-1", Prefix: "/myapp/"}
 		mc := &mockSSMClient{value: "prefixed-value"}
-		source, err := NewSSMSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewSSMSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		got, err := source.GetSecret(context.Background(), "MY_PARAM")
@@ -205,7 +205,7 @@ func TestSSMSecretSource_GetSecret(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Region: "us-east-1", Prefix: "/myapp"}
 		mc := &mockSSMClient{value: "prefixed-value"}
-		source, err := NewSSMSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewSSMSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		got, err := source.GetSecret(context.Background(), "MY_PARAM")
@@ -218,7 +218,7 @@ func TestSSMSecretSource_GetSecret(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Region: "us-east-1", Prefix: "/myapp/"}
 		mc := &mockSSMClient{value: "path-value"}
-		source, err := NewSSMSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewSSMSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		got, err := source.GetSecret(context.Background(), "/existing/path/param")
@@ -236,7 +236,7 @@ func TestSSMSecretSource_Close(T *testing.T) {
 
 		cfg := &Config{Region: "us-east-1"}
 		mc := &mockSSMClient{}
-		source, err := NewSSMSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewSSMSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		err = source.Close()

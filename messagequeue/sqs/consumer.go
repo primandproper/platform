@@ -160,7 +160,9 @@ type consumerProvider struct {
 }
 
 // NewSQSConsumerProvider returns a ConsumerProvider for SQS.
-func NewSQSConsumerProvider(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, queueCfg Config) (messagequeue.ConsumerProvider, error) {
+func NewSQSConsumerProvider(ctx context.Context, queueCfg Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
+	o := newOptions(opts)
+
 	var loadOpts []func(*config.LoadOptions) error
 	if queueCfg.QueueAddress != "" {
 		// Override the AWS endpoint (e.g. to point at localstack) when configured.
@@ -174,9 +176,9 @@ func NewSQSConsumerProvider(ctx context.Context, logger logging.Logger, tracerPr
 	svc := sqs.NewFromConfig(cfg)
 
 	return &consumerProvider{
-		o11y:            observability.NewObserver("sqs_consumer_provider", logger, tracerProvider),
-		tracerProvider:  tracerProvider,
-		metricsProvider: metricsProvider,
+		o11y:            observability.NewObserver("sqs_consumer_provider", o.logger, o.tracerProvider),
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
 		sqsClient:       svc,
 		consumerCache:   map[string]messagequeue.Consumer{},
 	}, nil

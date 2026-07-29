@@ -6,9 +6,6 @@ import (
 	analyticscfg "github.com/primandproper/platform-go/v8/analytics/config"
 	"github.com/primandproper/platform-go/v8/analytics/posthog"
 	"github.com/primandproper/platform-go/v8/analytics/segment"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -22,7 +19,7 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 
 		ctx := t.Context()
 
-		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, nil)
 		must.NoError(t, err)
 		must.NotNil(t, reporter)
 		test.MapEmpty(t, reporter.reporters)
@@ -39,7 +36,7 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 			},
 		}
 
-		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources)
 		must.NoError(t, err)
 		must.NotNil(t, reporter)
 		test.MapLen(t, 1, reporter.reporters)
@@ -56,7 +53,7 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 			},
 		}
 
-		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources)
 		must.NoError(t, err)
 		must.NotNil(t, reporter)
 		test.MapLen(t, 1, reporter.reporters)
@@ -72,7 +69,7 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 			},
 		}
 
-		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources)
 		must.NoError(t, err)
 		must.NotNil(t, reporter)
 		test.MapLen(t, 1, reporter.reporters)
@@ -93,7 +90,7 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 			},
 		}
 
-		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources)
 		must.NoError(t, err)
 		must.NotNil(t, reporter)
 		test.MapLen(t, 2, reporter.reporters)
@@ -117,7 +114,7 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 			},
 		}
 
-		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources)
 		must.NoError(t, err)
 		must.NotNil(t, reporter)
 		test.MapLen(t, 2, reporter.reporters)
@@ -132,7 +129,7 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 		ctx := t.Context()
 		sources := map[string]*analyticscfg.SourceConfig{}
 
-		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources)
 		must.NoError(t, err)
 		must.NotNil(t, reporter)
 		test.MapEmpty(t, reporter.reporters)

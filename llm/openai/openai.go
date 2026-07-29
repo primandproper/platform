@@ -8,9 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/llm"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	"github.com/primandproper/platform-go/v8/pointer"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
@@ -20,27 +18,28 @@ import (
 const name = "openai_llm"
 
 // NewProvider creates a new OpenAI-backed LLM provider.
-func NewProvider(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (llm.Provider, error) {
+func NewProvider(cfg *Config, opts ...Option) (llm.Provider, error) {
 	if cfg == nil {
 		return nil, errors.New("openai config is required")
 	}
 
-	opts := []anyllm.Option{
+	providerOpts := []anyllm.Option{
 		anyllm.WithAPIKey(cfg.APIKey),
 	}
 	if cfg.BaseURL != "" {
-		opts = append(opts, anyllm.WithBaseURL(cfg.BaseURL))
+		providerOpts = append(providerOpts, anyllm.WithBaseURL(cfg.BaseURL))
 	}
 	if cfg.Timeout > 0 {
-		opts = append(opts, anyllm.WithTimeout(cfg.Timeout))
+		providerOpts = append(providerOpts, anyllm.WithTimeout(cfg.Timeout))
 	}
 
-	provider, err := anyllmopenai.New(opts...)
+	provider, err := anyllmopenai.New(providerOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "create openai provider")
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	requestCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_requests", name))
 	if err != nil {
@@ -58,7 +57,7 @@ func NewProvider(cfg *Config, logger logging.Logger, tracerProvider tracing.Trac
 	}
 
 	return &openaiProvider{
-		o11y:           observability.NewObserver(name, logger, tracerProvider),
+		o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
 		requestCounter: requestCounter,
 		errorCounter:   errorCounter,
 		latencyHist:    latencyHist,

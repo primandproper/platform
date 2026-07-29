@@ -12,6 +12,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/clock"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/messagequeue"
 	"github.com/primandproper/platform-go/v8/observability"
@@ -85,7 +86,7 @@ func (m ClaimMode) Valid() bool {
 // RelayConfig configures a Relay.
 type RelayConfig struct {
 	// Dialect selects the SQL emitted; it must match the database.Client.
-	Dialect Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
+	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
 	// TableName is the outbox table. Defaults to DefaultTableName.
 	TableName string `env:"TABLE_NAME" json:"tableName" yaml:"tableName"`
 	// ClaimMode selects lease-only or SKIP LOCKED claiming.
@@ -118,7 +119,7 @@ func (cfg *RelayConfig) EnsureDefaults() {
 	if cfg.ClaimMode == "" {
 		cfg.ClaimMode = ClaimSkipLocked
 	}
-	if !cfg.Dialect.supportsSkipLocked() {
+	if !cfg.Dialect.SupportsSkipLocked() {
 		cfg.ClaimMode = ClaimLease
 	}
 	if cfg.BatchSize <= 0 {
@@ -148,7 +149,7 @@ func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Dialect, validation.Required, validation.By(func(any) error {
 			if !cfg.Dialect.Valid() {
-				return platformerrors.Wrapf(ErrUnsupportedDialect, "dialect %q", cfg.Dialect)
+				return platformerrors.Wrapf(dialect.ErrUnsupported, "outbox dialect %q", cfg.Dialect)
 			}
 
 			return nil
@@ -157,7 +158,7 @@ func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 			if !cfg.ClaimMode.Valid() {
 				return platformerrors.Wrapf(ErrInvalidClaimMode, "claim mode %q", cfg.ClaimMode)
 			}
-			if cfg.ClaimMode == ClaimSkipLocked && !cfg.Dialect.supportsSkipLocked() {
+			if cfg.ClaimMode == ClaimSkipLocked && !cfg.Dialect.SupportsSkipLocked() {
 				return platformerrors.Wrapf(ErrInvalidClaimMode, "dialect %q cannot skip locked rows", cfg.Dialect)
 			}
 
@@ -263,7 +264,9 @@ func WithRelayMetricsProvider(metricsProvider metrics.Provider) RelayOption {
 }
 
 // NewRelay builds a Relay. It does not start it; call Run.
-func NewRelay(cfg *RelayConfig, client database.Client, provider messagequeue.PublisherProvider, opts ...RelayOption) (*Relay, error) {
+//
+// ctx is used to validate the config and is not retained — Run takes its own.
+func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, provider messagequeue.PublisherProvider, opts ...RelayOption) (*Relay, error) {
 	if cfg == nil {
 		return nil, platformerrors.New("nil outbox relay config provided")
 	}
@@ -276,7 +279,7 @@ func NewRelay(cfg *RelayConfig, client database.Client, provider messagequeue.Pu
 
 	cfg.EnsureDefaults()
 
-	if !validIdentifier(cfg.TableName) {
+	if !dialect.ValidIdentifier(cfg.TableName) {
 		return nil, platformerrors.Wrapf(ErrInvalidTableName, "table %q", cfg.TableName)
 	}
 
@@ -295,7 +298,7 @@ func NewRelay(cfg *RelayConfig, client database.Client, provider messagequeue.Pu
 		}
 	}
 
-	if err := r.cfg.ValidateWithContext(context.Background()); err != nil {
+	if err := r.cfg.ValidateWithContext(ctx); err != nil {
 		return nil, platformerrors.Wrap(err, "validating outbox relay config")
 	}
 

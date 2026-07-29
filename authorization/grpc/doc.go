@@ -17,10 +17,11 @@ authorization.GrantsExtractor and produces both interceptors:
 	)
 	// ...
 
-	server, err := grpcserver.NewGRPCServer(cfg, logger, tracerProvider,
+	server, err := grpcserver.NewGRPCServer(cfg,
 		[]grpc.UnaryServerInterceptor{authInterceptor, enforcer.UnaryServerInterceptor()},
 		[]grpc.StreamServerInterceptor{authStreamInterceptor, enforcer.StreamServerInterceptor()},
-		registrations...,
+		registrations,
+		grpcserver.WithLogger(logger), grpcserver.WithTracerProvider(tracerProvider),
 	)
 
 # One decision, two interceptors

@@ -4,14 +4,12 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v8/authentication/argon2"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test/must"
 )
 
 func BenchmarkArgon2Authenticator(b *testing.B) {
-	a := argon2.NewArgon2Authenticator(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+	a := argon2.NewArgon2Authenticator()
 	ctx := b.Context()
 	const password = "Pa$$w0rdPa$$w0rdPa$$w0rdPa$$w0rd"
 

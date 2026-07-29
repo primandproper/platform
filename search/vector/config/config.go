@@ -72,9 +72,9 @@ func NewIndex[T any](
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case PGvectorProvider:
-		return pgvector.NewIndex[T](ctx, logger, tracerProvider, metricsProvider, cfg.Pgvector, db, indexName, circuitBreaker)
+		return pgvector.NewIndex[T](ctx, cfg.Pgvector, db, indexName, circuitBreaker, pgvector.WithLogger(logger), pgvector.WithTracerProvider(tracerProvider), pgvector.WithMetricsProvider(metricsProvider))
 	case QdrantProvider:
-		return qdrant.NewIndex[T](ctx, logger, tracerProvider, metricsProvider, cfg.Qdrant, indexName, circuitBreaker)
+		return qdrant.NewIndex[T](ctx, cfg.Qdrant, indexName, circuitBreaker, qdrant.WithLogger(logger), qdrant.WithTracerProvider(tracerProvider), qdrant.WithMetricsProvider(metricsProvider))
 	default:
 		return noop.NewIndex[T](), nil
 	}

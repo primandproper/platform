@@ -9,6 +9,7 @@ import (
 	authzdb "github.com/primandproper/platform-go/v8/authorization/database"
 	"github.com/primandproper/platform-go/v8/cache"
 	"github.com/primandproper/platform-go/v8/cache/memory"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
@@ -146,7 +147,7 @@ func TestNewPolicyResolver_Database(T *testing.T) {
 
 		_, err := build(t, &Config{
 			Provider: ProviderDatabase,
-			Database: &authzdb.Config{Dialect: authzdb.DialectSQLite},
+			Database: &authzdb.Config{Dialect: dialect.SQLite},
 		})
 
 		test.Error(t, err)
@@ -162,12 +163,7 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 	newCache := func(t *testing.T) cache.Cache[authorization.PermissionSet] {
 		t.Helper()
 
-		c, err := memory.NewInMemoryCache[authorization.PermissionSet](
-			0,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
-		)
+		c, err := memory.NewInMemoryCache[authorization.PermissionSet](0)
 		must.NoError(t, err)
 
 		return c
@@ -259,7 +255,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		test.NoError(t, (&Config{
 			Provider: ProviderDatabase,
-			Database: &authzdb.Config{Dialect: authzdb.DialectSQLite},
+			Database: &authzdb.Config{Dialect: dialect.SQLite},
 		}).ValidateWithContext(t.Context()))
 	})
 
@@ -271,7 +267,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		test.Error(t, (&Config{
 			Provider: ProviderStatic,
-			Database: &authzdb.Config{Dialect: authzdb.DialectSQLite},
+			Database: &authzdb.Config{Dialect: dialect.SQLite},
 		}).ValidateWithContext(t.Context()))
 	})
 

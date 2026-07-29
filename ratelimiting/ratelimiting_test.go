@@ -14,7 +14,7 @@ func TestInMemoryRateLimiter_Allow(T *testing.T) {
 	T.Run("allows within burst", func(t *testing.T) {
 		t.Parallel()
 
-		limiter, err := NewInMemoryRateLimiter(nil, 10, 3)
+		limiter, err := NewInMemoryRateLimiter(10, 3)
 		must.NoError(t, err)
 		defer limiter.Close()
 
@@ -40,7 +40,7 @@ func TestInMemoryRateLimiter_Allow(T *testing.T) {
 	T.Run("different keys have independent limits", func(t *testing.T) {
 		t.Parallel()
 
-		limiter, err := NewInMemoryRateLimiter(nil, 10, 1)
+		limiter, err := NewInMemoryRateLimiter(10, 1)
 		must.NoError(t, err)
 		defer limiter.Close()
 
@@ -66,7 +66,7 @@ func TestInMemoryRateLimiter_Allow(T *testing.T) {
 	T.Run("Close is safe", func(t *testing.T) {
 		t.Parallel()
 
-		limiter, err := NewInMemoryRateLimiter(nil, 10, 1)
+		limiter, err := NewInMemoryRateLimiter(10, 1)
 		must.NoError(t, err)
 		err = limiter.Close()
 		must.NoError(t, err)
@@ -75,7 +75,7 @@ func TestInMemoryRateLimiter_Allow(T *testing.T) {
 	T.Run("Close releases per-key limiters", func(t *testing.T) {
 		t.Parallel()
 
-		limiter, err := NewInMemoryRateLimiter(nil, 10, 1)
+		limiter, err := NewInMemoryRateLimiter(10, 1)
 		must.NoError(t, err)
 
 		ctx := context.Background()

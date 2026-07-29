@@ -9,6 +9,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/authorization"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/identifiers"
 	"github.com/primandproper/platform-go/v8/observability"
@@ -31,32 +32,7 @@ const (
 	permissionsTable = "permissions"
 )
 
-// Dialect selects the SQL the Resolver emits. It mirrors the providers under
-// database/.
-type Dialect string
-
-const (
-	// DialectPostgres targets PostgreSQL.
-	DialectPostgres Dialect = "postgres"
-	// DialectMySQL targets MySQL 8.0+, the first version with WITH RECURSIVE.
-	DialectMySQL Dialect = "mysql"
-	// DialectSQLite targets SQLite.
-	DialectSQLite Dialect = "sqlite"
-)
-
-// Valid reports whether d is a dialect this package can emit SQL for.
-func (d Dialect) Valid() bool {
-	switch d {
-	case DialectPostgres, DialectMySQL, DialectSQLite:
-		return true
-	default:
-		return false
-	}
-}
-
 var (
-	// ErrUnsupportedDialect indicates a dialect outside the supported set.
-	ErrUnsupportedDialect = platformerrors.New("unsupported authorization dialect")
 	// ErrInvalidTablePrefix indicates a prefix that is not a plain SQL
 	// identifier fragment. Prefixes are interpolated into queries rather than
 	// bound, so they are restricted rather than escaped.
@@ -90,14 +66,14 @@ type Resolver struct {
 
 	metricsProvider metrics.Provider
 	tracerProvider  tracing.TracerProvider
-	dialect         Dialect
+	dialect         dialect.Dialect
 	prefix          string
 }
 
 // Config configures a Resolver.
 type Config struct {
 	// Dialect selects the SQL emitted. Required.
-	Dialect Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
+	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
 	// TablePrefix is prepended to every policy table name. Empty uses
 	// DefaultTablePrefix; set it to adopt tables that already exist under
 	// another name.
@@ -140,7 +116,7 @@ func NewResolver(cfg *Config, db database.SQLQueryExecutor, opts ...Option) (*Re
 		return nil, ErrNilExecutor
 	}
 	if !cfg.Dialect.Valid() {
-		return nil, platformerrors.Wrapf(ErrUnsupportedDialect, "dialect %q", cfg.Dialect)
+		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "authorization dialect %q", cfg.Dialect)
 	}
 
 	prefix := cfg.TablePrefix

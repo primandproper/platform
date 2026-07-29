@@ -10,8 +10,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/boombuler/barcode"
 	"github.com/boombuler/barcode/qr"
@@ -41,9 +39,11 @@ type (
 )
 
 // NewBuilder returns a new QR code Builder.
-func NewBuilder(issuer Issuer, tracerProvider tracing.TracerProvider, logger logging.Logger) Builder {
+func NewBuilder(issuer Issuer, opts ...Option) Builder {
+	o := newOptions(opts)
+
 	return &builder{
-		o11y:       observability.NewObserver(o11yName, logger, tracerProvider),
+		o11y:       observability.NewObserver(o11yName, o.logger, o.tracerProvider),
 		totpIssuer: issuer,
 		qrEncode:   qr.Encode,
 		scale:      barcode.Scale,

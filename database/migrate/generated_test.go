@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 
 	"github.com/shoenig/test"
@@ -105,7 +106,7 @@ func TestWithGeneratedMigration(T *testing.T) {
 	T.Run("adds the migration to the filesystem", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := New(DialectSQLite, testMigrations(t),
+		m, err := New(dialect.SQLite, testMigrations(t),
 			WithGeneratedMigration(37, "create_generated_widgets", testGeneratedDDL),
 		)
 		must.NoError(t, err)
@@ -129,7 +130,7 @@ func TestWithGeneratedMigration(T *testing.T) {
 
 		// 00002_widgets.sql is in testdata. A silent overwrite here would be a
 		// corrupt sequence, so this has to fail at construction.
-		_, err := New(DialectSQLite, testMigrations(t),
+		_, err := New(dialect.SQLite, testMigrations(t),
 			WithGeneratedMigration(2, "create_generated_widgets", testGeneratedDDL),
 		)
 		must.Error(t, err)
@@ -139,7 +140,7 @@ func TestWithGeneratedMigration(T *testing.T) {
 	T.Run("rejects two generated migrations sharing a version", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := New(DialectSQLite, testMigrations(t),
+		_, err := New(dialect.SQLite, testMigrations(t),
 			WithGeneratedMigration(37, "first", testGeneratedDDL),
 			WithGeneratedMigration(37, "second", testGeneratedDDL),
 		)
@@ -149,10 +150,10 @@ func TestWithGeneratedMigration(T *testing.T) {
 	T.Run("rejects an invalid generated migration", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := New(DialectSQLite, testMigrations(t), WithGeneratedMigration(0, "bad", testGeneratedDDL))
+		_, err := New(dialect.SQLite, testMigrations(t), WithGeneratedMigration(0, "bad", testGeneratedDDL))
 		test.Error(t, err)
 
-		_, err = New(DialectSQLite, testMigrations(t), WithGeneratedMigration(37, "bad", "  "))
+		_, err = New(dialect.SQLite, testMigrations(t), WithGeneratedMigration(37, "bad", "  "))
 		test.Error(t, err)
 	})
 
@@ -162,7 +163,7 @@ func TestWithGeneratedMigration(T *testing.T) {
 		ctx := t.Context()
 		db := openSQLite(t)
 
-		m, err := New(DialectSQLite, testMigrations(t),
+		m, err := New(dialect.SQLite, testMigrations(t),
 			WithGeneratedMigration(37, "create_generated_widgets", testGeneratedDDL),
 			WithLogger(loggingnoop.NewLogger()),
 		)
@@ -189,7 +190,7 @@ func TestWithGeneratedMigration(T *testing.T) {
 	T.Run("is a no-op when no generated migrations are supplied", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := New(DialectSQLite, testMigrations(t))
+		m, err := New(dialect.SQLite, testMigrations(t))
 		must.NoError(t, err)
 
 		entries, err := fs.ReadDir(m.fsys, ".")

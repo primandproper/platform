@@ -10,8 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v8/notifications/async"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 const o11yName = "async_notifications_websocket"
@@ -31,10 +29,12 @@ type Notifier struct {
 }
 
 // NewNotifier creates a new WebSocket-backed AsyncNotifier.
-func NewNotifier(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (*Notifier, error) {
+func NewNotifier(cfg *Config, opts ...Option) (*Notifier, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
+
+	o := newOptions(opts)
 
 	wsCfg := &eswebsocket.Config{
 		HeartbeatInterval: cfg.HeartbeatInterval,
@@ -43,9 +43,9 @@ func NewNotifier(cfg *Config, logger logging.Logger, tracerProvider tracing.Trac
 	}
 
 	return &Notifier{
-		o11y:     observability.NewObserver(o11yName, logger, tracerProvider),
-		upgrader: eswebsocket.NewUpgrader(logger, tracerProvider, wsCfg),
-		manager:  eventstream.NewStreamManager[eventstream.EventStream](tracerProvider, logger),
+		o11y:     observability.NewObserver(o11yName, o.logger, o.tracerProvider),
+		upgrader: eswebsocket.NewUpgrader(wsCfg, eswebsocket.WithLogger(o.logger), eswebsocket.WithTracerProvider(o.tracerProvider)),
+		manager:  eventstream.NewStreamManager[eventstream.EventStream](eventstream.WithTracerProvider(o.tracerProvider), eventstream.WithLogger(o.logger)),
 	}, nil
 }
 

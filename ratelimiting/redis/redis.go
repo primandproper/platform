@@ -68,7 +68,7 @@ type rateLimiter struct {
 }
 
 // NewRedisRateLimiter returns a RateLimiter backed by Redis using a sliding window algorithm.
-func NewRedisRateLimiter(cfg Config, metricsProvider metrics.Provider, requestsPerSec float64, burstSize int) (ratelimiting.RateLimiter, error) {
+func NewRedisRateLimiter(cfg Config, requestsPerSec float64, burstSize int, opts ...Option) (ratelimiting.RateLimiter, error) {
 	if len(cfg.Addresses) == 0 {
 		return nil, fmt.Errorf("at least one redis address is required")
 	}
@@ -88,7 +88,9 @@ func NewRedisRateLimiter(cfg Config, metricsProvider metrics.Provider, requestsP
 		})
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	allowedCounter, err := mp.NewInt64Counter(redisName + "_allowed")
 	if err != nil {

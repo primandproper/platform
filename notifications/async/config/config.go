@@ -58,13 +58,13 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func (cfg *Config) NewAsyncNotifier(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (async.AsyncNotifier, error) {
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderPusher:
-		return pusher.NewNotifier(cfg.Pusher, logger, tracerProvider, metricsProvider)
+		return pusher.NewNotifier(cfg.Pusher, pusher.WithLogger(logger), pusher.WithTracerProvider(tracerProvider), pusher.WithMetricsProvider(metricsProvider))
 	case ProviderAbly:
-		return ably.NewNotifier(cfg.Ably, logger, tracerProvider, metricsProvider)
+		return ably.NewNotifier(cfg.Ably, ably.WithLogger(logger), ably.WithTracerProvider(tracerProvider), ably.WithMetricsProvider(metricsProvider))
 	case ProviderWebSocket:
-		return asyncws.NewNotifier(cfg.WebSocket, logger, tracerProvider)
+		return asyncws.NewNotifier(cfg.WebSocket, asyncws.WithLogger(logger), asyncws.WithTracerProvider(tracerProvider))
 	case ProviderSSE:
-		return asyncsse.NewNotifier(cfg.SSE, logger, tracerProvider)
+		return asyncsse.NewNotifier(cfg.SSE, asyncsse.WithLogger(logger), asyncsse.WithTracerProvider(tracerProvider))
 	case "", ProviderNoop:
 		return noop.NewAsyncNotifier()
 	default:

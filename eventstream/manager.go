@@ -6,8 +6,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 const (
@@ -22,12 +20,11 @@ type StreamManager[S EventStream] struct {
 }
 
 // NewStreamManager creates a new StreamManager.
-func NewStreamManager[S EventStream](
-	tracerProvider tracing.TracerProvider,
-	logger logging.Logger,
-) *StreamManager[S] {
+func NewStreamManager[S EventStream](opts ...Option) *StreamManager[S] {
+	o := newOptions(opts)
+
 	return &StreamManager[S]{
-		o11y:    observability.NewObserver(managerObservabilityName, logger, tracerProvider),
+		o11y:    observability.NewObserver(managerObservabilityName, o.logger, o.tracerProvider),
 		streams: make(map[string]map[string]S),
 	}
 }

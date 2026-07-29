@@ -14,8 +14,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -28,7 +26,7 @@ import (
 func newRecordingServerEncoderDecoder(t *testing.T, ct ContentType) (*serverEncoderDecoder, *observability.RecordingObserver) {
 	t.Helper()
 
-	ed, ok := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ct).(*serverEncoderDecoder)
+	ed, ok := NewServerEncoderDecoder(ct).(*serverEncoderDecoder)
 	must.True(t, ok)
 
 	obs := observability.NewRecordingObserver()
@@ -103,7 +101,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 			t.Parallel()
 
 			ex := &example{Name: "name"}
-			encoderDecoder, ok := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), tc.contentType).(*serverEncoderDecoder)
+			encoderDecoder, ok := NewServerEncoderDecoder(tc.contentType).(*serverEncoderDecoder)
 			must.True(t, ok)
 
 			ctx := t.Context()
@@ -120,7 +118,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 
 		ex := &example{Name: "name"}
-		encoderDecoder, ok := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeEmoji).(*serverEncoderDecoder)
+		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeEmoji).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		ctx := t.Context()
@@ -136,7 +134,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 		expectation := "name"
 		ex := &example{Name: expectation}
-		encoderDecoder, ok := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
+		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeJSON).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		ctx := t.Context()
@@ -150,7 +148,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 
 		ex := &example{Name: "name"}
-		encoderDecoder, ok := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeXML).(*serverEncoderDecoder)
+		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeXML).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		ctx := t.Context()
@@ -207,7 +205,7 @@ func TestServerEncoderDecoder_MustEncodeJSON(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeJSON)
 
 		expected := `{"name":"TestServerEncoderDecoder_MustEncodeJSON/standard"}`
 		actual := string(encoderDecoder.MustEncodeJSON(ctx, &example{Name: t.Name()}))
@@ -219,7 +217,7 @@ func TestServerEncoderDecoder_MustEncodeJSON(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeJSON)
 
 		defer func() {
 			test.NotNil(t, recover())
@@ -259,7 +257,7 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), tc.contentType)
+			encoderDecoder := NewServerEncoderDecoder(tc.contentType)
 
 			actual := string(encoderDecoder.MustEncode(ctx, &example{Name: t.Name()}))
 
@@ -271,7 +269,7 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeEmoji)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeEmoji)
 
 		actual := string(encoderDecoder.MustEncode(ctx, &example{Name: t.Name()}))
 		test.NotEq(t, "", actual)
@@ -281,7 +279,7 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder, ok := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
+		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeJSON).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		defer func() {
@@ -299,7 +297,7 @@ func TestServerEncoderDecoder_EncodeResponseWithStatus(T *testing.T) {
 		t.Parallel()
 		expectation := "name"
 		ex := &example{Name: expectation}
-		encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeJSON)
 
 		ctx := t.Context()
 		res := httptest.NewRecorder()
@@ -354,7 +352,7 @@ func TestServerEncoderDecoder_DecodeRequest(T *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
-			encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), tc.contentType)
+			encoderDecoder := NewServerEncoderDecoder(tc.contentType)
 
 			bs, err := tc.marshaller(e)
 			must.NoError(t, err)
@@ -410,7 +408,7 @@ func Test_serverEncoderDecoder_DecodeBytes(T *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 
-			encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), tc.contentType)
+			encoderDecoder := NewServerEncoderDecoder(tc.contentType)
 
 			var dest *example
 			test.NoError(t, encoderDecoder.DecodeBytes(ctx, tc.data, &dest))
@@ -427,7 +425,7 @@ func TestServerEncoderDecoder_RespondWithData(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder, ok := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON).(*serverEncoderDecoder)
+		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeJSON).(*serverEncoderDecoder)
 		must.True(t, ok)
 
 		res := httptest.NewRecorder()
@@ -461,14 +459,14 @@ func Test_clientEncoder_Encode_errors(T *testing.T) {
 	T.Run("with marshal error", func(t *testing.T) {
 		t.Parallel()
 
-		enc := NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeEmoji)
+		enc := NewClientEncoder(ContentTypeEmoji)
 		test.Error(t, enc.Encode(t.Context(), &bytes.Buffer{}, make(chan int)))
 	})
 
 	T.Run("with write error", func(t *testing.T) {
 		t.Parallel()
 
-		enc := NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeEmoji)
+		enc := NewClientEncoder(ContentTypeEmoji)
 		test.Error(t, enc.Encode(t.Context(), &errWriter{}, &example{Name: "test"}))
 	})
 }
@@ -493,7 +491,7 @@ func TestServerEncoderDecoder_DecodeRequest_bodyCloseError(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeJSON)
 
 		data, err := json.Marshal(&example{Name: "test"})
 		must.NoError(t, err)

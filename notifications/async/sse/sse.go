@@ -9,8 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v8/notifications/async"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 const o11yName = "async_notifications_sse"
@@ -30,11 +28,13 @@ type Notifier struct {
 }
 
 // NewNotifier creates a new SSE-backed AsyncNotifier.
-func NewNotifier(_ *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (*Notifier, error) {
+func NewNotifier(_ *Config, opts ...Option) (*Notifier, error) {
+	o := newOptions(opts)
+
 	return &Notifier{
-		o11y:     observability.NewObserver(o11yName, logger, tracerProvider),
-		upgrader: essse.NewUpgrader(tracerProvider),
-		manager:  eventstream.NewStreamManager[eventstream.EventStream](tracerProvider, logger),
+		o11y:     observability.NewObserver(o11yName, o.logger, o.tracerProvider),
+		upgrader: essse.NewUpgrader(essse.WithTracerProvider(o.tracerProvider)),
+		manager:  eventstream.NewStreamManager[eventstream.EventStream](eventstream.WithTracerProvider(o.tracerProvider), eventstream.WithLogger(o.logger)),
 	}, nil
 }
 

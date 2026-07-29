@@ -12,8 +12,8 @@ func RegisterBuilder(i do.Injector) {
 	do.Provide[Builder](i, func(i do.Injector) (Builder, error) {
 		return NewBuilder(
 			do.MustInvoke[Issuer](i),
-			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[logging.Logger](i),
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
 		), nil
 	})
 }

@@ -178,9 +178,9 @@ func AppleAppSiteAssociationHandler(
 	// Apple only accepts JSON here, so this uses its own JSON encoder rather than the
 	// service's configured one, which may be YAML, XML, or anything else.
 	enc := encoding.NewServerEncoderDecoder(
-		logging.EnsureLogger(logger),
-		tracing.EnsureTracerProvider(tracerProvider),
 		encoding.ContentTypeJSON,
+		encoding.WithLogger(logger),
+		encoding.WithTracerProvider(tracerProvider),
 	)
 	document := cfg.document()
 

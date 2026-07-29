@@ -11,7 +11,6 @@ import (
 	perrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/gorilla/securecookie"
 )
@@ -46,10 +45,12 @@ func sameSiteMode(s string) http.SameSite {
 }
 
 // NewCookieManager returns a new Manager.
-func NewCookieManager(cfg *Config, tracerProvider tracing.TracerProvider) (Manager, error) {
+func NewCookieManager(cfg *Config, opts ...Option) (Manager, error) {
 	if cfg == nil {
 		return nil, perrors.ErrNilInputProvided
 	}
+
+	o := newOptions(opts)
 
 	if err := cfg.ValidateWithContext(context.Background()); err != nil {
 		return nil, fmt.Errorf("validating cookie config: %w", err)
@@ -79,7 +80,7 @@ func NewCookieManager(cfg *Config, tracerProvider tracing.TracerProvider) (Manag
 		lifetime:     cfg.Lifetime,
 		sameSite:     sameSiteMode(cfg.SameSite),
 		secureOnly:   cfg.SecureOnly,
-		o11y:         observability.NewObserver("cookie_manager", nil, tracerProvider),
+		o11y:         observability.NewObserver("cookie_manager", nil, o.tracerProvider),
 	}, nil
 }
 

@@ -63,7 +63,7 @@ func runWithContainerBackedPostgres(tb testing.TB, fn func(client *testDBClient)
 
 func newTestLocker(t *testing.T, client database.Client) distributedlock.Locker {
 	t.Helper()
-	l, err := NewPostgresLocker(&Config{}, client, nil, nil, nil, cbnoop.NewCircuitBreaker())
+	l, err := NewPostgresLocker(&Config{}, client, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, l)
 	return l
@@ -115,7 +115,7 @@ func buildSqlmockClient(t *testing.T) (*testDBClient, sqlmock.Sqlmock) {
 
 func newTestLockerWithCB(t *testing.T, client database.Client, cb circuitbreaking.CircuitBreaker) distributedlock.Locker {
 	t.Helper()
-	l, err := NewPostgresLocker(&Config{}, client, nil, nil, nil, cb)
+	l, err := NewPostgresLocker(&Config{}, client, cb)
 	must.NoError(t, err)
 	must.NotNil(t, l)
 	return l
@@ -125,7 +125,7 @@ func newTestLockerWithCB(t *testing.T, client database.Client, cb circuitbreakin
 // test can both drive it and assert which operations it observed.
 func newRecordingLocker(t *testing.T, client database.Client) (*locker, *observability.RecordingObserver) {
 	t.Helper()
-	l, err := NewPostgresLocker(&Config{}, client, nil, nil, nil, cbnoop.NewCircuitBreaker())
+	l, err := NewPostgresLocker(&Config{}, client, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, l)
 
@@ -143,13 +143,13 @@ func TestNewPostgresLocker(T *testing.T) {
 
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewPostgresLocker(nil, &testDBClient{}, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		_, err := NewPostgresLocker(nil, &testDBClient{}, cbnoop.NewCircuitBreaker())
 		must.ErrorIs(t, err, distributedlock.ErrNilConfig)
 	})
 
 	T.Run("nil database", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewPostgresLocker(&Config{}, nil, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		_, err := NewPostgresLocker(&Config{}, nil, cbnoop.NewCircuitBreaker())
 		must.ErrorIs(t, err, distributedlock.ErrNilDatabaseClient)
 	})
 
@@ -157,7 +157,7 @@ func TestNewPostgresLocker(T *testing.T) {
 		t.Parallel()
 		client, _ := buildSqlmockClient(t)
 		t.Cleanup(func() { _ = client.Close() })
-		l, err := NewPostgresLocker(&Config{Namespace: 7}, client, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		l, err := NewPostgresLocker(&Config{Namespace: 7}, client, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, l)
 	})
@@ -170,7 +170,7 @@ func TestNewPostgresLocker(T *testing.T) {
 			client, _ := buildSqlmockClient(t)
 			t.Cleanup(func() { _ = client.Close() })
 			mp := newErrorAtCallProvider(idx, false)
-			_, err := NewPostgresLocker(&Config{}, client, nil, nil, mp, cbnoop.NewCircuitBreaker())
+			_, err := NewPostgresLocker(&Config{}, client, cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 			must.Error(t, err)
 		})
 	}
@@ -180,7 +180,7 @@ func TestNewPostgresLocker(T *testing.T) {
 		client, _ := buildSqlmockClient(t)
 		t.Cleanup(func() { _ = client.Close() })
 		mp := newErrorAtCallProvider(0, true)
-		_, err := NewPostgresLocker(&Config{}, client, nil, nil, mp, cbnoop.NewCircuitBreaker())
+		_, err := NewPostgresLocker(&Config{}, client, cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 	})
 }
@@ -739,7 +739,7 @@ func TestLocker_Acquire_PoolSaturation_Unit(T *testing.T) {
 		// whole lifetime, leaving none for the second Acquire.
 		client.WriteDB().SetMaxOpenConns(1)
 
-		l, err := NewPostgresLocker(&Config{ConnWaitTimeout: 50 * time.Millisecond}, client, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		l, err := NewPostgresLocker(&Config{ConnWaitTimeout: 50 * time.Millisecond}, client, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 
 		mock.ExpectQuery(`SELECT pg_try_advisory_lock`).

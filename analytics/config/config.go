@@ -125,7 +125,7 @@ func (cfg *SourceConfig) NewCollector(
 		if cfg.Segment == nil {
 			return nil, errors.New("segment provider configured but segment config is nil")
 		}
-		return segment.NewSegmentEventReporter(logger, tracerProvider, metricsProvider, cfg.Segment.APIToken, cb)
+		return segment.NewSegmentEventReporter(cfg.Segment.APIToken, cb, segment.WithLogger(logger), segment.WithTracerProvider(tracerProvider), segment.WithMetricsProvider(metricsProvider))
 	case ProviderPostHog:
 		if cfg.Posthog == nil {
 			return nil, errors.New("posthog provider configured but posthog config is nil")
@@ -135,7 +135,7 @@ func (cfg *SourceConfig) NewCollector(
 			endpoint := cfg.Posthog.Endpoint
 			modifiers = append(modifiers, func(c *posthogsdk.Config) { c.Endpoint = endpoint })
 		}
-		return posthog.NewPostHogEventReporter(logger, tracerProvider, metricsProvider, cfg.Posthog.APIKey, cb, modifiers...)
+		return posthog.NewPostHogEventReporter(cfg.Posthog.APIKey, cb, posthog.WithLogger(logger), posthog.WithTracerProvider(tracerProvider), posthog.WithMetricsProvider(metricsProvider), posthog.WithConfigModifiers(modifiers...))
 	default:
 		logging.EnsureLogger(logger).WithValue("provider", cfg.Provider).Info("no analytics provider configured or unrecognized provider, using noop")
 		return noop.NewEventReporter(), nil

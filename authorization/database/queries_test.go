@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v8/database/dialect"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -12,83 +14,14 @@ import (
 // builders touch no executor, so this needs no database — which is the point:
 // Postgres numbers its placeholders and SQLite does not, and the SQLite suite
 // alone would never notice a numbering mistake.
-func newQueryBuilder(t *testing.T, dialect Dialect) *Resolver {
+func newQueryBuilder(t *testing.T, d dialect.Dialect) *Resolver {
 	t.Helper()
 
-	return &Resolver{dialect: dialect, prefix: DefaultTablePrefix}
+	return &Resolver{dialect: d, prefix: DefaultTablePrefix}
 }
 
-func allDialects() []Dialect {
-	return []Dialect{DialectPostgres, DialectMySQL, DialectSQLite}
-}
-
-func TestPlaceholder(T *testing.T) {
-	T.Parallel()
-
-	T.Run("postgres numbers its placeholders", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "$1", placeholder(DialectPostgres, 1))
-		test.EqOp(t, "$7", placeholder(DialectPostgres, 7))
-	})
-
-	T.Run("mysql and sqlite do not", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "?", placeholder(DialectMySQL, 1))
-		test.EqOp(t, "?", placeholder(DialectMySQL, 7))
-		test.EqOp(t, "?", placeholder(DialectSQLite, 1))
-		test.EqOp(t, "?", placeholder(DialectSQLite, 7))
-	})
-}
-
-func TestPlaceholderList(T *testing.T) {
-	T.Parallel()
-
-	T.Run("postgres counts from the given start", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "$1, $2, $3", placeholderList(DialectPostgres, 1, 3))
-		test.EqOp(t, "$4, $5", placeholderList(DialectPostgres, 4, 2))
-	})
-
-	T.Run("mysql repeats a single marker", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "?, ?, ?", placeholderList(DialectMySQL, 1, 3))
-	})
-
-	T.Run("zero placeholders is empty", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "", placeholderList(DialectPostgres, 1, 0))
-	})
-}
-
-// tupleList is what turns a batch into one statement, so its numbering has to
-// run consecutively across tuples rather than restarting per tuple. Getting
-// that wrong binds the wrong column on Postgres and is invisible on SQLite.
-func TestTupleList(T *testing.T) {
-	T.Parallel()
-
-	T.Run("postgres numbers consecutively across tuples", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "($1, $2, $3), ($4, $5, $6)", tupleList(DialectPostgres, 2, 3))
-		test.EqOp(t, "($1, $2), ($3, $4), ($5, $6)", tupleList(DialectPostgres, 3, 2))
-	})
-
-	T.Run("mysql repeats markers", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "(?, ?), (?, ?)", tupleList(DialectMySQL, 2, 2))
-	})
-
-	T.Run("a single tuple", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "($1, $2, $3)", tupleList(DialectPostgres, 1, 3))
-	})
+func allDialects() []dialect.Dialect {
+	return []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite}
 }
 
 func TestResolver_QueryBuilders(T *testing.T) {
@@ -129,7 +62,7 @@ func TestResolver_QueryBuilders(T *testing.T) {
 	T.Run("a custom prefix is honored", func(t *testing.T) {
 		t.Parallel()
 
-		r := &Resolver{dialect: DialectPostgres, prefix: "custom_"}
+		r := &Resolver{dialect: dialect.Postgres, prefix: "custom_"}
 
 		test.StrContains(t, r.listRolesQuery(), "custom_roles")
 		test.StrNotContains(t, r.listRolesQuery(), DefaultTablePrefix)
@@ -157,7 +90,7 @@ func TestResolver_QueryBuilders(T *testing.T) {
 	T.Run("the resolve query binds one placeholder per role", func(t *testing.T) {
 		t.Parallel()
 
-		query := newQueryBuilder(t, DialectPostgres).resolveQuery(3)
+		query := newQueryBuilder(t, dialect.Postgres).resolveQuery(3)
 
 		test.StrContains(t, query, "IN ($1, $2, $3)")
 	})
@@ -165,7 +98,7 @@ func TestResolver_QueryBuilders(T *testing.T) {
 	T.Run("archival is a soft delete guarded against double-archiving", func(t *testing.T) {
 		t.Parallel()
 
-		query := newQueryBuilder(t, DialectPostgres).archiveRoleQuery()
+		query := newQueryBuilder(t, dialect.Postgres).archiveRoleQuery()
 
 		test.StrContains(t, query, "SET archived_at")
 		test.StrContains(t, query, "archived_at IS NULL")
@@ -178,7 +111,7 @@ func TestResolver_QueryBuilders(T *testing.T) {
 	T.Run("the named update clears archival", func(t *testing.T) {
 		t.Parallel()
 
-		query := newQueryBuilder(t, DialectPostgres).updateNamedQuery(rolesTable)
+		query := newQueryBuilder(t, dialect.Postgres).updateNamedQuery(rolesTable)
 
 		test.StrContains(t, query, "archived_at = NULL")
 	})
@@ -186,7 +119,7 @@ func TestResolver_QueryBuilders(T *testing.T) {
 	T.Run("the batched insert scales its tuples", func(t *testing.T) {
 		t.Parallel()
 
-		r := newQueryBuilder(t, DialectPostgres)
+		r := newQueryBuilder(t, dialect.Postgres)
 
 		single := r.insertNamedRowsQuery(permissionsTable, 1)
 		double := r.insertNamedRowsQuery(permissionsTable, 2)
@@ -204,7 +137,7 @@ func TestResolver_TableNames(T *testing.T) {
 	T.Run("queries reference only the migrated tables", func(t *testing.T) {
 		t.Parallel()
 
-		r := newQueryBuilder(t, DialectPostgres)
+		r := newQueryBuilder(t, dialect.Postgres)
 
 		must.StrContains(t, r.listRolesQuery(), DefaultTablePrefix+"roles")
 		must.StrContains(t, r.rolePermissionsQuery(), DefaultTablePrefix+"role_permissions")

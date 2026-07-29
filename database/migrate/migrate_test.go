@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
@@ -112,21 +113,21 @@ func TestNew(T *testing.T) {
 	T.Run("rejects a nil filesystem", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := New(DialectSQLite, nil)
+		_, err := New(dialect.SQLite, nil)
 		test.Error(t, err)
 	})
 
 	T.Run("rejects an unknown dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := New(Dialect("oracle"), testMigrations(t))
+		_, err := New(dialect.Dialect("oracle"), testMigrations(t))
 		test.Error(t, err)
 	})
 
 	T.Run("defaults the lock timeouts", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := New(DialectSQLite, testMigrations(t))
+		m, err := New(dialect.SQLite, testMigrations(t))
 		must.NoError(t, err)
 
 		test.EqOp(t, DefaultLockProbeInterval, m.lockProbeInterval)
@@ -138,7 +139,7 @@ func TestNew(T *testing.T) {
 	T.Run("accepts overridden lock timeouts", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := New(DialectSQLite, testMigrations(t),
+		m, err := New(dialect.SQLite, testMigrations(t),
 			WithLockTimeout(5*time.Second, 10*time.Minute),
 			WithUnlockTimeout(2*time.Second, time.Minute),
 		)
@@ -165,7 +166,7 @@ func TestNew(T *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				_, err := New(DialectSQLite, testMigrations(t), tc.opt)
+				_, err := New(dialect.SQLite, testMigrations(t), tc.opt)
 				test.Error(t, err)
 			})
 		}
@@ -178,7 +179,7 @@ func TestNew_Options(T *testing.T) {
 	T.Run("nil options are skipped and the rest are applied", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := New(DialectPostgres, testMigrations(t),
+		m, err := New(dialect.Postgres, testMigrations(t),
 			nil,
 			WithLogger(loggingnoop.NewLogger()),
 			WithTracerProvider(tracingnoop.NewTracerProvider()),
@@ -215,7 +216,7 @@ func TestNew_Options(T *testing.T) {
 					},
 				}
 
-				_, err := New(DialectSQLite, testMigrations(t), WithMetricsProvider(mp))
+				_, err := New(dialect.SQLite, testMigrations(t), WithMetricsProvider(mp))
 				must.Error(t, err)
 				test.SliceLen(t, i+1, mp.NewInt64CounterCalls())
 			})
@@ -233,7 +234,7 @@ func TestNew_Options(T *testing.T) {
 				},
 			}
 
-			_, err := New(DialectSQLite, testMigrations(t), WithMetricsProvider(mp))
+			_, err := New(dialect.SQLite, testMigrations(t), WithMetricsProvider(mp))
 			must.Error(t, err)
 			test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
 		})
@@ -247,12 +248,12 @@ func TestGooseDialect(T *testing.T) {
 		t.Parallel()
 
 		for _, tc := range []struct {
-			in   Dialect
+			in   dialect.Dialect
 			want goose.Dialect
 		}{
-			{in: DialectPostgres, want: goose.DialectPostgres},
-			{in: DialectMySQL, want: goose.DialectMySQL},
-			{in: DialectSQLite, want: goose.DialectSQLite3},
+			{in: dialect.Postgres, want: goose.DialectPostgres},
+			{in: dialect.MySQL, want: goose.DialectMySQL},
+			{in: dialect.SQLite, want: goose.DialectSQLite3},
 		} {
 			got, err := gooseDialect(tc.in)
 			must.NoError(t, err)
@@ -263,7 +264,7 @@ func TestGooseDialect(T *testing.T) {
 	T.Run("rejects an unknown dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := gooseDialect(Dialect("oracle"))
+		_, err := gooseDialect(dialect.Dialect("oracle"))
 		test.Error(t, err)
 	})
 }
@@ -337,7 +338,7 @@ func TestMigrator_Migrate_SQLite(T *testing.T) {
 		ctx := t.Context()
 		db := openSQLite(t)
 
-		m, err := New(DialectSQLite, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
+		m, err := New(dialect.SQLite, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
 		must.NoError(t, err)
 
 		must.NoError(t, m.Migrate(ctx, db))
@@ -356,7 +357,7 @@ func TestMigrator_Migrate_SQLite(T *testing.T) {
 	T.Run("rejects a nil database", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := New(DialectSQLite, testMigrations(t))
+		m, err := New(dialect.SQLite, testMigrations(t))
 		must.NoError(t, err)
 
 		test.Error(t, m.Migrate(t.Context(), nil))
@@ -374,7 +375,7 @@ func TestMigrator_Migrate_SQLite(T *testing.T) {
 		sub, err := fs.Sub(testUnannotatedFS, "testdata/unannotated")
 		must.NoError(t, err)
 
-		m, err := New(DialectSQLite, sub, WithLogger(loggingnoop.NewLogger()))
+		m, err := New(dialect.SQLite, sub, WithLogger(loggingnoop.NewLogger()))
 		must.NoError(t, err)
 
 		must.NoError(t, m.Migrate(ctx, db))
@@ -402,12 +403,12 @@ func TestMigrator_Migrate_Failures(T *testing.T) {
 	T.Run("an unresolvable dialect is reported", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := New(DialectSQLite, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
+		m, err := New(dialect.SQLite, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
 		must.NoError(t, err)
 
 		// New rejects an unknown dialect, so the only way to reach Migrate's
 		// own guard is to corrupt the field behind its back.
-		m.dialect = Dialect("oracle")
+		m.dialect = dialect.Dialect("oracle")
 
 		test.Error(t, m.Migrate(t.Context(), openSQLite(t)))
 	})
@@ -418,7 +419,7 @@ func TestMigrator_Migrate_Failures(T *testing.T) {
 		db := openSQLite(t)
 		must.NoError(t, db.Close())
 
-		m, err := New(DialectSQLite, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
+		m, err := New(dialect.SQLite, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
 		must.NoError(t, err)
 
 		test.Error(t, m.Migrate(t.Context(), db))
@@ -433,7 +434,7 @@ func TestMigrator_Migrate_Failures(T *testing.T) {
 		// locker and log the wait, and guaranteed to fail once goose actually
 		// speaks postgres to it. That failure is the point — it proves the
 		// locked branch ran without needing a container.
-		m, err := New(DialectPostgres, testMigrations(t), WithLockKey("scoped"), WithLogger(cl))
+		m, err := New(dialect.Postgres, testMigrations(t), WithLockKey("scoped"), WithLogger(cl))
 		must.NoError(t, err)
 
 		test.Error(t, m.Migrate(t.Context(), openSQLite(t)))
@@ -447,7 +448,7 @@ func TestMigrator_Migrate_Failures(T *testing.T) {
 
 		cl := newCapturingLogger()
 
-		m, err := New(DialectPostgres, testMigrations(t), WithoutLock(), WithLogger(cl))
+		m, err := New(dialect.Postgres, testMigrations(t), WithoutLock(), WithLogger(cl))
 		must.NoError(t, err)
 
 		test.Error(t, m.Migrate(t.Context(), openSQLite(t)))
@@ -493,7 +494,7 @@ func TestMigrator_Migrate_PostgresContainer(T *testing.T) {
 					}
 					defer func() { _ = db.Close() }()
 
-					m, newErr := New(DialectPostgres, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
+					m, newErr := New(dialect.Postgres, testMigrations(t), WithLogger(loggingnoop.NewLogger()))
 					if newErr != nil {
 						errs[idx] = newErr
 						return

@@ -2,8 +2,8 @@ package jobs
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -15,6 +15,7 @@ import (
 	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v8/panicking"
 	"github.com/primandproper/platform-go/v8/retry"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -592,18 +593,14 @@ func (p *Pool) invoke(ctx context.Context, payload []byte, attempt uint) (err er
 	startTime := p.clock.Now()
 
 	// One deferred function rather than several, because the order matters and
-	// LIFO makes it easy to get wrong: the panic has to become an error before
-	// anything can observe that there was one.
+	// LIFO makes it easy to get wrong: the panic has to become this package's
+	// error before anything can observe that there was one.
 	defer func() {
-		if recovered := recover(); recovered != nil {
+		if pe, ok := stderrors.AsType[*panicking.PanicError](err); ok {
 			p.panicCounter.Add(ctx, 1, p.topicAttr)
-			// The stack is the only description of where the panic came from:
-			// the recovered value alone rarely names the line, and the
-			// goroutine that would have printed the trace is the one being
-			// rescued.
-			op.SpanOnly(panicStackKey, string(debug.Stack()))
+			op.SpanOnly(panicStackKey, string(pe.Stack))
 
-			err = platformerrors.Wrapf(ErrHandlerPanicked, "%v", recovered)
+			err = platformerrors.Wrapf(ErrHandlerPanicked, "%v", pe.Value)
 		}
 
 		p.handlerHist.Record(ctx, float64(p.clock.Since(startTime).Milliseconds()), p.topicAttr)
@@ -619,7 +616,7 @@ func (p *Pool) invoke(ctx context.Context, payload []byte, attempt uint) (err er
 		defer cancel()
 	}
 
-	return p.handler(ctx, payload)
+	return panicking.Contain(func() error { return p.handler(ctx, payload) })
 }
 
 // retire disposes of a message that will not be retried again. Every exit from

@@ -52,7 +52,7 @@ func NewCapitalismImplementation(logger logging.Logger, tracerProvider tracing.T
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case StripeProvider:
-		return stripe.NewStripePaymentManager(logger, tracerProvider, cfg.Stripe, stripeEventHandler)
+		return stripe.NewStripePaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
 	default:
 		return nil, errors.Newf("unknown provider: %q", cfg.Provider)
 	}

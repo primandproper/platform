@@ -15,8 +15,8 @@ implements. Implementations ship for chi, the net/http.ServeMux standard library
 everything on top of the Backend's primitives and never depends on the library
 directly, so the underlying router is swappable without touching route code:
 
-	backend := chi.NewBackend(logger, tracerProvider, metricProvider, cfg)
-	r := routing.New(backend, encoder, logger, tracerProvider, routing.WithTitle("My API"))
+	backend := chi.NewBackend(cfg, chi.WithLogger(logger), chi.WithTracerProvider(tracerProvider))
+	r := routing.New(backend, encoder, routing.WithLogger(logger), routing.WithTitle("My API"))
 
 	routing.Post(r, "/orgs/{orgID:uint64}/users", createUser, routing.WithSummary("Create user"))
 	routing.Get(r, "/orgs/{orgID:uint64}", getOrg)

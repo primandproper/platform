@@ -113,10 +113,15 @@ func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker) *featureF
 
 	cfg := &Config{SDKKey: t.Name()}
 
-	ffm, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cb, func(config ld.Config) ld.Config {
-		config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
-		return config
-	})
+	ffm, err := NewFeatureFlagManager(
+		cfg,
+		http.DefaultClient,
+		cb,
+		WithConfigModifiers(func(config ld.Config) ld.Config {
+			config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
+			return config
+		}),
+	)
 	must.NoError(t, err)
 	must.NotNil(t, ffm)
 
@@ -179,10 +184,15 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{SDKKey: t.Name()}
 
-		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
-			config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
-			return config
-		})
+		actual, err := NewFeatureFlagManager(
+			cfg,
+			http.DefaultClient,
+			cbnoop.NewCircuitBreaker(),
+			WithConfigModifiers(func(config ld.Config) ld.Config {
+				config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
+				return config
+			}),
+		)
 		must.NoError(t, err)
 		must.NotNil(t, actual)
 	})
@@ -192,7 +202,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{SDKKey: t.Name()}
 
-		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(cfg, nil, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, actual)
 	})
@@ -200,7 +210,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		actual, err := NewFeatureFlagManager(nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, actual)
 	})
@@ -210,10 +220,15 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{}
 
-		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
-			config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
-			return config
-		})
+		actual, err := NewFeatureFlagManager(
+			cfg,
+			http.DefaultClient,
+			cbnoop.NewCircuitBreaker(),
+			WithConfigModifiers(func(config ld.Config) ld.Config {
+				config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
+				return config
+			}),
+		)
 		must.Error(t, err)
 		must.Nil(t, actual)
 	})
@@ -223,10 +238,15 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{SDKKey: t.Name(), InitTimeout: 0}
 
-		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker(), func(config ld.Config) ld.Config {
-			config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
-			return config
-		})
+		actual, err := NewFeatureFlagManager(
+			cfg,
+			http.DefaultClient,
+			cbnoop.NewCircuitBreaker(),
+			WithConfigModifiers(func(config ld.Config) ld.Config {
+				config.DataSource = &fakeLaunchDarklyDataSourceBuilder{}
+				return config
+			}),
+		)
 		must.NoError(t, err)
 		must.NotNil(t, actual)
 	})
@@ -245,7 +265,12 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 			},
 		}
 
-		actual, err := NewFeatureFlagManager(&Config{SDKKey: t.Name()}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(
+			&Config{SDKKey: t.Name()},
+			http.DefaultClient,
+			cbnoop.NewCircuitBreaker(),
+			WithMetricsProvider(mp),
+		)
 		must.Error(t, err)
 		must.Nil(t, actual)
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
@@ -267,7 +292,12 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 			},
 		}
 
-		actual, err := NewFeatureFlagManager(&Config{SDKKey: t.Name()}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(
+			&Config{SDKKey: t.Name()},
+			http.DefaultClient,
+			cbnoop.NewCircuitBreaker(),
+			WithMetricsProvider(mp),
+		)
 		must.Error(t, err)
 		must.Nil(t, actual)
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
@@ -286,7 +316,12 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 			},
 		}
 
-		actual, err := NewFeatureFlagManager(&Config{SDKKey: t.Name()}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(
+			&Config{SDKKey: t.Name()},
+			http.DefaultClient,
+			cbnoop.NewCircuitBreaker(),
+			WithMetricsProvider(mp),
+		)
 		must.Error(t, err)
 		must.Nil(t, actual)
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())

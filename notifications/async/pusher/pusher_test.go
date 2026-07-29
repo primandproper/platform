@@ -7,9 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/notifications/async"
 	"github.com/primandproper/platform-go/v8/observability"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -34,7 +32,7 @@ func TestNewNotifier(T *testing.T) {
 			Key:     "key",
 			Secret:  "secret",
 			Cluster: "us2",
-		}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		})
 		must.NoError(t, err)
 		must.NotNil(t, n)
 	})
@@ -42,7 +40,7 @@ func TestNewNotifier(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		n, err := NewNotifier(nil)
 		test.Error(t, err)
 		test.Nil(t, n)
 	})

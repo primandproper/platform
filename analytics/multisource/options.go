@@ -1,0 +1,45 @@
+package multisource
+
+import (
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
+)
+
+// Option configures the reporters this package constructs. The zero
+// configuration works: an absent logger logs nowhere, an absent tracer
+// provider traces nowhere, and an absent metrics provider records nothing.
+type Option func(*options)
+
+type options struct {
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
+}
+
+func newOptions(opts []Option) *options {
+	cfg := &options{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(cfg)
+		}
+	}
+
+	return cfg
+}
+
+// WithLogger attaches a logger.
+func WithLogger(logger logging.Logger) Option {
+	return func(o *options) { o.logger = logger }
+}
+
+// WithTracerProvider attaches a tracer provider, enabling spans on every event.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+	return func(o *options) { o.tracerProvider = tracerProvider }
+}
+
+// WithMetricsProvider attaches a metrics provider, passed through to the
+// per-source reporters built from config.
+func WithMetricsProvider(metricsProvider metrics.Provider) Option {
+	return func(o *options) { o.metricsProvider = metricsProvider }
+}

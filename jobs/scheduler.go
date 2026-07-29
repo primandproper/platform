@@ -5,7 +5,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"maps"
-	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v8/panicking"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"go.opentelemetry.io/otel/attribute"
@@ -219,7 +219,9 @@ func WithSchedulerMetricsProvider(metricsProvider metrics.Provider) SchedulerOpt
 // something double-charges a customer. Single-replica deployments and tests
 // pass distributedlock/memory, which is a real lock within one process;
 // distributedlock/noop opts out entirely and lets every replica run every job.
-func NewScheduler(cfg *SchedulerConfig, locker distributedlock.Locker, opts ...SchedulerOption) (*Scheduler, error) {
+//
+// ctx is used to validate the config and is not retained — Run takes its own.
+func NewScheduler(ctx context.Context, cfg *SchedulerConfig, locker distributedlock.Locker, opts ...SchedulerOption) (*Scheduler, error) {
 	if cfg == nil {
 		return nil, platformerrors.New("nil job scheduler config provided")
 	}
@@ -243,7 +245,7 @@ func NewScheduler(cfg *SchedulerConfig, locker distributedlock.Locker, opts ...S
 		}
 	}
 
-	if err := s.cfg.ValidateWithContext(context.Background()); err != nil {
+	if err := s.cfg.ValidateWithContext(ctx); err != nil {
 		return nil, platformerrors.Wrap(err, "validating job scheduler config")
 	}
 
@@ -530,15 +532,15 @@ func (s *Scheduler) execute(ctx context.Context, op observability.Operation, job
 // stopped arriving" months later rather than a crash now.
 func (s *Scheduler) invoke(ctx context.Context, op observability.Operation, job *Job, attrs metric.MeasurementOption) (err error) {
 	defer func() {
-		recovered := recover()
-		if recovered == nil {
+		pe, ok := stderrors.AsType[*panicking.PanicError](err)
+		if !ok {
 			return
 		}
 
 		s.panicCounter.Add(ctx, 1, attrs)
-		op.SpanOnly(panicStackKey, string(debug.Stack()))
+		op.SpanOnly(panicStackKey, string(pe.Stack))
 
-		err = platformerrors.Wrapf(ErrJobPanicked, "%v", recovered)
+		err = platformerrors.Wrapf(ErrJobPanicked, "%v", pe.Value)
 	}()
 
 	timeout := job.Timeout
@@ -552,5 +554,5 @@ func (s *Scheduler) invoke(ctx context.Context, op observability.Operation, job 
 		defer cancel()
 	}
 
-	return job.Run(ctx)
+	return panicking.Contain(func() error { return job.Run(ctx) })
 }

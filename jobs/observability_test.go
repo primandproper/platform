@@ -140,7 +140,7 @@ func TestMessage_linkToOrigin(T *testing.T) {
 func newObservedScheduler(t *testing.T, locker distributedlock.Locker) (*Scheduler, *observability.RecordingObserver) {
 	t.Helper()
 
-	scheduler, err := NewScheduler(&SchedulerConfig{}, locker)
+	scheduler, err := NewScheduler(t.Context(), &SchedulerConfig{}, locker)
 	must.NoError(t, err)
 
 	obs := observability.NewRecordingObserver()

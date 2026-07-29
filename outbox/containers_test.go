@@ -9,31 +9,21 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/database/migrate"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	"github.com/primandproper/platform-go/v8/database/mysql"
 	"github.com/primandproper/platform-go/v8/database/postgres"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/outbox/migrations"
-	"github.com/primandproper/platform-go/v8/testutils/containers"
+	"github.com/primandproper/platform-go/v8/testutils/containers/mysqltest"
 	"github.com/primandproper/platform-go/v8/testutils/containers/pgtest"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"github.com/testcontainers/testcontainers-go"
-	mysqlcontainers "github.com/testcontainers/testcontainers-go/modules/mysql"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const (
-	defaultMySQLImage = "mariadb:11"
-
-	// mysqlStartupDeadline mirrors the deadline the tableaccess suite uses; a
-	// cold start has to cover an image pull plus initialization, and the
-	// readiness line appears twice.
-	mysqlStartupDeadline = 2 * time.Minute
-)
+// defaultMySQLImage pins the MariaDB flavor this suite exercises; mysqltest's
+// default is stock MySQL.
+const defaultMySQLImage = "mariadb:11"
 
 // tableCounter names a fresh table per subtest. Subtests share one container,
 // so they must not share a table — the claim predicate is global to the table
@@ -44,7 +34,7 @@ var tableCounter atomic.Uint64
 // should exercise against it.
 type dialectEnv struct {
 	client    database.Client
-	dialect   Dialect
+	dialect   dialect.Dialect
 	claimMode ClaimMode
 }
 
@@ -54,9 +44,7 @@ func (e *dialectEnv) newTable(t *testing.T) string {
 
 	name := fmt.Sprintf("outbox_%d", tableCounter.Add(1))
 
-	migrationDialect := migrations.Dialect(e.dialect)
-
-	stmts, err := migrations.Statements(migrationDialect, name)
+	stmts, err := migrations.Statements(e.dialect, name)
 	must.NoError(t, err)
 
 	for _, stmt := range stmts {
@@ -338,13 +326,7 @@ func TestOutbox_Postgres(T *testing.T) {
 	T.Parallel()
 
 	pgtest.Run(T, func(ctx context.Context, pg *pgtest.Instance) {
-		client, err := postgres.NewDatabaseClient(
-			ctx,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			&testClientConfig{connectionString: pg.ConnectionString},
-			nil,
-		)
+		client, err := postgres.NewDatabaseClient(ctx, &testClientConfig{connectionString: pg.ConnectionString})
 		must.NoError(T, err)
 		T.Cleanup(func() { _ = client.Close() })
 
@@ -355,7 +337,7 @@ func TestOutbox_Postgres(T *testing.T) {
 				t.Parallel()
 
 				runDialectSuite(t, &dialectEnv{
-					dialect:   DialectPostgres,
+					dialect:   dialect.Postgres,
 					claimMode: mode,
 					client:    client,
 				})
@@ -364,43 +346,20 @@ func TestOutbox_Postgres(T *testing.T) {
 	}, pgtest.WithMaxOpenConns(32))
 }
 
-// runWithMySQL boots a MySQL container and hands its closure a database.Client
-// against it. There is no mysqltest counterpart to pgtest, so the container
-// setup mirrors the one in database/mysql/tableaccess.
+// runWithMySQL boots a MySQL container via mysqltest and hands its closure a
+// database.Client against it.
 func runWithMySQL(tb testing.TB, fn func(ctx context.Context, client database.Client)) {
 	tb.Helper()
 
-	containers.Run(tb,
-		func(ctx context.Context) (*mysqlcontainers.MySQLContainer, error) {
-			return mysqlcontainers.Run(
-				ctx,
-				defaultMySQLImage,
-				mysqlcontainers.WithDatabase("outboxtest"),
-				mysqlcontainers.WithUsername("outboxtest"),
-				mysqlcontainers.WithPassword("outboxtest"),
-				testcontainers.WithWaitStrategyAndDeadline(
-					mysqlStartupDeadline,
-					wait.ForLog("ready for connections").WithOccurrence(2),
-				),
-			)
-		},
-		func(ctx context.Context, container *mysqlcontainers.MySQLContainer) {
-			// parseTime keeps DATETIME(6) round-tripping as time.Time rather
-			// than []byte.
-			connStr := container.MustConnectionString(ctx, "parseTime=true", "multiStatements=true")
+	mysqltest.Run(tb, func(ctx context.Context, my *mysqltest.Instance) {
+		client, err := mysql.NewDatabaseClient(ctx, &testClientConfig{connectionString: my.ConnectionString})
+		must.NoError(tb, err)
+		tb.Cleanup(func() { _ = client.Close() })
 
-			client, err := mysql.NewDatabaseClient(
-				ctx,
-				loggingnoop.NewLogger(),
-				tracingnoop.NewTracerProvider(),
-				&testClientConfig{connectionString: connStr},
-				nil,
-			)
-			must.NoError(tb, err)
-			tb.Cleanup(func() { _ = client.Close() })
-
-			fn(ctx, client)
-		},
+		fn(ctx, client)
+	},
+		mysqltest.WithImage(defaultMySQLImage),
+		mysqltest.WithCredentials("outboxtest", "outboxtest", "outboxtest"),
 	)
 }
 
@@ -413,7 +372,7 @@ func TestOutbox_MySQL(T *testing.T) {
 				t.Parallel()
 
 				runDialectSuite(t, &dialectEnv{
-					dialect:   DialectMySQL,
+					dialect:   dialect.MySQL,
 					claimMode: mode,
 					client:    client,
 				})
@@ -430,16 +389,16 @@ func TestOutbox_MySQL(T *testing.T) {
 func TestOutbox_MigratorIntegration_Containers(T *testing.T) {
 	T.Parallel()
 
-	assertUsable := func(t *testing.T, client database.Client, dialect Dialect, table string) {
+	assertUsable := func(t *testing.T, client database.Client, d dialect.Dialect, table string) {
 		t.Helper()
 
 		c := newStubClock()
 
-		w, err := NewWriter(dialect, WithWriterClock(c), WithWriterTableName(table))
+		w, err := NewWriter(d, WithWriterClock(c), WithWriterTableName(table))
 		must.NoError(t, err)
 
 		relay, rec := newTestRelay(t, client, c, func(cfg *RelayConfig) {
-			cfg.Dialect = dialect
+			cfg.Dialect = d
 			cfg.ClaimMode = ClaimSkipLocked
 			cfg.TableName = table
 		})
@@ -457,20 +416,14 @@ func TestOutbox_MigratorIntegration_Containers(T *testing.T) {
 		t.Parallel()
 
 		pgtest.Run(t, func(_ context.Context, pg *pgtest.Instance) {
-			client, err := postgres.NewDatabaseClient(
-				t.Context(),
-				loggingnoop.NewLogger(),
-				tracingnoop.NewTracerProvider(),
-				&testClientConfig{connectionString: pg.ConnectionString},
-				nil,
-			)
+			client, err := postgres.NewDatabaseClient(t.Context(), &testClientConfig{connectionString: pg.ConnectionString})
 			must.NoError(t, err)
 			t.Cleanup(func() { _ = client.Close() })
 
 			const table = "migrated_outbox"
 
-			migrateOutboxTable(t, client, migrate.DialectPostgres, migrations.DialectPostgres, table)
-			assertUsable(t, client, DialectPostgres, table)
+			migrateOutboxTable(t, client, dialect.Postgres, table)
+			assertUsable(t, client, dialect.Postgres, table)
 		})
 	})
 
@@ -480,8 +433,8 @@ func TestOutbox_MigratorIntegration_Containers(T *testing.T) {
 		runWithMySQL(t, func(_ context.Context, client database.Client) {
 			const table = "migrated_outbox"
 
-			migrateOutboxTable(t, client, migrate.DialectMySQL, migrations.DialectMySQL, table)
-			assertUsable(t, client, DialectMySQL, table)
+			migrateOutboxTable(t, client, dialect.MySQL, table)
+			assertUsable(t, client, dialect.MySQL, table)
 		})
 	})
 }
@@ -495,7 +448,7 @@ func TestMigrations_RealServers(T *testing.T) {
 		t.Parallel()
 
 		pgtest.Run(t, func(ctx context.Context, pg *pgtest.Instance) {
-			stmts, err := migrations.Statements(migrations.DialectPostgres, "ddl_check")
+			stmts, err := migrations.Statements(dialect.Postgres, "ddl_check")
 			must.NoError(t, err)
 
 			for _, stmt := range stmts {
@@ -515,7 +468,7 @@ func TestMigrations_RealServers(T *testing.T) {
 		t.Parallel()
 
 		runWithMySQL(t, func(ctx context.Context, client database.Client) {
-			stmts, err := migrations.Statements(migrations.DialectMySQL, "ddl_check")
+			stmts, err := migrations.Statements(dialect.MySQL, "ddl_check")
 			must.NoError(t, err)
 
 			// Executed twice: CREATE TABLE IF NOT EXISTS carries the inline KEY
@@ -532,8 +485,8 @@ func TestMigrations_RealServers(T *testing.T) {
 	T.Run("statements carry no unrendered placeholder", func(t *testing.T) {
 		t.Parallel()
 
-		for _, d := range []migrations.Dialect{
-			migrations.DialectPostgres, migrations.DialectMySQL, migrations.DialectSQLite,
+		for _, d := range []dialect.Dialect{
+			dialect.Postgres, dialect.MySQL, dialect.SQLite,
 		} {
 			stmts, err := migrations.Statements(d, "ddl_check")
 			must.NoError(t, err)

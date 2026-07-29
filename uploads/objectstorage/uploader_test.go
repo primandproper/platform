@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 )
@@ -183,7 +181,7 @@ func TestNewUploadManager(T *testing.T) {
 			Provider:   MemoryProvider,
 		}
 
-		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, cfg, WithLogger(l))
 		test.NotNil(t, x)
 		test.NoError(t, err)
 	})
@@ -194,7 +192,7 @@ func TestNewUploadManager(T *testing.T) {
 		ctx := t.Context()
 		l := loggingnoop.NewLogger()
 
-		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), nil)
+		x, err := NewUploadManager(ctx, nil, WithLogger(l))
 		test.Nil(t, x)
 		test.Error(t, err)
 	})
@@ -206,7 +204,7 @@ func TestNewUploadManager(T *testing.T) {
 		l := loggingnoop.NewLogger()
 		cfg := &Config{}
 
-		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, cfg, WithLogger(l))
 		test.Nil(t, x)
 		test.Error(t, err)
 	})
@@ -224,7 +222,7 @@ func TestNewUploadManager(T *testing.T) {
 			FilesystemConfig: &FilesystemConfig{RootDirectory: tempDir},
 		}
 
-		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, cfg, WithLogger(l))
 		test.NotNil(t, x)
 		test.NoError(t, err)
 	})
@@ -240,7 +238,7 @@ func TestNewUploadManager(T *testing.T) {
 			BucketPrefix: "prefix/",
 		}
 
-		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, cfg, WithLogger(l))
 		test.NotNil(t, x)
 		test.NoError(t, err)
 	})
@@ -255,7 +253,7 @@ func TestNewUploadManager(T *testing.T) {
 			Provider:   GCPCloudStorageProvider,
 		}
 
-		x, err := NewUploadManager(ctx, l, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), cfg)
+		x, err := NewUploadManager(ctx, cfg, WithLogger(l))
 		test.Nil(t, x)
 		test.Error(t, err)
 	})

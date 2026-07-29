@@ -24,7 +24,7 @@ var _ secrets.SecretSource = (*envSecretSource)(nil)
 func newRecordingSource(t *testing.T) (*envSecretSource, *observability.RecordingObserver) {
 	t.Helper()
 
-	source, err := NewEnvSecretSource(nil, nil, nil)
+	source, err := NewEnvSecretSource()
 	must.NoError(t, err)
 
 	src, ok := source.(*envSecretSource)
@@ -49,7 +49,7 @@ func TestNewEnvSecretSource(T *testing.T) {
 			},
 		}
 
-		source, err := NewEnvSecretSource(nil, nil, mp)
+		source, err := NewEnvSecretSource(WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -73,7 +73,7 @@ func TestNewEnvSecretSource(T *testing.T) {
 			},
 		}
 
-		source, err := NewEnvSecretSource(nil, nil, mp)
+		source, err := NewEnvSecretSource(WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -112,7 +112,7 @@ func TestEnvSecretSource_GetSecret(T *testing.T) {
 		key := "TEST_SECRET_UNSET_" + t.Name()
 		must.NoError(t, os.Unsetenv(key))
 
-		source, err := NewEnvSecretSource(nil, nil, nil)
+		source, err := NewEnvSecretSource()
 		must.NoError(t, err)
 		ctx := context.Background()
 
@@ -129,7 +129,7 @@ func TestEnvSecretSource_GetSecret(T *testing.T) {
 		must.NoError(t, os.Setenv(key, ""))
 		t.Cleanup(func() { _ = os.Unsetenv(key) })
 
-		source, err := NewEnvSecretSource(nil, nil, nil)
+		source, err := NewEnvSecretSource()
 		must.NoError(t, err)
 		ctx := context.Background()
 
@@ -145,7 +145,7 @@ func TestEnvSecretSource_Close(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		source, err := NewEnvSecretSource(nil, nil, nil)
+		source, err := NewEnvSecretSource()
 		must.NoError(t, err)
 
 		err = source.Close()

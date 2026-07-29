@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/clock"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	"github.com/primandproper/platform-go/v8/encoding"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/identifiers"
@@ -28,44 +29,11 @@ var (
 	ErrNilPayload = platformerrors.New("nil outbox message payload")
 	// ErrNilExecutor indicates Enqueue was called without a query executor.
 	ErrNilExecutor = platformerrors.New("nil query executor")
-	// ErrUnsupportedDialect indicates a dialect outside the supported set.
-	ErrUnsupportedDialect = platformerrors.New("unsupported outbox dialect")
 	// ErrInvalidTableName indicates a table name that is not a plain SQL
 	// identifier. Table names are interpolated into queries rather than bound,
 	// so they are restricted rather than escaped.
 	ErrInvalidTableName = platformerrors.New("invalid outbox table name")
 )
-
-// Dialect selects the SQL a Writer and Relay emit. It mirrors the providers
-// under database/.
-type Dialect string
-
-const (
-	// DialectPostgres targets PostgreSQL, which numbers its placeholders and
-	// supports SKIP LOCKED.
-	DialectPostgres Dialect = "postgres"
-	// DialectMySQL targets MySQL 8.0+, which supports SKIP LOCKED.
-	DialectMySQL Dialect = "mysql"
-	// DialectSQLite targets SQLite, which has no SKIP LOCKED and therefore
-	// only supports ClaimLease.
-	DialectSQLite Dialect = "sqlite"
-)
-
-// Valid reports whether d is a dialect this package can emit SQL for.
-func (d Dialect) Valid() bool {
-	switch d {
-	case DialectPostgres, DialectMySQL, DialectSQLite:
-		return true
-	default:
-		return false
-	}
-}
-
-// supportsSkipLocked reports whether the dialect can claim with FOR UPDATE
-// SKIP LOCKED, which is what allows more than one Relay to run at once.
-func (d Dialect) supportsSkipLocked() bool {
-	return d == DialectPostgres || d == DialectMySQL
-}
 
 // Message is one event awaiting publication.
 type Message struct {
@@ -99,7 +67,7 @@ type Writer struct {
 
 	tracerProvider  tracing.TracerProvider
 	metricsProvider metrics.Provider
-	dialect         Dialect
+	dialect         dialect.Dialect
 	table           string
 }
 
@@ -152,13 +120,13 @@ func WithWriterMetricsProvider(metricsProvider metrics.Provider) WriterOption {
 }
 
 // NewWriter builds a Writer for the given dialect.
-func NewWriter(dialect Dialect, opts ...WriterOption) (*Writer, error) {
-	if !dialect.Valid() {
-		return nil, platformerrors.Wrapf(ErrUnsupportedDialect, "dialect %q", dialect)
+func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
+	if !d.Valid() {
+		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "outbox dialect %q", d)
 	}
 
 	w := &Writer{
-		dialect: dialect,
+		dialect: d,
 		table:   DefaultTableName,
 		clock:   clock.NewClock(),
 	}
@@ -168,13 +136,13 @@ func NewWriter(dialect Dialect, opts ...WriterOption) (*Writer, error) {
 		}
 	}
 
-	if !validIdentifier(w.table) {
+	if !dialect.ValidIdentifier(w.table) {
 		return nil, platformerrors.Wrapf(ErrInvalidTableName, "table %q", w.table)
 	}
 
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
 	w.logger = w.o11y.Logger()
-	w.marshaler = encoding.NewClientEncoder(w.logger, w.tracerProvider, encoding.ContentTypeJSON)
+	w.marshaler = encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(w.logger), encoding.WithTracerProvider(w.tracerProvider))
 
 	mp := metrics.EnsureMetricsProvider(w.metricsProvider)
 

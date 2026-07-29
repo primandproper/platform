@@ -56,7 +56,7 @@ func NewMiddleware(manager *idempotency.Manager[Response], opts ...Option) (rout
 		manager: manager,
 		cfg:     cfg,
 		o11y:    observability.NewObserver(serviceName, cfg.logger, cfg.tracerProvider),
-		enc:     encoding.NewServerEncoderDecoder(cfg.logger, cfg.tracerProvider, encoding.ContentTypeJSON),
+		enc:     encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON, encoding.WithLogger(cfg.logger), encoding.WithTracerProvider(cfg.tracerProvider)),
 	}
 
 	// The one instrument this layer owns. Everything else worth watching is

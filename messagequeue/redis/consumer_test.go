@@ -24,12 +24,7 @@ import (
 func buildRedisBackedConsumer(t *testing.T, cfg *Config, topic string, handlerFunc func(context.Context, []byte) error) messagequeue.Consumer {
 	t.Helper()
 
-	provider := NewRedisConsumerProvider(
-		loggingnoop.NewLogger(),
-		tracingnoop.NewTracerProvider(),
-		nil,
-		*cfg,
-	)
+	provider := NewRedisConsumerProvider(*cfg)
 
 	consumer, err := provider.NewConsumer(t.Context(), topic, handlerFunc)
 	must.NoError(t, err)
@@ -187,7 +182,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			}
 		}()
 
-		conPro := NewRedisConsumerProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, *cfg)
+		conPro := NewRedisConsumerProvider(*cfg)
 		must.NotNil(t, conPro)
 
 		hf := func(context.Context, []byte) error { return nil }
@@ -211,7 +206,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			}
 		}()
 
-		conPro := NewRedisConsumerProvider(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, *cfg)
+		conPro := NewRedisConsumerProvider(*cfg)
 		must.NotNil(t, conPro)
 
 		hf := func(context.Context, []byte) error { return nil }
@@ -232,12 +227,11 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 	T.Run("with empty topic", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
 
-		conPro := NewRedisConsumerProvider(logger, tracingnoop.NewTracerProvider(), nil, cfg)
+		conPro := NewRedisConsumerProvider(cfg)
 		must.NotNil(t, conPro)
 
 		actual, err := conPro.NewConsumer(t.Context(), "", nil)

@@ -6,9 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/notifications/async"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	pushersdk "github.com/pusher/pusher-http-go/v5"
 )
@@ -35,10 +33,12 @@ type Notifier struct {
 }
 
 // NewNotifier creates a new Pusher-backed AsyncNotifier.
-func NewNotifier(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (*Notifier, error) {
+func NewNotifier(cfg *Config, opts ...Option) (*Notifier, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
+
+	o := newOptions(opts)
 
 	client := &pushersdk.Client{
 		AppID:   cfg.AppID,
@@ -48,7 +48,7 @@ func NewNotifier(cfg *Config, logger logging.Logger, tracerProvider tracing.Trac
 		Secure:  cfg.Secure,
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	sendCounter, err := mp.NewInt64Counter(o11yName + "_sends")
 	if err != nil {
@@ -61,7 +61,7 @@ func NewNotifier(cfg *Config, logger logging.Logger, tracerProvider tracing.Trac
 	}
 
 	return &Notifier{
-		o11y:         observability.NewObserver(o11yName, logger, tracerProvider),
+		o11y:         observability.NewObserver(o11yName, o.logger, o.tracerProvider),
 		client:       client,
 		sendCounter:  sendCounter,
 		errorCounter: errorCounter,

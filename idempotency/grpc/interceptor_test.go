@@ -525,10 +525,10 @@ func TestInterceptor_ReplayFailure(T *testing.T) {
 			DeleteFunc: func(context.Context, string) error { return nil },
 		}
 
-		locker, err := dlmemory.NewLocker(nil, nil, nil)
+		locker, err := dlmemory.NewLocker()
 		must.NoError(t, err)
 
-		scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+		scoped, err := distributedlock.NewScopedLocker(locker)
 		must.NoError(t, err)
 
 		manager, err := NewManager(store, scoped)

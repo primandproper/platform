@@ -22,7 +22,7 @@ var errStub = errors.New("stub error")
 func newRecordingManager(t *testing.T) (*StreamManager[EventStream], *observability.RecordingObserver) {
 	t.Helper()
 
-	m := NewStreamManager[EventStream](nil, nil)
+	m := NewStreamManager[EventStream]()
 	obs := observability.NewRecordingObserver()
 	m.o11y = obs
 
@@ -78,7 +78,7 @@ func TestNewStreamManager(T *testing.T) {
 
 		ctx := t.Context()
 
-		m := NewStreamManager[EventStream](nil, nil)
+		m := NewStreamManager[EventStream]()
 		must.NotNil(t, m)
 
 		obs := observability.NewRecordingObserver()

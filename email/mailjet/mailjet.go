@@ -11,9 +11,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/mailjet/mailjet-apiv3-go/v4"
 )
@@ -52,7 +50,7 @@ type (
 )
 
 // NewMailjetEmailer returns a new Mailjet-backed Emailer.
-func NewMailjetEmailer(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, client *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, metricsProvider metrics.Provider) (*Emailer, error) {
+func NewMailjetEmailer(cfg *Config, client *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (*Emailer, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -69,7 +67,9 @@ func NewMailjetEmailer(cfg *Config, logger logging.Logger, tracerProvider tracin
 		return nil, ErrNilHTTPClient
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	sendCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_sends", name))
 	if err != nil {
@@ -90,7 +90,7 @@ func NewMailjetEmailer(cfg *Config, logger logging.Logger, tracerProvider tracin
 	mj.SetClient(client)
 
 	e := &Emailer{
-		o11y:           observability.NewObserver(name, logger, tracerProvider),
+		o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
 		sendCounter:    sendCounter,
 		errorCounter:   errorCounter,
 		latencyHist:    latencyHist,

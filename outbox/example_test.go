@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	"github.com/primandproper/platform-go/v8/database/migrate"
 	"github.com/primandproper/platform-go/v8/database/sqlite"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/outbox"
 	"github.com/primandproper/platform-go/v8/outbox/migrations"
 )
@@ -47,20 +46,14 @@ func exampleDatabase(ctx context.Context) (database.Client, func(), error) {
 
 	cleanup := func() { _ = os.RemoveAll(dir) }
 
-	client, err := sqlite.NewDatabaseClient(
-		ctx,
-		loggingnoop.NewLogger(),
-		tracingnoop.NewTracerProvider(),
-		&exampleClientConfig{connectionString: filepath.Join(dir, "example.db")},
-		nil,
-	)
+	client, err := sqlite.NewDatabaseClient(ctx, &exampleClientConfig{connectionString: filepath.Join(dir, "example.db")})
 	if err != nil {
 		cleanup()
 
 		return nil, nil, err
 	}
 
-	stmts, err := migrations.Statements(migrations.DialectSQLite, outbox.DefaultTableName)
+	stmts, err := migrations.Statements(dialect.SQLite, outbox.DefaultTableName)
 	if err != nil {
 		cleanup()
 
@@ -104,7 +97,7 @@ func ExampleWriter_Enqueue() {
 	}
 	defer cleanup()
 
-	writer, err := outbox.NewWriter(outbox.DialectSQLite)
+	writer, err := outbox.NewWriter(dialect.SQLite)
 	if err != nil {
 		panic(err)
 	}
@@ -145,7 +138,7 @@ func ExampleWriter_Enqueue_rollback() {
 	}
 	defer cleanup()
 
-	writer, err := outbox.NewWriter(outbox.DialectSQLite)
+	writer, err := outbox.NewWriter(dialect.SQLite)
 	if err != nil {
 		panic(err)
 	}
@@ -174,7 +167,7 @@ func ExampleWriter_Enqueue_rollback() {
 // migration sequence at a version you choose, so nothing is copied into your
 // repository and nothing drifts as this package evolves.
 func ExampleSQL() {
-	ddl, err := migrations.SQL(migrations.DialectPostgres, outbox.DefaultTableName)
+	ddl, err := migrations.SQL(dialect.Postgres, outbox.DefaultTableName)
 	if err != nil {
 		panic(err)
 	}
@@ -185,7 +178,7 @@ func ExampleSQL() {
 	// not mid-deploy.
 	myMigrations := fstest.MapFS{}
 
-	m, err := migrate.New(migrate.DialectPostgres, myMigrations,
+	m, err := migrate.New(dialect.Postgres, myMigrations,
 		migrate.WithGeneratedMigration(37, "create_outbox_messages", ddl),
 	)
 	if err != nil {
@@ -202,7 +195,7 @@ func ExampleSQL() {
 // ExampleStatements shows the same DDL as individually executable statements,
 // for callers not using database/migrate.
 func ExampleStatements() {
-	stmts, err := migrations.Statements(migrations.DialectPostgres, outbox.DefaultTableName)
+	stmts, err := migrations.Statements(dialect.Postgres, outbox.DefaultTableName)
 	if err != nil {
 		panic(err)
 	}

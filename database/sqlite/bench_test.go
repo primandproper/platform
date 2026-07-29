@@ -4,9 +4,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-
 	"github.com/shoenig/test/must"
 )
 
@@ -26,7 +23,7 @@ func BenchmarkSQLiteClient(b *testing.B) {
 		maxPingAttempts:  1,
 	}
 
-	client, err := NewDatabaseClient(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil)
+	client, err := NewDatabaseClient(ctx, cfg)
 	must.NoError(b, err)
 	b.Cleanup(func() { _ = client.Close() })
 

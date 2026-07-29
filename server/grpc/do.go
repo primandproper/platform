@@ -15,11 +15,11 @@ func RegisterGRPCServer(i do.Injector) {
 	do.Provide[*Server](i, func(i do.Injector) (*Server, error) {
 		return NewGRPCServer(
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
 			do.MustInvoke[[]grpc.UnaryServerInterceptor](i),
 			do.MustInvoke[[]grpc.StreamServerInterceptor](i),
-			do.MustInvoke[[]RegistrationFunc](i)...,
+			do.MustInvoke[[]RegistrationFunc](i),
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
 		)
 	})
 }

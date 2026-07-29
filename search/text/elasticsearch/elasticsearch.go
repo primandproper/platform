@@ -12,7 +12,6 @@ import (
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
 	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	textsearch "github.com/primandproper/platform-go/v8/search/text"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -53,20 +52,21 @@ func provideElasticsearchClient(cfg *Config) (*elasticsearch.Client, error) {
 	return c, nil
 }
 
-func NewIndexManager[T any](ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config, indexName string, circuitBreaker circuitbreaking.CircuitBreaker) (textsearch.Index[T], error) {
+func NewIndexManager[T any](ctx context.Context, cfg *Config, indexName string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (textsearch.Index[T], error) {
 	c, err := provideElasticsearchClient(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing search client")
 	}
 
-	logger = logging.EnsureLogger(logger)
+	o := newOptions(opts)
+	logger := logging.EnsureLogger(o.logger)
 
 	if ready := elasticsearchIsReadyToInit(ctx, cfg, logger, 10); !ready {
 		return nil, errors.New("elasticsearch not ready")
 	}
 
 	im := &indexManager[T]{
-		o11y:                  observability.NewObserver(fmt.Sprintf("search_%s", indexName), logger, tracerProvider),
+		o11y:                  observability.NewObserver(fmt.Sprintf("search_%s", indexName), logger, o.tracerProvider),
 		esClient:              c,
 		indexOperationTimeout: cfg.IndexOperationTimeout,
 		// Elasticsearch index names must be lowercase. Normalize once so create,

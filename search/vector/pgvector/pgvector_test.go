@@ -79,7 +79,7 @@ func provideTestIndex(t *testing.T, client database.Client, indexName string, di
 		Dimension: dim,
 		Metric:    distanceMetric,
 	}
-	im, err := NewIndex[doc](t.Context(), nil, nil, nil, cfg, client, indexName, cbnoop.NewCircuitBreaker())
+	im, err := NewIndex[doc](t.Context(), cfg, client, indexName, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, im)
 	return im
@@ -187,42 +187,42 @@ func TestNewIndex(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, nil, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), nil, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
 		must.ErrorIs(t, err, vectorsearch.ErrNilConfig)
 	})
 
 	T.Run("nil database", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, nil, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, nil, "idx", cbnoop.NewCircuitBreaker())
 		must.ErrorIs(t, err, vectorsearch.ErrNilDatabaseClient)
 	})
 
 	T.Run("invalid dimension", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{Dimension: 0, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 0, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 	})
 
 	T.Run("invalid metric", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{Dimension: 3, Metric: "weird"}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: "weird"}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 	})
 
 	T.Run("invalid index name", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "no-dashes", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "no-dashes", cbnoop.NewCircuitBreaker())
 		must.ErrorIs(t, err, ErrInvalidIdentifier)
 	})
 
 	T.Run("invalid metadata column", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine, MetadataColumn: "weird-col"}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine, MetadataColumn: "weird-col"}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
 		must.ErrorIs(t, err, ErrInvalidIdentifier)
 	})
 
@@ -233,7 +233,7 @@ func TestNewIndex(T *testing.T) {
 			"pgvector_index_upserts": {counter: metricnoop.Int64Counter{}, err: errors.New("forced error")},
 		})
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, mp, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})
@@ -246,7 +246,7 @@ func TestNewIndex(T *testing.T) {
 			"pgvector_index_deletes": {counter: metricnoop.Int64Counter{}, err: errors.New("forced error")},
 		})
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, mp, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 	})
@@ -260,7 +260,7 @@ func TestNewIndex(T *testing.T) {
 			"pgvector_index_wipes":   {counter: metricnoop.Int64Counter{}, err: errors.New("forced error")},
 		})
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, mp, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.SliceLen(t, 3, mp.NewInt64CounterCalls())
 	})
@@ -275,7 +275,7 @@ func TestNewIndex(T *testing.T) {
 			"pgvector_index_queries": {counter: metricnoop.Int64Counter{}, err: errors.New("forced error")},
 		})
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, mp, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.SliceLen(t, 4, mp.NewInt64CounterCalls())
 	})
@@ -291,7 +291,7 @@ func TestNewIndex(T *testing.T) {
 			"pgvector_index_errors":  {counter: metricnoop.Int64Counter{}, err: errors.New("forced error")},
 		})
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, mp, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.SliceLen(t, 5, mp.NewInt64CounterCalls())
 	})
@@ -308,7 +308,7 @@ func TestNewIndex(T *testing.T) {
 			},
 		}
 
-		_, err := NewIndex[doc](t.Context(), nil, nil, mp, &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), &Config{Dimension: 3, Metric: vectorsearch.DistanceCosine}, &testDBClient{}, "idx", cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.SliceLen(t, 5, mp.NewInt64CounterCalls())
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())

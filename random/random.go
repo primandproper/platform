@@ -11,10 +11,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/tracing"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
 const (
@@ -24,7 +21,7 @@ const (
 var (
 	_ Generator = (*standardGenerator)(nil)
 
-	defaultGenerator = NewGenerator(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+	defaultGenerator = NewGenerator()
 )
 
 func init() {
@@ -49,9 +46,11 @@ type (
 )
 
 // NewGenerator builds a new Generator.
-func NewGenerator(logger logging.Logger, tracerProvider tracing.TracerProvider) Generator {
+func NewGenerator(opts ...Option) Generator {
+	o := newOptions(opts)
+
 	return &standardGenerator{
-		o11y:       observability.NewObserver("random_generator", logger, tracerProvider),
+		o11y:       observability.NewObserver("random_generator", o.logger, o.tracerProvider),
 		randReader: rand.Reader,
 	}
 }

@@ -19,7 +19,7 @@ func BenchmarkRedisLocker_AcquireRelease(b *testing.B) {
 		KeyPrefix: "lock:",
 	}
 
-	l, err := NewRedisLocker(cfg, nil, nil, nil, cbnoop.NewCircuitBreaker())
+	l, err := NewRedisLocker(cfg, cbnoop.NewCircuitBreaker())
 	must.NoError(b, err)
 
 	ctx := b.Context()

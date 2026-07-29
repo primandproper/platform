@@ -88,7 +88,7 @@ func (cfg *Config) NewPushSender(
 				BundleID:    cfg.APNs.BundleID,
 				Production:  cfg.APNs.Production,
 			}
-			s, err := apns.NewSender(apnsCfg, tracerProvider, logger, metricsProvider)
+			s, err := apns.NewSender(apnsCfg, apns.WithTracerProvider(tracerProvider), apns.WithLogger(logger), apns.WithMetricsProvider(metricsProvider))
 			if err != nil {
 				return nil, errors.Wrap(err, "initializing APNs sender")
 			}
@@ -98,7 +98,7 @@ func (cfg *Config) NewPushSender(
 		var fcmSender *fcm.Sender
 		if cfg.FCM != nil {
 			fcmCfg := &fcm.Config{CredentialsPath: cfg.FCM.CredentialsPath}
-			s, err := fcm.NewSender(ctx, fcmCfg, tracerProvider, logger, metricsProvider)
+			s, err := fcm.NewSender(ctx, fcmCfg, fcm.WithTracerProvider(tracerProvider), fcm.WithLogger(logger), fcm.WithMetricsProvider(metricsProvider))
 			if err != nil {
 				return nil, errors.Wrap(err, "initializing FCM sender")
 			}
@@ -108,7 +108,7 @@ func (cfg *Config) NewPushSender(
 		if apnsSender == nil && fcmSender == nil {
 			return nil, errors.New("apns_fcm provider selected but neither APNs nor FCM is configured")
 		}
-		return mobile.NewMultiPlatformPushSender(apnsSender, fcmSender, logger, tracerProvider), nil
+		return mobile.NewMultiPlatformPushSender(apnsSender, fcmSender, mobile.WithLogger(logger), mobile.WithTracerProvider(tracerProvider)), nil
 	default:
 		logger.Debug("push notifications: using noop sender")
 		return noop.NewPushNotificationSender(), nil

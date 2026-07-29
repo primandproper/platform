@@ -12,7 +12,7 @@ func RegisterCookieManager(i do.Injector) {
 	do.Provide[cookies.Manager](i, func(i do.Injector) (cookies.Manager, error) {
 		return cookies.NewCookieManager(
 			do.MustInvoke[*cookies.Config](i),
-			do.MustInvoke[tracing.TracerProvider](i),
+			cookies.WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
 		)
 	})
 }

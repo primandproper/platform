@@ -11,11 +11,8 @@ import (
 	"github.com/primandproper/platform-go/v8/distributedlock"
 	"github.com/primandproper/platform-go/v8/distributedlock/memory"
 	dlmock "github.com/primandproper/platform-go/v8/distributedlock/mock"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -50,12 +47,11 @@ func noJitter() float64 { return 1 }
 func newScopedFixture(t *testing.T, opts ...distributedlock.ScopedOption) (distributedlock.ScopedLocker, distributedlock.Locker) {
 	t.Helper()
 
-	raw, err := memory.NewLocker(nil, nil, nil)
+	raw, err := memory.NewLocker()
 	must.NoError(t, err)
 
 	scoped, err := distributedlock.NewScopedLocker(
 		raw,
-		nil, nil, nil,
 		append([]distributedlock.ScopedOption{
 			distributedlock.WithScopedLockTTL(scopedLockTTL),
 			distributedlock.WithScopedPollInterval(scopedPollInterval),
@@ -115,7 +111,7 @@ func TestNewScopedLocker(T *testing.T) {
 	T.Run("rejects a nil locker", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := distributedlock.NewScopedLocker(nil, nil, nil, nil)
+		_, err := distributedlock.NewScopedLocker(nil)
 		test.Error(t, err)
 	})
 
@@ -137,11 +133,10 @@ func TestNewScopedLocker(T *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				raw, err := memory.NewLocker(nil, nil, nil)
+				raw, err := memory.NewLocker()
 				must.NoError(t, err)
 
-				_, err = distributedlock.NewScopedLocker(raw, nil, nil, nil,
-					distributedlock.WithScopedPollInterval(scopedPollInterval), tc.opt)
+				_, err = distributedlock.NewScopedLocker(raw, distributedlock.WithScopedPollInterval(scopedPollInterval), tc.opt)
 				test.Error(t, err)
 			})
 		}
@@ -150,21 +145,24 @@ func TestNewScopedLocker(T *testing.T) {
 	T.Run("accepts a backoff factor of exactly one", func(t *testing.T) {
 		t.Parallel()
 
-		raw, err := memory.NewLocker(nil, nil, nil)
+		raw, err := memory.NewLocker()
 		must.NoError(t, err)
 
-		_, err = distributedlock.NewScopedLocker(raw, nil, nil, nil,
-			distributedlock.WithScopedPollBackoff(1, distributedlock.DefaultScopedMaxPollInterval))
+		_, err = distributedlock.NewScopedLocker(
+			raw,
+			distributedlock.WithScopedPollBackoff(1, distributedlock.DefaultScopedMaxPollInterval),
+		)
 		test.NoError(t, err)
 	})
 
 	T.Run("nil options are skipped", func(t *testing.T) {
 		t.Parallel()
 
-		raw, err := memory.NewLocker(nil, nil, nil)
+		raw, err := memory.NewLocker()
 		must.NoError(t, err)
 
-		_, err = distributedlock.NewScopedLocker(raw, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(),
+		_, err = distributedlock.NewScopedLocker(
+			raw,
 			nil,
 			distributedlock.WithScopedJitter(nil),
 			distributedlock.WithScopedClock(nil),
@@ -186,7 +184,7 @@ func TestNewScopedLocker(T *testing.T) {
 			t.Run(failing, func(t *testing.T) {
 				t.Parallel()
 
-				raw, err := memory.NewLocker(nil, nil, nil)
+				raw, err := memory.NewLocker()
 				must.NoError(t, err)
 
 				mp := &mockmetrics.ProviderMock{
@@ -199,7 +197,7 @@ func TestNewScopedLocker(T *testing.T) {
 					},
 				}
 
-				_, err = distributedlock.NewScopedLocker(raw, nil, nil, mp)
+				_, err = distributedlock.NewScopedLocker(raw, distributedlock.WithMetricsProvider(mp))
 				must.Error(t, err)
 				test.SliceLen(t, i+1, mp.NewInt64CounterCalls())
 			})
@@ -211,7 +209,7 @@ func TestNewScopedLocker(T *testing.T) {
 			t.Run("histogram", func(t *testing.T) {
 				t.Parallel()
 
-				raw, err := memory.NewLocker(nil, nil, nil)
+				raw, err := memory.NewLocker()
 				must.NoError(t, err)
 
 				var calls int
@@ -229,7 +227,7 @@ func TestNewScopedLocker(T *testing.T) {
 					},
 				}
 
-				_, err = distributedlock.NewScopedLocker(raw, nil, nil, mp)
+				_, err = distributedlock.NewScopedLocker(raw, distributedlock.WithMetricsProvider(mp))
 				must.Error(t, err)
 				test.EqOp(t, failAtCall, calls)
 			})
@@ -263,7 +261,8 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 			},
 		}
 
-		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil,
+		scoped, err := distributedlock.NewScopedLocker(
+			raw,
 			distributedlock.WithScopedPollInterval(scopedPollInterval),
 			distributedlock.WithScopedJitter(noJitter),
 			distributedlock.WithScopedClock(c),
@@ -304,7 +303,8 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 		// A factor this large pushes interval*factor past what a Duration can
 		// hold. The stepwise growth has to notice and clamp, not wrap around
 		// into a negative wait that would turn the poller hot.
-		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil,
+		scoped, err := distributedlock.NewScopedLocker(
+			raw,
 			distributedlock.WithScopedPollInterval(scopedPollInterval),
 			distributedlock.WithScopedPollBackoff(1e300, maxPoll),
 			distributedlock.WithScopedJitter(noJitter),
@@ -334,7 +334,7 @@ func TestScopedLocker_LockerFailures(T *testing.T) {
 			},
 		}
 
-		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil)
+		scoped, err := distributedlock.NewScopedLocker(raw)
 		must.NoError(t, err)
 
 		// Not ErrLockNotAcquired, so there is nothing to wait out: it returns
@@ -352,7 +352,7 @@ func TestScopedLocker_LockerFailures(T *testing.T) {
 			},
 		}
 
-		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil)
+		scoped, err := distributedlock.NewScopedLocker(raw)
 		must.NoError(t, err)
 
 		acquired, err := scoped.TryWithLock(t.Context(), scopedTestKey, func(context.Context) error { return nil })
@@ -373,7 +373,7 @@ func TestScopedLocker_LockerFailures(T *testing.T) {
 			},
 		}
 
-		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil)
+		scoped, err := distributedlock.NewScopedLocker(raw)
 		must.NoError(t, err)
 
 		errFn := errors.New("fn failed")
@@ -398,7 +398,7 @@ func TestScopedLocker_LockerFailures(T *testing.T) {
 			},
 		}
 
-		scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil)
+		scoped, err := distributedlock.NewScopedLocker(raw)
 		must.NoError(t, err)
 
 		err = scoped.WithLock(t.Context(), scopedTestKey, func(context.Context) error { return nil })

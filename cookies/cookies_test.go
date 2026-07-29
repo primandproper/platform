@@ -8,7 +8,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -31,7 +30,7 @@ func buildConfigForTest() *Config {
 func newRecordingManager(t *testing.T) (*manager, *observability.RecordingObserver) {
 	t.Helper()
 
-	m, err := NewCookieManager(buildConfigForTest(), tracingnoop.NewTracerProvider())
+	m, err := NewCookieManager(buildConfigForTest())
 	must.NoError(t, err)
 	must.NotNil(t, m)
 
@@ -50,7 +49,7 @@ func TestNewCookieManager(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := NewCookieManager(buildConfigForTest(), tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(buildConfigForTest())
 		test.NoError(t, err)
 		test.NotNil(t, m)
 	})
@@ -58,7 +57,7 @@ func TestNewCookieManager(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := NewCookieManager(nil, tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(nil)
 		test.Error(t, err)
 		test.Nil(t, m)
 	})
@@ -72,7 +71,7 @@ func TestNewCookieManager(T *testing.T) {
 		cfg.SameSite = SameSiteNone
 		cfg.SecureOnly = false
 
-		m, err := NewCookieManager(cfg, tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(cfg)
 		test.Error(t, err)
 		test.Nil(t, m)
 	})
@@ -83,7 +82,7 @@ func TestNewCookieManager(T *testing.T) {
 		cfg := buildConfigForTest()
 		cfg.Base64EncodedHashKey = "not-valid-base64!!!"
 
-		m, err := NewCookieManager(cfg, tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(cfg)
 		test.Error(t, err)
 		test.Nil(t, m)
 		// The error must never echo the (secret) key material back to logs.
@@ -96,7 +95,7 @@ func TestNewCookieManager(T *testing.T) {
 		cfg := buildConfigForTest()
 		cfg.Base64EncodedBlockKey = "not-valid-base64!!!"
 
-		m, err := NewCookieManager(cfg, tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(cfg)
 		test.Error(t, err)
 		test.Nil(t, m)
 		// The error must never echo the (secret) key material back to logs.
@@ -136,7 +135,7 @@ func Test_manager_Encode(T *testing.T) {
 
 		ctx := t.Context()
 
-		m, err := NewCookieManager(buildConfigForTest(), tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(buildConfigForTest())
 		must.NoError(t, err)
 		must.NotNil(t, m)
 
@@ -179,7 +178,7 @@ func Test_manager_Decode(T *testing.T) {
 
 		ctx := t.Context()
 
-		m, err := NewCookieManager(buildConfigForTest(), tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(buildConfigForTest())
 		must.NoError(t, err)
 		must.NotNil(t, m)
 
@@ -201,7 +200,7 @@ func Test_manager_BuildCookie(T *testing.T) {
 		cfg.Lifetime = time.Hour
 		cfg.SecureOnly = true
 
-		m, err := NewCookieManager(cfg, tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(cfg)
 		must.NoError(t, err)
 
 		cookie, err := m.BuildCookie(ctx, "session", &example{Name: t.Name()})
@@ -231,7 +230,7 @@ func Test_manager_BuildCookie(T *testing.T) {
 		cfg := buildConfigForTest()
 		cfg.SameSite = SameSiteStrict
 
-		m, err := NewCookieManager(cfg, tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(cfg)
 		must.NoError(t, err)
 
 		cookie, err := m.BuildCookie(ctx, "session", &example{Name: t.Name()})
@@ -246,7 +245,7 @@ func Test_manager_BuildCookie(T *testing.T) {
 
 		ctx := t.Context()
 
-		m, err := NewCookieManager(buildConfigForTest(), tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(buildConfigForTest())
 		must.NoError(t, err)
 
 		cookie, err := m.BuildCookie(ctx, "session", &example{Name: t.Name()})
@@ -266,7 +265,7 @@ func Test_manager_BuildCookie(T *testing.T) {
 
 		ctx := t.Context()
 
-		m, err := NewCookieManager(buildConfigForTest(), tracingnoop.NewTracerProvider())
+		m, err := NewCookieManager(buildConfigForTest())
 		must.NoError(t, err)
 
 		cookie, err := m.BuildCookie(ctx, "session", func() {})

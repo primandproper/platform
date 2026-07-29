@@ -21,10 +21,10 @@ import (
 // reaches its polling loop — the poll interval is a wait for another holder to
 // finish, not a cost the adapter imposes.
 func BenchmarkScopedLocker(b *testing.B) {
-	raw, err := memory.NewLocker(nil, nil, nil)
+	raw, err := memory.NewLocker()
 	must.NoError(b, err)
 
-	scoped, err := distributedlock.NewScopedLocker(raw, nil, nil, nil, distributedlock.WithScopedLockTTL(time.Minute))
+	scoped, err := distributedlock.NewScopedLocker(raw, distributedlock.WithScopedLockTTL(time.Minute))
 	must.NoError(b, err)
 
 	ctx := b.Context()

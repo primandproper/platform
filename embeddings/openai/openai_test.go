@@ -24,7 +24,7 @@ import (
 func newRecordingEmbedder(t *testing.T, cfg *Config) (*embedder, *observability.RecordingObserver) {
 	t.Helper()
 
-	emb, err := NewEmbedder(t.Context(), cfg, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+	emb, err := NewEmbedder(t.Context(), cfg, WithTracer(tracing.NewTracerForTest("test")))
 	must.NoError(t, err)
 	must.NotNil(t, emb)
 
@@ -58,7 +58,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), nil, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(t.Context(), nil, WithTracer(tracing.NewTracerForTest("test")))
 		must.Error(t, err)
 		must.Nil(t, emb)
 	})
@@ -66,7 +66,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with missing API key", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(t.Context(), &Config{}, WithTracer(tracing.NewTracerForTest("test")))
 		must.Error(t, err)
 		must.Nil(t, emb)
 	})
@@ -74,7 +74,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithTracer(tracing.NewTracerForTest("test")))
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -82,10 +82,14 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with timeout", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:  "test-key",
-			Timeout: 5 * time.Second,
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:  "test-key",
+				Timeout: 5 * time.Second,
+			},
+			WithTracer(tracing.NewTracerForTest("test")),
+		)
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -158,11 +162,15 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:       "test-key",
-			BaseURL:      ts.URL,
-			DefaultModel: "text-embedding-3-small",
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:       "test-key",
+				BaseURL:      ts.URL,
+				DefaultModel: "text-embedding-3-small",
+			},
+			WithTracer(tracing.NewTracerForTest("test")),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -214,10 +222,14 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:  "test-key",
-			BaseURL: ts.URL,
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:  "test-key",
+				BaseURL: ts.URL,
+			},
+			WithTracer(tracing.NewTracerForTest("test")),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -240,10 +252,14 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:  "test-key",
-			BaseURL: ts.URL,
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:  "test-key",
+				BaseURL: ts.URL,
+			},
+			WithTracer(tracing.NewTracerForTest("test")),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -261,10 +277,14 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		ts.Close()
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:  "test-key",
-			BaseURL: ts.URL,
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:  "test-key",
+				BaseURL: ts.URL,
+			},
+			WithTracer(tracing.NewTracerForTest("test")),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -288,11 +308,15 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:       "test-key",
-			BaseURL:      ts.URL,
-			DefaultModel: "text-embedding-3-large",
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:       "test-key",
+				BaseURL:      ts.URL,
+				DefaultModel: "text-embedding-3-large",
+			},
+			WithTracer(tracing.NewTracerForTest("test")),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()

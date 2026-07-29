@@ -9,9 +9,8 @@ import (
 	"github.com/primandproper/platform-go/v8/clock"
 	clockmock "github.com/primandproper/platform-go/v8/clock/mock"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	"github.com/primandproper/platform-go/v8/database/sqlite"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/outbox/migrations"
 
 	"github.com/shoenig/test/must"
@@ -95,17 +94,11 @@ func newTestClient(t *testing.T) database.Client {
 
 	ctx := t.Context()
 
-	client, err := sqlite.NewDatabaseClient(
-		ctx,
-		loggingnoop.NewLogger(),
-		tracingnoop.NewTracerProvider(),
-		&testClientConfig{connectionString: filepath.Join(t.TempDir(), "outbox.db")},
-		nil,
-	)
+	client, err := sqlite.NewDatabaseClient(ctx, &testClientConfig{connectionString: filepath.Join(t.TempDir(), "outbox.db")})
 	must.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	stmts, err := migrations.Statements(migrations.DialectSQLite, DefaultTableName)
+	stmts, err := migrations.Statements(dialect.SQLite, DefaultTableName)
 	must.NoError(t, err)
 
 	if len(stmts) == 0 {

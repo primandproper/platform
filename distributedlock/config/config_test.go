@@ -268,14 +268,7 @@ func TestNewScopedLocker(T *testing.T) {
 	newScoped := func(t *testing.T, cfg *Config, db database.Client) (distributedlock.ScopedLocker, error) {
 		t.Helper()
 
-		return NewScopedLocker(
-			t.Context(),
-			cfg,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
-			db,
-		)
+		return NewScopedLocker(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), db)
 	}
 
 	T.Run("nil config", func(t *testing.T) {
@@ -381,14 +374,7 @@ func TestNewScopedLocker(T *testing.T) {
 			},
 		}
 
-		s, err := NewScopedLocker(
-			t.Context(),
-			cfg,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			mp,
-			&stubDBClient{},
-		)
+		s, err := NewScopedLocker(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, &stubDBClient{})
 		must.Error(t, err)
 		test.Nil(t, s)
 		test.StrContains(t, err.Error(), "distributedlock circuit breaker")

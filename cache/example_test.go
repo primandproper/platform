@@ -11,7 +11,7 @@ import (
 
 func ExampleCache_setAndGet() {
 	ctx := context.Background()
-	c, err := memory.NewInMemoryCache[string](0, nil, nil, nil)
+	c, err := memory.NewInMemoryCache[string](0)
 	if err != nil {
 		panic(err)
 	}
@@ -32,7 +32,7 @@ func ExampleCache_setAndGet() {
 
 func ExampleCache_batch() {
 	ctx := context.Background()
-	c, err := memory.NewInMemoryCache[string](0, nil, nil, nil)
+	c, err := memory.NewInMemoryCache[string](0)
 	if err != nil {
 		panic(err)
 	}
@@ -84,7 +84,7 @@ func ExampleNewGobCodec() {
 
 func ExampleCache_notFound() {
 	ctx := context.Background()
-	c, cacheErr := memory.NewInMemoryCache[string](0, nil, nil, nil)
+	c, cacheErr := memory.NewInMemoryCache[string](0)
 	if cacheErr != nil {
 		panic(cacheErr)
 	}

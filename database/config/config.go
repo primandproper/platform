@@ -363,11 +363,20 @@ func NewDatabase(
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderPostgres:
-		client, err = postgres.NewDatabaseClient(ctx, logger, tracerProvider, cfg, dbMetricsProvider)
+		client, err = postgres.NewDatabaseClient(ctx, cfg,
+			postgres.WithLogger(logger),
+			postgres.WithTracerProvider(tracerProvider),
+			postgres.WithMetricsProvider(dbMetricsProvider))
 	case ProviderMySQL:
-		client, err = mysql.NewDatabaseClient(ctx, logger, tracerProvider, cfg, dbMetricsProvider)
+		client, err = mysql.NewDatabaseClient(ctx, cfg,
+			mysql.WithLogger(logger),
+			mysql.WithTracerProvider(tracerProvider),
+			mysql.WithMetricsProvider(dbMetricsProvider))
 	case ProviderSQLite:
-		client, err = sqlite.NewDatabaseClient(ctx, logger, tracerProvider, cfg, dbMetricsProvider)
+		client, err = sqlite.NewDatabaseClient(ctx, cfg,
+			sqlite.WithLogger(logger),
+			sqlite.WithTracerProvider(tracerProvider),
+			sqlite.WithMetricsProvider(dbMetricsProvider))
 	default:
 		return nil, errors.Newf("invalid database provider: %q", cfg.Provider)
 	}

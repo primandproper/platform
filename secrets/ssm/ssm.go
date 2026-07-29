@@ -9,9 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	"github.com/primandproper/platform-go/v8/secrets"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -37,7 +35,7 @@ type ssmSecretSource struct {
 
 // NewSSMSecretSource creates a SecretSource backed by AWS SSM Parameter Store.
 // If client is nil, a new client is created using the default credential chain.
-func NewSSMSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
+func NewSSMSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, opts ...Option) (secrets.SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("ssm secret source: config is required")
 	}
@@ -45,7 +43,8 @@ func NewSSMSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI
 		return nil, errors.Wrap(err, "ssm secret source")
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	lookupCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_lookups", name))
 	if err != nil {
@@ -64,7 +63,7 @@ func NewSSMSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI
 
 	if client != nil {
 		return &ssmSecretSource{
-			o11y:          observability.NewObserver(name, logger, tracerProvider),
+			o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 			lookupCounter: lookupCounter,
 			errorCounter:  errorCounter,
 			latencyHist:   latencyHist,
@@ -79,7 +78,7 @@ func NewSSMSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI
 	}
 
 	return &ssmSecretSource{
-		o11y:          observability.NewObserver(name, logger, tracerProvider),
+		o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 		lookupCounter: lookupCounter,
 		errorCounter:  errorCounter,
 		latencyHist:   latencyHist,

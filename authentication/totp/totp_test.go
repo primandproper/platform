@@ -5,7 +5,6 @@ import (
 	"time"
 
 	authtotp "github.com/primandproper/platform-go/v8/authentication/totp"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/pquerna/otp/totp"
 	"github.com/shoenig/test"
@@ -20,7 +19,7 @@ func TestNewVerifier(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		v := authtotp.NewVerifier(tracingnoop.NewTracerProvider())
+		v := authtotp.NewVerifier()
 		must.NotNil(t, v)
 	})
 }
@@ -31,7 +30,7 @@ func TestVerifier_Verify(T *testing.T) {
 	T.Run("valid code", func(t *testing.T) {
 		t.Parallel()
 
-		v := authtotp.NewVerifier(tracingnoop.NewTracerProvider())
+		v := authtotp.NewVerifier()
 
 		code, err := totp.GenerateCode(exampleSecret, time.Now().UTC())
 		must.NoError(t, err)
@@ -42,7 +41,7 @@ func TestVerifier_Verify(T *testing.T) {
 	T.Run("empty code returns ErrCodeRequired", func(t *testing.T) {
 		t.Parallel()
 
-		v := authtotp.NewVerifier(tracingnoop.NewTracerProvider())
+		v := authtotp.NewVerifier()
 
 		err := v.Verify(t.Context(), exampleSecret, "")
 		test.ErrorIs(t, err, authtotp.ErrCodeRequired)
@@ -51,7 +50,7 @@ func TestVerifier_Verify(T *testing.T) {
 	T.Run("invalid code returns ErrInvalidCode", func(t *testing.T) {
 		t.Parallel()
 
-		v := authtotp.NewVerifier(tracingnoop.NewTracerProvider())
+		v := authtotp.NewVerifier()
 
 		err := v.Verify(t.Context(), exampleSecret, "000000")
 		test.ErrorIs(t, err, authtotp.ErrInvalidCode)

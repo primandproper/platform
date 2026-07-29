@@ -24,7 +24,7 @@ import (
 func newRecordingProvider(t *testing.T, cfg *Config) (*openaiProvider, *observability.RecordingObserver) {
 	t.Helper()
 
-	p, err := NewProvider(cfg, nil, nil, nil)
+	p, err := NewProvider(cfg)
 	must.NoError(t, err)
 	must.NotNil(t, p)
 
@@ -43,7 +43,7 @@ func TestNewProvider(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		provider, err := NewProvider(nil, nil, nil, nil)
+		provider, err := NewProvider(nil)
 		must.Error(t, err)
 		must.Nil(t, provider)
 	})
@@ -51,7 +51,7 @@ func TestNewProvider(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		provider, err := NewProvider(&Config{APIKey: "test-key"}, nil, nil, nil)
+		provider, err := NewProvider(&Config{APIKey: "test-key"})
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -59,11 +59,13 @@ func TestNewProvider(T *testing.T) {
 	T.Run("with base URL and timeout", func(t *testing.T) {
 		t.Parallel()
 
-		provider, err := NewProvider(&Config{
-			APIKey:       "test-key",
-			BaseURL:      "https://custom.example.com/v1",
-			DefaultModel: "gpt-4o",
-		}, nil, nil, nil)
+		provider, err := NewProvider(
+			&Config{
+				APIKey:       "test-key",
+				BaseURL:      "https://custom.example.com/v1",
+				DefaultModel: "gpt-4o",
+			},
+		)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -74,7 +76,7 @@ func TestNewProvider(T *testing.T) {
 		provider, err := NewProvider(&Config{
 			APIKey:  "test-key",
 			Timeout: 5 * time.Second,
-		}, nil, nil, nil)
+		})
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -89,7 +91,7 @@ func TestNewProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := NewProvider(&Config{APIKey: "test-key"}, nil, nil, mp)
+		provider, err := NewProvider(&Config{APIKey: "test-key"}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, provider)
 
@@ -112,7 +114,7 @@ func TestNewProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := NewProvider(&Config{APIKey: "test-key"}, nil, nil, mp)
+		provider, err := NewProvider(&Config{APIKey: "test-key"}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, provider)
 
@@ -136,7 +138,7 @@ func TestNewProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := NewProvider(&Config{APIKey: "test-key"}, nil, nil, mp)
+		provider, err := NewProvider(&Config{APIKey: "test-key"}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, provider)
 
@@ -211,11 +213,13 @@ func TestOpenAIProvider_Completion(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		provider, err := NewProvider(&Config{
-			APIKey:       "test-key",
-			BaseURL:      ts.URL + "/v1",
-			DefaultModel: "gpt-4o",
-		}, nil, nil, nil)
+		provider, err := NewProvider(
+			&Config{
+				APIKey:       "test-key",
+				BaseURL:      ts.URL + "/v1",
+				DefaultModel: "gpt-4o",
+			},
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()

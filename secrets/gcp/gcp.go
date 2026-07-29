@@ -9,9 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	"github.com/primandproper/platform-go/v8/secrets"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
@@ -42,7 +40,7 @@ type gcpSecretSource struct {
 
 // NewGCPSecretSource creates a SecretSource backed by GCP Secret Manager.
 // If client is nil, a new client is created using Application Default Credentials.
-func NewGCPSecretSource(ctx context.Context, cfg *Config, client SecretVersionAccessor, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
+func NewGCPSecretSource(ctx context.Context, cfg *Config, client SecretVersionAccessor, opts ...Option) (secrets.SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("gcp secret source: config is required")
 	}
@@ -50,8 +48,9 @@ func NewGCPSecretSource(ctx context.Context, cfg *Config, client SecretVersionAc
 		return nil, errors.Wrap(err, "gcp secret source")
 	}
 
-	o11y := observability.NewObserver(name, logger, tracerProvider)
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+	o11y := observability.NewObserver(name, o.logger, o.tracerProvider)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	lookupCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_lookups", name))
 	if err != nil {

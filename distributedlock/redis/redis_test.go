@@ -36,7 +36,7 @@ func buildContainerBackedRedisConfig(t *testing.T) *Config {
 
 func newTestLocker(t *testing.T, cfg *Config) distributedlock.Locker {
 	t.Helper()
-	l, err := NewRedisLocker(cfg, nil, nil, nil, cbnoop.NewCircuitBreaker())
+	l, err := NewRedisLocker(cfg, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, l)
 	return l
@@ -201,14 +201,14 @@ func TestNewRedisLocker(T *testing.T) {
 
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewRedisLocker(nil, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		_, err := NewRedisLocker(nil, cbnoop.NewCircuitBreaker())
 		must.ErrorIs(t, err, distributedlock.ErrNilConfig)
 	})
 
 	T.Run("empty addresses", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Addresses: nil, KeyPrefix: "lock:"}
-		l, err := NewRedisLocker(cfg, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		l, err := NewRedisLocker(cfg, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		test.Nil(t, l)
 	})
@@ -216,7 +216,7 @@ func TestNewRedisLocker(T *testing.T) {
 	T.Run("standard happy path", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Addresses: []string{"localhost:0"}, KeyPrefix: "lock:"}
-		l, err := NewRedisLocker(cfg, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		l, err := NewRedisLocker(cfg, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, l)
 		must.NoError(t, l.Close())
@@ -225,7 +225,7 @@ func TestNewRedisLocker(T *testing.T) {
 	T.Run("cluster mode happy path", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Addresses: []string{"localhost:0", "localhost:1"}, KeyPrefix: "lock:"}
-		l, err := NewRedisLocker(cfg, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		l, err := NewRedisLocker(cfg, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, l)
 		must.NoError(t, l.Close())
@@ -238,7 +238,7 @@ func TestNewRedisLocker(T *testing.T) {
 			t.Parallel()
 			cfg := &Config{Addresses: []string{"localhost:0"}}
 			mp := newErrorAtCallProvider(idx, false)
-			_, err := NewRedisLocker(cfg, nil, nil, mp, cbnoop.NewCircuitBreaker())
+			_, err := NewRedisLocker(cfg, cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 			must.Error(t, err)
 		})
 	}
@@ -247,7 +247,7 @@ func TestNewRedisLocker(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Addresses: []string{"localhost:0"}}
 		mp := newErrorAtCallProvider(0, true)
-		_, err := NewRedisLocker(cfg, nil, nil, mp, cbnoop.NewCircuitBreaker())
+		_, err := NewRedisLocker(cfg, cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 	})
 }

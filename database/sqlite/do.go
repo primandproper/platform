@@ -17,10 +17,10 @@ func RegisterDatabaseClient(i do.Injector) {
 	do.Provide[database.Client](i, func(i do.Injector) (database.Client, error) {
 		return NewDatabaseClient(
 			do.MustInvoke[context.Context](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
 			do.MustInvoke[database.ClientConfig](i),
-			do.MustInvoke[metrics.Provider](i),
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			WithMetricsProvider(do.MustInvoke[metrics.Provider](i)),
 		)
 	})
 }

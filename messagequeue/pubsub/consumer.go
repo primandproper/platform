@@ -137,11 +137,13 @@ type pubsubConsumerProvider struct {
 }
 
 // NewPubSubConsumerProvider returns a ConsumerProvider for a given address.
-func NewPubSubConsumerProvider(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, client *pubsub.Client) messagequeue.ConsumerProvider {
+func NewPubSubConsumerProvider(client *pubsub.Client, opts ...Option) messagequeue.ConsumerProvider {
+	o := newOptions(opts)
+
 	return &pubsubConsumerProvider{
-		logger:          logging.EnsureLogger(logger),
-		tracerProvider:  tracerProvider,
-		metricsProvider: metricsProvider,
+		logger:          logging.EnsureLogger(o.logger),
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
 		pubsubClient:    client,
 		consumerCache:   map[string]messagequeue.Consumer{},
 	}

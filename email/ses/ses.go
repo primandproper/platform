@@ -13,9 +13,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -56,7 +54,7 @@ type Emailer struct {
 // NewSESEmailer returns a new AWS SES-backed Emailer.
 // If sesClient is non-nil it is used directly; otherwise a new SES v2 client
 // is created from the default AWS credential chain using the provided HTTP client.
-func NewSESEmailer(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, metricsProvider metrics.Provider, sesClient SendEmailAPI) (*Emailer, error) {
+func NewSESEmailer(ctx context.Context, cfg *Config, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, sesClient SendEmailAPI, opts ...Option) (*Emailer, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -69,7 +67,9 @@ func NewSESEmailer(ctx context.Context, cfg *Config, logger logging.Logger, trac
 		return nil, ErrNilHTTPClient
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	sendCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_sends", name))
 	if err != nil {
@@ -88,7 +88,7 @@ func NewSESEmailer(ctx context.Context, cfg *Config, logger logging.Logger, trac
 
 	if sesClient != nil {
 		return &Emailer{
-			o11y:           observability.NewObserver(name, logger, tracerProvider),
+			o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
 			sendCounter:    sendCounter,
 			errorCounter:   errorCounter,
 			latencyHist:    latencyHist,
@@ -106,7 +106,7 @@ func NewSESEmailer(ctx context.Context, cfg *Config, logger logging.Logger, trac
 	}
 
 	return &Emailer{
-		o11y:           observability.NewObserver(name, logger, tracerProvider),
+		o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
 		sendCounter:    sendCounter,
 		errorCounter:   errorCounter,
 		latencyHist:    latencyHist,

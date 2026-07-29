@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v8/encoding"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -68,7 +66,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 			Name: "testing",
 		}
 
-		encoder := encoding.NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
+		encoder := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
 
 		expected := "KLUv_QQAkQAAeyJuYW1lIjoidGVzdGluZyJ9h21pXw=="
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
@@ -89,7 +87,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 			Name: "testing",
 		}
 
-		encoder := encoding.NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
+		encoder := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
 
 		expected := "_wYAAFMyc1R3TwEWAAC9a5gJeyJuYW1lIjoidGVzdGluZyJ9"
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
@@ -112,7 +110,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 			Name: "testing",
 		}
 
-		encoder := encoding.NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
+		encoder := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
 
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 		test.Error(t, err)
@@ -140,7 +138,7 @@ func Test_compressor_DecompressBytes(T *testing.T) {
 				Name: "testing",
 			}
 
-			encoder := encoding.NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
+			encoder := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
 
 			compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 			test.NoError(t, err)
@@ -166,7 +164,7 @@ func Test_compressor_DecompressBytes(T *testing.T) {
 			Name: "testing",
 		}
 
-		encoder := encoding.NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
+		encoder := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
 
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 		test.NoError(t, err)

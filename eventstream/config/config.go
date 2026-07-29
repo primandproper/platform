@@ -43,9 +43,9 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewEventStreamUpgrader(logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config) (eventstream.EventStreamUpgrader, error) {
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderSSE:
-		return sse.NewUpgrader(tracerProvider), nil
+		return sse.NewUpgrader(sse.WithTracerProvider(tracerProvider)), nil
 	case ProviderWebSocket:
-		return websocket.NewUpgrader(logger, tracerProvider, cfg.WebSocket), nil
+		return websocket.NewUpgrader(cfg.WebSocket, websocket.WithLogger(logger), websocket.WithTracerProvider(tracerProvider)), nil
 	default:
 		return nil, errors.Newf("invalid eventstream provider: %q", cfg.Provider)
 	}
@@ -57,7 +57,7 @@ func NewBidirectionalEventStreamUpgrader(logger logging.Logger, tracerProvider t
 	case ProviderSSE:
 		return nil, errors.New("SSE does not support bidirectional event streams")
 	case ProviderWebSocket:
-		return websocket.NewUpgrader(logger, tracerProvider, cfg.WebSocket), nil
+		return websocket.NewUpgrader(cfg.WebSocket, websocket.WithLogger(logger), websocket.WithTracerProvider(tracerProvider)), nil
 	default:
 		return nil, errors.Newf("invalid eventstream provider: %q", cfg.Provider)
 	}

@@ -18,9 +18,9 @@ func RegisterMultiSourceEventReporter(i do.Injector) {
 		return NewMultiSourceEventReporterFromConfig(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[map[string]*analyticscfg.SourceConfig](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[metrics.Provider](i),
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			WithMetricsProvider(do.MustInvoke[metrics.Provider](i)),
 		)
 	})
 }

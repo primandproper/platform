@@ -11,8 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/BurntSushi/toml"
 	"github.com/keith-turner/ecoji/v2"
@@ -193,9 +191,11 @@ func (e *clientEncoder) EncodeReader(ctx context.Context, data any) (io.Reader, 
 }
 
 // NewClientEncoder provides a ClientEncoder.
-func NewClientEncoder(logger logging.Logger, tracerProvider tracing.TracerProvider, encoding *contentType) ClientEncoder {
+func NewClientEncoder(encoding *contentType, opts ...Option) ClientEncoder {
+	cfg := newOptions(opts)
+
 	return &clientEncoder{
-		o11y:        observability.NewObserver("client_encoder", logger, tracerProvider),
+		o11y:        observability.NewObserver("client_encoder", cfg.logger, cfg.tracerProvider),
 		contentType: encoding,
 	}
 }

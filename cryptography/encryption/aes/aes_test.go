@@ -6,8 +6,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/random"
 
 	"github.com/shoenig/test"
@@ -19,7 +17,7 @@ import (
 func newRecordingEncryptor(t *testing.T, key []byte) (*aesImpl, *observability.RecordingObserver) {
 	t.Helper()
 
-	ed, err := NewEncryptorDecryptor(tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), key)
+	ed, err := NewEncryptorDecryptor(key)
 	must.NotNil(t, ed)
 	must.NoError(t, err)
 
@@ -43,7 +41,7 @@ func TestStandardEncryptor(T *testing.T) {
 		secret, err := random.GenerateHexEncodedString(ctx, 16)
 		must.NoError(t, err)
 
-		encryptor, err := NewEncryptorDecryptor(tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), []byte(secret))
+		encryptor, err := NewEncryptorDecryptor([]byte(secret))
 		must.NotNil(t, encryptor)
 		must.NoError(t, err)
 
@@ -78,7 +76,7 @@ func TestStandardEncryptor(T *testing.T) {
 		secret, err := random.GenerateHexEncodedString(ctx, 16)
 		must.NoError(t, err)
 
-		encryptor, err := NewEncryptorDecryptor(tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), []byte(secret))
+		encryptor, err := NewEncryptorDecryptor([]byte(secret))
 		must.NoError(t, err)
 
 		encrypted, err := encryptor.Encrypt(ctx, "sensitive payload")

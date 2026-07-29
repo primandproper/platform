@@ -80,6 +80,47 @@ func StartWithRetry[C any](ctx context.Context, start func(context.Context) (C, 
 	return container, err
 }
 
+// readinessRetryConfig backs PingUntilReady. It is deliberately not
+// DefaultRetryConfig: that policy exists to absorb a slow image pull and starts
+// at a full second, whereas a server that has already logged its readiness line
+// is usually a few hundred milliseconds away, and the delays here add up to
+// roughly ten seconds of patience for the stragglers.
+func readinessRetryConfig() retry.Config {
+	return retry.Config{
+		MaxAttempts:  10,
+		InitialDelay: 100 * time.Millisecond,
+		MaxDelay:     2 * time.Second,
+		Multiplier:   2,
+		UseJitter:    false,
+	}
+}
+
+// PingUntilReady calls ping until it succeeds, failing tb if it never does.
+//
+// A container's readiness log is not the same event as its server accepting
+// connections. Both the postgres and MySQL entrypoints run an init pass against
+// a temporary server and then restart, and MySQL's real server logs a readiness
+// line from the X plugin before the one it logs for port 3306 — so a wait
+// strategy counting log occurrences can release the test at any of several
+// moments, one of which is a socket that is about to close. What that looks
+// like downstream is a "bad connection" or "unexpected EOF" from the very first
+// statement, on a container that is perfectly healthy a second later.
+//
+// Retrying the first ping is the fix that does not depend on reading logs:
+// whichever occurrence the wait strategy matched, the pool is not handed to a
+// test until a query has actually round-tripped. database/sql discards a
+// connection that failed this way, so each attempt dials anew.
+func PingUntilReady(tb testing.TB, ctx context.Context, ping func(context.Context) error) {
+	tb.Helper()
+
+	if ping == nil {
+		tb.Fatal("containers: PingUntilReady requires a non-nil ping")
+	}
+
+	policy := retry.NewExponentialBackoffPolicy(readinessRetryConfig())
+	must.NoError(tb, policy.Execute(ctx, ping))
+}
+
 // Terminable is the teardown half of the testcontainers container API — the only
 // thing Run needs in order to own a container's lifecycle. Every module container
 // type (*postgres.PostgresContainer, *redis.RedisContainer, …) satisfies it, as

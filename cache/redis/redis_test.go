@@ -119,7 +119,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with no addresses", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewRedisCache[example](&Config{}, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](&Config{}, time.Minute, nil)
 		test.Error(t, err)
 		test.Nil(t, c)
 	})
@@ -127,7 +127,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewRedisCache[example](nil, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](nil, time.Minute, nil)
 		test.Error(t, err)
 		test.Nil(t, c)
 	})
@@ -137,7 +137,7 @@ func TestNewRedisCache(T *testing.T) {
 
 		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
 		test.NotNil(t, c)
 	})
@@ -147,7 +147,7 @@ func TestNewRedisCache(T *testing.T) {
 
 		cfg := &Config{QueueAddresses: []string{"localhost:6379", "localhost:6380"}}
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
 		test.NotNil(t, c)
 	})
@@ -161,7 +161,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_hits": {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider[example](mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
@@ -177,7 +177,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_misses": {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider[example](mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
@@ -194,7 +194,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_sets":   {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider[example](mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 3, mp.NewInt64CounterCalls())
@@ -212,7 +212,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_deletes": {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider[example](mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 4, mp.NewInt64CounterCalls())
@@ -231,7 +231,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_errors":  {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider[example](mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 5, mp.NewInt64CounterCalls())
@@ -256,7 +256,7 @@ func TestNewRedisCache(T *testing.T) {
 			},
 		}
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider[example](mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 5, mp.NewInt64CounterCalls())
@@ -273,7 +273,7 @@ func Test_redisCacheImpl_Get(T *testing.T) {
 		ctx := t.Context()
 
 		cfg := buildContainerBackedRedisConfig(t)
-		c, err := NewRedisCache[example](cfg, 0, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, 0, nil)
 		must.NoError(t, err)
 
 		exampleContent := &example{Name: t.Name()}
@@ -425,7 +425,7 @@ func Test_redisCacheImpl_Set(T *testing.T) {
 		ctx := t.Context()
 
 		cfg := buildContainerBackedRedisConfig(t)
-		c, err := NewRedisCache[example](cfg, 0, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, 0, nil)
 		must.NoError(t, err)
 
 		exampleContent := &example{Name: t.Name()}
@@ -509,7 +509,7 @@ func Test_redisCacheImpl_Delete(T *testing.T) {
 		ctx := t.Context()
 
 		cfg := buildContainerBackedRedisConfig(t)
-		c, err := NewRedisCache[example](cfg, 0, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, 0, nil)
 		must.NoError(t, err)
 
 		exampleContent := &example{Name: t.Name()}
@@ -868,7 +868,7 @@ func Test_redisCacheImpl_SetMany_GetMany(T *testing.T) {
 		ctx := t.Context()
 
 		cfg := buildContainerBackedRedisConfig(t)
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
 
 		items := map[string]*example{
@@ -1505,7 +1505,8 @@ func TestWithScanPageSize(T *testing.T) {
 
 		c, err := NewRedisCache[example](
 			&Config{QueueAddresses: []string{"localhost:6379"}},
-			time.Minute, nil, nil, nil, nil,
+			time.Minute,
+			nil,
 			WithScanPageSize[example](64),
 		)
 		must.NoError(t, err)

@@ -86,7 +86,7 @@ func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker, configMod
 		PersonalAPIKey: t.Name(),
 	}
 
-	ffm, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cb, configModifiers...)
+	ffm, err := NewFeatureFlagManager(cfg, cb, WithConfigModifiers(configModifiers...))
 	must.NoError(t, err)
 	must.NotNil(t, ffm)
 
@@ -158,7 +158,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 			PersonalAPIKey: t.Name(),
 		}
 
-		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(cfg, cbnoop.NewCircuitBreaker())
 		test.NoError(t, err)
 		test.NotNil(t, actual)
 	})
@@ -166,7 +166,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		actual, err := NewFeatureFlagManager(nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(nil, cbnoop.NewCircuitBreaker())
 		test.Error(t, err)
 		test.Nil(t, actual)
 	})
@@ -176,7 +176,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		cfg := &Config{}
 
-		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(cfg, cbnoop.NewCircuitBreaker())
 		test.Error(t, err)
 		test.Nil(t, actual)
 	})
@@ -188,7 +188,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 			ProjectAPIKey: t.Name(),
 		}
 
-		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(cfg, cbnoop.NewCircuitBreaker())
 		test.Error(t, err)
 		test.Nil(t, actual)
 	})
@@ -201,9 +201,13 @@ func TestNewFeatureFlagManager(T *testing.T) {
 			PersonalAPIKey: t.Name(),
 		}
 
-		actual, err := NewFeatureFlagManager(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), func(config *posthog.Config) {
-			config.Interval = -1
-		})
+		actual, err := NewFeatureFlagManager(
+			cfg,
+			cbnoop.NewCircuitBreaker(),
+			WithConfigModifiers(func(config *posthog.Config) {
+				config.Interval = -1
+			}),
+		)
 		test.Error(t, err)
 		test.Nil(t, actual)
 	})
@@ -222,7 +226,11 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 			},
 		}
 
-		actual, err := NewFeatureFlagManager(&Config{ProjectAPIKey: t.Name(), PersonalAPIKey: t.Name()}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(
+			&Config{ProjectAPIKey: t.Name(), PersonalAPIKey: t.Name()},
+			cbnoop.NewCircuitBreaker(),
+			WithMetricsProvider(mp),
+		)
 		must.Error(t, err)
 		must.Nil(t, actual)
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
@@ -244,7 +252,11 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 			},
 		}
 
-		actual, err := NewFeatureFlagManager(&Config{ProjectAPIKey: t.Name(), PersonalAPIKey: t.Name()}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(
+			&Config{ProjectAPIKey: t.Name(), PersonalAPIKey: t.Name()},
+			cbnoop.NewCircuitBreaker(),
+			WithMetricsProvider(mp),
+		)
 		must.Error(t, err)
 		must.Nil(t, actual)
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
@@ -263,7 +275,11 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 			},
 		}
 
-		actual, err := NewFeatureFlagManager(&Config{ProjectAPIKey: t.Name(), PersonalAPIKey: t.Name()}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, cbnoop.NewCircuitBreaker())
+		actual, err := NewFeatureFlagManager(
+			&Config{ProjectAPIKey: t.Name(), PersonalAPIKey: t.Name()},
+			cbnoop.NewCircuitBreaker(),
+			WithMetricsProvider(mp),
+		)
 		must.Error(t, err)
 		must.Nil(t, actual)
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())

@@ -8,9 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	"github.com/primandproper/platform-go/v8/secrets"
 )
 
@@ -23,8 +21,9 @@ type envSecretSource struct {
 }
 
 // NewEnvSecretSource returns a SecretSource that reads from environment variables.
-func NewEnvSecretSource(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+func NewEnvSecretSource(opts ...Option) (secrets.SecretSource, error) {
+	o := newOptions(opts)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	lookupCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_lookups", name))
 	if err != nil {
@@ -37,7 +36,7 @@ func NewEnvSecretSource(logger logging.Logger, tracerProvider tracing.TracerProv
 	}
 
 	return &envSecretSource{
-		o11y:          observability.NewObserver(name, logger, tracerProvider),
+		o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 		lookupCounter: lookupCounter,
 		latencyHist:   latencyHist,
 	}, nil

@@ -2,10 +2,10 @@ package outbox
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/primandproper/platform-go/v8/database/dialect"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.
@@ -32,46 +32,9 @@ const messageColumns = "id, topic, partition_key, payload, attempts"
 // It stops being correct the moment a value is bound in a non-UTC location, so
 // do not remove the .UTC() calls at the binding sites.
 
-// identifier matches a name safe to interpolate into query text as a table
-// name: a bare identifier, optionally qualified by exactly one schema. Table
-// names cannot be bound as parameters, so the set is restricted rather than
-// escaped.
-//
-// ASCII only, and anchored at both ends. Go's regexp is RE2, where $ means end
-// of text rather than "before an optional trailing newline" as in Perl, so
-// there is no trailing-newline escape from the anchor.
-var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
-
-// validIdentifier reports whether s is safe to interpolate into query text as
-// a table name.
-func validIdentifier(s string) bool {
-	return identifier.MatchString(s)
-}
-
-// placeholder renders the n-th bind marker (1-indexed) for the dialect.
-// Postgres numbers its placeholders; MySQL and SQLite do not.
-func placeholder(d Dialect, n int) string {
-	if d == DialectPostgres {
-		return "$" + strconv.Itoa(n)
-	}
-
-	return "?"
-}
-
-// placeholderList renders count bind markers starting at start, joined for use
-// inside an IN clause or a VALUES tuple.
-func placeholderList(d Dialect, start, count int) string {
-	parts := make([]string, 0, count)
-	for i := range count {
-		parts = append(parts, placeholder(d, start+i))
-	}
-
-	return strings.Join(parts, ", ")
-}
-
 // buildInsert renders a multi-row INSERT for the supplied rows. New messages
 // are immediately eligible: next_attempt is their creation time.
-func buildInsert(d Dialect, table string, rows []enqueueRow) (query string, args []any) {
+func buildInsert(d dialect.Dialect, table string, rows []enqueueRow) (query string, args []any) {
 	// created_at is bound twice: a new message is eligible immediately, so its
 	// first next_attempt is its creation time.
 	const columnsPerRow = 6
@@ -80,7 +43,7 @@ func buildInsert(d Dialect, table string, rows []enqueueRow) (query string, args
 	tuples := make([]string, 0, len(rows))
 
 	for i := range rows {
-		tuples = append(tuples, "("+placeholderList(d, len(args)+1, columnsPerRow)+")")
+		tuples = append(tuples, "("+d.Placeholders(len(args)+1, columnsPerRow)+")")
 		args = append(args,
 			rows[i].id, rows[i].topic, rows[i].key, rows[i].payload, rows[i].createdAt, rows[i].createdAt,
 		)
@@ -102,8 +65,8 @@ func buildInsert(d Dialect, table string, rows []enqueueRow) (query string, args
 // row per key is ever in flight across every relay in the fleet — keyed messages
 // are strictly ordered even under concurrent ClaimSkipLocked relays. Unkeyed
 // rows skip the check entirely and claim freely.
-func buildSelectClaimable(d Dialect, table string, now time.Time, limit int, skipLocked bool) (query string, args []any) {
-	p := func(n int) string { return placeholder(d, n) }
+func buildSelectClaimable(d dialect.Dialect, table string, now time.Time, limit int, skipLocked bool) (query string, args []any) {
+	p := func(n int) string { return d.Placeholder(n) }
 
 	query = fmt.Sprintf(
 		"SELECT id FROM %s AS m "+
@@ -120,7 +83,7 @@ func buildSelectClaimable(d Dialect, table string, now time.Time, limit int, ski
 		table, p(1), p(2), table, p(3),
 	)
 
-	if skipLocked && d.supportsSkipLocked() {
+	if skipLocked && d.SupportsSkipLocked() {
 		query += " FOR UPDATE SKIP LOCKED"
 	}
 
@@ -131,7 +94,7 @@ func buildSelectClaimable(d Dialect, table string, now time.Time, limit int, ski
 // count is incremented here rather than on failure: a relay that crashes
 // mid-publish has still consumed an attempt, so a message that reliably kills
 // its relay eventually quarantines instead of being reclaimed forever.
-func buildClaim(d Dialect, table string, ids []string, claimedUntil time.Time) (query string, args []any) {
+func buildClaim(d dialect.Dialect, table string, ids []string, claimedUntil time.Time) (query string, args []any) {
 	args = make([]any, 0, len(ids)+1)
 	args = append(args, claimedUntil)
 
@@ -141,7 +104,7 @@ func buildClaim(d Dialect, table string, ids []string, claimedUntil time.Time) (
 
 	query = fmt.Sprintf(
 		"UPDATE %s SET claimed_until = %s, attempts = attempts + 1 WHERE id IN (%s)",
-		table, placeholder(d, 1), placeholderList(d, 2, len(ids)),
+		table, d.Placeholder(1), d.Placeholders(2, len(ids)),
 	)
 
 	return query, args
@@ -149,7 +112,7 @@ func buildClaim(d Dialect, table string, ids []string, claimedUntil time.Time) (
 
 // buildFetch renders the projection of claimed rows, ordered so that messages
 // sharing a partition key are published oldest-first.
-func buildFetch(d Dialect, table string, ids []string) (query string, args []any) {
+func buildFetch(d dialect.Dialect, table string, ids []string) (query string, args []any) {
 	args = make([]any, 0, len(ids))
 	for _, id := range ids {
 		args = append(args, id)
@@ -157,7 +120,7 @@ func buildFetch(d Dialect, table string, ids []string) (query string, args []any
 
 	query = fmt.Sprintf(
 		"SELECT %s FROM %s WHERE id IN (%s) ORDER BY created_at, id",
-		messageColumns, table, placeholderList(d, 1, len(ids)),
+		messageColumns, table, d.Placeholders(1, len(ids)),
 	)
 
 	return query, args
@@ -166,7 +129,7 @@ func buildFetch(d Dialect, table string, ids []string) (query string, args []any
 // buildMarkPublished renders the UPDATE that retires successfully published
 // rows. The rows are kept, not deleted, so a duplicate or a gap can be
 // investigated later; the reaper removes them once they age out.
-func buildMarkPublished(d Dialect, table string, ids []string, at time.Time) (query string, args []any) {
+func buildMarkPublished(d dialect.Dialect, table string, ids []string, at time.Time) (query string, args []any) {
 	args = make([]any, 0, len(ids)+1)
 	args = append(args, at)
 
@@ -176,7 +139,7 @@ func buildMarkPublished(d Dialect, table string, ids []string, at time.Time) (qu
 
 	query = fmt.Sprintf(
 		"UPDATE %s SET published_at = %s, claimed_until = NULL, last_error = NULL WHERE id IN (%s)",
-		table, placeholder(d, 1), placeholderList(d, 2, len(ids)),
+		table, d.Placeholder(1), d.Placeholders(2, len(ids)),
 	)
 
 	return query, args
@@ -185,10 +148,10 @@ func buildMarkPublished(d Dialect, table string, ids []string, at time.Time) (qu
 // buildRecordFailure renders the UPDATE applied to a message whose publish
 // failed: release the lease, record why, and schedule the retry. Quarantined
 // rows are excluded from every future claim.
-func buildRecordFailure(d Dialect, table, id string, nextAttempt time.Time, lastErr string, quarantine bool) (query string, args []any) {
+func buildRecordFailure(d dialect.Dialect, table, id string, nextAttempt time.Time, lastErr string, quarantine bool) (query string, args []any) {
 	query = fmt.Sprintf(
 		"UPDATE %s SET claimed_until = NULL, next_attempt = %s, last_error = %s, quarantined = %s WHERE id = %s",
-		table, placeholder(d, 1), placeholder(d, 2), placeholder(d, 3), placeholder(d, 4),
+		table, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
 	)
 
 	return query, []any{nextAttempt, lastErr, quarantine, id}
@@ -215,16 +178,16 @@ func buildBacklog(table string) string {
 
 // buildReap renders the DELETE that removes published rows past the retention
 // window.
-func buildReap(d Dialect, table string, before time.Time, limit int) (query string, args []any) {
+func buildReap(d dialect.Dialect, table string, before time.Time, limit int) (query string, args []any) {
 	inner := fmt.Sprintf(
 		"SELECT id FROM %s WHERE published_at IS NOT NULL AND published_at < %s LIMIT %s",
-		table, placeholder(d, 1), placeholder(d, 2),
+		table, d.Placeholder(1), d.Placeholder(2),
 	)
 
 	// MySQL refuses a subquery that reads the table being deleted from
 	// (ER_UPDATE_TABLE_USED), but accepts it once materialized through a
 	// derived table.
-	if d == DialectMySQL {
+	if d == dialect.MySQL {
 		inner = fmt.Sprintf("SELECT id FROM (%s) AS doomed", inner)
 	}
 

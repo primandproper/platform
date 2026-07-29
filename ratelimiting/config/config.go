@@ -61,9 +61,11 @@ func (cfg *Config) NewRateLimiter(metricsProvider metrics.Provider) (ratelimitin
 	case "", ProviderNoop:
 		return noop.NewRateLimiter(), nil
 	case ProviderMemory:
-		return ratelimiting.NewInMemoryRateLimiter(metricsProvider, cfg.RequestsPerSec, cfg.BurstSize)
+		return ratelimiting.NewInMemoryRateLimiter(cfg.RequestsPerSec, cfg.BurstSize,
+			ratelimiting.WithMetricsProvider(metricsProvider))
 	case ProviderRedis:
-		return redisrl.NewRedisRateLimiter(cfg.Redis, metricsProvider, cfg.RequestsPerSec, cfg.BurstSize)
+		return redisrl.NewRedisRateLimiter(cfg.Redis, cfg.RequestsPerSec, cfg.BurstSize,
+			redisrl.WithMetricsProvider(metricsProvider))
 	default:
 		return nil, errors.Newf("unknown rate limiter provider: %q", cfg.Provider)
 	}

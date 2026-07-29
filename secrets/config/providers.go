@@ -14,7 +14,7 @@ import (
 // NewSecretSource provides a SecretSource from config.
 func NewSecretSource(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
 	if cfg == nil {
-		return env.NewEnvSecretSource(logger, tracerProvider, metricsProvider)
+		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 	}
 	source, err := cfg.NewSecretSource(ctx, logger, tracerProvider, metricsProvider)
 	if err != nil {

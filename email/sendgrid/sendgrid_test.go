@@ -11,8 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v8/email"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -46,7 +44,7 @@ type (
 func newRecordingEmailer(t *testing.T, cfg *Config, client *http.Client) (*Emailer, *observability.RecordingObserver) {
 	t.Helper()
 
-	c, err := NewSendGridEmailer(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), client, cbnoop.NewCircuitBreaker(), nil)
+	c, err := NewSendGridEmailer(cfg, client, cbnoop.NewCircuitBreaker())
 	must.NotNil(t, c)
 	must.NoError(t, err)
 
@@ -75,9 +73,7 @@ func TestNewSendGridEmailer(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
-		client, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewSendGridEmailer(&Config{APIToken: t.Name()}, &http.Client{}, cbnoop.NewCircuitBreaker())
 		must.NotNil(t, client)
 		must.NoError(t, err)
 	})

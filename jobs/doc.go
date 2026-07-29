@@ -80,7 +80,7 @@ payload discards the point of it.
 Scheduler runs registered jobs on an interval, each execution held under a
 distributedlock lease:
 
-	scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, locker)
+	scheduler, err := jobs.NewScheduler(ctx, &jobs.SchedulerConfig{}, locker)
 	if err != nil {
 		return err
 	}

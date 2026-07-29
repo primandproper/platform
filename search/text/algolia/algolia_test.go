@@ -5,8 +5,6 @@ import (
 	"time"
 
 	cbnoop "github.com/primandproper/platform-go/v8/circuitbreaking/noop"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 )
@@ -22,10 +20,7 @@ func TestNewIndexManager(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
-
-		im, err := NewIndexManager[example](logger, tracerProvider, &Config{}, "test", cbnoop.NewCircuitBreaker())
+		im, err := NewIndexManager[example](&Config{}, "test", cbnoop.NewCircuitBreaker())
 		test.NoError(t, err)
 		test.NotNil(t, im)
 	})
@@ -33,10 +28,7 @@ func TestNewIndexManager(T *testing.T) {
 	T.Run("with timeout configured", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
-
-		im, err := NewIndexManager[example](logger, tracerProvider, &Config{Timeout: 5 * time.Second}, "test", cbnoop.NewCircuitBreaker())
+		im, err := NewIndexManager[example](&Config{Timeout: 5 * time.Second}, "test", cbnoop.NewCircuitBreaker())
 		test.NoError(t, err)
 		test.NotNil(t, im)
 	})
@@ -44,10 +36,7 @@ func TestNewIndexManager(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
-
-		im, err := NewIndexManager[example](logger, tracerProvider, nil, "test", cbnoop.NewCircuitBreaker())
+		im, err := NewIndexManager[example](nil, "test", cbnoop.NewCircuitBreaker())
 		test.Error(t, err)
 		test.Nil(t, im)
 	})

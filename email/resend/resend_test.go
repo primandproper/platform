@@ -13,8 +13,6 @@ import (
 	"github.com/primandproper/platform-go/v8/email"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -62,7 +60,7 @@ type resendPayload struct {
 func newRecordingEmailer(t *testing.T, cfg *Config, client *http.Client, baseURL string) (*Emailer, *observability.RecordingObserver) {
 	t.Helper()
 
-	c, err := NewResendEmailer(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), client, cbnoop.NewCircuitBreaker(), nil)
+	c, err := NewResendEmailer(cfg, client, cbnoop.NewCircuitBreaker())
 	must.NotNil(t, c)
 	must.NoError(t, err)
 
@@ -95,11 +93,9 @@ func TestNewResendEmailer(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
 		config := &Config{APIToken: t.Name()}
 
-		client, err := NewResendEmailer(config, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewResendEmailer(config, &http.Client{}, cbnoop.NewCircuitBreaker())
 		must.NotNil(t, client)
 		must.NoError(t, err)
 	})
@@ -107,9 +103,7 @@ func TestNewResendEmailer(T *testing.T) {
 	T.Run("with missing config", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
-		client, err := NewResendEmailer(nil, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewResendEmailer(nil, &http.Client{}, cbnoop.NewCircuitBreaker())
 		must.Nil(t, client)
 		must.Error(t, err)
 	})
@@ -117,11 +111,9 @@ func TestNewResendEmailer(T *testing.T) {
 	T.Run("with missing config API token", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
 		config := &Config{}
 
-		client, err := NewResendEmailer(config, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewResendEmailer(config, &http.Client{}, cbnoop.NewCircuitBreaker())
 		must.Nil(t, client)
 		must.Error(t, err)
 	})
@@ -129,11 +121,9 @@ func TestNewResendEmailer(T *testing.T) {
 	T.Run("with missing HTTP client", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
 		config := &Config{APIToken: t.Name()}
 
-		client, err := NewResendEmailer(config, logger, tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewResendEmailer(config, nil, cbnoop.NewCircuitBreaker())
 		must.Nil(t, client)
 		must.Error(t, err)
 	})

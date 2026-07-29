@@ -11,8 +11,6 @@ import (
 
 	mockencoding "github.com/primandproper/platform-go/v8/encoding/mock"
 	"github.com/primandproper/platform-go/v8/observability"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/random"
 
 	"github.com/shoenig/test"
@@ -32,8 +30,7 @@ func TestNewStripePaymentManager(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-		pm, err := NewStripePaymentManager(logger, tracingnoop.NewTracerProvider(), &Config{}, nil)
+		pm, err := NewStripePaymentManager(&Config{}, nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, pm)
@@ -42,8 +39,7 @@ func TestNewStripePaymentManager(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-		pm, err := NewStripePaymentManager(logger, tracingnoop.NewTracerProvider(), nil, nil)
+		pm, err := NewStripePaymentManager(nil, nil)
 
 		test.Error(t, err)
 		test.Nil(t, pm)
@@ -57,7 +53,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(nil, nil, &Config{}, nil)
+		pmIface, err := NewStripePaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 
@@ -137,7 +133,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(nil, nil, &Config{}, nil)
+		pmIface, err := NewStripePaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 
@@ -154,7 +150,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(nil, nil, &Config{}, nil)
+		pmIface, err := NewStripePaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 		pm.webhookSecret = "some_secret"
@@ -173,7 +169,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(nil, nil, &Config{}, nil)
+		pmIface, err := NewStripePaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 		pm.webhookSecret = "some_secret"
@@ -191,7 +187,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(nil, nil, &Config{}, nil)
+		pmIface, err := NewStripePaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 
@@ -246,7 +242,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(nil, nil, &Config{}, nil)
+		pmIface, err := NewStripePaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 

@@ -12,8 +12,6 @@ import (
 	"github.com/primandproper/platform-go/v8/email"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -42,7 +40,7 @@ type postmarkPayload struct {
 func newRecordingEmailer(t *testing.T, cfg *Config, client *http.Client) (*Emailer, *observability.RecordingObserver) {
 	t.Helper()
 
-	c, err := NewPostmarkEmailer(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), client, cbnoop.NewCircuitBreaker(), nil)
+	c, err := NewPostmarkEmailer(cfg, client, cbnoop.NewCircuitBreaker())
 	must.NotNil(t, c)
 	must.NoError(t, err)
 
@@ -97,11 +95,9 @@ func TestNewPostmarkEmailer(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
 		config := &Config{ServerToken: t.Name()}
 
-		client, err := NewPostmarkEmailer(config, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewPostmarkEmailer(config, &http.Client{}, cbnoop.NewCircuitBreaker())
 		must.NotNil(t, client)
 		must.NoError(t, err)
 	})
@@ -109,9 +105,7 @@ func TestNewPostmarkEmailer(T *testing.T) {
 	T.Run("with missing config", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
-		client, err := NewPostmarkEmailer(nil, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewPostmarkEmailer(nil, &http.Client{}, cbnoop.NewCircuitBreaker())
 		must.Nil(t, client)
 		must.Error(t, err)
 	})
@@ -119,11 +113,9 @@ func TestNewPostmarkEmailer(T *testing.T) {
 	T.Run("with missing server token", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
 		config := &Config{}
 
-		client, err := NewPostmarkEmailer(config, logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewPostmarkEmailer(config, &http.Client{}, cbnoop.NewCircuitBreaker())
 		must.Nil(t, client)
 		must.Error(t, err)
 	})
@@ -131,11 +123,9 @@ func TestNewPostmarkEmailer(T *testing.T) {
 	T.Run("with missing HTTP client", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
 		config := &Config{ServerToken: t.Name()}
 
-		client, err := NewPostmarkEmailer(config, logger, tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil)
+		client, err := NewPostmarkEmailer(config, nil, cbnoop.NewCircuitBreaker())
 		must.Nil(t, client)
 		must.Error(t, err)
 	})

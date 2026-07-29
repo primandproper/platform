@@ -11,8 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	"github.com/primandproper/platform-go/v8/panicking"
 
 	"github.com/BurntSushi/toml"
@@ -225,9 +223,11 @@ func (e *serverEncoderDecoder) DecodeRequest(ctx context.Context, req *http.Requ
 }
 
 // NewServerEncoderDecoder provides a ServerEncoderDecoder.
-func NewServerEncoderDecoder(logger logging.Logger, tracerProvider tracing.TracerProvider, contentType ContentType) ServerEncoderDecoder {
+func NewServerEncoderDecoder(contentType ContentType, opts ...Option) ServerEncoderDecoder {
+	cfg := newOptions(opts)
+
 	return &serverEncoderDecoder{
-		o11y:        observability.NewObserver(o11yName, logger, tracerProvider),
+		o11y:        observability.NewObserver(o11yName, cfg.logger, cfg.tracerProvider),
 		panicker:    panicking.NewProductionPanicker(),
 		contentType: contentType,
 	}

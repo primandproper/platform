@@ -18,9 +18,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	vectorsearch "github.com/primandproper/platform-go/v8/search/vector"
 )
 
@@ -100,12 +98,10 @@ var _ vectorsearch.Index[any] = (*indexManager[any])(nil)
 // collections with the same name and shape are left untouched.
 func NewIndex[T any](
 	ctx context.Context,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	cfg *Config,
 	collection string,
 	cb circuitbreaking.CircuitBreaker,
+	opts ...Option,
 ) (vectorsearch.Index[T], error) {
 	if cfg == nil {
 		return nil, vectorsearch.ErrNilConfig
@@ -121,7 +117,9 @@ func NewIndex[T any](
 		return nil, err
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 	upsertCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_upserts", serviceName))
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "creating upsert counter")
@@ -153,7 +151,7 @@ func NewIndex[T any](
 	}
 
 	im := &indexManager[T]{
-		o11y:           observability.NewObserver(fmt.Sprintf("%s_%s", serviceName, collection), logger, tracerProvider),
+		o11y:           observability.NewObserver(fmt.Sprintf("%s_%s", serviceName, collection), o.logger, o.tracerProvider),
 		httpClient:     &http.Client{Timeout: timeout},
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		upsertCounter:  upsertCounter,
