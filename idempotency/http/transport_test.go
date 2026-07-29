@@ -64,7 +64,7 @@ func TestTransport(T *testing.T) {
 		must.NoError(t, err)
 		t.Cleanup(func() { _ = res.Body.Close() })
 
-		test.EqOp(t, key, base.last().Header.Get(HeaderName))
+		test.EqOp(t, string(key), base.last().Header.Get(HeaderName))
 	})
 
 	// The single most important behavior here. A RoundTripper cannot tell a
@@ -128,7 +128,7 @@ func TestTransport(T *testing.T) {
 
 		must.SliceLen(t, 3, base.seen)
 		for _, req := range base.seen {
-			test.EqOp(t, key, req.Header.Get(HeaderName))
+			test.EqOp(t, string(key), req.Header.Get(HeaderName))
 		}
 	})
 
@@ -203,7 +203,7 @@ func TestTransport(T *testing.T) {
 		must.NoError(t, err)
 		t.Cleanup(func() { _ = res.Body.Close() })
 
-		test.EqOp(t, key, base.last().Header.Get("X-Idem"))
+		test.EqOp(t, string(key), base.last().Header.Get("X-Idem"))
 	})
 
 	T.Run("a nil base falls back to the default transport", func(t *testing.T) {

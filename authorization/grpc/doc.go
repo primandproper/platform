@@ -38,8 +38,8 @@ Install this after authentication and inside the error-encoding interceptor:
 
   - Authentication must run first, or the extractor finds nothing and every
     call is denied. That case is counted separately
-    (authorization_missing_grants) and logged at error level, because it is a
-    wiring bug rather than an overreaching caller.
+    (authorization_grpc_missing_grants) and logged at error level, because it is
+    a wiring bug rather than an overreaching caller.
   - errors/grpc's encoding interceptor, when used, should wrap this one so the
     denial's error chain reaches the client and errors.Is works there too. The
     denial carries its own GRPCStatus, so the wire code is correct either way.
@@ -63,16 +63,21 @@ map that is never written after startup.
 # Rollout
 
 WithAuditOnly evaluates and records every decision but denies nothing. Deploy
-with it, watch authorization_denials and authorization_undeclared_methods settle
-to zero, then remove it. Without that step, enabling enforcement over a large
-hand-written table is a bet that every entry is right on the first try.
+with it, watch authorization_grpc_denials and
+authorization_grpc_undeclared_methods settle to zero, then remove it. Without
+that step, enabling enforcement over a large hand-written table is a bet that
+every entry is right on the first try.
 
 # Watching it
 
 Every instrument carries a method attribute, because one Enforcer serves every
 method and a single mis-declared one is invisible in the total:
-authorization_checks, authorization_denials,
-authorization_undeclared_methods, and authorization_missing_grants.
+authorization_grpc_checks, authorization_grpc_denials,
+authorization_grpc_undeclared_methods, and authorization_grpc_missing_grants.
+
+The transport is in the name, so these stay distinguishable from the HTTP
+middleware's authorization_http_* counters when a service installs both — an
+un-suffixed name would read as a service-wide total that it is not.
 
 Alert on undeclared_methods and missing_grants — both mean the wiring is wrong,
 not that a caller misbehaved.

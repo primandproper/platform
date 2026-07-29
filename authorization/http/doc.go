@@ -56,11 +56,17 @@ unauthorized caller what to go looking for.
 # Watching it
 
 authorization_http_checks, authorization_http_denials, and
-authorization_http_missing_grants, each carrying the request path.
+authorization_http_missing_grants. They are unlabeled totals.
 
-Note that the path is the raw URL path rather than the route pattern — for the
-same reason there is no central table — so a route with an identifier in it
-produces one series per identifier. Aggregate accordingly, and prefer the
-denial logs, which carry the full request, when investigating a specific route.
+The route is deliberately not a metric dimension. This middleware runs after
+routing has matched the request but has no portable way to recover the pattern
+that matched it — routing.Router exposes none — so the only label available is
+the raw URL path, and a route with an identifier in it would produce one time
+series per identifier.
+
+The path is on the span instead, under authorization.method, where it costs one
+attribute on one trace rather than a series that never stops growing. To
+investigate a specific route, use the spans or the denial logs, which carry the
+full request; use these counters for the rate and for alerting.
 */
 package http

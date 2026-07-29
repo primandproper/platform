@@ -66,7 +66,7 @@ func TestClientInterceptor(T *testing.T) {
 		err := NewUnaryClientInterceptor()(ctx, testMethod, str("req"), str("res"), nil, invoker.invoke)
 		must.NoError(t, err)
 
-		test.EqOp(t, key, invoker.sentKey(0))
+		test.EqOp(t, string(key), invoker.sentKey(0))
 	})
 
 	// The safety rule: an interceptor cannot tell a retry from a deliberate
@@ -107,7 +107,7 @@ func TestClientInterceptor(T *testing.T) {
 
 		md, ok := metadata.FromOutgoingContext(invoker.seen[0])
 		must.True(t, ok)
-		test.EqOp(t, key, md.Get(MetadataKey)[0])
+		test.EqOp(t, string(key), md.Get(MetadataKey)[0])
 		test.EqOp(t, "bearer abc", md.Get("authorization")[0])
 	})
 
@@ -124,7 +124,7 @@ func TestClientInterceptor(T *testing.T) {
 
 		must.SliceLen(t, 3, invoker.seen)
 		for i := range invoker.seen {
-			test.EqOp(t, key, invoker.sentKey(i))
+			test.EqOp(t, string(key), invoker.sentKey(i))
 		}
 	})
 
@@ -154,7 +154,7 @@ func TestClientInterceptor(T *testing.T) {
 
 		md, ok := metadata.FromOutgoingContext(invoker.seen[0])
 		must.True(t, ok)
-		test.EqOp(t, key, md.Get("x-idem")[0])
+		test.EqOp(t, string(key), md.Get("x-idem")[0])
 	})
 
 	T.Run("calls the invoker once and passes its error through", func(t *testing.T) {

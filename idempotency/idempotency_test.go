@@ -323,6 +323,90 @@ func TestManager_Do(T *testing.T) {
 		test.EqOp(t, 90*time.Second, expiries[0])
 		test.EqOp(t, 12*time.Hour, expiries[1])
 	})
+
+	// Retention belongs to the operation, so one Manager can serve endpoints
+	// that disagree about it. The claim TTL is unaffected: it bounds how long a
+	// dead process blocks a retry, which is a property of the deployment rather
+	// than of the call.
+	T.Run("honors a per-call TTL override without disturbing the claim TTL", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			mu       sync.Mutex
+			expiries []time.Duration
+		)
+
+		store := newStore(t)
+		recording := &cachemock.CacheMock[Record[payload]]{
+			GetFunc:    store.Get,
+			DeleteFunc: store.Delete,
+			SetFunc: func(ctx context.Context, key string, value *Record[payload], opts ...cache.WriteOption) error {
+				mu.Lock()
+				expiries = append(expiries, cache.EffectiveExpiry(0, opts...))
+				mu.Unlock()
+
+				return store.Set(ctx, key, value, opts...)
+			},
+		}
+
+		m, err := NewManager(recording, newLocker(t),
+			WithTTL[payload](12*time.Hour),
+			WithInFlightTTL[payload](90*time.Second),
+		)
+		must.NoError(t, err)
+
+		_, err = m.Do(t.Context(), testKey, testFingerprint, newCountingFn("ttl").run,
+			WithCallTTL[payload](30*time.Minute),
+		)
+		must.NoError(t, err)
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		must.SliceLen(t, 2, expiries)
+		test.EqOp(t, 90*time.Second, expiries[0])
+		test.EqOp(t, 30*time.Minute, expiries[1])
+	})
+
+	// A non-positive override is inherited rather than obeyed: writing a result
+	// under a zero expiry would mean "never expires" in some backends and
+	// "already expired" in others, and neither is what a caller passing 0 meant.
+	T.Run("inherits the manager TTL when the override is non-positive", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			mu       sync.Mutex
+			expiries []time.Duration
+		)
+
+		store := newStore(t)
+		recording := &cachemock.CacheMock[Record[payload]]{
+			GetFunc:    store.Get,
+			DeleteFunc: store.Delete,
+			SetFunc: func(ctx context.Context, key string, value *Record[payload], opts ...cache.WriteOption) error {
+				mu.Lock()
+				expiries = append(expiries, cache.EffectiveExpiry(0, opts...))
+				mu.Unlock()
+
+				return store.Set(ctx, key, value, opts...)
+			},
+		}
+
+		m, err := NewManager(recording, newLocker(t), WithTTL[payload](12*time.Hour))
+		must.NoError(t, err)
+
+		_, err = m.Do(t.Context(), testKey, testFingerprint, newCountingFn("ttl").run,
+			WithCallTTL[payload](0),
+			nil,
+		)
+		must.NoError(t, err)
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		must.SliceLen(t, 2, expiries)
+		test.EqOp(t, 12*time.Hour, expiries[1])
+	})
 }
 
 func TestManager_Do_DoubleCheck(T *testing.T) {
@@ -629,7 +713,7 @@ func TestValidateKey(T *testing.T) {
 	T.Run("accepts the key shapes clients actually send", func(t *testing.T) {
 		t.Parallel()
 
-		for _, key := range []string{
+		for _, key := range []Key{
 			"d3f1a0c4-5b6e-4a2f-9c8d-1e2f3a4b5c6d", // uuid
 			"cv9k2n3c77u4kqp1v2ag",                 // xid
 			"abc_-123.XYZ~",                        // base64url-ish
@@ -660,13 +744,13 @@ func TestValidateKey(T *testing.T) {
 			long[i] = 'a'
 		}
 
-		test.NoError(t, ValidateKey(string(long), 0))
+		test.NoError(t, ValidateKey(Key(long), 0))
 	})
 
 	T.Run("rejects bytes outside printable ASCII", func(t *testing.T) {
 		t.Parallel()
 
-		for _, key := range []string{
+		for _, key := range []Key{
 			"has space",
 			"tab\there",
 			"newline\n",

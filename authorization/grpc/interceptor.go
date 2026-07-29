@@ -92,8 +92,9 @@ func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 // This is the rollout tool. Turning enforcement on across a service that has
 // never had it is otherwise a coin flip: the table is large, hand-written, and
 // a single missing entry becomes an outage on deploy. Run audit-only, watch
-// authorization_denials_total and authorization_undeclared_methods_total settle
-// to zero, then remove the option.
+// authorization_grpc_denials and authorization_grpc_undeclared_methods settle to
+// zero, then remove the option. (Exporters that suffix counters, Prometheus
+// among them, will show these as _total.)
 //
 // It is the only mode in which an unauthorized request proceeds, which is why
 // it is a code-level option rather than configuration, and why it announces
@@ -125,16 +126,16 @@ func NewEnforcer(reqs *Requirements, extract authorization.GrantsExtractor, opts
 	mp := metrics.EnsureMetricsProvider(e.metricsProvider)
 
 	var err error
-	if e.checksCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_checks", serviceName)); err != nil {
+	if e.checksCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_grpc_checks", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating authorization checks counter")
 	}
-	if e.denialsCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_denials", serviceName)); err != nil {
+	if e.denialsCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_grpc_denials", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating authorization denials counter")
 	}
-	if e.undeclaredCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_undeclared_methods", serviceName)); err != nil {
+	if e.undeclaredCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_grpc_undeclared_methods", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating authorization undeclared methods counter")
 	}
-	if e.noGrantsCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_missing_grants", serviceName)); err != nil {
+	if e.noGrantsCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_grpc_missing_grants", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating authorization missing grants counter")
 	}
 

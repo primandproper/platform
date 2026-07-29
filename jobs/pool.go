@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"context"
-	stderrors "errors"
 	"fmt"
 	"sync"
 	"time"
@@ -49,13 +48,17 @@ var (
 	// goroutine and take the process with it, then treats it as an ordinary
 	// attempt failure.
 	ErrHandlerPanicked = platformerrors.New("job handler panicked")
-	// ErrNilHandler indicates a nil Handler was passed to NewPool.
-	ErrNilHandler = platformerrors.New("nil job handler")
-	// ErrNilConsumerProvider indicates a nil ConsumerProvider was passed to NewPool.
-	ErrNilConsumerProvider = platformerrors.New("nil consumer provider")
+	// ErrNilHandler indicates a nil Handler was passed to NewPool. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilHandler = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil job handler")
+	// ErrNilConsumerProvider indicates a nil ConsumerProvider was passed to
+	// NewPool. It wraps errors.ErrNilInputParameter, so a caller may check
+	// either.
+	ErrNilConsumerProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil consumer provider")
 	// ErrNilPublisherProvider indicates a nil PublisherProvider was passed to
-	// NewTopicDeadLetter.
-	ErrNilPublisherProvider = platformerrors.New("nil publisher provider")
+	// NewTopicDeadLetter. It wraps errors.ErrNilInputParameter, so a caller may
+	// check either.
+	ErrNilPublisherProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil publisher provider")
 )
 
 // message is one payload in flight between the consumer and a worker, together
@@ -596,12 +599,7 @@ func (p *Pool) invoke(ctx context.Context, payload []byte, attempt uint) (err er
 	// LIFO makes it easy to get wrong: the panic has to become this package's
 	// error before anything can observe that there was one.
 	defer func() {
-		if pe, ok := stderrors.AsType[*panicking.PanicError](err); ok {
-			p.panicCounter.Add(ctx, 1, p.topicAttr)
-			op.SpanOnly(panicStackKey, string(pe.Stack))
-
-			err = platformerrors.Wrapf(ErrHandlerPanicked, "%v", pe.Value)
-		}
+		err = containedPanic(ctx, op, err, p.panicCounter, p.topicAttr, ErrHandlerPanicked)
 
 		p.handlerHist.Record(ctx, float64(p.clock.Since(startTime).Milliseconds()), p.topicAttr)
 

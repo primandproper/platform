@@ -73,13 +73,16 @@ var (
 	// empty one would make every request for a key look identical and disable
 	// mismatch detection entirely, so it is rejected rather than defaulted.
 	ErrEmptyFingerprint = platformerrors.New("empty idempotency fingerprint")
-	// ErrNilStore indicates NewManager was called without a record store.
-	ErrNilStore = platformerrors.New("nil idempotency store")
+	// ErrNilStore indicates NewManager was called without a record store. It
+	// wraps errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilStore = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil idempotency store")
 	// ErrNilLocker indicates NewManager was called without a locker. It has no
-	// default: an implicit noop would silently remove mutual exclusion.
-	ErrNilLocker = platformerrors.New("nil idempotency locker")
-	// ErrNilFunc indicates Do was called with no work to run.
-	ErrNilFunc = platformerrors.New("nil idempotency func")
+	// default: an implicit noop would silently remove mutual exclusion. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilLocker = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil idempotency locker")
+	// ErrNilFunc indicates Do was called with no work to run. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilFunc = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil idempotency func")
 	// ErrInvalidTTL indicates a non-positive TTL was configured.
 	ErrInvalidTTL = platformerrors.New("invalid idempotency TTL")
 )
@@ -123,7 +126,7 @@ type (
 		Value *T
 		// Fingerprint identifies the request this key was used for, so a
 		// second, different request under the same key can be detected.
-		Fingerprint string
+		Fingerprint Fingerprint
 		// ClaimID identifies the execution that owns the claim. Only its owner
 		// may complete or release it, which is what stops an execution that
 		// outlived its claim from overwriting whoever re-claimed the key.
@@ -336,6 +339,46 @@ func NewManager[T any](
 	return m, nil
 }
 
+// DoOption overrides a Manager-level setting for one call.
+//
+// The Manager's own settings are the defaults for every call through it; these
+// exist so that one Manager can serve endpoints whose requirements differ,
+// rather than forcing a second Manager per variation.
+type DoOption[T any] func(*doOptions[T])
+
+// doOptions holds the per-call overrides. A nil field means "inherit from the
+// Manager", which is what keeps an option's absence distinguishable from an
+// option set to a zero value.
+type doOptions[T any] struct {
+	ttl *time.Duration
+}
+
+// newDoOptions applies opts, ignoring nil entries.
+func newDoOptions[T any](opts []DoOption[T]) *doOptions[T] {
+	o := &doOptions[T]{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(o)
+		}
+	}
+
+	return o
+}
+
+// WithCallTTL overrides how long this call's completed record is retained.
+//
+// Retention is the window in which a retry replays instead of re-running, so it
+// belongs to the operation rather than to the Manager: a payment worth
+// protecting for a day and a profile update worth protecting for a minute can
+// then share one Manager. A non-positive value inherits the Manager's TTL.
+func WithCallTTL[T any](ttl time.Duration) DoOption[T] {
+	return func(o *doOptions[T]) {
+		if ttl > 0 {
+			o.ttl = &ttl
+		}
+	}
+}
+
 // Do runs fn at most once for key.
 //
 // The fingerprint identifies the request the key is being used for. A stored
@@ -351,8 +394,10 @@ func NewManager[T any](
 // attempt runs the work again. A panic does the same and keeps unwinding.
 func (m *Manager[T]) Do(
 	ctx context.Context,
-	key, fingerprint string,
+	key Key,
+	fingerprint Fingerprint,
 	fn func(ctx context.Context) (*T, error),
+	opts ...DoOption[T],
 ) (*Result[T], error) {
 	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
@@ -361,6 +406,13 @@ func (m *Manager[T]) Do(
 	defer func() {
 		m.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
+
+	o := newDoOptions(opts)
+
+	ttl := m.ttl
+	if o.ttl != nil {
+		ttl = *o.ttl
+	}
 
 	if err := ValidateKey(key, m.maxKeyLength); err != nil {
 		return nil, op.Error(err, "validating idempotency key")
@@ -372,7 +424,9 @@ func (m *Manager[T]) Do(
 		return nil, op.Error(ErrNilFunc, "checking idempotency func")
 	}
 
-	op.Set(keyKey, key).Set(fingerprintKey, fingerprint)
+	// Converted rather than passed through: the span attacher's type switch
+	// matches string exactly, so a named string type would miss it.
+	op.Set(keyKey, string(key)).Set(fingerprintKey, string(fingerprint))
 
 	storeKey := m.storeKey(key)
 
@@ -410,7 +464,7 @@ func (m *Manager[T]) Do(
 		return &Result[T]{Value: value}, nil
 	}
 
-	m.commit(ctx, op, storeKey, claimID, fingerprint, value)
+	m.commit(ctx, op, storeKey, claimID, fingerprint, value, ttl)
 	m.count(ctx, outcomeExecuted)
 
 	return &Result[T]{Value: value}, nil
@@ -428,7 +482,7 @@ func (m *Manager[T]) replay(
 	ctx context.Context,
 	op observability.Operation,
 	record *Record[T],
-	fingerprint string,
+	fingerprint Fingerprint,
 ) (*Result[T], error) {
 	if record.Fingerprint != fingerprint {
 		m.count(ctx, outcomeMismatch)
@@ -465,7 +519,9 @@ func (m *Manager[T]) replay(
 func (m *Manager[T]) claim(
 	ctx context.Context,
 	op observability.Operation,
-	key, storeKey, fingerprint string,
+	key Key,
+	storeKey string,
+	fingerprint Fingerprint,
 ) (claimID string, existing *Record[T], err error) {
 	lockErr := m.locker.WithLock(ctx, m.lockKey(key), func(ctx context.Context) error {
 		record, found, loadErr := m.load(ctx, op, storeKey)
@@ -534,8 +590,10 @@ func (m *Manager[T]) invoke(
 func (m *Manager[T]) commit(
 	ctx context.Context,
 	op observability.Operation,
-	storeKey, claimID, fingerprint string,
+	storeKey, claimID string,
+	fingerprint Fingerprint,
 	value *T,
+	ttl time.Duration,
 ) {
 	if !m.stillOurs(ctx, op, storeKey, claimID, "completing") {
 		return
@@ -548,7 +606,7 @@ func (m *Manager[T]) commit(
 		ClaimID:     claimID,
 		Version:     recordVersion,
 		State:       StateCompleted,
-	}, cache.WithExpiry(m.ttl)); err != nil {
+	}, cache.WithExpiry(ttl)); err != nil {
 		m.recordFailureCounter.Add(ctx, 1)
 		op.Acknowledge(err, "recording idempotency result")
 
@@ -659,13 +717,13 @@ func (m *Manager[T]) count(ctx context.Context, outcome string) {
 }
 
 // storeKey namespaces a caller's key for the record store.
-func (m *Manager[T]) storeKey(key string) string {
-	return m.keyPrefix + key
+func (m *Manager[T]) storeKey(key Key) string {
+	return m.keyPrefix + string(key)
 }
 
 // lockKey namespaces a caller's key for the locker. It is deliberately
 // distinct from the store key: the two live in different systems, and a shared
 // spelling invites the assumption that one can be derived from the other.
-func (m *Manager[T]) lockKey(key string) string {
-	return m.keyPrefix + "lock:" + key
+func (m *Manager[T]) lockKey(key Key) string {
+	return m.keyPrefix + "lock:" + string(key)
 }

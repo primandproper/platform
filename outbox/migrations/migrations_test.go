@@ -110,7 +110,7 @@ func TestStatements(T *testing.T) {
 
 		for _, name := range []string{"", "outbox messages", "outbox; DROP TABLE users", "1outbox"} {
 			_, err := Statements(dialect.Postgres, name)
-			test.ErrorIs(t, err, ErrInvalidTableName,
+			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier,
 				test.Sprintf("expected %q to be rejected", name))
 		}
 	})

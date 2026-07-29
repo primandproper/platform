@@ -47,8 +47,26 @@ func TestNewWriter(T *testing.T) {
 				continue
 			}
 
-			test.ErrorIs(t, err, ErrInvalidTableName)
+			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 		}
+	})
+
+	// The writer and the DDL renderer live in different packages and reject the
+	// same bad name. They previously raised two distinct sentinels with
+	// identical messages, so a caller checking one against the other's error
+	// silently got false; one shared sentinel is what makes that check work.
+	T.Run("rejects a bad table name identically to the migrations package", func(t *testing.T) {
+		t.Parallel()
+
+		const bad = "outbox; DROP TABLE users"
+
+		_, writerErr := NewWriter(dialect.SQLite, WithWriterTableName(bad))
+		_, migrationErr := migrations.Statements(dialect.SQLite, bad)
+
+		must.Error(t, writerErr)
+		must.Error(t, migrationErr)
+		test.ErrorIs(t, writerErr, dialect.ErrInvalidIdentifier)
+		test.ErrorIs(t, migrationErr, dialect.ErrInvalidIdentifier)
 	})
 
 	T.Run("accepts a schema-qualified table name", func(t *testing.T) {

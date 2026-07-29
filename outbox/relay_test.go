@@ -470,7 +470,7 @@ func TestNewRelay(T *testing.T) {
 			newTestClient(t),
 			&mqmock.PublisherProviderMock{},
 		)
-		test.ErrorIs(t, err, ErrInvalidTableName)
+		test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 	})
 
 	T.Run("rejects SKIP LOCKED on a dialect that cannot do it", func(t *testing.T) {

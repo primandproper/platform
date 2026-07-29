@@ -412,7 +412,7 @@ func TestMiddleware_Rejections(T *testing.T) {
 		t.Parallel()
 
 		handler := okHandler()
-		wrapped := wrap(t, handler, newTestManager(t), WithFingerprint(func(*http.Request, []byte) (string, error) {
+		wrapped := wrap(t, handler, newTestManager(t), WithFingerprint(func(*http.Request, []byte) (idempotency.Fingerprint, error) {
 			return "", platformerrors.New("cannot fingerprint")
 		}))
 

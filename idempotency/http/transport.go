@@ -85,7 +85,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// a shallow copy. Header needs its own clone because the copy shares the
 	// original's map.
 	stamped := req.Clone(req.Context())
-	stamped.Header.Set(t.headerName, key)
+	stamped.Header.Set(t.headerName, string(key))
 
 	return t.base.RoundTrip(stamped)
 }

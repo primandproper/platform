@@ -26,6 +26,10 @@
 // delay you would accept between revoking a role's authority and it taking
 // effect everywhere.
 //
+// Both invalidation methods are declared by authorization.PolicyInvalidator, so
+// a caller holding the interface authorizationcfg returns can type-assert for
+// that rather than for this concrete type.
+//
 // # What it reports
 //
 // Hit and miss counts come from the cache backend itself — cache/redis and
@@ -84,7 +88,10 @@ const keyFormatVersion = "authzv1"
 // DefaultTTL is the entry lifetime when WithTTL is not supplied.
 const DefaultTTL = 5 * time.Minute
 
-var _ authorization.PolicyResolver = (*Resolver)(nil)
+var (
+	_ authorization.PolicyResolver    = (*Resolver)(nil)
+	_ authorization.PolicyInvalidator = (*Resolver)(nil)
+)
 
 // Resolver caches the results of an inner PolicyResolver.
 type Resolver struct {

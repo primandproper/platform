@@ -163,3 +163,55 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 		test.ErrorIs(t, err, context.Canceled)
 	})
 }
+
+func TestDelayFor(T *testing.T) {
+	T.Parallel()
+
+	// The schedule this returns is the one Execute sleeps through and the one
+	// outbox's relay persists as a timestamp, so these numbers are a contract
+	// between two packages rather than an internal detail of either.
+	T.Run("grows by the multiplier from a 1-indexed attempt", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: 100 * time.Millisecond, Multiplier: 2, MaxDelay: time.Hour}
+
+		test.EqOp(t, 100*time.Millisecond, DelayFor(cfg, 1))
+		test.EqOp(t, 200*time.Millisecond, DelayFor(cfg, 2))
+		test.EqOp(t, 400*time.Millisecond, DelayFor(cfg, 3))
+		test.EqOp(t, 800*time.Millisecond, DelayFor(cfg, 4))
+	})
+
+	T.Run("caps at MaxDelay rather than growing without bound", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: time.Second, Multiplier: 10, MaxDelay: 30 * time.Second}
+
+		test.EqOp(t, 10*time.Second, DelayFor(cfg, 2))
+		test.EqOp(t, 30*time.Second, DelayFor(cfg, 3))
+		// Far enough out that the unclamped value would overflow a Duration.
+		test.EqOp(t, 30*time.Second, DelayFor(cfg, 500))
+	})
+
+	// Attempt counts arrive from stored rows and from loop indices, so a zero
+	// is a plausible input rather than a programming error. Treating it as the
+	// first attempt beats returning zero, which would schedule an immediate
+	// retry of something that just failed.
+	T.Run("treats an attempt below one as the first attempt", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: 250 * time.Millisecond, Multiplier: 2, MaxDelay: time.Minute}
+
+		test.EqOp(t, DelayFor(cfg, 1), DelayFor(cfg, 0))
+	})
+
+	T.Run("does not mutate the config it is given", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: 100 * time.Millisecond, Multiplier: 2, MaxDelay: time.Hour}
+		before := cfg
+
+		DelayFor(cfg, 5)
+
+		test.EqOp(t, before, cfg)
+	})
+}

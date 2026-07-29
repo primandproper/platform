@@ -38,7 +38,8 @@ var (
 	// bound, so they are restricted rather than escaped.
 	ErrInvalidTablePrefix = platformerrors.New("invalid authorization table prefix")
 	// ErrNilExecutor indicates a query executor was required and not supplied.
-	ErrNilExecutor = platformerrors.New("nil query executor")
+	// It wraps errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
 )
 
 var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)

@@ -171,8 +171,10 @@ func (i *interceptor) serve(
 	return reply, nil
 }
 
-// keyFromIncoming reads the key from a call's incoming metadata.
-func keyFromIncoming(ctx context.Context, metadataKey string) (string, bool) {
+// keyFromIncoming reads the key from a call's incoming metadata. The conversion
+// to idempotency.Key happens here, at the wire boundary, so nothing downstream
+// handles the key as a bare string.
+func keyFromIncoming(ctx context.Context, metadataKey string) (idempotency.Key, bool) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return "", false
@@ -183,5 +185,5 @@ func keyFromIncoming(ctx context.Context, metadataKey string) (string, bool) {
 		return "", false
 	}
 
-	return values[0], true
+	return idempotency.Key(values[0]), true
 }

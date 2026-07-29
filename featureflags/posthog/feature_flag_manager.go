@@ -57,6 +57,11 @@ func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBr
 
 	o := newOptions(opts)
 
+	// Built before anything that can fail: the teardown paths below log, and an
+	// absent logger must log nowhere rather than panic on the one path that
+	// exists to clean up after another failure.
+	o11y := observability.NewObserver(serviceName, o.logger, o.tracerProvider)
+
 	// Create the metric instruments before the client/provider so a counter failure
 	// returns without having registered a global provider or opened a client to leak.
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
@@ -100,7 +105,7 @@ func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBr
 	provider := openfeatureposthog.NewProvider(client)
 	if err = openfeature.SetNamedProviderAndWait(domain, provider); err != nil {
 		if closeErr := client.Close(); closeErr != nil {
-			o.logger.Error("error closing OpenFeatureFlag client", closeErr)
+			o11y.Logger().Error("error closing OpenFeatureFlag client", closeErr)
 		}
 		return nil, platformerrors.Wrap(err, "failed to set OpenFeature provider")
 	}
@@ -111,7 +116,7 @@ func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBr
 		posthogClient:  client,
 		ofClient:       ofClient,
 		circuitBreaker: circuitBreaker,
-		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
+		o11y:           o11y,
 		evalCounter:    evalCounter,
 		errorCounter:   errorCounter,
 		latencyHist:    latencyHist,

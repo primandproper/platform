@@ -48,7 +48,14 @@ func newStandardReader(logger logging.Logger, tracerProvider tracing.TracerProvi
 }
 
 // newStandardReaderFS is newStandardReader over an arbitrary fs.FS.
+//
+// The logger is normalized here rather than only inside the Observer, because
+// the retained field is used directly — closeQuietly logs through it — and
+// WithLogger is optional, so a Reader built without one would otherwise panic
+// on the close path instead of logging nowhere as the option documents.
 func newStandardReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider tracing.TracerProvider) *standardReader {
+	logger = logging.EnsureLogger(logger)
+
 	return &standardReader{
 		fsys:           fsys,
 		o11y:           observability.NewObserver(o11yName, logger, tracerProvider),

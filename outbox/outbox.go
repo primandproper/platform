@@ -27,12 +27,9 @@ var (
 	ErrEmptyTopic = platformerrors.New("empty outbox message topic")
 	// ErrNilPayload indicates a Message was enqueued with no payload.
 	ErrNilPayload = platformerrors.New("nil outbox message payload")
-	// ErrNilExecutor indicates Enqueue was called without a query executor.
-	ErrNilExecutor = platformerrors.New("nil query executor")
-	// ErrInvalidTableName indicates a table name that is not a plain SQL
-	// identifier. Table names are interpolated into queries rather than bound,
-	// so they are restricted rather than escaped.
-	ErrInvalidTableName = platformerrors.New("invalid outbox table name")
+	// ErrNilExecutor indicates Enqueue was called without a query executor. It
+	// wraps errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
 )
 
 // Message is one event awaiting publication.
@@ -137,7 +134,7 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 	}
 
 	if !dialect.ValidIdentifier(w.table) {
-		return nil, platformerrors.Wrapf(ErrInvalidTableName, "table %q", w.table)
+		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", w.table)
 	}
 
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)

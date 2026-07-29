@@ -14,8 +14,6 @@ import (
 	"github.com/primandproper/platform-go/v8/observability/tracing"
 	"github.com/primandproper/platform-go/v8/routing"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -161,26 +159,34 @@ func (e *Enforcer) Require(perms ...authorization.Permission) routing.Middleware
 			ctx := req.Context()
 			span := oteltrace.SpanFromContext(ctx)
 
-			routeAttr := metric.WithAttributes(attribute.String(keys.AuthorizationMethodKey, req.URL.Path))
-			e.checksCounter.Add(ctx, 1, routeAttr)
+			// The path goes on the span, never on the counters. This package
+			// sees the request after routing has already matched it but has no
+			// portable way to recover the pattern that matched — routing.Router
+			// exposes none — so the only label available here is the raw path,
+			// and a raw path carries an identifier per resource. As a span
+			// attribute that is one value on one trace; as a metric attribute it
+			// is a new time series per URL.
+			tracing.AttachToSpan(span, keys.AuthorizationMethodKey, req.URL.Path)
+
+			e.checksCounter.Add(ctx, 1)
 			tracing.AttachToSpan(span, keys.AuthorizationRequiredKey, requiredStrings)
 
 			if len(required) == 0 {
-				e.deny(res, req, span, routeAttr, next, "route requires an empty permission list")
+				e.deny(res, req, span, next, "route requires an empty permission list")
 
 				return
 			}
 
 			grants, ok := e.extract(ctx)
 			if !ok {
-				e.noGrantsCounter.Add(ctx, 1, routeAttr)
-				e.deny(res, req, span, routeAttr, next, "no grants available for request requiring authorization")
+				e.noGrantsCounter.Add(ctx, 1)
+				e.deny(res, req, span, next, "no grants available for request requiring authorization")
 
 				return
 			}
 
 			if !grants.HasAll(required...) {
-				e.deny(res, req, span, routeAttr, next, "")
+				e.deny(res, req, span, next, "")
 
 				return
 			}
@@ -196,11 +202,10 @@ func (e *Enforcer) deny(
 	res http.ResponseWriter,
 	req *http.Request,
 	span oteltrace.Span,
-	routeAttr metric.MeasurementOption,
 	next http.Handler,
 	logMessage string,
 ) {
-	e.denialsCounter.Add(req.Context(), 1, routeAttr)
+	e.denialsCounter.Add(req.Context(), 1)
 
 	if logMessage != "" {
 		e.logger.WithSpan(span).WithRequest(req).Error(logMessage, authorization.ErrPermissionDenied)

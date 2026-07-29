@@ -253,14 +253,14 @@ func newManagerOver(
 
 // seed writes a record directly, standing in for whatever another process left
 // behind.
-func seed(t *testing.T, m *Manager[payload], key string, record *Record[payload], expiry time.Duration) {
+func seed(t *testing.T, m *Manager[payload], key Key, record *Record[payload], expiry time.Duration) {
 	t.Helper()
 
 	must.NoError(t, m.store.Set(t.Context(), m.storeKey(key), record, cache.WithExpiry(expiry)))
 }
 
 // completed builds a finished record for fingerprint.
-func completed(fingerprint, name string) *Record[payload] {
+func completed(fingerprint Fingerprint, name string) *Record[payload] {
 	return &Record[payload]{
 		CreatedAt:   time.Now().UTC(),
 		Value:       &payload{Name: name},
@@ -272,7 +272,7 @@ func completed(fingerprint, name string) *Record[payload] {
 }
 
 // inFlight builds a claim record for fingerprint.
-func inFlight(fingerprint string) *Record[payload] {
+func inFlight(fingerprint Fingerprint) *Record[payload] {
 	return &Record[payload]{
 		CreatedAt:   time.Now().UTC(),
 		Fingerprint: fingerprint,

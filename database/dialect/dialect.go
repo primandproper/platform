@@ -84,6 +84,12 @@ func (d Dialect) Placeholders(start, count int) string {
 // trailing-newline escape from the anchor.
 var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
 
+// ErrInvalidIdentifier indicates a name that ValidIdentifier rejects. Packages
+// wrap it with their own context, so errors.Is works across all of them —
+// including across a package that builds a table's DDL and one that queries it,
+// which is the pair most likely to be checked against each other.
+var ErrInvalidIdentifier = platformerrors.New("invalid SQL identifier")
+
 // ValidIdentifier reports whether s is safe to interpolate into query text as
 // a table name. Table names are interpolated rather than bound, so they are
 // restricted rather than escaped.

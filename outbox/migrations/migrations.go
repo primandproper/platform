@@ -40,11 +40,6 @@ var mysqlDDL string
 //go:embed sqlite.sql
 var sqliteDDL string
 
-// ErrInvalidTableName indicates a table name that is not a plain SQL
-// identifier. The name is interpolated into DDL, so it is restricted rather
-// than escaped.
-var ErrInvalidTableName = platformerrors.New("invalid outbox table name")
-
 // tablePlaceholder is the token each .sql file uses for the table name.
 const tablePlaceholder = "{{TABLE}}"
 
@@ -66,7 +61,7 @@ func Statements(d dialect.Dialect, tableName string) ([]string, error) {
 	}
 
 	if !dialect.ValidIdentifier(tableName) {
-		return nil, platformerrors.Wrapf(ErrInvalidTableName, "table %q", tableName)
+		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", tableName)
 	}
 
 	return dialect.SplitStatements(strings.ReplaceAll(ddl, tablePlaceholder, tableName)), nil

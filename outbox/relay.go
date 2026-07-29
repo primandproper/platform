@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -178,11 +177,12 @@ func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 var ErrInvalidClaimMode = platformerrors.New("invalid outbox claim mode")
 
 // ErrNilDatabaseClient indicates a nil database.Client was passed to NewRelay.
-var ErrNilDatabaseClient = platformerrors.New("nil database client")
+// It wraps errors.ErrNilInputParameter, so a caller may check either.
+var ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil database client")
 
 // ErrNilPublisherProvider indicates a nil PublisherProvider was passed to
-// NewRelay.
-var ErrNilPublisherProvider = platformerrors.New("nil publisher provider")
+// NewRelay. It wraps errors.ErrNilInputParameter, so a caller may check either.
+var ErrNilPublisherProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil publisher provider")
 
 // claimedMessage is one row the relay has taken ownership of.
 type claimedMessage struct {
@@ -280,7 +280,7 @@ func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, pro
 	cfg.EnsureDefaults()
 
 	if !dialect.ValidIdentifier(cfg.TableName) {
-		return nil, platformerrors.Wrapf(ErrInvalidTableName, "table %q", cfg.TableName)
+		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", cfg.TableName)
 	}
 
 	r := &Relay{
@@ -759,20 +759,21 @@ func topicAttr(topic string) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String(keys.TopicKey, topic))
 }
 
-// backoffFor computes the delay before a message's next attempt, using the
-// same knobs as retry.Config. The retry package's Policy retries in a loop,
-// which is the wrong shape here: the wait is persisted as a timestamp and
-// survives a relay restart.
+// backoffFor computes the delay before a message's next attempt.
+//
+// The schedule comes from retry.DelayFor, so the relay and anything using a
+// retry.Policy grow their delays identically from the same Config. What differs
+// is everything around it: the wait is persisted as a timestamp rather than
+// slept through, so it survives a relay restart, and the jitter is full rather
+// than equal — several relays share this table, and spreading their next
+// attempts across the whole window is what keeps them from re-colliding on
+// every round after one contended claim.
 func (r *Relay) backoffFor(attempts int) time.Duration {
 	if attempts < 1 {
 		attempts = 1
 	}
 
-	delay := float64(r.cfg.Backoff.InitialDelay) * math.Pow(r.cfg.Backoff.Multiplier, float64(attempts-1))
-
-	if maxDelay := float64(r.cfg.Backoff.MaxDelay); delay > maxDelay {
-		delay = maxDelay
-	}
+	delay := float64(retry.DelayFor(r.cfg.Backoff, uint(attempts)))
 
 	if r.cfg.Backoff.UseJitter {
 		// Full jitter. Not security-sensitive: this only decorrelates retry
@@ -780,6 +781,9 @@ func (r *Relay) backoffFor(attempts int) time.Duration {
 		delay *= rand.Float64() //nolint:gosec // jitter, not entropy
 	}
 
+	// A floor, because a jittered delay can land arbitrarily close to zero and
+	// a message that becomes claimable immediately would spin against the same
+	// failure rather than waiting out whatever caused it.
 	if delay < float64(time.Millisecond) {
 		delay = float64(time.Millisecond)
 	}

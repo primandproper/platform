@@ -50,8 +50,9 @@ var (
 	// the job's goroutine, which would stop that job — and only that job —
 	// silently for the life of the process.
 	ErrJobPanicked = platformerrors.New("scheduled job panicked")
-	// ErrNilLocker indicates a nil Locker was passed to NewScheduler.
-	ErrNilLocker = platformerrors.New("nil distributed locker")
+	// ErrNilLocker indicates a nil Locker was passed to NewScheduler. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilLocker = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil distributed locker")
 	// ErrSchedulerRunning indicates Register was called after Run. The job set
 	// is fixed at Run, because each job owns a ticker goroutine started there.
 	ErrSchedulerRunning = platformerrors.New("scheduler is already running")
@@ -532,15 +533,7 @@ func (s *Scheduler) execute(ctx context.Context, op observability.Operation, job
 // stopped arriving" months later rather than a crash now.
 func (s *Scheduler) invoke(ctx context.Context, op observability.Operation, job *Job, attrs metric.MeasurementOption) (err error) {
 	defer func() {
-		pe, ok := stderrors.AsType[*panicking.PanicError](err)
-		if !ok {
-			return
-		}
-
-		s.panicCounter.Add(ctx, 1, attrs)
-		op.SpanOnly(panicStackKey, string(pe.Stack))
-
-		err = platformerrors.Wrapf(ErrJobPanicked, "%v", pe.Value)
+		err = containedPanic(ctx, op, err, s.panicCounter, attrs, ErrJobPanicked)
 	}()
 
 	timeout := job.Timeout

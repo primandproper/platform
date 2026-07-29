@@ -86,7 +86,7 @@ func (m *middleware) serve(res http.ResponseWriter, req *http.Request, next http
 	ctx, op := m.o11y.Begin(req.Context())
 	defer op.End()
 
-	key := req.Header.Get(m.cfg.headerName)
+	key := idempotency.Key(req.Header.Get(m.cfg.headerName))
 
 	principal, err := m.principal(req)
 	if err != nil {
@@ -171,7 +171,7 @@ func (m *middleware) principal(req *http.Request) (string, error) {
 
 // fingerprint resolves the request fingerprint, deferring to a caller-supplied
 // function when one was configured.
-func (m *middleware) fingerprint(req *http.Request, principal string, body []byte) (string, error) {
+func (m *middleware) fingerprint(req *http.Request, principal string, body []byte) (idempotency.Fingerprint, error) {
 	if m.cfg.fingerprint != nil {
 		return m.cfg.fingerprint(req, body)
 	}
