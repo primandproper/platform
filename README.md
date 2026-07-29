@@ -83,12 +83,13 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `version`       | Build/version metadata               | —                                                  |
 
 ### Auth & security
-| Package          | Purpose                        | Implementations      |
-|------------------|--------------------------------|----------------------|
-| `authentication` | Password hashing, TOTP, tokens | argon2, totp, tokens |
-| `cryptography`   | Cryptographic primitives       | —                    |
-| `random`         | Secure randomness              | —                    |
-| `identifiers`    | ID generation                  | —                    |
+| Package          | Purpose                             | Implementations                |
+|------------------|-------------------------------------|--------------------------------|
+| `authentication` | Password hashing, TOTP, tokens      | argon2, totp, tokens           |
+| `authorization`  | Role/permission policy, enforcement | static (default), database     |
+| `cryptography`   | Cryptographic primitives            | —                              |
+| `random`         | Secure randomness                   | —                              |
+| `identifiers`    | ID generation                       | —                              |
 
 ### AI, ML & product
 | Package        | Purpose                      | Implementations               |

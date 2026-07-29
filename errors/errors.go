@@ -31,4 +31,13 @@ var (
 	ErrInvalidIDProvided = crdberrors.New("required ID provided is empty")
 	// ErrEmptyInputProvided indicates a required input was passed in empty.
 	ErrEmptyInputProvided = crdberrors.New("input provided is empty")
+
+	// ErrPermissionDenied indicates the requester lacks the authority to perform
+	// the action. It lives here rather than in the authorization package so that
+	// errors/http and errors/grpc can map it without importing authorization,
+	// which imports them back.
+	//
+	// Its message is deliberately generic: it reaches clients verbatim, and the
+	// specific permission that was missing must not.
+	ErrPermissionDenied = crdberrors.New("permission denied")
 )

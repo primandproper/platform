@@ -27,6 +27,11 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrValidatingRequestInput, "user already exists", true
 	case errors.Is(err, circuitbreaking.ErrCircuitBroken):
 		return ErrCircuitBroken, "service temporarily unavailable", true
+	case errors.Is(err, platformerrors.ErrPermissionDenied):
+		// The message is a constant rather than anything derived from the error:
+		// naming the missing permission would disclose the permission taxonomy to
+		// a caller that just failed to authorize.
+		return ErrUserIsNotAuthorized, "permission denied", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):

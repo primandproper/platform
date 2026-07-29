@@ -69,6 +69,30 @@ const (
 	// UsernameKey is the standard key for referring to a username (request context).
 	UsernameKey = "user.username"
 
+	// AuthorizationMethodKey is the standard key for referring to the route or RPC
+	// method an authorization decision was made for.
+	AuthorizationMethodKey = "authorization.method"
+	// AuthorizationRequiredKey is the standard key for referring to the permissions
+	// a route or method required. It belongs on the span and the log, never on a
+	// response: it describes the policy, not the requester.
+	AuthorizationRequiredKey = "authorization.required"
+	// AuthorizationDecisionKey is the standard key for referring to the outcome of
+	// an authorization check ("allowed", "denied", "audited").
+	AuthorizationDecisionKey = "authorization.decision"
+	// AuthorizationRolesKey is the standard key for referring to the role names a
+	// policy resolution was performed for. Its value is always the names
+	// themselves; use AuthorizationRoleCountKey when only a count is on hand, so
+	// that one attribute never carries two types.
+	AuthorizationRolesKey = "authorization.roles"
+	// AuthorizationRoleCountKey is the standard key for referring to a number of
+	// roles, for the bulk operations where naming each one would be unbounded.
+	AuthorizationRoleCountKey = "authorization.role_count"
+	// AuthorizationCacheOutcomeKey is the standard key for referring to how a
+	// cached policy resolution was served ("hit", "miss", "fault"). "fault"
+	// records that the cache was unusable and the resolution degraded to the
+	// authoritative resolver — a successful request that silently cost a query.
+	AuthorizationCacheOutcomeKey = "authorization.cache_outcome"
+
 	// EmailSubjectKey is the standard key for referring to an outbound email's subject.
 	EmailSubjectKey = "email.subject"
 	// EmailToAddressKey is the standard key for referring to an outbound email's recipient address.
