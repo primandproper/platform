@@ -4,12 +4,14 @@ import (
 	"net/http"
 )
 
-// NewHTTPClient provides an HTTP client from config.
-// If cfg is nil, defaults are used.
-func NewHTTPClient(cfg *Config) *http.Client {
-	if cfg == nil {
-		cfg = &Config{}
+// NewHTTPClient provides an HTTP client. With no options it returns a client with
+// the package defaults; pass Config.Options to drive it from an environment-loaded
+// Config.
+func NewHTTPClient(opts ...Option) *http.Client {
+	cfg := newClientConfig()
+	for _, opt := range opts {
+		opt(cfg)
 	}
-	cfg.EnsureDefaults()
-	return cfg.BuildClient()
+
+	return cfg.buildClient()
 }
