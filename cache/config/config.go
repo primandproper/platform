@@ -34,6 +34,13 @@ type (
 		// cache.WithExpiry; a non-positive value means entries never expire by
 		// default.
 		Expiry time.Duration `env:"EXPIRY" envDefault:"1h" json:"expiry" yaml:"expiry"`
+		// JanitorInterval is how often the memory provider sweeps expired
+		// entries. It is ignored by every other provider, which expire entries
+		// in the backing store rather than in this process. A non-positive
+		// value disables the sweep, leaving the memory provider's lazy
+		// eviction as the only reclaim path — see memory.WithJanitor for why
+		// that is rarely what a long-lived cache wants.
+		JanitorInterval time.Duration `env:"JANITOR_INTERVAL" envDefault:"5m" json:"janitorInterval" yaml:"janitorInterval"`
 	}
 )
 
@@ -51,7 +58,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewCache[T any](ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (cache.Cache[T], error) {
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderMemory:
-		return memory.NewInMemoryCache[T](cfg.Expiry, logger, tracerProvider, metricsProvider)
+		// The janitor is bound to the caller's context because cache.Cache has
+		// no Close: the sweep stops when whatever scope owns this cache does.
+		return memory.NewInMemoryCache[T](cfg.Expiry, logger, tracerProvider, metricsProvider,
+			memory.WithJanitor[T](ctx, cfg.JanitorInterval))
 	case ProviderRedis:
 		cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, logger, metricsProvider)
 		if err != nil {
