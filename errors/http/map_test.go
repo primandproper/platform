@@ -3,11 +3,13 @@ package http
 import (
 	"database/sql"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/primandproper/platform-go/v8/circuitbreaking"
 	"github.com/primandproper/platform-go/v8/database"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/idempotency"
 
 	"github.com/shoenig/test"
 )
@@ -43,6 +45,46 @@ func TestPlatformMapper_Map(T *testing.T) {
 		test.True(t, ok)
 		test.EqOp(t, ErrCircuitBroken, code)
 		test.EqOp(t, "service temporarily unavailable", msg)
+	})
+
+	T.Run("ErrInFlight maps to ErrIdempotencyKeyInFlight", func(t *testing.T) {
+		t.Parallel()
+		code, _, ok := PlatformMapper.Map(idempotency.ErrInFlight)
+		test.True(t, ok)
+		test.EqOp(t, ErrIdempotencyKeyInFlight, code)
+		test.EqOp(t, http.StatusConflict, HTTPStatusForCode(code))
+	})
+
+	T.Run("ErrFingerprintMismatch maps to ErrIdempotencyKeyReused", func(t *testing.T) {
+		t.Parallel()
+		code, _, ok := PlatformMapper.Map(idempotency.ErrFingerprintMismatch)
+		test.True(t, ok)
+		test.EqOp(t, ErrIdempotencyKeyReused, code)
+		test.EqOp(t, http.StatusUnprocessableEntity, HTTPStatusForCode(code))
+	})
+
+	// A malformed key is bad input, not an idempotency outcome.
+	T.Run("key validation errors map to ErrValidatingRequestInput", func(t *testing.T) {
+		t.Parallel()
+		for _, err := range []error{
+			idempotency.ErrKeyRequired,
+			idempotency.ErrKeyTooLong,
+			idempotency.ErrKeyInvalid,
+		} {
+			code, _, ok := PlatformMapper.Map(err)
+			test.True(t, ok)
+			test.EqOp(t, ErrValidatingRequestInput, code)
+			test.EqOp(t, http.StatusBadRequest, HTTPStatusForCode(code))
+		}
+	})
+
+	// The manager wraps its sentinels on the way out, so the mapper has to
+	// match through the wrapping rather than on identity.
+	T.Run("maps a wrapped idempotency sentinel", func(t *testing.T) {
+		t.Parallel()
+		code, _, ok := PlatformMapper.Map(platformerrors.Wrap(idempotency.ErrInFlight, "checking idempotency claim"))
+		test.True(t, ok)
+		test.EqOp(t, ErrIdempotencyKeyInFlight, code)
 	})
 
 	T.Run("ErrNilInputParameter maps to ErrValidatingRequestInput", func(t *testing.T) {
