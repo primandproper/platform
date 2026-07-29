@@ -2,6 +2,7 @@ package httpclient
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -36,6 +37,74 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		test.EqOp(t, 5*time.Second, cfg.Timeout)
 		test.EqOp(t, 50, cfg.MaxIdleConns)
 		test.EqOp(t, 25, cfg.MaxIdleConnsPerHost)
+	})
+}
+
+func TestConfig_Options(T *testing.T) {
+	T.Parallel()
+
+	T.Run("nil config yields no options", func(t *testing.T) {
+		t.Parallel()
+
+		var cfg *Config
+
+		test.SliceEmpty(t, cfg.Options())
+
+		client := NewHTTPClient(cfg.Options()...)
+		must.NotNil(t, client)
+		test.EqOp(t, defaultTimeout, client.Timeout)
+	})
+
+	T.Run("config values reach the client", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Timeout:             7 * time.Second,
+			MaxIdleConns:        13,
+			MaxIdleConnsPerHost: 7,
+		}
+
+		client := NewHTTPClient(cfg.Options()...)
+		must.NotNil(t, client)
+		test.EqOp(t, 7*time.Second, client.Timeout)
+
+		transport, ok := client.Transport.(*http.Transport)
+		must.True(t, ok)
+		test.EqOp(t, 13, transport.MaxIdleConns)
+		test.EqOp(t, 7, transport.MaxIdleConnsPerHost)
+	})
+
+	T.Run("zero-valued fields keep defaults", func(t *testing.T) {
+		t.Parallel()
+
+		client := NewHTTPClient((&Config{}).Options()...)
+		must.NotNil(t, client)
+		test.EqOp(t, defaultTimeout, client.Timeout)
+
+		transport, ok := client.Transport.(*http.Transport)
+		must.True(t, ok)
+		test.EqOp(t, defaultMaxIdleConns, transport.MaxIdleConns)
+		test.EqOp(t, defaultMaxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
+	})
+
+	T.Run("enables tracing", func(t *testing.T) {
+		t.Parallel()
+
+		client := NewHTTPClient((&Config{EnableTracing: true}).Options()...)
+		must.NotNil(t, client)
+
+		_, ok := client.Transport.(*http.Transport)
+		test.False(t, ok)
+	})
+
+	T.Run("appended options override the config", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Timeout: 7 * time.Second}
+
+		client := NewHTTPClient(append(cfg.Options(), WithTimeout(11*time.Second))...)
+		must.NotNil(t, client)
+		test.EqOp(t, 11*time.Second, client.Timeout)
 	})
 }
 

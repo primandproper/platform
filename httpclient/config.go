@@ -36,6 +36,27 @@ func (cfg *Config) EnsureDefaults() {
 	}
 }
 
+// Options expresses the config as the equivalent list of Options, which is how a
+// Config reaches NewHTTPClient:
+//
+//	client := httpclient.NewHTTPClient(cfg.Options()...)
+//
+// Callers can append further Options to override individual settings. Zero-valued
+// numeric fields yield Options that leave the package defaults in place, matching
+// EnsureDefaults; EnableTracing is applied as given. A nil Config yields no Options.
+func (cfg *Config) Options() []Option {
+	if cfg == nil {
+		return nil
+	}
+
+	return []Option{
+		WithTimeout(cfg.Timeout),
+		WithMaxIdleConns(cfg.MaxIdleConns),
+		WithMaxIdleConnsPerHost(cfg.MaxIdleConnsPerHost),
+		WithTracing(cfg.EnableTracing),
+	}
+}
+
 // ValidateWithContext validates the config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,

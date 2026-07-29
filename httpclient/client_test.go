@@ -9,51 +9,59 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-func TestConfig_BuildClient(T *testing.T) {
+// stubRoundTripper is a RoundTripper that records nothing and returns nothing; it
+// exists to assert that WithTransport is honored.
+type stubRoundTripper struct{}
+
+func (stubRoundTripper) RoundTrip(*http.Request) (*http.Response, error) { return nil, nil }
+
+func TestNewHTTPClient(T *testing.T) {
 	T.Parallel()
+
+	T.Run("with no options uses defaults", func(t *testing.T) {
+		t.Parallel()
+
+		client := NewHTTPClient()
+		must.NotNil(t, client)
+		test.EqOp(t, defaultTimeout, client.Timeout)
+
+		transport, ok := client.Transport.(*http.Transport)
+		must.True(t, ok)
+		test.EqOp(t, defaultMaxIdleConns, transport.MaxIdleConns)
+		test.EqOp(t, defaultMaxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
+	})
 
 	T.Run("with tracing enabled", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{
-			Timeout:       2 * time.Second,
-			EnableTracing: true,
-		}
-		cfg.EnsureDefaults()
-
-		client := cfg.BuildClient()
+		client := NewHTTPClient(WithTimeout(2*time.Second), WithTracing(true))
 		must.NotNil(t, client)
 		test.EqOp(t, 2*time.Second, client.Timeout)
-		test.NotNil(t, client.Transport)
+		must.NotNil(t, client.Transport)
+
+		_, ok := client.Transport.(*http.Transport)
+		test.False(t, ok)
 	})
 
 	T.Run("with tracing disabled", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{
-			Timeout:       3 * time.Second,
-			EnableTracing: false,
-		}
-		cfg.EnsureDefaults()
-
-		client := cfg.BuildClient()
+		client := NewHTTPClient(WithTimeout(3*time.Second), WithTracing(false))
 		must.NotNil(t, client)
 		test.EqOp(t, 3*time.Second, client.Timeout)
-		test.NotNil(t, client.Transport)
+
+		_, ok := client.Transport.(*http.Transport)
+		test.True(t, ok)
 	})
 
-	T.Run("applies MaxIdleConns and MaxIdleConnsPerHost", func(t *testing.T) {
+	T.Run("applies connection pool options", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{
-			Timeout:             time.Second,
-			MaxIdleConns:        42,
-			MaxIdleConnsPerHost: 21,
-			EnableTracing:       false,
-		}
-		cfg.EnsureDefaults()
-
-		client := cfg.BuildClient()
+		client := NewHTTPClient(
+			WithTimeout(time.Second),
+			WithMaxIdleConns(42),
+			WithMaxIdleConnsPerHost(21),
+		)
 		must.NotNil(t, client)
 
 		transport, ok := client.Transport.(*http.Transport)
@@ -61,27 +69,50 @@ func TestConfig_BuildClient(T *testing.T) {
 		test.EqOp(t, 42, transport.MaxIdleConns)
 		test.EqOp(t, 21, transport.MaxIdleConnsPerHost)
 	})
-}
 
-func TestNewHTTPClient(T *testing.T) {
-	T.Parallel()
-
-	T.Run("with nil config uses defaults", func(t *testing.T) {
+	T.Run("ignores non-positive option values", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(nil)
+		client := NewHTTPClient(
+			WithTimeout(0),
+			WithMaxIdleConns(0),
+			WithMaxIdleConnsPerHost(-1),
+			WithTransport(nil),
+		)
 		must.NotNil(t, client)
 		test.EqOp(t, defaultTimeout, client.Timeout)
+
+		transport, ok := client.Transport.(*http.Transport)
+		must.True(t, ok)
+		test.EqOp(t, defaultMaxIdleConns, transport.MaxIdleConns)
+		test.EqOp(t, defaultMaxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
 	})
 
-	T.Run("with config uses config values", func(t *testing.T) {
+	T.Run("later options override earlier ones", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{
-			Timeout: 7 * time.Second,
-		}
-		client := NewHTTPClient(cfg)
+		client := NewHTTPClient(WithTimeout(time.Second), WithTimeout(5*time.Second))
 		must.NotNil(t, client)
-		test.EqOp(t, 7*time.Second, client.Timeout)
+		test.EqOp(t, 5*time.Second, client.Timeout)
+	})
+
+	T.Run("with transport", func(t *testing.T) {
+		t.Parallel()
+
+		client := NewHTTPClient(WithTransport(stubRoundTripper{}))
+		must.NotNil(t, client)
+
+		_, ok := client.Transport.(stubRoundTripper)
+		test.True(t, ok)
+	})
+
+	T.Run("with transport still wraps in tracing", func(t *testing.T) {
+		t.Parallel()
+
+		client := NewHTTPClient(WithTransport(stubRoundTripper{}), WithTracing(true))
+		must.NotNil(t, client)
+
+		_, ok := client.Transport.(stubRoundTripper)
+		test.False(t, ok)
 	})
 }

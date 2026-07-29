@@ -10,45 +10,35 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-// BuildClient constructs an HTTP client from config.
-func (cfg *Config) BuildClient() *http.Client {
-	timeout := cfg.Timeout
-	if timeout == 0 {
-		timeout = defaultTimeout
-	}
+const (
+	defaultKeepAlive           = 30 * time.Second
+	defaultTLSHandshakeTimeout = 10 * time.Second
+)
 
-	var transport http.RoundTripper
-	if cfg.EnableTracing {
-		t := &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   timeout,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			MaxIdleConns:          cfg.MaxIdleConns,
-			MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 2 * timeout,
-			IdleConnTimeout:       3 * timeout,
-		}
-		transport = otelhttp.NewTransport(t, otelhttp.WithSpanNameFormatter(tracing.FormatSpan))
-	} else {
+// buildClient constructs an HTTP client from resolved options.
+func (c *clientConfig) buildClient() *http.Client {
+	transport := c.transport
+	if transport == nil {
 		transport = &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{
-				Timeout:   timeout,
-				KeepAlive: 30 * time.Second,
+				Timeout:   c.timeout,
+				KeepAlive: defaultKeepAlive,
 			}).DialContext,
-			MaxIdleConns:          cfg.MaxIdleConns,
-			MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 2 * timeout,
-			IdleConnTimeout:       3 * timeout,
+			MaxIdleConns:          c.maxIdleConns,
+			MaxIdleConnsPerHost:   c.maxIdleConnsPerHost,
+			TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
+			ExpectContinueTimeout: 2 * c.timeout,
+			IdleConnTimeout:       3 * c.timeout,
 		}
+	}
+
+	if c.tracing {
+		transport = otelhttp.NewTransport(transport, otelhttp.WithSpanNameFormatter(tracing.FormatSpan))
 	}
 
 	return &http.Client{
 		Transport: transport,
-		Timeout:   timeout,
+		Timeout:   c.timeout,
 	}
 }
