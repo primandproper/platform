@@ -73,6 +73,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `ratelimiting`    | Request rate limiting     | redis           |
 | `circuitbreaking` | Circuit breaker           | —               |
 | `retry`           | Retry with backoff        | —               |
+| `idempotency`     | At-most-once effect for retried requests | http, grpc (server + client) |
 
 ### Observability & operations
 | Package         | Purpose                              | Implementations                                    |

@@ -29,6 +29,7 @@ type entry[T any] struct {
 type inMemoryCacheImpl[T any] struct {
 	o11y              observability.Observer
 	clock             clock.Clock
+	janitor           func()
 	cacheHitCounter   metrics.Int64Counter
 	cacheMissCounter  metrics.Int64Counter
 	cacheSetCounter   metrics.Int64Counter
@@ -42,10 +43,13 @@ type inMemoryCacheImpl[T any] struct {
 
 // NewInMemoryCache builds an in-memory cache. Writes expire after defaultExpiry
 // unless overridden per call with cache.WithExpiry; a non-positive defaultExpiry
-// means entries never expire by default. Expired entries are evicted lazily,
-// on the read that discovers them or when overwritten — there is no
-// background janitor, and the map is not otherwise size-bounded.
-func NewInMemoryCache[T any](defaultExpiry time.Duration, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (cache.Cache[T], error) {
+// means entries never expire by default.
+//
+// By default expired entries are evicted lazily, on the read that discovers
+// them or when overwritten, and the map is not otherwise size-bounded. Pass
+// WithJanitor to sweep them on a timer instead — see that option for when the
+// lazy default is not enough.
+func NewInMemoryCache[T any](defaultExpiry time.Duration, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, opts ...Option[T]) (cache.Cache[T], error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
 	cacheHitCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
@@ -78,7 +82,7 @@ func NewInMemoryCache[T any](defaultExpiry time.Duration, logger logging.Logger,
 		return nil, errors.Wrap(err, "creating cache latency histogram")
 	}
 
-	return &inMemoryCacheImpl[T]{
+	i := &inMemoryCacheImpl[T]{
 		o11y:              observability.NewObserver(name, logger, tracerProvider),
 		clock:             clock.NewClock(),
 		cacheHitCounter:   cacheHitCounter,
@@ -89,7 +93,20 @@ func NewInMemoryCache[T any](defaultExpiry time.Duration, logger logging.Logger,
 		latencyHist:       latencyHist,
 		cache:             make(map[string]entry[T]),
 		defaultExpiry:     defaultExpiry,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		if opt != nil {
+			opt(i)
+		}
+	}
+
+	// Started last, so the sweep can never observe a partially built cache.
+	if i.janitor != nil {
+		i.janitor()
+	}
+
+	return i, nil
 }
 
 // expired reports whether e's deadline has passed. A zero deadline never

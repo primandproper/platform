@@ -21,6 +21,8 @@ func TestHTTPStatusForCode(T *testing.T) {
 		ErrUserIsBanned:               http.StatusForbidden,
 		ErrUserIsNotAuthorized:        http.StatusForbidden,
 		ErrCircuitBroken:              http.StatusServiceUnavailable,
+		ErrIdempotencyKeyInFlight:     http.StatusConflict,
+		ErrIdempotencyKeyReused:       http.StatusUnprocessableEntity,
 		// unmapped / server-side codes fall back to 500.
 		ErrNothingSpecific:         http.StatusInternalServerError,
 		ErrTalkingToDatabase:       http.StatusInternalServerError,
