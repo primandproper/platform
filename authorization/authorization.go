@@ -167,6 +167,11 @@ func (s *PermissionSet) safe() map[Permission]struct{} {
 }
 
 // MarshalJSON encodes the set as a sorted array of strings.
+//
+// The error branch is unreachable — the argument is a []Permission, and
+// encoding/json cannot fail on a slice of a string type — and stays only
+// because the interface requires the return and errcheck requires the handling.
+// The same is true of GobEncode below.
 func (s *PermissionSet) MarshalJSON() ([]byte, error) {
 	b, err := json.Marshal(s.Slice())
 	if err != nil {

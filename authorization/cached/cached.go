@@ -25,11 +25,28 @@
 // made the edit; other replicas wait out the TTL. Set the TTL to the longest
 // delay you would accept between revoking a role's authority and it taking
 // effect everywhere.
+//
+// # What it reports
+//
+// Hit and miss counts come from the cache backend itself — cache/redis and
+// cache/memory both emit them — so this package does not restate them. What it
+// adds is the fault path, which the cache cannot report because from its side a
+// stale or undecodable entry is a served result:
+//
+//   - authorization_cached_read_faults, entries that could not be read and
+//     degraded to the inner resolver.
+//   - authorization_cached_write_faults, resolutions that could not be stored.
+//     A sustained rise here looks like a permanently cold cache, not a broken
+//     one, which is why it is worth a counter of its own.
+//
+// Each resolution also carries keys.AuthorizationCacheOutcomeKey on its span, so
+// a single slow request can be attributed to a miss without reading counters.
 package cached
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,11 +56,23 @@ import (
 	"github.com/primandproper/platform-go/v8/authorization"
 	"github.com/primandproper/platform-go/v8/cache"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
 	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
-// serviceName names the Resolver's logger.
+// serviceName names the Resolver's logger, spans, and metrics.
 const serviceName = "authorization_cached"
+
+// Cache outcomes, recorded to the span under
+// keys.AuthorizationCacheOutcomeKey.
+const (
+	outcomeHit   = "hit"
+	outcomeMiss  = "miss"
+	outcomeFault = "fault"
+)
 
 // keyFormatVersion prefixes every cache key.
 //
@@ -61,7 +90,14 @@ var _ authorization.PolicyResolver = (*Resolver)(nil)
 type Resolver struct {
 	inner  authorization.PolicyResolver
 	cache  cache.Cache[authorization.PermissionSet]
+	o11y   observability.Observer
 	logger logging.Logger
+
+	readFaultsCounter  metrics.Int64Counter
+	writeFaultsCounter metrics.Int64Counter
+
+	metricsProvider metrics.Provider
+	tracerProvider  tracing.TracerProvider
 
 	generation atomic.Uint64
 	ttl        time.Duration
@@ -74,6 +110,28 @@ type Option func(*Resolver)
 func WithLogger(logger logging.Logger) Option {
 	return func(r *Resolver) {
 		r.logger = logger
+	}
+}
+
+// WithTracerProvider attaches a tracer provider, so that a resolution served
+// from cache and one that fell through to the inner resolver are
+// distinguishable in a trace rather than both being absent from it.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+	return func(r *Resolver) {
+		r.tracerProvider = tracerProvider
+	}
+}
+
+// WithMetricsProvider attaches a metrics provider.
+//
+// The counters here deliberately do not duplicate the hit and miss counters the
+// cache backends already emit (see cache/redis and cache/memory). They count
+// faults: the entries this Resolver could not read or write and silently
+// degraded around. That path is invisible from the cache's own metrics, because
+// from the cache's side an undecodable entry is a served result.
+func WithMetricsProvider(metricsProvider metrics.Provider) Option {
+	return func(r *Resolver) {
+		r.metricsProvider = metricsProvider
 	}
 }
 
@@ -106,7 +164,18 @@ func NewResolver(
 		}
 	}
 
-	r.logger = logging.EnsureLogger(r.logger).WithName(serviceName)
+	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
+	r.logger = r.o11y.Logger()
+
+	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
+
+	var err error
+	if r.readFaultsCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_read_faults", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating cached policy read faults counter")
+	}
+	if r.writeFaultsCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_write_faults", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating cached policy write faults counter")
+	}
 
 	return r, nil
 }
@@ -118,30 +187,54 @@ func NewResolver(
 // treated as a miss. Authorization must not fail because a cache did: the inner
 // resolver is still authoritative and still reachable, so degrading to it is
 // both correct and the only answer that keeps requests flowing.
+//
+// A fault is counted and recorded to the span, but deliberately does not set
+// the span's status to error: the request succeeded. Marking it would make a
+// cache blip indistinguishable from a denial in a trace search, which is
+// exactly backwards — the whole point of the degradation is that the caller
+// never notices. Look to the fault counters and the cache outcome attribute to
+// notice on their behalf.
 func (r *Resolver) PermissionsForRoles(ctx context.Context, roles ...string) (*authorization.PermissionSet, error) {
 	if len(roles) == 0 {
 		return authorization.NewPermissionSet(), nil
 	}
 
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
+	op.Set(keys.AuthorizationRolesKey, roles)
+
 	key := r.key(roles)
+	// The key embeds the generation counter and every role name, which is
+	// useful when reading a fault log and noise on every span.
+	op.LogOnly("cache.key", key)
 
 	cached, err := r.cache.Get(ctx, key)
 	switch {
 	case err == nil && cached != nil:
+		op.SpanOnly(keys.AuthorizationCacheOutcomeKey, outcomeHit)
+
 		return cached, nil
 	case err != nil && !errors.Is(err, cache.ErrNotFound):
-		r.logger.WithValue("cache.key", key).Error("reading cached policy resolution", err)
+		r.readFaultsCounter.Add(ctx, 1)
+		op.SpanOnly(keys.AuthorizationCacheOutcomeKey, outcomeFault)
+		op.Logger().Error("reading cached policy resolution", err)
+	default:
+		op.SpanOnly(keys.AuthorizationCacheOutcomeKey, outcomeMiss)
 	}
 
 	set, err := r.inner.PermissionsForRoles(ctx, roles...)
 	if err != nil {
-		return nil, err
+		return nil, op.Error(err, "resolving uncached permissions for roles")
 	}
 
 	if err = r.cache.Set(ctx, key, set, cache.WithExpiry(r.ttl)); err != nil {
 		// The answer is already correct; failing to memoize it is not a reason
-		// to fail the caller.
-		r.logger.WithValue("cache.key", key).Error("caching policy resolution", err)
+		// to fail the caller. It is a reason to count it: a write that keeps
+		// failing turns every request into a miss, which reads as a cache that
+		// is merely cold rather than one that is broken.
+		r.writeFaultsCounter.Add(ctx, 1)
+		op.Logger().Error("caching policy resolution", err)
 	}
 
 	return set, nil
@@ -151,17 +244,31 @@ func (r *Resolver) PermissionsForRoles(ctx context.Context, roles ...string) (*a
 // request path, and it is exactly the call an operator makes to confirm an edit
 // landed — answering it from a cache would show them the state they were trying
 // to change.
+//
+// It is deliberately not traced. The call adds no behavior of its own, and the
+// inner resolver traces itself, so a span here would only wrap another span
+// with the same duration.
 func (r *Resolver) Roles(ctx context.Context) ([]authorization.Role, error) {
 	return r.inner.Roles(ctx)
 }
 
 // Invalidate drops the cached resolution for an exact set of roles.
+//
+// Unlike a read fault, a failure here is returned rather than degraded around:
+// the caller asked for stale policy to stop being served, and silently not
+// doing that would leave revoked authority in place.
 func (r *Resolver) Invalidate(ctx context.Context, roles ...string) error {
 	if len(roles) == 0 {
 		return nil
 	}
+
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
+	op.Set(keys.AuthorizationRolesKey, roles)
+
 	if err := r.cache.Delete(ctx, r.key(roles)); err != nil {
-		return platformerrors.Wrap(err, "invalidating cached policy resolution")
+		return op.Error(err, "invalidating cached policy resolution")
 	}
 
 	return nil

@@ -126,6 +126,8 @@ func NewPolicyResolver(
 
 	return cached.NewResolver(resolver, c,
 		cached.WithLogger(logger),
+		cached.WithTracerProvider(tracerProvider),
+		cached.WithMetricsProvider(metricsProvider),
 		cached.WithTTL(cfg.CacheTTL),
 	)
 }

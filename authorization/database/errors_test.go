@@ -488,7 +488,7 @@ func TestResolver_LookupID_Failure(T *testing.T) {
 		r, mock := newMockResolver(t)
 		mock.ExpectQuery("SELECT id, archived_at IS NOT NULL FROM").WillReturnError(sql.ErrNoRows)
 
-		_, err := r.lookupID(t.Context(), mockExecutor(t, r), rolesTable, "ghost")
+		_, err := r.lookupRoleID(t.Context(), mockExecutor(t, r), "ghost")
 
 		test.ErrorIs(t, err, sql.ErrNoRows)
 	})

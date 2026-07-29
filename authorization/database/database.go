@@ -340,7 +340,7 @@ func (r *Resolver) Seed(ctx context.Context, q database.SQLQueryExecutor, roles 
 		return op.Error(err, "validating roles")
 	}
 
-	op.Set(keys.AuthorizationRolesKey, len(roles))
+	op.Set(keys.AuthorizationRoleCountKey, len(roles))
 
 	wanted := make(map[string]string, len(roles))
 	for i := range roles {
@@ -403,7 +403,7 @@ func (r *Resolver) UpsertRole(ctx context.Context, q database.SQLQueryExecutor, 
 		if e.Name == role.Name {
 			continue
 		}
-		id, lookupErr := r.lookupID(ctx, q, rolesTable, e.Name)
+		id, lookupErr := r.lookupRoleID(ctx, q, e.Name)
 		if lookupErr != nil {
 			return op.Error(lookupErr, "looking up role %q", e.Name)
 		}
@@ -495,7 +495,7 @@ func (r *Resolver) writeRoleGrants(
 			parentID, ok := roleIDs[parent]
 			if !ok {
 				var err error
-				if parentID, err = r.lookupID(ctx, q, rolesTable, parent); err != nil {
+				if parentID, err = r.lookupRoleID(ctx, q, parent); err != nil {
 					return platformerrors.Wrapf(err, "looking up parent role %q", parent)
 				}
 			}
@@ -626,14 +626,16 @@ func (r *Resolver) insertPairs(
 	return nil
 }
 
-// lookupID finds a live or archived row's id by name.
-func (r *Resolver) lookupID(ctx context.Context, q database.SQLQueryExecutor, table, name string) (string, error) {
+// lookupRoleID finds a live or archived role's id by name. Permissions are
+// only ever resolved in bulk, through resolveNamedIDs, so this is deliberately
+// specific to roles rather than taking a table.
+func (r *Resolver) lookupRoleID(ctx context.Context, q database.SQLQueryExecutor, name string) (string, error) {
 	var (
 		id       string
 		archived bool
 	)
-	if err := q.QueryRowContext(ctx, r.selectIDByNameQuery(table), name).Scan(&id, &archived); err != nil {
-		return "", platformerrors.Wrapf(err, "looking up %s %q", table, name)
+	if err := q.QueryRowContext(ctx, r.selectIDByNameQuery(rolesTable), name).Scan(&id, &archived); err != nil {
+		return "", platformerrors.Wrapf(err, "looking up %s %q", rolesTable, name)
 	}
 
 	return id, nil

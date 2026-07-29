@@ -562,6 +562,65 @@ func TestResolver_ArchiveRole(T *testing.T) {
 	})
 }
 
+// writeRoleGrants resolves a parent that is missing from the ID map it was
+// handed by querying for it. Neither caller can produce that state today —
+// Seed and UpsertRole both validate the full policy first, so every parent is
+// already in the map — so the path is driven directly here. It is what makes
+// the function safe to call with a partial map, which is the only reason a
+// future incremental caller would be able to.
+func TestResolver_WriteRoleGrantsResolvesAbsentParents(T *testing.T) {
+	T.Parallel()
+
+	T.Run("looks up a parent the ID map does not carry", func(t *testing.T) {
+		t.Parallel()
+
+		r, client := newTestResolver(t)
+		seed(t, r, client, testRoles()...)
+
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			adminID, err := r.lookupRoleID(t.Context(), q, "admin")
+			must.NoError(t, err)
+
+			// "member" is deliberately absent, so the parent has to be resolved
+			// from the database rather than the map.
+			return r.writeRoleGrants(t.Context(), q, map[string]string{"admin": adminID},
+				&authorization.Role{
+					Name:        "admin",
+					Permissions: []authorization.Permission{permWrite},
+					Inherits:    []string{"member"},
+				})
+		}))
+
+		// The inheritance edge survived the rewrite, so the lookup found the
+		// same role the map would have named.
+		set, err := r.PermissionsForRoles(t.Context(), "admin")
+		must.NoError(t, err)
+		test.True(t, set.Has(permWrite))
+		test.True(t, set.Has(permRead))
+	})
+
+	T.Run("surfaces a parent that cannot be found", func(t *testing.T) {
+		t.Parallel()
+
+		r, client := newTestResolver(t)
+		seed(t, r, client, testRoles()...)
+
+		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			adminID, lookupErr := r.lookupRoleID(t.Context(), q, "admin")
+			must.NoError(t, lookupErr)
+
+			return r.writeRoleGrants(t.Context(), q, map[string]string{"admin": adminID},
+				&authorization.Role{
+					Name:     "admin",
+					Inherits: []string{"nonexistent"},
+				})
+		})
+
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "nonexistent")
+	})
+}
+
 func TestDialect_Valid(T *testing.T) {
 	T.Parallel()
 

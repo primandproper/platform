@@ -13,12 +13,17 @@ import (
 	"github.com/primandproper/platform-go/v8/cache/memory"
 	cachemock "github.com/primandproper/platform-go/v8/cache/mock"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v8/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -280,6 +285,144 @@ func TestResolver_CacheFaultsDegradeToMisses(T *testing.T) {
 		must.NoError(t, err)
 		test.True(t, set.Has(permRead))
 	})
+}
+
+// recordingResolver swaps in a RecordingObserver so a test can read which
+// values the Resolver attached, and on which pillar. The Observer is built
+// inside NewResolver rather than injected, because a test hook on the
+// production constructor would be the only caller that ever passed one.
+func recordingResolver(
+	t *testing.T,
+	inner authorization.PolicyResolver,
+	c cache.Cache[authorization.PermissionSet],
+) (*Resolver, *observability.RecordingObserver) {
+	t.Helper()
+
+	r, err := NewResolver(inner, c, WithLogger(loggingnoop.NewLogger()))
+	must.NoError(t, err)
+
+	rec := observability.NewRecordingObserver()
+	r.o11y = rec
+
+	return r, rec
+}
+
+func TestResolver_ObservesCacheOutcome(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a miss then a hit", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r, rec := recordingResolver(t, inner, newMemoryCache(t))
+
+		_, err := r.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+		_, err = r.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+
+		must.SliceLen(t, 2, rec.Operations)
+		test.EqOp(t, outcomeMiss, rec.Operations[0].SpanValues[keys.AuthorizationCacheOutcomeKey])
+		test.EqOp(t, outcomeHit, rec.Operations[1].SpanValues[keys.AuthorizationCacheOutcomeKey])
+
+		// The roles reach both pillars; the key is verbose enough that it is
+		// deliberately kept off the span.
+		roles, isSlice := rec.Operations[0].Values[keys.AuthorizationRolesKey].([]string)
+		must.True(t, isSlice)
+		test.Eq(t, []string{"member"}, roles)
+		_, onSpan := rec.Operations[0].SpanValues["cache.key"]
+		test.False(t, onSpan)
+		_, inLog := rec.Operations[0].LogValues["cache.key"]
+		test.True(t, inLog)
+	})
+
+	T.Run("a read fault records a fault without failing the span", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		faulty := &cachemock.CacheMock[authorization.PermissionSet]{
+			GetFunc: func(context.Context, string) (*authorization.PermissionSet, error) {
+				return nil, errors.New("decode failure")
+			},
+			SetFunc: func(context.Context, string, *authorization.PermissionSet, ...cache.WriteOption) error {
+				return nil
+			},
+		}
+
+		r, rec := recordingResolver(t, inner, faulty)
+
+		set, err := r.PermissionsForRoles(t.Context(), "member")
+
+		must.NoError(t, err)
+		test.True(t, set.Has(permRead))
+		must.SliceLen(t, 1, rec.Operations)
+		test.EqOp(t, outcomeFault, rec.Operations[0].SpanValues[keys.AuthorizationCacheOutcomeKey])
+		// The request succeeded, so the span must not be marked failed — a cache
+		// blip has to stay distinguishable from a denial in a trace search.
+		test.SliceEmpty(t, rec.Operations[0].Errors)
+	})
+
+	T.Run("an inner failure does fail the span", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{err: errors.New("database is down")}
+		r, rec := recordingResolver(t, inner, newMemoryCache(t))
+
+		_, err := r.PermissionsForRoles(t.Context(), "member")
+
+		must.Error(t, err)
+		must.SliceLen(t, 1, rec.Operations)
+		test.SliceLen(t, 1, rec.Operations[0].Errors)
+	})
+}
+
+func TestResolver_FaultCountersAreConstructed(T *testing.T) {
+	T.Parallel()
+
+	T.Run("both counters are ready to use", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+		r, err := NewResolver(inner, newMemoryCache(t),
+			WithLogger(loggingnoop.NewLogger()),
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
+		must.NoError(t, err)
+
+		must.NotNil(t, r.readFaultsCounter)
+		must.NotNil(t, r.writeFaultsCounter)
+	})
+}
+
+var errBoom = errors.New("boom")
+
+func TestNewResolver_MetricsFailure(T *testing.T) {
+	T.Parallel()
+
+	for _, failOn := range []string{
+		serviceName + "_read_faults",
+		serviceName + "_write_faults",
+	} {
+		T.Run("surfaces a failure creating "+failOn, func(t *testing.T) {
+			t.Parallel()
+
+			mp := &mockmetrics.ProviderMock{
+				NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+					if name == failOn {
+						return nil, errBoom
+					}
+
+					return &mockmetrics.Int64CounterMock{}, nil
+				},
+			}
+
+			inner := &countingResolver{set: authorization.NewPermissionSet(permRead)}
+			_, err := NewResolver(inner, newMemoryCache(t), WithMetricsProvider(mp))
+
+			test.ErrorIs(t, err, errBoom)
+		})
+	}
 }
 
 func TestResolver_Invalidate(T *testing.T) {

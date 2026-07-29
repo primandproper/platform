@@ -80,8 +80,18 @@ const (
 	// an authorization check ("allowed", "denied", "audited").
 	AuthorizationDecisionKey = "authorization.decision"
 	// AuthorizationRolesKey is the standard key for referring to the role names a
-	// policy resolution was performed for.
+	// policy resolution was performed for. Its value is always the names
+	// themselves; use AuthorizationRoleCountKey when only a count is on hand, so
+	// that one attribute never carries two types.
 	AuthorizationRolesKey = "authorization.roles"
+	// AuthorizationRoleCountKey is the standard key for referring to a number of
+	// roles, for the bulk operations where naming each one would be unbounded.
+	AuthorizationRoleCountKey = "authorization.role_count"
+	// AuthorizationCacheOutcomeKey is the standard key for referring to how a
+	// cached policy resolution was served ("hit", "miss", "fault"). "fault"
+	// records that the cache was unusable and the resolution degraded to the
+	// authoritative resolver — a successful request that silently cost a query.
+	AuthorizationCacheOutcomeKey = "authorization.cache_outcome"
 
 	// EmailSubjectKey is the standard key for referring to an outbound email's subject.
 	EmailSubjectKey = "email.subject"

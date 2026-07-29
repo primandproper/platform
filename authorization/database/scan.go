@@ -11,6 +11,13 @@ import (
 // scanRows drives a result set through scan, closing it afterwards. A close
 // failure is surfaced only when nothing worse already went wrong, so the real
 // cause is never masked by the cleanup.
+//
+// The wrap inside the defer is unreachable in practice and stays for the shape
+// rather than the behavior: database/sql closes a result set itself once Next
+// reports exhaustion, so by the time this Close runs the rows are closed and it
+// returns nil. A driver-level close failure therefore arrives through rows.Err
+// below, which is the path TestScanRows_CloseFailure actually exercises. Do not
+// read that test as coverage of this branch.
 func scanRows(rows *sql.Rows, scan func() error) (err error) {
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil && err == nil {
