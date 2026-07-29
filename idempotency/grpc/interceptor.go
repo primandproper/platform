@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const serviceName = "idempotency_grpc"
@@ -103,18 +104,19 @@ func (i *interceptor) serve(
 		}
 	}
 
-	fp, err := fingerprint(info.FullMethod, principal, req)
+	// grpc-go allows non-proto codecs. Such a call cannot be fingerprinted, and
+	// refusing it would break a service that never asked for any of this, so it
+	// runs unguarded and is counted.
+	message, ok := req.(proto.Message)
+	if !ok {
+		i.unsupportedCounter.Add(ctx, 1)
+		op.Acknowledge(ErrNotProtoMessage, "fingerprinting non-proto request")
+
+		return handler(ctx, req)
+	}
+
+	fp, err := fingerprint(info.FullMethod, principal, message)
 	if err != nil {
-		if stderrors.Is(err, ErrNotProtoMessage) {
-			// grpc-go allows non-proto codecs. Such a call cannot be
-			// fingerprinted, and refusing it would break a service that never
-			// asked for any of this, so it runs unguarded and is counted.
-			i.unsupportedCounter.Add(ctx, 1)
-			op.Acknowledge(err, "fingerprinting non-proto request")
-
-			return handler(ctx, req)
-		}
-
 		return nil, op.Error(err, "fingerprinting request")
 	}
 

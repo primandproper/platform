@@ -454,19 +454,11 @@ func TestFingerprint(T *testing.T) {
 		test.NotEqOp(t, first, second)
 	})
 
-	T.Run("rejects a non-proto request", func(t *testing.T) {
-		t.Parallel()
-
-		_, err := fingerprint(testMethod, "", "plain string")
-		test.ErrorIs(t, err, ErrNotProtoMessage)
-	})
-
 	T.Run("surfaces a marshaling failure", func(t *testing.T) {
 		t.Parallel()
 
 		_, err := fingerprint(testMethod, "", badUTF8())
 		test.Error(t, err)
-		test.False(t, stderrors.Is(err, ErrNotProtoMessage))
 	})
 }
 

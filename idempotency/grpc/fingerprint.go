@@ -17,13 +17,8 @@ import (
 // The request is marshaled deterministically. Without that, a message with a
 // map field serializes differently on every attempt, and an ordinary retry
 // would be reported as key reuse.
-func fingerprint(fullMethod, principal string, req any) (string, error) {
-	message, ok := req.(proto.Message)
-	if !ok {
-		return "", ErrNotProtoMessage
-	}
-
-	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(message)
+func fingerprint(fullMethod, principal string, req proto.Message) (string, error) {
+	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(req)
 	if err != nil {
 		return "", err
 	}
