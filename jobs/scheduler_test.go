@@ -8,10 +8,14 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/primandproper/platform-go/v8/clock"
+	clockmock "github.com/primandproper/platform-go/v8/clock/mock"
 	"github.com/primandproper/platform-go/v8/distributedlock"
 	"github.com/primandproper/platform-go/v8/distributedlock/memory"
 	dlmock "github.com/primandproper/platform-go/v8/distributedlock/mock"
 	"github.com/primandproper/platform-go/v8/jobs"
+	lognoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -87,6 +91,127 @@ func TestNewScheduler(T *testing.T) {
 
 		_, err := jobs.NewScheduler(&jobs.SchedulerConfig{DefaultLeaseTTL: time.Millisecond}, newTestLocker(t))
 		test.Error(t, err)
+	})
+
+	T.Run("with a failing instrument", func(t *testing.T) {
+		t.Parallel()
+
+		// Every instrument the Scheduler creates, so that adding one without a
+		// matching error path shows up here rather than as a nil counter on the
+		// first tick.
+		instruments := []string{
+			"jobs_scheduler_runs",
+			"jobs_scheduler_failures",
+			"jobs_scheduler_skipped",
+			"jobs_scheduler_panics",
+			"jobs_scheduler_lock_errors",
+			"jobs_scheduler_leases_expired",
+			"jobs_scheduler_overruns",
+			"jobs_scheduler_run_latency_ms",
+		}
+
+		for _, instrument := range instruments {
+			t.Run(instrument, func(t *testing.T) {
+				t.Parallel()
+
+				_, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, newTestLocker(t),
+					jobs.WithSchedulerMetricsProvider(failingInstruments(instrument)))
+				test.ErrorIs(t, err, errInstrument)
+			})
+		}
+	})
+}
+
+func TestSchedulerOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithSchedulerClock drives the tickers", func(t *testing.T) {
+		t.Parallel()
+
+		ticks := make(chan time.Time, 1)
+		ran := make(chan struct{}, 1)
+
+		c := &clockmock.ClockMock{
+			NowFunc:   time.Now,
+			SinceFunc: time.Since,
+			NewTickerFunc: func(time.Duration) clock.Ticker {
+				return &clockmock.TickerMock{
+					ChanFunc: func() <-chan time.Time { return ticks },
+					StopFunc: func() {},
+				}
+			},
+		}
+
+		scheduler := newTestScheduler(t, jobs.WithSchedulerClock(c))
+		must.NoError(t, scheduler.Register(jobs.Job{
+			// An interval no test could wait out, so the only thing that can
+			// fire this job is the injected ticker.
+			Name:     "hand-cranked",
+			Interval: 24 * time.Hour,
+			Run: func(context.Context) error {
+				ran <- struct{}{}
+
+				return nil
+			},
+		}))
+
+		runScheduler(t, scheduler)
+
+		ticks <- time.Now()
+		recv(t, ran, "the job firing on the injected tick")
+	})
+
+	T.Run("WithSchedulerLogger and WithSchedulerTracerProvider are wired without disturbing the scheduler", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ran := make(chan struct{}, 1)
+
+			scheduler := newTestScheduler(t,
+				jobs.WithSchedulerLogger(lognoop.NewLogger()),
+				jobs.WithSchedulerTracerProvider(tracingnoop.NewTracerProvider()),
+			)
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:       "observed",
+				Interval:   time.Hour,
+				RunOnStart: true,
+				Run: func(context.Context) error {
+					ran <- struct{}{}
+
+					return nil
+				},
+			}))
+
+			runScheduler(t, scheduler)
+
+			<-ran
+		})
+	})
+
+	T.Run("ignores nil options and nil values", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ran := make(chan struct{}, 1)
+
+			// A nil clock is dropped rather than installed, so the Scheduler
+			// still has the wall clock its tickers need.
+			scheduler := newTestScheduler(t, nil, jobs.WithSchedulerClock(nil))
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:       "defaulted",
+				Interval:   time.Hour,
+				RunOnStart: true,
+				Run: func(context.Context) error {
+					ran <- struct{}{}
+
+					return nil
+				},
+			}))
+
+			runScheduler(t, scheduler)
+
+			<-ran
+		})
 	})
 }
 
@@ -339,6 +464,75 @@ func TestScheduler_Run(T *testing.T) {
 		})
 	})
 
+	T.Run("counts a run that outran its interval", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			spy := newCounterSpy()
+			var runs atomic.Int64
+			ran := make(chan struct{}, 4)
+
+			scheduler := newTestScheduler(t, jobs.WithSchedulerMetricsProvider(spy.provider()))
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:       "sluggish",
+				Interval:   time.Second,
+				RunOnStart: true,
+				Run: func(context.Context) error {
+					// Only the first run overruns, so the count below is stable
+					// no matter how many ticks the bubble gets through.
+					if runs.Add(1) == 1 {
+						time.Sleep(2 * time.Second)
+					}
+
+					ran <- struct{}{}
+
+					return nil
+				},
+			}))
+
+			runScheduler(t, scheduler)
+
+			// The second run is what shows an overrun is not terminal: ticks are
+			// coalesced rather than queued, so the job simply fires again.
+			<-ran
+			<-ran
+			synctest.Wait()
+
+			test.EqOp(t, int64(1), spy.count("jobs_scheduler_overruns"))
+		})
+	})
+
+	T.Run("a scheduler closed before its goroutines start does not fire RunOnStart", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			var runs atomic.Int64
+
+			scheduler := newTestScheduler(t)
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:       "eager",
+				Interval:   time.Hour,
+				RunOnStart: true,
+				Run: func(context.Context) error {
+					runs.Add(1)
+
+					return nil
+				},
+			}))
+
+			// Closing first leaves the stop signal already delivered, which is
+			// the state the guard in front of the RunOnStart fire exists for.
+			// Close cannot report a clean stop here because Run has not run.
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			test.ErrorIs(t, scheduler.Close(ctx), context.DeadlineExceeded)
+
+			scheduler.Run()
+
+			test.EqOp(t, int64(0), runs.Load())
+		})
+	})
+
 	T.Run("bounds a run with its timeout", func(t *testing.T) {
 		t.Parallel()
 
@@ -457,6 +651,52 @@ func TestScheduler_Leasing(T *testing.T) {
 		})
 	})
 
+	T.Run("counts a release that fails for its own reasons", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			spy := newCounterSpy()
+			ran := make(chan struct{}, 1)
+
+			// Not ErrLockNotHeld: the lease did not expire, the backend simply
+			// could not be told to let go of it. That is a lock error rather
+			// than a "this job may have run twice" warning.
+			locker := &dlmock.LockerMock{
+				AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
+					return &dlmock.LockMock{
+						ReleaseFunc: func(context.Context) error {
+							return errors.New("lock backend is down")
+						},
+					}, nil
+				},
+			}
+
+			scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, locker,
+				jobs.WithSchedulerMetricsProvider(spy.provider()))
+			must.NoError(t, err)
+
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:       "unreleasable",
+				Interval:   time.Hour,
+				RunOnStart: true,
+				Run: func(context.Context) error {
+					ran <- struct{}{}
+
+					return nil
+				},
+			}))
+
+			runScheduler(t, scheduler)
+
+			<-ran
+			synctest.Wait()
+
+			test.EqOp(t, int64(1), spy.count("jobs_scheduler_lock_errors"))
+			test.EqOp(t, int64(0), spy.count("jobs_scheduler_leases_expired"))
+			test.EqOp(t, int64(0), spy.count("jobs_scheduler_failures"))
+		})
+	})
+
 	T.Run("a lock failure skips the tick without running the job", func(t *testing.T) {
 		t.Parallel()
 
@@ -571,6 +811,67 @@ func TestScheduler_Close(T *testing.T) {
 			close(release)
 			must.NoError(t, scheduler.Close(context.Background()))
 		})
+	})
+
+	T.Run("does not start the tick that came due during a run it is stopping", func(t *testing.T) {
+		t.Parallel()
+
+		// Hand-cranked rather than bubbled, because the claim is about a tick
+		// that is already pending when the stop signal lands — and that is a
+		// state to put the ticker in, not a moment in time to reach.
+		ticks := make(chan time.Time, 1)
+		entered := make(chan struct{}, 1)
+		release := make(chan struct{})
+
+		var runs atomic.Int64
+
+		c := &clockmock.ClockMock{
+			NowFunc:   time.Now,
+			SinceFunc: time.Since,
+			NewTickerFunc: func(time.Duration) clock.Ticker {
+				return &clockmock.TickerMock{
+					ChanFunc: func() <-chan time.Time { return ticks },
+					StopFunc: func() {},
+				}
+			},
+		}
+
+		scheduler := newTestScheduler(t, jobs.WithSchedulerClock(c))
+		must.NoError(t, scheduler.Register(jobs.Job{
+			Name:     "slow",
+			Interval: time.Hour,
+			LeaseTTL: time.Hour,
+			Run: func(context.Context) error {
+				runs.Add(1)
+				entered <- struct{}{}
+				<-release
+
+				return nil
+			},
+		}))
+
+		go scheduler.Run()
+
+		ticks <- time.Now()
+		recv(t, entered, "the job starting")
+
+		closed := make(chan error, 1)
+		go func() { closed <- scheduler.Close(context.Background()) }()
+
+		// Close has delivered the stop signal by now, and cannot return while
+		// the job is still inside its run.
+		notYet(t, closed, "Close returning")
+
+		// The next tick comes due while the run that outlasted the stop signal
+		// is still going.
+		ticks <- time.Now()
+
+		close(release)
+		must.NoError(t, recv(t, closed, "Close returning"))
+
+		// The loop rechecks the stop signal after the run rather than returning
+		// to its select, so the pending tick is dropped rather than started.
+		test.EqOp(t, int64(1), runs.Load())
 	})
 
 	T.Run("is safe to call more than once", func(t *testing.T) {

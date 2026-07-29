@@ -2,12 +2,17 @@ package jobs_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v8/clock"
+	clockmock "github.com/primandproper/platform-go/v8/clock/mock"
 	"github.com/primandproper/platform-go/v8/messagequeue"
 	mockmq "github.com/primandproper/platform-go/v8/messagequeue/mock"
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	lognoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
@@ -32,8 +37,15 @@ type fakeQueue struct {
 	messages chan []byte
 	stopped  chan struct{}
 
+	// transportErrs carries what the broker reports as a transport-level
+	// failure, which is a different channel from a handler error: the Pool
+	// hands messages off before running them, so nothing a handler does ever
+	// reaches the consumer's error channel.
+	transportErrs chan error
+
 	handler messagequeue.ConsumerFunc
 	errs    []error
+	atStop  []error
 	mu      sync.Mutex
 }
 
@@ -41,8 +53,9 @@ type fakeQueue struct {
 // closes, mirroring what every real implementation in messagequeue does.
 func newFakeQueue() *fakeQueue {
 	q := &fakeQueue{
-		messages: make(chan []byte, 64),
-		stopped:  make(chan struct{}),
+		messages:      make(chan []byte, 64),
+		transportErrs: make(chan error),
+		stopped:       make(chan struct{}),
 	}
 
 	consumer := &mockmq.ConsumerMock{
@@ -52,9 +65,13 @@ func newFakeQueue() *fakeQueue {
 			for {
 				select {
 				case <-stopChan:
+					q.flushErrorsAtStop(errs)
+
 					return
 				case <-ctx.Done():
 					return
+				case err := <-q.transportErrs:
+					errs <- err
 				case msg := <-q.messages:
 					if err := q.handlerFunc()(ctx, msg); err != nil {
 						q.recordErr(err)
@@ -112,6 +129,38 @@ func (q *fakeQueue) publish(payloads ...string) {
 	}
 }
 
+// reportTransportError makes the broker surface err on the consumer's error
+// channel while the Pool is still running, and returns once the consumer has
+// forwarded it.
+func (q *fakeQueue) reportTransportError(err error) {
+	q.transportErrs <- err
+}
+
+// stageErrorsAtStop arranges for errs to be pushed onto the consumer's error
+// channel immediately before Consume returns. That is the only way to leave
+// errors buffered for the drain the Pool runs after Consume has finished —
+// reporting them any earlier lets the drain take them while it is still in its
+// steady-state loop.
+func (q *fakeQueue) stageErrorsAtStop(errs ...error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.atStop = append(q.atStop, errs...)
+}
+
+// flushErrorsAtStop pushes the staged errors without blocking, so a test that
+// stages more than the channel holds cannot wedge the consumer.
+func (q *fakeQueue) flushErrorsAtStop(errs chan error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	for _, err := range q.atStop {
+		select {
+		case errs <- err:
+		default:
+		}
+	}
+}
+
 // counterSpy is a metrics.Provider that totals Int64Counter increments by
 // instrument name, so a test can assert on the counters that are the only
 // externally visible record of a dropped or dead-lettered message.
@@ -151,6 +200,102 @@ func (c *counterSpy) provider() metrics.Provider {
 				AddFunc: func(context.Context, int64, ...metric.AddOption) { c.add(name, 1) },
 			}, nil
 		},
+	}
+}
+
+// errInstrument is what a misconfigured meter returns, so the constructor tests
+// can name the error they expect to surface from NewPool and NewScheduler.
+var errInstrument = errors.New("meter is misconfigured")
+
+// failingInstruments is a metrics.Provider that refuses to build one named
+// instrument and delegates the rest to the noop implementation. Every
+// instrument a component creates is a constructor that can fail, and the claim
+// under test is that each failure fails the constructor rather than the first
+// message or the first tick.
+func failingInstruments(failOn string) metrics.Provider {
+	fallback := metricsnoop.NewMetricsProvider()
+
+	return &mockmetrics.ProviderMock{
+		NewInt64CounterFunc: func(name string, options ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+			if name == failOn {
+				return nil, errInstrument
+			}
+
+			return fallback.NewInt64Counter(name, options...)
+		},
+		NewInt64UpDownCounterFunc: func(name string, options ...metric.Int64UpDownCounterOption) (metrics.Int64UpDownCounter, error) {
+			if name == failOn {
+				return nil, errInstrument
+			}
+
+			return fallback.NewInt64UpDownCounter(name, options...)
+		},
+		NewFloat64HistogramFunc: func(name string, options ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+			if name == failOn {
+				return nil, errInstrument
+			}
+
+			return fallback.NewFloat64Histogram(name, options...)
+		},
+	}
+}
+
+// gatedLogger blocks inside Error until the test opens its gate, and keeps what
+// it was asked to log. It exists so a test can hold the Pool's consumer-error
+// drain mid-report while the consumer finishes — which is the only way to leave
+// errors buffered for the drain the Pool runs once Consume has returned, rather
+// than racing the steady-state drain for them.
+//
+// The With* methods return the same logger, because the Pool names and
+// decorates its logger before using it and the gate has to survive that.
+type gatedLogger struct {
+	logging.Logger
+
+	gate    chan struct{}
+	entered chan struct{}
+
+	logged []error
+	mu     sync.Mutex
+}
+
+func newGatedLogger() *gatedLogger {
+	return &gatedLogger{
+		Logger:  lognoop.NewLogger(),
+		gate:    make(chan struct{}),
+		entered: make(chan struct{}, 1),
+	}
+}
+
+func (l *gatedLogger) Error(_ string, err error) {
+	select {
+	case l.entered <- struct{}{}:
+	default:
+	}
+
+	<-l.gate
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.logged = append(l.logged, err)
+}
+
+func (l *gatedLogger) WithName(string) logging.Logger { return l }
+
+func (l *gatedLogger) WithValue(string, any) logging.Logger { return l }
+
+func (l *gatedLogger) errors() []error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return append([]error(nil), l.logged...)
+}
+
+// fixedClock reads at forever, so a test can assert on a timestamp the code
+// under test stamped rather than on "some time near now".
+func fixedClock(at time.Time) clock.Clock {
+	return &clockmock.ClockMock{
+		NowFunc:   func() time.Time { return at },
+		SinceFunc: func(time.Time) time.Duration { return 0 },
 	}
 }
 

@@ -12,7 +12,10 @@ import (
 	"github.com/primandproper/platform-go/v8/jobs"
 	"github.com/primandproper/platform-go/v8/messagequeue"
 	mockmq "github.com/primandproper/platform-go/v8/messagequeue/mock"
+	lognoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/retry"
+	retrynoop "github.com/primandproper/platform-go/v8/retry/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -46,7 +49,14 @@ func poolConfig(concurrency int, maxAttempts uint) *jobs.PoolConfig {
 func startPool(t *testing.T, cfg *jobs.PoolConfig, handler jobs.Handler, opts ...jobs.PoolOption) (*jobs.Pool, *fakeQueue) {
 	t.Helper()
 
-	q := newFakeQueue()
+	return startPoolOn(t, newFakeQueue(), cfg, handler, opts...)
+}
+
+// startPoolOn is startPool over a queue the test has already configured, for
+// the cases that have to arrange the broker's behavior before anything
+// consumes from it.
+func startPoolOn(t *testing.T, q *fakeQueue, cfg *jobs.PoolConfig, handler jobs.Handler, opts ...jobs.PoolOption) (*jobs.Pool, *fakeQueue) {
+	t.Helper()
 
 	pool, err := jobs.NewPool(t.Context(), cfg, q.provider, handler, opts...)
 	must.NoError(t, err)
@@ -142,6 +152,141 @@ func TestNewPool(T *testing.T) {
 			return nil
 		})
 		test.ErrorIs(t, err, expected)
+	})
+
+	T.Run("with a failing instrument", func(t *testing.T) {
+		t.Parallel()
+
+		// Every instrument the Pool creates, so that adding one without a
+		// matching error path shows up here rather than as a nil counter on the
+		// first message.
+		instruments := []string{
+			"jobs_pool_messages_received",
+			"jobs_pool_messages_processed",
+			"jobs_pool_attempts_failed",
+			"jobs_pool_messages_dead_lettered",
+			"jobs_pool_messages_dropped",
+			"jobs_pool_handler_panics",
+			"jobs_pool_dead_letter_failures",
+			"jobs_pool_consumer_errors",
+			"jobs_pool_in_flight",
+			"jobs_pool_handler_latency_ms",
+			"jobs_pool_message_latency_ms",
+			"jobs_pool_queue_wait_ms",
+		}
+
+		for _, instrument := range instruments {
+			t.Run(instrument, func(t *testing.T) {
+				t.Parallel()
+
+				q := newFakeQueue()
+
+				_, err := jobs.NewPool(t.Context(), poolConfig(1, 1), q.provider, func(context.Context, []byte) error {
+					return nil
+				}, jobs.WithPoolMetricsProvider(failingInstruments(instrument)))
+				test.ErrorIs(t, err, errInstrument)
+
+				// The constructor failed before subscribing, so nothing was left
+				// consuming a topic the caller believes it never attached to.
+				test.SliceEmpty(t, q.provider.(*mockmq.ConsumerProviderMock).NewConsumerCalls())
+			})
+		}
+	})
+}
+
+func TestPoolOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithPoolClock stamps the dead-letter envelope", func(t *testing.T) {
+		t.Parallel()
+
+		at := time.Date(2020, time.March, 4, 5, 6, 7, 0, time.UTC)
+		deadLetters := make(chan jobs.DeadLetter, 1)
+
+		_, q := startPool(t, poolConfig(1, 1), func(context.Context, []byte) error {
+			return errHandler
+		},
+			jobs.WithPoolClock(fixedClock(at)),
+			jobs.WithPoolDeadLetter(func(_ context.Context, msg jobs.DeadLetter) error {
+				deadLetters <- msg
+
+				return nil
+			}),
+		)
+
+		q.publish("doomed")
+
+		test.EqOp(t, at, recv(t, deadLetters, "dead letter").FailedAt)
+	})
+
+	T.Run("WithPoolRetryPolicy overrides the configured attempts", func(t *testing.T) {
+		t.Parallel()
+
+		var attempts atomic.Int64
+		deadLetters := make(chan jobs.DeadLetter, 1)
+
+		// The config asks for five attempts and the policy gives one. The policy
+		// wins, because it is the thing that actually runs the handler — which is
+		// the whole hazard the option's documentation calls out.
+		_, q := startPool(t, poolConfig(1, 5), func(context.Context, []byte) error {
+			attempts.Add(1)
+
+			return errHandler
+		},
+			jobs.WithPoolRetryPolicy(retrynoop.NewPolicy()),
+			jobs.WithPoolDeadLetter(func(_ context.Context, msg jobs.DeadLetter) error {
+				deadLetters <- msg
+
+				return nil
+			}),
+		)
+
+		q.publish("doomed")
+
+		test.EqOp(t, uint(1), recv(t, deadLetters, "dead letter").Attempts)
+		test.EqOp(t, int64(1), attempts.Load())
+	})
+
+	T.Run("WithPoolLogger and WithPoolTracerProvider are wired without disturbing the pool", func(t *testing.T) {
+		t.Parallel()
+
+		handled := make(chan string, 1)
+		_, q := startPool(t, poolConfig(1, 1), func(_ context.Context, payload []byte) error {
+			handled <- string(payload)
+
+			return nil
+		},
+			jobs.WithPoolLogger(lognoop.NewLogger()),
+			jobs.WithPoolTracerProvider(tracingnoop.NewTracerProvider()),
+		)
+
+		q.publish("observed")
+
+		test.EqOp(t, "observed", recv(t, handled, "handled message"))
+	})
+
+	T.Run("ignores nil options and nil values", func(t *testing.T) {
+		t.Parallel()
+
+		handled := make(chan string, 1)
+
+		// A nil value is dropped rather than installed, so a caller wiring an
+		// option from a config that turned out to be empty gets the default
+		// instead of a nil-dereference on the first message.
+		_, q := startPool(t, poolConfig(1, 1), func(_ context.Context, payload []byte) error {
+			handled <- string(payload)
+
+			return nil
+		},
+			nil,
+			jobs.WithPoolClock(nil),
+			jobs.WithPoolDeadLetter(nil),
+			jobs.WithPoolRetryPolicy(nil),
+		)
+
+		q.publish("fine")
+
+		test.EqOp(t, "fine", recv(t, handled, "handled message"))
 	})
 }
 
@@ -254,6 +399,57 @@ func TestPool_Run(T *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		test.EqOp(t, concurrency, peak)
+	})
+
+	T.Run("bounds an attempt with HandlerTimeout", func(t *testing.T) {
+		t.Parallel()
+
+		observed := make(chan error, 1)
+		deadLetters := make(chan jobs.DeadLetter, 1)
+
+		cfg := poolConfig(1, 1)
+		cfg.HandlerTimeout = 50 * time.Millisecond
+
+		_, q := startPool(t, cfg, func(ctx context.Context, _ []byte) error {
+			<-ctx.Done()
+			observed <- ctx.Err()
+
+			return ctx.Err()
+		}, jobs.WithPoolDeadLetter(func(_ context.Context, msg jobs.DeadLetter) error {
+			deadLetters <- msg
+
+			return nil
+		}))
+
+		q.publish("wedged")
+
+		test.ErrorIs(t, recv(t, observed, "the attempt's context expiring"), context.DeadlineExceeded)
+
+		// The timeout ends the attempt rather than the Pool: the message still
+		// takes the ordinary terminal path.
+		test.EqOp(t, "wedged", string(recv(t, deadLetters, "dead letter").Payload))
+	})
+
+	T.Run("reports a consumer error without stopping", func(t *testing.T) {
+		t.Parallel()
+
+		spy := newCounterSpy()
+		handled := make(chan string, 1)
+		q := newFakeQueue()
+
+		startPoolOn(t, q, poolConfig(1, 1), func(_ context.Context, payload []byte) error {
+			handled <- string(payload)
+
+			return nil
+		}, jobs.WithPoolMetricsProvider(spy.provider()))
+
+		q.reportTransportError(errors.New("broker hiccup"))
+		awaitCount(t, spy, "jobs_pool_consumer_errors", 1)
+
+		// A transport failure is not terminal — the consumer is still attached,
+		// and the next message proves it.
+		q.publish("fine")
+		test.EqOp(t, "fine", recv(t, handled, "message after the consumer error"))
 	})
 
 	T.Run("contains a panicking handler and keeps working", func(t *testing.T) {
@@ -458,6 +654,54 @@ func TestPool_Close(T *testing.T) {
 
 		test.ErrorIs(t, pool.Close(ctx), context.DeadlineExceeded)
 		test.ErrorIs(t, recv(t, observed, "the handler's context being canceled"), context.Canceled)
+	})
+
+	T.Run("reports the consumer errors still buffered when Consume returns", func(t *testing.T) {
+		t.Parallel()
+
+		// The Pool sizes the consumer's error channel by Concurrency, so this is
+		// how many errors can be sitting in it when Consume gives up.
+		const buffered = 16
+
+		spy := newCounterSpy()
+		logger := newGatedLogger()
+		q := newFakeQueue()
+
+		staged := make([]error, buffered)
+		for i := range staged {
+			staged[i] = errors.New("broker went away")
+		}
+		q.stageErrorsAtStop(staged...)
+
+		pool, _ := startPoolOn(t, q, poolConfig(buffered, 1), func(context.Context, []byte) error {
+			return nil
+		},
+			jobs.WithPoolMetricsProvider(spy.provider()),
+			jobs.WithPoolLogger(logger),
+		)
+
+		closed := make(chan error, 1)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), waitFor)
+			defer cancel()
+
+			closed <- pool.Close(ctx)
+		}()
+
+		// Hold the drain inside its first report until the consumer has
+		// finished, so the rest of the errors are still buffered when the Pool
+		// goes looking for what Consume left behind.
+		recv(t, logger.entered, "the drain reporting a consumer error")
+		<-q.stopped
+		close(logger.gate)
+
+		must.NoError(t, recv(t, closed, "Close returning"))
+
+		// Close waits out the drain, so every staged error has been reported by
+		// the time it returns — a shutdown does not swallow the errors that
+		// explain it.
+		test.EqOp(t, int64(buffered), spy.count("jobs_pool_consumer_errors"))
+		test.SliceLen(t, buffered, logger.errors())
 	})
 
 	T.Run("is safe to call more than once", func(t *testing.T) {
