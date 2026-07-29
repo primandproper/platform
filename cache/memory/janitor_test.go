@@ -43,7 +43,7 @@ func newJanitorCache(t *testing.T, defaultExpiry, interval time.Duration) *inMem
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
-	c, err := NewInMemoryCache[example](defaultExpiry, WithJanitor[example](ctx, interval))
+	c, err := NewInMemoryCache[example](defaultExpiry, WithJanitor(ctx, interval))
 	must.NoError(t, err)
 
 	impl, ok := c.(*inMemoryCacheImpl[example])
@@ -163,7 +163,7 @@ func TestWithJanitor(T *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 
-			c, err := NewInMemoryCache[example](time.Minute, WithJanitor[example](ctx, time.Second))
+			c, err := NewInMemoryCache[example](time.Minute, WithJanitor(ctx, time.Second))
 			must.NoError(t, err)
 
 			impl, ok := c.(*inMemoryCacheImpl[example])
@@ -189,7 +189,7 @@ func TestWithJanitor(T *testing.T) {
 			ctx := t.Context()
 
 			for _, interval := range []time.Duration{0, -time.Second} {
-				c, err := NewInMemoryCache[example](time.Minute, WithJanitor[example](ctx, interval))
+				c, err := NewInMemoryCache[example](time.Minute, WithJanitor(ctx, interval))
 				must.NoError(t, err)
 
 				impl, ok := c.(*inMemoryCacheImpl[example])
@@ -208,7 +208,7 @@ func TestWithJanitor(T *testing.T) {
 		t.Parallel()
 
 		//nolint:staticcheck // passing a nil context is exactly what this guards.
-		c, err := NewInMemoryCache[example](time.Minute, WithJanitor[example](nil, time.Second))
+		c, err := NewInMemoryCache[example](time.Minute, WithJanitor(nil, time.Second))
 		must.NoError(t, err)
 
 		impl, ok := c.(*inMemoryCacheImpl[example])
@@ -321,7 +321,7 @@ func TestNewInMemoryCache_InstrumentFailures(T *testing.T) {
 				},
 			}
 
-			_, err := NewInMemoryCache[example](0, WithMetricsProvider[example](provider))
+			_, err := NewInMemoryCache[example](0, WithMetricsProvider(provider))
 			test.ErrorIs(t, err, boom)
 		})
 	}
@@ -338,7 +338,7 @@ func TestNewInMemoryCache_InstrumentFailures(T *testing.T) {
 			},
 		}
 
-		_, err := NewInMemoryCache[example](0, WithMetricsProvider[example](provider))
+		_, err := NewInMemoryCache[example](0, WithMetricsProvider(provider))
 		test.ErrorIs(t, err, boom)
 	})
 }

@@ -518,7 +518,7 @@ func TestMiddleware_StoreFailure(T *testing.T) {
 
 		handler := okHandler()
 		wrapped := wrap(t, handler, newFailingStoreManager(t,
-			idempotency.WithStoreFailurePolicy[Response](idempotency.FailOpen),
+			idempotency.WithStoreFailurePolicy(idempotency.FailOpen),
 		))
 
 		res := do(wrapped, post(t.Context(), testKey, "/charges", "{}"))

@@ -7,12 +7,12 @@ import (
 
 // Option configures the embedder this package constructs. The zero
 // configuration works: an absent logger logs nowhere and an absent tracer
-// traces nowhere.
+// provider traces nowhere.
 type Option func(*options)
 
 type options struct {
-	logger logging.Logger
-	tracer tracing.Tracer
+	logger         logging.Logger
+	tracerProvider tracing.TracerProvider
 }
 
 func newOptions(opts []Option) *options {
@@ -31,7 +31,8 @@ func WithLogger(logger logging.Logger) Option {
 	return func(o *options) { o.logger = logger }
 }
 
-// WithTracer attaches a tracer, enabling spans on every operation.
-func WithTracer(tracer tracing.Tracer) Option {
-	return func(o *options) { o.tracer = tracer }
+// WithTracerProvider attaches a tracer provider, enabling spans on every
+// operation.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+	return func(o *options) { o.tracerProvider = tracerProvider }
 }

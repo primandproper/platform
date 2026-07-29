@@ -56,7 +56,7 @@ func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minu
 func newRedisManager(
 	tb testing.TB,
 	address, prefix string,
-	opts ...Option[wireShaped],
+	opts ...Option,
 ) *Manager[wireShaped] {
 	tb.Helper()
 
@@ -147,7 +147,7 @@ func TestIdempotency_Redis(T *testing.T) {
 	T.Run("a completed record expires on its TTL", func(t *testing.T) {
 		t.Parallel()
 
-		m := newRedisManager(t, address, "expiry:", WithTTL[wireShaped](time.Second))
+		m := newRedisManager(t, address, "expiry:", WithTTL(time.Second))
 		ctx := t.Context()
 
 		var calls atomic.Int64
@@ -317,7 +317,7 @@ func TestIdempotency_RedisExpiry_InFlight(T *testing.T) {
 	T.Run("an abandoned claim expires and the work runs again", func(t *testing.T) {
 		t.Parallel()
 
-		m := newRedisManager(t, address, "abandoned:", WithInFlightTTL[wireShaped](time.Second))
+		m := newRedisManager(t, address, "abandoned:", WithInFlightTTL(time.Second))
 		ctx := t.Context()
 
 		// Stand in for a process killed mid-execution: the claim is written

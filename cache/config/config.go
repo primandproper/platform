@@ -61,19 +61,19 @@ func NewCache[T any](ctx context.Context, cfg *Config, logger logging.Logger, tr
 		// The janitor is bound to the caller's context because cache.Cache has
 		// no Close: the sweep stops when whatever scope owns this cache does.
 		return memory.NewInMemoryCache[T](cfg.Expiry,
-			memory.WithLogger[T](logger),
-			memory.WithTracerProvider[T](tracerProvider),
-			memory.WithMetricsProvider[T](metricsProvider),
-			memory.WithJanitor[T](ctx, cfg.JanitorInterval))
+			memory.WithLogger(logger),
+			memory.WithTracerProvider(tracerProvider),
+			memory.WithMetricsProvider(metricsProvider),
+			memory.WithJanitor(ctx, cfg.JanitorInterval))
 	case ProviderRedis:
 		cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, logger, metricsProvider)
 		if err != nil {
 			return nil, errors.Wrap(err, "initializing cache circuit breaker")
 		}
 		return redis.NewRedisCache[T](cfg.Redis, cfg.Expiry, cb,
-			redis.WithLogger[T](logger),
-			redis.WithTracerProvider[T](tracerProvider),
-			redis.WithMetricsProvider[T](metricsProvider))
+			redis.WithLogger(logger),
+			redis.WithTracerProvider(tracerProvider),
+			redis.WithMetricsProvider(metricsProvider))
 	default:
 		return nil, errors.Newf("invalid cache provider: %q", cfg.Provider)
 	}

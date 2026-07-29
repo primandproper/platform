@@ -379,7 +379,7 @@ func TestInterceptor_StoreFailure(T *testing.T) {
 
 		handler := newCountingHandler(str("ch_1"))
 		interceptor := newInterceptorFor(t, newFailingStoreManager(t,
-			idempotency.WithStoreFailurePolicy[Response](idempotency.FailOpen),
+			idempotency.WithStoreFailurePolicy(idempotency.FailOpen),
 		))
 
 		reply, err := interceptor(keyed(t.Context(), testKey), str("req"), info(), handler.handle)

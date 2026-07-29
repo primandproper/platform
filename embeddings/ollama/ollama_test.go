@@ -12,7 +12,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/embeddings"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -29,7 +29,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 func newRecordingEmbedder(t *testing.T, cfg *Config) (*embedder, *observability.RecordingObserver) {
 	t.Helper()
 
-	emb, err := NewEmbedder(t.Context(), cfg, WithTracer(tracing.NewTracerForTest("test")))
+	emb, err := NewEmbedder(t.Context(), cfg, WithTracerProvider(tracingnoop.NewTracerProvider()))
 	must.NoError(t, err)
 	must.NotNil(t, emb)
 
@@ -57,7 +57,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), nil, WithTracer(tracing.NewTracerForTest("test")))
+		emb, err := NewEmbedder(t.Context(), nil, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.Error(t, err)
 		must.Nil(t, emb)
 	})
@@ -65,7 +65,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{}, WithTracer(tracing.NewTracerForTest("test")))
+		emb, err := NewEmbedder(t.Context(), &Config{}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -78,7 +78,7 @@ func TestNewEmbedder(T *testing.T) {
 			&Config{
 				BaseURL: "http://custom:11434",
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 		must.NotNil(t, emb)
@@ -92,7 +92,7 @@ func TestNewEmbedder(T *testing.T) {
 			&Config{
 				Timeout: 5 * time.Second,
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 		must.NotNil(t, emb)
@@ -158,7 +158,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 				BaseURL:      ts.URL,
 				DefaultModel: "nomic-embed-text",
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 
@@ -210,7 +210,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: ts.URL,
-		}, WithTracer(tracing.NewTracerForTest("test")))
+		}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -235,7 +235,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: ts.URL,
-		}, WithTracer(tracing.NewTracerForTest("test")))
+		}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -255,7 +255,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		emb, err := NewEmbedder(t.Context(), &Config{
 			BaseURL: ts.URL,
-		}, WithTracer(tracing.NewTracerForTest("test")))
+		}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -285,7 +285,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 				BaseURL:      ts.URL,
 				DefaultModel: "mxbai-embed-large",
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 

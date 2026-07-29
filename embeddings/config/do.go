@@ -16,7 +16,7 @@ func RegisterEmbedder(i do.Injector) {
 		ctx := do.MustInvoke[context.Context](i)
 		cfg := do.MustInvoke[*Config](i)
 		logger := do.MustInvoke[logging.Logger](i)
-		tracer := do.MustInvoke[tracing.Tracer](i)
-		return NewEmbedder(ctx, cfg, logger, tracer)
+		tracerProvider := do.MustInvoke[tracing.TracerProvider](i)
+		return NewEmbedder(ctx, cfg, logger, tracerProvider)
 	})
 }

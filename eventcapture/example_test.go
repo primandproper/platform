@@ -53,7 +53,7 @@ func Example() {
 	sink := &sliceSink{}
 
 	rec, err := eventcapture.NewRecorder[servedRequest](sink,
-		eventcapture.WithTransform[servedRequest](func(ev *servedRequest) any {
+		eventcapture.WithTransform(func(ev *servedRequest) any {
 			return wireRequest{Route: ev.Route, Status: ev.Status}
 		}),
 	)
@@ -106,20 +106,20 @@ func ExampleNewRecorder_aggregation() {
 	start := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
 
 	agg := eventcapture.NewAggregator[string, counts](time.Minute, 10_000,
-		eventcapture.WithKeyOrder[string, counts](strings.Compare),
+		eventcapture.WithKeyOrder(strings.Compare),
 	)
 
 	rec, err := eventcapture.NewRecorder[servedRequest](sink,
 		// A flush interval longer than the example keeps the periodic tick from
 		// splitting the rollups across two flushes; a real deployment leaves the
 		// default cadence alone.
-		eventcapture.WithFlushInterval[servedRequest](time.Hour),
-		eventcapture.WithoutRawRecords[servedRequest](),
+		eventcapture.WithFlushInterval(time.Hour),
+		eventcapture.WithoutRawRecords(),
 		// Without this the Aggregator silently discards observations once
 		// maxKeys is reached; the Recorder cannot see inside the composition
 		// on its own.
-		eventcapture.WithOverflowSource[servedRequest](agg.TakeOverflow),
-		eventcapture.WithObserver[servedRequest](func(ev *servedRequest) {
+		eventcapture.WithOverflowSource(agg.TakeOverflow),
+		eventcapture.WithObserver(func(ev *servedRequest) {
 			agg.Observe(ev.Route, ev.At, func(c *counts) {
 				c.Requests++
 				if ev.Status >= 400 {
@@ -127,7 +127,7 @@ func ExampleNewRecorder_aggregation() {
 				}
 			})
 		}),
-		eventcapture.WithOnFlush[servedRequest](func(now time.Time, final bool, emit func(record any)) {
+		eventcapture.WithOnFlush(func(now time.Time, final bool, emit func(record any)) {
 			for _, b := range agg.Flush(now, final) {
 				emit(rollup{
 					Minute: b.Start.Format(time.RFC3339),

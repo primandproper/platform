@@ -54,7 +54,7 @@ func newLocker(tb testing.TB) distributedlock.ScopedLocker {
 }
 
 // newTestManager builds a Manager over a memory store and a memory locker.
-func newTestManager(tb testing.TB, opts ...Option[payload]) *Manager[payload] {
+func newTestManager(tb testing.TB, opts ...Option) *Manager[payload] {
 	tb.Helper()
 
 	m, err := NewManager(newStore(tb), newLocker(tb), opts...)
@@ -241,7 +241,7 @@ func (s *countingStore) Ping(ctx context.Context) error  { return s.inner.Ping(c
 func newManagerOver(
 	tb testing.TB,
 	store cache.Cache[Record[payload]],
-	opts ...Option[payload],
+	opts ...Option,
 ) *Manager[payload] {
 	tb.Helper()
 

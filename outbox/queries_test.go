@@ -68,6 +68,13 @@ func TestBuildSelectClaimable(T *testing.T) {
 		test.True(t, strings.Contains(query, "NOT EXISTS"))
 		test.True(t, strings.Contains(query, "prior.created_at < m.created_at"))
 		test.True(t, strings.Contains(query, "m.partition_key = ''"))
+
+		// "Older" has to be the (created_at, id) tuple, not created_at alone.
+		// One Enqueue stamps every row with the same timestamp, so a bare `<`
+		// leaves same-call rows mutually unblocked. The tiebreak column must
+		// also match the ORDER BY, or a batch can contain a pair it reorders.
+		test.True(t, strings.Contains(query, "prior.created_at = m.created_at AND prior.id < m.id"))
+		test.True(t, strings.Contains(query, "ORDER BY m.created_at, m.id"))
 	})
 }
 

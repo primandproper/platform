@@ -20,9 +20,11 @@ CREATE INDEX IF NOT EXISTS {{TABLE}}_claim_idx
     ON {{TABLE}} (next_attempt, created_at, id)
     WHERE published_at IS NULL AND quarantined = FALSE;
 
--- Serves the NOT EXISTS that enforces per-key ordering.
+-- Serves the NOT EXISTS that enforces per-key ordering. id is part of the key
+-- because the predicate orders on (created_at, id), not created_at alone —
+-- messages enqueued in one call share a timestamp and are separated only by id.
 CREATE INDEX IF NOT EXISTS {{TABLE}}_ordering_idx
-    ON {{TABLE}} (partition_key, created_at)
+    ON {{TABLE}} (partition_key, created_at, id)
     WHERE published_at IS NULL AND quarantined = FALSE;
 
 -- Serves the reaper.

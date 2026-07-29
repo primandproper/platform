@@ -254,6 +254,36 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		test.Eq(t, []string{`{"id":"first"}`, `{"id":"second"}`, `{"id":"third"}`}, rec.payloads())
 	})
 
+	// The case above advances the clock between enqueues, so created_at alone
+	// separates the rows. Here one Enqueue stamps all three with a single
+	// timestamp and only the id tiebreak orders them — which puts this server's
+	// collation on the hook, since the comparison is over xid text.
+	t.Run("orders a same-timestamp batch for one partition key", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		table := env.newTable(t)
+		w := env.writer(t, c, table)
+		relay, rec := env.relay(t, c, table)
+
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			return w.Enqueue(t.Context(), q,
+				Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "first"}},
+				Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "second"}},
+				Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "third"}},
+			)
+		}))
+
+		// Exactly one publish per cycle: the successor is not claimable until its
+		// predecessor is marked published, even though they share a created_at.
+		for want := 1; want <= 3; want++ {
+			relay.cycle(t.Context())
+			test.SliceLen(t, want, rec.payloads())
+		}
+
+		test.Eq(t, []string{`{"id":"first"}`, `{"id":"second"}`, `{"id":"third"}`}, rec.payloads())
+	})
+
 	t.Run("reports backlog depth and age", func(t *testing.T) {
 		t.Parallel()
 

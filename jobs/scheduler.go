@@ -141,7 +141,15 @@ func (cfg *SchedulerConfig) ValidateWithContext(ctx context.Context) error {
 }
 
 // Scheduler runs registered jobs on an interval, each execution held under a
-// distributed lock so that exactly one replica runs a given job per tick.
+// distributed lock so that at most one replica runs a given job per tick.
+//
+// At most one, not exactly one, and both halves matter. A tick whose lock is
+// already held is skipped rather than queued, so a job does not run on every
+// replica — and it also does not run at all if the holder is still working. The
+// lock is not renewed for the duration of a run either, so a job that outlives
+// its lease loses exclusivity while still executing and a second replica may
+// start it. Job.LeaseTTL is where that is sized; a job whose worst case
+// approaches its lease has no mutual exclusion left to rely on.
 type Scheduler struct {
 	locker distributedlock.Locker
 	clock  clock.Clock

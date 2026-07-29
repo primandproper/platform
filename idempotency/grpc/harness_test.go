@@ -28,7 +28,7 @@ const (
 // messages registered in the global registry at init, which is exactly what
 // replay reconstruction depends on, so nothing here is special-cased.
 
-func newTestManager(tb testing.TB, opts ...idempotency.Option[Response]) *idempotency.Manager[Response] {
+func newTestManager(tb testing.TB, opts ...idempotency.Option) *idempotency.Manager[Response] {
 	tb.Helper()
 
 	store, err := cachememory.NewInMemoryCache[idempotency.Record[Response]](0)
@@ -102,7 +102,7 @@ func infoFor(fullMethod string) *grpc.UnaryServerInfo {
 
 // newFailingStoreManager builds a manager whose store cannot be read, for
 // exercising the store failure policy.
-func newFailingStoreManager(tb testing.TB, opts ...idempotency.Option[Response]) *idempotency.Manager[Response] {
+func newFailingStoreManager(tb testing.TB, opts ...idempotency.Option) *idempotency.Manager[Response] {
 	tb.Helper()
 
 	store := &cachemock.CacheMock[idempotency.Record[Response]]{

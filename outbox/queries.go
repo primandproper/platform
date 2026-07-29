@@ -34,6 +34,13 @@ const messageColumns = "id, topic, partition_key, payload, attempts"
 
 // buildInsert renders a multi-row INSERT for the supplied rows. New messages
 // are immediately eligible: next_attempt is their creation time.
+//
+// Every row in one call shares a created_at, so created_at alone does not order
+// two messages enqueued together. What separates them is id: identifiers.New is
+// xid, whose string form sorts in generation order, so rows come out of one
+// Enqueue with ascending ids in the order the caller passed them. Both
+// buildSelectClaimable's per-key predicate and the ORDER BY clauses here rely
+// on that — see buildSelectClaimable for what breaks without it.
 func buildInsert(d dialect.Dialect, table string, rows []enqueueRow) (query string, args []any) {
 	// created_at is bound twice: a new message is eligible immediately, so its
 	// first next_attempt is its creation time.
@@ -65,6 +72,15 @@ func buildInsert(d dialect.Dialect, table string, rows []enqueueRow) (query stri
 // row per key is ever in flight across every relay in the fleet — keyed messages
 // are strictly ordered even under concurrent ClaimSkipLocked relays. Unkeyed
 // rows skip the check entirely and claim freely.
+//
+// "Earlier" is (created_at, id), not created_at alone, and the tuple is what
+// makes the guarantee hold. Enqueue stamps every row in one call with a single
+// timestamp, so two messages sharing a key and an Enqueue also share a
+// created_at; under a bare `<` neither would block the other, both would be
+// claimable at once, and a failure on the first would publish the second ahead
+// of it. The tiebreak is id because that is what ORDER BY breaks ties on below
+// — the predicate and the publish order have to agree on "earlier" or the
+// batch can contain a pair it is about to reorder.
 func buildSelectClaimable(d dialect.Dialect, table string, now time.Time, limit int, skipLocked bool) (query string, args []any) {
 	p := func(n int) string { return d.Placeholder(n) }
 
@@ -78,7 +94,8 @@ func buildSelectClaimable(d dialect.Dialect, table string, now time.Time, limit 
 			"WHERE prior.partition_key = m.partition_key "+
 			"AND prior.published_at IS NULL "+
 			"AND prior.quarantined = FALSE "+
-			"AND prior.created_at < m.created_at)) "+
+			"AND (prior.created_at < m.created_at "+
+			"OR (prior.created_at = m.created_at AND prior.id < m.id)))) "+
 			"ORDER BY m.created_at, m.id LIMIT %s",
 		table, p(1), p(2), table, p(3),
 	)

@@ -34,22 +34,18 @@ type observer struct {
 // NewObserver builds the production Observer from the standard DI dependencies.
 // The name is applied to both the logger and the tracer, mirroring the prior
 // logging.NewNamedLogger / tracing.NewNamedTracer pair.
+//
+// Every constructor in this module reaches observability through here, which is
+// what makes a span's instrumentation scope predictable: it is always the
+// component's own name, never whatever the caller happened to name a tracer it
+// built itself. A constructor that accepted a ready-made tracing.Tracer would
+// scope its spans by accident, so none of them do.
+// A nil tracerProvider is safe: NewNamedTracer substitutes a noop provider, so
+// an unconfigured component traces nowhere rather than panicking.
 func NewObserver(name string, logger logging.Logger, tracerProvider tracing.TracerProvider) Observer {
-	return NewObserverWithTracer(name, logger, tracing.NewNamedTracer(tracerProvider, name))
-}
-
-// NewObserverWithTracer builds an Observer from an already-constructed Tracer,
-// for the few constructors that receive a tracing.Tracer rather than a
-// TracerProvider (e.g. the embeddings providers). The name is applied to the
-// logger; the tracer is used as given (a nil tracer becomes a noop).
-func NewObserverWithTracer(name string, logger logging.Logger, tracer tracing.Tracer) Observer {
-	if tracer == nil {
-		tracer = tracing.NewTracerForTest(name)
-	}
-
 	return &observer{
 		logger: logging.NewNamedLogger(logger, name),
-		tracer: tracer,
+		tracer: tracing.NewNamedTracer(tracerProvider, name),
 	}
 }
 

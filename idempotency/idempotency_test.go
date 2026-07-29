@@ -58,22 +58,46 @@ func TestNewManager(T *testing.T) {
 
 		// Options ignore non-positive values, so an invalid TTL has to be set
 		// past them to prove the constructor's own guard runs.
-		_, err := NewManager(newStore(t), newLocker(t), func(m *Manager[payload]) { m.ttl = 0 })
+		_, err := NewManager(newStore(t), newLocker(t), func(o *managerOptions) { o.ttl = 0 })
 		test.ErrorIs(t, err, ErrInvalidTTL)
 
-		_, err = NewManager(newStore(t), newLocker(t), func(m *Manager[payload]) { m.inFlightTTL = -time.Second })
+		_, err = NewManager(newStore(t), newLocker(t), func(o *managerOptions) { o.inFlightTTL = -time.Second })
 		test.ErrorIs(t, err, ErrInvalidTTL)
+	})
+
+	// Option carries no type parameter, so a predicate built for another type
+	// type-checks. It has to be caught here, before the Manager starts serving
+	// requests while believing its results are being filtered.
+	T.Run("rejects a recordable predicate for a different type", func(t *testing.T) {
+		t.Parallel()
+
+		type otherPayload struct{ Other string }
+
+		_, err := NewManager(newStore(t), newLocker(t),
+			WithRecordable(func(*otherPayload) bool { return true }))
+		test.ErrorIs(t, err, ErrRecordableTypeMismatch)
+	})
+
+	T.Run("accepts a recordable predicate for its own type", func(t *testing.T) {
+		t.Parallel()
+
+		// No type argument on the option: T is inferred from the predicate.
+		m, err := NewManager(newStore(t), newLocker(t),
+			WithRecordable(func(p *payload) bool { return p.Name != "" }))
+		must.NoError(t, err)
+		test.False(t, m.recordable(&payload{}))
+		test.True(t, m.recordable(&payload{Name: "x"}))
 	})
 
 	T.Run("options override defaults", func(t *testing.T) {
 		t.Parallel()
 
 		m := newTestManager(t,
-			WithTTL[payload](time.Hour),
-			WithInFlightTTL[payload](time.Minute),
-			WithMaxKeyLength[payload](8),
-			WithKeyPrefix[payload]("p:"),
-			WithStoreFailurePolicy[payload](FailOpen),
+			WithTTL(time.Hour),
+			WithInFlightTTL(time.Minute),
+			WithMaxKeyLength(8),
+			WithKeyPrefix("p:"),
+			WithStoreFailurePolicy(FailOpen),
 		)
 
 		test.EqOp(t, time.Hour, m.ttl)
@@ -86,7 +110,7 @@ func TestNewManager(T *testing.T) {
 	T.Run("ignores nil options and zero values", func(t *testing.T) {
 		t.Parallel()
 
-		m := newTestManager(t, nil, WithTTL[payload](0), WithMaxKeyLength[payload](-1), WithClock[payload](nil))
+		m := newTestManager(t, nil, WithTTL(0), WithMaxKeyLength(-1), WithClock(nil))
 
 		test.EqOp(t, DefaultTTL, m.ttl)
 		test.EqOp(t, DefaultMaxKeyLength, m.maxKeyLength)
@@ -109,7 +133,7 @@ func TestManager_Do_Validation(T *testing.T) {
 	T.Run("rejects an over-long key", func(t *testing.T) {
 		t.Parallel()
 
-		m := newTestManager(t, WithMaxKeyLength[payload](4))
+		m := newTestManager(t, WithMaxKeyLength(4))
 
 		_, err := m.Do(t.Context(), "abcde", testFingerprint, fn)
 		test.ErrorIs(t, err, ErrKeyTooLong)
@@ -308,8 +332,8 @@ func TestManager_Do(T *testing.T) {
 		}
 
 		m, err := NewManager(recording, newLocker(t),
-			WithTTL[payload](12*time.Hour),
-			WithInFlightTTL[payload](90*time.Second),
+			WithTTL(12*time.Hour),
+			WithInFlightTTL(90*time.Second),
 		)
 		must.NoError(t, err)
 
@@ -350,13 +374,13 @@ func TestManager_Do(T *testing.T) {
 		}
 
 		m, err := NewManager(recording, newLocker(t),
-			WithTTL[payload](12*time.Hour),
-			WithInFlightTTL[payload](90*time.Second),
+			WithTTL(12*time.Hour),
+			WithInFlightTTL(90*time.Second),
 		)
 		must.NoError(t, err)
 
 		_, err = m.Do(t.Context(), testKey, testFingerprint, newCountingFn("ttl").run,
-			WithCallTTL[payload](30*time.Minute),
+			WithCallTTL(30*time.Minute),
 		)
 		must.NoError(t, err)
 
@@ -392,11 +416,11 @@ func TestManager_Do(T *testing.T) {
 			},
 		}
 
-		m, err := NewManager(recording, newLocker(t), WithTTL[payload](12*time.Hour))
+		m, err := NewManager(recording, newLocker(t), WithTTL(12*time.Hour))
 		must.NoError(t, err)
 
 		_, err = m.Do(t.Context(), testKey, testFingerprint, newCountingFn("ttl").run,
-			WithCallTTL[payload](0),
+			WithCallTTL(0),
 			nil,
 		)
 		must.NoError(t, err)
@@ -555,7 +579,7 @@ func TestManager_Do_StoreFailure(T *testing.T) {
 		store.SetFunc = func(context.Context, string, *Record[payload], ...cache.WriteOption) error { return nil }
 		store.DeleteFunc = func(context.Context, string) error { return nil }
 
-		m, err := NewManager(store, newLocker(t), WithStoreFailurePolicy[payload](FailOpen))
+		m, err := NewManager(store, newLocker(t), WithStoreFailurePolicy(FailOpen))
 		must.NoError(t, err)
 
 		fn := newCountingFn("ran anyway")
@@ -834,10 +858,10 @@ func TestNewManager_Observability(T *testing.T) {
 		t.Parallel()
 
 		m := newTestManager(t,
-			WithLogger[payload](loggingnoop.NewLogger()),
-			WithTracerProvider[payload](tracingnoop.NewTracerProvider()),
-			WithMetricsProvider[payload](metrics.EnsureMetricsProvider(nil)),
-			WithClock[payload](clock.NewClock()),
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+			WithMetricsProvider(metrics.EnsureMetricsProvider(nil)),
+			WithClock(clock.NewClock()),
 		)
 
 		test.NotNil(t, m.o11y)
@@ -873,7 +897,7 @@ func TestNewManager_Observability(T *testing.T) {
 				},
 			}
 
-			_, err := NewManager(newStore(t), newLocker(t), WithMetricsProvider[payload](provider))
+			_, err := NewManager(newStore(t), newLocker(t), WithMetricsProvider(provider))
 			test.ErrorIs(t, err, boom, test.Sprintf("building %s", failing))
 		}
 	})
@@ -891,7 +915,7 @@ func TestNewManager_Observability(T *testing.T) {
 			},
 		}
 
-		_, err := NewManager(newStore(t), newLocker(t), WithMetricsProvider[payload](provider))
+		_, err := NewManager(newStore(t), newLocker(t), WithMetricsProvider(provider))
 		test.ErrorIs(t, err, boom)
 	})
 }

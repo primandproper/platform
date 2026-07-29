@@ -52,17 +52,27 @@ type inMemoryCacheImpl[T any] struct {
 // them or when overwritten, and the map is not otherwise size-bounded. Pass
 // WithJanitor to sweep them on a timer instead — see that option for when the
 // lazy default is not enough.
-func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option[T]) (cache.Cache[T], error) {
-	i := &inMemoryCacheImpl[T]{
-		clock:         clock.NewClock(),
-		cache:         make(map[string]entry[T]),
-		defaultExpiry: defaultExpiry,
-	}
-
+func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (cache.Cache[T], error) {
+	o := &options{}
 	for _, opt := range opts {
 		if opt != nil {
-			opt(i)
+			opt(o)
 		}
+	}
+
+	i := &inMemoryCacheImpl[T]{
+		clock:           clock.NewClock(),
+		cache:           make(map[string]entry[T]),
+		defaultExpiry:   defaultExpiry,
+		logger:          o.logger,
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
+	}
+
+	// Staged, not started: the sweep must not observe a half-built cache, so it
+	// is launched at the end of construction once the counters exist.
+	if o.janitorCtx != nil && o.janitorInterval > 0 {
+		i.janitor = func() { go i.sweepEvery(o.janitorCtx, o.janitorInterval) }
 	}
 
 	i.o11y = observability.NewObserver(name, i.logger, i.tracerProvider)

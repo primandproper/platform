@@ -34,8 +34,8 @@ func BenchmarkRecorder_Record(b *testing.B) {
 		r := mustRecorder[testEvent](
 			b,
 			benchSink{},
-			WithBufferSize[testEvent](8192),
-			WithFlushInterval[testEvent](time.Hour),
+			WithBufferSize(8192),
+			WithFlushInterval(time.Hour),
 		)
 
 		go r.Run()
@@ -70,7 +70,7 @@ func BenchmarkRecorder_Record(b *testing.B) {
 	b.Run("full", func(b *testing.B) {
 		// No flusher, buffer of one: the first Record fills it and every
 		// subsequent one takes the drop path.
-		r := mustRecorder[testEvent](b, benchSink{}, WithBufferSize[testEvent](1))
+		r := mustRecorder[testEvent](b, benchSink{}, WithBufferSize(1))
 		r.Record(ev)
 
 		for b.Loop() {

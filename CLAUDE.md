@@ -50,7 +50,9 @@ The Makefile `THIS` variable must be the full module path (`github.com/primandpr
 
 **OpenTelemetry throughout:** Database, HTTP, gRPC, and messaging all instrument with OTel for traces, metrics, and logs.
 
-**Error handling:** Uses `cockroachdb/errors` for rich error context. Platform-level sentinels defined in `internalerrors/`.
+**Error handling:** Uses `cockroachdb/errors` for rich error context. Platform-level sentinels are defined in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which import the packages whose sentinels they map — so nothing in those packages may import `errors/http` or `errors/grpc` back.
+
+**Options vs. config seams:** Constructors take `logger`/`tracerProvider`/`metricsProvider` as `WithX` options, never positionally; the `config` subpackages are the one place those are positional, in the order `ctx, cfg, logger, tracerProvider, metricsProvider, deps..., opts...`. Every package uses `WithTracerProvider(tracing.TracerProvider)` — never a ready-made `tracing.Tracer`, which would let a span's instrumentation scope come from the caller instead of the component. `Option` types are **not** parameterized on their package's generic type, even in generic packages (`cache`, `idempotency`, `eventcapture`): Go cannot infer a type argument from a call's result type, so an `Option[T]` forces every call site to spell `T` out forever. Options that genuinely need the type parameter (`WithCodec`, `WithRecordable`, `WithTransform`, `WithObserver`, `WithKeyOrder`) stay generic but infer it from their argument, and the constructor type-asserts and reports a mismatch.
 
 ## Testing
 

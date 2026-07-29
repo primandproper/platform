@@ -80,7 +80,7 @@ func Test_buildRecoveryMiddleware(T *testing.T) {
 		t.Parallel()
 
 		cl := newCaptureLogger()
-		obs := observability.NewObserverWithTracer(t.Name(), cl, nil)
+		obs := observability.NewObserver(t.Name(), cl, nil)
 		mux := buildChiMux(obs, metricsnoop.NewMetricsProvider(), &Config{})
 
 		mux.Get("/boom", func(http.ResponseWriter, *http.Request) {
@@ -123,7 +123,7 @@ func Test_buildChiMux_middlewareOrdering(T *testing.T) {
 		t.Parallel()
 
 		cl := newCaptureLogger()
-		obs := observability.NewObserverWithTracer(t.Name(), cl, nil)
+		obs := observability.NewObserver(t.Name(), cl, nil)
 		mux := buildChiMux(obs, metricsnoop.NewMetricsProvider(), &Config{})
 
 		mux.Get("/thing", func(w http.ResponseWriter, _ *http.Request) {

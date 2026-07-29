@@ -41,9 +41,11 @@ That moves ownership of the message from the transport to this package. For a
 transport that acknowledges when its handler returns, the message is
 acknowledged before it has been processed: a crash loses whatever is in flight,
 and redelivery is not the safety net it would be for a serial consumer. The
-retry and dead-letter paths are what replaces it, and Concurrency is the bound
-on the exposure — the work channel is unbuffered, so the Pool holds at most
-Concurrency messages, and the consumer blocks rather than reading ahead.
+retry and dead-letter paths are what replaces it, and Concurrency is what bounds
+the exposure — the work channel is unbuffered, so the consumer blocks rather
+than reading ahead. Precisely, a crash can lose Concurrency+1 messages: one per
+busy worker, plus the one the consumer is blocked handing over. The point is
+that the bound is a small constant you choose, not the transport's prefetch.
 
 Close drains: the consumer is stopped first, the workers are retired only once
 it has returned and can hand out no more, and each finishes what it is already

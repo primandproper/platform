@@ -48,7 +48,7 @@ func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (embeddings.E
 	client := &http.Client{Timeout: timeout}
 
 	return &embedder{
-		o11y:   observability.NewObserverWithTracer(providerName, logger, o.tracer),
+		o11y:   observability.NewObserver(providerName, logger, o.tracerProvider),
 		client: client,
 		cfg:    cfg,
 	}, nil

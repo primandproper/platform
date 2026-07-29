@@ -3,11 +3,34 @@ package memory
 import (
 	"context"
 	"time"
+
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 // Option configures an in-memory cache at construction. Options are applied in
 // the order given, and a nil option is ignored.
-type Option[T any] func(*inMemoryCacheImpl[T])
+//
+// It carries no type parameter even though the cache does: nothing an Option
+// sets depends on the cached type, and Go cannot infer a type argument from a
+// call's result type — so an Option[T] would force every call site to spell the
+// cached type out by hand — WithLogger[MyValue](l) — forever.
+type Option func(*options)
+
+// options accumulates what the options set, so Option can stay free of the
+// cache's type parameter.
+type options struct {
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
+
+	// janitorCtx and janitorInterval are held rather than started, because a
+	// janitor must not observe a half-built cache; the constructor launches the
+	// sweep once everything else is in place.
+	janitorCtx      context.Context //nolint:containedctx // deliberate: see WithJanitor
+	janitorInterval time.Duration
+}
 
 // WithJanitor starts a background sweep that removes expired entries every
 // interval, rather than waiting for a read to discover them.
@@ -25,16 +48,14 @@ type Option[T any] func(*inMemoryCacheImpl[T])
 // goroutine exits when ctx is done, so a caller that needs the sweep to stop
 // before process exit passes a cancellable context. A nil ctx or a non-positive
 // interval starts no goroutine at all.
-func WithJanitor[T any](ctx context.Context, interval time.Duration) Option[T] {
-	return func(i *inMemoryCacheImpl[T]) {
+func WithJanitor(ctx context.Context, interval time.Duration) Option {
+	return func(o *options) {
 		if ctx == nil || interval <= 0 {
 			return
 		}
 
-		// The starter is deferred to the end of construction rather than run
-		// here so the janitor never observes a half-built cache, and so the
-		// context lives in this closure instead of on the struct.
-		i.janitor = func() { go i.sweepEvery(ctx, interval) }
+		o.janitorCtx = ctx
+		o.janitorInterval = interval
 	}
 }
 

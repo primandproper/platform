@@ -40,11 +40,11 @@ func Recordable(res *Response) bool {
 func NewManager(
 	store Store,
 	locker distributedlock.ScopedLocker,
-	opts ...idempotency.Option[Response],
+	opts ...idempotency.Option,
 ) (*idempotency.Manager[Response], error) {
 	return idempotency.NewManager(
 		store,
 		locker,
-		append([]idempotency.Option[Response]{idempotency.WithRecordable(Recordable)}, opts...)...,
+		append([]idempotency.Option{idempotency.WithRecordable(Recordable)}, opts...)...,
 	)
 }

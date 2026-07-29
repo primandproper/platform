@@ -16,6 +16,6 @@ CREATE TABLE IF NOT EXISTS {{TABLE}} (
     quarantined   BOOLEAN      NOT NULL DEFAULT FALSE,
 
     KEY {{TABLE}}_claim_idx (published_at, quarantined, next_attempt, created_at),
-    KEY {{TABLE}}_ordering_idx (partition_key, published_at, quarantined, created_at),
+    KEY {{TABLE}}_ordering_idx (partition_key, published_at, quarantined, created_at, id),
     KEY {{TABLE}}_reap_idx (published_at)
 );

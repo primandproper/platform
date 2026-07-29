@@ -303,6 +303,83 @@ func TestRelay_ordering(T *testing.T) {
 
 		test.SliceLen(t, 2, rec.payloads())
 	})
+
+	// The cases above advance the clock between enqueues, so created_at alone
+	// separates the rows. These two do not: one Enqueue stamps every row with a
+	// single timestamp, which is the case where a created_at-only predicate
+	// silently stops ordering anything.
+	T.Run("claims one message per key when a batch shares a timestamp", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		client := newTestClient(t)
+		relay, _ := newTestRelay(t, client, c)
+		w := newTestWriter(t, c)
+
+		enqueue(t, client, w,
+			Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "first"}},
+			Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "second"}},
+			Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "third"}},
+		)
+
+		claimed, err := relay.claim(t.Context())
+		must.NoError(t, err)
+
+		test.SliceLen(t, 1, claimed)
+	})
+
+	T.Run("publishes a same-timestamp batch one message per cycle, in order", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		client := newTestClient(t)
+		relay, rec := newTestRelay(t, client, c)
+		w := newTestWriter(t, c)
+
+		enqueue(t, client, w,
+			Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "first"}},
+			Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "second"}},
+			Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "third"}},
+		)
+
+		// The successor becomes claimable only once its predecessor is marked
+		// published, so the batch drains one per cycle rather than all at once.
+		for want := 1; want <= 3; want++ {
+			relay.cycle(t.Context())
+			test.SliceLen(t, want, rec.payloads())
+		}
+
+		test.Eq(t, []string{`{"id":"first"}`, `{"id":"second"}`, `{"id":"third"}`}, rec.payloads())
+	})
+
+	T.Run("holds a key behind its failing predecessor within one Enqueue", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		client := newTestClient(t)
+		relay, rec := newTestRelay(t, client, c)
+		w := newTestWriter(t, c)
+
+		enqueue(t, client, w,
+			Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "first"}},
+			Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "second"}},
+		)
+
+		// The first message cannot be published. The second must not overtake
+		// it: a consumer that sees "second" without "first" has observed the
+		// key out of order, which is the one thing Key promises cannot happen.
+		rec.fail(platformerrors.New("broker down"))
+		relay.cycle(t.Context())
+		test.SliceLen(t, 0, rec.payloads())
+
+		// Once the predecessor lands, the successor follows — in order.
+		rec.fail(nil)
+		c.advance(time.Minute)
+		relay.cycle(t.Context())
+		relay.cycle(t.Context())
+
+		test.Eq(t, []string{`{"id":"first"}`, `{"id":"second"}`}, rec.payloads())
+	})
 }
 
 func TestRelay_backlog(T *testing.T) {

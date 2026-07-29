@@ -12,7 +12,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/embeddings"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -24,7 +24,7 @@ import (
 func newRecordingEmbedder(t *testing.T, cfg *Config) (*embedder, *observability.RecordingObserver) {
 	t.Helper()
 
-	emb, err := NewEmbedder(t.Context(), cfg, WithTracer(tracing.NewTracerForTest("test")))
+	emb, err := NewEmbedder(t.Context(), cfg, WithTracerProvider(tracingnoop.NewTracerProvider()))
 	must.NoError(t, err)
 	must.NotNil(t, emb)
 
@@ -58,7 +58,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), nil, WithTracer(tracing.NewTracerForTest("test")))
+		emb, err := NewEmbedder(t.Context(), nil, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.Error(t, err)
 		must.Nil(t, emb)
 	})
@@ -66,7 +66,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with missing API key", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{}, WithTracer(tracing.NewTracerForTest("test")))
+		emb, err := NewEmbedder(t.Context(), &Config{}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.Error(t, err)
 		must.Nil(t, emb)
 	})
@@ -74,7 +74,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithTracer(tracing.NewTracerForTest("test")))
+		emb, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -88,7 +88,7 @@ func TestNewEmbedder(T *testing.T) {
 				APIKey:  "test-key",
 				Timeout: 5 * time.Second,
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 		must.NotNil(t, emb)
@@ -163,7 +163,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 				BaseURL:      ts.URL,
 				DefaultModel: "embed-english-v3.0",
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 
@@ -222,7 +222,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 				APIKey:  "test-key",
 				BaseURL: ts.URL,
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 
@@ -254,7 +254,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 				APIKey:  "test-key",
 				BaseURL: ts.URL,
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 
@@ -279,7 +279,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 				APIKey:  "test-key",
 				BaseURL: ts.URL,
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 
@@ -311,7 +311,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 				BaseURL:      ts.URL,
 				DefaultModel: "embed-multilingual-v3.0",
 			},
-			WithTracer(tracing.NewTracerForTest("test")),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
 

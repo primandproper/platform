@@ -8,7 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v8/embeddings/ollama"
 	"github.com/primandproper/platform-go/v8/embeddings/openai"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -106,9 +106,9 @@ func TestConfig_NewEmbedder_Empty(T *testing.T) {
 
 		cfg := &Config{Provider: ""}
 		logger := loggingnoop.NewLogger()
-		tracer := tracing.NewTracerForTest("test")
+		tracerProvider := tracingnoop.NewTracerProvider()
 
-		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracer)
+		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracerProvider)
 		must.NoError(t, err)
 		must.NotNil(t, embedder, must.Sprintf("expected non-nil embedder (noop)"))
 	})
@@ -127,9 +127,9 @@ func TestConfig_NewEmbedder_OpenAI(T *testing.T) {
 			},
 		}
 		logger := loggingnoop.NewLogger()
-		tracer := tracing.NewTracerForTest("test")
+		tracerProvider := tracingnoop.NewTracerProvider()
 
-		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracer)
+		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracerProvider)
 		must.NoError(t, err)
 		must.NotNil(t, embedder)
 	})
@@ -146,9 +146,9 @@ func TestConfig_NewEmbedder_Ollama(T *testing.T) {
 			Ollama:   &ollama.Config{},
 		}
 		logger := loggingnoop.NewLogger()
-		tracer := tracing.NewTracerForTest("test")
+		tracerProvider := tracingnoop.NewTracerProvider()
 
-		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracer)
+		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracerProvider)
 		must.NoError(t, err)
 		must.NotNil(t, embedder)
 	})
@@ -167,9 +167,9 @@ func TestConfig_NewEmbedder_Cohere(T *testing.T) {
 			},
 		}
 		logger := loggingnoop.NewLogger()
-		tracer := tracing.NewTracerForTest("test")
+		tracerProvider := tracingnoop.NewTracerProvider()
 
-		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracer)
+		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracerProvider)
 		must.NoError(t, err)
 		must.NotNil(t, embedder)
 	})
