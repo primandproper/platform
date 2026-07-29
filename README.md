@@ -58,6 +58,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `outbox`        | Transactional outbox       | postgres, mysql, sqlite                           |
 | `eventstream`   | Server push to clients     | sse, websocket                                    |
 | `notifications` | User notifications         | async, mobile                                     |
+| `jobs`          | Queue workers & periodic jobs | —                                              |
 | `email`         | Transactional email        | mailgun, mailjet, postmark, resend, sendgrid, ses |
 
 ### Web & transport
