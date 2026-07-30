@@ -72,7 +72,7 @@ The Makefile `THIS` variable must be the full module path (`github.com/primandpr
   `testutils/containers` helpers (`pgtest`, `mysqltest`, `redistest`), not raw testcontainers calls.
 - `make test` runs container tests by default and therefore needs a Docker daemon;
   `.scripts/test.sh false` runs the suite without them
-- `make test` excludes packages matching: cmd, integration, mock, fakes, converters, utils, generated
+- `make test` runs every package (`./...`)
 - Test command: `CGO_ENABLED=1 RUN_CONTAINER_TESTS=<true|false> go test -shuffle=on -race -vet=all -failfast`
 
 ## Linting
