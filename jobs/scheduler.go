@@ -34,12 +34,17 @@ const (
 	// DefaultLeaseTTL is how long a run's lock is held when neither the job nor
 	// the config names a TTL.
 	DefaultLeaseTTL = time.Minute
+	// DefaultTimezone is the zone cron schedules are read in when nothing else
+	// names one. It resolves without the zoneinfo database, which the images
+	// this runs in may not carry.
+	DefaultTimezone = "UTC"
 )
 
 // Observability keys for the Scheduler's spans and log fields.
 const (
 	jobNameKey     = "jobs.name"
 	jobIntervalKey = "jobs.interval"
+	jobScheduleKey = "jobs.schedule"
 	jobRanKey      = "jobs.ran"
 	jobOverranKey  = "jobs.overran_interval"
 )
@@ -54,14 +59,15 @@ var (
 	// errors.ErrNilInputParameter, so a caller may check either.
 	ErrNilLocker = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil distributed locker")
 	// ErrSchedulerRunning indicates Register was called after Run. The job set
-	// is fixed at Run, because each job owns a ticker goroutine started there.
+	// is fixed at Run, because each job owns a goroutine started there.
 	ErrSchedulerRunning = platformerrors.New("scheduler is already running")
 	// ErrDuplicateJob indicates two jobs were registered under one name. Names
 	// are the lock keys, so duplicates would contend with each other rather
 	// than run independently.
 	ErrDuplicateJob = platformerrors.New("duplicate job name")
-	// ErrInvalidJob indicates a job with no name, no function, or a
-	// non-positive interval.
+	// ErrInvalidJob indicates a job with no name, no function, or no usable
+	// cadence — neither a positive interval nor a schedule, both at once, or a
+	// schedule that will never fire.
 	ErrInvalidJob = platformerrors.New("invalid job")
 )
 
@@ -72,12 +78,27 @@ type Job struct {
 	// canceled at Timeout; a job that ignores it cannot be interrupted, and
 	// will hold its lease past expiry.
 	Run func(ctx context.Context) error
+	// Schedule fires the job on a calendar rather than a stopwatch, for work
+	// that belongs at an hour rather than at a frequency. Exactly one of
+	// Schedule and Interval must be set.
+	//
+	//	Schedule: jobs.MustCron("0 3 * * *")
+	//
+	// Every replica computes the same fire times from the same expression, so
+	// unlike Interval — whose ticker is phased by whenever each replica started
+	// — the fleet contends for the lease at the same instant and the lease only
+	// has to cover the run plus the clock skew between replicas.
+	//
+	// A cron schedule that named no zone of its own takes the Scheduler's
+	// SchedulerConfig.Timezone when it is registered, and UTC failing that.
+	Schedule Schedule
 	// Name identifies the job in telemetry and forms its lock key. It must be
 	// unique within a Scheduler and stable across deploys — renaming a job lets
 	// an old replica and a new one run it concurrently during a rollout.
 	Name string
 	// Interval is how often the job fires. The first fire is one interval after
-	// Run unless RunOnStart is set.
+	// Run unless RunOnStart is set. Exactly one of Interval and Schedule must
+	// be set.
 	Interval time.Duration
 	// Timeout bounds one execution. Zero falls back to the Scheduler's
 	// DefaultTimeout, and zero there means no timeout.
@@ -88,21 +109,31 @@ type Job struct {
 	// overrun lets a second replica start the same job.
 	LeaseTTL time.Duration
 	// RunOnStart fires the job once when the Scheduler starts, instead of
-	// waiting a full interval. Useful for work that should not be skipped by a
-	// deploy — a six-hour job on a service that deploys every four hours
-	// otherwise never runs.
+	// waiting a full interval or for the schedule's next fire time. Useful for
+	// work that should not be skipped by a deploy — a six-hour job on a service
+	// that deploys every four hours otherwise never runs, and neither does a
+	// nightly one on a service that never happens to be up at 03:00.
 	RunOnStart bool
 }
 
-// validate reports whether the job can be scheduled at all.
-func (j *Job) validate() error {
+// validate reports whether the job can be scheduled at all. now anchors the
+// check that a schedule has any fire time left in it: an expression like
+// "0 0 30 2 *" parses cleanly and never comes true, and the difference between
+// rejecting that at startup and accepting it is a job that silently never runs.
+func (j *Job) validate(now time.Time) error {
 	switch {
 	case j.Name == "":
 		return platformerrors.Wrap(ErrInvalidJob, "empty job name")
 	case j.Run == nil:
 		return platformerrors.Wrapf(ErrInvalidJob, "job %q has no function", j.Name)
-	case j.Interval <= 0:
+	case j.Schedule != nil && j.Interval > 0:
+		return platformerrors.Wrapf(ErrInvalidJob, "job %q sets both an interval and a schedule", j.Name)
+	case j.Schedule == nil && j.Interval <= 0:
 		return platformerrors.Wrapf(ErrInvalidJob, "job %q has a non-positive interval", j.Name)
+	}
+
+	if j.Schedule != nil && j.Schedule.Next(now).IsZero() {
+		return platformerrors.Wrapf(ErrInvalidJob, "job %q has a schedule that will never fire", j.Name)
 	}
 
 	return nil
@@ -112,6 +143,18 @@ func (j *Job) validate() error {
 type SchedulerConfig struct {
 	// LockKeyPrefix namespaces every lock key the Scheduler takes.
 	LockKeyPrefix string `env:"LOCK_KEY_PREFIX" json:"lockKeyPrefix" yaml:"lockKeyPrefix"`
+	// Timezone is the IANA name of the zone that cron schedules are read in
+	// when they did not settle the question themselves — "America/Chicago". It
+	// is what a service whose jobs all belong to one calendar sets once,
+	// instead of repeating a CRON_TZ prefix on every expression.
+	//
+	// A schedule built by CronIn, or one whose spec carries its own CRON_TZ,
+	// ignores this: both are more specific. Empty means DefaultTimezone.
+	//
+	// It is resolved by NewScheduler, so a name the runtime cannot load fails
+	// construction rather than the first fire. Anything but UTC needs the
+	// zoneinfo database in the image.
+	Timezone string `env:"TIMEZONE" json:"timezone" yaml:"timezone"`
 	// DefaultLeaseTTL is the lease length for jobs that do not set their own.
 	DefaultLeaseTTL time.Duration `env:"DEFAULT_LEASE_TTL" json:"defaultLeaseTTL" yaml:"defaultLeaseTTL"`
 	// DefaultTimeout bounds one execution for jobs that do not set their own.
@@ -130,6 +173,10 @@ func (cfg *SchedulerConfig) EnsureDefaults() {
 	if cfg.DefaultLeaseTTL <= 0 {
 		cfg.DefaultLeaseTTL = DefaultLeaseTTL
 	}
+
+	if cfg.Timezone == "" {
+		cfg.Timezone = DefaultTimezone
+	}
 }
 
 // ValidateWithContext validates a SchedulerConfig.
@@ -140,8 +187,9 @@ func (cfg *SchedulerConfig) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
-// Scheduler runs registered jobs on an interval, each execution held under a
-// distributed lock so that at most one replica runs a given job per tick.
+// Scheduler runs registered jobs on an interval or on a calendar, each
+// execution held under a distributed lock so that at most one replica runs a
+// given job per tick.
 //
 // At most one, not exactly one, and both halves matter. A tick whose lock is
 // already held is skipped rather than queued, so a job does not run on every
@@ -155,6 +203,10 @@ type Scheduler struct {
 	clock  clock.Clock
 	o11y   observability.Observer
 	logger logging.Logger
+
+	// location is cfg.Timezone resolved once, and is handed to the schedules of
+	// registered jobs that did not settle their own zone.
+	location *time.Location
 
 	jobs map[string]*Job
 
@@ -258,6 +310,15 @@ func NewScheduler(ctx context.Context, cfg *SchedulerConfig, locker distributedl
 		return nil, platformerrors.Wrap(err, "validating job scheduler config")
 	}
 
+	// Resolved here rather than at the first fire, because a zone name the
+	// runtime cannot load is a deployment problem — usually an image without
+	// the zoneinfo database — and startup is when that is still cheap to fix.
+	location, locErr := time.LoadLocation(s.cfg.Timezone)
+	if locErr != nil {
+		return nil, platformerrors.Wrapf(locErr, "loading job scheduler timezone %q", s.cfg.Timezone)
+	}
+	s.location = location
+
 	s.o11y = observability.NewObserver(schedulerServiceName, s.logger, s.tracerProvider)
 	s.logger = s.o11y.Logger()
 
@@ -314,6 +375,8 @@ func (s *Scheduler) Register(jobs ...Job) error {
 		return ErrSchedulerRunning
 	}
 
+	now := s.clock.Now()
+
 	// Staged rather than applied in place, so a batch containing one bad job
 	// leaves the schedule exactly as it was.
 	staged := make(map[string]*Job, len(jobs))
@@ -322,7 +385,15 @@ func (s *Scheduler) Register(jobs ...Job) error {
 		// go on to mutate.
 		job := jobs[i]
 
-		if err := job.validate(); err != nil {
+		// The last chance to settle a cron schedule's zone, and the reason the
+		// copy above matters: the caller's Job is left as they wrote it, and
+		// one Schedule value may be registered with two Schedulers configured
+		// for different zones without either seeing the other's.
+		if schedule, ok := job.Schedule.(cronSchedule); ok {
+			job.Schedule = schedule.relocate(s.location, false)
+		}
+
+		if err := job.validate(now); err != nil {
 			return err
 		}
 
@@ -341,7 +412,7 @@ func (s *Scheduler) Register(jobs ...Job) error {
 	return nil
 }
 
-// Run starts a ticker per registered job and blocks until Close.
+// Run starts a goroutine per registered job and blocks until Close.
 //
 // Like Pool.Run it takes no context: a scheduler tied to a request- or
 // server-scoped context stops mid-job when that context is canceled, leaving
@@ -387,28 +458,36 @@ func (s *Scheduler) Close(ctx context.Context) error {
 	}
 }
 
-// runJob owns one job's ticker for the life of the Scheduler.
+// runJob owns one job's cadence for the life of the Scheduler, on a ticker or
+// on a calendar depending on how the job was registered.
+func (s *Scheduler) runJob(ctx context.Context, job *Job) {
+	defer s.wg.Done()
+
+	if job.Schedule != nil {
+		s.runScheduled(ctx, job)
+
+		return
+	}
+
+	s.runPeriodic(ctx, job)
+}
+
+// runPeriodic owns one interval job's ticker.
 //
 // Ticks are not queued. clock.Ticker coalesces them the way *time.Ticker does,
 // so a job that overruns its interval simply fires again as soon as it
 // finishes, rather than accumulating a backlog it can never work off — which is
 // the behavior a periodic job wants and the reason overruns are counted rather
 // than compensated for.
-func (s *Scheduler) runJob(ctx context.Context, job *Job) {
-	defer s.wg.Done()
-
+func (s *Scheduler) runPeriodic(ctx context.Context, job *Job) {
+	// Started before the RunOnStart execution rather than after it, so the
+	// first interval is measured from the Scheduler starting rather than from
+	// whenever that execution happened to finish.
 	ticker := s.clock.NewTicker(job.Interval)
 	defer ticker.Stop()
 
-	if job.RunOnStart {
-		// Guarded, so a Scheduler that was closed before its goroutines were
-		// scheduled does not fire a round of jobs on its way out.
-		select {
-		case <-s.stop:
-			return
-		default:
-			s.tick(ctx, job)
-		}
+	if job.RunOnStart && !s.startTick(ctx, job, job.Interval) {
+		return
 	}
 
 	for {
@@ -416,7 +495,7 @@ func (s *Scheduler) runJob(ctx context.Context, job *Job) {
 		case <-s.stop:
 			return
 		case <-ticker.Chan():
-			s.tick(ctx, job)
+			s.tick(ctx, job, job.Interval)
 		}
 
 		// Rechecked after the run, so a job whose execution outlasted the stop
@@ -429,6 +508,103 @@ func (s *Scheduler) runJob(ctx context.Context, job *Job) {
 	}
 }
 
+// runScheduled owns one calendar job's goroutine.
+//
+// The next fire time is recomputed from the clock after every run rather than
+// accumulated, so fire times that passed while a run was in progress are
+// skipped rather than queued — the same coalescing the interval path gets from
+// its ticker, and the reason a job that outruns its schedule is counted as an
+// overrun instead of being compensated for.
+func (s *Scheduler) runScheduled(ctx context.Context, job *Job) {
+	if job.RunOnStart && !s.startTick(ctx, job, job.window(s.clock.Now())) {
+		return
+	}
+
+	for {
+		now := s.clock.Now()
+
+		next := job.Schedule.Next(now)
+		if next.IsZero() {
+			// Register rejects a schedule that is already exhausted, so this is
+			// a caller's Schedule retiring itself mid-flight. There is nothing
+			// left to wait for and the goroutine has to end somewhere; it is
+			// logged because the job going quiet is otherwise indistinguishable
+			// from the job never being due.
+			s.logger.WithValue(jobNameKey, job.Name).
+				WithValue(jobScheduleKey, describeSchedule(job.Schedule)).
+				Error("job will not fire again and is no longer scheduled", nil)
+
+			return
+		}
+
+		if !s.waitUntil(next.Sub(now)) {
+			return
+		}
+
+		s.tick(ctx, job, job.window(next))
+	}
+}
+
+// startTick performs the RunOnStart execution and reports whether the job
+// should carry on. Guarded, so a Scheduler that was closed before its
+// goroutines were scheduled does not fire a round of jobs on its way out.
+func (s *Scheduler) startTick(ctx context.Context, job *Job, window time.Duration) bool {
+	select {
+	case <-s.stop:
+		return false
+	default:
+		s.tick(ctx, job, window)
+
+		return true
+	}
+}
+
+// waitUntil blocks for d, and reports whether the wait finished rather than
+// being cut short by the Scheduler stopping.
+//
+// A one-shot ticker rather than a timer, because clock.Clock exposes NewTicker
+// and not NewTimer: taking a single tick costs one receive and keeps both kinds
+// of job waiting on the same seam, so a test that injects a clock drives a
+// calendar job exactly the way it drives an interval one.
+func (s *Scheduler) waitUntil(d time.Duration) bool {
+	if d <= 0 {
+		// Schedule.Next is documented to return a time strictly in the future,
+		// so this is a caller's implementation not doing that. It means "now",
+		// which is the one duration NewTicker panics on.
+		select {
+		case <-s.stop:
+			return false
+		default:
+			return true
+		}
+	}
+
+	ticker := s.clock.NewTicker(d)
+	defer ticker.Stop()
+
+	select {
+	case <-s.stop:
+		return false
+	case <-ticker.Chan():
+		return true
+	}
+}
+
+// window is how long a calendar job has from t before it is next due. A run
+// that outlasts it has overrun — the interval path's equivalent is simply the
+// interval, but a calendar's headroom is not constant: a job at "0 9 * * 1-5"
+// has three days of it on Friday night and one on Monday.
+//
+// Zero means there is no next fire to be late for, and suppresses the check.
+func (j *Job) window(t time.Time) time.Duration {
+	next := j.Schedule.Next(t)
+	if next.IsZero() {
+		return 0
+	}
+
+	return next.Sub(t)
+}
+
 // tick attempts one run, under the job's lease.
 //
 // Acquire is used directly rather than distributedlock.ScopedLocker because the
@@ -438,7 +614,7 @@ func (s *Scheduler) runJob(ctx context.Context, job *Job) {
 //
 // A contended lock is not an error. It means another replica is running this
 // job right now, which is the whole point — the tick is skipped and counted.
-func (s *Scheduler) tick(ctx context.Context, job *Job) {
+func (s *Scheduler) tick(ctx context.Context, job *Job, window time.Duration) {
 	key := s.cfg.LockKeyPrefix + job.Name
 	ttl := job.LeaseTTL
 	if ttl <= 0 {
@@ -450,10 +626,16 @@ func (s *Scheduler) tick(ctx context.Context, job *Job) {
 
 	op.SetValues(map[string]any{
 		jobNameKey:      job.Name,
-		jobIntervalKey:  job.Interval,
+		jobIntervalKey:  window,
 		keys.LockKeyKey: key,
 		keys.LockTTLKey: ttl,
 	})
+
+	if job.Schedule != nil {
+		// The expression as written, so a trace answers "when is this supposed
+		// to run" without the reader deriving it from the gap to the next fire.
+		op.Set(jobScheduleKey, describeSchedule(job.Schedule))
+	}
 
 	attrs := metric.WithAttributes(attribute.String(jobNameKey, job.Name))
 
@@ -497,7 +679,7 @@ func (s *Scheduler) tick(ctx context.Context, job *Job) {
 		op.Acknowledge(releaseErr, "releasing lease for job %q", job.Name)
 	}()
 
-	s.execute(ctx, op, job, attrs)
+	s.execute(ctx, op, job, attrs, window)
 }
 
 // execute runs the job once and records the outcome. A failure is not retried:
@@ -508,7 +690,7 @@ func (s *Scheduler) tick(ctx context.Context, job *Job) {
 // covers acquire-run-release, so without this split a job that is slow and a
 // lock backend that is slow look identical on a trace — and they call for
 // opposite responses.
-func (s *Scheduler) execute(ctx context.Context, op observability.Operation, job *Job, attrs metric.MeasurementOption) {
+func (s *Scheduler) execute(ctx context.Context, op observability.Operation, job *Job, attrs metric.MeasurementOption, window time.Duration) {
 	s.runCounter.Add(ctx, 1, attrs)
 
 	runCtx, runOp := s.o11y.BeginCustom(ctx, "run_job")
@@ -523,7 +705,7 @@ func (s *Scheduler) execute(ctx context.Context, op observability.Operation, job
 	elapsed := s.clock.Since(startTime)
 	s.latencyHist.Record(ctx, float64(elapsed.Milliseconds()), attrs)
 
-	if elapsed > job.Interval {
+	if window > 0 && elapsed > window {
 		s.overrunCounter.Add(ctx, 1, attrs)
 		op.Set(jobOverranKey, true).Logger().
 			WithValue("elapsed", elapsed).Info("job outran its interval")

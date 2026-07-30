@@ -115,3 +115,63 @@ func ExampleNewScheduler() {
 	// Output:
 	// sweeping expired sessions
 }
+
+// ExampleCron schedules work by the calendar rather than by frequency, for a
+// job that belongs at an hour rather than at an interval.
+func ExampleCron() {
+	ctx := context.Background()
+
+	locker, err := memory.NewLocker()
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = locker.Close() }()
+
+	// Timezone is what a service whose jobs all belong to one calendar sets
+	// once, instead of prefixing every expression. Left empty it is UTC, which
+	// is the choice that does not depend on the image — and the one that has no
+	// daylight saving to miss or repeat a job over.
+	scheduler, err := jobs.NewScheduler(ctx, &jobs.SchedulerConfig{
+		Timezone: "America/Chicago",
+	}, locker)
+	if err != nil {
+		panic(err)
+	}
+
+	// Read in Chicago, from the config above. An expression carrying its own
+	// CRON_TZ= prefix, or one built with CronIn, keeps its zone instead.
+	nightly, err := jobs.Cron("0 3 * * *")
+	if err != nil {
+		panic(err)
+	}
+
+	compacted := make(chan struct{}, 1)
+
+	if err = scheduler.Register(jobs.Job{
+		Name:     "compact-audit-log",
+		Schedule: nightly,
+		LeaseTTL: 30 * time.Minute,
+		// Fires once at startup too, so the example has something to print
+		// without waiting until 03:00.
+		RunOnStart: true,
+		Run: func(context.Context) error {
+			fmt.Println("compacting the audit log")
+			compacted <- struct{}{}
+
+			return nil
+		},
+	}); err != nil {
+		panic(err)
+	}
+
+	go scheduler.Run()
+
+	<-compacted
+
+	if err = scheduler.Close(ctx); err != nil {
+		panic(err)
+	}
+
+	// Output:
+	// compacting the audit log
+}
