@@ -171,7 +171,7 @@ func TestScheduler_observability(T *testing.T) {
 		}
 
 		scheduler, obs := newObservedScheduler(t, locker)
-		scheduler.tick(t.Context(), &job)
+		scheduler.tick(t.Context(), &job, job.Interval)
 
 		obs.ObservedOperationWithData(t, map[string]any{
 			jobNameKey:      job.Name,
@@ -192,7 +192,7 @@ func TestScheduler_observability(T *testing.T) {
 		}
 
 		scheduler, obs := newObservedScheduler(t, locker)
-		scheduler.tick(t.Context(), &job)
+		scheduler.tick(t.Context(), &job, job.Interval)
 
 		// "Did this replica decline, or did nobody run it" is the question a
 		// missed job raises, and only a traced skip can answer it.
@@ -201,4 +201,65 @@ func TestScheduler_observability(T *testing.T) {
 			jobRanKey:  false,
 		})
 	})
+
+	T.Run("a calendar job's run reports the schedule it is on", func(t *testing.T) {
+		t.Parallel()
+
+		const spec = "CRON_TZ=America/Chicago 0 3 * * *"
+
+		scheduled := Job{
+			Name:     "observed-calendar-job",
+			Schedule: MustCron(spec),
+			LeaseTTL: time.Minute,
+			Run:      func(context.Context) error { return nil },
+		}
+
+		locker := &dlmock.LockerMock{
+			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
+				return &dlmock.LockMock{
+					ReleaseFunc: func(context.Context) error { return nil },
+				}, nil
+			},
+		}
+
+		scheduler, obs := newObservedScheduler(t, locker)
+		scheduler.tick(t.Context(), &scheduled, 24*time.Hour)
+
+		// The expression as written, so the trace answers "when is this
+		// supposed to run" without the reader deriving it from the window.
+		obs.ObservedOperationWithData(t, map[string]any{
+			jobNameKey:      scheduled.Name,
+			jobScheduleKey:  spec,
+			jobIntervalKey:  24 * time.Hour,
+			keys.LockKeyKey: DefaultLockKeyPrefix + scheduled.Name,
+			keys.LockTTLKey: scheduled.LeaseTTL,
+			jobRanKey:       true,
+		})
+	})
+}
+
+func TestDescribeSchedule(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a parsed cron spec reports itself", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "CRON_TZ=UTC */15 * * * *", describeSchedule(MustCron("*/15 * * * *")))
+	})
+
+	T.Run("a caller's schedule falls back to its type", func(t *testing.T) {
+		t.Parallel()
+
+		// A pointer address would say nothing about when the job runs, so the
+		// type name is the most a Schedule that cannot describe itself gets.
+		test.EqOp(t, "jobs.namelessSchedule", describeSchedule(namelessSchedule{}))
+	})
+}
+
+// namelessSchedule is a Schedule that cannot describe itself, which is every
+// Schedule this package did not build.
+type namelessSchedule struct{}
+
+func (namelessSchedule) Next(after time.Time) time.Time {
+	return after.Add(time.Hour)
 }

@@ -6,9 +6,11 @@ fleet.
 messagequeue publishes and subscribes. It has nothing to say about how many
 messages you handle at once, what happens to one that keeps failing, or how to
 keep three replicas from all running the nightly reconcile. Those are the parts
-every service reimplements, and the parts it gets subtly wrong. Everything here
+every service reimplements, and the parts it gets subtly wrong. Nearly all of it
 is composed from primitives that already exist in this module — messagequeue,
-retry, distributedlock, clock — so the package is a shape, not a new dependency.
+retry, distributedlock, clock — so the package is mostly a shape rather than
+machinery. The one thing it brings from outside is robfig/cron's expression
+parser, which the Scheduler's calendar schedules are built on.
 
 # Queue workers
 
@@ -103,10 +105,97 @@ Every replica ticks; the one that wins the lock runs the job and the rest skip.
 A contended lock is therefore not an error — it is the mechanism working — and
 is counted separately as jobs_scheduler_skipped.
 
-Intervals, not cron expressions. An interval covers the work this package is
-for and needs no parser; a job that must run at 03:00 local time is asking for
-a calendar, which is a different problem with time zones and daylight saving in
-it.
+# Calendars
+
+A job that belongs at an hour rather than at a frequency sets Schedule instead
+of Interval — exactly one of the two, and a job carrying both is rejected at
+Register rather than resolved by precedence:
+
+	if err = scheduler.Register(jobs.Job{
+		Name:     "compact-audit-log",
+		Schedule: jobs.MustCron("0 3 * * *"),
+		LeaseTTL: 30 * time.Minute,
+		Run:      compactAuditLog,
+	}); err != nil {
+		return err
+	}
+
+Cron takes a standard five-field crontab expression and the usual descriptors
+(@daily, @every 30m). Schedule is an interface with one method, so a schedule
+read from a table, one that stops after a date, or one that skips holidays is a
+Next away — and any robfig/cron Schedule satisfies it as-is, for a caller that
+wants seconds-resolution specs or the non-standard field extensions.
+
+The two shapes differ in more than notation. An interval job's ticker is phased
+by whenever its replica started, so a fleet's ticks are scattered across the
+interval and the lease has to cover that scatter to keep the job from running
+more than once per period. Every replica computes the same fire times from the
+same expression, so a calendar job's fleet contends at the same instant and the
+lease only has to cover the run plus the clock skew between replicas.
+
+# Which zone a calendar job runs in
+
+Four things can decide it, and the most specific wins. In order: a CRON_TZ= or
+TZ= prefix on the expression itself; the location passed to CronIn; the
+Scheduler's SchedulerConfig.Timezone; UTC.
+
+	scheduler, err := jobs.NewScheduler(ctx, &jobs.SchedulerConfig{
+		Timezone: "America/Chicago",
+	}, locker)
+
+	// 03:00 in Chicago, from the config.
+	jobs.MustCron("0 3 * * *")
+	// 03:00 in Tokyo: the expression said so, and that is more specific.
+	jobs.MustCron("CRON_TZ=Asia/Tokyo 0 3 * * *")
+	// 03:00 in Tokyo, for a caller that already holds the location.
+	jobs.MustCronIn(tokyo, "0 3 * * *")
+
+SchedulerConfig.Timezone is the level a whole service sets once, instead of
+prefixing twelve expressions: it reaches every cron schedule registered with
+that Scheduler that did not settle the question itself. CronIn is for a caller
+holding a *time.Location rather than a name — one loaded once at startup, or a
+time.FixedZone, which has no name to write into an expression at all.
+
+This is crontab's own arrangement — a file sets a default, a line overrides it —
+and the levels resolve at Register, so one schedule value shared by two
+Schedulers reads correctly in both.
+
+UTC at the bottom rather than the host's local time, because the underlying
+parser defaults to time.Local and Go builds time.Local from the process's TZ
+environment variable. That would make one expression mean different instants on
+a laptop and in a container, and let one replica disagree with another about
+when 03:00 is, with nothing anywhere saying so. Nothing here reads TZ.
+
+Any zone but UTC costs the two days a year that a local wall-clock time is not a
+function of the calendar:
+
+  - On the spring-forward day an hour does not exist, and a job scheduled inside
+    it does not run at all that day.
+  - On the fall-back day an hour happens twice, and a job scheduled inside it
+    runs twice, an hour apart. The lease does not prevent this — it was released
+    an hour earlier — so a job that must not run twice a year wants UTC.
+
+That is the problem this package spent v8.0 declining to have, and it is worth
+being deliberate about which side of it a given job wants. Any zone but UTC also
+needs the zoneinfo database at runtime, which scratch and distroless images do
+not carry; `import _ "time/tzdata"` in main embeds it. A name that cannot be
+loaded fails NewScheduler rather than the first fire.
+
+A schedule reports the zone it will actually be read in — "CRON_TZ=UTC 0 3 * * *"
+for an expression that named none — so the jobs.schedule span attribute answers
+the question rather than raising it, and what it reports parses back to the same
+fire times.
+
+There is no catch-up. Fire times that pass while the process is down, or while
+a previous run of the same job is still going, are skipped rather than queued —
+the same coalescing the interval path gets from its ticker. RunOnStart is the
+escape hatch for work a deploy must not skip.
+
+A schedule that will never fire — "0 0 30 2 *" parses cleanly and never comes
+true — is rejected at Register, because the alternative is a job nobody notices
+never ran.
+
+# Leases and overruns
 
 The lease is not renewed while a job runs, so LeaseTTL must comfortably exceed
 the job's worst-case duration. When it does not, Release reports
@@ -114,11 +203,14 @@ ErrLockNotHeld, the run is counted in jobs_scheduler_leases_expired, and it is
 logged at error level — because by then a second replica may have started the
 same job. That counter is the one to alert on.
 
-Ticks are not queued. A job that overruns its interval fires again as soon as it
-finishes rather than accumulating a backlog it can never work off; the overrun
-is counted. A failed run is not retried either — the next tick is the retry, and
-a job that cannot wait one interval wants a shorter interval, not an inner retry
-loop.
+Ticks are not queued. A job that overruns fires again as soon as it finishes
+rather than accumulating a backlog it can never work off; the overrun is
+counted. Overrunning means outlasting the headroom to the next fire, which for
+an interval job is the interval and for a calendar job varies with the calendar
+— a job at "0 9 * * 1-5" has three days of it on Friday night and one on Monday.
+
+A failed run is not retried either — the next tick is the retry, and a job that
+cannot wait one interval wants a shorter interval, not an inner retry loop.
 
 The Scheduler is in-process: a job's function runs on the replica that won the
 lease. Enqueueing onto messagequeue and letting a Pool execute it is the more
@@ -178,8 +270,12 @@ together are the fleet's tick count; runs alone are what actually happened.
 
 A tick is traced whether or not it ran, and carries jobs.ran to say which —
 "did this replica decline, or did nobody run it" is the question a missed job
-actually raises. The run nests inside the tick, so a slow job and a slow lock
-backend are distinguishable; they call for opposite responses.
+actually raises. A calendar job's tick also carries jobs.schedule, the
+expression as written, so the trace answers "when was this supposed to run"
+without the reader deriving it from jobs.interval — which on those spans is the
+headroom to the next fire rather than a fixed period. The run nests inside the
+tick, so a slow job and a slow lock backend are distinguishable; they call for
+opposite responses.
 
 # Non-goals
 

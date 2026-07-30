@@ -265,6 +265,41 @@ func TestScheduler_Register(T *testing.T) {
 		test.ErrorIs(t, err, jobs.ErrInvalidJob)
 	})
 
+	T.Run("with a schedule instead of an interval", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, newTestScheduler(t).Register(
+			jobs.Job{Name: "one", Schedule: jobs.MustCron("0 3 * * *"), Run: noop},
+		))
+	})
+
+	T.Run("with both an interval and a schedule", func(t *testing.T) {
+		t.Parallel()
+
+		// Rejected rather than resolved by precedence: a job carrying both is a
+		// mistake, and picking one silently is how it survives to production.
+		err := newTestScheduler(t).Register(jobs.Job{
+			Name:     "one",
+			Interval: testInterval,
+			Schedule: jobs.MustCron("0 3 * * *"),
+			Run:      noop,
+		})
+		test.ErrorIs(t, err, jobs.ErrInvalidJob)
+	})
+
+	T.Run("with a schedule that will never fire", func(t *testing.T) {
+		t.Parallel()
+
+		// The 30th of February parses cleanly. Caught here, it is a startup
+		// error; accepted, it is a job nobody notices never ran.
+		err := newTestScheduler(t).Register(jobs.Job{
+			Name:     "never",
+			Schedule: jobs.MustCron("0 0 30 2 *"),
+			Run:      noop,
+		})
+		test.ErrorIs(t, err, jobs.ErrInvalidJob)
+	})
+
 	T.Run("with a duplicate name", func(t *testing.T) {
 		t.Parallel()
 
@@ -557,6 +592,451 @@ func TestScheduler_Run(T *testing.T) {
 			runScheduler(t, scheduler)
 
 			test.ErrorIs(t, <-observed, context.DeadlineExceeded)
+		})
+	})
+}
+
+// expiringSchedule fires every minute until its cutoff and reports the zero
+// time after it — a Schedule that runs itself out mid-flight, which is the case
+// Register's never-fires check cannot catch up front.
+type expiringSchedule struct {
+	until time.Time
+}
+
+func (s expiringSchedule) Next(after time.Time) time.Time {
+	next := after.Add(time.Minute)
+	if next.After(s.until) {
+		return time.Time{}
+	}
+
+	return next
+}
+
+// TestScheduler_Timezone pins the four-level precedence a cron schedule's zone
+// is decided by: the spec's own prefix, then CronIn, then the Scheduler's
+// configured zone, then UTC.
+// hourlySchedule is a Schedule this package did not build, and so has no zone
+// for a configured default to reach into.
+type hourlySchedule struct{}
+
+func (hourlySchedule) Next(after time.Time) time.Time {
+	return after.Add(time.Hour)
+}
+
+// sharedSchedule is registered by more than one test below, standing in for the
+// package-level schedule var a real service would declare once. Two Schedulers
+// in different zones must each get their own reading of it.
+var sharedSchedule = jobs.MustCron("0 3 * * *")
+
+// firesAt runs a one-job Scheduler until the job fires, and reports when in
+// UTC. Which zone won is not visible from outside the package, and does not
+// need to be: the answer that matters is when the job actually runs.
+//
+// It must be called inside a synctest bubble, where waiting until 03:00 costs
+// no wall time.
+func firesAt(t *testing.T, timezone string, schedule jobs.Schedule) time.Time {
+	t.Helper()
+
+	fired := make(chan time.Time, 1)
+
+	scheduler, err := jobs.NewScheduler(t.Context(),
+		&jobs.SchedulerConfig{Timezone: timezone}, newTestLocker(t))
+	must.NoError(t, err)
+
+	must.NoError(t, scheduler.Register(jobs.Job{
+		Name:     "zoned",
+		Schedule: schedule,
+		Run: func(context.Context) error {
+			fired <- time.Now()
+
+			return nil
+		},
+	}))
+
+	runScheduler(t, scheduler)
+
+	return (<-fired).UTC()
+}
+
+// TestScheduler_Timezone pins the four-level precedence a cron schedule's zone
+// is decided by: the spec's own prefix, then CronIn, then the Scheduler's
+// configured zone, then UTC.
+//
+// Each case states its expectation as "the same instant CronIn would have
+// produced", computed from the bubble's own clock — so the assertions do not
+// depend on what instant a bubble starts at, or on whether that date happens to
+// fall inside daylight saving.
+func TestScheduler_Timezone(T *testing.T) {
+	T.Parallel()
+
+	const spec = "0 3 * * *"
+
+	T.Run("the configured zone reaches a spec that named none", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			loc := chicago(t)
+
+			want := jobs.MustCronIn(loc, spec).Next(time.Now()).UTC()
+
+			// Guards the assertion against passing vacuously: if Chicago and
+			// UTC agreed here, the case would prove nothing about which won.
+			must.NotEq(t, jobs.MustCron(spec).Next(time.Now()).UTC(), want)
+
+			test.EqOp(t, want, firesAt(t, "America/Chicago", jobs.MustCron(spec)))
+		})
+	})
+
+	T.Run("a spec that named its own zone beats the configured one", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			tokyo, err := time.LoadLocation("Asia/Tokyo")
+			must.NoError(t, err)
+
+			want := jobs.MustCronIn(tokyo, spec).Next(time.Now()).UTC()
+
+			test.EqOp(t, want, firesAt(t, "America/Chicago", jobs.MustCron("CRON_TZ=Asia/Tokyo "+spec)))
+		})
+	})
+
+	T.Run("a CronIn location beats the configured zone", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			tokyo, err := time.LoadLocation("Asia/Tokyo")
+			must.NoError(t, err)
+
+			want := jobs.MustCronIn(tokyo, spec).Next(time.Now()).UTC()
+
+			test.EqOp(t, want, firesAt(t, "America/Chicago", jobs.MustCronIn(tokyo, spec)))
+		})
+	})
+
+	T.Run("nothing configured leaves the schedule in UTC", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			want := jobs.MustCronIn(time.UTC, spec).Next(time.Now()).UTC()
+
+			test.EqOp(t, want, firesAt(t, "", jobs.MustCron(spec)))
+		})
+	})
+
+	T.Run("a caller's own schedule is left alone", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			// The configured zone reaches cron schedules and nothing else. A
+			// Schedule this package did not build owns its own time semantics,
+			// and there is no field to reach into.
+			start := time.Now()
+
+			test.EqOp(t, start.Add(time.Hour).UTC(), firesAt(t, "America/Chicago", hourlySchedule{}))
+		})
+	})
+
+	T.Run("one schedule value read by two differently-zoned schedulers", func(t *testing.T) {
+		t.Parallel()
+
+		// Registering resolves a zone onto a copy rather than onto the schedule
+		// it was handed, so a package-level var shared across Schedulers does
+		// not carry the first one's zone to the second. These two run in
+		// parallel over the same value, so a mutating implementation would
+		// either race or hand one of them the other's answer.
+		for _, zone := range []string{"America/Chicago", "Asia/Tokyo"} {
+			t.Run(zone, func(t *testing.T) {
+				t.Parallel()
+
+				synctest.Test(t, func(t *testing.T) {
+					loc, err := time.LoadLocation(zone)
+					must.NoError(t, err)
+
+					want := jobs.MustCronIn(loc, spec).Next(time.Now()).UTC()
+
+					test.EqOp(t, want, firesAt(t, zone, sharedSchedule))
+				})
+			})
+		}
+	})
+}
+
+func TestNewScheduler_Timezone(T *testing.T) {
+	T.Parallel()
+
+	T.Run("with a zone the runtime cannot load", func(t *testing.T) {
+		t.Parallel()
+
+		// Caught at construction rather than at the first fire, because the
+		// usual cause is an image without the zoneinfo database and that is a
+		// deployment problem worth learning about at startup.
+		_, err := jobs.NewScheduler(t.Context(),
+			&jobs.SchedulerConfig{Timezone: "Mars/Olympus"}, newTestLocker(t))
+
+		test.Error(t, err)
+	})
+
+	T.Run("an empty zone defaults without needing the zoneinfo database", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &jobs.SchedulerConfig{}
+		cfg.EnsureDefaults()
+
+		test.EqOp(t, jobs.DefaultTimezone, cfg.Timezone)
+
+		_, err := jobs.NewScheduler(t.Context(), cfg, newTestLocker(t))
+		test.NoError(t, err)
+	})
+}
+
+// presentSchedule answers with a fire time that is not in the future, which is
+// the one thing Schedule.Next is documented not to do. It does so twice — once
+// for Register's validation and once for the wait the Scheduler then performs —
+// and then gets out of the way, so the job under test runs exactly once.
+type presentSchedule struct {
+	answers atomic.Int64
+}
+
+func (s *presentSchedule) Next(after time.Time) time.Time {
+	if s.answers.Add(1) <= 2 {
+		return after
+	}
+
+	return after.Add(24 * time.Hour)
+}
+
+func TestScheduler_Schedule(T *testing.T) {
+	T.Parallel()
+
+	T.Run("fires on the schedule", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ran := make(chan time.Time, 4)
+
+			scheduler := newTestScheduler(t)
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:     "calendar",
+				Schedule: jobs.MustCron("* * * * *"),
+				Run: func(context.Context) error {
+					ran <- time.Now()
+
+					return nil
+				},
+			}))
+
+			start := time.Now()
+			runScheduler(t, scheduler)
+
+			first := <-ran
+			second := <-ran
+
+			// The claim a calendar makes that a stopwatch does not: fires land
+			// on the minute rather than an interval after whenever this replica
+			// happened to start.
+			test.EqOp(t, 0, first.Second())
+			test.True(t, first.After(start))
+			test.True(t, first.Sub(start) <= time.Minute)
+			test.EqOp(t, time.Minute, second.Sub(first))
+		})
+	})
+
+	T.Run("RunOnStart fires without waiting for the next fire time", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ran := make(chan time.Time, 1)
+
+			scheduler := newTestScheduler(t)
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:       "eager-calendar",
+				Schedule:   jobs.MustCron("0 3 * * *"),
+				RunOnStart: true,
+				Run: func(context.Context) error {
+					ran <- time.Now()
+
+					return nil
+				},
+			}))
+
+			start := time.Now()
+			runScheduler(t, scheduler)
+
+			test.EqOp(t, start, <-ran)
+		})
+	})
+
+	T.Run("counts a run that outran its schedule", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			spy := newCounterSpy()
+			var runs atomic.Int64
+			ran := make(chan struct{}, 4)
+
+			scheduler := newTestScheduler(t, jobs.WithSchedulerMetricsProvider(spy.provider()))
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name: "sluggish-calendar",
+				// A minute of headroom per fire, and a first run that takes
+				// ninety seconds of it.
+				Schedule:   jobs.MustCron("* * * * *"),
+				RunOnStart: true,
+				Run: func(context.Context) error {
+					if runs.Add(1) == 1 {
+						time.Sleep(90 * time.Second)
+					}
+
+					ran <- struct{}{}
+
+					return nil
+				},
+			}))
+
+			runScheduler(t, scheduler)
+
+			// The second run is what shows the overrun is not terminal: the
+			// fires that passed during the first are skipped, not queued.
+			<-ran
+			<-ran
+			synctest.Wait()
+
+			test.EqOp(t, int64(1), spy.count("jobs_scheduler_overruns"))
+		})
+	})
+
+	T.Run("a scheduler closed before its goroutines start does not fire RunOnStart", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			var runs atomic.Int64
+
+			scheduler := newTestScheduler(t)
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:       "eager-calendar",
+				Schedule:   jobs.MustCron("0 3 * * *"),
+				RunOnStart: true,
+				Run: func(context.Context) error {
+					runs.Add(1)
+
+					return nil
+				},
+			}))
+
+			// The same guard the interval path has, on the other side of the
+			// dispatch: Close cannot report a clean stop here because Run has
+			// not run.
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			test.ErrorIs(t, scheduler.Close(ctx), context.DeadlineExceeded)
+
+			scheduler.Run()
+
+			test.EqOp(t, int64(0), runs.Load())
+		})
+	})
+
+	T.Run("a job waiting for a distant fire time stops without waiting it out", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			var runs atomic.Int64
+
+			scheduler := newTestScheduler(t)
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:     "nightly",
+				Schedule: jobs.MustCron("0 3 * * *"),
+				Run: func(context.Context) error {
+					runs.Add(1)
+
+					return nil
+				},
+			}))
+
+			start := time.Now()
+
+			go scheduler.Run()
+			synctest.Wait()
+
+			must.NoError(t, scheduler.Close(context.Background()))
+
+			// No run, and no bubble time elapsed: the wait was cut short by the
+			// stop rather than slept through to 03:00. A wait that ignored the
+			// stop would show hours here and a run at the end of them.
+			test.EqOp(t, int64(0), runs.Load())
+			test.EqOp(t, start, time.Now())
+		})
+	})
+
+	T.Run("a schedule that answers with a time in the present fires rather than panicking", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ran := make(chan time.Time, 1)
+
+			scheduler := newTestScheduler(t)
+			must.NoError(t, scheduler.Register(jobs.Job{
+				Name:     "impatient",
+				Schedule: &presentSchedule{},
+				Run: func(context.Context) error {
+					ran <- time.Now()
+
+					return nil
+				},
+			}))
+
+			start := time.Now()
+			runScheduler(t, scheduler)
+
+			// A zero wait is the duration NewTicker panics on, so without the
+			// guard in front of it a caller's arithmetic mistake would take the
+			// process down rather than costing one early run.
+			test.EqOp(t, start, <-ran)
+		})
+	})
+
+	T.Run("a schedule that retires mid-flight stops its job and not the others", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			var retired, survivor atomic.Int64
+			ran := make(chan struct{}, 4)
+
+			scheduler := newTestScheduler(t, jobs.WithSchedulerLogger(lognoop.NewLogger()))
+			must.NoError(t, scheduler.Register(
+				jobs.Job{
+					Name: "retiring",
+					// Room for exactly one fire before it reports that it will
+					// never fire again.
+					Schedule: expiringSchedule{until: time.Now().Add(90 * time.Second)},
+					Run: func(context.Context) error {
+						retired.Add(1)
+
+						return nil
+					},
+				},
+				jobs.Job{
+					Name:     "surviving",
+					Schedule: jobs.MustCron("* * * * *"),
+					Run: func(context.Context) error {
+						survivor.Add(1)
+						ran <- struct{}{}
+
+						return nil
+					},
+				},
+			))
+
+			runScheduler(t, scheduler)
+
+			// Three fires of the survivor is two minutes of bubble time, long
+			// past the point where the retired job would have fired again.
+			<-ran
+			<-ran
+			<-ran
+			synctest.Wait()
+
+			test.EqOp(t, int64(1), retired.Load())
+			test.EqOp(t, int64(3), survivor.Load())
 		})
 	})
 }
