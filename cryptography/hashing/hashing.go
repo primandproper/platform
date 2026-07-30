@@ -21,6 +21,12 @@ type (
 	// and MUST NOT be selected for security, password, or tamper-resistance
 	// purposes. Choose the implementation deliberately.
 	//
+	// The hmac implementations are keyed, and so are not interchangeable with
+	// the rest at all: they authenticate content under a key fixed at
+	// construction rather than digest it, and two hashers built from different
+	// keys disagree on every input by design. Compare their output with
+	// hmac.Equal rather than through Hex and ==, which is not constant-time.
+	//
 	// A Hasher that only ever hashes one in-memory buffer belongs here; one
 	// that needs streaming, Size, or BlockSize should take a hash.Hash
 	// directly rather than widening this interface.

@@ -1,0 +1,210 @@
+package webhooks_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
+	"github.com/primandproper/platform-go/v8/database/sqlite"
+	"github.com/primandproper/platform-go/v8/webhooks"
+	"github.com/primandproper/platform-go/v8/webhooks/migrations"
+)
+
+// Dispatch writes deliveries through the caller's transaction, so an event
+// cannot survive a rolled-back state change — nor be lost by a commit that
+// succeeded while the publish failed.
+func ExampleDispatcher_Dispatch() {
+	ctx := context.Background()
+
+	// In a real service these come from your DI container.
+	client, dispatcher := exampleWiring()
+
+	order := struct {
+		ID string `json:"id"`
+	}{ID: "order-7"}
+
+	body, err := json.Marshal(order)
+	if err != nil {
+		panic(err)
+	}
+
+	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		// ... the state change that produced the event ...
+
+		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
+			EventType: "order.updated",
+			// Deliveries sharing an ordering key reach a given subscriber in
+			// dispatch order, so order.updated cannot overtake order.created.
+			OrderingKey: order.ID,
+			Payload:     body,
+		})
+	})
+
+	fmt.Println(err)
+	// Output: <nil>
+}
+
+// Verify is what a subscriber calls on receipt. It is shipped with the sender
+// because this is where webhook schemes are actually got wrong.
+func ExampleVerify() {
+	secret := webhooks.Secret{Current: []byte("the shared signing key")}
+
+	subscriber := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		// The exact bytes received, read before any decoding. Decoding and
+		// re-encoding changes key order and whitespace, and the signature covers
+		// bytes rather than meaning.
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			res.WriteHeader(http.StatusBadRequest)
+
+			return
+		}
+
+		if err = webhooks.Verify(secret, body, req.Header.Get(webhooks.SignatureHeader)); err != nil {
+			res.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		// The delivery ID is stable across every retry and replay of one
+		// delivery, so it is the key to deduplicate on.
+		_ = req.Header.Get(webhooks.DeliveryIDHeader)
+
+		res.WriteHeader(http.StatusNoContent)
+	}))
+	defer subscriber.Close()
+
+	payload := []byte(`{"id":"order-7"}`)
+
+	signature, err := webhooks.Sign(secret, payload, time.Now())
+	if err != nil {
+		panic(err)
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(),
+		http.MethodPost, subscriber.URL, strings.NewReader(string(payload)))
+	if err != nil {
+		panic(err)
+	}
+
+	req.Header.Set(webhooks.SignatureHeader, signature)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	fmt.Println(res.StatusCode)
+
+	// A tampered body no longer verifies.
+	fmt.Println(webhooks.Verify(secret, []byte(`{"id":"order-8"}`), signature))
+
+	// Output:
+	// 204
+	// invalid webhook signature
+}
+
+// Rotation is why Secret is a pair. Deliveries are signed under both keys while
+// Previous is set, so a subscriber can switch without coordinating an instant
+// of downtime with the sender.
+func ExampleSign() {
+	rotating := webhooks.Secret{
+		Current:  []byte("the new key"),
+		Previous: []byte("the outgoing key"),
+	}
+
+	payload := []byte(`{"id":"order-7"}`)
+	signedAt := time.Unix(1753900000, 0)
+
+	signature, err := webhooks.Sign(rotating, payload, signedAt)
+	if err != nil {
+		panic(err)
+	}
+
+	// Two s= components: a subscriber that has moved to the new key and one that
+	// has not both find a signature they can verify.
+	fmt.Println(strings.Count(signature, ",s="))
+
+	fmt.Println(webhooks.Verify(
+		webhooks.Secret{Current: []byte("the new key")},
+		payload, signature, webhooks.WithVerificationTime(signedAt),
+	))
+	fmt.Println(webhooks.Verify(
+		webhooks.Secret{Current: []byte("the outgoing key")},
+		payload, signature, webhooks.WithVerificationTime(signedAt),
+	))
+
+	// Output:
+	// 2
+	// <nil>
+	// <nil>
+}
+
+// exampleWiring stands up a throwaway SQLite-backed dispatcher so the Dispatch
+// example is executable rather than illustrative. A real service builds these
+// once at startup, through webhooks/config.
+func exampleWiring() (database.Client, webhooks.Dispatcher) {
+	ctx := context.Background()
+
+	dir, err := os.MkdirTemp("", "webhooks-example")
+	if err != nil {
+		panic(err)
+	}
+
+	client, err := sqlite.NewDatabaseClient(ctx, &exampleClientConfig{
+		connectionString: filepath.Join(dir, "webhooks.db"),
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	stmts, err := migrations.Statements(dialect.SQLite, webhooks.DefaultTablePrefix)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, stmt := range stmts {
+		if _, err = client.Writer().ExecContext(ctx, stmt); err != nil {
+			panic(err)
+		}
+	}
+
+	store, err := webhooks.NewSQLStore(dialect.SQLite, client)
+	if err != nil {
+		panic(err)
+	}
+
+	// The catalog is the application's: what its events mean is not the
+	// library's opinion, and an event outside it is rejected at both ends.
+	dispatcher, err := webhooks.NewDispatcher(store, webhooks.WithCatalog(webhooks.Catalog{
+		"order.created": {Description: "an order was created"},
+		"order.updated": {Description: "an order was updated"},
+	}))
+	if err != nil {
+		panic(err)
+	}
+
+	return client, dispatcher
+}
+
+type exampleClientConfig struct {
+	connectionString string
+}
+
+func (c *exampleClientConfig) GetReadConnectionString() string   { return c.connectionString }
+func (c *exampleClientConfig) GetWriteConnectionString() string  { return c.connectionString }
+func (c *exampleClientConfig) GetMaxPingAttempts() uint64        { return 1 }
+func (c *exampleClientConfig) GetPingWaitPeriod() time.Duration  { return time.Millisecond }
+func (c *exampleClientConfig) GetMaxIdleConns() int              { return 2 }
+func (c *exampleClientConfig) GetMaxOpenConns() int              { return 1 }
+func (c *exampleClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
