@@ -11,9 +11,11 @@ import (
 	"github.com/primandproper/platform-go/v8/cache"
 	mockcircuitbreaking "github.com/primandproper/platform-go/v8/circuitbreaking/mock"
 	"github.com/primandproper/platform-go/v8/observability"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/testutils/containers/redistest"
 
 	"github.com/redis/go-redis/v9"
@@ -1553,5 +1555,103 @@ func TestWithScanPageSize(T *testing.T) {
 		impl, ok := c.(*redisCacheImpl[example])
 		must.True(t, ok)
 		test.EqOp(t, int64(64), impl.scanPageSize)
+	})
+}
+
+func TestWithLogger(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the logger", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{}
+		WithLogger(loggingnoop.NewLogger())(o)
+
+		test.NotNil(t, o.logger)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{logger: loggingnoop.NewLogger()}
+		WithLogger(nil)(o)
+
+		test.Nil(t, o.logger)
+	})
+
+	T.Run("NewRedisCache applies the option", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := NewRedisCache[example](
+			&Config{QueueAddresses: []string{"localhost:6379"}},
+			time.Minute,
+			nil,
+			WithLogger(loggingnoop.NewLogger()),
+		)
+		must.NoError(t, err)
+
+		impl, ok := c.(*redisCacheImpl[example])
+		must.True(t, ok)
+		test.NotNil(t, impl.logger)
+	})
+}
+
+func TestWithTracerProvider(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the tracer provider", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{}
+		WithTracerProvider(tracingnoop.NewTracerProvider())(o)
+
+		test.NotNil(t, o.tracerProvider)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{tracerProvider: tracingnoop.NewTracerProvider()}
+		WithTracerProvider(nil)(o)
+
+		test.Nil(t, o.tracerProvider)
+	})
+
+	T.Run("NewRedisCache applies the option", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := NewRedisCache[example](
+			&Config{QueueAddresses: []string{"localhost:6379"}},
+			time.Minute,
+			nil,
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
+		must.NoError(t, err)
+
+		impl, ok := c.(*redisCacheImpl[example])
+		must.True(t, ok)
+		test.NotNil(t, impl.tracerProvider)
+	})
+}
+
+func TestWithMetricsProvider(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the metrics provider", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{}
+		WithMetricsProvider(metricsnoop.NewMetricsProvider())(o)
+
+		test.NotNil(t, o.metricsProvider)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{metricsProvider: metricsnoop.NewMetricsProvider()}
+		WithMetricsProvider(nil)(o)
+
+		test.Nil(t, o.metricsProvider)
 	})
 }

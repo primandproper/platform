@@ -9,6 +9,9 @@ import (
 
 	"github.com/primandproper/platform-go/v8/database"
 	"github.com/primandproper/platform-go/v8/observability"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/shoenig/test"
@@ -58,6 +61,18 @@ func (c *testClientConfig) GetMaxOpenConns() int {
 
 func (c *testClientConfig) GetConnMaxLifetime() time.Duration {
 	return 30 * time.Minute
+}
+
+// loggingClientConfig adds the optional GetLogQueries method NewDatabaseClient
+// probes for. testClientConfig deliberately lacks it, so the two types together
+// cover both sides of that type assertion.
+type loggingClientConfig struct {
+	testClientConfig
+	logQueries bool
+}
+
+func (c *loggingClientConfig) GetLogQueries() bool {
+	return c.logQueries
 }
 
 func buildTestClient(t *testing.T) (*Client, sqlmock.Sqlmock) {
@@ -178,6 +193,40 @@ func TestQuerier_IsReady(T *testing.T) {
 			"db.ping.wait_period":  time.Millisecond,
 		})
 	})
+
+	T.Run("waits between attempts and retries", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		c, db := buildTestClient(t)
+		c.config = &testClientConfig{pingWaitPeriod: time.Millisecond, maxPingAttempts: 3}
+
+		// The first ping fails, so the loop sleeps out its wait period before the
+		// second one succeeds — the path a database taking a moment to come up takes.
+		db.ExpectPing().WillReturnError(errors.New("not up yet"))
+		db.ExpectPing().WillDelayFor(0)
+
+		test.True(t, c.IsReady(ctx))
+		test.NoError(t, db.ExpectationsWereMet())
+	})
+
+	T.Run("gives up promptly when the context is canceled mid-wait", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		c, db := buildTestClient(t)
+		// A wait period far longer than the test's patience: if cancellation were
+		// not honored, this would sleep through it rather than return.
+		c.config = &testClientConfig{pingWaitPeriod: time.Hour, maxPingAttempts: 5}
+
+		db.ExpectPing().WillReturnError(errors.New("blah")).WillDelayFor(0)
+
+		cancel()
+
+		test.False(t, c.IsReady(ctx))
+	})
 }
 
 func TestNewDatabaseClient(T *testing.T) {
@@ -240,17 +289,20 @@ func TestNewDatabaseClient(T *testing.T) {
 		test.NoError(t, err)
 	})
 
-	T.Run("with metrics provider", func(t *testing.T) {
+	T.Run("with metrics provider and distinct read and write connections", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 
+		dir := t.TempDir()
 		exampleConfig := &testClientConfig{
-			connectionString: filepath.Join(t.TempDir(), "test.db"),
-			maxPingAttempts:  1,
+			readConnectionString:  filepath.Join(dir, "read.db"),
+			writeConnectionString: filepath.Join(dir, "write.db"),
+			maxPingAttempts:       1,
 		}
 
-		actual, err := NewDatabaseClient(ctx, exampleConfig)
+		actual, err := NewDatabaseClient(ctx, exampleConfig,
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()))
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -260,14 +312,106 @@ func TestNewDatabaseClient(T *testing.T) {
 
 		ctx := t.Context()
 
+		// One connection string means readDB == writeDB, so stats are registered
+		// once rather than twice.
 		exampleConfig := &testClientConfig{
 			readConnectionString: filepath.Join(t.TempDir(), "test.db"),
 			maxPingAttempts:      1,
 		}
 
+		actual, err := NewDatabaseClient(ctx, exampleConfig,
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()))
+		test.NotNil(t, actual)
+		test.NoError(t, err)
+	})
+
+	T.Run("with every observability option", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		exampleConfig := &testClientConfig{
+			connectionString: filepath.Join(t.TempDir(), "test.db"),
+			maxPingAttempts:  1,
+		}
+
+		actual, err := NewDatabaseClient(ctx, exampleConfig,
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()))
+		test.NotNil(t, actual)
+		test.NoError(t, err)
+	})
+
+	T.Run("with a config that opts out of query logging", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		// A config exposing GetLogQueries() == false suppresses db.statement on
+		// spans, so query text does not leak into traces.
+		exampleConfig := &loggingClientConfig{
+			testClientConfig: testClientConfig{
+				connectionString: filepath.Join(t.TempDir(), "test.db"),
+				maxPingAttempts:  1,
+			},
+		}
+
 		actual, err := NewDatabaseClient(ctx, exampleConfig)
 		test.NotNil(t, actual)
 		test.NoError(t, err)
+	})
+
+	T.Run("with a config that opts in to query logging", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		exampleConfig := &loggingClientConfig{
+			testClientConfig: testClientConfig{
+				connectionString: filepath.Join(t.TempDir(), "test.db"),
+				maxPingAttempts:  1,
+			},
+			logQueries: true,
+		}
+
+		actual, err := NewDatabaseClient(ctx, exampleConfig)
+		test.NotNil(t, actual)
+		test.NoError(t, err)
+	})
+
+	T.Run("with an unopenable read connection string", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		// A path under a directory that does not exist: the WAL pragma forces a
+		// real connection, which is where this fails.
+		exampleConfig := &testClientConfig{
+			readConnectionString: filepath.Join(t.TempDir(), "no-such-dir", "test.db"),
+			maxPingAttempts:      1,
+		}
+
+		actual, err := NewDatabaseClient(ctx, exampleConfig)
+		test.Nil(t, actual)
+		test.Error(t, err)
+	})
+
+	T.Run("with an unopenable write connection string", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		// The read side is valid, so failure has to come from the write side.
+		exampleConfig := &testClientConfig{
+			readConnectionString:  filepath.Join(t.TempDir(), "test.db"),
+			writeConnectionString: filepath.Join(t.TempDir(), "no-such-dir", "test.db"),
+			maxPingAttempts:       1,
+		}
+
+		actual, err := NewDatabaseClient(ctx, exampleConfig)
+		test.Nil(t, actual)
+		test.Error(t, err)
 	})
 
 	T.Run("rejects an in-memory database", func(t *testing.T) {
@@ -499,5 +643,112 @@ func TestClient_Close(T *testing.T) {
 		writeMock.ExpectClose().WillReturnError(errors.New("blah"))
 
 		test.Error(t, c.Close())
+	})
+}
+
+func TestClient_Reader(T *testing.T) {
+	T.Parallel()
+
+	T.Run("returns the read database", func(t *testing.T) {
+		t.Parallel()
+
+		c, _ := buildTestClient(t)
+
+		reader := c.Reader()
+		must.NotNil(t, reader)
+		test.True(t, reader == database.SQLQueryExecutor(c.readDB))
+	})
+}
+
+func TestClient_Writer(T *testing.T) {
+	T.Parallel()
+
+	T.Run("returns the write database", func(t *testing.T) {
+		t.Parallel()
+
+		c, _ := buildTestClient(t)
+
+		writer := c.Writer()
+		must.NotNil(t, writer)
+		test.True(t, writer == database.SQLQueryExecutor(c.writeDB))
+	})
+
+	T.Run("is the write database when read and write differ", func(t *testing.T) {
+		t.Parallel()
+
+		readDB, _, err := sqlmock.New()
+		must.NoError(t, err)
+
+		writeDB, _, err := sqlmock.New()
+		must.NoError(t, err)
+
+		c := &Client{
+			readDB:  readDB,
+			writeDB: writeDB,
+			o11y:    observability.NewObserverForTest("test"),
+		}
+
+		test.True(t, c.Writer() == database.SQLQueryExecutor(writeDB))
+		test.True(t, c.Reader() == database.SQLQueryExecutor(readDB))
+	})
+}
+
+func TestClient_WithTransaction(T *testing.T) {
+	T.Parallel()
+
+	T.Run("commits when fn returns nil", func(t *testing.T) {
+		t.Parallel()
+
+		c, db := buildTestClient(t)
+
+		db.ExpectBegin()
+		db.ExpectCommit()
+
+		var ran bool
+		err := c.WithTransaction(t.Context(), func(tx database.SQLQueryExecutor) error {
+			ran = true
+			test.NotNil(t, tx)
+
+			return nil
+		})
+
+		test.NoError(t, err)
+		test.True(t, ran)
+		test.NoError(t, db.ExpectationsWereMet())
+	})
+
+	T.Run("rolls back when fn returns an error", func(t *testing.T) {
+		t.Parallel()
+
+		c, db := buildTestClient(t)
+
+		db.ExpectBegin()
+		db.ExpectRollback()
+
+		expected := errors.New("nope")
+		err := c.WithTransaction(t.Context(), func(database.SQLQueryExecutor) error {
+			return expected
+		})
+
+		test.Error(t, err)
+		test.NoError(t, db.ExpectationsWereMet())
+	})
+
+	T.Run("surfaces a begin failure", func(t *testing.T) {
+		t.Parallel()
+
+		c, db := buildTestClient(t)
+
+		db.ExpectBegin().WillReturnError(errors.New("cannot begin"))
+
+		var ran bool
+		err := c.WithTransaction(t.Context(), func(database.SQLQueryExecutor) error {
+			ran = true
+
+			return nil
+		})
+
+		test.Error(t, err)
+		test.False(t, ran)
 	})
 }

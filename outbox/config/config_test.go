@@ -5,7 +5,11 @@ import (
 
 	"github.com/primandproper/platform-go/v8/database/dialect"
 	databasemock "github.com/primandproper/platform-go/v8/database/mock"
+	msgconfig "github.com/primandproper/platform-go/v8/messagequeue/config"
+	"github.com/primandproper/platform-go/v8/messagequeue/pubsub"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/outbox"
 
 	"github.com/shoenig/test"
@@ -92,6 +96,35 @@ func TestNewWriter(T *testing.T) {
 		_, err := NewWriter(t.Context(), &Config{}, nil, nil, nil)
 		test.Error(t, err)
 	})
+
+	T.Run("derives options from every observability argument", func(t *testing.T) {
+		t.Parallel()
+
+		w, err := NewWriter(
+			t.Context(),
+			sqliteConfig(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+		)
+		must.NoError(t, err)
+		must.NotNil(t, w)
+	})
+
+	T.Run("explicit options run after the config-derived ones", func(t *testing.T) {
+		t.Parallel()
+
+		w, err := NewWriter(
+			t.Context(),
+			sqliteConfig(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+			outbox.WithWriterTableName("override_table"),
+		)
+		must.NoError(t, err)
+		must.NotNil(t, w)
+	})
 }
 
 func TestNewRelay(T *testing.T) {
@@ -117,5 +150,45 @@ func TestNewRelay(T *testing.T) {
 
 		_, err := NewRelay(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, nil)
 		test.Error(t, err)
+	})
+
+	T.Run("rejects a config without a dialect", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewRelay(t.Context(), &Config{}, loggingnoop.NewLogger(), nil, nil, &databasemock.ClientMock{})
+		test.Error(t, err)
+	})
+
+	T.Run("surfaces a publisher provider that will not build", func(t *testing.T) {
+		t.Parallel()
+
+		// PubSub with no project ID fails client construction, which is the
+		// cheapest way to make the provider step fail without a network.
+		cfg := sqliteConfig()
+		cfg.Queue = msgconfig.Config{
+			Publisher: msgconfig.MessageQueueConfig{
+				Provider: msgconfig.ProviderPubSub,
+				PubSub:   pubsub.Config{},
+			},
+		}
+
+		r, err := NewRelay(t.Context(), cfg, loggingnoop.NewLogger(), nil, nil, &databasemock.ClientMock{})
+		test.Nil(t, r)
+		test.Error(t, err)
+	})
+
+	T.Run("derives options from every observability argument", func(t *testing.T) {
+		t.Parallel()
+
+		r, err := NewRelay(
+			t.Context(),
+			sqliteConfig(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+			&databasemock.ClientMock{},
+		)
+		must.NoError(t, err)
+		must.NotNil(t, r)
 	})
 }

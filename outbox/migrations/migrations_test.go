@@ -115,3 +115,67 @@ func TestStatements(T *testing.T) {
 		}
 	})
 }
+
+func TestSQL(T *testing.T) {
+	T.Parallel()
+
+	T.Run("joins every statement into one terminated body", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
+			stmts, err := Statements(d, "events_outbox")
+			must.NoError(t, err)
+
+			body, err := SQL(d, "events_outbox")
+			must.NoError(t, err)
+
+			test.EqOp(t, strings.Join(stmts, ";\n\n")+";\n", body,
+				test.Sprintf("dialect %q", d))
+
+			// Every statement is present and each one is terminated, which is
+			// what goose needs to split the body back apart.
+			test.EqOp(t, len(stmts), strings.Count(body, ";"),
+				test.Sprintf("dialect %q has an unterminated statement", d))
+			test.True(t, strings.HasSuffix(body, ";\n"),
+				test.Sprintf("dialect %q body is not terminated", d))
+		}
+	})
+
+	T.Run("renders the table name and leaks no comments", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
+			body, err := SQL(d, "events_outbox")
+			must.NoError(t, err)
+
+			test.True(t, strings.Contains(body, "events_outbox"),
+				test.Sprintf("dialect %q missing table name", d))
+			test.False(t, strings.Contains(body, tablePlaceholder),
+				test.Sprintf("dialect %q left an unrendered placeholder", d))
+
+			// Comments must already be gone: goose splits on ';', so a comment
+			// carrying one would be torn in half.
+			test.False(t, strings.Contains(body, "--"),
+				test.Sprintf("dialect %q leaked a comment", d))
+		}
+	})
+
+	T.Run("propagates an unsupported dialect", func(t *testing.T) {
+		t.Parallel()
+
+		body, err := SQL("cassandra", "outbox_messages")
+		test.ErrorIs(t, err, dialect.ErrUnsupported)
+		test.EqOp(t, "", body)
+	})
+
+	T.Run("propagates a table name that is not an identifier", func(t *testing.T) {
+		t.Parallel()
+
+		for _, name := range []string{"", "outbox messages", "outbox; DROP TABLE users", "1outbox"} {
+			body, err := SQL(dialect.Postgres, name)
+			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier,
+				test.Sprintf("expected %q to be rejected", name))
+			test.EqOp(t, "", body)
+		}
+	})
+}

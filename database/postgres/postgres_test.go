@@ -9,6 +9,9 @@ import (
 
 	"github.com/primandproper/platform-go/v8/database"
 	"github.com/primandproper/platform-go/v8/observability"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/shoenig/test"
@@ -174,6 +177,21 @@ func TestQuerier_IsReady(T *testing.T) {
 
 		test.False(t, c.IsReady(ctx))
 	})
+
+	T.Run("waits between attempts and retries", func(t *testing.T) {
+		t.Parallel()
+
+		c, db := buildTestClient(t)
+		c.config = &testClientConfig{pingWaitPeriod: time.Millisecond, maxPingAttempts: 3}
+
+		// The first ping fails, so the loop sleeps out its wait period before the
+		// second one succeeds — the path a database taking a moment to come up takes.
+		db.ExpectPing().WillReturnError(errors.New("not up yet"))
+		db.ExpectPing().WillDelayFor(0)
+
+		test.True(t, c.IsReady(t.Context()))
+		test.NoError(t, db.ExpectationsWereMet())
+	})
 }
 
 func TestClient_ReaderWriter(T *testing.T) {
@@ -249,17 +267,19 @@ func TestNewDatabaseClient(T *testing.T) {
 		test.NoError(t, err)
 	})
 
-	T.Run("with metrics provider", func(t *testing.T) {
+	T.Run("with metrics provider and distinct read and write connections", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 
 		exampleConfig := &testClientConfig{
-			connectionString: "user=test password=test database=test host=localhost port=5432",
-			maxPingAttempts:  1,
+			readConnectionString:  "user=test password=test database=read host=localhost port=5432",
+			writeConnectionString: "user=test password=test database=write host=localhost port=5432",
+			maxPingAttempts:       1,
 		}
 
-		actual, err := NewDatabaseClient(ctx, exampleConfig)
+		actual, err := NewDatabaseClient(ctx, exampleConfig,
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()))
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -269,12 +289,33 @@ func TestNewDatabaseClient(T *testing.T) {
 
 		ctx := t.Context()
 
+		// One connection string means readDB == writeDB, so stats are registered
+		// once rather than twice.
 		exampleConfig := &testClientConfig{
 			readConnectionString: "user=test password=test database=test host=localhost port=5432",
 			maxPingAttempts:      1,
 		}
 
-		actual, err := NewDatabaseClient(ctx, exampleConfig)
+		actual, err := NewDatabaseClient(ctx, exampleConfig,
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()))
+		test.NotNil(t, actual)
+		test.NoError(t, err)
+	})
+
+	T.Run("with every observability option", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		exampleConfig := &testClientConfig{
+			connectionString: "user=test password=test database=test host=localhost port=5432",
+			maxPingAttempts:  1,
+		}
+
+		actual, err := NewDatabaseClient(ctx, exampleConfig,
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()))
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
