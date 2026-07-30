@@ -14,9 +14,9 @@ func RegisterServerEncoderDecoder(i do.Injector) {
 	})
 	do.Provide[ServerEncoderDecoder](i, func(i do.Injector) (ServerEncoderDecoder, error) {
 		return NewServerEncoderDecoder(
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
 			do.MustInvoke[ContentType](i),
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
 		), nil
 	})
 }

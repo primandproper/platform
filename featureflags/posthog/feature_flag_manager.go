@@ -11,9 +11,7 @@ import (
 	"github.com/primandproper/platform-go/v8/identifiers"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	openfeatureposthog "github.com/dhaus67/openfeature-posthog-go"
 	"github.com/open-feature/go-sdk/openfeature"
@@ -44,7 +42,7 @@ type (
 )
 
 // NewFeatureFlagManager constructs a new featureFlagManager backed by OpenFeature.
-func NewFeatureFlagManager(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, circuitBreaker circuitbreaking.CircuitBreaker, configModifiers ...func(config *posthog.Config)) (featureflags.FeatureFlagManager, error) {
+func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (featureflags.FeatureFlagManager, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -57,9 +55,16 @@ func NewFeatureFlagManager(cfg *Config, logger logging.Logger, tracerProvider tr
 		return nil, platformerrors.Wrap(ErrMissingCredentials, "missing credential 'PersonalAPIKey'")
 	}
 
+	o := newOptions(opts)
+
+	// Built before anything that can fail: the teardown paths below log, and an
+	// absent logger must log nowhere rather than panic on the one path that
+	// exists to clean up after another failure.
+	o11y := observability.NewObserver(serviceName, o.logger, o.tracerProvider)
+
 	// Create the metric instruments before the client/provider so a counter failure
 	// returns without having registered a global provider or opened a client to leak.
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	evalCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_evaluations", serviceName))
 	if err != nil {
@@ -85,7 +90,7 @@ func NewFeatureFlagManager(cfg *Config, logger logging.Logger, tracerProvider tr
 		Endpoint:       cfg.Endpoint,
 	}
 
-	for _, modifier := range configModifiers {
+	for _, modifier := range o.configModifiers {
 		modifier(&phc)
 	}
 
@@ -100,7 +105,7 @@ func NewFeatureFlagManager(cfg *Config, logger logging.Logger, tracerProvider tr
 	provider := openfeatureposthog.NewProvider(client)
 	if err = openfeature.SetNamedProviderAndWait(domain, provider); err != nil {
 		if closeErr := client.Close(); closeErr != nil {
-			logger.Error("error closing OpenFeatureFlag client", closeErr)
+			o11y.Logger().Error("error closing OpenFeatureFlag client", closeErr)
 		}
 		return nil, platformerrors.Wrap(err, "failed to set OpenFeature provider")
 	}
@@ -111,7 +116,7 @@ func NewFeatureFlagManager(cfg *Config, logger logging.Logger, tracerProvider tr
 		posthogClient:  client,
 		ofClient:       ofClient,
 		circuitBreaker: circuitBreaker,
-		o11y:           observability.NewObserver(serviceName, logger, tracerProvider),
+		o11y:           o11y,
 		evalCounter:    evalCounter,
 		errorCounter:   errorCounter,
 		latencyHist:    latencyHist,

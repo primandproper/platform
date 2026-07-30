@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v8/authorization"
 	"github.com/primandproper/platform-go/v8/authorization/database/migrations"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	"github.com/primandproper/platform-go/v8/database/sqlite"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
@@ -62,17 +63,11 @@ func newTestClient(t *testing.T) database.Client {
 
 	ctx := t.Context()
 
-	client, err := sqlite.NewDatabaseClient(
-		ctx,
-		loggingnoop.NewLogger(),
-		tracingnoop.NewTracerProvider(),
-		&testClientConfig{connectionString: filepath.Join(t.TempDir(), "authz.db")},
-		nil,
-	)
+	client, err := sqlite.NewDatabaseClient(ctx, &testClientConfig{connectionString: filepath.Join(t.TempDir(), "authz.db")})
 	must.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	stmts, err := migrations.Statements(migrations.DialectSQLite, DefaultTablePrefix)
+	stmts, err := migrations.Statements(dialect.SQLite, DefaultTablePrefix)
 	must.NoError(t, err)
 
 	if len(stmts) == 0 {
@@ -94,7 +89,7 @@ func newTestResolver(t *testing.T) (*Resolver, database.Client) {
 	client := newTestClient(t)
 
 	r, err := NewResolver(
-		&Config{Dialect: DialectSQLite},
+		&Config{Dialect: dialect.SQLite},
 		client.Writer(),
 		WithLogger(loggingnoop.NewLogger()),
 		WithTracerProvider(tracingnoop.NewTracerProvider()),

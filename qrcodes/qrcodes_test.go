@@ -20,7 +20,7 @@ import (
 func newRecordingBuilder(t *testing.T) (*builder, *observability.RecordingObserver) {
 	t.Helper()
 
-	b := NewBuilder("test-issuer", nil, nil).(*builder)
+	b := NewBuilder("test-issuer").(*builder)
 	obs := observability.NewRecordingObserver()
 	b.o11y = obs
 
@@ -33,7 +33,7 @@ func TestNewBuilder(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		b := NewBuilder("test-issuer", nil, nil)
+		b := NewBuilder("test-issuer")
 		test.NotNil(t, b)
 	})
 }
@@ -61,7 +61,7 @@ func Test_builder_BuildQRCode(T *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
-		b := NewBuilder("test-issuer", nil, nil)
+		b := NewBuilder("test-issuer")
 
 		// A username longer than the maximum QR code capacity forces qr.Encode to fail.
 		actual, err := b.BuildQRCode(ctx, strings.Repeat("a", 4000), "two-factor-secret")
@@ -73,7 +73,7 @@ func Test_builder_BuildQRCode(T *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
-		b := NewBuilder("test-issuer", nil, nil).(*builder)
+		b := NewBuilder("test-issuer").(*builder)
 		b.scale = func(barcode.Barcode, int, int) (barcode.Barcode, error) {
 			return nil, fmt.Errorf("scale error")
 		}
@@ -87,7 +87,7 @@ func Test_builder_BuildQRCode(T *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
-		b := NewBuilder("test-issuer", nil, nil).(*builder)
+		b := NewBuilder("test-issuer").(*builder)
 		b.pngEncode = func(*bytes.Buffer, barcode.Barcode) error {
 			return fmt.Errorf("png encode error")
 		}
@@ -101,7 +101,7 @@ func Test_builder_BuildQRCode(T *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
-		b := NewBuilder("My & App", nil, nil).(*builder)
+		b := NewBuilder("My & App").(*builder)
 
 		var captured string
 		b.qrEncode = func(content string, _ qr.ErrorCorrectionLevel, _ qr.Encoding) (barcode.Barcode, error) {

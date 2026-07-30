@@ -56,6 +56,30 @@ type PolicyResolver interface {
 	Roles(ctx context.Context) ([]Role, error)
 }
 
+// PolicyInvalidator is the optional half of a PolicyResolver that memoizes.
+//
+// Only authorization/cached implements it; the other backends hold nothing to
+// drop. It is declared here, apart from PolicyResolver, so that a caller wired
+// through authorizationcfg can reach invalidation without knowing which
+// concrete type it was handed — whether a cache sits in the chain is a
+// configuration decision, and the position of the cached decorator inside the
+// returned resolver is an implementation detail:
+//
+//	if inv, ok := resolver.(authorization.PolicyInvalidator); ok {
+//		inv.InvalidateAll()
+//	}
+//
+// The process that edits policy is exactly the one that needs this, and it is
+// the one least likely to know how its resolver was assembled.
+type PolicyInvalidator interface {
+	// Invalidate drops the memoized resolution for an exact set of roles.
+	Invalidate(ctx context.Context, roles ...string) error
+
+	// InvalidateAll makes every resolution this instance memoized unreachable.
+	// It is process-local: other replicas wait out their TTL.
+	InvalidateAll()
+}
+
 var (
 	// ErrEmptyRoleName indicates a role was declared without a name.
 	ErrEmptyRoleName = errors.New("role name is empty")

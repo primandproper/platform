@@ -3,7 +3,6 @@ package jobs
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v8/panicking"
 	"github.com/primandproper/platform-go/v8/retry"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -48,13 +48,17 @@ var (
 	// goroutine and take the process with it, then treats it as an ordinary
 	// attempt failure.
 	ErrHandlerPanicked = platformerrors.New("job handler panicked")
-	// ErrNilHandler indicates a nil Handler was passed to NewPool.
-	ErrNilHandler = platformerrors.New("nil job handler")
-	// ErrNilConsumerProvider indicates a nil ConsumerProvider was passed to NewPool.
-	ErrNilConsumerProvider = platformerrors.New("nil consumer provider")
+	// ErrNilHandler indicates a nil Handler was passed to NewPool. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilHandler = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil job handler")
+	// ErrNilConsumerProvider indicates a nil ConsumerProvider was passed to
+	// NewPool. It wraps errors.ErrNilInputParameter, so a caller may check
+	// either.
+	ErrNilConsumerProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil consumer provider")
 	// ErrNilPublisherProvider indicates a nil PublisherProvider was passed to
-	// NewTopicDeadLetter.
-	ErrNilPublisherProvider = platformerrors.New("nil publisher provider")
+	// NewTopicDeadLetter. It wraps errors.ErrNilInputParameter, so a caller may
+	// check either.
+	ErrNilPublisherProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil publisher provider")
 )
 
 // message is one payload in flight between the consumer and a worker, together
@@ -592,19 +596,10 @@ func (p *Pool) invoke(ctx context.Context, payload []byte, attempt uint) (err er
 	startTime := p.clock.Now()
 
 	// One deferred function rather than several, because the order matters and
-	// LIFO makes it easy to get wrong: the panic has to become an error before
-	// anything can observe that there was one.
+	// LIFO makes it easy to get wrong: the panic has to become this package's
+	// error before anything can observe that there was one.
 	defer func() {
-		if recovered := recover(); recovered != nil {
-			p.panicCounter.Add(ctx, 1, p.topicAttr)
-			// The stack is the only description of where the panic came from:
-			// the recovered value alone rarely names the line, and the
-			// goroutine that would have printed the trace is the one being
-			// rescued.
-			op.SpanOnly(panicStackKey, string(debug.Stack()))
-
-			err = platformerrors.Wrapf(ErrHandlerPanicked, "%v", recovered)
-		}
+		err = containedPanic(ctx, op, err, p.panicCounter, p.topicAttr, ErrHandlerPanicked)
 
 		p.handlerHist.Record(ctx, float64(p.clock.Since(startTime).Milliseconds()), p.topicAttr)
 
@@ -619,7 +614,7 @@ func (p *Pool) invoke(ctx context.Context, payload []byte, attempt uint) (err er
 		defer cancel()
 	}
 
-	return p.handler(ctx, payload)
+	return panicking.Contain(func() error { return p.handler(ctx, payload) })
 }
 
 // retire disposes of a message that will not be retried again. Every exit from

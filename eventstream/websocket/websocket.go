@@ -10,8 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/eventstream"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	gorillawebsocket "github.com/gorilla/websocket"
 )
@@ -40,7 +38,9 @@ type Upgrader struct {
 }
 
 // NewUpgrader creates a new WebSocket Upgrader.
-func NewUpgrader(logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config) *Upgrader {
+func NewUpgrader(cfg *Config, opts ...Option) *Upgrader {
+	o := newOptions(opts)
+
 	heartbeat := defaultHeartbeatInterval
 	readBuf := defaultBufferSize
 	writeBuf := defaultBufferSize
@@ -61,7 +61,7 @@ func NewUpgrader(logger logging.Logger, tracerProvider tracing.TracerProvider, c
 	}
 
 	return &Upgrader{
-		o11y: observability.NewObserver(name, logger, tracerProvider),
+		o11y: observability.NewObserver(name, o.logger, o.tracerProvider),
 		wsUpgrader: gorillawebsocket.Upgrader{
 			ReadBufferSize:  readBuf,
 			WriteBufferSize: writeBuf,

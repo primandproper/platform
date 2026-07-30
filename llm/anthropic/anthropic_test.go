@@ -24,7 +24,7 @@ import (
 func newRecordingProvider(t *testing.T, cfg *Config) (*anthropicProvider, *observability.RecordingObserver) {
 	t.Helper()
 
-	p, err := NewProvider(cfg, nil, nil, nil)
+	p, err := NewProvider(cfg)
 	must.NoError(t, err)
 	must.NotNil(t, p)
 
@@ -59,7 +59,7 @@ func TestNewProvider(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		provider, err := NewProvider(nil, nil, nil, nil)
+		provider, err := NewProvider(nil)
 		must.Error(t, err)
 		must.Nil(t, provider)
 	})
@@ -67,7 +67,7 @@ func TestNewProvider(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		provider, err := NewProvider(&Config{APIKey: "test-key"}, nil, nil, nil)
+		provider, err := NewProvider(&Config{APIKey: "test-key"})
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -75,11 +75,13 @@ func TestNewProvider(T *testing.T) {
 	T.Run("with base URL", func(t *testing.T) {
 		t.Parallel()
 
-		provider, err := NewProvider(&Config{
-			APIKey:       "test-key",
-			BaseURL:      "https://custom.example.com",
-			DefaultModel: "claude-sonnet-4",
-		}, nil, nil, nil)
+		provider, err := NewProvider(
+			&Config{
+				APIKey:       "test-key",
+				BaseURL:      "https://custom.example.com",
+				DefaultModel: "claude-sonnet-4",
+			},
+		)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -90,7 +92,7 @@ func TestNewProvider(T *testing.T) {
 		provider, err := NewProvider(&Config{
 			APIKey:  "test-key",
 			Timeout: 5 * time.Second,
-		}, nil, nil, nil)
+		})
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -105,7 +107,7 @@ func TestNewProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := NewProvider(&Config{APIKey: "test-key"}, nil, nil, mp)
+		provider, err := NewProvider(&Config{APIKey: "test-key"}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, provider)
 
@@ -128,7 +130,7 @@ func TestNewProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := NewProvider(&Config{APIKey: "test-key"}, nil, nil, mp)
+		provider, err := NewProvider(&Config{APIKey: "test-key"}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, provider)
 
@@ -152,7 +154,7 @@ func TestNewProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := NewProvider(&Config{APIKey: "test-key"}, nil, nil, mp)
+		provider, err := NewProvider(&Config{APIKey: "test-key"}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, provider)
 
@@ -205,11 +207,13 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		provider, err := NewProvider(&Config{
-			APIKey:       "test-key",
-			BaseURL:      ts.URL,
-			DefaultModel: "claude-sonnet-4",
-		}, nil, nil, nil)
+		provider, err := NewProvider(
+			&Config{
+				APIKey:       "test-key",
+				BaseURL:      ts.URL,
+				DefaultModel: "claude-sonnet-4",
+			},
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()

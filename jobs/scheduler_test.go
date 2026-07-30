@@ -32,7 +32,7 @@ var errJob = errors.New("job exploded")
 func newTestLocker(t *testing.T) distributedlock.Locker {
 	t.Helper()
 
-	locker, err := memory.NewLocker(nil, nil, nil)
+	locker, err := memory.NewLocker()
 	must.NoError(t, err)
 
 	return locker
@@ -44,7 +44,7 @@ func newTestLocker(t *testing.T) distributedlock.Locker {
 func newTestScheduler(t *testing.T, opts ...jobs.SchedulerOption) *jobs.Scheduler {
 	t.Helper()
 
-	scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, newTestLocker(t), opts...)
+	scheduler, err := jobs.NewScheduler(t.Context(), &jobs.SchedulerConfig{}, newTestLocker(t), opts...)
 	must.NoError(t, err)
 	must.NotNil(t, scheduler)
 
@@ -75,21 +75,21 @@ func TestNewScheduler(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := jobs.NewScheduler(nil, newTestLocker(t))
+		_, err := jobs.NewScheduler(t.Context(), nil, newTestLocker(t))
 		test.Error(t, err)
 	})
 
 	T.Run("with nil locker", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, nil)
+		_, err := jobs.NewScheduler(t.Context(), &jobs.SchedulerConfig{}, nil)
 		test.ErrorIs(t, err, jobs.ErrNilLocker)
 	})
 
 	T.Run("with a sub-second lease TTL", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := jobs.NewScheduler(&jobs.SchedulerConfig{DefaultLeaseTTL: time.Millisecond}, newTestLocker(t))
+		_, err := jobs.NewScheduler(t.Context(), &jobs.SchedulerConfig{DefaultLeaseTTL: time.Millisecond}, newTestLocker(t))
 		test.Error(t, err)
 	})
 
@@ -114,7 +114,7 @@ func TestNewScheduler(T *testing.T) {
 			t.Run(instrument, func(t *testing.T) {
 				t.Parallel()
 
-				_, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, newTestLocker(t),
+				_, err := jobs.NewScheduler(t.Context(), &jobs.SchedulerConfig{}, newTestLocker(t),
 					jobs.WithSchedulerMetricsProvider(failingInstruments(instrument)))
 				test.ErrorIs(t, err, errInstrument)
 			})
@@ -578,7 +578,7 @@ func TestScheduler_Leasing(T *testing.T) {
 			release := make(chan struct{})
 
 			for _, replica := range []string{"a", "b"} {
-				scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, locker,
+				scheduler, err := jobs.NewScheduler(t.Context(), &jobs.SchedulerConfig{}, locker,
 					jobs.WithSchedulerMetricsProvider(spy.provider()))
 				must.NoError(t, err)
 
@@ -627,7 +627,7 @@ func TestScheduler_Leasing(T *testing.T) {
 				},
 			}
 
-			scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, locker,
+			scheduler, err := jobs.NewScheduler(t.Context(), &jobs.SchedulerConfig{}, locker,
 				jobs.WithSchedulerMetricsProvider(spy.provider()))
 			must.NoError(t, err)
 
@@ -671,7 +671,7 @@ func TestScheduler_Leasing(T *testing.T) {
 				},
 			}
 
-			scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, locker,
+			scheduler, err := jobs.NewScheduler(t.Context(), &jobs.SchedulerConfig{}, locker,
 				jobs.WithSchedulerMetricsProvider(spy.provider()))
 			must.NoError(t, err)
 
@@ -710,7 +710,7 @@ func TestScheduler_Leasing(T *testing.T) {
 				},
 			}
 
-			scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, locker,
+			scheduler, err := jobs.NewScheduler(t.Context(), &jobs.SchedulerConfig{}, locker,
 				jobs.WithSchedulerMetricsProvider(spy.provider()))
 			must.NoError(t, err)
 

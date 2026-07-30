@@ -59,9 +59,9 @@ func newTestRouter(t *testing.T, backend Backend, opts ...RouterOption) *Router 
 
 	logger := loggingnoop.NewLogger()
 	tp := tracingnoop.NewTracerProvider()
-	enc := encoding.NewServerEncoderDecoder(logger, tp, encoding.ContentTypeJSON)
+	enc := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tp))
 
-	return New(backend, enc, logger, tp, opts...)
+	return New(backend, enc, opts...)
 }
 
 // failWriter is an http.ResponseWriter whose Write always fails, to exercise the

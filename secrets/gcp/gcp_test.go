@@ -23,7 +23,7 @@ import (
 func newRecordingSource(t *testing.T, cfg *Config, mc *mockGCPClient) (*gcpSecretSource, *observability.RecordingObserver) {
 	t.Helper()
 
-	source, err := NewGCPSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+	source, err := NewGCPSecretSource(context.Background(), cfg, mc)
 	must.NoError(t, err)
 	must.NotNil(t, source)
 
@@ -41,7 +41,7 @@ func TestNewGCPSecretSource(T *testing.T) {
 
 	T.Run("nil config returns error", func(t *testing.T) {
 		t.Parallel()
-		source, err := NewGCPSecretSource(context.Background(), nil, nil, nil, nil, nil)
+		source, err := NewGCPSecretSource(context.Background(), nil, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "config is required")
@@ -50,7 +50,7 @@ func TestNewGCPSecretSource(T *testing.T) {
 	T.Run("missing ProjectID returns error", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{ProjectID: ""}
-		source, err := NewGCPSecretSource(context.Background(), cfg, nil, nil, nil, nil)
+		source, err := NewGCPSecretSource(context.Background(), cfg, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 	})
@@ -59,7 +59,7 @@ func TestNewGCPSecretSource(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{ProjectID: "test-project"}
 		mc := &mockGCPClient{value: "secret-value"}
-		source, err := NewGCPSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewGCPSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 		defer source.Close()
@@ -76,7 +76,7 @@ func TestNewGCPSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{ProjectID: "test-project"}
-		source, err := NewGCPSecretSource(context.Background(), cfg, &mockGCPClient{}, nil, nil, mp)
+		source, err := NewGCPSecretSource(context.Background(), cfg, &mockGCPClient{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -100,7 +100,7 @@ func TestNewGCPSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{ProjectID: "test-project"}
-		source, err := NewGCPSecretSource(context.Background(), cfg, &mockGCPClient{}, nil, nil, mp)
+		source, err := NewGCPSecretSource(context.Background(), cfg, &mockGCPClient{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -125,7 +125,7 @@ func TestNewGCPSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{ProjectID: "test-project"}
-		source, err := NewGCPSecretSource(context.Background(), cfg, &mockGCPClient{}, nil, nil, mp)
+		source, err := NewGCPSecretSource(context.Background(), cfg, &mockGCPClient{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -194,7 +194,7 @@ func TestGCPSecretSource_GetSecret(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{ProjectID: "test-project"}
 		mc := &mockGCPClient{value: "full-name-secret"}
-		source, err := NewGCPSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewGCPSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 		defer source.Close()
 
@@ -212,7 +212,7 @@ func TestGCPSecretSource_Close(T *testing.T) {
 
 		cfg := &Config{ProjectID: "test-project"}
 		mc := &mockGCPClient{}
-		source, err := NewGCPSecretSource(context.Background(), cfg, mc, nil, nil, nil)
+		source, err := NewGCPSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		err = source.Close()

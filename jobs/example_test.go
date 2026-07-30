@@ -74,13 +74,13 @@ func ExampleNewScheduler() {
 	// A fleet uses the postgres or redis locker. The memory locker is real
 	// mutual exclusion within one process, which is what a single-replica
 	// deployment — and this example — needs.
-	locker, err := memory.NewLocker(nil, nil, nil)
+	locker, err := memory.NewLocker()
 	if err != nil {
 		panic(err)
 	}
 	defer func() { _ = locker.Close() }()
 
-	scheduler, err := jobs.NewScheduler(&jobs.SchedulerConfig{}, locker)
+	scheduler, err := jobs.NewScheduler(ctx, &jobs.SchedulerConfig{}, locker)
 	if err != nil {
 		panic(err)
 	}

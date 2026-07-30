@@ -9,10 +9,8 @@ import (
 	"github.com/primandproper/platform-go/v8/messagequeue"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/shoenig/test"
@@ -489,12 +487,7 @@ func TestNewKafkaConsumerProvider(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		actual := NewKafkaConsumerProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		actual := NewKafkaConsumerProvider(cfg)
 		test.NotNil(t, actual)
 	})
 }
@@ -512,12 +505,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaConsumerProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaConsumerProvider(cfg)
 		must.NotNil(t, provider)
 
 		hf := func(context.Context, []byte) error { return nil }
@@ -537,12 +525,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaConsumerProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaConsumerProvider(cfg)
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewConsumer(ctx, "", nil)
@@ -567,12 +550,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaConsumerProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			mp,
-			cfg,
-		)
+		provider := NewKafkaConsumerProvider(cfg, WithMetricsProvider(mp))
 		must.NotNil(t, provider)
 
 		hf := func(context.Context, []byte) error { return nil }
@@ -594,12 +572,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaConsumerProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaConsumerProvider(cfg)
 		must.NotNil(t, provider)
 
 		hf := func(context.Context, []byte) error { return nil }

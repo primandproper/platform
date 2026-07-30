@@ -134,9 +134,35 @@ func WithScopedClock(c clock.Clock) ScopedOption {
 	}
 }
 
+// WithLogger attaches a logger. An absent logger logs nowhere.
+func WithLogger(logger logging.Logger) ScopedOption {
+	return func(s *scopedLocker) {
+		s.logger = logger
+	}
+}
+
+// WithTracerProvider attaches a tracer provider, enabling spans on every
+// scoped-lock operation. An absent tracer provider traces nowhere.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) ScopedOption {
+	return func(s *scopedLocker) {
+		s.tracerProvider = tracerProvider
+	}
+}
+
+// WithMetricsProvider attaches a metrics provider for the scoped_lock_*
+// counters and histograms. An absent provider records nothing.
+func WithMetricsProvider(metricsProvider metrics.Provider) ScopedOption {
+	return func(s *scopedLocker) {
+		s.metricsProvider = metricsProvider
+	}
+}
+
 // scopedLocker adapts a Locker into a ScopedLocker: acquire, run, release.
 type scopedLocker struct {
 	o11y            observability.Observer
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
 	locker          Locker
 	clock           clock.Clock
 	jitter          func() float64
@@ -182,60 +208,21 @@ var _ ScopedLocker = (*scopedLocker)(nil)
 // queueing of its own); providers with native waiting (postgres) ship their
 // own ScopedLocker and don't need this adapter.
 //
-// It takes the standard observability triple so that the scoped surface emits
-// the same telemetry whichever Locker backs it: the wrapped Locker's own
-// Acquire/Release instrumentation describes individual attempts, while
-// scoped_lock_* describes the whole acquire-run-release operation, including
-// fn's duration and the time spent waiting.
-func NewScopedLocker(
-	locker Locker,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
-	opts ...ScopedOption,
-) (ScopedLocker, error) {
+// The scoped surface emits the same telemetry whichever Locker backs it —
+// attach the observability deps via WithLogger, WithTracerProvider, and
+// WithMetricsProvider: the wrapped Locker's own Acquire/Release
+// instrumentation describes individual attempts, while scoped_lock_*
+// describes the whole acquire-run-release operation, including fn's duration
+// and the time spent waiting.
+func NewScopedLocker(locker Locker, opts ...ScopedOption) (ScopedLocker, error) {
 	if locker == nil {
 		return nil, platformerrors.New("nil locker provided")
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	acquireCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_acquires", scopedServiceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating acquire counter")
-	}
-	contendCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_contended", scopedServiceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating contention counter")
-	}
-	errCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_errors", scopedServiceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating error counter")
-	}
-	releaseFailures, err := mp.NewInt64Counter(fmt.Sprintf("%s_release_failures", scopedServiceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating release failure counter")
-	}
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", scopedServiceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating latency histogram")
-	}
-	waitHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_wait_ms", scopedServiceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating wait histogram")
-	}
-
 	s := &scopedLocker{
-		o11y:            observability.NewObserver(scopedServiceName, logger, tracerProvider),
 		locker:          locker,
 		clock:           clock.NewClock(),
 		jitter:          rand.Float64,
-		acquireCounter:  acquireCounter,
-		contendCounter:  contendCounter,
-		errCounter:      errCounter,
-		releaseFailures: releaseFailures,
-		latencyHist:     latencyHist,
-		waitHist:        waitHist,
 		ttl:             DefaultScopedLockTTL,
 		pollInterval:    DefaultScopedPollInterval,
 		maxPollInterval: DefaultScopedMaxPollInterval,
@@ -245,6 +232,37 @@ func NewScopedLocker(
 		if opt != nil {
 			opt(s)
 		}
+	}
+
+	s.o11y = observability.NewObserver(scopedServiceName, s.logger, s.tracerProvider)
+
+	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
+
+	var err error
+
+	s.acquireCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_acquires", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating acquire counter")
+	}
+	s.contendCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_contended", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating contention counter")
+	}
+	s.errCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_errors", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating error counter")
+	}
+	s.releaseFailures, err = mp.NewInt64Counter(fmt.Sprintf("%s_release_failures", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating release failure counter")
+	}
+	s.latencyHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating latency histogram")
+	}
+	s.waitHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_wait_ms", scopedServiceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating wait histogram")
 	}
 
 	// Validated here rather than in the options, which cannot report an error.

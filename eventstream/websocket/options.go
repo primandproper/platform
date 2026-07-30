@@ -1,0 +1,36 @@
+package websocket
+
+import (
+	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v8/observability/tracing"
+)
+
+// Option configures the Upgrader this package constructs. The zero
+// configuration works: absent observability deps are normalized downstream.
+type Option func(*options)
+
+type options struct {
+	logger         logging.Logger
+	tracerProvider tracing.TracerProvider
+}
+
+func newOptions(opts []Option) *options {
+	cfg := &options{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(cfg)
+		}
+	}
+
+	return cfg
+}
+
+// WithLogger attaches a logger.
+func WithLogger(logger logging.Logger) Option {
+	return func(o *options) { o.logger = logger }
+}
+
+// WithTracerProvider attaches a tracer provider.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+	return func(o *options) { o.tracerProvider = tracerProvider }
+}

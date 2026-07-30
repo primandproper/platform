@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v8/files"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -105,7 +103,7 @@ func TestNewReader(T *testing.T) {
 	T.Run("builds a usable Reader", func(t *testing.T) {
 		t.Parallel()
 
-		r := files.NewReader(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		r := files.NewReader()
 		got, err := r.SliceLinesFile(t.Context(), writeTemp(t, "f.txt", "a\nb\n"), 0, 1)
 		must.NoError(t, err)
 		test.Eq(t, []string{"a"}, got)

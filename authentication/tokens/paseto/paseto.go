@@ -9,8 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v8/identifiers"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/o1egl/paseto/v2"
 )
@@ -28,12 +26,14 @@ type (
 	}
 )
 
-func NewPASETOSigner(logger logging.Logger, tracerProvider tracing.TracerProvider, issuer, audience string, signingKey []byte) (tokens.Issuer, error) {
+func NewPASETOSigner(issuer, audience string, signingKey []byte, opts ...Option) (tokens.Issuer, error) {
+	o := newOptions(opts)
+
 	s := &signer{
 		issuer:     issuer,
 		audience:   audience,
 		signingKey: signingKey,
-		o11y:       observability.NewObserver(name, logger, tracerProvider),
+		o11y:       observability.NewObserver(name, o.logger, o.tracerProvider),
 	}
 
 	return s, nil

@@ -14,14 +14,14 @@ import (
 )
 
 // NewEmbedder provides an Embedder from config.
-func NewEmbedder(ctx context.Context, c *Config, logger logging.Logger, tracer tracing.Tracer) (embeddings.Embedder, error) {
+func NewEmbedder(ctx context.Context, c *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (embeddings.Embedder, error) {
 	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
 	case ProviderOpenAI:
-		return openai.NewEmbedder(ctx, c.OpenAI, logger, tracer)
+		return openai.NewEmbedder(ctx, c.OpenAI, openai.WithLogger(logger), openai.WithTracerProvider(tracerProvider))
 	case ProviderOllama:
-		return ollama.NewEmbedder(ctx, c.Ollama, logger, tracer)
+		return ollama.NewEmbedder(ctx, c.Ollama, ollama.WithLogger(logger), ollama.WithTracerProvider(tracerProvider))
 	case ProviderCohere:
-		return cohere.NewEmbedder(ctx, c.Cohere, logger, tracer)
+		return cohere.NewEmbedder(ctx, c.Cohere, cohere.WithLogger(logger), cohere.WithTracerProvider(tracerProvider))
 	default:
 		return embeddingsnoop.NewEmbedder(), nil
 	}

@@ -56,7 +56,7 @@ func buildPubSubPublisher(logger logging.Logger, pubsubClient *pubsub.Publisher,
 	}
 
 	return &pubSubPublisher{
-		encoder:           encoding.NewClientEncoder(logger, tracerProvider, encoding.ContentTypeJSON),
+		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
 		o11y:              observability.NewObserver(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider),
 		publisher:         pubsubClient,
 		topic:             topic,
@@ -82,13 +82,15 @@ type publisherProvider struct {
 }
 
 // NewPubSubPublisherProvider returns a PublisherProvider for a given address.
-func NewPubSubPublisherProvider(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, client *pubsub.Client, projectID string) messagequeue.PublisherProvider {
+func NewPubSubPublisherProvider(client *pubsub.Client, projectID string, opts ...Option) messagequeue.PublisherProvider {
+	o := newOptions(opts)
+
 	return &publisherProvider{
-		logger:          logging.EnsureLogger(logger),
+		logger:          logging.EnsureLogger(o.logger),
 		pubsubClient:    client,
 		publisherCache:  map[string]messagequeue.Publisher{},
-		tracerProvider:  tracerProvider,
-		metricsProvider: metricsProvider,
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
 		projectID:       projectID,
 	}
 }

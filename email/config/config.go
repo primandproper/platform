@@ -110,17 +110,17 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func (cfg *Config) NewEmailer(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, client *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, metricsProvider metrics.Provider) (email.Emailer, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case ProviderSendgrid:
-		return sendgrid.NewSendGridEmailer(cfg.Sendgrid, logger, tracerProvider, client, circuitBreaker, metricsProvider)
+		return sendgrid.NewSendGridEmailer(cfg.Sendgrid, client, circuitBreaker, sendgrid.WithLogger(logger), sendgrid.WithTracerProvider(tracerProvider), sendgrid.WithMetricsProvider(metricsProvider))
 	case ProviderMailgun:
-		return mailgun.NewMailgunEmailer(cfg.Mailgun, logger, tracerProvider, client, circuitBreaker, metricsProvider)
+		return mailgun.NewMailgunEmailer(cfg.Mailgun, client, circuitBreaker, mailgun.WithLogger(logger), mailgun.WithTracerProvider(tracerProvider), mailgun.WithMetricsProvider(metricsProvider))
 	case ProviderMailjet:
-		return mailjet.NewMailjetEmailer(cfg.Mailjet, logger, tracerProvider, client, circuitBreaker, metricsProvider)
+		return mailjet.NewMailjetEmailer(cfg.Mailjet, client, circuitBreaker, mailjet.WithLogger(logger), mailjet.WithTracerProvider(tracerProvider), mailjet.WithMetricsProvider(metricsProvider))
 	case ProviderResend:
-		return resend.NewResendEmailer(cfg.Resend, logger, tracerProvider, client, circuitBreaker, metricsProvider)
+		return resend.NewResendEmailer(cfg.Resend, client, circuitBreaker, resend.WithLogger(logger), resend.WithTracerProvider(tracerProvider), resend.WithMetricsProvider(metricsProvider))
 	case ProviderPostmark:
-		return postmark.NewPostmarkEmailer(cfg.Postmark, logger, tracerProvider, client, circuitBreaker, metricsProvider)
+		return postmark.NewPostmarkEmailer(cfg.Postmark, client, circuitBreaker, postmark.WithLogger(logger), postmark.WithTracerProvider(tracerProvider), postmark.WithMetricsProvider(metricsProvider))
 	case ProviderSES:
-		return ses.NewSESEmailer(ctx, cfg.SES, logger, tracerProvider, client, circuitBreaker, metricsProvider, nil)
+		return ses.NewSESEmailer(ctx, cfg.SES, client, circuitBreaker, nil, ses.WithLogger(logger), ses.WithTracerProvider(tracerProvider), ses.WithMetricsProvider(metricsProvider))
 	default:
 		logger.Debug("providing noop outbound_emailer")
 		return noop.NewEmailer()

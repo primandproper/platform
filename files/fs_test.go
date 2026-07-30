@@ -6,8 +6,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/encoding"
 	"github.com/primandproper/platform-go/v8/files"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -27,7 +25,7 @@ func TestNewReaderFS(T *testing.T) {
 	T.Run("reads lines through an fs.FS", func(t *testing.T) {
 		t.Parallel()
 
-		r := files.NewReaderFS(mapFS(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		r := files.NewReaderFS(mapFS())
 		seq, err := r.LinesFile("top.txt")
 		must.NoError(t, err)
 		test.Eq(t, []string{"a", "b", "c"}, drainSeq(t, seq))
@@ -36,7 +34,7 @@ func TestNewReaderFS(T *testing.T) {
 	T.Run("streams chunks through an fs.FS", func(t *testing.T) {
 		t.Parallel()
 
-		r := files.NewReaderFS(mapFS(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		r := files.NewReaderFS(mapFS())
 		ch, err := r.StreamChunksFile(t.Context(), "top.txt", 2)
 		must.NoError(t, err)
 
@@ -52,7 +50,7 @@ func TestNewReaderFS(T *testing.T) {
 	T.Run("missing file errors up front", func(t *testing.T) {
 		t.Parallel()
 
-		r := files.NewReaderFS(mapFS(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		r := files.NewReaderFS(mapFS())
 		_, err := r.LinesFile("nope.txt")
 		test.Error(t, err)
 	})
@@ -73,7 +71,7 @@ func TestFS(T *testing.T) {
 	T.Run("NewFS reads relative names", func(t *testing.T) {
 		t.Parallel()
 
-		d := files.NewFS(mapFS(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		d := files.NewFS(mapFS())
 		seq, err := d.Lines("top.txt")
 		must.NoError(t, err)
 		test.Eq(t, []string{"a", "b", "c"}, drainSeq(t, seq))

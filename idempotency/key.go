@@ -28,6 +28,22 @@ const (
 	outcomeMismatch = "mismatch"
 )
 
+// Key identifies a logical operation, so that a retry of it can be recognized
+// as the same operation rather than a new one. It is minted by the client and
+// arrives over the wire.
+//
+// Fingerprint identifies what the operation was, and the two are distinct types
+// on purpose. Do takes one of each, adjacent, and both are strings underneath:
+// as bare strings a transposed pair compiles, runs, and silently disables
+// mismatch detection — every request would fingerprint-match itself, so one key
+// reused for two different requests would replay the first answer instead of
+// being reported. That is a security control failing open with no signal, which
+// makes it worth the conversions at the wire boundary.
+type (
+	Key         string
+	Fingerprint string
+)
+
 // ValidateKey reports whether a client-supplied key is usable.
 //
 // A key becomes both a store key and a lock key, so it is restricted rather
@@ -41,7 +57,7 @@ const (
 // Generating a key is the other direction; see WithNewKey.
 //
 // A non-positive maxLength disables the length check.
-func ValidateKey(key string, maxLength int) error {
+func ValidateKey(key Key, maxLength int) error {
 	if key == "" {
 		return ErrKeyRequired
 	}
@@ -66,7 +82,7 @@ type keyContextKey struct{}
 
 // WithKey returns a context carrying key, for a client adapter to attach to
 // outbound requests.
-func WithKey(ctx context.Context, key string) context.Context {
+func WithKey(ctx context.Context, key Key) context.Context {
 	return context.WithValue(ctx, keyContextKey{}, key)
 }
 
@@ -80,15 +96,15 @@ func WithKey(ctx context.Context, key string) context.Context {
 // The generator is identifiers.New, which is fine for keys this process mints
 // even though inbound keys are validated by shape rather than by xid — see
 // ValidateKey.
-func WithNewKey(ctx context.Context) (keyed context.Context, key string) {
-	key = identifiers.New()
+func WithNewKey(ctx context.Context) (keyed context.Context, key Key) {
+	key = Key(identifiers.New())
 
 	return WithKey(ctx, key), key
 }
 
 // KeyFromContext returns the key carried by ctx, if any.
-func KeyFromContext(ctx context.Context) (string, bool) {
-	key, ok := ctx.Value(keyContextKey{}).(string)
+func KeyFromContext(ctx context.Context) (Key, bool) {
+	key, ok := ctx.Value(keyContextKey{}).(Key)
 	if !ok || key == "" {
 		return "", false
 	}

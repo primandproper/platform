@@ -16,8 +16,6 @@ import (
 	"github.com/primandproper/platform-go/v8/distributedlock"
 	dlpostgres "github.com/primandproper/platform-go/v8/distributedlock/postgres"
 	dlredis "github.com/primandproper/platform-go/v8/distributedlock/redis"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/testutils/containers/pgtest"
 	"github.com/primandproper/platform-go/v8/testutils/containers/redistest"
 
@@ -58,23 +56,21 @@ func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minu
 func newRedisManager(
 	tb testing.TB,
 	address, prefix string,
-	opts ...Option[wireShaped],
+	opts ...Option,
 ) *Manager[wireShaped] {
 	tb.Helper()
 
 	store, err := cacheredis.NewRedisCache[Record[wireShaped]](
 		&cacheredis.Config{QueueAddresses: []string{address}, Namespace: prefix},
-		time.Hour, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil,
+		time.Hour,
+		nil,
 	)
 	must.NoError(tb, err)
 
-	locker, err := dlredis.NewRedisLocker(
-		&dlredis.Config{Addresses: []string{address}, KeyPrefix: prefix + "lock:"},
-		loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil,
-	)
+	locker, err := dlredis.NewRedisLocker(&dlredis.Config{Addresses: []string{address}, KeyPrefix: prefix + "lock:"}, nil)
 	must.NoError(tb, err)
 
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	must.NoError(tb, err)
 
 	m, err := NewManager(store, scoped, opts...)
@@ -151,7 +147,7 @@ func TestIdempotency_Redis(T *testing.T) {
 	T.Run("a completed record expires on its TTL", func(t *testing.T) {
 		t.Parallel()
 
-		m := newRedisManager(t, address, "expiry:", WithTTL[wireShaped](time.Second))
+		m := newRedisManager(t, address, "expiry:", WithTTL(time.Second))
 		ctx := t.Context()
 
 		var calls atomic.Int64
@@ -244,25 +240,17 @@ func TestIdempotency_PostgresLock(T *testing.T) {
 	address = strings.TrimPrefix(address, "redis://")
 
 	pgtest.Run(T, func(ctx context.Context, pg *pgtest.Instance) {
-		client, clientErr := postgres.NewDatabaseClient(
-			ctx,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			&testClientConfig{connectionString: pg.ConnectionString},
-			nil,
-		)
+		client, clientErr := postgres.NewDatabaseClient(ctx, &testClientConfig{connectionString: pg.ConnectionString})
 		must.NoError(T, clientErr)
 		T.Cleanup(func() { _ = client.Close() })
 
-		scoped, lockErr := dlpostgres.NewPostgresScopedLocker(
-			&dlpostgres.Config{}, client,
-			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil,
-		)
+		scoped, lockErr := dlpostgres.NewPostgresScopedLocker(&dlpostgres.Config{}, client, nil)
 		must.NoError(T, lockErr)
 
 		store, storeErr := cacheredis.NewRedisCache[Record[wireShaped]](
 			&cacheredis.Config{QueueAddresses: []string{address}, Namespace: "pglock:"},
-			time.Hour, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil,
+			time.Hour,
+			nil,
 		)
 		must.NoError(T, storeErr)
 
@@ -329,7 +317,7 @@ func TestIdempotency_RedisExpiry_InFlight(T *testing.T) {
 	T.Run("an abandoned claim expires and the work runs again", func(t *testing.T) {
 		t.Parallel()
 
-		m := newRedisManager(t, address, "abandoned:", WithInFlightTTL[wireShaped](time.Second))
+		m := newRedisManager(t, address, "abandoned:", WithInFlightTTL(time.Second))
 		ctx := t.Context()
 
 		// Stand in for a process killed mid-execution: the claim is written

@@ -11,7 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v8/observability/keys"
 	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/posthog/posthog-go"
 )
@@ -37,12 +36,14 @@ type (
 )
 
 // NewPostHogEventReporter returns a new PostHog-backed EventReporter.
-func NewPostHogEventReporter(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, configModifiers ...func(*posthog.Config)) (analytics.EventReporter, error) {
+func NewPostHogEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (analytics.EventReporter, error) {
 	if apiKey == "" {
 		return nil, ErrEmptyAPIToken
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	eventCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_events", name))
 	if err != nil {
@@ -54,10 +55,10 @@ func NewPostHogEventReporter(logger logging.Logger, tracerProvider tracing.Trace
 		return nil, platformerrors.Wrap(err, "creating error counter")
 	}
 
-	logger = logging.EnsureLogger(logger)
+	logger := logging.EnsureLogger(o.logger)
 
 	phc := posthog.Config{Endpoint: "https://app.posthog.com"}
-	for _, f := range configModifiers {
+	for _, f := range o.configModifiers {
 		f(&phc)
 	}
 	// Drive the breaker from delivery outcomes (Enqueue only buffers), unless a
@@ -76,7 +77,7 @@ func NewPostHogEventReporter(logger logging.Logger, tracerProvider tracing.Trace
 	}
 
 	c := &EventReporter{
-		o11y:           observability.NewObserver(name, logger, tracerProvider),
+		o11y:           observability.NewObserver(name, logger, o.tracerProvider),
 		client:         client,
 		eventCounter:   eventCounter,
 		errorCounter:   errorCounter,

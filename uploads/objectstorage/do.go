@@ -17,10 +17,10 @@ func RegisterUploadManager(i do.Injector) {
 	do.Provide[*Uploader](i, func(i do.Injector) (*Uploader, error) {
 		return NewUploadManager(
 			do.MustInvoke[context.Context](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[metrics.Provider](i),
 			do.MustInvoke[*Config](i),
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			WithMetricsProvider(do.MustInvoke[metrics.Provider](i)),
 		)
 	})
 	do.Provide[uploads.UploadManager](i, func(i do.Injector) (uploads.UploadManager, error) {

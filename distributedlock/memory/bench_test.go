@@ -8,7 +8,7 @@ import (
 )
 
 func BenchmarkLocker_AcquireRelease(b *testing.B) {
-	l, err := NewLocker(nil, nil, nil)
+	l, err := NewLocker()
 	must.NoError(b, err)
 
 	ctx := b.Context()

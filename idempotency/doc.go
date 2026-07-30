@@ -108,6 +108,11 @@ TTL is how long a client may usefully retry. A day is the common answer and
 matches what payment providers publish. Longer costs storage; shorter means a
 late retry re-executes.
 
+Endpoints that disagree about that answer do not need a Manager each: Do takes
+WithCallTTL, which overrides the retention of one call's record. InFlightTTL has
+no per-call equivalent on purpose — it bounds how long a dead process blocks a
+retry, which is a property of the deployment rather than of the call.
+
 InFlightTTL is also how long a client is refused after a process dies
 mid-execution. Nothing better is possible: with the outcome unknown, refusing
 is the conservative answer.

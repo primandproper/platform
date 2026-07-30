@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"time"
 )
@@ -37,6 +38,35 @@ type Policy interface {
 	Execute(ctx context.Context, operation func(ctx context.Context) error) error
 }
 
+// DelayFor returns the backoff before attempt, which is 1-indexed: attempt 1 is
+// the first retry and waits InitialDelay. The delay grows by Multiplier per
+// attempt and is capped at MaxDelay. An attempt below 1 is treated as 1.
+//
+// It exists because not every caller can retry by sleeping. Execute owns its
+// loop and can wait in place; a worker that persists "try again at T" into a
+// row cannot, because the wait has to survive the process. Both want the same
+// schedule, and computing it twice is how the two quietly stop agreeing.
+//
+// Jitter is deliberately not applied here. Sleeping and scheduling want
+// different distributions — Execute uses equal jitter to keep a floor under
+// each wait, while a fleet writing wake-up times wants full jitter to spread
+// them — so the shared part is the schedule and the caller decides how to
+// perturb it. Callers pass a Config that has been through EnsureDefaults;
+// DelayFor does not mutate its argument.
+func DelayFor(cfg Config, attempt uint) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+
+	delay := float64(cfg.InitialDelay) * math.Pow(cfg.Multiplier, float64(attempt-1))
+
+	if maxDelay := float64(cfg.MaxDelay); delay > maxDelay {
+		return cfg.MaxDelay
+	}
+
+	return time.Duration(delay)
+}
+
 // exponentialBackoff implements Policy with configurable exponential backoff.
 type exponentialBackoff struct {
 	config Config
@@ -51,7 +81,6 @@ func NewExponentialBackoffPolicy(cfg Config) Policy {
 // Execute runs the operation, retrying on failure up to MaxAttempts times.
 func (e *exponentialBackoff) Execute(ctx context.Context, operation func(ctx context.Context) error) error {
 	var lastErr error
-	delay := e.config.InitialDelay
 
 	for attempt := uint(0); attempt < e.config.MaxAttempts; attempt++ {
 		select {
@@ -79,6 +108,10 @@ func (e *exponentialBackoff) Execute(ctx context.Context, operation func(ctx con
 			return lastErr
 		}
 
+		// attempt is 0-indexed here and DelayFor is 1-indexed: the wait after
+		// the first failed attempt is the first retry's delay.
+		delay := DelayFor(e.config, attempt+1)
+
 		sleepDuration := delay
 		// half > 0 guards rand.Int64N, which panics on a non-positive argument
 		// (e.g. a sub-2ns delay where int64(delay)/2 truncates to 0). When the
@@ -93,8 +126,6 @@ func (e *exponentialBackoff) Execute(ctx context.Context, operation func(ctx con
 			return lastErr
 		case <-time.After(sleepDuration):
 		}
-
-		delay = min(time.Duration(float64(delay)*e.config.Multiplier), e.config.MaxDelay)
 	}
 
 	return lastErr

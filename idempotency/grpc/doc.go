@@ -20,8 +20,9 @@ drift.
 		return err
 	}
 
-	srv, err := grpcserver.NewGRPCServer(cfg, logger, tracerProvider,
-		[]grpc.UnaryServerInterceptor{interceptor}, nil)
+	srv, err := grpcserver.NewGRPCServer(cfg,
+		[]grpc.UnaryServerInterceptor{interceptor}, nil, nil,
+		grpcserver.WithLogger(logger), grpcserver.WithTracerProvider(tracerProvider))
 
 Calls without the key pass through untouched, so only clients that opted in are
 affected.

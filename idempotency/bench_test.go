@@ -36,7 +36,7 @@ func BenchmarkManager_Do(b *testing.B) {
 		var i int
 		for b.Loop() {
 			i++
-			_, _ = m.Do(ctx, strconv.Itoa(i), testFingerprint, work)
+			_, _ = m.Do(ctx, Key(strconv.Itoa(i)), testFingerprint, work)
 		}
 	})
 

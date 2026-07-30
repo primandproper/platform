@@ -48,7 +48,14 @@ func newStandardReader(logger logging.Logger, tracerProvider tracing.TracerProvi
 }
 
 // newStandardReaderFS is newStandardReader over an arbitrary fs.FS.
+//
+// The logger is normalized here rather than only inside the Observer, because
+// the retained field is used directly — closeQuietly logs through it — and
+// WithLogger is optional, so a Reader built without one would otherwise panic
+// on the close path instead of logging nowhere as the option documents.
 func newStandardReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider tracing.TracerProvider) *standardReader {
+	logger = logging.EnsureLogger(logger)
+
 	return &standardReader{
 		fsys:           fsys,
 		o11y:           observability.NewObserver(o11yName, logger, tracerProvider),
@@ -59,16 +66,20 @@ func newStandardReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider traci
 
 // NewReader builds a Reader that opens files on the OS filesystem, accepting any path os.Open would
 // (including absolute paths and ".."). Use NewReaderFS to read from an embed.FS or other fs.FS.
-func NewReader(logger logging.Logger, tracerProvider tracing.TracerProvider) Reader {
-	return newStandardReader(logger, tracerProvider)
+func NewReader(opts ...Option) Reader {
+	o := newOptions(opts)
+
+	return newStandardReader(o.logger, o.tracerProvider)
 }
 
 // NewReaderFS builds a Reader that opens files through fsys — an embed.FS, fstest.MapFS, os.DirFS,
 // archive/zip.Reader, or any other fs.FS. Names are interpreted by fsys and so must satisfy
 // fs.ValidPath (slash-separated, unrooted, no "."/".." elements). Every read, slice, stream, and
 // decode behavior is identical to NewReader; only the open is redirected.
-func NewReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider tracing.TracerProvider) Reader {
-	return newStandardReaderFS(fsys, logger, tracerProvider)
+func NewReaderFS(fsys fs.FS, opts ...Option) Reader {
+	o := newOptions(opts)
+
+	return newStandardReaderFS(fsys, o.logger, o.tracerProvider)
 }
 
 // closeQuietly closes c, logging any error. Closing a file opened only for reading practically never

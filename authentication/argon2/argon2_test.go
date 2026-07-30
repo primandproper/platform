@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v8/authentication/argon2"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 )
@@ -19,7 +17,7 @@ const (
 func TestArgon2_HashPassword(T *testing.T) {
 	T.Parallel()
 
-	x := argon2.NewArgon2Authenticator(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+	x := argon2.NewArgon2Authenticator()
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
@@ -35,7 +33,7 @@ func TestArgon2_HashPassword(T *testing.T) {
 func TestArgon2_PasswordMatches(T *testing.T) {
 	T.Parallel()
 
-	x := argon2.NewArgon2Authenticator(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+	x := argon2.NewArgon2Authenticator()
 
 	T.Run("matching password returns true", func(t *testing.T) {
 		t.Parallel()
@@ -74,6 +72,6 @@ func TestNewArgon2Authenticator(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		argon2.NewArgon2Authenticator(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		argon2.NewArgon2Authenticator()
 	})
 }

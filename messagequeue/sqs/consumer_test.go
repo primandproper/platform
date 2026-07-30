@@ -147,10 +147,9 @@ func TestNewSQSConsumerProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
 		cfg := Config{}
 
-		actual, err := NewSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
+		actual, err := NewSQSConsumerProvider(ctx, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, actual)
 	})
@@ -159,10 +158,9 @@ func TestNewSQSConsumerProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
 		cfg := Config{QueueAddress: "http://localhost:4566"}
 
-		actual, err := NewSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
+		actual, err := NewSQSConsumerProvider(ctx, cfg)
 		test.NoError(t, err)
 		test.NotNil(t, actual)
 	})
@@ -175,10 +173,9 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
 		cfg := Config{}
 
-		provider, err := NewSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
+		provider, err := NewSQSConsumerProvider(ctx, cfg)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 
@@ -202,11 +199,10 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
 		cfg := Config{}
 		topic := "https://sqs.us-east-1.amazonaws.com/123/cached-queue"
 
-		provider, err := NewSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
+		provider, err := NewSQSConsumerProvider(ctx, cfg)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 
@@ -224,10 +220,9 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
 		cfg := Config{}
 
-		provider, err := NewSQSConsumerProvider(ctx, logger, tracingnoop.NewTracerProvider(), nil, cfg)
+		provider, err := NewSQSConsumerProvider(ctx, cfg)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 

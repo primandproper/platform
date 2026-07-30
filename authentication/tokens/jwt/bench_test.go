@@ -4,14 +4,11 @@ import (
 	"testing"
 	"time"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-
 	"github.com/shoenig/test/must"
 )
 
 func BenchmarkJWTSigner(b *testing.B) {
-	s, err := NewJWTSigner(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), "platform-bench", "bench", []byte("HEREISA32CHARSECRETWHICHISMADEUP"))
+	s, err := NewJWTSigner("platform-bench", "bench", []byte("HEREISA32CHARSECRETWHICHISMADEUP"))
 	must.NoError(b, err)
 
 	ctx := b.Context()

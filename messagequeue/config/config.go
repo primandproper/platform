@@ -95,11 +95,11 @@ func NewConsumerProvider(ctx context.Context, logger logging.Logger, tracerProvi
 
 	switch cleanString(string(c.Consumer.Provider)) {
 	case string(ProviderRedis):
-		return redis.NewRedisConsumerProvider(logger, tracerProvider, metricsProvider, c.Consumer.Redis), nil
+		return redis.NewRedisConsumerProvider(c.Consumer.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider)), nil
 	case string(ProviderSQS):
-		return sqs.NewSQSConsumerProvider(ctx, logger, tracerProvider, metricsProvider, c.Consumer.SQS)
+		return sqs.NewSQSConsumerProvider(ctx, c.Consumer.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
 	case string(ProviderKafka):
-		return kafka.NewKafkaConsumerProvider(logger, tracerProvider, metricsProvider, c.Consumer.Kafka), nil
+		return kafka.NewKafkaConsumerProvider(c.Consumer.Kafka, kafka.WithLogger(logger), kafka.WithTracerProvider(tracerProvider), kafka.WithMetricsProvider(metricsProvider)), nil
 	case string(ProviderPubSub):
 		client, err := ps.NewClientWithConfig(ctx, c.Consumer.PubSub.ProjectID, &ps.ClientConfig{
 			EnableOpenTelemetryTracing: true,
@@ -108,7 +108,7 @@ func NewConsumerProvider(ctx context.Context, logger logging.Logger, tracerProvi
 			return nil, errors.Wrap(err, "establishing PubSub client")
 		}
 
-		return pubsub.NewPubSubConsumerProvider(logger, tracerProvider, metricsProvider, client), nil
+		return pubsub.NewPubSubConsumerProvider(client, pubsub.WithLogger(logger), pubsub.WithTracerProvider(tracerProvider), pubsub.WithMetricsProvider(metricsProvider)), nil
 	default:
 		logger.Info("Using noop consumer provider")
 		return noop.NewConsumerProvider(), nil
@@ -123,11 +123,11 @@ func NewPublisherProvider(ctx context.Context, logger logging.Logger, tracerProv
 
 	switch cleanString(string(c.Publisher.Provider)) {
 	case string(ProviderRedis):
-		return redis.NewRedisPublisherProvider(logger, tracerProvider, metricsProvider, c.Publisher.Redis), nil
+		return redis.NewRedisPublisherProvider(c.Publisher.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider)), nil
 	case string(ProviderSQS):
-		return sqs.NewSQSPublisherProvider(ctx, logger, tracerProvider, metricsProvider, c.Publisher.SQS)
+		return sqs.NewSQSPublisherProvider(ctx, c.Publisher.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
 	case string(ProviderKafka):
-		return kafka.NewKafkaPublisherProvider(logger, tracerProvider, metricsProvider, c.Publisher.Kafka), nil
+		return kafka.NewKafkaPublisherProvider(c.Publisher.Kafka, kafka.WithLogger(logger), kafka.WithTracerProvider(tracerProvider), kafka.WithMetricsProvider(metricsProvider)), nil
 	case string(ProviderPubSub):
 		client, err := ps.NewClientWithConfig(ctx, c.Publisher.PubSub.ProjectID, &ps.ClientConfig{
 			EnableOpenTelemetryTracing: true,
@@ -136,7 +136,7 @@ func NewPublisherProvider(ctx context.Context, logger logging.Logger, tracerProv
 			return nil, errors.Wrap(err, "establishing PubSub client")
 		}
 
-		return pubsub.NewPubSubPublisherProvider(logger, tracerProvider, metricsProvider, client, c.Publisher.PubSub.ProjectID), nil
+		return pubsub.NewPubSubPublisherProvider(client, c.Publisher.PubSub.ProjectID, pubsub.WithLogger(logger), pubsub.WithTracerProvider(tracerProvider), pubsub.WithMetricsProvider(metricsProvider)), nil
 	default:
 		logger.Info("Using noop publisher provider")
 		return noop.NewPublisherProvider(), nil

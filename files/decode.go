@@ -94,7 +94,7 @@ func decodeBytes[T any](ctx context.Context, logger logging.Logger, tracerProvid
 		return v, errors.ErrEmptyInputParameter
 	}
 
-	enc := encoding.NewClientEncoder(logger, tracerProvider, ct)
+	enc := encoding.NewClientEncoder(ct, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider))
 	if err := enc.Unmarshal(ctx, data, &v); err != nil {
 		return v, errors.Wrapf(err, "decoding %T", v)
 	}

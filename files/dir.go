@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 // Dir is a handle rooted at a base directory. Its methods take file names relative to that base, so
@@ -26,9 +24,9 @@ func OpenDir(path string) (*Dir, error) {
 	return newDir(path, defaultReader)
 }
 
-// NewDir opens a directory handle at path with the given observability dependencies.
-func NewDir(path string, logger logging.Logger, tracerProvider tracing.TracerProvider) (*Dir, error) {
-	return newDir(path, NewReader(logger, tracerProvider))
+// NewDir opens a directory handle at path with the given observability options.
+func NewDir(path string, opts ...Option) (*Dir, error) {
+	return newDir(path, NewReader(opts...))
 }
 
 func newDir(path string, reader Reader) (*Dir, error) {

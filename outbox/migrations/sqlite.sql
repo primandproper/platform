@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS {{TABLE}}_claim_idx
     WHERE published_at IS NULL AND quarantined = FALSE;
 
 CREATE INDEX IF NOT EXISTS {{TABLE}}_ordering_idx
-    ON {{TABLE}} (partition_key, created_at)
+    ON {{TABLE}} (partition_key, created_at, id)
     WHERE published_at IS NULL AND quarantined = FALSE;
 
 CREATE INDEX IF NOT EXISTS {{TABLE}}_reap_idx

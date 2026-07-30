@@ -1,6 +1,7 @@
 package eventcapture
 
 import (
+	"fmt"
 	"slices"
 	"time"
 )
@@ -39,23 +40,58 @@ type Aggregator[K comparable, C any] struct {
 }
 
 // AggregatorOption configures an Aggregator.
-type AggregatorOption[K comparable, C any] func(*Aggregator[K, C])
+//
+// As with Option, it carries neither of the Aggregator's type parameters. The
+// counter type C never appears in an option's arguments, so it could not be
+// inferred — every call site would have to write both out by hand,
+// WithKeyOrder[string, counts](cmp), forever.
+type AggregatorOption func(*aggregatorOptions)
+
+// aggregatorOptions accumulates what the options set, so AggregatorOption can
+// stay free of the Aggregator's type parameters.
+type aggregatorOptions struct {
+	// keyOrder holds a func(a, b K) int for the K of the Aggregator being
+	// built. It is typed as any because AggregatorOption cannot name K;
+	// NewAggregator asserts it back and panics on a mismatch.
+	keyOrder any
+}
 
 // WithKeyOrder supplies a comparison over keys (slices.SortFunc semantics) so
 // Flush output is fully deterministic. Without it, buckets are ordered by
 // window start only, with same-window order unspecified.
-func WithKeyOrder[K comparable, C any](cmp func(a, b K) int) AggregatorOption[K, C] {
-	return func(a *Aggregator[K, C]) {
-		a.keyOrder = cmp
+//
+// K is inferred from cmp, so this needs no type arguments:
+//
+//	eventcapture.WithKeyOrder(strings.Compare)
+//
+// It must match the Aggregator it configures. NewAggregator returns no error —
+// it cannot fail for any other reason — so a comparison for the wrong key type
+// panics there rather than being silently dropped, which would leave Flush
+// quietly non-deterministic.
+func WithKeyOrder[K comparable](cmp func(a, b K) int) AggregatorOption {
+	return func(o *aggregatorOptions) {
+		if cmp != nil {
+			o.keyOrder = cmp
+		}
 	}
 }
 
 // NewAggregator builds an Aggregator with the given window size and cell-map
 // bound. A non-positive bucket defaults to one minute; a non-positive
 // maxKeys is unbounded.
-func NewAggregator[K comparable, C any](bucket time.Duration, maxKeys int, opts ...AggregatorOption[K, C]) *Aggregator[K, C] {
+//
+// It panics if WithKeyOrder was given a comparison for a different key type;
+// see that option for why this is a panic and not an error.
+func NewAggregator[K comparable, C any](bucket time.Duration, maxKeys int, opts ...AggregatorOption) *Aggregator[K, C] {
 	if bucket <= 0 {
 		bucket = time.Minute
+	}
+
+	o := &aggregatorOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(o)
+		}
 	}
 
 	a := &Aggregator[K, C]{
@@ -63,10 +99,14 @@ func NewAggregator[K comparable, C any](bucket time.Duration, maxKeys int, opts 
 		maxKeys: maxKeys,
 		cells:   make(map[bucketKey[K]]*C),
 	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(a)
+
+	if o.keyOrder != nil {
+		keyOrder, ok := o.keyOrder.(func(a, b K) int)
+		if !ok {
+			panic(fmt.Sprintf("eventcapture: key order is %T, want func(a, b %T) int", o.keyOrder, *new(K)))
 		}
+
+		a.keyOrder = keyOrder
 	}
 
 	return a

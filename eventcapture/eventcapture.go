@@ -27,6 +27,11 @@ const (
 	serviceName = "eventcapture"
 )
 
+// ErrEventTypeMismatch indicates WithTransform or WithObserver was given a
+// function for an event type other than the Recorder's. Option carries no type
+// parameter, so the compiler cannot catch this; NewRecorder reports it instead.
+var ErrEventTypeMismatch = platformerrors.New("function event type does not match recorder type")
+
 // Sink persists captured records. Calls arrive from the Recorder's single
 // flusher goroutine, so implementations need no locking for Write and Flush,
 // though Close may race a final flush and should guard itself. Write receives
@@ -72,23 +77,53 @@ type Recorder[E any] struct {
 }
 
 // Option configures a Recorder.
-type Option[E any] func(*Recorder[E])
+//
+// It carries no type parameter even though the Recorder does. Go cannot infer a
+// type argument from a call's result type, so an Option[E] would force every
+// call site to spell the event type out by hand — WithBufferSize[MyEvent](256) —
+// forever. WithTransform and WithObserver are the two options that depend on
+// the event type; they stay generic but still need no annotation, because E is
+// inferable from the function each is handed.
+type Option func(*options)
+
+// options accumulates what the options set, so Option can stay free of the
+// Recorder's type parameter.
+type options struct {
+	clock           clock.Clock
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
+
+	overflow func() uint64
+	onFlush  func(now time.Time, final bool, emit func(record any))
+
+	// transform and observe hold func(*E) any and func(*E) for the E of the
+	// Recorder being built. They are typed as any because Option cannot name E;
+	// NewRecorder asserts them back and reports a mismatch rather than dropping
+	// them.
+	transform any
+	observe   any
+
+	bufferSize    int
+	flushInterval time.Duration
+	noRawRecords  bool
+}
 
 // WithBufferSize caps the in-flight event channel. A full buffer drops (and
 // counts) new events rather than ever blocking a caller.
-func WithBufferSize[E any](n int) Option[E] {
-	return func(r *Recorder[E]) {
+func WithBufferSize(n int) Option {
+	return func(o *options) {
 		if n > 0 {
-			r.events = make(chan E, n)
+			o.bufferSize = n
 		}
 	}
 }
 
 // WithFlushInterval sets the cadence of the flusher tick.
-func WithFlushInterval[E any](d time.Duration) Option[E] {
-	return func(r *Recorder[E]) {
+func WithFlushInterval(d time.Duration) Option {
+	return func(o *options) {
 		if d > 0 {
-			r.flushInterval = d
+			o.flushInterval = d
 		}
 	}
 }
@@ -96,10 +131,10 @@ func WithFlushInterval[E any](d time.Duration) Option[E] {
 // WithClock swaps the clock driving the flush ticker. Tests generally do not
 // need it: under testing/synctest the default clock already runs on bubble
 // time.
-func WithClock[E any](c clock.Clock) Option[E] {
-	return func(r *Recorder[E]) {
+func WithClock(c clock.Clock) Option {
+	return func(o *options) {
 		if c != nil {
-			r.clock = c
+			o.clock = c
 		}
 	}
 }
@@ -107,9 +142,9 @@ func WithClock[E any](c clock.Clock) Option[E] {
 // WithLogger attaches a logger for sink errors and drop reporting. It is
 // named after the package, so capture lines are attributable in aggregate
 // logs.
-func WithLogger[E any](logger logging.Logger) Option[E] {
-	return func(r *Recorder[E]) {
-		r.logger = logger
+func WithLogger(logger logging.Logger) Option {
+	return func(o *options) {
+		o.logger = logger
 	}
 }
 
@@ -118,9 +153,9 @@ func WithLogger[E any](logger logging.Logger) Option[E] {
 // caller to parent it to, is noise rather than signal. The tracer is used for
 // Close, where the drain is a real, once-per-process operation a shutdown
 // trace wants to account for.
-func WithTracerProvider[E any](tracerProvider tracing.TracerProvider) Option[E] {
-	return func(r *Recorder[E]) {
-		r.tracerProvider = tracerProvider
+func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+	return func(o *options) {
+		o.tracerProvider = tracerProvider
 	}
 }
 
@@ -128,9 +163,9 @@ func WithTracerProvider[E any](tracerProvider tracing.TracerProvider) Option[E] 
 // eventcapture_* instruments. These are the only signal that a capture
 // pipeline has broken: per the package contract sink errors are never returned
 // to a caller, and dropped events never reach the sink at all.
-func WithMetricsProvider[E any](metricsProvider metrics.Provider) Option[E] {
-	return func(r *Recorder[E]) {
-		r.metricsProvider = metricsProvider
+func WithMetricsProvider(metricsProvider metrics.Provider) Option {
+	return func(o *options) {
+		o.metricsProvider = metricsProvider
 	}
 }
 
@@ -139,34 +174,46 @@ func WithMetricsProvider[E any](metricsProvider metrics.Provider) Option[E] {
 // pass an Aggregator's TakeOverflow. Without it, a full Aggregator discards
 // observations silently, since the Recorder cannot see inside a composition
 // whose key and counter types belong to the caller.
-func WithOverflowSource[E any](fn func() uint64) Option[E] {
-	return func(r *Recorder[E]) {
-		r.overflow = fn
+func WithOverflowSource(fn func() uint64) Option {
+	return func(o *options) {
+		o.overflow = fn
 	}
 }
 
 // WithoutRawRecords disables the per-event sink write, for compositions that
 // only emit derived records (e.g. aggregate rollups via WithOnFlush).
-func WithoutRawRecords[E any]() Option[E] {
-	return func(r *Recorder[E]) {
-		r.raw = false
+func WithoutRawRecords() Option {
+	return func(o *options) {
+		o.noRawRecords = true
 	}
 }
 
 // WithTransform projects each event into the record written to the sink —
 // typically a wire-shaped struct with stable JSON tags — instead of the raw
 // *E. It runs in the flusher goroutine, off the hot path.
-func WithTransform[E any](fn func(*E) any) Option[E] {
-	return func(r *Recorder[E]) {
-		r.transform = fn
+//
+// E is inferred from the function, so this needs no type argument. It must
+// match the Recorder it configures; NewRecorder returns ErrEventTypeMismatch
+// otherwise, since Option cannot carry E for the compiler to check.
+func WithTransform[E any](fn func(*E) any) Option {
+	return func(o *options) {
+		if fn != nil {
+			o.transform = fn
+		}
 	}
 }
 
 // WithObserver runs fn for every consumed event, in the flusher goroutine.
 // This is the composition point for an Aggregator's Observe.
-func WithObserver[E any](fn func(*E)) Option[E] {
-	return func(r *Recorder[E]) {
-		r.observe = fn
+//
+// E is inferred from the function, so this needs no type argument. It must
+// match the Recorder it configures; NewRecorder returns ErrEventTypeMismatch
+// otherwise, since Option cannot carry E for the compiler to check.
+func WithObserver[E any](fn func(*E)) Option {
+	return func(o *options) {
+		if fn != nil {
+			o.observe = fn
+		}
 	}
 }
 
@@ -174,33 +221,69 @@ func WithObserver[E any](fn func(*E)) Option[E] {
 // drain (with final set). It runs in the flusher goroutine; emit writes a
 // record through the sink with the Recorder's error handling. This is the
 // composition point for emitting an Aggregator's completed buckets.
-func WithOnFlush[E any](fn func(now time.Time, final bool, emit func(record any))) Option[E] {
-	return func(r *Recorder[E]) {
-		r.onFlush = fn
+func WithOnFlush(fn func(now time.Time, final bool, emit func(record any))) Option {
+	return func(o *options) {
+		o.onFlush = fn
 	}
 }
 
 // NewRecorder builds a Recorder over sink. Start it with `go r.Run()` and
 // stop it with Close. It returns an error only if the metrics provider cannot
 // build the Recorder's instruments.
-func NewRecorder[E any](sink Sink, opts ...Option[E]) (*Recorder[E], error) {
+func NewRecorder[E any](sink Sink, opts ...Option) (*Recorder[E], error) {
 	if sink == nil {
 		return nil, platformerrors.New("nil sink provided")
 	}
 
-	r := &Recorder[E]{
-		events:        make(chan E, DefaultBufferSize),
-		sink:          sink,
-		raw:           true,
+	o := &options{
+		bufferSize:    DefaultBufferSize,
 		flushInterval: DefaultFlushInterval,
 		clock:         clock.NewClock(),
-		stop:          make(chan struct{}),
-		done:          make(chan struct{}),
 	}
 	for _, opt := range opts {
 		if opt != nil {
-			opt(r)
+			opt(o)
 		}
+	}
+
+	r := &Recorder[E]{
+		events:          make(chan E, o.bufferSize),
+		sink:            sink,
+		raw:             !o.noRawRecords,
+		flushInterval:   o.flushInterval,
+		clock:           o.clock,
+		logger:          o.logger,
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
+		overflow:        o.overflow,
+		onFlush:         o.onFlush,
+		stop:            make(chan struct{}),
+		done:            make(chan struct{}),
+	}
+
+	// Asserted rather than assumed: Option cannot name E, so this is where a
+	// function built for another event type is caught. Dropping it silently
+	// would leave a composition that looks wired up and records nothing.
+	if o.transform != nil {
+		transform, ok := o.transform.(func(*E) any)
+		if !ok {
+			return nil, platformerrors.Wrapf(
+				ErrEventTypeMismatch, "transform is %T, want func(*%T) any", o.transform, *new(E),
+			)
+		}
+
+		r.transform = transform
+	}
+
+	if o.observe != nil {
+		observe, ok := o.observe.(func(*E))
+		if !ok {
+			return nil, platformerrors.Wrapf(
+				ErrEventTypeMismatch, "observer is %T, want func(*%T)", o.observe, *new(E),
+			)
+		}
+
+		r.observe = observe
 	}
 
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)

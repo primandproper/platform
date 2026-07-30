@@ -88,9 +88,12 @@ func TestPermissionSet_Predicates(T *testing.T) {
 
 	// Vacuous truth is the honest answer for a universal quantifier over an
 	// empty list, and it is also a hazard: an empty requirement would authorize
-	// everyone. The guard lives at the declaration site instead — see
-	// authorization/grpc's RequirementsBuilder.Build, which refuses to register
-	// a method with no permissions.
+	// everyone. The guard lives at the declaration site instead, and the three
+	// declaration sites do not agree — the matrix on PermissionSet.HasAll is
+	// authoritative. Before changing this answer, change all three: the paired
+	// assertions are "denies when required with no permissions" in
+	// authorization/http and "rejects a method required with no permissions" in
+	// authorization/grpc.
 	T.Run("HasAll with no permissions is vacuously true", func(t *testing.T) {
 		t.Parallel()
 

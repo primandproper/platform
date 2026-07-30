@@ -10,9 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/XSAM/otelsql"
 	"go.opentelemetry.io/otel/attribute"
@@ -34,15 +31,17 @@ type Client struct {
 }
 
 // NewDatabaseClient provides a new DataManager client.
-// If metricsProvider is non-nil, the DB driver will use it so SQL latency and other
-// db.sql.* metrics are emitted (e.g. db_sql_latency_milliseconds_bucket in Prometheus).
-func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, cfg database.ClientConfig, metricsProvider metrics.Provider) (database.Client, error) {
-	o11y := observability.NewObserver(tracingName, logger, tracerProvider)
+// If a metrics provider is supplied via WithMetricsProvider, the DB driver will
+// use it so SQL latency and other db.sql.* metrics are emitted (e.g.
+// db_sql_latency_milliseconds_bucket in Prometheus).
+func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...Option) (database.Client, error) {
+	o := newOptions(opts)
+	o11y := observability.NewObserver(tracingName, o.logger, o.tracerProvider)
 
 	ctx, op := o11y.Begin(ctx)
 	defer op.End()
 
-	opts := []otelsql.Option{
+	otelsqlOpts := []otelsql.Option{
 		otelsql.WithAttributes(
 			attribute.KeyValue{
 				Key:   semconv.ServiceNameKey,
@@ -50,15 +49,15 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 			},
 		),
 	}
-	if metricsProvider != nil {
-		opts = append(opts, otelsql.WithMeterProvider(metricsProvider.MeterProvider()))
+	if o.metricsProvider != nil {
+		otelsqlOpts = append(otelsqlOpts, otelsql.WithMeterProvider(o.metricsProvider.MeterProvider()))
 	}
 
 	// Gate raw SQL text on spans behind the config's LogQueries flag. When the
 	// config opts out (the default), suppress db.statement so query text is not
 	// leaked into traces.
 	if lq, ok := cfg.(interface{ GetLogQueries() bool }); ok && !lq.GetLogQueries() {
-		opts = append(opts, otelsql.WithSpanOptions(otelsql.SpanOptions{DisableQuery: true}))
+		otelsqlOpts = append(otelsqlOpts, otelsql.WithSpanOptions(otelsql.SpanOptions{DisableQuery: true}))
 	}
 
 	var readDB, writeDB *sql.DB
@@ -72,14 +71,14 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 		Set("db.write_configured", writeConnStr != "")
 
 	if readConnStr != "" {
-		readDB, err = connect(ctx, readConnStr, cfg, opts, false)
+		readDB, err = connect(ctx, readConnStr, cfg, otelsqlOpts, false)
 		if err != nil {
 			return nil, errors.Wrap(err, "connecting to read sqlite database")
 		}
 	}
 
 	if writeConnStr != "" {
-		writeDB, err = connect(ctx, writeConnStr, cfg, opts, true)
+		writeDB, err = connect(ctx, writeConnStr, cfg, otelsqlOpts, true)
 		if err != nil {
 			return nil, errors.Wrap(err, "connecting to write sqlite database")
 		}
@@ -96,7 +95,7 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 		writeDB = readDB
 	}
 
-	if metricsProvider != nil {
+	if o.metricsProvider != nil {
 		if _, err = otelsql.RegisterDBStatsMetrics(readDB, otelsql.WithAttributes(semconv.DBSystemSqlite)); err != nil {
 			return nil, errors.Wrap(err, "registering readDB stats metrics")
 		}

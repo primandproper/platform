@@ -13,9 +13,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 const scopedServiceName = "postgres_scoped_lock"
@@ -58,10 +56,8 @@ type scopedLocker struct {
 func NewPostgresScopedLocker(
 	cfg *Config,
 	db database.Client,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	cb circuitbreaking.CircuitBreaker,
+	opts ...Option,
 ) (distributedlock.ScopedLocker, error) {
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
@@ -70,7 +66,9 @@ func NewPostgresScopedLocker(
 		return nil, distributedlock.ErrNilDatabaseClient
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	acquireCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_acquires", scopedServiceName))
 	if err != nil {
@@ -90,7 +88,7 @@ func NewPostgresScopedLocker(
 	}
 
 	return &scopedLocker{
-		o11y:           observability.NewObserver(scopedServiceName, logger, tracerProvider),
+		o11y:           observability.NewObserver(scopedServiceName, o.logger, o.tracerProvider),
 		db:             db,
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		acquireCounter: acquireCounter,

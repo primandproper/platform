@@ -2,30 +2,10 @@ package database
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
+
+	"github.com/primandproper/platform-go/v8/database/dialect"
 )
-
-// placeholder renders the n-th bind marker (1-indexed) for the dialect.
-// Postgres numbers its placeholders; MySQL and SQLite do not.
-func placeholder(d Dialect, n int) string {
-	if d == DialectPostgres {
-		return "$" + strconv.Itoa(n)
-	}
-
-	return "?"
-}
-
-// placeholderList renders count bind markers starting at start, joined for use
-// inside an IN clause.
-func placeholderList(d Dialect, start, count int) string {
-	parts := make([]string, 0, count)
-	for i := range count {
-		parts = append(parts, placeholder(d, start+i))
-	}
-
-	return strings.Join(parts, ", ")
-}
 
 // resolveQuery builds the permission-resolution query for roleCount role names.
 //
@@ -56,7 +36,7 @@ FROM role_tree
 JOIN %[1]srole_permissions ON %[1]srole_permissions.role_id = role_tree.role_id
 JOIN %[1]spermissions ON %[1]spermissions.id = %[1]srole_permissions.permission_id
 WHERE %[1]spermissions.archived_at IS NULL`,
-		r.prefix, placeholderList(r.dialect, 1, roleCount))
+		r.prefix, r.dialect.Placeholders(1, roleCount))
 }
 
 // listRolesQuery selects every live role.
@@ -100,7 +80,7 @@ const maxBatchRows = 100
 func (r *Resolver) selectNamedByNamesQuery(table string, count int) string {
 	return fmt.Sprintf(
 		`SELECT id, name, description, archived_at IS NOT NULL FROM %s%s WHERE name IN (%s)`,
-		r.prefix, table, placeholderList(r.dialect, 1, count),
+		r.prefix, table, r.dialect.Placeholders(1, count),
 	)
 }
 
@@ -132,10 +112,10 @@ func (r *Resolver) insertRoleHierarchyRowsQuery(count int) string {
 
 // tupleList renders count parenthesized placeholder groups of width columns,
 // numbered consecutively for dialects that number their placeholders.
-func tupleList(d Dialect, count, width int) string {
+func tupleList(d dialect.Dialect, count, width int) string {
 	tuples := make([]string, 0, count)
 	for i := range count {
-		tuples = append(tuples, "("+placeholderList(d, i*width+1, width)+")")
+		tuples = append(tuples, "("+d.Placeholders(i*width+1, width)+")")
 	}
 
 	return strings.Join(tuples, ", ")
@@ -147,7 +127,7 @@ func tupleList(d Dialect, count, width int) string {
 func (r *Resolver) selectIDByNameQuery(table string) string {
 	return fmt.Sprintf(
 		`SELECT id, archived_at IS NOT NULL FROM %s%s WHERE name = %s`,
-		r.prefix, table, placeholder(r.dialect, 1),
+		r.prefix, table, r.dialect.Placeholder(1),
 	)
 }
 
@@ -157,7 +137,7 @@ func (r *Resolver) updateNamedQuery(table string) string {
 	return fmt.Sprintf(
 		`UPDATE %s%s SET description = %s, archived_at = NULL WHERE id = %s`,
 		r.prefix, table,
-		placeholder(r.dialect, 1), placeholder(r.dialect, 2),
+		r.dialect.Placeholder(1), r.dialect.Placeholder(2),
 	)
 }
 
@@ -166,7 +146,7 @@ func (r *Resolver) updateNamedQuery(table string) string {
 func (r *Resolver) deleteRolePermissionsQuery() string {
 	return fmt.Sprintf(
 		`DELETE FROM %srole_permissions WHERE role_id = %s`,
-		r.prefix, placeholder(r.dialect, 1),
+		r.prefix, r.dialect.Placeholder(1),
 	)
 }
 
@@ -174,7 +154,7 @@ func (r *Resolver) deleteRolePermissionsQuery() string {
 func (r *Resolver) deleteRoleHierarchyQuery() string {
 	return fmt.Sprintf(
 		`DELETE FROM %srole_hierarchy WHERE child_role_id = %s`,
-		r.prefix, placeholder(r.dialect, 1),
+		r.prefix, r.dialect.Placeholder(1),
 	)
 }
 
@@ -182,6 +162,6 @@ func (r *Resolver) deleteRoleHierarchyQuery() string {
 func (r *Resolver) archiveRoleQuery() string {
 	return fmt.Sprintf(
 		`UPDATE %sroles SET archived_at = CURRENT_TIMESTAMP WHERE name = %s AND archived_at IS NULL`,
-		r.prefix, placeholder(r.dialect, 1),
+		r.prefix, r.dialect.Placeholder(1),
 	)
 }

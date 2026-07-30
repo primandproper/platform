@@ -54,9 +54,9 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 func (c *Config) NewFeatureFlagManager(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker) (featureflags.FeatureFlagManager, error) {
 	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
 	case ProviderLaunchDarkly:
-		return launchdarkly.NewFeatureFlagManager(c.LaunchDarkly, logger, tracerProvider, metricsProvider, httpClient, circuitBreaker)
+		return launchdarkly.NewFeatureFlagManager(c.LaunchDarkly, httpClient, circuitBreaker, launchdarkly.WithLogger(logger), launchdarkly.WithTracerProvider(tracerProvider), launchdarkly.WithMetricsProvider(metricsProvider))
 	case ProviderPostHog:
-		return posthog.NewFeatureFlagManager(c.PostHog, logger, tracerProvider, metricsProvider, circuitBreaker)
+		return posthog.NewFeatureFlagManager(c.PostHog, circuitBreaker, posthog.WithLogger(logger), posthog.WithTracerProvider(tracerProvider), posthog.WithMetricsProvider(metricsProvider))
 	default:
 		return noop.NewFeatureFlagManager(), nil
 	}

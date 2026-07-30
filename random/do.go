@@ -11,8 +11,8 @@ import (
 func RegisterGenerator(i do.Injector) {
 	do.Provide[Generator](i, func(i do.Injector) (Generator, error) {
 		return NewGenerator(
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
 		), nil
 	})
 }

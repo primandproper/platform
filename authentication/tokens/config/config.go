@@ -62,9 +62,9 @@ func (cfg *Config) NewTokenIssuer(logger logging.Logger, tracerProvider tracing.
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case ProviderJWT:
-		return jwt.NewJWTSigner(logger, tracerProvider, cfg.Issuer, cfg.Audience, decryptedSigningKey)
+		return jwt.NewJWTSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, jwt.WithLogger(logger), jwt.WithTracerProvider(tracerProvider))
 	case ProviderPASETO:
-		return paseto.NewPASETOSigner(logger, tracerProvider, cfg.Issuer, cfg.Audience, decryptedSigningKey)
+		return paseto.NewPASETOSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, paseto.WithLogger(logger), paseto.WithTracerProvider(tracerProvider))
 	default:
 		return nil, fmt.Errorf("unknown token issuer provider: %q", cfg.Provider)
 	}

@@ -13,7 +13,7 @@ type benchItem struct {
 }
 
 func BenchmarkInMemoryCache(b *testing.B) {
-	c, err := NewInMemoryCache[benchItem](0, nil, nil, nil)
+	c, err := NewInMemoryCache[benchItem](0)
 	must.NoError(b, err)
 
 	ctx := b.Context()
@@ -43,10 +43,10 @@ func BenchmarkInMemoryCache(b *testing.B) {
 func BenchmarkInMemoryCache_Janitor(b *testing.B) {
 	val := &benchItem{Name: "value"}
 
-	run := func(b *testing.B, opts ...Option[benchItem]) {
+	run := func(b *testing.B, opts ...Option) {
 		b.Helper()
 
-		c, err := NewInMemoryCache[benchItem](time.Millisecond, nil, nil, nil, opts...)
+		c, err := NewInMemoryCache[benchItem](time.Millisecond, opts...)
 		must.NoError(b, err)
 
 		ctx := b.Context()
@@ -62,6 +62,6 @@ func BenchmarkInMemoryCache_Janitor(b *testing.B) {
 	})
 
 	b.Run("On", func(b *testing.B) {
-		run(b, WithJanitor[benchItem](b.Context(), time.Millisecond))
+		run(b, WithJanitor(b.Context(), time.Millisecond))
 	})
 }

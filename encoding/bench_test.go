@@ -2,9 +2,6 @@ package encoding
 
 import (
 	"testing"
-
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
 type benchPayload struct {
@@ -14,7 +11,7 @@ type benchPayload struct {
 
 func BenchmarkServerEncoderDecoder(b *testing.B) {
 	ctx := b.Context()
-	ed := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
+	ed := NewServerEncoderDecoder(ContentTypeJSON)
 
 	in := &benchPayload{Name: "benchmark", ID: 42}
 	encoded := ed.MustEncodeJSON(ctx, in)

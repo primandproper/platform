@@ -9,31 +9,22 @@ import (
 	"github.com/primandproper/platform-go/v8/authorization"
 	"github.com/primandproper/platform-go/v8/authorization/database/migrations"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	"github.com/primandproper/platform-go/v8/database/mysql"
 	"github.com/primandproper/platform-go/v8/database/postgres"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v8/testutils/containers"
+	"github.com/primandproper/platform-go/v8/testutils/containers/mysqltest"
 	"github.com/primandproper/platform-go/v8/testutils/containers/pgtest"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"github.com/testcontainers/testcontainers-go"
-	mysqlcontainers "github.com/testcontainers/testcontainers-go/modules/mysql"
-	"github.com/testcontainers/testcontainers-go/wait"
-)
-
-const (
-	defaultMySQLImage = "mysql:8.0"
-
-	// mysqlStartupDeadline mirrors the deadline the outbox suite uses.
-	mysqlStartupDeadline = 2 * time.Minute
 )
 
 // dialectEnv is one dialect's worth of wiring for the shared suite.
 type dialectEnv struct {
 	client  database.Client
-	dialect Dialect
+	dialect dialect.Dialect
 	prefix  string
 }
 
@@ -77,7 +68,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 	waitForServer(t, ctx, env.client.Writer())
 
-	stmts, err := migrations.Statements(migrations.Dialect(env.dialect), env.prefix)
+	stmts, err := migrations.Statements(env.dialect, env.prefix)
 	must.NoError(t, err)
 
 	for _, stmt := range stmts {
@@ -203,60 +194,30 @@ func TestAuthorizationDatabase_Postgres(T *testing.T) {
 	T.Parallel()
 
 	pgtest.Run(T, func(ctx context.Context, pg *pgtest.Instance) {
-		client, err := postgres.NewDatabaseClient(
-			ctx,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			&testClientConfig{connectionString: pg.ConnectionString},
-			nil,
-		)
+		client, err := postgres.NewDatabaseClient(ctx, &testClientConfig{connectionString: pg.ConnectionString})
 		must.NoError(T, err)
 		T.Cleanup(func() { _ = client.Close() })
 
 		runDialectSuite(T, &dialectEnv{
-			dialect: DialectPostgres,
+			dialect: dialect.Postgres,
 			prefix:  DefaultTablePrefix,
 			client:  client,
 		})
 	})
 }
 
-// runWithMySQL boots a MySQL container and hands its closure a database.Client.
-// There is no mysqltest counterpart to pgtest, so this mirrors the outbox
-// suite's setup.
+// runWithMySQL boots a MySQL container via mysqltest and hands its closure a
+// database.Client against it.
 func runWithMySQL(tb testing.TB, fn func(ctx context.Context, client database.Client)) {
 	tb.Helper()
 
-	containers.Run(tb,
-		func(ctx context.Context) (*mysqlcontainers.MySQLContainer, error) {
-			return mysqlcontainers.Run(
-				ctx,
-				defaultMySQLImage,
-				mysqlcontainers.WithDatabase("authztest"),
-				mysqlcontainers.WithUsername("authztest"),
-				mysqlcontainers.WithPassword("authztest"),
-				testcontainers.WithWaitStrategyAndDeadline(
-					mysqlStartupDeadline,
-					wait.ForLog("ready for connections").WithOccurrence(2),
-				),
-			)
-		},
-		func(ctx context.Context, container *mysqlcontainers.MySQLContainer) {
-			connStr := container.MustConnectionString(ctx, "parseTime=true", "multiStatements=true")
+	mysqltest.Run(tb, func(ctx context.Context, my *mysqltest.Instance) {
+		client, err := mysql.NewDatabaseClient(ctx, &testClientConfig{connectionString: my.ConnectionString})
+		must.NoError(tb, err)
+		tb.Cleanup(func() { _ = client.Close() })
 
-			client, err := mysql.NewDatabaseClient(
-				ctx,
-				loggingnoop.NewLogger(),
-				tracingnoop.NewTracerProvider(),
-				&testClientConfig{connectionString: connStr},
-				nil,
-			)
-			must.NoError(tb, err)
-			tb.Cleanup(func() { _ = client.Close() })
-
-			fn(ctx, client)
-		},
-	)
+		fn(ctx, client)
+	}, mysqltest.WithCredentials("authztest", "authztest", "authztest"))
 }
 
 func TestAuthorizationDatabase_MySQL(T *testing.T) {
@@ -264,7 +225,7 @@ func TestAuthorizationDatabase_MySQL(T *testing.T) {
 
 	runWithMySQL(T, func(_ context.Context, client database.Client) {
 		runDialectSuite(T, &dialectEnv{
-			dialect: DialectMySQL,
+			dialect: dialect.MySQL,
 			prefix:  DefaultTablePrefix,
 			client:  client,
 		})

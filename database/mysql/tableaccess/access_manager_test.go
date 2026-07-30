@@ -5,23 +5,15 @@ import (
 	"database/sql"
 	"fmt"
 	"hash/fnv"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/primandproper/platform-go/v8/testutils/containers"
+	"github.com/primandproper/platform-go/v8/testutils/containers/mysqltest"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"github.com/testcontainers/testcontainers-go"
-	mysqlcontainers "github.com/testcontainers/testcontainers-go/modules/mysql"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const (
-	defaultMySQLImage = "mariadb:11"
-)
+const defaultMySQLImage = "mariadb:11"
 
 func reverseString(input string) string {
 	runes := []rune(input)
@@ -61,7 +53,7 @@ func hashStringToNumber(s string) uint64 {
 // runWithTestMySQL boots a MySQL container for the calling test and hands its
 // closure a root connection to it. Credentials are derived from the test name so
 // the users and databases a test creates cannot collide with the ones it
-// connects as. containers.Run owns the container itself.
+// connects as. mysqltest owns the container itself.
 func runWithTestMySQL(t *testing.T, fn func(ctx context.Context, adminDB *sql.DB)) {
 	t.Helper()
 
@@ -69,32 +61,14 @@ func runWithTestMySQL(t *testing.T, fn func(ctx context.Context, adminDB *sql.DB
 	dbPassword := reverseString(dbUsername)
 	dbName := splitReverseConcat(dbUsername)
 
-	containers.Run(t,
-		func(ctx context.Context) (*mysqlcontainers.MySQLContainer, error) {
-			return mysqlcontainers.Run(
-				ctx,
-				defaultMySQLImage,
-				mysqlcontainers.WithDatabase(dbName),
-				mysqlcontainers.WithUsername(dbUsername),
-				mysqlcontainers.WithPassword(dbPassword),
-				testcontainers.WithWaitStrategyAndDeadline(2*time.Minute, wait.ForLog("ready for connections").WithOccurrence(2)),
-			)
-		},
-		func(ctx context.Context, container *mysqlcontainers.MySQLContainer) {
-			// Connect as root for admin operations (CREATE USER, GRANT, etc.).
-			// WithDefaultCredentials sets MYSQL_ROOT_PASSWORD to the same value as MYSQL_PASSWORD.
-			connStr := container.MustConnectionString(ctx, "allowCleartextPasswords=true", "multiStatements=true")
-			// Replace the non-root user with root in the DSN.
-			connStr = "root:" + dbPassword + "@" + connStr[strings.Index(connStr, "@")+1:]
+	mysqltest.Run(t, func(ctx context.Context, my *mysqltest.Instance) {
+		// Connect as root for admin operations (CREATE USER, GRANT, etc.).
+		adminDB := my.Open(t, my.RootConnectionString(t, "allowCleartextPasswords=true", "multiStatements=true"))
 
-			adminDB, err := sql.Open("mysql", connStr)
-			must.NoError(t, err)
-			t.Cleanup(func() { _ = adminDB.Close() })
-
-			must.NoError(t, adminDB.PingContext(ctx))
-
-			fn(ctx, adminDB)
-		},
+		fn(ctx, adminDB)
+	},
+		mysqltest.WithImage(defaultMySQLImage),
+		mysqltest.WithCredentials(dbName, dbUsername, dbPassword),
 	)
 }
 

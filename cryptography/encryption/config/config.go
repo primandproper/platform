@@ -50,9 +50,9 @@ func NewEncryptorDecryptor(
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderAES:
-		return aes.NewEncryptorDecryptor(tracerProvider, logger, key)
+		return aes.NewEncryptorDecryptor(key, aes.WithLogger(logger), aes.WithTracerProvider(tracerProvider))
 	case ProviderSalsa20:
-		return salsa20.NewEncryptorDecryptor(tracerProvider, logger, key)
+		return salsa20.NewEncryptorDecryptor(key, salsa20.WithLogger(logger), salsa20.WithTracerProvider(tracerProvider))
 	default:
 		return nil, perrors.Newf("unknown encryption provider: %q", cfg.Provider)
 	}

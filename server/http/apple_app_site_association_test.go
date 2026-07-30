@@ -404,9 +404,7 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 					BundleID: "com.example.ios",
 				},
 			},
-			nil,
 			router,
-			nil,
 			t.Name(),
 		)
 		must.NoError(t, err)
@@ -425,7 +423,7 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 
 		router := testRouter(t)
 
-		_, err := NewHTTPServer(&Config{Port: 8080}, nil, router, nil, t.Name())
+		_, err := NewHTTPServer(&Config{Port: 8080}, router, t.Name())
 		must.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -446,9 +444,7 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 				Port:                    8080,
 				AppleAppSiteAssociation: &AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY"},
 			},
-			nil,
 			router,
-			nil,
 			t.Name(),
 		)
 		must.NoError(t, err)

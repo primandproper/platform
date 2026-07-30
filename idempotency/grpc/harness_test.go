@@ -28,16 +28,16 @@ const (
 // messages registered in the global registry at init, which is exactly what
 // replay reconstruction depends on, so nothing here is special-cased.
 
-func newTestManager(tb testing.TB, opts ...idempotency.Option[Response]) *idempotency.Manager[Response] {
+func newTestManager(tb testing.TB, opts ...idempotency.Option) *idempotency.Manager[Response] {
 	tb.Helper()
 
-	store, err := cachememory.NewInMemoryCache[idempotency.Record[Response]](0, nil, nil, nil)
+	store, err := cachememory.NewInMemoryCache[idempotency.Record[Response]](0)
 	must.NoError(tb, err)
 
-	locker, err := dlmemory.NewLocker(nil, nil, nil)
+	locker, err := dlmemory.NewLocker()
 	must.NoError(tb, err)
 
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	must.NoError(tb, err)
 
 	m, err := NewManager(store, scoped, opts...)
@@ -102,7 +102,7 @@ func infoFor(fullMethod string) *grpc.UnaryServerInfo {
 
 // newFailingStoreManager builds a manager whose store cannot be read, for
 // exercising the store failure policy.
-func newFailingStoreManager(tb testing.TB, opts ...idempotency.Option[Response]) *idempotency.Manager[Response] {
+func newFailingStoreManager(tb testing.TB, opts ...idempotency.Option) *idempotency.Manager[Response] {
 	tb.Helper()
 
 	store := &cachemock.CacheMock[idempotency.Record[Response]]{
@@ -115,10 +115,10 @@ func newFailingStoreManager(tb testing.TB, opts ...idempotency.Option[Response])
 		DeleteFunc: func(context.Context, string) error { return nil },
 	}
 
-	locker, err := dlmemory.NewLocker(nil, nil, nil)
+	locker, err := dlmemory.NewLocker()
 	must.NoError(tb, err)
 
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	must.NoError(tb, err)
 
 	m, err := NewManager(store, scoped, opts...)

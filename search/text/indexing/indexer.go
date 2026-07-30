@@ -11,9 +11,7 @@ import (
 	msgconfig "github.com/primandproper/platform-go/v8/messagequeue/config"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	"github.com/primandproper/platform-go/v8/random"
 	textsearch "github.com/primandproper/platform-go/v8/search/text"
 
@@ -41,14 +39,14 @@ type IndexScheduler struct {
 
 func NewIndexScheduler(
 	ctx context.Context,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	messageQueuePublisherProvider messagequeue.PublisherProvider,
 	queues *msgconfig.QueuesConfig,
 	indexFunctions map[string]Function,
+	opts ...Option,
 ) (*IndexScheduler, error) {
-	handledRecordsCounter, err := metricsProvider.NewInt64Counter(fmt.Sprintf("%s.handled_records", serviceName))
+	o := newOptions(opts)
+
+	handledRecordsCounter, err := metrics.EnsureMetricsProvider(o.metricsProvider).NewInt64Counter(fmt.Sprintf("%s.handled_records", serviceName))
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +69,7 @@ func NewIndexScheduler(
 	return &IndexScheduler{
 		handledRecordsCounter:    handledRecordsCounter,
 		searchDataIndexPublisher: searchDataIndexPublisher,
-		o11y:                     observability.NewObserver(serviceName, logger, tracerProvider),
+		o11y:                     observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 
 		allIndexTypes:  allIndexTypes,
 		indexFunctions: indexFunctionsMap,

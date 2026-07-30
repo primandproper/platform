@@ -12,11 +12,9 @@ import (
 	"github.com/primandproper/platform-go/v8/messagequeue"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/shoenig/test"
@@ -67,7 +65,7 @@ func buildTestPublisher(t *testing.T) (*kafkaPublisher, *mockKafkaWriter, *obser
 
 	pub := &kafkaPublisher{
 		writer:            writer,
-		encoder:           encoding.NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON),
+		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON),
 		o11y:              obs,
 		topic:             t.Name(),
 		publishedCounter:  publishedCounter,
@@ -261,12 +259,7 @@ func TestNewKafkaPublisherProvider(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		actual := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		actual := NewKafkaPublisherProvider(cfg)
 		test.NotNil(t, actual)
 	})
 }
@@ -284,12 +277,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg)
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewPublisher(ctx, t.Name())
@@ -307,12 +295,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg)
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewPublisher(ctx, "")
@@ -331,12 +314,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg)
 		must.NotNil(t, provider)
 
 		first, err := provider.NewPublisher(ctx, t.Name())
@@ -366,12 +344,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			mp,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg, WithMetricsProvider(mp))
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewPublisher(ctx, t.Name())
@@ -399,12 +372,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			mp,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg, WithMetricsProvider(mp))
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewPublisher(ctx, t.Name())
@@ -433,12 +401,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			mp,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg, WithMetricsProvider(mp))
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewPublisher(ctx, t.Name())
@@ -462,12 +425,7 @@ func Test_publisherProvider_Ping(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg)
 		must.NotNil(t, provider)
 
 		err := provider.Ping(ctx)
@@ -488,12 +446,7 @@ func Test_publisherProvider_Close(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg)
 		must.NotNil(t, provider)
 
 		_, err := provider.NewPublisher(ctx, t.Name())
@@ -533,12 +486,7 @@ func Test_publisherProvider_Close(T *testing.T) {
 			GroupID: "test-group",
 		}
 
-		provider := NewKafkaPublisherProvider(
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			nil,
-			cfg,
-		)
+		provider := NewKafkaPublisherProvider(cfg)
 		must.NotNil(t, provider)
 
 		provider.Close()

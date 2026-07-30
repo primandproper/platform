@@ -6,9 +6,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
@@ -35,22 +33,24 @@ type Sender struct {
 }
 
 // NewSender creates an FCM sender from config.
-func NewSender(ctx context.Context, cfg *Config, tracerProvider tracing.TracerProvider, logger logging.Logger, metricsProvider metrics.Provider) (*Sender, error) {
+func NewSender(ctx context.Context, cfg *Config, opts ...Option) (*Sender, error) {
 	if cfg == nil {
 		return nil, errors.New("fcm: config is required")
 	}
 
-	var opts []option.ClientOption
+	o := newOptions(opts)
+
+	var clientOpts []option.ClientOption
 	if cfg.CredentialsPath != "" {
 		creds, err := os.ReadFile(cfg.CredentialsPath)
 		if err != nil {
 			return nil, errors.Wrap(err, "fcm: credentials file not found")
 		}
-		opts = append(opts, option.WithAuthCredentialsJSON(option.ServiceAccount, creds))
+		clientOpts = append(clientOpts, option.WithAuthCredentialsJSON(option.ServiceAccount, creds))
 	}
 	// If CredentialsPath is empty, Application Default Credentials (ADC) are used.
 
-	app, err := firebase.NewApp(ctx, nil, opts...)
+	app, err := firebase.NewApp(ctx, nil, clientOpts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "fcm: initializing app")
 	}
@@ -60,7 +60,7 @@ func NewSender(ctx context.Context, cfg *Config, tracerProvider tracing.TracerPr
 		return nil, errors.Wrap(err, "fcm: creating messaging client")
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	sendCounter, err := mp.NewInt64Counter(o11yName + "_sends")
 	if err != nil {
@@ -74,7 +74,7 @@ func NewSender(ctx context.Context, cfg *Config, tracerProvider tracing.TracerPr
 
 	return &Sender{
 		client:       client,
-		o11y:         observability.NewObserver(o11yName, logger, tracerProvider),
+		o11y:         observability.NewObserver(o11yName, o.logger, o.tracerProvider),
 		sendCounter:  sendCounter,
 		errorCounter: errorCounter,
 	}, nil

@@ -19,12 +19,12 @@ func RegisterIndexScheduler(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (*IndexScheduler, error) {
 		return NewIndexScheduler(
 			do.MustInvoke[context.Context](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[metrics.Provider](i),
 			do.MustInvoke[messagequeue.PublisherProvider](i),
 			do.MustInvoke[*msgconfig.QueuesConfig](i),
 			do.MustInvoke[map[string]Function](i),
+			WithLogger(do.MustInvoke[logging.Logger](i)),
+			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			WithMetricsProvider(do.MustInvoke[metrics.Provider](i)),
 		)
 	})
 }

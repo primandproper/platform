@@ -5,7 +5,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"maps"
-	"runtime/debug"
 	"slices"
 	"sync"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v8/panicking"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"go.opentelemetry.io/otel/attribute"
@@ -50,8 +50,9 @@ var (
 	// the job's goroutine, which would stop that job — and only that job —
 	// silently for the life of the process.
 	ErrJobPanicked = platformerrors.New("scheduled job panicked")
-	// ErrNilLocker indicates a nil Locker was passed to NewScheduler.
-	ErrNilLocker = platformerrors.New("nil distributed locker")
+	// ErrNilLocker indicates a nil Locker was passed to NewScheduler. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilLocker = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil distributed locker")
 	// ErrSchedulerRunning indicates Register was called after Run. The job set
 	// is fixed at Run, because each job owns a ticker goroutine started there.
 	ErrSchedulerRunning = platformerrors.New("scheduler is already running")
@@ -140,7 +141,15 @@ func (cfg *SchedulerConfig) ValidateWithContext(ctx context.Context) error {
 }
 
 // Scheduler runs registered jobs on an interval, each execution held under a
-// distributed lock so that exactly one replica runs a given job per tick.
+// distributed lock so that at most one replica runs a given job per tick.
+//
+// At most one, not exactly one, and both halves matter. A tick whose lock is
+// already held is skipped rather than queued, so a job does not run on every
+// replica — and it also does not run at all if the holder is still working. The
+// lock is not renewed for the duration of a run either, so a job that outlives
+// its lease loses exclusivity while still executing and a second replica may
+// start it. Job.LeaseTTL is where that is sized; a job whose worst case
+// approaches its lease has no mutual exclusion left to rely on.
 type Scheduler struct {
 	locker distributedlock.Locker
 	clock  clock.Clock
@@ -219,7 +228,9 @@ func WithSchedulerMetricsProvider(metricsProvider metrics.Provider) SchedulerOpt
 // something double-charges a customer. Single-replica deployments and tests
 // pass distributedlock/memory, which is a real lock within one process;
 // distributedlock/noop opts out entirely and lets every replica run every job.
-func NewScheduler(cfg *SchedulerConfig, locker distributedlock.Locker, opts ...SchedulerOption) (*Scheduler, error) {
+//
+// ctx is used to validate the config and is not retained — Run takes its own.
+func NewScheduler(ctx context.Context, cfg *SchedulerConfig, locker distributedlock.Locker, opts ...SchedulerOption) (*Scheduler, error) {
 	if cfg == nil {
 		return nil, platformerrors.New("nil job scheduler config provided")
 	}
@@ -243,7 +254,7 @@ func NewScheduler(cfg *SchedulerConfig, locker distributedlock.Locker, opts ...S
 		}
 	}
 
-	if err := s.cfg.ValidateWithContext(context.Background()); err != nil {
+	if err := s.cfg.ValidateWithContext(ctx); err != nil {
 		return nil, platformerrors.Wrap(err, "validating job scheduler config")
 	}
 
@@ -530,15 +541,7 @@ func (s *Scheduler) execute(ctx context.Context, op observability.Operation, job
 // stopped arriving" months later rather than a crash now.
 func (s *Scheduler) invoke(ctx context.Context, op observability.Operation, job *Job, attrs metric.MeasurementOption) (err error) {
 	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			return
-		}
-
-		s.panicCounter.Add(ctx, 1, attrs)
-		op.SpanOnly(panicStackKey, string(debug.Stack()))
-
-		err = platformerrors.Wrapf(ErrJobPanicked, "%v", recovered)
+		err = containedPanic(ctx, op, err, s.panicCounter, attrs, ErrJobPanicked)
 	}()
 
 	timeout := job.Timeout
@@ -552,5 +555,5 @@ func (s *Scheduler) invoke(ctx context.Context, op observability.Operation, job 
 		defer cancel()
 	}
 
-	return job.Run(ctx)
+	return panicking.Contain(func() error { return job.Run(ctx) })
 }

@@ -28,7 +28,7 @@ type testEvent struct {
 
 // mustRecorder builds a Recorder, failing the test if its instruments cannot
 // be constructed.
-func mustRecorder[E any](tb testing.TB, sink Sink, opts ...Option[E]) *Recorder[E] {
+func mustRecorder[E any](tb testing.TB, sink Sink, opts ...Option) *Recorder[E] {
 	tb.Helper()
 
 	r, err := NewRecorder[E](sink, opts...)
@@ -211,17 +211,52 @@ func TestNewRecorder(T *testing.T) {
 
 		r, err := NewRecorder[testEvent](newRecordingSink(),
 			nil,
-			WithLogger[testEvent](loggingnoop.NewLogger()),
-			WithTracerProvider[testEvent](tracingnoop.NewTracerProvider()),
-			WithMetricsProvider[testEvent](metricsnoop.NewMetricsProvider()),
-			WithClock[testEvent](nil),
-			WithBufferSize[testEvent](0),
-			WithFlushInterval[testEvent](0),
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+			WithMetricsProvider(metricsnoop.NewMetricsProvider()),
+			WithClock(nil),
+			WithBufferSize(0),
+			WithFlushInterval(0),
 		)
 		must.NoError(t, err)
 		// The no-op option values left the defaults in place.
 		test.EqOp(t, DefaultBufferSize, cap(r.events))
 		test.EqOp(t, DefaultFlushInterval, r.flushInterval)
+	})
+
+	// Option carries no E, so a hook built for another event type type-checks.
+	// It has to be caught here rather than silently dropped, which would leave a
+	// composition that looks wired up and records nothing.
+	T.Run("rejects hooks built for a different event type", func(t *testing.T) {
+		t.Parallel()
+
+		type otherEvent struct{ Other string }
+
+		_, err := NewRecorder[testEvent](newRecordingSink(),
+			WithTransform(func(*otherEvent) any { return nil }))
+		test.ErrorIs(t, err, ErrEventTypeMismatch)
+
+		_, err = NewRecorder[testEvent](newRecordingSink(),
+			WithObserver(func(*otherEvent) {}))
+		test.ErrorIs(t, err, ErrEventTypeMismatch)
+	})
+
+	T.Run("accepts hooks for its own event type without a type argument", func(t *testing.T) {
+		t.Parallel()
+
+		var observed int
+
+		r, err := NewRecorder[testEvent](newRecordingSink(),
+			WithObserver(func(*testEvent) { observed++ }),
+			WithTransform(func(e *testEvent) any { return e.Name }),
+		)
+		must.NoError(t, err)
+		must.NotNil(t, r.observe)
+		must.NotNil(t, r.transform)
+
+		r.observe(&testEvent{})
+		test.EqOp(t, 1, observed)
+		test.EqOp(t, any("x"), r.transform(&testEvent{Name: "x"}))
 	})
 
 	T.Run("an instrument that cannot be built fails construction", func(t *testing.T) {
@@ -250,7 +285,7 @@ func TestNewRecorder(T *testing.T) {
 					},
 				}
 
-				_, err := NewRecorder[testEvent](newRecordingSink(), WithMetricsProvider[testEvent](mp))
+				_, err := NewRecorder[testEvent](newRecordingSink(), WithMetricsProvider(mp))
 				must.Error(t, err)
 				test.SliceLen(t, i+1, mp.NewInt64CounterCalls())
 			})
@@ -268,7 +303,7 @@ func TestNewRecorder(T *testing.T) {
 				},
 			}
 
-			_, err := NewRecorder[testEvent](newRecordingSink(), WithMetricsProvider[testEvent](mp))
+			_, err := NewRecorder[testEvent](newRecordingSink(), WithMetricsProvider(mp))
 			must.Error(t, err)
 			test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
 		})
@@ -286,8 +321,8 @@ func TestRecorder_SinkFailures(T *testing.T) {
 			mp := newCountingProvider()
 
 			r := mustRecorder[testEvent](t, sink,
-				WithLogger[testEvent](loggingnoop.NewLogger()),
-				WithMetricsProvider[testEvent](mp),
+				WithLogger(loggingnoop.NewLogger()),
+				WithMetricsProvider(mp),
 			)
 
 			go r.Run()
@@ -317,9 +352,9 @@ func TestRecorder_SinkFailures(T *testing.T) {
 
 			// Nothing is consuming yet, so the buffer fills for real.
 			r := mustRecorder[testEvent](t, newRecordingSink(),
-				WithBufferSize[testEvent](1),
-				WithLogger[testEvent](loggingnoop.NewLogger()),
-				WithMetricsProvider[testEvent](mp),
+				WithBufferSize(1),
+				WithLogger(loggingnoop.NewLogger()),
+				WithMetricsProvider(mp),
 			)
 
 			r.Record(&testEvent{Name: "kept"})
@@ -378,8 +413,8 @@ func TestRecorder_WithClock(T *testing.T) {
 		// tick to be consumed rather than racing Close against it.
 		ticked := make(chan time.Time, 1)
 		r := mustRecorder[testEvent](t, sink,
-			WithClock[testEvent](c),
-			WithOnFlush[testEvent](func(now time.Time, final bool, _ func(any)) {
+			WithClock(c),
+			WithOnFlush(func(now time.Time, final bool, _ func(any)) {
 				if !final {
 					ticked <- now
 				}
@@ -457,7 +492,7 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 
 		sink := newRecordingSink()
 		// No Run(): nothing consumes, so the buffer genuinely fills.
-		r := mustRecorder[testEvent](t, sink, WithBufferSize[testEvent](1))
+		r := mustRecorder[testEvent](t, sink, WithBufferSize(1))
 
 		r.Record(&testEvent{Name: "kept"})
 		r.Record(&testEvent{Name: "dropped-a"})
@@ -473,8 +508,8 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 			sink := newRecordingSink()
 			var observed int
 			r := mustRecorder[testEvent](t, sink,
-				WithoutRawRecords[testEvent](),
-				WithObserver[testEvent](func(*testEvent) { observed++ }),
+				WithoutRawRecords(),
+				WithObserver(func(*testEvent) { observed++ }),
 			)
 
 			go r.Run()
@@ -493,7 +528,7 @@ func TestRecorder_RecordAndClose(T *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			sink := newRecordingSink()
 			r := mustRecorder[testEvent](t, sink,
-				WithTransform[testEvent](func(ev *testEvent) any {
+				WithTransform(func(ev *testEvent) any {
 					return map[string]string{"name": ev.Name}
 				}),
 			)
@@ -527,8 +562,8 @@ func TestRecorder_PeriodicFlush(T *testing.T) {
 			var mu sync.Mutex
 
 			r := mustRecorder[testEvent](t, sink,
-				WithFlushInterval[testEvent](flushInterval),
-				WithOnFlush[testEvent](func(_ time.Time, final bool, emit func(any)) {
+				WithFlushInterval(flushInterval),
+				WithOnFlush(func(_ time.Time, final bool, emit func(any)) {
 					mu.Lock()
 					defer mu.Unlock()
 					hookCalls++
@@ -583,8 +618,8 @@ func TestRecorder_PeriodicFlush(T *testing.T) {
 			var polls int
 
 			r := mustRecorder[testEvent](t, sink,
-				WithFlushInterval[testEvent](flushInterval),
-				WithOverflowSource[testEvent](func() uint64 {
+				WithFlushInterval(flushInterval),
+				WithOverflowSource(func() uint64 {
 					mu.Lock()
 					defer mu.Unlock()
 					polls++
@@ -635,10 +670,25 @@ func TestAggregator(T *testing.T) {
 		}
 	}
 
+	// AggregatorOption carries no K, so a comparison over another key type
+	// type-checks. Dropping it silently would leave Flush non-deterministic in a
+	// way nothing surfaces, so NewAggregator panics instead.
+	T.Run("panics on a key order for a different key type", func(t *testing.T) {
+		t.Parallel()
+
+		defer func() {
+			r := recover()
+			must.NotNil(t, r)
+		}()
+
+		_ = NewAggregator[string, counts](time.Minute, 0, WithKeyOrder(func(a, b int) int { return a - b }))
+		t.Fatal("expected a panic")
+	})
+
 	T.Run("folds observations into time buckets", func(t *testing.T) {
 		t.Parallel()
 
-		agg := NewAggregator[string, counts](time.Minute, 0, WithKeyOrder[string, counts](cmpKeys))
+		agg := NewAggregator[string, counts](time.Minute, 0, WithKeyOrder(cmpKeys))
 
 		inc := func(c *counts) { c.total++ }
 		agg.Observe("a", testStart, inc)

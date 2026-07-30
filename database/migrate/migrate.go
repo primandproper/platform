@@ -9,6 +9,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/cryptography/hashing/fnv"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
@@ -22,20 +23,6 @@ import (
 
 // serviceName names the Migrator's span, logger, and metrics.
 const serviceName = "database_migrator"
-
-// Dialect selects the SQL dialect migrations run under.
-type Dialect string
-
-const (
-	// DialectPostgres runs migrations against PostgreSQL, serialized by a
-	// session advisory lock unless WithoutLock is set.
-	DialectPostgres Dialect = "postgres"
-	// DialectMySQL runs migrations against MySQL.
-	DialectMySQL Dialect = "mysql"
-	// DialectSQLite runs migrations against SQLite. SQLite is single-writer
-	// by nature, so no cross-process lock is taken.
-	DialectSQLite Dialect = "sqlite"
-)
 
 var _ database.Migrator = (*Migrator)(nil)
 
@@ -69,7 +56,7 @@ type Migrator struct {
 	errCounter          metrics.Int64Counter
 	latencyHist         metrics.Float64Histogram
 	lockKey             string
-	dialect             Dialect
+	dialect             dialect.Dialect
 	generated           []generatedMigration
 	lockProbeInterval   time.Duration
 	lockTimeout         time.Duration
@@ -129,9 +116,9 @@ func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 // The SQL is annotated and validated exactly like a file would be, so it may
 // contain several statements separated by semicolons:
 //
-//	ddl, err := outboxmigrations.SQL(outboxmigrations.DialectPostgres, outbox.DefaultTableName)
+//	ddl, err := outboxmigrations.SQL(dialect.Postgres, outbox.DefaultTableName)
 //	// ...
-//	m, err := migrate.New(migrate.DialectPostgres, myMigrations,
+//	m, err := migrate.New(dialect.Postgres, myMigrations,
 //		migrate.WithGeneratedMigration(37, "create_outbox_messages", ddl),
 //	)
 func WithGeneratedMigration(version uint64, name, body string) Option {
@@ -198,11 +185,11 @@ func WithUnlockTimeout(probeInterval, timeout time.Duration) Option {
 //
 // Only Up sections are ever applied — nothing in this package runs a Down — so
 // a Down section, if present, is inert.
-func New(dialect Dialect, migrations fs.FS, opts ...Option) (*Migrator, error) {
+func New(d dialect.Dialect, migrations fs.FS, opts ...Option) (*Migrator, error) {
 	if migrations == nil {
 		return nil, errors.New("nil migrations filesystem provided")
 	}
-	if _, err := gooseDialect(dialect); err != nil {
+	if _, err := gooseDialect(d); err != nil {
 		return nil, err
 	}
 
@@ -212,7 +199,7 @@ func New(dialect Dialect, migrations fs.FS, opts ...Option) (*Migrator, error) {
 	}
 
 	m := &Migrator{
-		dialect:             dialect,
+		dialect:             d,
 		fsys:                annotated,
 		lockProbeInterval:   DefaultLockProbeInterval,
 		lockTimeout:         DefaultLockTimeout,
@@ -301,7 +288,7 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 		m.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	dialect, err := gooseDialect(m.dialect)
+	gd, err := gooseDialect(m.dialect)
 	if err != nil {
 		m.errCounter.Add(ctx, 1)
 
@@ -310,7 +297,7 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 
 	providerOpts := []goose.ProviderOption{goose.WithLogger(&gooseLogger{logger: op.Logger()})}
 
-	locked := m.dialect == DialectPostgres && !m.withoutLock
+	locked := m.dialect == dialect.Postgres && !m.withoutLock
 	op.Set("migrate.locked", locked)
 
 	if locked {
@@ -334,7 +321,7 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 
 	// Instance-based provider: no package-global goose state, so parallel
 	// tests (and concurrent Migrators generally) never race on configuration.
-	provider, err := goose.NewProvider(dialect, db, m.fsys, providerOpts...)
+	provider, err := goose.NewProvider(gd, db, m.fsys, providerOpts...)
 	if err != nil {
 		m.errCounter.Add(ctx, 1)
 
@@ -388,13 +375,13 @@ func gooseProbe(what string, probeInterval, timeout time.Duration) (period, thre
 }
 
 // gooseDialect maps the package's Dialect to goose's, rejecting unknowns.
-func gooseDialect(d Dialect) (goose.Dialect, error) {
+func gooseDialect(d dialect.Dialect) (goose.Dialect, error) {
 	switch d {
-	case DialectPostgres:
+	case dialect.Postgres:
 		return goose.DialectPostgres, nil
-	case DialectMySQL:
+	case dialect.MySQL:
 		return goose.DialectMySQL, nil
-	case DialectSQLite:
+	case dialect.SQLite:
 		return goose.DialectSQLite3, nil
 	default:
 		return "", errors.Newf("unknown migration dialect %q", d)

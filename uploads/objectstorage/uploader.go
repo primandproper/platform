@@ -9,9 +9,7 @@ import (
 	circuitbreakingcfg "github.com/primandproper/platform-go/v8/circuitbreaking/config"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -79,7 +77,7 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewUploadManager provides a new uploads.UploadManager.
-func NewUploadManager(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, cfg *Config) (*Uploader, error) {
+func NewUploadManager(ctx context.Context, cfg *Config, opts ...Option) (*Uploader, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -88,14 +86,16 @@ func NewUploadManager(ctx context.Context, logger logging.Logger, tracerProvider
 		return nil, platformerrors.Wrap(err, "upload manager provided invalid config")
 	}
 
-	cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, logger, metricsProvider)
+	o := newOptions(opts)
+
+	cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, o.logger, o.metricsProvider)
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "initializing upload manager circuit breaker")
 	}
 
 	serviceName := fmt.Sprintf("%s_uploader", cfg.BucketName)
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	saveCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_saves", serviceName))
 	if err != nil {
@@ -133,7 +133,7 @@ func NewUploadManager(ctx context.Context, logger logging.Logger, tracerProvider
 	}
 
 	u := &Uploader{
-		o11y:             observability.NewObserver(serviceName, logger, tracerProvider),
+		o11y:             observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		circuitBreaker:   circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		saveCounter:      saveCounter,
 		readCounter:      readCounter,

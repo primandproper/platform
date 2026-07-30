@@ -88,7 +88,7 @@ func TestNewGRPCServer(T *testing.T) {
 	T.Run("returns error with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		server, err := NewGRPCServer(nil, nil, nil, nil, nil)
+		server, err := NewGRPCServer(nil, nil, nil, nil)
 
 		test.Nil(t, server)
 		test.Error(t, err)
@@ -98,7 +98,7 @@ func TestNewGRPCServer(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, nil, nil, nil, nil)
+		server, err := NewGRPCServer(cfg, nil, nil, nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -113,7 +113,7 @@ func TestNewGRPCServer(T *testing.T) {
 		}
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil, rf)
+		server, err := NewGRPCServer(cfg, nil, nil, []RegistrationFunc{rf})
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -129,7 +129,7 @@ func TestNewGRPCServer(T *testing.T) {
 			TLSCertificateKeyFile: "/nonexistent/key.pem",
 		}
 
-		server, err := NewGRPCServer(cfg, nil, nil, nil, nil)
+		server, err := NewGRPCServer(cfg, nil, nil, nil)
 
 		test.Nil(t, server)
 		test.Error(t, err)
@@ -146,7 +146,7 @@ func TestNewGRPCServer(T *testing.T) {
 			TLSCertificateKeyFile: keyFile,
 		}
 
-		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil)
+		server, err := NewGRPCServer(cfg, nil, nil, nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -202,7 +202,7 @@ func TestServer_Shutdown(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, nil, nil, nil, nil)
+		server, err := NewGRPCServer(cfg, nil, nil, nil)
 		must.NoError(t, err)
 
 		server.Shutdown(context.Background())
@@ -212,7 +212,7 @@ func TestServer_Shutdown(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil)
+		server, err := NewGRPCServer(cfg, nil, nil, nil)
 		must.NoError(t, err)
 
 		server.Shutdown(context.Background())
@@ -226,7 +226,7 @@ func TestServer_Shutdown(T *testing.T) {
 		}
 
 		cfg := &Config{Port: 0}
-		srv, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), mtp, nil, nil)
+		srv, err := NewGRPCServer(cfg, nil, nil, nil, WithTracerProvider(mtp))
 		must.NoError(t, err)
 
 		srv.Shutdown(context.Background())
@@ -246,7 +246,7 @@ func TestNewGRPCServer_withInterceptors(T *testing.T) {
 		}
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, []grpc.UnaryServerInterceptor{unaryInterceptor}, nil)
+		server, err := NewGRPCServer(cfg, []grpc.UnaryServerInterceptor{unaryInterceptor}, nil, nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -260,7 +260,7 @@ func TestNewGRPCServer_withInterceptors(T *testing.T) {
 		}
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, []grpc.StreamServerInterceptor{streamInterceptor})
+		server, err := NewGRPCServer(cfg, nil, []grpc.StreamServerInterceptor{streamInterceptor}, nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -274,7 +274,7 @@ func TestNewGRPCServer_withInterceptors(T *testing.T) {
 		rf2 := func(s *grpc.Server) { callCount++ }
 
 		cfg := &Config{Port: 0}
-		server, err := NewGRPCServer(cfg, nil, nil, nil, nil, rf1, rf2)
+		server, err := NewGRPCServer(cfg, nil, nil, []RegistrationFunc{rf1, rf2})
 
 		must.NoError(t, err)
 		test.NotNil(t, server)
@@ -289,7 +289,7 @@ func TestServer_Serve(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Port: 0}
-		srv, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil)
+		srv, err := NewGRPCServer(cfg, nil, nil, nil)
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -318,7 +318,7 @@ func TestServer_Serve(T *testing.T) {
 		port := lis.Addr().(*net.TCPAddr).Port
 
 		cfg := &Config{Port: uint16(port)}
-		srv, err := NewGRPCServer(cfg, loggingnoop.NewLogger(), nil, nil, nil)
+		srv, err := NewGRPCServer(cfg, nil, nil, nil)
 		must.NoError(t, err)
 
 		// Should return immediately because the port is already in use.

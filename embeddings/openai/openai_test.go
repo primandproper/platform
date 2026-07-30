@@ -12,8 +12,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/embeddings"
 	"github.com/primandproper/platform-go/v8/observability"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -24,7 +23,7 @@ import (
 func newRecordingEmbedder(t *testing.T, cfg *Config) (*embedder, *observability.RecordingObserver) {
 	t.Helper()
 
-	emb, err := NewEmbedder(t.Context(), cfg, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+	emb, err := NewEmbedder(t.Context(), cfg, WithTracerProvider(tracingnoop.NewTracerProvider()))
 	must.NoError(t, err)
 	must.NotNil(t, emb)
 
@@ -58,7 +57,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), nil, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(t.Context(), nil, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.Error(t, err)
 		must.Nil(t, emb)
 	})
@@ -66,7 +65,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with missing API key", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(t.Context(), &Config{}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.Error(t, err)
 		must.Nil(t, emb)
 	})
@@ -74,7 +73,7 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -82,10 +81,14 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with timeout", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:  "test-key",
-			Timeout: 5 * time.Second,
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:  "test-key",
+				Timeout: 5 * time.Second,
+			},
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
 		must.NoError(t, err)
 		must.NotNil(t, emb)
 	})
@@ -158,11 +161,15 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:       "test-key",
-			BaseURL:      ts.URL,
-			DefaultModel: "text-embedding-3-small",
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:       "test-key",
+				BaseURL:      ts.URL,
+				DefaultModel: "text-embedding-3-small",
+			},
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -214,10 +221,14 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:  "test-key",
-			BaseURL: ts.URL,
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:  "test-key",
+				BaseURL: ts.URL,
+			},
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -240,10 +251,14 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:  "test-key",
-			BaseURL: ts.URL,
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:  "test-key",
+				BaseURL: ts.URL,
+			},
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -261,10 +276,14 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		ts.Close()
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:  "test-key",
-			BaseURL: ts.URL,
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:  "test-key",
+				BaseURL: ts.URL,
+			},
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -288,11 +307,15 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(t.Context(), &Config{
-			APIKey:       "test-key",
-			BaseURL:      ts.URL,
-			DefaultModel: "text-embedding-3-large",
-		}, loggingnoop.NewLogger(), tracing.NewTracerForTest("test"))
+		emb, err := NewEmbedder(
+			t.Context(),
+			&Config{
+				APIKey:       "test-key",
+				BaseURL:      ts.URL,
+				DefaultModel: "text-embedding-3-large",
+			},
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -310,7 +333,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		e := &embedder{
 			cfg:  &Config{APIKey: "test-key"},
-			o11y: observability.NewObserverWithTracer(providerName, loggingnoop.NewLogger(), tracing.NewTracerForTest("test")),
+			o11y: observability.NewObserverForTest(providerName),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					test.StrContains(t, r.URL.String(), defaultBaseURL)
@@ -334,7 +357,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		e := &embedder{
 			cfg:    &Config{APIKey: "test-key", BaseURL: string([]byte{0x7f})},
-			o11y:   observability.NewObserverWithTracer(providerName, loggingnoop.NewLogger(), tracing.NewTracerForTest("test")),
+			o11y:   observability.NewObserverForTest(providerName),
 			client: &http.Client{},
 		}
 
@@ -350,7 +373,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		body := `{"data":[{"embedding":[0.1,0.2]}]}`
 		e := &embedder{
 			cfg:  &Config{APIKey: "test-key", BaseURL: "http://localhost"},
-			o11y: observability.NewObserverWithTracer(providerName, loggingnoop.NewLogger(), tracing.NewTracerForTest("test")),
+			o11y: observability.NewObserverForTest(providerName),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return &http.Response{
@@ -372,7 +395,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		e := &embedder{
 			cfg:  &Config{APIKey: "test-key", BaseURL: "http://localhost"},
-			o11y: observability.NewObserverWithTracer(providerName, loggingnoop.NewLogger(), tracing.NewTracerForTest("test")),
+			o11y: observability.NewObserverForTest(providerName),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return &http.Response{

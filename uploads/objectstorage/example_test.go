@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/uploads"
 	"github.com/primandproper/platform-go/v8/uploads/objectstorage"
 )
@@ -15,9 +12,6 @@ import (
 func newExampleManager() *objectstorage.Uploader {
 	m, err := objectstorage.NewUploadManager(
 		context.Background(),
-		loggingnoop.NewLogger(),
-		tracingnoop.NewTracerProvider(),
-		metricsnoop.NewMetricsProvider(),
 		// The in-memory provider needs no credentials, so it's handy for examples and tests.
 		&objectstorage.Config{BucketName: "example", Provider: objectstorage.MemoryProvider},
 	)

@@ -27,8 +27,10 @@ type inMemoryRateLimiter struct {
 }
 
 // NewInMemoryRateLimiter returns a RateLimiter that uses per-key limiters in memory.
-func NewInMemoryRateLimiter(metricsProvider metrics.Provider, requestsPerSec float64, burstSize int) (RateLimiter, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Option) (RateLimiter, error) {
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	allowedCounter, err := mp.NewInt64Counter(inMemoryName + "_allowed")
 	if err != nil {

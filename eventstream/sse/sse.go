@@ -12,7 +12,6 @@ import (
 	"github.com/primandproper/platform-go/v8/eventstream"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 const (
@@ -30,9 +29,11 @@ type Upgrader struct {
 }
 
 // NewUpgrader creates a new SSE Upgrader.
-func NewUpgrader(tracerProvider tracing.TracerProvider) *Upgrader {
+func NewUpgrader(opts ...Option) *Upgrader {
+	o := newOptions(opts)
+
 	return &Upgrader{
-		o11y: observability.NewObserver(name, nil, tracerProvider),
+		o11y: observability.NewObserver(name, nil, o.tracerProvider),
 	}
 }
 

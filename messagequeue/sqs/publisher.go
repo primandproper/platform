@@ -103,7 +103,7 @@ func provideSQSPublisher(logger logging.Logger, sqsClient messagePublisher, trac
 	return &sqsPublisher{
 		publisher:         sqsClient,
 		topic:             topic,
-		encoder:           encoding.NewClientEncoder(logger, tracerProvider, encoding.ContentTypeJSON),
+		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
 		o11y:              observability.NewObserver(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider),
 		publishedCounter:  publishedCounter,
 		publishErrCounter: publishErrCounter,
@@ -121,7 +121,9 @@ type publisherProvider struct {
 }
 
 // NewSQSPublisherProvider returns a PublisherProvider for a given address.
-func NewSQSPublisherProvider(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, queueCfg Config) (messagequeue.PublisherProvider, error) {
+func NewSQSPublisherProvider(ctx context.Context, queueCfg Config, opts ...Option) (messagequeue.PublisherProvider, error) {
+	o := newOptions(opts)
+
 	var loadOpts []func(*config.LoadOptions) error
 	if queueCfg.QueueAddress != "" {
 		// Override the AWS endpoint (e.g. to point at localstack) when configured,
@@ -139,11 +141,11 @@ func NewSQSPublisherProvider(ctx context.Context, logger logging.Logger, tracerP
 	svc := sqs.NewFromConfig(cfg)
 
 	return &publisherProvider{
-		o11y:            observability.NewObserver("sqs_publisher_provider", logger, tracerProvider),
+		o11y:            observability.NewObserver("sqs_publisher_provider", o.logger, o.tracerProvider),
 		sqsClient:       svc,
 		publisherCache:  map[string]messagequeue.Publisher{},
-		tracerProvider:  tracerProvider,
-		metricsProvider: metricsProvider,
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
 	}, nil
 }
 

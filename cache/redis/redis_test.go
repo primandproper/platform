@@ -11,9 +11,11 @@ import (
 	"github.com/primandproper/platform-go/v8/cache"
 	mockcircuitbreaking "github.com/primandproper/platform-go/v8/circuitbreaking/mock"
 	"github.com/primandproper/platform-go/v8/observability"
+	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/testutils/containers/redistest"
 
 	"github.com/redis/go-redis/v9"
@@ -119,7 +121,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with no addresses", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewRedisCache[example](&Config{}, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](&Config{}, time.Minute, nil)
 		test.Error(t, err)
 		test.Nil(t, c)
 	})
@@ -127,7 +129,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewRedisCache[example](nil, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](nil, time.Minute, nil)
 		test.Error(t, err)
 		test.Nil(t, c)
 	})
@@ -137,7 +139,7 @@ func TestNewRedisCache(T *testing.T) {
 
 		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
 		test.NotNil(t, c)
 	})
@@ -147,7 +149,7 @@ func TestNewRedisCache(T *testing.T) {
 
 		cfg := &Config{QueueAddresses: []string{"localhost:6379", "localhost:6380"}}
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
 		test.NotNil(t, c)
 	})
@@ -161,7 +163,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_hits": {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
@@ -177,7 +179,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_misses": {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
@@ -194,7 +196,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_sets":   {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 3, mp.NewInt64CounterCalls())
@@ -212,7 +214,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_deletes": {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 4, mp.NewInt64CounterCalls())
@@ -231,7 +233,7 @@ func TestNewRedisCache(T *testing.T) {
 			name + "_cache_errors":  {counter: okCounter(), err: errors.New("counter error")},
 		})
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 5, mp.NewInt64CounterCalls())
@@ -256,7 +258,7 @@ func TestNewRedisCache(T *testing.T) {
 			},
 		}
 
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, mp, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, c)
 		test.SliceLen(t, 5, mp.NewInt64CounterCalls())
@@ -273,7 +275,7 @@ func Test_redisCacheImpl_Get(T *testing.T) {
 		ctx := t.Context()
 
 		cfg := buildContainerBackedRedisConfig(t)
-		c, err := NewRedisCache[example](cfg, 0, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, 0, nil)
 		must.NoError(t, err)
 
 		exampleContent := &example{Name: t.Name()}
@@ -425,7 +427,7 @@ func Test_redisCacheImpl_Set(T *testing.T) {
 		ctx := t.Context()
 
 		cfg := buildContainerBackedRedisConfig(t)
-		c, err := NewRedisCache[example](cfg, 0, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, 0, nil)
 		must.NoError(t, err)
 
 		exampleContent := &example{Name: t.Name()}
@@ -509,7 +511,7 @@ func Test_redisCacheImpl_Delete(T *testing.T) {
 		ctx := t.Context()
 
 		cfg := buildContainerBackedRedisConfig(t)
-		c, err := NewRedisCache[example](cfg, 0, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, 0, nil)
 		must.NoError(t, err)
 
 		exampleContent := &example{Name: t.Name()}
@@ -868,7 +870,7 @@ func Test_redisCacheImpl_SetMany_GetMany(T *testing.T) {
 		ctx := t.Context()
 
 		cfg := buildContainerBackedRedisConfig(t)
-		c, err := NewRedisCache[example](cfg, time.Minute, nil, nil, nil, nil)
+		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
 
 		items := map[string]*example{
@@ -1087,7 +1089,7 @@ func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
 
 		ctx := t.Context()
 		impl, client, cb, _ := buildTestImpl(t)
-		WithCodec[example](nilCodec{})(impl)
+		impl.codec = nilCodec{}
 
 		cb.CannotProceedFunc = func() bool { return false }
 		cb.SucceededFunc = func() {}
@@ -1108,7 +1110,7 @@ func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
 
 		ctx := t.Context()
 		impl, client, cb, _ := buildTestImpl(t)
-		WithCodec[example](nilCodec{})(impl)
+		impl.codec = nilCodec{}
 
 		cb.CannotProceedFunc = func() bool { return false }
 		cb.SucceededFunc = func() {}
@@ -1128,7 +1130,7 @@ func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
 		t.Parallel()
 
 		impl, client, cb, _ := buildTestImpl(t)
-		WithCodec[example](brokenCodec{})(impl)
+		impl.codec = brokenCodec{}
 
 		cb.CannotProceedFunc = func() bool { return false }
 
@@ -1140,7 +1142,7 @@ func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
 		t.Parallel()
 
 		impl, client, cb, _ := buildTestImpl(t)
-		WithCodec[example](brokenCodec{})(impl)
+		impl.codec = brokenCodec{}
 
 		cb.CannotProceedFunc = func() bool { return false }
 
@@ -1152,12 +1154,43 @@ func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
 func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 	T.Parallel()
 
+	// Option carries no T, so a codec for another type type-checks. Keeping the
+	// gob default silently would be worse than failing: the cache would encode
+	// correctly and the caller would never learn their codec was ignored.
+	T.Run("NewRedisCache rejects a codec for a different type", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewRedisCache[example](
+			&Config{QueueAddresses: []string{"localhost:6379"}},
+			time.Minute,
+			nil,
+			WithCodec(cache.NewGobCodec[struct{ Other string }]()),
+		)
+		test.ErrorIs(t, err, ErrCodecTypeMismatch)
+	})
+
+	T.Run("NewRedisCache accepts a codec for its own type without a type argument", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := NewRedisCache[example](
+			&Config{QueueAddresses: []string{"localhost:6379"}},
+			time.Minute,
+			nil,
+			WithCodec(nameCodec{}),
+		)
+		must.NoError(t, err)
+
+		impl, ok := c.(*redisCacheImpl[example])
+		must.True(t, ok)
+		test.EqOp(t, any(nameCodec{}), any(impl.codec))
+	})
+
 	T.Run("Set stores the codec's bytes and Get decodes them", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		impl, client, cb, _ := buildTestImpl(t)
-		WithCodec[example](nameCodec{})(impl)
+		impl.codec = nameCodec{}
 
 		cb.CannotProceedFunc = func() bool { return false }
 		cb.SucceededFunc = func() {}
@@ -1188,7 +1221,13 @@ func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 
 		ctx := t.Context()
 		impl, client, cb, _ := buildTestImpl(t)
-		WithCodec[example](nil)(impl)
+
+		// The option records nothing for a nil codec, so the constructor never
+		// overwrites the gob default it installed. Asserted on the options
+		// struct because that is the only place the distinction exists.
+		o := &options{}
+		WithCodec[example](nil)(o)
+		test.Nil(t, o.codec)
 
 		cb.CannotProceedFunc = func() bool { return false }
 		cb.SucceededFunc = func() {}
@@ -1476,7 +1515,7 @@ func TestWithScanPageSize(T *testing.T) {
 		t.Parallel()
 
 		impl, client, cb, _ := buildTestImpl(t)
-		WithScanPageSize[example](25)(impl)
+		impl.scanPageSize = 25
 
 		test.EqOp(t, int64(25), scanCount(t, impl, client, cb))
 	})
@@ -1492,11 +1531,13 @@ func TestWithScanPageSize(T *testing.T) {
 	T.Run("a non-positive size is ignored", func(t *testing.T) {
 		t.Parallel()
 
+		// Asserted against an options struct seeded the way NewRedisCache seeds
+		// it, since "ignored" means the option must not overwrite the default.
 		for _, size := range []int64{0, -1} {
-			impl, client, cb, _ := buildTestImpl(t)
-			WithScanPageSize[example](size)(impl)
+			o := &options{scanPageSize: defaultScanPageSize}
+			WithScanPageSize(size)(o)
 
-			test.EqOp(t, int64(defaultScanPageSize), scanCount(t, impl, client, cb))
+			test.EqOp(t, int64(defaultScanPageSize), o.scanPageSize)
 		}
 	})
 
@@ -1505,13 +1546,112 @@ func TestWithScanPageSize(T *testing.T) {
 
 		c, err := NewRedisCache[example](
 			&Config{QueueAddresses: []string{"localhost:6379"}},
-			time.Minute, nil, nil, nil, nil,
-			WithScanPageSize[example](64),
+			time.Minute,
+			nil,
+			WithScanPageSize(64),
 		)
 		must.NoError(t, err)
 
 		impl, ok := c.(*redisCacheImpl[example])
 		must.True(t, ok)
 		test.EqOp(t, int64(64), impl.scanPageSize)
+	})
+}
+
+func TestWithLogger(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the logger", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{}
+		WithLogger(loggingnoop.NewLogger())(o)
+
+		test.NotNil(t, o.logger)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{logger: loggingnoop.NewLogger()}
+		WithLogger(nil)(o)
+
+		test.Nil(t, o.logger)
+	})
+
+	T.Run("NewRedisCache applies the option", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := NewRedisCache[example](
+			&Config{QueueAddresses: []string{"localhost:6379"}},
+			time.Minute,
+			nil,
+			WithLogger(loggingnoop.NewLogger()),
+		)
+		must.NoError(t, err)
+
+		impl, ok := c.(*redisCacheImpl[example])
+		must.True(t, ok)
+		test.NotNil(t, impl.logger)
+	})
+}
+
+func TestWithTracerProvider(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the tracer provider", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{}
+		WithTracerProvider(tracingnoop.NewTracerProvider())(o)
+
+		test.NotNil(t, o.tracerProvider)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{tracerProvider: tracingnoop.NewTracerProvider()}
+		WithTracerProvider(nil)(o)
+
+		test.Nil(t, o.tracerProvider)
+	})
+
+	T.Run("NewRedisCache applies the option", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := NewRedisCache[example](
+			&Config{QueueAddresses: []string{"localhost:6379"}},
+			time.Minute,
+			nil,
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		)
+		must.NoError(t, err)
+
+		impl, ok := c.(*redisCacheImpl[example])
+		must.True(t, ok)
+		test.NotNil(t, impl.tracerProvider)
+	})
+}
+
+func TestWithMetricsProvider(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the metrics provider", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{}
+		WithMetricsProvider(metricsnoop.NewMetricsProvider())(o)
+
+		test.NotNil(t, o.metricsProvider)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := &options{metricsProvider: metricsnoop.NewMetricsProvider()}
+		WithMetricsProvider(nil)(o)
+
+		test.Nil(t, o.metricsProvider)
 	})
 }

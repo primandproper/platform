@@ -13,9 +13,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/resend/resend-go/v3"
 )
@@ -48,7 +46,7 @@ type (
 )
 
 // NewResendEmailer returns a new Resend-backed Emailer.
-func NewResendEmailer(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, client *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, metricsProvider metrics.Provider) (*Emailer, error) {
+func NewResendEmailer(cfg *Config, client *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (*Emailer, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -61,7 +59,9 @@ func NewResendEmailer(cfg *Config, logger logging.Logger, tracerProvider tracing
 		return nil, ErrNilHTTPClient
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	sendCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_sends", name))
 	if err != nil {
@@ -79,7 +79,7 @@ func NewResendEmailer(cfg *Config, logger logging.Logger, tracerProvider tracing
 	}
 
 	e := &Emailer{
-		o11y:           observability.NewObserver(name, logger, tracerProvider),
+		o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
 		sendCounter:    sendCounter,
 		errorCounter:   errorCounter,
 		latencyHist:    latencyHist,

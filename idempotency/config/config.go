@@ -86,6 +86,11 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 // NewManager builds a Manager for T from configuration.
 //
+// T must be supplied explicitly — NewManager[Receipt](...) — because this
+// constructor builds the record store itself, so nothing in the argument list
+// mentions T. That single annotation is the whole cost: idempotency.Option
+// carries no type parameter, so the options passed here need none.
+//
 // db is required only when the lock provider is postgres; pass nil otherwise.
 //
 // The transport adapters have their own NewManager, and callers wiring up HTTP
@@ -99,7 +104,7 @@ func NewManager[T any](
 	tracerProvider tracing.TracerProvider,
 	metricsProvider metrics.Provider,
 	db database.Client,
-	opts ...idempotency.Option[T],
+	opts ...idempotency.Option,
 ) (*idempotency.Manager[T], error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
@@ -127,14 +132,14 @@ func NewManager[T any](
 	}
 
 	// Caller options are appended last so they win over anything configured.
-	return idempotency.NewManager(store, locker, append([]idempotency.Option[T]{
-		idempotency.WithTTL[T](cfg.TTL),
-		idempotency.WithInFlightTTL[T](cfg.InFlightTTL),
-		idempotency.WithMaxKeyLength[T](cfg.MaxKeyLength),
-		idempotency.WithKeyPrefix[T](cfg.KeyPrefix),
-		idempotency.WithStoreFailurePolicy[T](policy),
-		idempotency.WithLogger[T](logger),
-		idempotency.WithTracerProvider[T](tracerProvider),
-		idempotency.WithMetricsProvider[T](metricsProvider),
+	return idempotency.NewManager(store, locker, append([]idempotency.Option{
+		idempotency.WithTTL(cfg.TTL),
+		idempotency.WithInFlightTTL(cfg.InFlightTTL),
+		idempotency.WithMaxKeyLength(cfg.MaxKeyLength),
+		idempotency.WithKeyPrefix(cfg.KeyPrefix),
+		idempotency.WithStoreFailurePolicy(policy),
+		idempotency.WithLogger(logger),
+		idempotency.WithTracerProvider(tracerProvider),
+		idempotency.WithMetricsProvider(metricsProvider),
 	}, opts...)...)
 }

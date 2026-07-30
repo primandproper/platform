@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"sync"
 	"time"
 
 	"github.com/primandproper/platform-go/v8/clock"
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/messagequeue"
 	"github.com/primandproper/platform-go/v8/observability"
@@ -85,7 +85,7 @@ func (m ClaimMode) Valid() bool {
 // RelayConfig configures a Relay.
 type RelayConfig struct {
 	// Dialect selects the SQL emitted; it must match the database.Client.
-	Dialect Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
+	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
 	// TableName is the outbox table. Defaults to DefaultTableName.
 	TableName string `env:"TABLE_NAME" json:"tableName" yaml:"tableName"`
 	// ClaimMode selects lease-only or SKIP LOCKED claiming.
@@ -118,7 +118,7 @@ func (cfg *RelayConfig) EnsureDefaults() {
 	if cfg.ClaimMode == "" {
 		cfg.ClaimMode = ClaimSkipLocked
 	}
-	if !cfg.Dialect.supportsSkipLocked() {
+	if !cfg.Dialect.SupportsSkipLocked() {
 		cfg.ClaimMode = ClaimLease
 	}
 	if cfg.BatchSize <= 0 {
@@ -148,7 +148,7 @@ func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Dialect, validation.Required, validation.By(func(any) error {
 			if !cfg.Dialect.Valid() {
-				return platformerrors.Wrapf(ErrUnsupportedDialect, "dialect %q", cfg.Dialect)
+				return platformerrors.Wrapf(dialect.ErrUnsupported, "outbox dialect %q", cfg.Dialect)
 			}
 
 			return nil
@@ -157,7 +157,7 @@ func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 			if !cfg.ClaimMode.Valid() {
 				return platformerrors.Wrapf(ErrInvalidClaimMode, "claim mode %q", cfg.ClaimMode)
 			}
-			if cfg.ClaimMode == ClaimSkipLocked && !cfg.Dialect.supportsSkipLocked() {
+			if cfg.ClaimMode == ClaimSkipLocked && !cfg.Dialect.SupportsSkipLocked() {
 				return platformerrors.Wrapf(ErrInvalidClaimMode, "dialect %q cannot skip locked rows", cfg.Dialect)
 			}
 
@@ -177,11 +177,12 @@ func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 var ErrInvalidClaimMode = platformerrors.New("invalid outbox claim mode")
 
 // ErrNilDatabaseClient indicates a nil database.Client was passed to NewRelay.
-var ErrNilDatabaseClient = platformerrors.New("nil database client")
+// It wraps errors.ErrNilInputParameter, so a caller may check either.
+var ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil database client")
 
 // ErrNilPublisherProvider indicates a nil PublisherProvider was passed to
-// NewRelay.
-var ErrNilPublisherProvider = platformerrors.New("nil publisher provider")
+// NewRelay. It wraps errors.ErrNilInputParameter, so a caller may check either.
+var ErrNilPublisherProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil publisher provider")
 
 // claimedMessage is one row the relay has taken ownership of.
 type claimedMessage struct {
@@ -263,7 +264,9 @@ func WithRelayMetricsProvider(metricsProvider metrics.Provider) RelayOption {
 }
 
 // NewRelay builds a Relay. It does not start it; call Run.
-func NewRelay(cfg *RelayConfig, client database.Client, provider messagequeue.PublisherProvider, opts ...RelayOption) (*Relay, error) {
+//
+// ctx is used to validate the config and is not retained — Run takes its own.
+func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, provider messagequeue.PublisherProvider, opts ...RelayOption) (*Relay, error) {
 	if cfg == nil {
 		return nil, platformerrors.New("nil outbox relay config provided")
 	}
@@ -276,8 +279,8 @@ func NewRelay(cfg *RelayConfig, client database.Client, provider messagequeue.Pu
 
 	cfg.EnsureDefaults()
 
-	if !validIdentifier(cfg.TableName) {
-		return nil, platformerrors.Wrapf(ErrInvalidTableName, "table %q", cfg.TableName)
+	if !dialect.ValidIdentifier(cfg.TableName) {
+		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", cfg.TableName)
 	}
 
 	r := &Relay{
@@ -295,7 +298,7 @@ func NewRelay(cfg *RelayConfig, client database.Client, provider messagequeue.Pu
 		}
 	}
 
-	if err := r.cfg.ValidateWithContext(context.Background()); err != nil {
+	if err := r.cfg.ValidateWithContext(ctx); err != nil {
 		return nil, platformerrors.Wrap(err, "validating outbox relay config")
 	}
 
@@ -756,20 +759,21 @@ func topicAttr(topic string) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String(keys.TopicKey, topic))
 }
 
-// backoffFor computes the delay before a message's next attempt, using the
-// same knobs as retry.Config. The retry package's Policy retries in a loop,
-// which is the wrong shape here: the wait is persisted as a timestamp and
-// survives a relay restart.
+// backoffFor computes the delay before a message's next attempt.
+//
+// The schedule comes from retry.DelayFor, so the relay and anything using a
+// retry.Policy grow their delays identically from the same Config. What differs
+// is everything around it: the wait is persisted as a timestamp rather than
+// slept through, so it survives a relay restart, and the jitter is full rather
+// than equal — several relays share this table, and spreading their next
+// attempts across the whole window is what keeps them from re-colliding on
+// every round after one contended claim.
 func (r *Relay) backoffFor(attempts int) time.Duration {
 	if attempts < 1 {
 		attempts = 1
 	}
 
-	delay := float64(r.cfg.Backoff.InitialDelay) * math.Pow(r.cfg.Backoff.Multiplier, float64(attempts-1))
-
-	if maxDelay := float64(r.cfg.Backoff.MaxDelay); delay > maxDelay {
-		delay = maxDelay
-	}
+	delay := float64(retry.DelayFor(r.cfg.Backoff, uint(attempts)))
 
 	if r.cfg.Backoff.UseJitter {
 		// Full jitter. Not security-sensitive: this only decorrelates retry
@@ -777,6 +781,9 @@ func (r *Relay) backoffFor(attempts int) time.Duration {
 		delay *= rand.Float64() //nolint:gosec // jitter, not entropy
 	}
 
+	// A floor, because a jittered delay can land arbitrarily close to zero and
+	// a message that becomes claimable immediately would spin against the same
+	// failure rather than waiting out whatever caused it.
 	if delay < float64(time.Millisecond) {
 		delay = float64(time.Millisecond)
 	}

@@ -84,7 +84,7 @@ func (c *encoderCache) get(contentType encoding.ContentType) encoding.ServerEnco
 		return e
 	}
 
-	e := encoding.NewServerEncoderDecoder(c.logger, c.tracerProvider, contentType)
+	e := encoding.NewServerEncoderDecoder(contentType, encoding.WithLogger(c.logger), encoding.WithTracerProvider(c.tracerProvider))
 	c.byType[contentType] = e
 
 	return e
@@ -119,11 +119,13 @@ type (
 	RouterOption func(*routerConfig)
 
 	routerConfig struct {
-		title       string
-		version     string
-		description string
-		servers     []string
-		envelope    bool
+		logger         logging.Logger
+		tracerProvider tracing.TracerProvider
+		title          string
+		version        string
+		description    string
+		servers        []string
+		envelope       bool
 	}
 )
 
@@ -153,23 +155,34 @@ func WithDefaultEnvelope(enabled bool) RouterOption {
 	return func(c *routerConfig) { c.envelope = enabled }
 }
 
+// WithLogger attaches a logger.
+func WithLogger(logger logging.Logger) RouterOption {
+	return func(c *routerConfig) { c.logger = logger }
+}
+
+// WithTracerProvider attaches a tracer provider, enabling spans on every
+// registered route.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) RouterOption {
+	return func(c *routerConfig) { c.tracerProvider = tracerProvider }
+}
+
 // New builds a Router over a Backend. The backend carries all library-specific
 // middleware and OpenTelemetry wiring; the encoder decides how request bodies
 // are decoded and responses encoded.
 func New(
 	backend Backend,
 	enc encoding.ServerEncoderDecoder,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
 	opts ...RouterOption,
 ) *Router {
 	cfg := routerConfig{title: "API", version: "0.0.0", envelope: true}
 	for _, o := range opts {
-		o(&cfg)
+		if o != nil {
+			o(&cfg)
+		}
 	}
 
-	logger = logging.EnsureLogger(logger)
-	tracerProvider = tracing.EnsureTracerProvider(tracerProvider)
+	logger := logging.EnsureLogger(cfg.logger)
+	tracerProvider := tracing.EnsureTracerProvider(cfg.tracerProvider)
 
 	reflector := openapi3.NewReflector()
 	reflector.Spec.Info.WithTitle(cfg.title).WithVersion(cfg.version)

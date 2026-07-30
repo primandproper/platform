@@ -21,7 +21,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/encoding"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/panicking"
 	"github.com/primandproper/platform-go/v8/routing"
@@ -55,12 +54,10 @@ func (m *mockTracerProvider) ForceFlush(ctx context.Context) error {
 func testRouter(t *testing.T) *routing.Router {
 	t.Helper()
 
-	logger := loggingnoop.NewLogger()
-	tracerProvider := tracingnoop.NewTracerProvider()
-	backend := chi.NewBackend(logger, tracerProvider, metricsnoop.NewMetricsProvider(), &chi.Config{ServiceName: t.Name()})
-	enc := encoding.NewServerEncoderDecoder(logger, tracerProvider, encoding.ContentTypeJSON)
+	backend := chi.NewBackend(&chi.Config{ServiceName: t.Name()})
+	enc := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
 
-	return routing.New(backend, enc, logger, tracerProvider)
+	return routing.New(backend, enc)
 }
 
 func generateTestTLSCerts(t *testing.T) (certFile, keyFile string) {
@@ -115,8 +112,6 @@ func TestNewHTTPServer(T *testing.T) {
 				Debug:                 false,
 			},
 			nil,
-			nil,
-			nil,
 			"",
 		)
 
@@ -127,7 +122,7 @@ func TestNewHTTPServer(T *testing.T) {
 	T.Run("with nil settings", func(t *testing.T) {
 		t.Parallel()
 
-		x, err := NewHTTPServer(nil, loggingnoop.NewLogger(), nil, nil, "")
+		x, err := NewHTTPServer(nil, nil, "")
 
 		test.NotNil(t, x)
 		test.NoError(t, err)
@@ -138,8 +133,6 @@ func TestNewHTTPServer(T *testing.T) {
 
 		x, err := NewHTTPServer(
 			&Config{Port: 8080},
-			loggingnoop.NewLogger(),
-			nil,
 			nil,
 			"custom_service",
 		)
@@ -153,8 +146,6 @@ func TestNewHTTPServer(T *testing.T) {
 
 		x, err := NewHTTPServer(
 			&Config{Port: 8080},
-			loggingnoop.NewLogger(),
-			nil,
 			nil,
 			"",
 		)
@@ -172,8 +163,6 @@ func TestNewHTTPServer(T *testing.T) {
 				SSLCertificateKeyFile: "/some/key.pem",
 				Port:                  8443,
 			},
-			loggingnoop.NewLogger(),
-			nil,
 			nil,
 			"",
 		)
@@ -189,7 +178,7 @@ func TestServer_Router(T *testing.T) {
 	T.Run("returns the router", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewHTTPServer(&Config{Port: 0}, nil, nil, nil, "")
+		s, err := NewHTTPServer(&Config{Port: 0}, nil, "")
 		must.NoError(t, err)
 
 		// Router returns nil when nil was passed in
@@ -203,7 +192,7 @@ func TestServer_Shutdown(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewHTTPServer(&Config{Port: 0}, loggingnoop.NewLogger(), nil, nil, "")
+		s, err := NewHTTPServer(&Config{Port: 0}, nil, "")
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -219,7 +208,7 @@ func TestServer_Shutdown(T *testing.T) {
 			forceFlushFunc: func(_ context.Context) error { return errors.New("flush failed") },
 		}
 
-		s, err := NewHTTPServer(&Config{Port: 0}, loggingnoop.NewLogger(), nil, mtp, "")
+		s, err := NewHTTPServer(&Config{Port: 0}, nil, "", WithTracerProvider(mtp))
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

@@ -59,10 +59,22 @@ func (s *PermissionSet) Has(p Permission) bool {
 //
 // HasAll with no permissions is vacuously true, which is the mathematically
 // honest answer and also a hazard: a requirement that accidentally resolves to
-// zero permissions would authorize everyone. The fix belongs at the
-// declaration site rather than here — see RequirementsBuilder.Build in
-// authorization/grpc, which refuses to register a method with an empty
-// permission list precisely so this case cannot arise from configuration.
+// zero permissions would authorize everyone.
+//
+// Set algebra wins here and the guard belongs at the declaration site, so the
+// three places a permission list is declared each answer the empty case
+// themselves, and they do not answer it the same way:
+//
+//	PermissionSet.HasAll(), Grants.HasAll()   true   — set algebra
+//	http.Enforcer.Require()                   denies — an empty list is a bug
+//	grpc.RequirementsBuilder.Require()        errors — refuses to build
+//
+// That is deliberate, but it means "empty means allow" is only ever safe with a
+// list you constructed literally. Anything derived from configuration, a
+// database, or a map lookup must be checked for emptiness before it reaches
+// here. Enforcement code should not call this at all — use the Enforcer for its
+// transport, which already guards; see authorization/http for why HTTP cannot
+// do that check at boot the way gRPC does.
 func (s *PermissionSet) HasAll(perms ...Permission) bool {
 	for _, p := range perms {
 		if !s.Has(p) {

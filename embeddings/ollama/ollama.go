@@ -14,7 +14,6 @@ import (
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
 	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 const (
@@ -30,12 +29,13 @@ type embedder struct {
 }
 
 // NewEmbedder creates a new Ollama-backed embeddings provider.
-func NewEmbedder(ctx context.Context, cfg *Config, logger logging.Logger, tracer tracing.Tracer) (embeddings.Embedder, error) {
+func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (embeddings.Embedder, error) {
 	if cfg == nil {
 		return nil, errors.New("ollama embeddings config is required")
 	}
 
-	logger = logging.EnsureLogger(logger)
+	o := newOptions(opts)
+	logger := logging.EnsureLogger(o.logger)
 
 	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, errors.Wrap(err, "validating ollama embeddings config")
@@ -52,7 +52,7 @@ func NewEmbedder(ctx context.Context, cfg *Config, logger logging.Logger, tracer
 	client := &http.Client{Timeout: timeout}
 
 	return &embedder{
-		o11y:   observability.NewObserverWithTracer(providerName, logger, tracer),
+		o11y:   observability.NewObserver(providerName, logger, o.tracerProvider),
 		client: client,
 		cfg:    cfg,
 	}, nil

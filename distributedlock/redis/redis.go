@@ -12,9 +12,7 @@ import (
 	"github.com/primandproper/platform-go/v8/identifiers"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -73,10 +71,8 @@ type locker struct {
 // NewRedisLocker constructs a new Redis-backed distributedlock.Locker.
 func NewRedisLocker(
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	cb circuitbreaking.CircuitBreaker,
+	opts ...Option,
 ) (distributedlock.Locker, error) {
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
@@ -86,7 +82,9 @@ func NewRedisLocker(
 		return nil, fmt.Errorf("%w: at least one redis address is required", distributedlock.ErrNilConfig)
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	acquireCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_acquires", serviceName))
 	if err != nil {
@@ -114,7 +112,7 @@ func NewRedisLocker(
 	}
 
 	return &locker{
-		o11y:           observability.NewObserver(serviceName, logger, tracerProvider),
+		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		client:         buildRedisClient(cfg),
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		acquireCounter: acquireCounter,

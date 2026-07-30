@@ -7,9 +7,7 @@ import (
 	"os"
 
 	"github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
@@ -43,9 +41,11 @@ func OpenFS(fsys fs.FS) *FS {
 	return &FS{reader: newStandardReaderFS(fsys, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())}
 }
 
-// NewFS returns a handle over fsys with the given observability dependencies, mirroring NewDir.
-func NewFS(fsys fs.FS, logger logging.Logger, tracerProvider tracing.TracerProvider) *FS {
-	return &FS{reader: newStandardReaderFS(fsys, logger, tracerProvider)}
+// NewFS returns a handle over fsys with the given observability options, mirroring NewDir.
+func NewFS(fsys fs.FS, opts ...Option) *FS {
+	o := newOptions(opts)
+
+	return &FS{reader: newStandardReaderFS(fsys, o.logger, o.tracerProvider)}
 }
 
 // FS returns the underlying fs.FS. It is the escape hatch for the generic decode helpers, which

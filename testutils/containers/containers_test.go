@@ -113,6 +113,40 @@ func TestStartWithRetry(T *testing.T) {
 	})
 }
 
+func TestPingUntilReady(T *testing.T) {
+	T.Parallel()
+
+	T.Run("pings once when the server is already up", func(t *testing.T) {
+		t.Parallel()
+
+		var calls int
+		PingUntilReady(t, t.Context(), func(context.Context) error {
+			calls++
+			return nil
+		})
+		test.EqOp(t, 1, calls)
+	})
+
+	T.Run("retries a server that is still restarting", func(t *testing.T) {
+		t.Parallel()
+
+		// The shape of the bug this exists to prevent: the first statement
+		// lands on the socket of a server that is on its way down, and the
+		// second, moments later, lands on the real one.
+		var calls int
+		PingUntilReady(t, t.Context(), func(context.Context) error {
+			calls++
+			if calls < 3 {
+				return errors.New("invalid connection")
+			}
+
+			return nil
+		})
+		test.EqOp(t, 3, calls)
+		test.False(t, t.Failed())
+	})
+}
+
 // TestRun is deliberately not parallel: its subtests toggle the package-level
 // RunningTests gate so Run can be exercised without a Docker daemon.
 //

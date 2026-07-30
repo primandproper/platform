@@ -39,15 +39,16 @@ type backend struct {
 // middleware and OpenTelemetry stack installed. Pass it to routing.New. Panics
 // in handlers propagate to the shared recovery middleware, so no httprouter
 // PanicHandler is installed.
-func NewBackend(logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider, cfg *Config) routing.Backend {
-	tracerProvider = tracing.EnsureTracerProvider(tracerProvider)
-	o11y := observability.NewObserver("router", logging.EnsureLogger(logger), tracerProvider)
+func NewBackend(cfg *Config, opts ...Option) routing.Backend {
+	o := newOptions(opts)
+	tracerProvider := tracing.EnsureTracerProvider(o.tracerProvider)
+	o11y := observability.NewObserver("router", logging.EnsureLogger(o.logger), tracerProvider)
 
 	return &backend{
 		router: hr.New(),
 		standard: httpmw.Standard(o11y, &httpmw.StackConfig{
 			TracerProvider:         tracerProvider,
-			MeterProvider:          metrics.EnsureMetricsProvider(metricProvider).MeterProvider(),
+			MeterProvider:          metrics.EnsureMetricsProvider(o.metricsProvider).MeterProvider(),
 			ServiceName:            cfg.ServiceName,
 			ValidDomains:           cfg.ValidDomains,
 			EnableCORSForLocalhost: cfg.EnableCORSForLocalhost,

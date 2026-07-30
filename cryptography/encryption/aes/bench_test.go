@@ -4,14 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-
 	"github.com/shoenig/test/must"
 )
 
 func BenchmarkEncryptorDecryptor(b *testing.B) {
-	ed, err := NewEncryptorDecryptor(tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), []byte("0123456789abcdef0123456789abcdef"))
+	ed, err := NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 	must.NoError(b, err)
 
 	ctx := b.Context()

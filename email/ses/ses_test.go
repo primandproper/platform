@@ -11,8 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v8/email"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
@@ -60,7 +58,7 @@ func (m *mockSESClient) SendEmail(_ context.Context, input *sesv2.SendEmailInput
 func newRecordingEmailer(t *testing.T, cfg *Config, sesClient SendEmailAPI) (*Emailer, *observability.RecordingObserver) {
 	t.Helper()
 
-	e, err := NewSESEmailer(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil, sesClient)
+	e, err := NewSESEmailer(t.Context(), cfg, nil, cbnoop.NewCircuitBreaker(), sesClient)
 	must.NoError(t, err)
 	must.NotNil(t, e)
 
@@ -79,7 +77,7 @@ func TestNewSESEmailer(T *testing.T) {
 		cfg := &Config{Region: "us-east-1"}
 		mock := &mockSESClient{}
 
-		client, err := NewSESEmailer(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil, mock)
+		client, err := NewSESEmailer(t.Context(), cfg, nil, cbnoop.NewCircuitBreaker(), mock)
 		must.NoError(t, err)
 		must.NotNil(t, client)
 	})
@@ -87,7 +85,7 @@ func TestNewSESEmailer(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		client, err := NewSESEmailer(t.Context(), nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil, &mockSESClient{})
+		client, err := NewSESEmailer(t.Context(), nil, nil, cbnoop.NewCircuitBreaker(), &mockSESClient{})
 		must.Error(t, err)
 		test.Nil(t, client)
 		test.ErrorIs(t, err, ErrNilConfig)
@@ -98,7 +96,7 @@ func TestNewSESEmailer(T *testing.T) {
 
 		cfg := &Config{}
 
-		client, err := NewSESEmailer(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil, &mockSESClient{})
+		client, err := NewSESEmailer(t.Context(), cfg, nil, cbnoop.NewCircuitBreaker(), &mockSESClient{})
 		must.Error(t, err)
 		test.Nil(t, client)
 		test.ErrorIs(t, err, ErrEmptyRegion)
@@ -109,7 +107,7 @@ func TestNewSESEmailer(T *testing.T) {
 
 		cfg := &Config{Region: "us-east-1"}
 
-		client, err := NewSESEmailer(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil, nil)
+		client, err := NewSESEmailer(t.Context(), cfg, nil, cbnoop.NewCircuitBreaker(), nil)
 		must.Error(t, err)
 		test.Nil(t, client)
 		test.ErrorIs(t, err, ErrNilHTTPClient)
@@ -120,7 +118,7 @@ func TestNewSESEmailer(T *testing.T) {
 
 		cfg := &Config{Region: "us-east-1"}
 
-		client, err := NewSESEmailer(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil, nil)
+		client, err := NewSESEmailer(t.Context(), cfg, &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		must.NoError(t, err)
 		must.NotNil(t, client)
 	})
@@ -196,7 +194,7 @@ func TestEmailer_SendEmail(T *testing.T) {
 		mock := &mockSESClient{output: &sesv2.SendEmailOutput{}}
 		cfg := &Config{Region: "us-east-1"}
 
-		e, err := NewSESEmailer(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil, mock)
+		e, err := NewSESEmailer(t.Context(), cfg, nil, cbnoop.NewCircuitBreaker(), mock)
 		must.NoError(t, err)
 
 		details := &email.OutboundEmailMessage{
@@ -243,7 +241,7 @@ func TestEmailer_SendEmail(T *testing.T) {
 		mock := &mockSESClient{output: &sesv2.SendEmailOutput{}}
 		cfg := &Config{Region: "us-east-1"}
 
-		e, err := NewSESEmailer(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cbnoop.NewCircuitBreaker(), nil, mock)
+		e, err := NewSESEmailer(t.Context(), cfg, nil, cbnoop.NewCircuitBreaker(), mock)
 		must.NoError(t, err)
 
 		e.circuitBreaker = &brokenCircuitBreaker{}

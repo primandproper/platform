@@ -38,13 +38,15 @@ type Grants struct {
 // enforcement path treats as a denial — not as an error, and never as a pass.
 type GrantsExtractor func(ctx context.Context) (Grants, bool)
 
-// NewGrants builds Grants from one or more permission sets. Nil sets are
-// dropped.
+// NewGrants builds Grants from one or more permission sets. Sets that grant
+// nothing — nil or empty — are dropped.
 //
-// Dropping nils is what makes the awkward case structural rather than
+// Dropping them is what makes the awkward case structural rather than
 // conditional: a service administrator acting on an account they are not a
 // member of simply has one set instead of two. Callers do not check for it,
-// and cannot forget to.
+// and cannot forget to. Empty is dropped alongside nil because the two mean the
+// same thing to every method here, and keeping empties would make IsEmpty and
+// Has walk sets that can never match.
 func NewGrants(sets ...*PermissionSet) Grants {
 	kept := make([]*PermissionSet, 0, len(sets))
 	for _, s := range sets {
@@ -88,9 +90,13 @@ func (g Grants) Has(p Permission) bool {
 	return false
 }
 
-// HasAll reports whether every permission in perms is granted. As with
-// PermissionSet.HasAll, calling it with no permissions is vacuously true; see
-// that method for why the guard belongs at the declaration site.
+// HasAll reports whether every permission in perms is granted.
+//
+// Calling it with no permissions is vacuously true, and a list that reached
+// zero length by accident therefore authorizes everyone. PermissionSet.HasAll
+// documents why that answer is the right one here, which of the enforcement
+// paths guard it, and what a caller assembling a list dynamically has to check
+// first. Read it before calling this from anything that decides access.
 func (g Grants) HasAll(perms ...Permission) bool {
 	for _, p := range perms {
 		if !g.Has(p) {

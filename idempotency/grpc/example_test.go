@@ -16,17 +16,17 @@ import (
 )
 
 func newInterceptor() (grpc.UnaryServerInterceptor, error) {
-	store, err := cachememory.NewInMemoryCache[idempotency.Record[idempotencygrpc.Response]](0, nil, nil, nil)
+	store, err := cachememory.NewInMemoryCache[idempotency.Record[idempotencygrpc.Response]](0)
 	if err != nil {
 		return nil, err
 	}
 
-	locker, err := dlmemory.NewLocker(nil, nil, nil)
+	locker, err := dlmemory.NewLocker()
 	if err != nil {
 		return nil, err
 	}
 
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	if err != nil {
 		return nil, err
 	}

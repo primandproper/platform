@@ -44,9 +44,9 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 func (c *Config) NewLLMProvider(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (llm.Provider, error) {
 	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
 	case ProviderOpenAI:
-		return openai.NewProvider(c.OpenAI, logger, tracerProvider, metricsProvider)
+		return openai.NewProvider(c.OpenAI, openai.WithLogger(logger), openai.WithTracerProvider(tracerProvider), openai.WithMetricsProvider(metricsProvider))
 	case ProviderAnthropic:
-		return anthropic.NewProvider(c.Anthropic, logger, tracerProvider, metricsProvider)
+		return anthropic.NewProvider(c.Anthropic, anthropic.WithLogger(logger), anthropic.WithTracerProvider(tracerProvider), anthropic.WithMetricsProvider(metricsProvider))
 	default:
 		return llmnoop.NewProvider(), nil
 	}

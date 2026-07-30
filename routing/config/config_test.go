@@ -17,7 +17,7 @@ import (
 )
 
 func testEncoder() encoding.ServerEncoderDecoder {
-	return encoding.NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), encoding.ContentTypeJSON)
+	return encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
 }
 
 func TestConfig_ValidateWithContext(T *testing.T) {

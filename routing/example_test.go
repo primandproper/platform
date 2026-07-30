@@ -8,9 +8,6 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v8/encoding"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/routing"
 	"github.com/primandproper/platform-go/v8/routing/backends/chi"
 )
@@ -50,19 +47,15 @@ func fetchPerson(_ context.Context, in struct {
 // Example demonstrates wiring a Router over the chi backend, registering typed
 // routes, and mounting the generated OpenAPI spec.
 func Example() {
-	logger := loggingnoop.NewLogger()
-	tracerProvider := tracingnoop.NewTracerProvider()
-	metricsProvider := metricsnoop.NewMetricsProvider()
-
 	// The backend is the swappable seam: chi today, gin/etc. tomorrow. It carries
 	// the library-specific middleware + OpenTelemetry stack.
-	backend := chi.NewBackend(logger, tracerProvider, metricsProvider, &chi.Config{
+	backend := chi.NewBackend(&chi.Config{
 		ServiceName: "example-service",
 	})
 
 	// The Router is the declarative, OpenAPI-generating layer on top of it.
-	enc := encoding.NewServerEncoderDecoder(logger, tracerProvider, encoding.ContentTypeJSON)
-	r := routing.New(backend, enc, logger, tracerProvider,
+	enc := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
+	r := routing.New(backend, enc,
 		routing.WithTitle("Users API"),
 		routing.WithVersion("1.0.0"),
 	)

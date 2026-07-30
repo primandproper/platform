@@ -145,8 +145,8 @@ func TestNewManager(T *testing.T) {
 		cfg := memoryConfig()
 		cfg.TTL = time.Hour
 
-		m, err := NewManager(t.Context(), cfg, nil, nil, nil, nil,
-			idempotency.WithTTL[payload](2*time.Hour))
+		m, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil,
+			idempotency.WithTTL(2*time.Hour))
 		must.NoError(t, err)
 		must.NotNil(t, m)
 	})

@@ -11,8 +11,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/notifications/async"
 	"github.com/primandproper/platform-go/v8/observability"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/shoenig/test"
@@ -24,7 +22,7 @@ import (
 func newRecordingNotifier(t *testing.T) (*Notifier, *observability.RecordingObserver) {
 	t.Helper()
 
-	n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+	n, err := NewNotifier(&Config{})
 	must.NoError(t, err)
 	must.NotNil(t, n)
 
@@ -40,7 +38,7 @@ func TestNewNotifier(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(&Config{})
 		must.NoError(t, err)
 		must.NotNil(t, n)
 	})
@@ -48,7 +46,7 @@ func TestNewNotifier(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(nil)
 		test.Error(t, err)
 		test.Nil(t, n)
 	})
@@ -74,7 +72,7 @@ func TestNotifier_Publish(T *testing.T) {
 	T.Run("with connected client", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(&Config{})
 		must.NoError(t, err)
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +110,7 @@ func TestNotifier_AcceptConnection(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(&Config{})
 		must.NoError(t, err)
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -152,7 +150,7 @@ func TestNotifier_Close(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		n, err := NewNotifier(&Config{}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		n, err := NewNotifier(&Config{})
 		must.NoError(t, err)
 
 		test.NoError(t, n.Close())

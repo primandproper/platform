@@ -57,12 +57,7 @@ func (c *countingResolver) Roles(context.Context) ([]authorization.Role, error) 
 func newMemoryCache(t *testing.T) cache.Cache[authorization.PermissionSet] {
 	t.Helper()
 
-	c, err := memory.NewInMemoryCache[authorization.PermissionSet](
-		0,
-		loggingnoop.NewLogger(),
-		tracingnoop.NewTracerProvider(),
-		metricsnoop.NewMetricsProvider(),
-	)
+	c, err := memory.NewInMemoryCache[authorization.PermissionSet](0)
 	must.NoError(t, err)
 
 	return c

@@ -9,7 +9,10 @@
 //
 // Supplying a cache wraps whichever resolver is chosen in authorization/cached,
 // which is what turns the database provider from a query per session build into
-// a query per policy change.
+// a query per policy change. Because that wrapping is decided here rather than
+// by the caller, a process that edits policy reaches invalidation by asserting
+// authorization.PolicyInvalidator on the returned resolver rather than by
+// naming a concrete type.
 package authorizationcfg
 
 import (
@@ -76,24 +79,78 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
+// Option configures how NewPolicyResolver assembles its resolver.
+//
+// The backend options are passthroughs, each applying only when configuration
+// selects its backend, so one wiring site can carry options for whichever
+// provider a given deployment turns out to run. They are appended after the
+// options this package derives from its arguments, so a caller can override
+// what it would otherwise be given.
+type Option func(*options)
+
+// options collects the passthrough options for each backend.
+type options struct {
+	static   []static.Option
+	database []authzdb.Option
+	cached   []cached.Option
+}
+
+// newOptions applies opts, ignoring nil entries.
+func newOptions(opts []Option) *options {
+	o := &options{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(o)
+		}
+	}
+
+	return o
+}
+
+// WithStaticOptions passes opts to the static resolver, when the static
+// provider is selected.
+func WithStaticOptions(opts ...static.Option) Option {
+	return func(o *options) { o.static = append(o.static, opts...) }
+}
+
+// WithDatabaseOptions passes opts to the database resolver, when the database
+// provider is selected.
+func WithDatabaseOptions(opts ...authzdb.Option) Option {
+	return func(o *options) { o.database = append(o.database, opts...) }
+}
+
+// WithCachedOptions passes opts to the caching decorator, which is applied only
+// when a cache is supplied.
+func WithCachedOptions(opts ...cached.Option) Option {
+	return func(o *options) { o.cached = append(o.cached, opts...) }
+}
+
 // NewPolicyResolver builds the configured resolver.
 //
 // db is used only by the database provider and may be nil otherwise. c is
 // optional: when non-nil the resolver is wrapped in authorization/cached, which
 // is what turns the database provider from a query per session build into a
 // query per policy change.
+//
+// The result is an interface, so a caller that needs to drop cached policy
+// after an edit type-asserts authorization.PolicyInvalidator rather than a
+// concrete type — whether a cache is in the chain is this function's decision,
+// not the caller's.
 func NewPolicyResolver(
 	_ context.Context,
 	cfg *Config,
-	db database.SQLQueryExecutor,
-	c cache.Cache[authorization.PermissionSet],
 	logger logging.Logger,
 	tracerProvider tracing.TracerProvider,
 	metricsProvider metrics.Provider,
+	db database.SQLQueryExecutor,
+	c cache.Cache[authorization.PermissionSet],
+	opts ...Option,
 ) (authorization.PolicyResolver, error) {
 	if cfg == nil {
 		cfg = &Config{}
 	}
+
+	o := newOptions(opts)
 
 	var (
 		resolver authorization.PolicyResolver
@@ -105,13 +162,15 @@ func NewPolicyResolver(
 		if cfg.Database == nil {
 			return nil, errors.New("database authorization provider selected with no database config")
 		}
-		resolver, err = authzdb.NewResolver(cfg.Database, db,
+		resolver, err = authzdb.NewResolver(cfg.Database, db, append([]authzdb.Option{
 			authzdb.WithLogger(logger),
 			authzdb.WithTracerProvider(tracerProvider),
 			authzdb.WithMetricsProvider(metricsProvider),
-		)
+		}, o.database...)...)
 	case ProviderStatic, "":
-		resolver, err = static.NewResolver(cfg.Roles, static.WithLogger(logger))
+		resolver, err = static.NewResolver(cfg.Roles, append([]static.Option{
+			static.WithLogger(logger),
+		}, o.static...)...)
 	default:
 		return nil, errors.Newf("invalid authorization provider: %q", cfg.Provider)
 	}
@@ -124,12 +183,12 @@ func NewPolicyResolver(
 		return resolver, nil
 	}
 
-	return cached.NewResolver(resolver, c,
+	return cached.NewResolver(resolver, c, append([]cached.Option{
 		cached.WithLogger(logger),
 		cached.WithTracerProvider(tracerProvider),
 		cached.WithMetricsProvider(metricsProvider),
 		cached.WithTTL(cfg.CacheTTL),
-	)
+	}, o.cached...)...)
 }
 
 // normalize trims and lowercases a provider name, so that configuration

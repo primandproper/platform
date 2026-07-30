@@ -10,8 +10,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/encoding"
 	"github.com/primandproper/platform-go/v8/files"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -150,7 +148,7 @@ func TestDirCoverage(T *testing.T) {
 	T.Run("NewDir builds a handle with injected dependencies", func(t *testing.T) {
 		t.Parallel()
 
-		d, err := files.NewDir(filepath.Join(buildTree(t), "b"), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		d, err := files.NewDir(filepath.Join(buildTree(t), "b"))
 		must.NoError(t, err)
 		test.Eq(t, []string{"1", "2", "3"}, drainSeq(t, mustLines(t, d, "stuff.txt")))
 	})

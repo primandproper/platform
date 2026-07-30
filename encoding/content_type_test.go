@@ -3,9 +3,6 @@ package encoding
 import (
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-
 	"github.com/shoenig/test"
 )
 
@@ -15,7 +12,7 @@ func Test_clientEncoder_ContentType(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		e := NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ContentTypeJSON)
+		e := NewClientEncoder(ContentTypeJSON)
 
 		test.NotEq(t, "", e.ContentType())
 	})

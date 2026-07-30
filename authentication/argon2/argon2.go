@@ -6,8 +6,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/authentication"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/alexedwards/argon2id"
 )
@@ -45,9 +43,11 @@ type (
 )
 
 // NewArgon2Authenticator returns an argon2 powered Argon2Authenticator.
-func NewArgon2Authenticator(logger logging.Logger, tracerProvider tracing.TracerProvider) authentication.Authenticator {
+func NewArgon2Authenticator(opts ...Option) authentication.Authenticator {
+	o := newOptions(opts)
+
 	return &Argon2Authenticator{
-		o11y: observability.NewObserver(serviceName, logger, tracerProvider),
+		o11y: observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}
 }
 

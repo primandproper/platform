@@ -45,6 +45,11 @@ return #KEYS
 
 var _ cache.Cache[struct{}] = (*redisCacheImpl[struct{}])(nil)
 
+// ErrCodecTypeMismatch indicates WithCodec was given a codec for a type other
+// than the cache's. Option carries no type parameter, so the compiler cannot
+// catch this; NewRedisCache reports it instead.
+var ErrCodecTypeMismatch = errors.New("codec type does not match cache type")
+
 // scanDelClient is the slice of redisClient that prefix deletion needs; it is
 // satisfied by both the cache's own client and the per-master *redis.Client
 // handles ForEachMaster yields in cluster mode. redisClient embeds it so the
@@ -66,6 +71,9 @@ type redisClient interface {
 
 type redisCacheImpl[T any] struct {
 	o11y             observability.Observer
+	logger           logging.Logger
+	tracerProvider   tracing.TracerProvider
+	metricsProvider  metrics.Provider
 	codec            cache.Codec[T]
 	cacheHitCounter  metrics.Int64Counter
 	cacheMissCounter metrics.Int64Counter
@@ -82,16 +90,46 @@ type redisCacheImpl[T any] struct {
 }
 
 // Option configures a redis cache at construction.
-type Option[T any] func(*redisCacheImpl[T])
+//
+// It carries no type parameter even though the cache does. Go cannot infer a
+// type argument from a call's result type, so an Option[T] would force every
+// call site to spell the cached type out by hand — WithLogger[MyValue](l) —
+// forever. WithCodec is the one option that depends on the cached type; it
+// stays generic but still needs no annotation, because T is inferable from the
+// codec it is handed.
+type Option func(*options)
+
+// options accumulates what the options set, so Option can stay free of the
+// cache's type parameter.
+type options struct {
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
+
+	// codec holds a cache.Codec[T] for the T of the cache being built. It is
+	// typed as any because Option cannot name T; NewRedisCache asserts it back
+	// to the concrete type and reports a mismatch rather than ignoring it.
+	codec any
+
+	scanPageSize int64
+}
 
 // WithCodec swaps the value codec. The default is cache.NewGobCodec; supply a
 // fixed-format codec when gob's per-value overhead matters (large batch
 // reads). Values written with one codec are unreadable through another — see
 // cache.Codec for the migration caveat.
-func WithCodec[T any](codec cache.Codec[T]) Option[T] {
-	return func(i *redisCacheImpl[T]) {
+//
+// T is inferred from the codec, so this needs no type argument:
+//
+//	redis.WithCodec(cache.NewJSONCodec[Session]())
+//
+// It must match the cache it configures. Because Option carries no type
+// parameter, a codec for the wrong type cannot be rejected by the compiler;
+// NewRedisCache returns ErrCodecTypeMismatch instead, at construction.
+func WithCodec[T any](codec cache.Codec[T]) Option {
+	return func(o *options) {
 		if codec != nil {
-			i.codec = codec
+			o.codec = codec
 		}
 	}
 }
@@ -105,12 +143,30 @@ func WithCodec[T any](codec cache.Codec[T]) Option[T] {
 // sensitive shared instance, since redis serves SCAN on its single command
 // thread and a large COUNT blocks other clients for the duration. A
 // non-positive size is ignored, keeping the default.
-func WithScanPageSize[T any](size int64) Option[T] {
-	return func(i *redisCacheImpl[T]) {
+func WithScanPageSize(size int64) Option {
+	return func(o *options) {
 		if size > 0 {
-			i.scanPageSize = size
+			o.scanPageSize = size
 		}
 	}
+}
+
+// WithLogger attaches a logger. An absent logger logs nowhere.
+func WithLogger(logger logging.Logger) Option {
+	return func(o *options) { o.logger = logger }
+}
+
+// WithTracerProvider attaches a tracer provider, enabling spans on every cache
+// operation. An absent tracer provider traces nowhere.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+	return func(o *options) { o.tracerProvider = tracerProvider }
+}
+
+// WithMetricsProvider attaches a metrics provider for the cache's hit, miss,
+// set, delete, and error counters and its latency histogram. An absent
+// provider records nothing.
+func WithMetricsProvider(metricsProvider metrics.Provider) Option {
+	return func(o *options) { o.metricsProvider = metricsProvider }
 }
 
 // NewRedisCache builds a new redis-backed cache. When cfg.Namespace is set,
@@ -119,64 +175,83 @@ func WithScanPageSize[T any](size int64) Option[T] {
 // possible (it deletes exactly the namespace's keys). Without a namespace,
 // Flush and an empty-prefix DeleteByPrefix return cache.ErrNamespaceRequired
 // rather than guess at ownership in a possibly shared database.
-func NewRedisCache[T any](cfg *Config, expiration time.Duration, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, cb circuitbreaking.CircuitBreaker, opts ...Option[T]) (cache.Cache[T], error) {
+func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreaking.CircuitBreaker, opts ...Option) (cache.Cache[T], error) {
 	if cfg == nil || len(cfg.QueueAddresses) == 0 {
 		return nil, fmt.Errorf("at least one redis address is required")
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := &options{scanPageSize: defaultScanPageSize}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(o)
+		}
+	}
 
-	cacheHitCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
+	impl := &redisCacheImpl[T]{
+		codec:           cache.NewGobCodec[T](),
+		circuitBreaker:  circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		namespace:       cfg.Namespace,
+		expiration:      expiration,
+		scanPageSize:    o.scanPageSize,
+		isCluster:       cfg.clusterMode(),
+		logger:          o.logger,
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
+	}
+
+	// Asserted rather than assumed: Option cannot name T, so this is where a
+	// codec built for another type is caught. Silently keeping the gob default
+	// would be worse than failing — the cache would encode correctly and the
+	// caller would never learn their codec was ignored.
+	if o.codec != nil {
+		codec, ok := o.codec.(cache.Codec[T])
+		if !ok {
+			return nil, errors.Wrapf(
+				ErrCodecTypeMismatch, "codec is %T, want cache.Codec[%T]", o.codec, *new(T),
+			)
+		}
+
+		impl.codec = codec
+	}
+
+	impl.o11y = observability.NewObserver(name, impl.logger, impl.tracerProvider)
+
+	mp := metrics.EnsureMetricsProvider(impl.metricsProvider)
+
+	var err error
+
+	impl.cacheHitCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_hits", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache hit counter")
 	}
 
-	cacheMissCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_misses", name))
+	impl.cacheMissCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_misses", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache miss counter")
 	}
 
-	cacheSetCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_sets", name))
+	impl.cacheSetCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_sets", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache set counter")
 	}
 
-	cacheDelCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_deletes", name))
+	impl.cacheDelCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_deletes", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache delete counter")
 	}
 
-	cacheErrCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_cache_errors", name))
+	impl.cacheErrCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_errors", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache error counter")
 	}
 
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
+	impl.latencyHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache latency histogram")
 	}
 
-	impl := &redisCacheImpl[T]{
-		o11y:             observability.NewObserver(name, logger, tracerProvider),
-		codec:            cache.NewGobCodec[T](),
-		cacheHitCounter:  cacheHitCounter,
-		cacheMissCounter: cacheMissCounter,
-		cacheSetCounter:  cacheSetCounter,
-		cacheDelCounter:  cacheDelCounter,
-		cacheErrCounter:  cacheErrCounter,
-		latencyHist:      latencyHist,
-		client:           buildRedisClient(cfg),
-		circuitBreaker:   circuitbreakingcfg.EnsureCircuitBreaker(cb),
-		namespace:        cfg.Namespace,
-		expiration:       expiration,
-		scanPageSize:     defaultScanPageSize,
-		isCluster:        cfg.clusterMode(),
-	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(impl)
-		}
-	}
+	// Built last, so a failed constructor never leaves a connected client behind.
+	impl.client = buildRedisClient(cfg)
 
 	return impl, nil
 }

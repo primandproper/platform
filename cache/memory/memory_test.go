@@ -29,7 +29,7 @@ type example struct {
 func newRecordingCache(t *testing.T) (*inMemoryCacheImpl[example], *observability.RecordingObserver) {
 	t.Helper()
 
-	c, err := NewInMemoryCache[example](0, nil, nil, nil)
+	c, err := NewInMemoryCache[example](0)
 	must.NoError(t, err)
 
 	obs := observability.NewRecordingObserver()
@@ -45,7 +45,7 @@ func Test_newInMemoryCache(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		actual, err := NewInMemoryCache[example](0, nil, nil, nil)
+		actual, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 		test.NotNil(t, actual)
 	})
@@ -58,7 +58,7 @@ func Test_inMemoryCacheImpl_Get(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		c, err := NewInMemoryCache[example](0, nil, nil, nil)
+		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
 		expected := &example{Name: t.Name()}
@@ -96,7 +96,7 @@ func Test_inMemoryCacheImpl_Set(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		c, err := NewInMemoryCache[example](0, nil, nil, nil)
+		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
 		test.MapLen(t, 0, c.(*inMemoryCacheImpl[example]).cache)
@@ -112,7 +112,7 @@ func Test_inMemoryCacheImpl_Delete(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		c, err := NewInMemoryCache[example](0, nil, nil, nil)
+		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
 		test.MapLen(t, 0, c.(*inMemoryCacheImpl[example]).cache)
@@ -130,7 +130,7 @@ func Test_inMemoryCacheImpl_GetMany(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		c, err := NewInMemoryCache[example](0, nil, nil, nil)
+		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
 		hit := &example{Name: t.Name()}
@@ -146,7 +146,7 @@ func Test_inMemoryCacheImpl_GetMany(T *testing.T) {
 	T.Run("empty keys", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewInMemoryCache[example](0, nil, nil, nil)
+		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
 		out, getErr := c.(*inMemoryCacheImpl[example]).GetMany(t.Context(), nil)
@@ -162,7 +162,7 @@ func Test_inMemoryCacheImpl_SetMany(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		c, err := NewInMemoryCache[example](0, nil, nil, nil)
+		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
 		bc := c.(*inMemoryCacheImpl[example])
@@ -182,7 +182,7 @@ func Test_inMemoryCacheImpl_Ping(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewInMemoryCache[example](0, nil, nil, nil)
+		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 		test.NoError(t, c.Ping(t.Context()))
 	})
@@ -194,7 +194,7 @@ func Test_inMemoryCacheImpl_Ping(T *testing.T) {
 func newExpiryCache(t *testing.T, defaultExpiry time.Duration) *inMemoryCacheImpl[example] {
 	t.Helper()
 
-	c, err := NewInMemoryCache[example](defaultExpiry, nil, nil, nil)
+	c, err := NewInMemoryCache[example](defaultExpiry)
 	must.NoError(t, err)
 
 	impl, ok := c.(*inMemoryCacheImpl[example])

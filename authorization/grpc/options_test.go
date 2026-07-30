@@ -69,10 +69,10 @@ func TestNewEnforcer_MetricsFailure(T *testing.T) {
 	T.Parallel()
 
 	for _, failOn := range []string{
-		serviceName + "_checks",
-		serviceName + "_denials",
-		serviceName + "_undeclared_methods",
-		serviceName + "_missing_grants",
+		serviceName + "_grpc_checks",
+		serviceName + "_grpc_denials",
+		serviceName + "_grpc_undeclared_methods",
+		serviceName + "_grpc_missing_grants",
 	} {
 		T.Run("surfaces a failure creating "+failOn, func(t *testing.T) {
 			t.Parallel()

@@ -8,9 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 	"github.com/primandproper/platform-go/v8/secrets"
 
 	corev1 "k8s.io/api/core/v1"
@@ -37,7 +35,7 @@ type kubectlSecretSource struct {
 
 // NewKubectlSecretSource creates a SecretSource backed by Kubernetes secrets.
 // If client is nil, a new client is created using the kubeconfig path or in-cluster config.
-func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGetter, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
+func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts ...Option) (secrets.SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("kubectl secret source: config is required")
 	}
@@ -45,7 +43,8 @@ func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGette
 		return nil, errors.Wrap(err, "kubectl secret source")
 	}
 
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+	o := newOptions(opts)
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	lookupCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_lookups", name))
 	if err != nil {
@@ -64,7 +63,7 @@ func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGette
 
 	if client != nil {
 		return &kubectlSecretSource{
-			o11y:          observability.NewObserver(name, logger, tracerProvider),
+			o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 			lookupCounter: lookupCounter,
 			errorCounter:  errorCounter,
 			latencyHist:   latencyHist,
@@ -88,7 +87,7 @@ func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGette
 	}
 
 	return &kubectlSecretSource{
-		o11y:          observability.NewObserver(name, logger, tracerProvider),
+		o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 		lookupCounter: lookupCounter,
 		errorCounter:  errorCounter,
 		latencyHist:   latencyHist,

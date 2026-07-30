@@ -9,9 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v8/database"
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/XSAM/otelsql"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -65,17 +62,19 @@ var (
 // Construction is pgx-native-first: each side opens a *pgxpool.Pool (reachable via
 // the PgxAccess capability) and derives its database/sql handle from that pool, so
 // both surfaces share one set of connections. The database/sql layer keeps its
-// otelsql instrumentation; if metricsProvider is non-nil, the driver emits SQL
-// latency and other db.sql.* metrics (e.g. db_sql_latency_milliseconds_bucket in
-// Prometheus). Native pool usage is not yet traced — instrument at the call site,
-// or thread a pgx tracer through here when a consumer needs it.
-func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, cfg database.ClientConfig, metricsProvider metrics.Provider) (database.Client, error) {
-	o11y := observability.NewObserver(tracingName, logger, tracerProvider)
+// otelsql instrumentation; if a metrics provider is supplied via
+// WithMetricsProvider, the driver emits SQL latency and other db.sql.* metrics
+// (e.g. db_sql_latency_milliseconds_bucket in Prometheus). Native pool usage is
+// not yet traced — instrument at the call site, or thread a pgx tracer through
+// here when a consumer needs it.
+func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...Option) (database.Client, error) {
+	o := newOptions(opts)
+	o11y := observability.NewObserver(tracingName, o.logger, o.tracerProvider)
 
 	ctx, op := o11y.Begin(ctx)
 	defer op.End()
 
-	opts := []otelsql.Option{
+	otelsqlOpts := []otelsql.Option{
 		otelsql.WithAttributes(
 			attribute.KeyValue{
 				Key:   semconv.ServiceNameKey,
@@ -83,15 +82,15 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 			},
 		),
 	}
-	if metricsProvider != nil {
-		opts = append(opts, otelsql.WithMeterProvider(metricsProvider.MeterProvider()))
+	if o.metricsProvider != nil {
+		otelsqlOpts = append(otelsqlOpts, otelsql.WithMeterProvider(o.metricsProvider.MeterProvider()))
 	}
 
 	// Gate raw SQL text on spans behind the config's LogQueries flag. When the
 	// config opts out (the default), suppress db.statement so query text is not
 	// leaked into traces.
 	if lq, ok := cfg.(interface{ GetLogQueries() bool }); ok && !lq.GetLogQueries() {
-		opts = append(opts, otelsql.WithSpanOptions(otelsql.SpanOptions{DisableQuery: true}))
+		otelsqlOpts = append(otelsqlOpts, otelsql.WithSpanOptions(otelsql.SpanOptions{DisableQuery: true}))
 	}
 
 	var (
@@ -108,14 +107,14 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 		Set("db.write_configured", writeConnStr != "")
 
 	if readConnStr != "" {
-		readPool, readDB, err = connect(ctx, readConnStr, cfg, opts)
+		readPool, readDB, err = connect(ctx, readConnStr, cfg, otelsqlOpts)
 		if err != nil {
 			return nil, errors.Wrap(err, "connecting to read postgres database")
 		}
 	}
 
 	if writeConnStr != "" {
-		writePool, writeDB, err = connect(ctx, writeConnStr, cfg, opts)
+		writePool, writeDB, err = connect(ctx, writeConnStr, cfg, otelsqlOpts)
 		if err != nil {
 			err = errors.Wrap(err, "connecting to write postgres database")
 
@@ -144,7 +143,7 @@ func NewDatabaseClient(ctx context.Context, logger logging.Logger, tracerProvide
 		writePool, writeDB = readPool, readDB
 	}
 
-	if metricsProvider != nil {
+	if o.metricsProvider != nil {
 		if _, err = otelsql.RegisterDBStatsMetrics(readDB, otelsql.WithAttributes(semconv.DBSystemPostgreSQL)); err != nil {
 			return nil, errors.Wrap(err, "registering readDB stats metrics")
 		}

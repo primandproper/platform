@@ -5,6 +5,7 @@ import (
 	"testing/fstest"
 
 	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	"github.com/primandproper/platform-go/v8/database/migrate"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
@@ -20,7 +21,7 @@ func TestNewWriter(T *testing.T) {
 	T.Run("accepts every supported dialect", func(t *testing.T) {
 		t.Parallel()
 
-		for _, d := range []Dialect{DialectPostgres, DialectMySQL, DialectSQLite} {
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
 			w, err := NewWriter(d)
 			must.NoError(t, err)
 			test.EqOp(t, DefaultTableName, w.table)
@@ -31,14 +32,14 @@ func TestNewWriter(T *testing.T) {
 		t.Parallel()
 
 		_, err := NewWriter("cassandra")
-		test.ErrorIs(t, err, ErrUnsupportedDialect)
+		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 
 	T.Run("rejects a table name that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
 		for _, name := range []string{"outbox; DROP TABLE users", "outbox messages", "1outbox", "a.b.c", ""} {
-			_, err := NewWriter(DialectSQLite, WithWriterTableName(name))
+			_, err := NewWriter(dialect.SQLite, WithWriterTableName(name))
 			if name == "" {
 				// An empty override is ignored rather than rejected.
 				test.NoError(t, err)
@@ -46,14 +47,32 @@ func TestNewWriter(T *testing.T) {
 				continue
 			}
 
-			test.ErrorIs(t, err, ErrInvalidTableName)
+			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 		}
+	})
+
+	// The writer and the DDL renderer live in different packages and reject the
+	// same bad name. They previously raised two distinct sentinels with
+	// identical messages, so a caller checking one against the other's error
+	// silently got false; one shared sentinel is what makes that check work.
+	T.Run("rejects a bad table name identically to the migrations package", func(t *testing.T) {
+		t.Parallel()
+
+		const bad = "outbox; DROP TABLE users"
+
+		_, writerErr := NewWriter(dialect.SQLite, WithWriterTableName(bad))
+		_, migrationErr := migrations.Statements(dialect.SQLite, bad)
+
+		must.Error(t, writerErr)
+		must.Error(t, migrationErr)
+		test.ErrorIs(t, writerErr, dialect.ErrInvalidIdentifier)
+		test.ErrorIs(t, migrationErr, dialect.ErrInvalidIdentifier)
 	})
 
 	T.Run("accepts a schema-qualified table name", func(t *testing.T) {
 		t.Parallel()
 
-		w, err := NewWriter(DialectPostgres, WithWriterTableName("events.outbox_messages"))
+		w, err := NewWriter(dialect.Postgres, WithWriterTableName("events.outbox_messages"))
 		must.NoError(t, err)
 		test.EqOp(t, "events.outbox_messages", w.table)
 	})
@@ -171,13 +190,13 @@ func TestWriter_Enqueue(T *testing.T) {
 // migrateOutboxTable creates the outbox table through database/migrate rather
 // than by executing the DDL directly, which is how a consumer that already runs
 // migrations should be wiring it up.
-func migrateOutboxTable(t *testing.T, client database.Client, dialect migrate.Dialect, mDialect migrations.Dialect, table string) {
+func migrateOutboxTable(t *testing.T, client database.Client, d dialect.Dialect, table string) {
 	t.Helper()
 
-	ddl, err := migrations.SQL(mDialect, table)
+	ddl, err := migrations.SQL(d, table)
 	must.NoError(t, err)
 
-	m, err := migrate.New(dialect, fstest.MapFS{},
+	m, err := migrate.New(d, fstest.MapFS{},
 		migrate.WithGeneratedMigration(1, "create_"+table, ddl),
 		migrate.WithLogger(loggingnoop.NewLogger()),
 	)
@@ -204,9 +223,9 @@ func TestOutbox_MigratorIntegration(T *testing.T) {
 		c := newStubClock()
 		client := newTestClient(t)
 
-		migrateOutboxTable(t, client, migrate.DialectSQLite, migrations.DialectSQLite, table)
+		migrateOutboxTable(t, client, dialect.SQLite, table)
 
-		w, err := NewWriter(DialectSQLite, WithWriterClock(c), WithWriterTableName(table))
+		w, err := NewWriter(dialect.SQLite, WithWriterClock(c), WithWriterTableName(table))
 		must.NoError(t, err)
 
 		relay, rec := newTestRelay(t, client, c, func(cfg *RelayConfig) {
@@ -220,23 +239,5 @@ func TestOutbox_MigratorIntegration(T *testing.T) {
 		relay.cycle(t.Context())
 
 		test.Eq(t, []string{`{"id":"a"}`}, rec.payloads())
-	})
-}
-
-func TestDialect_Valid(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
-		t.Parallel()
-
-		test.True(t, DialectPostgres.Valid())
-		test.True(t, DialectMySQL.Valid())
-		test.True(t, DialectSQLite.Valid())
-		test.False(t, Dialect("").Valid())
-		test.False(t, Dialect("cassandra").Valid())
-
-		test.True(t, DialectPostgres.supportsSkipLocked())
-		test.True(t, DialectMySQL.supportsSkipLocked())
-		test.False(t, DialectSQLite.supportsSkipLocked())
 	})
 }

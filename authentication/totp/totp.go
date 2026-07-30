@@ -8,7 +8,6 @@ import (
 
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/pquerna/otp/totp"
 )
@@ -34,9 +33,11 @@ type verifier struct {
 }
 
 // NewVerifier returns a Verifier backed by github.com/pquerna/otp.
-func NewVerifier(tracerProvider tracing.TracerProvider) Verifier {
+func NewVerifier(opts ...Option) Verifier {
+	o := newOptions(opts)
+
 	return &verifier{
-		o11y: observability.NewObserver(serviceName, nil, tracerProvider),
+		o11y: observability.NewObserver(serviceName, nil, o.tracerProvider),
 	}
 }
 

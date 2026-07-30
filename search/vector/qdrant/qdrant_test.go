@@ -131,7 +131,6 @@ func buildStubIndex(t *testing.T, stub *qdrantStub, cb circuitbreaking.CircuitBr
 
 	idx, err := NewIndex[doc](
 		t.Context(),
-		nil, nil, nil,
 		&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 		"test",
 		cb,
@@ -374,13 +373,13 @@ func TestNewIndex(T *testing.T) {
 
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, nil, "test", cbnoop.NewCircuitBreaker())
+		_, err := NewIndex[doc](t.Context(), nil, "test", cbnoop.NewCircuitBreaker())
 		must.ErrorIs(t, err, vectorsearch.ErrNilConfig)
 	})
 
 	T.Run("empty collection", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{
+		_, err := NewIndex[doc](t.Context(), &Config{
 			BaseURL:   "http://example",
 			Dimension: 3,
 			Metric:    vectorsearch.DistanceCosine,
@@ -390,7 +389,7 @@ func TestNewIndex(T *testing.T) {
 
 	T.Run("invalid metric", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{
+		_, err := NewIndex[doc](t.Context(), &Config{
 			BaseURL:   "http://example",
 			Dimension: 3,
 			Metric:    "weird",
@@ -400,7 +399,7 @@ func TestNewIndex(T *testing.T) {
 
 	T.Run("invalid dimension", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{
+		_, err := NewIndex[doc](t.Context(), &Config{
 			BaseURL:   "http://example",
 			Dimension: 0,
 			Metric:    vectorsearch.DistanceCosine,
@@ -410,7 +409,7 @@ func TestNewIndex(T *testing.T) {
 
 	T.Run("invalid config missing base URL", func(t *testing.T) {
 		t.Parallel()
-		_, err := NewIndex[doc](t.Context(), nil, nil, nil, &Config{
+		_, err := NewIndex[doc](t.Context(), &Config{
 			Dimension: 3,
 			Metric:    vectorsearch.DistanceCosine,
 		}, "test", cbnoop.NewCircuitBreaker())
@@ -425,7 +424,7 @@ func TestNewIndex(T *testing.T) {
 		t.Cleanup(srv.Close)
 
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -441,7 +440,7 @@ func TestNewIndex(T *testing.T) {
 		t.Cleanup(srv.Close)
 
 		_, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -459,7 +458,7 @@ func TestNewIndex(T *testing.T) {
 		t.Cleanup(srv.Close)
 
 		_, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -470,7 +469,7 @@ func TestNewIndex(T *testing.T) {
 	T.Run("ensureCollection unreachable server", func(t *testing.T) {
 		t.Parallel()
 		_, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: "http://127.0.0.1:1", Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: 100 * time.Millisecond},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -485,7 +484,7 @@ func TestNewIndex(T *testing.T) {
 		t.Cleanup(srv.Close)
 
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: 0},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -505,7 +504,7 @@ func TestNewIndex(T *testing.T) {
 		t.Cleanup(srv.Close)
 
 		_, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, APIKey: "secret", Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -543,7 +542,6 @@ func TestNewIndex_StubsCollectionCreation(T *testing.T) {
 
 	idx, err := NewIndex[doc](
 		T.Context(),
-		nil, nil, nil,
 		&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 		"stub",
 		cbnoop.NewCircuitBreaker(),
@@ -647,7 +645,7 @@ func TestUpsert(T *testing.T) {
 		stub := &qdrantStub{}
 		srv := httptest.NewServer(stub)
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -710,7 +708,7 @@ func TestDelete(T *testing.T) {
 		stub := &qdrantStub{}
 		srv := httptest.NewServer(stub)
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -790,7 +788,7 @@ func TestWipe(T *testing.T) {
 		t.Cleanup(srv.Close)
 
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -806,7 +804,7 @@ func TestWipe(T *testing.T) {
 		stub := &qdrantStub{}
 		srv := httptest.NewServer(stub)
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -867,7 +865,7 @@ func TestQuery(T *testing.T) {
 		t.Cleanup(srv.Close)
 
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -932,7 +930,7 @@ func TestQuery(T *testing.T) {
 		t.Cleanup(srv.Close)
 
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -997,7 +995,7 @@ func TestQuery(T *testing.T) {
 		stub := &qdrantStub{}
 		srv := httptest.NewServer(stub)
 		idx, err := NewIndex[doc](
-			t.Context(), nil, nil, nil,
+			t.Context(),
 			&Config{BaseURL: srv.URL, Dimension: 3, Metric: vectorsearch.DistanceCosine, Timeout: time.Second},
 			"test",
 			cbnoop.NewCircuitBreaker(),
@@ -1125,7 +1123,7 @@ func TestQdrantIndex_Container(T *testing.T) {
 	runWithContainerBackedQdrant(T, func(cfg *Config) {
 		provide := func(t *testing.T, name string) vectorsearch.Index[doc] {
 			t.Helper()
-			idx, err := NewIndex[doc](t.Context(), nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
+			idx, err := NewIndex[doc](t.Context(), cfg, name, cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 			return idx
 		}
@@ -1271,9 +1269,9 @@ func TestQdrantIndex_Container(T *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 			name := "idem_" + identifiers.New()
-			idx1, err := NewIndex[doc](ctx, nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
+			idx1, err := NewIndex[doc](ctx, cfg, name, cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
-			idx2, err := NewIndex[doc](ctx, nil, nil, nil, cfg, name, cbnoop.NewCircuitBreaker())
+			idx2, err := NewIndex[doc](ctx, cfg, name, cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
 			must.NoError(t, idx1.Upsert(ctx, vectorsearch.Vector[doc]{ID: "11111111-eeee-eeee-eeee-111111111111", Embedding: []float32{1, 0, 0}}))

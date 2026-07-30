@@ -8,8 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v8/analytics/noop"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 const (
@@ -27,17 +25,15 @@ type MultiSourceEventReporter struct {
 }
 
 // NewMultiSourceEventReporter returns a new MultiSourceEventReporter.
-func NewMultiSourceEventReporter(
-	reporters map[string]analytics.EventReporter,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-) *MultiSourceEventReporter {
+func NewMultiSourceEventReporter(reporters map[string]analytics.EventReporter, opts ...Option) *MultiSourceEventReporter {
+	o := newOptions(opts)
+
 	if reporters == nil {
 		reporters = make(map[string]analytics.EventReporter)
 	}
 	return &MultiSourceEventReporter{
 		reporters: reporters,
-		o11y:      observability.NewObserver(name, logger, tracerProvider),
+		o11y:      observability.NewObserver(name, o.logger, o.tracerProvider),
 	}
 }
 

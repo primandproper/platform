@@ -61,7 +61,7 @@ func NewUnaryClientInterceptor(opts ...ClientOption) grpc.UnaryClientInterceptor
 		}
 
 		return invoker(
-			metadata.AppendToOutgoingContext(ctx, cfg.metadataKey, key),
+			metadata.AppendToOutgoingContext(ctx, cfg.metadataKey, string(key)),
 			method, req, reply, conn, callOpts...,
 		)
 	}

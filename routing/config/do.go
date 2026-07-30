@@ -27,8 +27,8 @@ func RegisterRouter(i do.Injector) {
 		return routing.New(
 			do.MustInvoke[routing.Backend](i),
 			do.MustInvoke[encoding.ServerEncoderDecoder](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
+			routing.WithLogger(do.MustInvoke[logging.Logger](i)),
+			routing.WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
 		), nil
 	})
 }

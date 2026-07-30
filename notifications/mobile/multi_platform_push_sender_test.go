@@ -14,8 +14,6 @@ import (
 	"github.com/primandproper/platform-go/v8/notifications/mobile/apns"
 	"github.com/primandproper/platform-go/v8/notifications/mobile/fcm"
 	"github.com/primandproper/platform-go/v8/observability"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -26,7 +24,7 @@ import (
 func newRecordingSender(t *testing.T, apnsSender *apns.Sender, fcmSender *fcm.Sender) (*MultiPlatformPushSender, *observability.RecordingObserver) {
 	t.Helper()
 
-	s := NewMultiPlatformPushSender(apnsSender, fcmSender, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+	s := NewMultiPlatformPushSender(apnsSender, fcmSender)
 	must.NotNil(t, s)
 
 	obs := observability.NewRecordingObserver()
@@ -71,8 +69,6 @@ func TestMultiPlatformPushSender_SendPush(T *testing.T) {
 	T.Parallel()
 
 	ctx := T.Context()
-	logger := loggingnoop.NewLogger()
-	tracer := tracingnoop.NewTracerProvider()
 
 	T.Run("ios returns ErrPlatformNotSupported when apnsSender nil", func(t *testing.T) {
 		t.Parallel()
@@ -120,10 +116,10 @@ func TestMultiPlatformPushSender_SendPush(T *testing.T) {
 			TeamID:      "TEAM123",
 			BundleID:    "com.example.app",
 		}
-		apnsSender, err := apns.NewSender(apnsCfg, tracer, logger, nil)
+		apnsSender, err := apns.NewSender(apnsCfg)
 		must.NoError(t, err)
 
-		sender := NewMultiPlatformPushSender(apnsSender, nil, logger, tracer)
+		sender := NewMultiPlatformPushSender(apnsSender, nil)
 		err = sender.SendPush(ctx, "ios", "not-a-valid-token", PushMessage{Title: "title", Body: "body"})
 		// The apns sender will reject the token format, but the delegation code path is covered.
 		test.Error(t, err)
@@ -135,10 +131,10 @@ func TestMultiPlatformPushSender_SendPush(T *testing.T) {
 
 		credsPath := createTestFCMCredsFile(t)
 		fcmCfg := &fcm.Config{CredentialsPath: credsPath}
-		fcmSender, err := fcm.NewSender(ctx, fcmCfg, tracer, logger, nil)
+		fcmSender, err := fcm.NewSender(ctx, fcmCfg)
 		must.NoError(t, err)
 
-		sender := NewMultiPlatformPushSender(nil, fcmSender, logger, tracer)
+		sender := NewMultiPlatformPushSender(nil, fcmSender)
 		err = sender.SendPush(ctx, "android", "device-token-abc", PushMessage{Title: "title", Body: "body"})
 		// The fcm sender will fail at the HTTP level, but the delegation code path is covered.
 		test.Error(t, err)

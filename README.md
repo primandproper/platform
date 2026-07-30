@@ -130,8 +130,8 @@ Formatting runs locally with `gci`, `goimports`, `betteralign`, `tagalign`, and 
 
 - **`stretchr/testify` is banned** (`assert`, `require`, and `mock`), enforced by `depguard`. Use [`shoenig/test`](https://github.com/shoenig/test) for assertions (`test` for non-fatal, `must` for fatal) and [`matryer/moq`](https://github.com/matryer/moq) for mocks.
 - Tests run in parallel by default and use subtests throughout.
-- Integration tests use `testcontainers-go`, live in separate directories, and are excluded from `make test`.
-- `make test` runs `CGO_ENABLED=1 go test -shuffle=on -race -vet=all -failfast`, excluding `cmd`, integration, mock, fake, converter, util, and generated packages.
+- Container-backed tests use `testcontainers-go`, live in-package (typically `containers_test.go`), and gate on `RUN_CONTAINER_TESTS=true`.
+- `make test` runs `CGO_ENABLED=1 go test -shuffle=on -race -vet=all -failfast ./...` across every package. `.scripts/test.sh false` runs the suite without container tests.
 
 ## Contributing
 

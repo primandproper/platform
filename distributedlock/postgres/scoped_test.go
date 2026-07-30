@@ -25,7 +25,7 @@ var (
 func newTestScopedLocker(t *testing.T, client *testDBClient) distributedlock.ScopedLocker {
 	t.Helper()
 
-	s, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, nil, cbnoop.NewCircuitBreaker())
+	s, err := NewPostgresScopedLocker(&Config{}, client, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, s)
 
@@ -40,14 +40,14 @@ func TestNewPostgresScopedLocker(T *testing.T) {
 
 		client, _ := buildSqlmockClient(t)
 
-		_, err := NewPostgresScopedLocker(nil, client, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		_, err := NewPostgresScopedLocker(nil, client, cbnoop.NewCircuitBreaker())
 		test.ErrorIs(t, err, distributedlock.ErrNilConfig)
 	})
 
 	T.Run("rejects nil database client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewPostgresScopedLocker(&Config{}, nil, nil, nil, nil, cbnoop.NewCircuitBreaker())
+		_, err := NewPostgresScopedLocker(&Config{}, nil, cbnoop.NewCircuitBreaker())
 		test.ErrorIs(t, err, distributedlock.ErrNilDatabaseClient)
 	})
 
@@ -59,7 +59,12 @@ func TestNewPostgresScopedLocker(T *testing.T) {
 
 			client, _ := buildSqlmockClient(t)
 
-			_, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, newErrorAtCallProvider(idx, false), cbnoop.NewCircuitBreaker())
+			_, err := NewPostgresScopedLocker(
+				&Config{},
+				client,
+				cbnoop.NewCircuitBreaker(),
+				WithMetricsProvider(newErrorAtCallProvider(idx, false)),
+			)
 			test.Error(t, err)
 		})
 	}
@@ -69,7 +74,12 @@ func TestNewPostgresScopedLocker(T *testing.T) {
 
 		client, _ := buildSqlmockClient(t)
 
-		_, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, newErrorAtCallProvider(0, true), cbnoop.NewCircuitBreaker())
+		_, err := NewPostgresScopedLocker(
+			&Config{},
+			client,
+			cbnoop.NewCircuitBreaker(),
+			WithMetricsProvider(newErrorAtCallProvider(0, true)),
+		)
 		test.Error(t, err)
 	})
 }
@@ -135,7 +145,7 @@ func TestPostgresScopedLocker_WithLock_Unit(T *testing.T) {
 			CannotProceedFunc: func() bool { return true },
 		}
 
-		s, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, nil, cb)
+		s, err := NewPostgresScopedLocker(&Config{}, client, cb)
 		must.NoError(t, err)
 
 		err = s.WithLock(t.Context(), "chore", func(context.Context) error {
@@ -155,7 +165,7 @@ func TestPostgresScopedLocker_WithLock_Unit(T *testing.T) {
 			FailedFunc:        func() { failed++ },
 		}
 
-		s, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, nil, cb)
+		s, err := NewPostgresScopedLocker(&Config{}, client, cb)
 		must.NoError(t, err)
 
 		mock.ExpectBegin()
@@ -261,7 +271,7 @@ func TestPostgresScopedLocker_TryWithLock_Unit(T *testing.T) {
 			CannotProceedFunc: func() bool { return true },
 		}
 
-		s, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, nil, cb)
+		s, err := NewPostgresScopedLocker(&Config{}, client, cb)
 		must.NoError(t, err)
 
 		acquired, err := s.TryWithLock(t.Context(), "chore", func(context.Context) error {
@@ -282,7 +292,7 @@ func TestPostgresScopedLocker_TryWithLock_Unit(T *testing.T) {
 			FailedFunc:        func() { failed++ },
 		}
 
-		s, err := NewPostgresScopedLocker(&Config{}, client, nil, nil, nil, cb)
+		s, err := NewPostgresScopedLocker(&Config{}, client, cb)
 		must.NoError(t, err)
 
 		mock.ExpectBegin()

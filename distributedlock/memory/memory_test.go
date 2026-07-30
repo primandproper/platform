@@ -15,7 +15,7 @@ import (
 
 func newTestLocker(t *testing.T) distributedlock.Locker {
 	t.Helper()
-	l, err := NewLocker(nil, nil, nil)
+	l, err := NewLocker()
 	must.NoError(t, err)
 	must.NotNil(t, l)
 	return l
@@ -25,7 +25,7 @@ func newTestLocker(t *testing.T) distributedlock.Locker {
 // test can both drive the locker and assert which fields it observed.
 func newRecordingLocker(t *testing.T) (*locker, *observability.RecordingObserver) {
 	t.Helper()
-	l, err := NewLocker(nil, nil, nil)
+	l, err := NewLocker()
 	must.NoError(t, err)
 	must.NotNil(t, l)
 
@@ -43,7 +43,7 @@ func TestNewLocker(T *testing.T) {
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
-		l, err := NewLocker(nil, nil, nil)
+		l, err := NewLocker()
 		must.NoError(t, err)
 		test.NotNil(t, l)
 	})

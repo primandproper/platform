@@ -74,11 +74,20 @@ func NewLocker(
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case RedisProvider:
-		return redislock.NewRedisLocker(cfg.Redis, logger, tracerProvider, metricsProvider, circuitBreaker)
+		return redislock.NewRedisLocker(cfg.Redis, circuitBreaker,
+			redislock.WithLogger(logger),
+			redislock.WithTracerProvider(tracerProvider),
+			redislock.WithMetricsProvider(metricsProvider))
 	case PostgresProvider:
-		return pglock.NewPostgresLocker(cfg.Postgres, db, logger, tracerProvider, metricsProvider, circuitBreaker)
+		return pglock.NewPostgresLocker(cfg.Postgres, db, circuitBreaker,
+			pglock.WithLogger(logger),
+			pglock.WithTracerProvider(tracerProvider),
+			pglock.WithMetricsProvider(metricsProvider))
 	case MemoryProvider:
-		return memory.NewLocker(logger, tracerProvider, metricsProvider)
+		return memory.NewLocker(
+			memory.WithLogger(logger),
+			memory.WithTracerProvider(tracerProvider),
+			memory.WithMetricsProvider(metricsProvider))
 	default:
 		return noop.NewLocker(), nil
 	}
@@ -109,14 +118,20 @@ func NewScopedLocker(
 			return nil, errors.Wrap(err, "initializing distributedlock circuit breaker")
 		}
 
-		return pglock.NewPostgresScopedLocker(cfg.Postgres, db, logger, tracerProvider, metricsProvider, circuitBreaker)
+		return pglock.NewPostgresScopedLocker(cfg.Postgres, db, circuitBreaker,
+			pglock.WithLogger(logger),
+			pglock.WithTracerProvider(tracerProvider),
+			pglock.WithMetricsProvider(metricsProvider))
 	case RedisProvider, MemoryProvider:
 		locker, err := NewLocker(ctx, cfg, logger, tracerProvider, metricsProvider, db)
 		if err != nil {
 			return nil, err
 		}
 
-		return distributedlock.NewScopedLocker(locker, logger, tracerProvider, metricsProvider)
+		return distributedlock.NewScopedLocker(locker,
+			distributedlock.WithLogger(logger),
+			distributedlock.WithTracerProvider(tracerProvider),
+			distributedlock.WithMetricsProvider(metricsProvider))
 	default:
 		return noop.NewScopedLocker(), nil
 	}

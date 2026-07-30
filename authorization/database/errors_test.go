@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v8/authorization"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
@@ -32,7 +33,7 @@ func newMockResolver(t *testing.T) (*Resolver, sqlmock.Sqlmock) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	r, err := NewResolver(
-		&Config{Dialect: DialectPostgres},
+		&Config{Dialect: dialect.Postgres},
 		db,
 		WithLogger(loggingnoop.NewLogger()),
 		WithTracerProvider(tracingnoop.NewTracerProvider()),
@@ -521,7 +522,7 @@ func TestNewResolver_MetricsFailure(T *testing.T) {
 				},
 			}
 
-			_, err = NewResolver(&Config{Dialect: DialectPostgres}, db, WithMetricsProvider(mp))
+			_, err = NewResolver(&Config{Dialect: dialect.Postgres}, db, WithMetricsProvider(mp))
 
 			test.ErrorIs(t, err, errBoom)
 		})

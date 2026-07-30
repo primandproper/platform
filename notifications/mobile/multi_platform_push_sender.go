@@ -8,8 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v8/notifications/mobile/apns"
 	"github.com/primandproper/platform-go/v8/notifications/mobile/fcm"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 // ErrPlatformNotSupported is returned when attempting to send to a platform
@@ -33,13 +31,14 @@ type MultiPlatformPushSender struct {
 func NewMultiPlatformPushSender(
 	apnsSender *apns.Sender,
 	fcmSender *fcm.Sender,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
+	opts ...Option,
 ) *MultiPlatformPushSender {
+	o := newOptions(opts)
+
 	return &MultiPlatformPushSender{
 		apnsSender: apnsSender,
 		fcmSender:  fcmSender,
-		o11y:       observability.NewObserver(o11yName, logger, tracerProvider),
+		o11y:       observability.NewObserver(o11yName, o.logger, o.tracerProvider),
 	}
 }
 

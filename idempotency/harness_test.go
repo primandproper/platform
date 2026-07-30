@@ -33,7 +33,7 @@ type payload struct {
 func newStore(tb testing.TB) cache.Cache[Record[payload]] {
 	tb.Helper()
 
-	c, err := cachememory.NewInMemoryCache[Record[payload]](0, nil, nil, nil)
+	c, err := cachememory.NewInMemoryCache[Record[payload]](0)
 	must.NoError(tb, err)
 
 	return c
@@ -44,17 +44,17 @@ func newStore(tb testing.TB) cache.Cache[Record[payload]] {
 func newLocker(tb testing.TB) distributedlock.ScopedLocker {
 	tb.Helper()
 
-	locker, err := dlmemory.NewLocker(nil, nil, nil)
+	locker, err := dlmemory.NewLocker()
 	must.NoError(tb, err)
 
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	must.NoError(tb, err)
 
 	return scoped
 }
 
 // newTestManager builds a Manager over a memory store and a memory locker.
-func newTestManager(tb testing.TB, opts ...Option[payload]) *Manager[payload] {
+func newTestManager(tb testing.TB, opts ...Option) *Manager[payload] {
 	tb.Helper()
 
 	m, err := NewManager(newStore(tb), newLocker(tb), opts...)
@@ -241,7 +241,7 @@ func (s *countingStore) Ping(ctx context.Context) error  { return s.inner.Ping(c
 func newManagerOver(
 	tb testing.TB,
 	store cache.Cache[Record[payload]],
-	opts ...Option[payload],
+	opts ...Option,
 ) *Manager[payload] {
 	tb.Helper()
 
@@ -253,14 +253,14 @@ func newManagerOver(
 
 // seed writes a record directly, standing in for whatever another process left
 // behind.
-func seed(t *testing.T, m *Manager[payload], key string, record *Record[payload], expiry time.Duration) {
+func seed(t *testing.T, m *Manager[payload], key Key, record *Record[payload], expiry time.Duration) {
 	t.Helper()
 
 	must.NoError(t, m.store.Set(t.Context(), m.storeKey(key), record, cache.WithExpiry(expiry)))
 }
 
 // completed builds a finished record for fingerprint.
-func completed(fingerprint, name string) *Record[payload] {
+func completed(fingerprint Fingerprint, name string) *Record[payload] {
 	return &Record[payload]{
 		CreatedAt:   time.Now().UTC(),
 		Value:       &payload{Name: name},
@@ -272,7 +272,7 @@ func completed(fingerprint, name string) *Record[payload] {
 }
 
 // inFlight builds a claim record for fingerprint.
-func inFlight(fingerprint string) *Record[payload] {
+func inFlight(fingerprint Fingerprint) *Record[payload] {
 	return &Record[payload]{
 		CreatedAt:   time.Now().UTC(),
 		Fingerprint: fingerprint,

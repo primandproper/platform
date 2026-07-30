@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 )
 
 func Decode(data []byte, ct *contentType, dest any) error {
@@ -14,7 +11,7 @@ func Decode(data []byte, ct *contentType, dest any) error {
 		ct = ContentTypeJSON
 	}
 
-	if err := NewServerEncoderDecoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ct).DecodeBytes(context.Background(), data, dest); err != nil {
+	if err := NewServerEncoderDecoder(ct).DecodeBytes(context.Background(), data, dest); err != nil {
 		return err
 	}
 
@@ -29,7 +26,7 @@ func Encode(data any, ct *contentType) ([]byte, error) {
 		ct = ContentTypeJSON
 	}
 
-	return NewClientEncoder(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), ct).
+	return NewClientEncoder(ct).
 		Marshal(context.Background(), data)
 }
 

@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strconv"
+
+	"github.com/primandproper/platform-go/v8/idempotency"
 )
 
 // fingerprint identifies the request a key is being used for.
@@ -23,7 +25,7 @@ import (
 // it reused its key. That is the safe direction to err in — the alternative is
 // deciding two different payloads are the same — and WithFingerprint exists
 // for callers who want to canonicalize instead.
-func fingerprint(req *http.Request, principal string, body []byte) string {
+func fingerprint(req *http.Request, principal string, body []byte) idempotency.Fingerprint {
 	sum := sha256.New()
 
 	// Each part is length-prefixed so the parts cannot run together. Without
@@ -44,5 +46,5 @@ func fingerprint(req *http.Request, principal string, body []byte) string {
 	_, _ = sum.Write([]byte(":"))
 	_, _ = sum.Write(body)
 
-	return hex.EncodeToString(sum.Sum(nil))
+	return idempotency.Fingerprint(hex.EncodeToString(sum.Sum(nil)))
 }

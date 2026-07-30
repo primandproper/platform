@@ -11,9 +11,6 @@ import (
 
 	"github.com/primandproper/platform-go/v8/encoding"
 	httpx "github.com/primandproper/platform-go/v8/errors/http"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v8/routing"
 	"github.com/primandproper/platform-go/v8/routing/backends/chi"
 
@@ -25,12 +22,10 @@ import (
 func buildTestRouter(t *testing.T, opts ...routing.RouterOption) *routing.Router {
 	t.Helper()
 
-	logger := loggingnoop.NewLogger()
-	tracerProvider := tracingnoop.NewTracerProvider()
-	backend := chi.NewBackend(logger, tracerProvider, metricsnoop.NewMetricsProvider(), &chi.Config{ServiceName: t.Name()})
-	enc := encoding.NewServerEncoderDecoder(logger, tracerProvider, encoding.ContentTypeJSON)
+	backend := chi.NewBackend(&chi.Config{ServiceName: t.Name()})
+	enc := encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON)
 
-	return routing.New(backend, enc, logger, tracerProvider, opts...)
+	return routing.New(backend, enc, opts...)
 }
 
 func doRequest(t *testing.T, r *routing.Router, method, target, body string) *httptest.ResponseRecorder {

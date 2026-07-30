@@ -412,7 +412,7 @@ func TestMiddleware_Rejections(T *testing.T) {
 		t.Parallel()
 
 		handler := okHandler()
-		wrapped := wrap(t, handler, newTestManager(t), WithFingerprint(func(*http.Request, []byte) (string, error) {
+		wrapped := wrap(t, handler, newTestManager(t), WithFingerprint(func(*http.Request, []byte) (idempotency.Fingerprint, error) {
 			return "", platformerrors.New("cannot fingerprint")
 		}))
 
@@ -518,7 +518,7 @@ func TestMiddleware_StoreFailure(T *testing.T) {
 
 		handler := okHandler()
 		wrapped := wrap(t, handler, newFailingStoreManager(t,
-			idempotency.WithStoreFailurePolicy[Response](idempotency.FailOpen),
+			idempotency.WithStoreFailurePolicy(idempotency.FailOpen),
 		))
 
 		res := do(wrapped, post(t.Context(), testKey, "/charges", "{}"))

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/primandproper/platform-go/v8/idempotency"
 	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	"github.com/primandproper/platform-go/v8/observability/tracing"
@@ -59,7 +60,7 @@ type (
 
 	config struct {
 		principal   func(*http.Request) (string, error)
-		fingerprint func(*http.Request, []byte) (string, error)
+		fingerprint func(*http.Request, []byte) (idempotency.Fingerprint, error)
 
 		logger          logging.Logger
 		tracerProvider  tracing.TracerProvider
@@ -141,7 +142,7 @@ func WithPrincipalExtractor(extract func(*http.Request) (string, error)) Option 
 // Use it when the default is too strict — most usefully to canonicalize a JSON
 // body, since the default hashes raw bytes and a client that re-serializes
 // before retrying would otherwise be reported as reusing its key.
-func WithFingerprint(fn func(req *http.Request, body []byte) (string, error)) Option {
+func WithFingerprint(fn func(req *http.Request, body []byte) (idempotency.Fingerprint, error)) Option {
 	return func(c *config) {
 		if fn != nil {
 			c.fingerprint = fn

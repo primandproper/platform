@@ -10,10 +10,8 @@ import (
 
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	firebase "firebase.google.com/go/v4"
 	"github.com/shoenig/test"
@@ -63,13 +61,11 @@ func TestNewSender(T *testing.T) {
 	T.Parallel()
 
 	ctx := T.Context()
-	logger := loggingnoop.NewLogger()
-	tracingProvider := tracingnoop.NewTracerProvider()
 
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		sender, err := NewSender(ctx, nil, tracingProvider, logger, nil)
+		sender, err := NewSender(ctx, nil)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "config is required")
@@ -81,7 +77,7 @@ func TestNewSender(T *testing.T) {
 		cfg := &Config{
 			CredentialsPath: filepath.Join(t.TempDir(), "nonexistent-firebase-credentials.json"),
 		}
-		sender, err := NewSender(ctx, cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(ctx, cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "credentials file not found")
@@ -91,7 +87,7 @@ func TestNewSender(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{CredentialsPath: ""}
-		sender, err := NewSender(ctx, cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(ctx, cfg)
 		// ADC typically fails without GCP credentials in test env
 		if err != nil {
 			test.Nil(t, sender)
@@ -110,7 +106,7 @@ func TestNewSender(T *testing.T) {
 		must.NoError(t, os.WriteFile(path, []byte("not valid json"), 0o600))
 
 		cfg := &Config{CredentialsPath: path}
-		sender, err := NewSender(ctx, cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(ctx, cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "fcm:")
@@ -124,7 +120,7 @@ func TestNewSender(T *testing.T) {
 		must.NoError(t, os.WriteFile(path, []byte(fakeServiceAccountJSON), 0o600))
 
 		cfg := &Config{CredentialsPath: path}
-		sender, err := NewSender(ctx, cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(ctx, cfg)
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 	})
@@ -144,7 +140,7 @@ func TestNewSender(T *testing.T) {
 		}
 
 		cfg := &Config{CredentialsPath: path}
-		sender, err := NewSender(ctx, cfg, tracingProvider, logger, mp)
+		sender, err := NewSender(ctx, cfg, WithMetricsProvider(mp))
 		test.Nil(t, sender)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "creating send counter")
@@ -173,7 +169,7 @@ func TestNewSender(T *testing.T) {
 		}
 
 		cfg := &Config{CredentialsPath: path}
-		sender, err := NewSender(ctx, cfg, tracingProvider, logger, mp)
+		sender, err := NewSender(ctx, cfg, WithMetricsProvider(mp))
 		test.Nil(t, sender)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "creating error counter")

@@ -16,10 +16,8 @@ import (
 	"github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -44,7 +42,7 @@ func createTestSenderWithTransport(t *testing.T, fn roundTripFunc) (*Sender, *ob
 		TeamID:      "TEAM123",
 		BundleID:    "com.example.app",
 	}
-	sender, err := NewSender(cfg, tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), nil)
+	sender, err := NewSender(cfg)
 	must.NoError(t, err)
 
 	sender.client.HTTPClient = &http.Client{Transport: fn}
@@ -79,13 +77,10 @@ func createTestP8File(t *testing.T) string {
 func TestNewSender(T *testing.T) {
 	T.Parallel()
 
-	logger := loggingnoop.NewLogger()
-	tracingProvider := tracingnoop.NewTracerProvider()
-
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		sender, err := NewSender(nil, tracingProvider, logger, nil)
+		sender, err := NewSender(nil)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "missing required config")
@@ -100,7 +95,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:   "com.example.app",
 			Production: false,
 		}
-		sender, err := NewSender(cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "missing required config")
@@ -116,7 +111,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 			Production:  false,
 		}
-		sender, err := NewSender(cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "missing required config")
@@ -132,7 +127,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 			Production:  false,
 		}
-		sender, err := NewSender(cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "loading auth key")
@@ -147,7 +142,7 @@ func TestNewSender(T *testing.T) {
 			KeyID:       "KEY123",
 			BundleID:    "com.example.app",
 		}
-		sender, err := NewSender(cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "missing required config")
@@ -162,7 +157,7 @@ func TestNewSender(T *testing.T) {
 			KeyID:       "KEY123",
 			TeamID:      "TEAM123",
 		}
-		sender, err := NewSender(cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "missing required config")
@@ -179,7 +174,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 			Production:  false,
 		}
-		sender, err := NewSender(cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(cfg)
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 		test.EqOp(t, "com.example.app", sender.topic)
@@ -196,7 +191,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 			Production:  true,
 		}
-		sender, err := NewSender(cfg, tracingProvider, logger, nil)
+		sender, err := NewSender(cfg)
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 		test.EqOp(t, "com.example.app", sender.topic)
@@ -220,7 +215,7 @@ func TestNewSender(T *testing.T) {
 			},
 		}
 
-		sender, err := NewSender(cfg, tracingProvider, logger, mp)
+		sender, err := NewSender(cfg, WithMetricsProvider(mp))
 		test.Nil(t, sender)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "creating send counter")
@@ -252,7 +247,7 @@ func TestNewSender(T *testing.T) {
 			},
 		}
 
-		sender, err := NewSender(cfg, tracingProvider, logger, mp)
+		sender, err := NewSender(cfg, WithMetricsProvider(mp))
 		test.Nil(t, sender)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "creating error counter")
@@ -350,7 +345,7 @@ func TestSender_Send_rejectsInvalidDeviceToken(T *testing.T) {
 		BundleID:    "com.example.app",
 		Production:  false,
 	}
-	sender, err := NewSender(cfg, tracingnoop.NewTracerProvider(), loggingnoop.NewLogger(), nil)
+	sender, err := NewSender(cfg)
 	must.NoError(T, err)
 
 	ctx := T.Context()

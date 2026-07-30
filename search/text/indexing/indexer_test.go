@@ -11,10 +11,8 @@ import (
 	mockpublishers "github.com/primandproper/platform-go/v8/messagequeue/mock"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
 	textsearch "github.com/primandproper/platform-go/v8/search/text"
 
 	"github.com/shoenig/test"
@@ -31,8 +29,6 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -59,7 +55,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, indexFunctions)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
 		test.NoError(t, err)
 		test.NotNil(t, scheduler)
 		test.Eq(t, []string{"test_type"}, scheduler.allIndexTypes)
@@ -74,8 +70,6 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -96,7 +90,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, nil)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
 		test.NoError(t, err)
 		test.NotNil(t, scheduler)
 		test.SliceEmpty(t, scheduler.allIndexTypes)
@@ -111,8 +105,6 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 		messageQueueProvider := &mockpublishers.PublisherProviderMock{}
 
 		// Mock metrics provider to return error - need to return a valid interface and error
@@ -123,7 +115,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, nil)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
 		test.Error(t, err)
 		test.Nil(t, scheduler)
 		test.StrContains(t, err.Error(), "metrics error")
@@ -136,8 +128,6 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -157,7 +147,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, nil)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
 		test.Error(t, err)
 		test.Nil(t, scheduler)
 		test.StrContains(t, err.Error(), "message queue error")
@@ -174,8 +164,6 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -210,7 +198,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, indexFunctions)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		obs := observability.NewRecordingObserver()
@@ -236,8 +224,6 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -265,7 +251,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, indexFunctions)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// No publisher calls expected for empty results
@@ -284,8 +270,6 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -313,7 +297,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, indexFunctions)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// sql.ErrNoRows should be handled gracefully and return nil
@@ -327,8 +311,6 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -356,7 +338,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, indexFunctions)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		obs := observability.NewRecordingObserver()
@@ -379,8 +361,6 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -402,7 +382,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		}
 
 		// Create scheduler with empty index functions
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, map[string]Function{})
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, map[string]Function{}, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// This should not happen in normal operation since random.Element would return empty string
@@ -420,8 +400,6 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -460,7 +438,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, indexFunctions)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		err = scheduler.IndexTypes(ctx)
@@ -479,8 +457,6 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
 
 		// Mock metrics provider
 		int64Counter := &mockmetrics.Int64CounterMock{
@@ -512,7 +488,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, logger, tracerProvider, metricsProvider, messageQueueProvider, testQueuesConfig, indexFunctions)
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		err = scheduler.IndexTypes(ctx)

@@ -9,8 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v8/encoding"
 	platformerrors "github.com/primandproper/platform-go/v8/errors"
 	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 
 	"github.com/stripe/stripe-go/v75"
 	"github.com/stripe/stripe-go/v75/client"
@@ -55,15 +53,17 @@ type (
 // NewStripePaymentManager builds a Stripe-backed PaymentManager. When cfg.APIKey is set, an API
 // client is initialized for outbound operations; otherwise only the inbound webhook path works.
 // handler is optional and invoked for every verified event.
-func NewStripePaymentManager(logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config, handler EventHandler) (capitalism.PaymentManager, error) {
+func NewStripePaymentManager(cfg *Config, handler EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
 
+	o := newOptions(opts)
+
 	m := &stripePaymentManager{
 		webhookSecret:  cfg.WebhookSecret,
-		encoderDecoder: encoding.NewServerEncoderDecoder(logger, tracerProvider, encoding.ContentTypeJSON),
-		o11y:           observability.NewObserver(implementationName, logger, tracerProvider),
+		encoderDecoder: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON, encoding.WithLogger(o.logger), encoding.WithTracerProvider(o.tracerProvider)),
+		o11y:           observability.NewObserver(implementationName, o.logger, o.tracerProvider),
 		handler:        handler,
 	}
 

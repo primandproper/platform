@@ -9,6 +9,7 @@ import (
 	authzdb "github.com/primandproper/platform-go/v8/authorization/database"
 	"github.com/primandproper/platform-go/v8/cache"
 	"github.com/primandproper/platform-go/v8/cache/memory"
+	"github.com/primandproper/platform-go/v8/database/dialect"
 	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
@@ -28,11 +29,11 @@ func build(t *testing.T, cfg *Config) (authorization.PolicyResolver, error) {
 	return NewPolicyResolver(
 		t.Context(),
 		cfg,
-		nil,
-		nil,
 		loggingnoop.NewLogger(),
 		tracingnoop.NewTracerProvider(),
 		metricsnoop.NewMetricsProvider(),
+		nil,
+		nil,
 	)
 }
 
@@ -146,7 +147,7 @@ func TestNewPolicyResolver_Database(T *testing.T) {
 
 		_, err := build(t, &Config{
 			Provider: ProviderDatabase,
-			Database: &authzdb.Config{Dialect: authzdb.DialectSQLite},
+			Database: &authzdb.Config{Dialect: dialect.SQLite},
 		})
 
 		test.Error(t, err)
@@ -162,12 +163,7 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 	newCache := func(t *testing.T) cache.Cache[authorization.PermissionSet] {
 		t.Helper()
 
-		c, err := memory.NewInMemoryCache[authorization.PermissionSet](
-			0,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
-		)
+		c, err := memory.NewInMemoryCache[authorization.PermissionSet](0)
 		must.NoError(t, err)
 
 		return c
@@ -181,11 +177,11 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 			&Config{Roles: []authorization.Role{
 				{Name: "member", Permissions: []authorization.Permission{permRead}},
 			}},
-			nil,
-			newCache(t),
 			loggingnoop.NewLogger(),
 			tracingnoop.NewTracerProvider(),
 			metricsnoop.NewMetricsProvider(),
+			nil,
+			newCache(t),
 		)
 		must.NoError(t, err)
 
@@ -203,11 +199,11 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 		resolver, err := NewPolicyResolver(
 			t.Context(),
 			&Config{CacheTTL: 90 * time.Second},
-			nil,
-			newCache(t),
 			loggingnoop.NewLogger(),
 			tracingnoop.NewTracerProvider(),
 			metricsnoop.NewMetricsProvider(),
+			nil,
+			newCache(t),
 		)
 
 		must.NoError(t, err)
@@ -222,6 +218,49 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 
 		_, isCached := resolver.(*cached.Resolver)
 		test.False(t, isCached)
+	})
+
+	// The process that edits policy reaches invalidation through the optional
+	// interface, never through the concrete type: where the decorator sits in
+	// the chain is this package's decision and may change.
+	T.Run("a cached resolver is reachable as a PolicyInvalidator", func(t *testing.T) {
+		t.Parallel()
+
+		resolver, err := NewPolicyResolver(
+			t.Context(),
+			&Config{Roles: []authorization.Role{
+				{Name: "member", Permissions: []authorization.Permission{permRead}},
+			}},
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+			nil,
+			newCache(t),
+		)
+		must.NoError(t, err)
+
+		invalidator, ok := resolver.(authorization.PolicyInvalidator)
+		must.True(t, ok)
+
+		must.NoError(t, invalidator.Invalidate(t.Context(), "member"))
+		invalidator.InvalidateAll()
+
+		// Still answers after invalidation — the entry is dropped, not the policy.
+		set, err := resolver.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+		test.True(t, set.Has(permRead))
+	})
+
+	// An uncached resolver deliberately does not implement it, so the assertion
+	// above is a real question rather than one that always answers yes.
+	T.Run("an uncached resolver is not a PolicyInvalidator", func(t *testing.T) {
+		t.Parallel()
+
+		resolver, err := build(t, &Config{})
+		must.NoError(t, err)
+
+		_, ok := resolver.(authorization.PolicyInvalidator)
+		test.False(t, ok)
 	})
 }
 
@@ -259,7 +298,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		test.NoError(t, (&Config{
 			Provider: ProviderDatabase,
-			Database: &authzdb.Config{Dialect: authzdb.DialectSQLite},
+			Database: &authzdb.Config{Dialect: dialect.SQLite},
 		}).ValidateWithContext(t.Context()))
 	})
 
@@ -271,7 +310,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		test.Error(t, (&Config{
 			Provider: ProviderStatic,
-			Database: &authzdb.Config{Dialect: authzdb.DialectSQLite},
+			Database: &authzdb.Config{Dialect: dialect.SQLite},
 		}).ValidateWithContext(t.Context()))
 	})
 

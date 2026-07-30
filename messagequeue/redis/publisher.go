@@ -103,7 +103,7 @@ func provideRedisPublisher(logger logging.Logger, tracerProvider tracing.TracerP
 	return &redisPublisher{
 		publisher:         redisClient,
 		topic:             topic,
-		encoder:           encoding.NewClientEncoder(logger, tracerProvider, encoding.ContentTypeJSON),
+		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
 		o11y:              observability.NewObserver(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider),
 		publishedCounter:  publishedCounter,
 		publishErrCounter: publishErrCounter,
@@ -121,8 +121,9 @@ type publisherProvider struct {
 }
 
 // NewRedisPublisherProvider returns a PublisherProvider for a given address.
-func NewRedisPublisherProvider(l logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, cfg Config) messagequeue.PublisherProvider {
-	o11y := observability.NewObserver("redis_publisher_provider", l, tracerProvider)
+func NewRedisPublisherProvider(cfg Config, opts ...Option) messagequeue.PublisherProvider {
+	o := newOptions(opts)
+	o11y := observability.NewObserver("redis_publisher_provider", o.logger, o.tracerProvider)
 	logger := o11y.Logger().WithValue("queue_addresses", cfg.QueueAddresses).
 		WithValue(keys.UsernameKey, cfg.Username).
 		WithValue("password_empty", cfg.Password == "")
@@ -153,8 +154,8 @@ func NewRedisPublisherProvider(l logging.Logger, tracerProvider tracing.TracerPr
 		o11y:            o11y,
 		redisClient:     redisClient,
 		publisherCache:  map[string]messagequeue.Publisher{},
-		tracerProvider:  tracerProvider,
-		metricsProvider: metricsProvider,
+		tracerProvider:  o.tracerProvider,
+		metricsProvider: o.metricsProvider,
 	}
 }
 

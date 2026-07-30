@@ -5,12 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v8/database/dialect"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
 
-func allDialects() []Dialect {
-	return []Dialect{DialectPostgres, DialectMySQL, DialectSQLite}
+func allDialects() []dialect.Dialect {
+	return []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite}
 }
 
 func TestStatements(T *testing.T) {
@@ -19,8 +21,8 @@ func TestStatements(T *testing.T) {
 	T.Run("renders every dialect", func(t *testing.T) {
 		t.Parallel()
 
-		for _, dialect := range allDialects() {
-			stmts, err := Statements(dialect, "authz_")
+		for _, d := range allDialects() {
+			stmts, err := Statements(d, "authz_")
 			must.NoError(t, err)
 
 			test.True(t, len(stmts) >= 4)
@@ -30,8 +32,8 @@ func TestStatements(T *testing.T) {
 	T.Run("substitutes the prefix", func(t *testing.T) {
 		t.Parallel()
 
-		for _, dialect := range allDialects() {
-			stmts, err := Statements(dialect, "custom_")
+		for _, d := range allDialects() {
+			stmts, err := Statements(d, "custom_")
 			must.NoError(t, err)
 
 			joined := strings.Join(stmts, "\n")
@@ -47,7 +49,7 @@ func TestStatements(T *testing.T) {
 	T.Run("an empty prefix is valid", func(t *testing.T) {
 		t.Parallel()
 
-		stmts, err := Statements(DialectSQLite, "")
+		stmts, err := Statements(dialect.SQLite, "")
 		must.NoError(t, err)
 
 		test.StrContains(t, strings.Join(stmts, "\n"), "roles")
@@ -58,8 +60,8 @@ func TestStatements(T *testing.T) {
 	T.Run("creates referenced tables first", func(t *testing.T) {
 		t.Parallel()
 
-		for _, dialect := range allDialects() {
-			stmts, err := Statements(dialect, "authz_")
+		for _, d := range allDialects() {
+			stmts, err := Statements(d, "authz_")
 			must.NoError(t, err)
 
 			joined := strings.Join(stmts, "\n")
@@ -81,8 +83,8 @@ func TestStatements(T *testing.T) {
 	T.Run("strips comments", func(t *testing.T) {
 		t.Parallel()
 
-		for _, dialect := range allDialects() {
-			stmts, err := Statements(dialect, "authz_")
+		for _, d := range allDialects() {
+			stmts, err := Statements(d, "authz_")
 			must.NoError(t, err)
 
 			for _, stmt := range stmts {
@@ -96,7 +98,7 @@ func TestStatements(T *testing.T) {
 
 		_, err := Statements("cockroach", "authz_")
 
-		test.True(t, errors.Is(err, ErrUnsupportedDialect))
+		test.True(t, errors.Is(err, dialect.ErrUnsupported))
 	})
 
 	// The prefix is interpolated into DDL, so it is restricted rather than
@@ -111,7 +113,7 @@ func TestStatements(T *testing.T) {
 			"1authz",
 			"auth z",
 		} {
-			_, err := Statements(DialectSQLite, prefix)
+			_, err := Statements(dialect.SQLite, prefix)
 
 			test.True(t, errors.Is(err, ErrInvalidTablePrefix))
 		}
@@ -124,8 +126,8 @@ func TestSQL(T *testing.T) {
 	T.Run("joins statements into one body", func(t *testing.T) {
 		t.Parallel()
 
-		for _, dialect := range allDialects() {
-			ddl, err := SQL(dialect, "authz_")
+		for _, d := range allDialects() {
+			ddl, err := SQL(d, "authz_")
 			must.NoError(t, err)
 
 			test.StrHasSuffix(t, ";\n", ddl)
@@ -137,9 +139,9 @@ func TestSQL(T *testing.T) {
 		t.Parallel()
 
 		_, err := SQL("cockroach", "authz_")
-		test.True(t, errors.Is(err, ErrUnsupportedDialect))
+		test.True(t, errors.Is(err, dialect.ErrUnsupported))
 
-		_, err = SQL(DialectSQLite, "bad-prefix")
+		_, err = SQL(dialect.SQLite, "bad-prefix")
 		test.True(t, errors.Is(err, ErrInvalidTablePrefix))
 	})
 }

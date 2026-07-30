@@ -6,11 +6,11 @@ role, or changes what an existing one grants, without shipping a release. If
 the roles are fixed at build time, authorization/static answers the same
 questions with no database and no migrations.
 
-	ddl, err := migrations.SQL(migrations.DialectPostgres, database.DefaultTablePrefix)
+	ddl, err := migrations.SQL(dialect.Postgres, database.DefaultTablePrefix)
 	// ... apply via database/migrate's WithGeneratedMigration
 
 	resolver, err := database.NewResolver(
-		&database.Config{Dialect: database.DialectPostgres},
+		&database.Config{Dialect: dialect.Postgres},
 		client.Reader(),
 		database.WithLogger(logger),
 		database.WithTracerProvider(tracerProvider),

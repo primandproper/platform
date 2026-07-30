@@ -108,7 +108,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 	T.Run("with no addresses", func(t *testing.T) {
 		t.Parallel()
 
-		rl, err := NewRedisRateLimiter(Config{}, nil, 10, 20)
+		rl, err := NewRedisRateLimiter(Config{}, 10, 20)
 		test.Error(t, err)
 		test.Nil(t, rl)
 	})
@@ -122,7 +122,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			Password:  "pass",
 		}
 
-		rl, err := NewRedisRateLimiter(cfg, nil, 10, 20)
+		rl, err := NewRedisRateLimiter(cfg, 10, 20)
 		test.NoError(t, err)
 		test.NotNil(t, rl)
 	})
@@ -136,7 +136,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			Password:  "pass",
 		}
 
-		rl, err := NewRedisRateLimiter(cfg, nil, 10, 20)
+		rl, err := NewRedisRateLimiter(cfg, 10, 20)
 		test.NoError(t, err)
 		test.NotNil(t, rl)
 	})
@@ -155,7 +155,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			},
 		}
 
-		rl, err := NewRedisRateLimiter(cfg, mp, 10, 20)
+		rl, err := NewRedisRateLimiter(cfg, 10, 20, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, rl)
 
@@ -182,7 +182,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			},
 		}
 
-		rl, err := NewRedisRateLimiter(cfg, mp, 10, 20)
+		rl, err := NewRedisRateLimiter(cfg, 10, 20, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, rl)
 
@@ -209,7 +209,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			},
 		}
 
-		rl, err := NewRedisRateLimiter(cfg, mp, 10, 20)
+		rl, err := NewRedisRateLimiter(cfg, 10, 20, WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.Nil(t, rl)
 

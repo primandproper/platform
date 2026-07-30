@@ -15,7 +15,7 @@ import (
 func ExampleNewScopedLocker() {
 	ctx := context.Background()
 
-	locker, err := memory.NewLocker(nil, nil, nil)
+	locker, err := memory.NewLocker()
 	if err != nil {
 		panic(err)
 	}
@@ -23,7 +23,7 @@ func ExampleNewScopedLocker() {
 
 	// nil logger, tracer provider, and metrics provider fall back to noop
 	// implementations; a real service passes the ones it built at startup.
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	if err != nil {
 		panic(err)
 	}
@@ -61,7 +61,7 @@ func ExampleNewScopedLocker() {
 func ExampleScopedLocker_TryWithLock() {
 	ctx := context.Background()
 
-	locker, err := memory.NewLocker(nil, nil, nil)
+	locker, err := memory.NewLocker()
 	if err != nil {
 		panic(err)
 	}
@@ -69,7 +69,7 @@ func ExampleScopedLocker_TryWithLock() {
 
 	// nil logger, tracer provider, and metrics provider fall back to noop
 	// implementations; a real service passes the ones it built at startup.
-	scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+	scoped, err := distributedlock.NewScopedLocker(locker)
 	if err != nil {
 		panic(err)
 	}

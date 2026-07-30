@@ -116,11 +116,12 @@ func buildChiMux(
 
 // NewBackend constructs a chi-backed routing.Backend with the standard middleware
 // and OpenTelemetry stack installed. Pass it to routing.New.
-func NewBackend(logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider, cfg *Config) routing.Backend {
-	o11y := observability.NewObserver("router", logging.EnsureLogger(logger), tracing.EnsureTracerProvider(tracerProvider))
+func NewBackend(cfg *Config, opts ...Option) routing.Backend {
+	o := newOptions(opts)
+	o11y := observability.NewObserver("router", logging.EnsureLogger(o.logger), tracing.EnsureTracerProvider(o.tracerProvider))
 
 	return &backend{
-		mux: buildChiMux(o11y, metrics.EnsureMetricsProvider(metricProvider), cfg),
+		mux: buildChiMux(o11y, metrics.EnsureMetricsProvider(o.metricsProvider), cfg),
 	}
 }
 

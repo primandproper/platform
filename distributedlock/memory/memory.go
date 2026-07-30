@@ -11,9 +11,7 @@ import (
 	"github.com/primandproper/platform-go/v8/identifiers"
 	"github.com/primandproper/platform-go/v8/observability"
 	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
 	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 const serviceName = "in_memory_distributed_lock"
@@ -45,12 +43,10 @@ type locker struct {
 }
 
 // NewLocker constructs a new in-memory Locker.
-func NewLocker(
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
-) (distributedlock.Locker, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
+func NewLocker(opts ...Option) (distributedlock.Locker, error) {
+	o := newOptions(opts)
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	acquireCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_acquires", serviceName))
 	if err != nil {
@@ -74,7 +70,7 @@ func NewLocker(
 	}
 
 	return &locker{
-		o11y:           observability.NewObserver(serviceName, logger, tracerProvider),
+		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		held:           make(map[string]*held),
 		acquireCounter: acquireCounter,
 		releaseCounter: releaseCounter,

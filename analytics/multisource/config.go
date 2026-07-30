@@ -8,8 +8,6 @@ import (
 	analyticscfg "github.com/primandproper/platform-go/v8/analytics/config"
 	"github.com/primandproper/platform-go/v8/analytics/noop"
 	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
 )
 
 // NewMultiSourceEventReporterFromConfig builds a MultiSourceEventReporter from proxy sources config.
@@ -22,16 +20,16 @@ import (
 func NewMultiSourceEventReporterFromConfig(
 	ctx context.Context,
 	proxySources map[string]*analyticscfg.SourceConfig,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
+	opts ...Option,
 ) (*MultiSourceEventReporter, error) {
+	o := newOptions(opts)
+
 	reporters := make(map[string]analytics.EventReporter)
-	log := logging.NewNamedLogger(logger, name)
+	log := logging.NewNamedLogger(o.logger, name)
 
 	if len(proxySources) == 0 {
 		log.Info("no analytics proxy sources configured, multisource reporter will be empty")
-		return NewMultiSourceEventReporter(reporters, logger, tracerProvider), nil
+		return NewMultiSourceEventReporter(reporters, opts...), nil
 	}
 
 	postHogReportersByKey := make(map[string]analytics.EventReporter)
@@ -53,7 +51,7 @@ func NewMultiSourceEventReporterFromConfig(
 			}
 		}
 
-		r, err := sourceCfg.NewCollector(ctx, log, tracerProvider, metricsProvider)
+		r, err := sourceCfg.NewCollector(ctx, log, o.tracerProvider, o.metricsProvider)
 		if err != nil {
 			log.WithValue("source", source).WithValue("reason", err.Error()).Error("failed to create reporter for proxy source, using noop", err)
 			reporters[source] = noop.NewEventReporter()
@@ -73,5 +71,5 @@ func NewMultiSourceEventReporterFromConfig(
 		reporters[source] = r
 	}
 
-	return NewMultiSourceEventReporter(reporters, logger, tracerProvider), nil
+	return NewMultiSourceEventReporter(reporters, opts...), nil
 }

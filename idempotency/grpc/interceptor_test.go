@@ -379,7 +379,7 @@ func TestInterceptor_StoreFailure(T *testing.T) {
 
 		handler := newCountingHandler(str("ch_1"))
 		interceptor := newInterceptorFor(t, newFailingStoreManager(t,
-			idempotency.WithStoreFailurePolicy[Response](idempotency.FailOpen),
+			idempotency.WithStoreFailurePolicy(idempotency.FailOpen),
 		))
 
 		reply, err := interceptor(keyed(t.Context(), testKey), str("req"), info(), handler.handle)
@@ -525,10 +525,10 @@ func TestInterceptor_ReplayFailure(T *testing.T) {
 			DeleteFunc: func(context.Context, string) error { return nil },
 		}
 
-		locker, err := dlmemory.NewLocker(nil, nil, nil)
+		locker, err := dlmemory.NewLocker()
 		must.NoError(t, err)
 
-		scoped, err := distributedlock.NewScopedLocker(locker, nil, nil, nil)
+		scoped, err := distributedlock.NewScopedLocker(locker)
 		must.NoError(t, err)
 
 		manager, err := NewManager(store, scoped)

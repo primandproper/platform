@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"strconv"
 
+	"github.com/primandproper/platform-go/v8/idempotency"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -17,7 +19,7 @@ import (
 // The request is marshaled deterministically. Without that, a message with a
 // map field serializes differently on every attempt, and an ordinary retry
 // would be reported as key reuse.
-func fingerprint(fullMethod, principal string, req proto.Message) (string, error) {
+func fingerprint(fullMethod, principal string, req proto.Message) (idempotency.Fingerprint, error) {
 	payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(req)
 	if err != nil {
 		return "", err
@@ -37,5 +39,5 @@ func fingerprint(fullMethod, principal string, req proto.Message) (string, error
 	write([]byte(principal))
 	write(payload)
 
-	return hex.EncodeToString(sum.Sum(nil)), nil
+	return idempotency.Fingerprint(hex.EncodeToString(sum.Sum(nil))), nil
 }
