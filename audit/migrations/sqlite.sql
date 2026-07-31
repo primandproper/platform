@@ -1,0 +1,38 @@
+CREATE TABLE IF NOT EXISTS {{PREFIX}}entries (
+    id            TEXT PRIMARY KEY,
+    seq           BIGINT NOT NULL,
+    scope         TEXT NOT NULL DEFAULT '',
+    recorded_at   DATETIME NOT NULL,
+    event_type    TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id   TEXT NOT NULL DEFAULT '',
+    actor_id      TEXT NOT NULL,
+    actor_type    TEXT NOT NULL DEFAULT '',
+    actor_ip      TEXT NOT NULL DEFAULT '',
+    change_set    BLOB,
+    metadata      BLOB,
+    prev_hash     TEXT NOT NULL DEFAULT '',
+    hash          TEXT NOT NULL
+);
+
+-- See postgres.sql for what each of these is for; the definitions are the same.
+CREATE UNIQUE INDEX IF NOT EXISTS {{PREFIX}}entries_chain_idx
+    ON {{PREFIX}}entries (scope, seq);
+
+CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_scope_time_idx
+    ON {{PREFIX}}entries (scope, recorded_at);
+
+CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_actor_idx
+    ON {{PREFIX}}entries (actor_id, recorded_at);
+
+CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_resource_idx
+    ON {{PREFIX}}entries (resource_type, resource_id, recorded_at);
+
+CREATE TABLE IF NOT EXISTS {{PREFIX}}chains (
+    scope               TEXT PRIMARY KEY,
+    head_seq            BIGINT NOT NULL DEFAULT -1,
+    head_hash           TEXT NOT NULL DEFAULT '',
+    pruned_through_seq  BIGINT NOT NULL DEFAULT -1,
+    pruned_through_hash TEXT NOT NULL DEFAULT '',
+    updated_at          DATETIME NOT NULL
+);

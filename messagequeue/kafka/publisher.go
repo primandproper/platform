@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/encoding"
-	"github.com/primandproper/platform-go/v8/messagequeue"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v9/encoding"
+	"github.com/primandproper/platform-go/v9/messagequeue"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	"github.com/segmentio/kafka-go"
 )

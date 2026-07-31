@@ -1,9 +1,9 @@
 package config
 
 import (
-	"github.com/primandproper/platform-go/v8/eventstream"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v9/eventstream"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	"github.com/samber/do/v2"
 )

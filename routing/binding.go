@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	httpx "github.com/primandproper/platform-go/v8/errors/http"
+	httpx "github.com/primandproper/platform-go/v9/errors/http"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

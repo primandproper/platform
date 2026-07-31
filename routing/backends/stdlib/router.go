@@ -10,12 +10,12 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
-	"github.com/primandproper/platform-go/v8/routing"
-	"github.com/primandproper/platform-go/v8/routing/backends/internal/httpmw"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/routing"
+	"github.com/primandproper/platform-go/v9/routing/backends/internal/httpmw"
 )
 
 var _ routing.Backend = (*backend)(nil)

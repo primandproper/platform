@@ -3,9 +3,9 @@ package posthog
 import (
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/posthog/posthog-go"
 	"github.com/shoenig/test"

@@ -6,10 +6,10 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/cache"
-	"github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v8/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/cache"
+	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

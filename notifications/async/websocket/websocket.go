@@ -4,12 +4,12 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/eventstream"
-	eswebsocket "github.com/primandproper/platform-go/v8/eventstream/websocket"
-	"github.com/primandproper/platform-go/v8/notifications/async"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/eventstream"
+	eswebsocket "github.com/primandproper/platform-go/v9/eventstream/websocket"
+	"github.com/primandproper/platform-go/v9/notifications/async"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
 )
 
 const o11yName = "async_notifications_websocket"

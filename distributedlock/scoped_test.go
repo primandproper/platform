@@ -7,12 +7,12 @@ import (
 	"testing/synctest"
 	"time"
 
-	clockmock "github.com/primandproper/platform-go/v8/clock/mock"
-	"github.com/primandproper/platform-go/v8/distributedlock"
-	"github.com/primandproper/platform-go/v8/distributedlock/memory"
-	dlmock "github.com/primandproper/platform-go/v8/distributedlock/mock"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
+	clockmock "github.com/primandproper/platform-go/v9/clock/mock"
+	"github.com/primandproper/platform-go/v9/distributedlock"
+	"github.com/primandproper/platform-go/v9/distributedlock/memory"
+	dlmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

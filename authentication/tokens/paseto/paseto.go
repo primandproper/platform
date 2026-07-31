@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/authentication/tokens"
-	"github.com/primandproper/platform-go/v8/identifiers"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v9/authentication/tokens"
+	"github.com/primandproper/platform-go/v9/identifiers"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
 
 	"github.com/o1egl/paseto/v2"
 )

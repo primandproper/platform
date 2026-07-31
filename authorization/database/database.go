@@ -7,16 +7,16 @@ import (
 	"regexp"
 	"slices"
 
-	"github.com/primandproper/platform-go/v8/authorization"
-	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/identifiers"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v9/authorization"
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/identifiers"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 // serviceName names the Resolver's logger, spans, and metrics.

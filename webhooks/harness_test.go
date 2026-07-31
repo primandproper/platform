@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/database/dialect"
-	"github.com/primandproper/platform-go/v8/database/sqlite"
-	"github.com/primandproper/platform-go/v8/identifiers"
-	"github.com/primandproper/platform-go/v8/webhooks/migrations"
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v9/database/sqlite"
+	"github.com/primandproper/platform-go/v9/identifiers"
+	"github.com/primandproper/platform-go/v9/webhooks/migrations"
 
 	"github.com/shoenig/test/must"
 )

@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/circuitbreaking"
-	"github.com/primandproper/platform-go/v8/database"
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/idempotency"
+	"github.com/primandproper/platform-go/v9/circuitbreaking"
+	"github.com/primandproper/platform-go/v9/database"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/idempotency"
 
 	"github.com/shoenig/test"
 )

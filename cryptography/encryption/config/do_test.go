@@ -3,9 +3,9 @@ package config
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/cryptography/encryption"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v9/cryptography/encryption"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

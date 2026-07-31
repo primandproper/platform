@@ -6,7 +6,7 @@ package mockpanicking
 import (
 	"sync"
 
-	"github.com/primandproper/platform-go/v8/panicking"
+	"github.com/primandproper/platform-go/v9/panicking"
 )
 
 // Ensure, that PanickerMock does implement panicking.Panicker.

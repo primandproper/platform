@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/database/dialect"
-	"github.com/primandproper/platform-go/v8/database/sqlite"
-	"github.com/primandproper/platform-go/v8/webhooks"
-	"github.com/primandproper/platform-go/v8/webhooks/migrations"
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v9/database/sqlite"
+	"github.com/primandproper/platform-go/v9/webhooks"
+	"github.com/primandproper/platform-go/v9/webhooks/migrations"
 )
 
 // Dispatch writes deliveries through the caller's transaction, so an event

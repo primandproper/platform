@@ -5,73 +5,114 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v9/errors"
 )
 
-// GetTagNameByValue searches struct s (or *s) for a field whose value equals fieldValue
-// and returns the tag for tagKey (e.g. "json") for the first match.
-// It returns an error if s is not a struct or no matching field is found.
+// GetTagNameByValue searches struct strukt (or *strukt) for a field whose value
+// equals fieldValue and returns the name that field is encoded under for
+// tagKey (e.g. "json").
 //
-// Notes & limitations:
-// - It compares field values using reflect.DeepEqual.
-// - Unexported fields are skipped (fv.CanInterface() == false).
-// - If multiple fields have identical values, the first match is returned (search order is struct field order).
-// - This requires passing the originating struct instance; a bare field value alone is insufficient in Go.
+// The name is resolved by FieldName, so it is the tag's name with any options
+// stripped — a field tagged `json:"name,omitempty"` reports "name" — and a
+// field with no tag for tagKey reports its own name rather than the empty
+// string. A field the tag omits entirely is never matched.
+//
+// Notes and limitations:
+//   - Values are compared with reflect.DeepEqual.
+//   - Unexported fields are skipped, since their values cannot be read.
+//   - The first match in struct field order wins, so a struct with two fields
+//     holding equal values reports the earlier one. Passing a value that
+//     several fields could hold — a zero string, say — is therefore ambiguous
+//     by construction.
+//   - Embedded fields are flattened exactly as encoding/json promotes them: an
+//     anonymous field with no explicit tag name is searched through, while one
+//     carrying a name is a named object and is compared whole. An embedded
+//     field of an unexported type that carries a name is therefore invisible:
+//     an embedded field's name is its type's name, so it cannot be read to be
+//     compared, and the tag has opted it out of being searched through.
+//   - A nil embedded pointer is skipped rather than stood in for by a zero
+//     struct. Substituting one would make every zero field of the substitute
+//     match a zero fieldValue, reporting a field that holds nothing as the
+//     field that holds what was asked for.
+//   - This requires the originating struct instance; a bare field value alone
+//     is insufficient in Go.
 func GetTagNameByValue(strukt, fieldValue any, tagKey string) (string, error) {
-	v := reflect.ValueOf(strukt)
-	if !v.IsValid() {
-		return "", errors.New("nil value")
+	value, present, err := StructValue(strukt)
+	if err != nil {
+		return "", err
 	}
 
-	if v.Kind() == reflect.Pointer {
-		if v.IsNil() {
-			return "", errors.New("nil pointer to struct")
+	if !present {
+		return "", ErrNoValue
+	}
+
+	if name, ok := findFieldNameByValue(value, fieldValue, tagKey); ok {
+		return name, nil
+	}
+
+	return "", ErrNoMatchingField
+}
+
+// findFieldNameByValue walks one struct level, descending through embedded
+// structs, and reports the name of the first field equal to fieldValue.
+func findFieldNameByValue(structValue reflect.Value, fieldValue any, tagKey string) (string, bool) {
+	t := structValue.Type()
+
+	for i := range t.NumField() {
+		field := t.Field(i)
+
+		name, explicit, skip := FieldName(&field, tagKey)
+		if skip {
+			continue
 		}
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return "", errors.Newf("GetTagNameByValue: expected struct or pointer to struct, got %s", v.Kind())
-	}
 
-	t := v.Type()
-	var walk func(reflect.Value, reflect.Type) (string, bool)
-	walk = func(rv reflect.Value, rt reflect.Type) (string, bool) {
-		for i := 0; i < rt.NumField(); i++ {
-			sf := rt.Field(i)
-			fv := rv.Field(i)
+		value := structValue.Field(i)
 
-			// if embedded struct, recurse
-			if sf.Anonymous {
-				// handle pointer-to-embedded
-				fvKind := fv.Kind()
-				if fvKind == reflect.Pointer && !fv.IsNil() {
-					fv = fv.Elem()
-					fvKind = fv.Kind()
+		// This runs before the readability check below, and has to: an embedded
+		// field's name is its type's name, so `struct { base }` is an unexported
+		// field whose exported members are nonetheless promoted — by
+		// encoding/json, and so by this. reflect agrees, allowing those members
+		// to be read even though the embedded field itself cannot be.
+		if field.Anonymous && !explicit {
+			if embedded, ok := embeddedStruct(value); ok {
+				if found, matched := findFieldNameByValue(embedded, fieldValue, tagKey); matched {
+					return found, true
 				}
-				if fvKind == reflect.Struct {
-					if tag, ok := walk(fv, fv.Type()); ok {
-						return tag, true
-					}
-				}
+
 				continue
 			}
-
-			// skip unexported fields we can't interface with
-			if !fv.IsValid() || !fv.CanInterface() {
-				continue
-			}
-
-			if reflect.DeepEqual(fv.Interface(), fieldValue) {
-				return sf.Tag.Get(tagKey), true
-			}
 		}
-		return "", false
+
+		if !value.IsValid() || !value.CanInterface() {
+			continue
+		}
+
+		if reflect.DeepEqual(value.Interface(), fieldValue) {
+			return name, true
+		}
 	}
 
-	if tag, ok := walk(v, t); ok {
-		return tag, nil
+	return "", false
+}
+
+// embeddedStruct resolves an embedded field to the struct value to descend
+// into, reporting false for anything that is not one — including a nil
+// embedded pointer, which is left to be compared as the pointer it is rather
+// than searched through as the struct it is not.
+func embeddedStruct(value reflect.Value) (reflect.Value, bool) {
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() || value.Type().Elem().Kind() != reflect.Struct {
+			return reflect.Value{}, false
+		}
+
+		return value.Elem(), true
 	}
-	return "", errors.New("no matching field with that value found in struct")
+
+	if value.Kind() != reflect.Struct {
+		return reflect.Value{}, false
+	}
+
+	return value, true
 }
 
 // GetMethodName is meant to fetch the name of a given method passed in as an argument.
@@ -90,47 +131,32 @@ func GetMethodName(method any) string {
 			}
 		}
 	}
+
 	return ""
 }
 
 // GetFieldTypes returns a map of field names to their types. For nested structs,
 // the value is a map[string]any containing the nested struct's fields.
+//
+// The argument may be a struct, a pointer to one, a nil pointer to one, or a
+// reflect.Type naming one: this describes a shape and so needs only the type.
+//
+// Fields are keyed by their Go names, not by any tag — this reports what the
+// type declares, not what an encoder would write. Embedded structs are
+// therefore recorded as a nested entry under the embedded type's name rather
+// than flattened; use GetTagNameByValue or FieldName for the encoded view.
 func GetFieldTypes(strukt any) (map[string]any, error) {
-	var t reflect.Type
-
-	switch v := strukt.(type) {
-	case reflect.Type:
-		t = v
-	default:
-		rv := reflect.ValueOf(strukt)
-		if !rv.IsValid() {
-			return nil, errors.New("nil value")
-		}
-
-		if rv.Kind() == reflect.Pointer {
-			if rv.IsNil() {
-				// For nil pointer, try to get the type from the pointer type
-				t = rv.Type().Elem()
-			} else {
-				t = rv.Elem().Type()
-			}
-		} else {
-			t = rv.Type()
-		}
+	t, err := StructType(strukt)
+	if err != nil {
+		return nil, err
 	}
 
 	return getFieldTypes(t, map[reflect.Type]bool{})
 }
 
+// getFieldTypes describes a struct type's fields. t must already be a struct
+// type; both call sites resolve that before calling.
 func getFieldTypes(t reflect.Type, visited map[reflect.Type]bool) (map[string]any, error) {
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-
-	if t.Kind() != reflect.Struct {
-		return nil, errors.Newf("GetFieldTypes: expected struct or pointer to struct, got %v", t.Kind())
-	}
-
 	// Track types on the current recursion path so self-referential types (e.g. Next *Node)
 	// terminate instead of recursing until the stack overflows.
 	visited[t] = true
@@ -165,6 +191,7 @@ func getFieldTypes(t reflect.Type, visited map[reflect.Type]bool) (map[string]an
 			if err != nil {
 				return nil, errors.Wrapf(err, "error processing nested struct field %s", x.Name)
 			}
+
 			result[x.Name] = nestedMap
 		} else {
 			// For non-struct fields, store the type string

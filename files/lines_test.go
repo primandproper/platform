@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/files"
+	"github.com/primandproper/platform-go/v9/files"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

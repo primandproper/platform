@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	"github.com/primandproper/platform-go/v8/observability/profiling/pprof"
-	"github.com/primandproper/platform-go/v8/observability/profiling/pyroscope"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	"github.com/primandproper/platform-go/v9/observability/profiling/pprof"
+	"github.com/primandproper/platform-go/v9/observability/profiling/pyroscope"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

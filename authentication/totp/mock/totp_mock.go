@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v8/authentication/totp"
+	"github.com/primandproper/platform-go/v9/authentication/totp"
 )
 
 // Ensure, that VerifierMock does implement totp.Verifier.

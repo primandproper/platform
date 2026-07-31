@@ -1,8 +1,8 @@
 package argon2
 
 import (
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 // Option configures the authenticator this package constructs. The zero

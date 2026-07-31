@@ -3,14 +3,14 @@ package outboxcfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/database/dialect"
-	databasemock "github.com/primandproper/platform-go/v8/database/mock"
-	msgconfig "github.com/primandproper/platform-go/v8/messagequeue/config"
-	"github.com/primandproper/platform-go/v8/messagequeue/pubsub"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v8/outbox"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	databasemock "github.com/primandproper/platform-go/v9/database/mock"
+	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
+	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v9/outbox"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/encoding"
-	httpx "github.com/primandproper/platform-go/v8/errors/http"
-	"github.com/primandproper/platform-go/v8/routing"
-	"github.com/primandproper/platform-go/v8/routing/backends/chi"
+	"github.com/primandproper/platform-go/v9/encoding"
+	httpx "github.com/primandproper/platform-go/v9/errors/http"
+	"github.com/primandproper/platform-go/v9/routing"
+	"github.com/primandproper/platform-go/v9/routing/backends/chi"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/shoenig/test"

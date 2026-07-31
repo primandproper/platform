@@ -4,10 +4,10 @@ import (
 	"context"
 	"maps"
 
-	"github.com/primandproper/platform-go/v8/analytics"
-	"github.com/primandproper/platform-go/v8/analytics/noop"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v9/analytics"
+	"github.com/primandproper/platform-go/v9/analytics/noop"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
 )
 
 const (

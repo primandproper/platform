@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/cache"
-	"github.com/primandproper/platform-go/v8/clock"
-	"github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v9/cache"
+	"github.com/primandproper/platform-go/v9/clock"
+	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 const name = "in_memory_cache"

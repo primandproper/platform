@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v9/errors"
 )
 
 // Dir is a handle rooted at a base directory. Its methods take file names relative to that base, so

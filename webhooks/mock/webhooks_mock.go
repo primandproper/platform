@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/filtering"
-	"github.com/primandproper/platform-go/v8/webhooks"
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/filtering"
+	"github.com/primandproper/platform-go/v9/webhooks"
 )
 
 // Ensure, that StoreMock does implement webhooks.Store.

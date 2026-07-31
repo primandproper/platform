@@ -3,8 +3,8 @@ package tableaccess
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/errors"
 )
 
 // ErrNotSupported is returned for operations that SQLite does not support.

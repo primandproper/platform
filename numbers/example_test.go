@@ -3,7 +3,7 @@ package numbers_test
 import (
 	"fmt"
 
-	"github.com/primandproper/platform-go/v8/numbers"
+	"github.com/primandproper/platform-go/v9/numbers"
 )
 
 func ExampleRoundToDecimalPlaces() {

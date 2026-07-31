@@ -5,10 +5,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/primandproper/platform-go/v8/capitalism"
-	"github.com/primandproper/platform-go/v8/encoding"
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v9/capitalism"
+	"github.com/primandproper/platform-go/v9/encoding"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/stripe/stripe-go/v75"
 	"github.com/stripe/stripe-go/v75/client"

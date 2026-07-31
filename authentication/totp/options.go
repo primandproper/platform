@@ -1,7 +1,7 @@
 package totp
 
 import (
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 // Option configures the Verifier this package constructs. The zero

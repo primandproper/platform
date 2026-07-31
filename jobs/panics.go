@@ -4,10 +4,10 @@ import (
 	"context"
 	stderrors "errors"
 
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/panicking"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/panicking"
 
 	"go.opentelemetry.io/otel/metric"
 )

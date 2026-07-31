@@ -9,7 +9,11 @@ set -euo pipefail
 # to converge today, but the loop shape is the hazard, not the tool.
 
 MAX_PASSES="${1:-5}"
-TAG_ORDER="env,envDefault,envPrefix,json,mapstructure,toml,yaml"
+# Keys absent from this list sort after every key in it, so a new tag key has to
+# be added here or the formatter and golangci-lint's tagalign — which sorts
+# alphabetically — will disagree forever, each undoing the other. "audit" is the
+# audit package's opt-out tag and sorts first for that reason, not by preference.
+TAG_ORDER="audit,env,envDefault,envPrefix,json,mapstructure,toml,yaml"
 
 marker="$(mktemp)"
 # shellcheck disable=SC2064

@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v8/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

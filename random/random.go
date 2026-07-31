@@ -9,9 +9,9 @@ import (
 	"io"
 	"log"
 
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 const (

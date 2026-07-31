@@ -3,7 +3,7 @@ package noop
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v8/email"
+	"github.com/primandproper/platform-go/v9/email"
 )
 
 var _ email.Emailer = (*emailer)(nil)

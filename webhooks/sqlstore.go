@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/filtering"
-	"github.com/primandproper/platform-go/v8/identifiers"
-	"github.com/primandproper/platform-go/v8/webhooks/migrations"
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/filtering"
+	"github.com/primandproper/platform-go/v9/identifiers"
+	"github.com/primandproper/platform-go/v9/webhooks/migrations"
 )
 
 // DefaultTablePrefix is the prefix the webhook tables carry when no other is

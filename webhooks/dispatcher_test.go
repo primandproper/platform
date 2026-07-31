@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/database"
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/filtering"
+	"github.com/primandproper/platform-go/v9/database"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/filtering"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

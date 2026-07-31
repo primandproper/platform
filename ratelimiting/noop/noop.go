@@ -3,7 +3,7 @@ package noop
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v8/ratelimiting"
+	"github.com/primandproper/platform-go/v9/ratelimiting"
 )
 
 var _ ratelimiting.RateLimiter = (*rateLimiter)(nil)

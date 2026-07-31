@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/authorization"
-	"github.com/primandproper/platform-go/v8/authorization/database/migrations"
-	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/database/dialect"
-	"github.com/primandproper/platform-go/v8/database/sqlite"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v9/authorization"
+	"github.com/primandproper/platform-go/v9/authorization/database/migrations"
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v9/database/sqlite"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test/must"
 )

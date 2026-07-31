@@ -8,8 +8,8 @@ import (
 	"image/png"
 	"net/url"
 
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
 
 	"github.com/boombuler/barcode"
 	"github.com/boombuler/barcode/qr"

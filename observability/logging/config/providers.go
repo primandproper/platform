@@ -3,7 +3,7 @@ package loggingcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v8/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/logging"
 )
 
 // NewLogger provides a Logger from config.
