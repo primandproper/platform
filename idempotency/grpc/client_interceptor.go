@@ -3,7 +3,7 @@ package grpc
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v8/idempotency"
+	"github.com/primandproper/platform-go/v9/idempotency"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"

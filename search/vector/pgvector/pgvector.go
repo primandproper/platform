@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/circuitbreaking"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v8/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v8/database"
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	vectorsearch "github.com/primandproper/platform-go/v8/search/vector"
+	"github.com/primandproper/platform-go/v9/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v9/database"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	vectorsearch "github.com/primandproper/platform-go/v9/search/vector"
 )
 
 const serviceName = "pgvector_index"

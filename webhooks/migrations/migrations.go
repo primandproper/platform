@@ -32,8 +32,8 @@ import (
 	_ "embed"
 	"strings"
 
-	"github.com/primandproper/platform-go/v8/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
 //go:embed postgres.sql

@@ -19,12 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/encoding"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v8/panicking"
-	"github.com/primandproper/platform-go/v8/routing"
-	"github.com/primandproper/platform-go/v8/routing/backends/chi"
+	"github.com/primandproper/platform-go/v9/encoding"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v9/panicking"
+	"github.com/primandproper/platform-go/v9/routing"
+	"github.com/primandproper/platform-go/v9/routing/backends/chi"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"runtime"
 
-	"github.com/primandproper/platform-go/v8/authentication"
-	"github.com/primandproper/platform-go/v8/observability"
+	"github.com/primandproper/platform-go/v9/authentication"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/alexedwards/argon2id"
 )

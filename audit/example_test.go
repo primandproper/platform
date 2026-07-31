@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/audit"
-	"github.com/primandproper/platform-go/v8/audit/migrations"
-	"github.com/primandproper/platform-go/v8/database"
-	"github.com/primandproper/platform-go/v8/database/dialect"
-	"github.com/primandproper/platform-go/v8/database/sqlite"
+	"github.com/primandproper/platform-go/v9/audit"
+	"github.com/primandproper/platform-go/v9/audit/migrations"
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v9/database/sqlite"
 )
 
 type recipe struct {

@@ -1,11 +1,11 @@
 package routingcfg
 
 import (
-	"github.com/primandproper/platform-go/v8/encoding"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
-	"github.com/primandproper/platform-go/v8/routing"
+	"github.com/primandproper/platform-go/v9/encoding"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/routing"
 
 	"github.com/samber/do/v2"
 )

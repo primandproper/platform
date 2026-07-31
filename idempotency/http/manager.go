@@ -3,9 +3,9 @@ package http
 import (
 	"net/http"
 
-	"github.com/primandproper/platform-go/v8/cache"
-	"github.com/primandproper/platform-go/v8/distributedlock"
-	"github.com/primandproper/platform-go/v8/idempotency"
+	"github.com/primandproper/platform-go/v9/cache"
+	"github.com/primandproper/platform-go/v9/distributedlock"
+	"github.com/primandproper/platform-go/v9/idempotency"
 )
 
 // Store is the record store an HTTP manager reads and writes. It is spelled

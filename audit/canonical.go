@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"strconv"
 
-	"github.com/primandproper/platform-go/v8/cryptography/hashing"
-	"github.com/primandproper/platform-go/v8/cryptography/hashing/canonical"
-	"github.com/primandproper/platform-go/v8/cryptography/hashing/sha256"
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	"github.com/primandproper/platform-go/v9/cryptography/hashing"
+	"github.com/primandproper/platform-go/v9/cryptography/hashing/canonical"
+	"github.com/primandproper/platform-go/v9/cryptography/hashing/sha256"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
 // imageVersion tags the framing below. It is the first field of every image, so

@@ -1,7 +1,7 @@
 package redis
 
 import (
-	"github.com/primandproper/platform-go/v8/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
 )
 
 // Option configures the redis-backed rate limiter this package constructs.

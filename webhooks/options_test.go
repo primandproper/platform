@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v8/circuitbreaking"
-	cbnoop "github.com/primandproper/platform-go/v8/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v8/clock"
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/metrics"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v9/circuitbreaking"
+	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v9/clock"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

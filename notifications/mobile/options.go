@@ -1,8 +1,8 @@
 package mobile
 
 import (
-	"github.com/primandproper/platform-go/v8/observability/logging"
-	"github.com/primandproper/platform-go/v8/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 // Option configures the MultiPlatformPushSender this package constructs. The zero

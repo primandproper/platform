@@ -2,15 +2,16 @@ package audit
 
 import (
 	"reflect"
-	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/reflection"
 )
 
 var (
 	// ErrNotAStruct indicates a Diff argument that is neither a struct nor a
-	// pointer to one.
-	ErrNotAStruct = platformerrors.New("audit diff requires a struct or a pointer to one")
+	// pointer to one. It is reflection's sentinel rather than one of this
+	// package's own, so that errors.Is holds against either name.
+	ErrNotAStruct = reflection.ErrNotAStruct
 
 	// ErrDiffTypeMismatch indicates a Diff of two different struct types. There
 	// is no sensible field-by-field answer for such a pair, and producing one
@@ -53,12 +54,12 @@ var (
 // answers is which field of the resource changed — and a caller who needs finer
 // granularity can Diff the nested values separately.
 func Diff(before, after any) (map[string]Change, error) {
-	beforeValue, haveBefore, err := structValue(before)
+	beforeValue, haveBefore, err := reflection.StructValue(before)
 	if err != nil {
 		return nil, err
 	}
 
-	afterValue, haveAfter, err := structValue(after)
+	afterValue, haveAfter, err := reflection.StructValue(after)
 	if err != nil {
 		return nil, err
 	}
@@ -86,33 +87,6 @@ func Diff(before, after any) (map[string]Change, error) {
 	return changes, nil
 }
 
-// structValue resolves an argument to an addressable struct value, reporting
-// whether there was one at all. A nil argument, a nil pointer, and an untyped
-// nil interface all mean "this side does not exist".
-func structValue(v any) (value reflect.Value, present bool, err error) {
-	if v == nil {
-		return reflect.Value{}, false, nil
-	}
-
-	rv := reflect.ValueOf(v)
-	if !rv.IsValid() {
-		return reflect.Value{}, false, nil
-	}
-
-	if rv.Kind() == reflect.Pointer {
-		if rv.IsNil() {
-			return reflect.Value{}, false, nil
-		}
-		rv = rv.Elem()
-	}
-
-	if rv.Kind() != reflect.Struct {
-		return reflect.Value{}, false, platformerrors.Wrapf(ErrNotAStruct, "got %s", rv.Kind())
-	}
-
-	return rv, true, nil
-}
-
 // collectChanges walks one struct level, recursing through embedded structs.
 func collectChanges(changes map[string]Change, beforeValue, afterValue reflect.Value, haveBefore, haveAfter bool) {
 	t := beforeValue.Type()
@@ -124,7 +98,7 @@ func collectChanges(changes map[string]Change, beforeValue, afterValue reflect.V
 			continue
 		}
 
-		name, explicit, skip := fieldName(&field)
+		name, explicit, skip := reflection.FieldName(&field, "json")
 		if skip {
 			continue
 		}
@@ -178,7 +152,7 @@ func embeddedStructs(beforeField, afterField reflect.Value) (beforeOut, afterOut
 			return reflect.Value{}, reflect.Value{}, false
 		}
 
-		return derefOrZero(beforeField), derefOrZero(afterField), true
+		return reflection.DerefOrZero(beforeField), reflection.DerefOrZero(afterField), true
 	}
 
 	if beforeField.Kind() != reflect.Struct {
@@ -186,42 +160,4 @@ func embeddedStructs(beforeField, afterField reflect.Value) (beforeOut, afterOut
 	}
 
 	return beforeField, afterField, true
-}
-
-// derefOrZero dereferences a pointer, yielding the zero value of its element
-// type when it is nil.
-func derefOrZero(v reflect.Value) reflect.Value {
-	if v.IsNil() {
-		return reflect.Zero(v.Type().Elem())
-	}
-
-	return v.Elem()
-}
-
-// fieldName resolves the name a field is recorded under, reporting whether the
-// name was given explicitly by a json tag and whether the field is skipped
-// entirely.
-func fieldName(field *reflect.StructField) (name string, explicit, skip bool) {
-	tag, ok := field.Tag.Lookup("json")
-	if !ok {
-		return field.Name, false, false
-	}
-
-	tagged, _, _ := strings.Cut(tag, ",")
-
-	switch tagged {
-	case "-":
-		// json:"-" omits the field; json:"-," names it "-". The distinction is
-		// encoding/json's, and it is honored here so that the audit log and the
-		// encoded resource never disagree about which fields exist.
-		if strings.HasPrefix(tag, "-,") {
-			return "-", true, false
-		}
-
-		return "", false, true
-	case "":
-		return field.Name, false, false
-	default:
-		return tagged, true, false
-	}
 }

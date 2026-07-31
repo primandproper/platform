@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v8/errors"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/notifications/async/ably"
-	"github.com/primandproper/platform-go/v8/notifications/async/pusher"
-	asyncws "github.com/primandproper/platform-go/v8/notifications/async/websocket"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v9/notifications/async/ably"
+	"github.com/primandproper/platform-go/v9/notifications/async/pusher"
+	asyncws "github.com/primandproper/platform-go/v9/notifications/async/websocket"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

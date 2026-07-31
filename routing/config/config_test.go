@@ -3,14 +3,14 @@ package routingcfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/encoding"
-	loggingnoop "github.com/primandproper/platform-go/v8/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v8/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v8/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v8/routing/backends/chi"
-	"github.com/primandproper/platform-go/v8/routing/backends/gin"
-	"github.com/primandproper/platform-go/v8/routing/backends/httprouter"
-	"github.com/primandproper/platform-go/v8/routing/backends/stdlib"
+	"github.com/primandproper/platform-go/v9/encoding"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v9/routing/backends/chi"
+	"github.com/primandproper/platform-go/v9/routing/backends/gin"
+	"github.com/primandproper/platform-go/v9/routing/backends/httprouter"
+	"github.com/primandproper/platform-go/v9/routing/backends/stdlib"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

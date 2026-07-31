@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v8/circuitbreaking"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v8/circuitbreaking/mock"
-	cbnoop "github.com/primandproper/platform-go/v8/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v8/observability"
-	"github.com/primandproper/platform-go/v8/observability/keys"
+	"github.com/primandproper/platform-go/v9/circuitbreaking"
+	mockcircuitbreaking "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/keys"
 
 	algoliasearch "github.com/algolia/algoliasearch-client-go/v3/algolia/search"
 	algoliatransport "github.com/algolia/algoliasearch-client-go/v3/algolia/transport"
