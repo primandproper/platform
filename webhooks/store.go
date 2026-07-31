@@ -1,0 +1,119 @@
+package webhooks
+
+import (
+	"context"
+	"time"
+
+	"github.com/primandproper/platform-go/v8/database"
+	"github.com/primandproper/platform-go/v8/filtering"
+)
+
+// Dispatch is one endpoint's copy of one delivery: the unit the worker actually
+// retries, backs off, and gives up on.
+//
+// It exists as a distinct row from the Delivery because per-endpoint state is
+// the whole point. A delivery that fanned out to five subscribers is not
+// "failed" or "delivered" — four may have accepted it on the first attempt while
+// the fifth is on its sixth retry, and a single status on the delivery cannot
+// express that. Retrying at the delivery level would also redeliver to the four
+// that already accepted it.
+type Dispatch struct {
+	// NextAttempt is when this dispatch next becomes claimable.
+	NextAttempt time.Time `json:"nextAttempt"`
+	// ID identifies the dispatch.
+	ID string `json:"id"`
+	// DeliveryID is the delivery being sent.
+	DeliveryID string `json:"deliveryID"`
+	// EndpointID is the subscriber it is being sent to.
+	EndpointID string `json:"endpointID"`
+	// OrderingKey is denormalized from the delivery so the claim predicate can
+	// enforce ordering without joining. See buildSelectClaimable.
+	OrderingKey string `json:"orderingKey,omitempty"`
+	// LastError is the most recent failure, rendered.
+	LastError string `json:"lastError,omitempty"`
+	// Attempts is how many attempts have been made.
+	Attempts int `json:"attempts"`
+	// Dead marks a dispatch that exhausted its attempts. It is skipped by every
+	// future claim and is what an operator replays.
+	Dead bool `json:"dead"`
+}
+
+// ClaimedDispatch is a Dispatch the worker has leased, joined with everything
+// needed to actually issue the request. It is assembled by the Store so the
+// worker makes one round trip per batch rather than one per dispatch.
+type ClaimedDispatch struct {
+	// Endpoint is the subscriber, resolved at claim time rather than at
+	// dispatch time — so a secret rotated between the event and its delivery
+	// signs with the current key, and an endpoint disabled in between is not
+	// delivered to at all.
+	Endpoint *Endpoint `json:"endpoint"`
+	// Payload is the delivery body, verbatim as dispatched.
+	Payload []byte `json:"payload"`
+	// EventType is the delivery's event type.
+	EventType string `json:"eventType"`
+
+	Dispatch
+}
+
+// Store is the persistence seam.
+//
+// This package ships a SQL implementation (NewSQLStore) together with the DDL
+// it needs (webhooks/migrations), so adopting webhooks does not mean writing
+// this. The interface exists because delivery mechanics and persistence are
+// genuinely separable, and an application with its own schema conventions —
+// or one storing endpoints somewhere that is not a SQL database — should not
+// have to fork the package to keep them.
+//
+// Methods taking a database.SQLQueryExecutor run inside the caller's
+// transaction and must use it rather than a handle of their own; that is what
+// makes Dispatch atomic with the state change that caused it. The rest own
+// their own statements.
+type Store interface {
+	// SaveEndpoint creates or replaces an endpoint and its subscriptions.
+	SaveEndpoint(ctx context.Context, endpoint *Endpoint) error
+	// GetEndpoint reads one endpoint, secrets included. It returns an error
+	// wrapping database/sql.ErrNoRows when the endpoint does not exist.
+	GetEndpoint(ctx context.Context, endpointID string) (*Endpoint, error)
+	// ListEndpoints pages through registered endpoints.
+	ListEndpoints(ctx context.Context, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Endpoint], error)
+	// ArchiveEndpoint retires an endpoint. Its delivery history is retained:
+	// the attempts log outlives the endpoint, because "what did we send them"
+	// is asked most often after someone has been removed.
+	ArchiveEndpoint(ctx context.Context, endpointID string) error
+
+	// EndpointsForEvent returns the enabled, unarchived endpoints subscribed to
+	// eventType, using the caller's executor.
+	EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, eventType string) ([]*Endpoint, error)
+	// Enqueue writes a delivery and one dispatch per endpoint, using the
+	// caller's executor, so both commit with whatever else that transaction did.
+	Enqueue(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery, endpointIDs []string, now time.Time) error
+
+	// Claim leases the next batch of due dispatches, incrementing their attempt
+	// counts, and returns them ready to send.
+	Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]ClaimedDispatch, error)
+	// MarkDelivered retires a dispatch that was accepted.
+	MarkDelivered(ctx context.Context, dispatchID string, at time.Time) error
+	// RecordFailure releases the lease, schedules the retry, and sets dead once
+	// the dispatch has exhausted its attempts.
+	//
+	// attempts is persisted as given rather than left as Claim incremented it,
+	// so the caller can decline to charge an attempt for a failure the
+	// subscriber never saw — an open circuit being the case that matters.
+	RecordFailure(ctx context.Context, dispatchID string, attempts int, nextAttempt time.Time, lastErr string, dead bool) error
+	// RecordAttempt appends to the delivery log.
+	RecordAttempt(ctx context.Context, attempt *Attempt) error
+	// ListAttempts pages through the attempts recorded for one delivery.
+	ListAttempts(ctx context.Context, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Attempt], error)
+
+	// Requeue makes a delivery/endpoint pair claimable again, clearing its dead
+	// flag and attempt count. It returns an error wrapping ErrDeliveryNotFound
+	// if the pair was never dispatched or has been reaped.
+	Requeue(ctx context.Context, deliveryID, endpointID string, at time.Time) error
+
+	// Backlog reports how many dispatches are waiting and when the oldest was
+	// created, for the worker's health gauges.
+	Backlog(ctx context.Context) (depth int64, oldest time.Time, err error)
+	// Reap deletes delivered dispatches, their deliveries, and their attempts
+	// once they age past the retention window, up to limit rows.
+	Reap(ctx context.Context, before time.Time, limit int) (int64, error)
+}
