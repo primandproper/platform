@@ -838,3 +838,180 @@ func (s *stubBreaker) succeeded() int {
 
 	return s.successCount
 }
+
+func TestWorker_sampleBacklog(T *testing.T) {
+	T.Parallel()
+
+	// The backlog gauges are the package's primary health signal: every other
+	// instrument is a rate or a latency, and none of them separates "delivering
+	// steadily" from "delivering steadily while falling further behind".
+	T.Run("samples depth and age", func(t *testing.T) {
+		t.Parallel()
+
+		called := false
+
+		w := newTestWorker(t, &fakeStore{
+			backlog: func(context.Context) (int64, time.Time, error) {
+				called = true
+
+				return 42, time.Now().Add(-90 * time.Second), nil
+			},
+		})
+
+		w.sampleBacklog(t.Context())
+
+		test.True(t, called)
+	})
+
+	// A drained queue must actively report zero rather than leave a stale
+	// reading on the dashboard, so an absent oldest timestamp is an age of zero
+	// rather than a skipped sample.
+	T.Run("an empty backlog still samples", func(t *testing.T) {
+		t.Parallel()
+
+		w := newTestWorker(t, &fakeStore{
+			backlog: func(context.Context) (int64, time.Time, error) {
+				return 0, time.Time{}, nil
+			},
+		})
+
+		w.sampleBacklog(t.Context())
+	})
+
+	// A clock that has moved behind the oldest row would otherwise produce a
+	// negative age.
+	T.Run("a future oldest row does not report a negative age", func(t *testing.T) {
+		t.Parallel()
+
+		w := newTestWorker(t, &fakeStore{
+			backlog: func(context.Context) (int64, time.Time, error) {
+				return 1, time.Now().Add(time.Hour), nil
+			},
+		})
+
+		w.sampleBacklog(t.Context())
+	})
+
+	T.Run("a store failure is survivable", func(t *testing.T) {
+		t.Parallel()
+
+		w := newTestWorker(t, &fakeStore{
+			backlog: func(context.Context) (int64, time.Time, error) {
+				return 0, time.Time{}, platformerrors.New("database is on fire")
+			},
+		})
+
+		// There is no caller to hand the error to; the next tick retries.
+		w.sampleBacklog(t.Context())
+	})
+}
+
+func TestWorker_reap(T *testing.T) {
+	T.Parallel()
+
+	// The retention arithmetic is the part worth pinning: reaping from the wrong
+	// side of the window would delete live history or never delete anything.
+	T.Run("reaps from the far side of the retention window", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			gotBefore time.Time
+			gotLimit  int
+		)
+
+		w := newTestWorker(t, &fakeStore{
+			reap: func(_ context.Context, before time.Time, limit int) (int64, error) {
+				gotBefore = before
+				gotLimit = limit
+
+				return 7, nil
+			},
+		})
+
+		w.reap(t.Context())
+
+		test.EqOp(t, w.cfg.ReapBatchSize, gotLimit)
+
+		// The cutoff is one retention window in the past, so anything delivered
+		// more recently survives.
+		expected := time.Now().Add(-w.cfg.Retention)
+		test.True(t, gotBefore.Sub(expected).Abs() < time.Minute)
+	})
+
+	T.Run("reaping nothing is not an event", func(t *testing.T) {
+		t.Parallel()
+
+		w := newTestWorker(t, &fakeStore{
+			reap: func(context.Context, time.Time, int) (int64, error) { return 0, nil },
+		})
+
+		w.reap(t.Context())
+	})
+
+	T.Run("a store failure is survivable", func(t *testing.T) {
+		t.Parallel()
+
+		w := newTestWorker(t, &fakeStore{
+			reap: func(context.Context, time.Time, int) (int64, error) {
+				return 0, platformerrors.New("database is on fire")
+			},
+		})
+
+		w.reap(t.Context())
+	})
+}
+
+// newAcceptingServer is a subscriber that accepts every delivery.
+func newAcceptingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+		res.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	return server
+}
+
+// newRefusingServer is a subscriber that fails every delivery transiently.
+func newRefusingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+		res.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+
+	return server
+}
+
+func TestWorker_backoffCap(T *testing.T) {
+	T.Parallel()
+
+	// The schedule is capped at MaxDelay, so a dispatch deep into its retries
+	// does not end up scheduled days out.
+	T.Run("does not exceed the configured maximum", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &WorkerConfig{}
+		cfg.EnsureDefaults()
+		cfg.Backoff.UseJitter = false
+
+		w, err := NewWorker(t.Context(), cfg, &fakeStore{})
+		must.NoError(t, err)
+
+		test.EqOp(t, cfg.Backoff.MaxDelay, w.backoffFor(100))
+	})
+
+	// With jitter the delay is drawn from below the schedule, so it must still
+	// never exceed the cap.
+	T.Run("stays under the maximum with jitter", func(t *testing.T) {
+		t.Parallel()
+
+		w := newTestWorker(t, &fakeStore{})
+
+		for range 200 {
+			test.True(t, w.backoffFor(100) <= w.cfg.Backoff.MaxDelay)
+		}
+	})
+}

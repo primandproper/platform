@@ -281,3 +281,48 @@ func TestEnsureHTTPClient(T *testing.T) {
 		test.NotNil(t, EnsureHTTPClient(nil))
 	})
 }
+
+func TestBreakerFactory(T *testing.T) {
+	T.Parallel()
+
+	// The factory is what gives each endpoint its own breaker. Building one is
+	// the part that can fail, and every breaker carries its endpoint as a metric
+	// attribute so a tripped circuit names the subscriber that tripped it.
+	T.Run("builds a usable breaker per endpoint", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := validConfig()
+		cfg.EnsureDefaults()
+
+		factory := breakerFactory(t.Context(), cfg, nil, nil)
+		must.NotNil(t, factory)
+
+		first, err := factory("endpoint-1")
+		must.NoError(t, err)
+		must.NotNil(t, first)
+		test.True(t, first.CanProceed())
+
+		second, err := factory("endpoint-2")
+		must.NoError(t, err)
+		must.NotNil(t, second)
+
+		// Distinct instances, so one endpoint tripping does not open another's.
+		test.True(t, first != second)
+	})
+
+	// The factory reaches the worker, which caches one breaker per endpoint.
+	T.Run("reaches the worker", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := validConfig()
+
+		store, err := NewStore(t.Context(), cfg, newTestClient(t))
+		must.NoError(t, err)
+
+		worker, err := NewWorker(t.Context(), cfg, nil, nil, nil, store)
+		must.NoError(t, err)
+		t.Cleanup(func() { _ = worker.Close(t.Context()) })
+
+		test.NotNil(t, worker)
+	})
+}

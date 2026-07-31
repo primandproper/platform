@@ -2,8 +2,10 @@ package webhooks
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -302,5 +304,79 @@ func TestTerminalStatus(T *testing.T) {
 		test.False(t, terminalStatus(http.StatusServiceUnavailable))
 
 		test.False(t, terminalStatus(http.StatusOK))
+	})
+}
+
+// The hostname path, which every other case in this file skips by using literal
+// IPs. It is the branch that actually runs at delivery time for a real
+// subscriber, so leaving it unexercised would mean the resolver loop was never
+// executed by any test.
+func TestCheckEndpointURL_resolution(T *testing.T) {
+	T.Parallel()
+
+	// localhost resolves without touching the network and lands on loopback,
+	// which is exactly what the guard must refuse.
+	T.Run("rejects a name that resolves to loopback", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, CheckEndpointURL(t.Context(), "https://localhost/hooks"), ErrDisallowedEndpointHost)
+	})
+
+	// A cancelled context fails the lookup deterministically, without depending
+	// on a DNS server being unreachable.
+	T.Run("surfaces a resolution failure", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		test.ErrorIs(t, CheckEndpointURL(ctx, "https://example.com/hooks"), ErrInvalidEndpointURL)
+	})
+
+	// The DNS lookup is what makes the delivery-time re-check able to hang, so
+	// it has to honor the deadline it is given.
+	T.Run("honors a deadline", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithTimeout(t.Context(), time.Nanosecond)
+		defer cancel()
+
+		test.Error(t, CheckEndpointURL(ctx, "https://example.com/hooks"))
+	})
+}
+
+func TestCheckIP(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts a globally routable address", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, checkIP(net.ParseIP("93.184.216.34"), "example.com"))
+		test.NoError(t, checkIP(net.ParseIP("2606:2800:220:1:248:1893:25c8:1946"), "example.com"))
+	})
+
+	T.Run("rejects everything else", func(t *testing.T) {
+		t.Parallel()
+
+		for name, ip := range map[string]string{
+			"loopback v4":     "127.0.0.1",
+			"loopback v6":     "::1",
+			"link-local v4":   "169.254.169.254",
+			"link-local v6":   "fe80::1",
+			"private 10":      "10.0.0.1",
+			"private 172":     "172.20.0.1",
+			"private 192.168": "192.168.0.1",
+			"unique local v6": "fd12::1",
+			"unspecified v4":  "0.0.0.0",
+			"unspecified v6":  "::",
+			"multicast v4":    "239.0.0.1",
+			"multicast v6":    "ff02::1",
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				test.ErrorIs(t, checkIP(net.ParseIP(ip), "host"), ErrDisallowedEndpointHost)
+			})
+		}
 	})
 }
