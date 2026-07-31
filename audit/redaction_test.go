@@ -115,6 +115,33 @@ func TestRedaction(T *testing.T) {
 		test.EqOp(t, "req_1", read.Metadata["requestID"])
 	})
 
+	T.Run("hashes a metadata value in place", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestClient(t)
+		recorder := newTestRecorder(t, newStubClock(),
+			WithRedaction("user", Redaction{Hash: []string{"sessionID"}}))
+		reader := newTestReader(t, client)
+
+		entry := &Entry{
+			EventType:    EventAccessed,
+			ResourceType: "user",
+			Actor:        Actor{ID: "user_1"},
+			Metadata:     map[string]string{"sessionID": "sess_secret", "requestID": "req_1"},
+		}
+		record(t, client, recorder, entry)
+
+		read, err := reader.Get(t.Context(), entry.ID)
+		must.NoError(t, err)
+		must.MapLen(t, 2, read.Metadata)
+
+		// Correlatable without being readable: two entries carrying the same
+		// session hash to the same digest, which is the question worth asking.
+		test.True(t, strings.HasPrefix(read.Metadata["sessionID"], "sha256:"))
+		test.StrNotContains(t, read.Metadata["sessionID"], "sess_secret")
+		test.EqOp(t, "req_1", read.Metadata["requestID"])
+	})
+
 	T.Run("applies the catch-all to every resource type", func(t *testing.T) {
 		t.Parallel()
 

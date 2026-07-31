@@ -41,6 +41,37 @@ type diffPointerEmbedded struct {
 	Name string `json:"name"`
 }
 
+// DiffVersion is embedded by value and by pointer below, to cover the two
+// shapes of embedded non-struct that must not be flattened. It is exported
+// because an embedded field is named for its type, and an unexported one would
+// be skipped before the flattening decision is ever reached — which is itself
+// correct, and what encoding/json does.
+type DiffVersion int
+
+type diffEmbeddedScalar struct {
+	DiffVersion
+}
+
+type diffEmbeddedScalarPtr struct {
+	*DiffVersion
+}
+
+type diffDashNamed struct {
+	// json:"-," names the field "-", where json:"-" would omit it. staticcheck
+	// flags the spelling as a likely typo, which it usually is — here it is the
+	// distinction under test, and Diff has to honor it or the audit log and the
+	// encoded resource disagree about which fields exist.
+	//
+	//nolint:staticcheck // SA5008: naming a field "-" is deliberate here.
+	Dash string `json:"-,"`
+}
+
+// diffOptionsOnly carries a json tag that renames nothing, which encoding/json
+// reads as "keep the field name, apply the options".
+type diffOptionsOnly struct {
+	Name string `json:",omitempty"`
+}
+
 func TestDiff(T *testing.T) {
 	T.Parallel()
 
@@ -155,6 +186,50 @@ func TestDiff(T *testing.T) {
 		test.EqOp(t, 3, changes["version"].New)
 	})
 
+	T.Run("records an embedded non-struct as an ordinary field", func(t *testing.T) {
+		t.Parallel()
+
+		// encoding/json promotes an embedded struct's fields and treats an
+		// embedded non-struct as a field named for its type. Diff follows,
+		// because the audit log and the encoded resource must not disagree
+		// about which fields exist.
+		changes, err := Diff(diffEmbeddedScalar{DiffVersion: 1}, diffEmbeddedScalar{DiffVersion: 2})
+		must.NoError(t, err)
+		must.MapLen(t, 1, changes)
+		test.MapContainsKey(t, changes, "DiffVersion")
+	})
+
+	T.Run("records an embedded pointer to a non-struct as a field", func(t *testing.T) {
+		t.Parallel()
+
+		one, two := DiffVersion(1), DiffVersion(2)
+
+		changes, err := Diff(diffEmbeddedScalarPtr{&one}, diffEmbeddedScalarPtr{&two})
+		must.NoError(t, err)
+		test.MapLen(t, 1, changes)
+	})
+
+	T.Run("honors a field literally named dash", func(t *testing.T) {
+		t.Parallel()
+
+		// json:"-," names the field "-"; json:"-" omits it. The distinction is
+		// encoding/json's and it is preserved here.
+		changes, err := Diff(diffDashNamed{Dash: "a"}, diffDashNamed{Dash: "b"})
+		must.NoError(t, err)
+		must.MapLen(t, 1, changes)
+		test.MapContainsKey(t, changes, "-")
+	})
+
+	T.Run("treats a typed nil interface as an absent side", func(t *testing.T) {
+		t.Parallel()
+
+		var absent any
+
+		changes, err := Diff(absent, diffAudited{Name: "new"})
+		must.NoError(t, err)
+		test.MapLen(t, 1, changes)
+	})
+
 	T.Run("returns nothing for identical values", func(t *testing.T) {
 		t.Parallel()
 
@@ -176,11 +251,23 @@ func TestDiff(T *testing.T) {
 		test.ErrorIs(t, err, ErrDiffTypeMismatch)
 	})
 
-	T.Run("refuses a non-struct", func(t *testing.T) {
+	T.Run("refuses a non-struct on either side", func(t *testing.T) {
 		t.Parallel()
 
 		_, err := Diff("a", "b")
 		test.ErrorIs(t, err, ErrNotAStruct)
+
+		_, err = Diff(diffAudited{}, "b")
+		test.ErrorIs(t, err, ErrNotAStruct)
+	})
+
+	T.Run("names a field by its own name when the tag carries only options", func(t *testing.T) {
+		t.Parallel()
+
+		changes, err := Diff(diffOptionsOnly{Name: "a"}, diffOptionsOnly{Name: "b"})
+		must.NoError(t, err)
+		must.MapLen(t, 1, changes)
+		test.MapContainsKey(t, changes, "Name")
 	})
 
 	T.Run("refuses two absent sides", func(t *testing.T) {

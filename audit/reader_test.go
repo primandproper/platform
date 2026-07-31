@@ -133,6 +133,14 @@ func TestReader_List(T *testing.T) {
 		must.NoError(t, err)
 		must.SliceLen(t, 1, listed.Data)
 		test.EqOp(t, mine.ID, listed.Data[0].ID)
+
+		listed, err = reader.List(t.Context(), &Query{ActorType: ActorUser}, nil)
+		must.NoError(t, err)
+		test.SliceLen(t, 3, listed.Data)
+
+		listed, err = reader.List(t.Context(), &Query{ActorType: ActorSystem}, nil)
+		must.NoError(t, err)
+		test.SliceEmpty(t, listed.Data)
 	})
 
 	T.Run("treats the empty scope as a scope of its own", func(t *testing.T) {
@@ -375,6 +383,26 @@ func TestReader_Verify(T *testing.T) {
 		must.NoError(t, err)
 		test.True(t, result.Intact())
 		test.EqOp(t, 2, result.Checked)
+	})
+
+	T.Run("does not read a missing chain row as tampering", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestClient(t)
+		recorder := newTestRecorder(t, newStubClock())
+		reader := newTestReader(t, client)
+
+		record(t, client, recorder, entryFor("acct_1", "r1"), entryFor("acct_1", "r2"))
+
+		// A scope with no chain row has never been pruned, so a chain that
+		// starts at position zero is exactly what it should be. Reporting a
+		// break here would cry wolf on every log restored without its chain
+		// table.
+		exec(t, client, "DELETE FROM "+DefaultTablePrefix+"chains WHERE scope = 'acct_1'")
+
+		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
+		must.NoError(t, err)
+		test.True(t, result.Intact())
 	})
 
 	T.Run("verifies each scope independently", func(t *testing.T) {

@@ -122,6 +122,20 @@ func TestNewReader(T *testing.T) {
 		_, err := NewReader(t.Context(), validConfig(), nil, nil, nil, nil)
 		test.ErrorIs(t, err, audit.ErrNilDatabaseClient)
 	})
+
+	T.Run("passes the observability dependencies through", func(t *testing.T) {
+		t.Parallel()
+
+		reader, err := NewReader(
+			t.Context(), validConfig(),
+			noopLogging.NewLogger(),
+			noopTracing.NewTracerProvider(),
+			metrics.EnsureMetricsProvider(nil),
+			stubClient{},
+		)
+		must.NoError(t, err)
+		test.NotNil(t, reader)
+	})
 }
 
 func TestNewSweeper(T *testing.T) {
@@ -147,6 +161,20 @@ func TestNewSweeper(T *testing.T) {
 
 		_, err := NewSweeper(t.Context(), validConfig(), nil, nil, nil, nil)
 		test.ErrorIs(t, err, audit.ErrNilDatabaseClient)
+	})
+
+	T.Run("passes the observability dependencies through", func(t *testing.T) {
+		t.Parallel()
+
+		sweeper, err := NewSweeper(
+			t.Context(), validConfig(),
+			noopLogging.NewLogger(),
+			noopTracing.NewTracerProvider(),
+			metrics.EnsureMetricsProvider(nil),
+			stubClient{},
+		)
+		must.NoError(t, err)
+		test.NotNil(t, sweeper)
 	})
 }
 

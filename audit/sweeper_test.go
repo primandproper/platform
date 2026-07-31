@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"github.com/shoenig/test/wait"
 )
 
 // sweeperFor builds a Sweeper over the stub clock with the supplied config
@@ -241,16 +243,68 @@ func TestSweeper_Sweep(T *testing.T) {
 func TestSweeper_RunAndClose(T *testing.T) {
 	T.Parallel()
 
-	client := newTestClient(T)
-	c := newStubClock()
+	T.Run("stops on Close, and stops twice safely", func(t *testing.T) {
+		t.Parallel()
 
-	// The interval is long enough that the ticker never fires: this asserts the
-	// lifecycle, not the cadence.
-	sweeper := sweeperFor(T, client, c, func(cfg *SweeperConfig) { cfg.SweepInterval = time.Hour })
+		client := newTestClient(t)
+		c := newStubClock()
 
-	go sweeper.Run()
+		// The interval is long enough that the ticker never fires: this asserts
+		// the lifecycle, not the cadence.
+		sweeper := sweeperFor(t, client, c, func(cfg *SweeperConfig) { cfg.SweepInterval = time.Hour })
 
-	must.NoError(T, sweeper.Close(T.Context()))
-	// Closing twice is safe.
-	must.NoError(T, sweeper.Close(T.Context()))
+		go sweeper.Run()
+
+		must.NoError(t, sweeper.Close(t.Context()))
+		must.NoError(t, sweeper.Close(t.Context()))
+	})
+
+	T.Run("sweeps on the tick", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestClient(t)
+		c := newStubClock()
+		recorder := newTestRecorder(t, c)
+
+		record(t, client, recorder, entryFor("acct_1", "r1"))
+		c.advance(4 * time.Hour)
+
+		// One second, because that is the configured floor — a sweep interval
+		// below it is refused, so this is as fast as the tick path can be
+		// exercised honestly.
+		sweeper := sweeperFor(t, client, c, func(cfg *SweeperConfig) {
+			cfg.Retention = time.Hour
+			cfg.SweepInterval = time.Second
+		})
+
+		go sweeper.Run()
+
+		// The ticker is real (see stubClock), so this waits on the loop rather
+		// than on a fixed sleep.
+		must.Wait(t, wait.InitialSuccess(
+			wait.BoolFunc(func() bool {
+				return countRows(t, client, DefaultTablePrefix+"entries", "1=1") == 0
+			}),
+			wait.Timeout(15*time.Second),
+			wait.Gap(10*time.Millisecond),
+		))
+
+		must.NoError(t, sweeper.Close(t.Context()))
+	})
+
+	T.Run("reports a Close that outlives its context", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestClient(t)
+		c := newStubClock()
+
+		sweeper := sweeperFor(t, client, c, func(cfg *SweeperConfig) { cfg.SweepInterval = time.Hour })
+
+		// Never started, so nothing will ever close the done channel and Close
+		// can only end by giving up on its deadline.
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		test.Error(t, sweeper.Close(ctx))
+	})
 }

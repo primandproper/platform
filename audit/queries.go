@@ -229,7 +229,7 @@ func (t *tables) buildSelectChainRange(d dialect.Dialect, scope string, from, to
 
 // buildListEntries renders a filtered, cursor-paginated read.
 func (t *tables) buildListEntries(d dialect.Dialect, q *Query, filter *filtering.QueryFilter, limit int) (query string, args []any) {
-	where, args := q.where(d, nil)
+	where, args := q.where(d)
 	where, args = applyFilterWindow(d, where, args, filter)
 
 	descending := sortsDescending(filter)
@@ -261,7 +261,7 @@ func (t *tables) buildListEntries(d dialect.Dialect, q *Query, filter *filtering
 // not the cursor: the total is of the matching set, not of what is left after
 // the cursor.
 func (t *tables) buildCountEntries(d dialect.Dialect, q *Query, filter *filtering.QueryFilter) (query string, args []any) {
-	where, args := q.where(d, nil)
+	where, args := q.where(d)
 	where, args = applyFilterWindow(d, where, args, filter)
 
 	return fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", t.entries, joinWhere(where)), args
@@ -328,10 +328,10 @@ func (t *tables) buildUpdateChainPruned(d dialect.Dialect, scope, hash string, t
 	), []any{through, hash, now, scope}
 }
 
-// where renders the query's predicates, appending to the supplied args.
-func (q *Query) where(d dialect.Dialect, args []any) (predicates []string, out []any) {
+// where renders the query's predicates and the arguments they bind.
+func (q *Query) where(d dialect.Dialect) (predicates []string, args []any) {
 	if q == nil {
-		return nil, args
+		return nil, nil
 	}
 
 	if q.Scope != nil {
