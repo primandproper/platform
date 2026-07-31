@@ -640,6 +640,84 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.SliceEmpty(t, claimAll(t, store, baseTime))
 	})
 
+	// Cursor pagination, for both paged reads. The cursor branch is what a
+	// second page actually exercises, and a first-page-only test never renders
+	// it. It owes every dialect: it is the one query shape whose placeholder
+	// index is computed from the argument count rather than written literally,
+	// and SQLite and MySQL both use positional '?', where a numbering mistake
+	// is invisible. Only Postgres's numbered $N can catch it.
+	t.Run("pages endpoints with a cursor", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		for _, id := range []string{"endpoint-1", "endpoint-2", "endpoint-3"} {
+			registerEndpoint(t, store, id, "order.created")
+		}
+
+		filter := filtering.DefaultQueryFilter()
+		filter.MaxResponseSize = new(uint8(2))
+
+		first, err := store.ListEndpoints(ctxFor(t), filter)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, first.Data)
+		test.EqOp(t, "endpoint-2", first.Cursor)
+
+		filter.Cursor = &first.Cursor
+
+		second, err := store.ListEndpoints(ctxFor(t), filter)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, second.Data)
+		test.EqOp(t, "endpoint-3", second.Data[0].ID)
+
+		// The total is the whole set, not the page.
+		test.EqOp(t, uint64(3), second.TotalCount)
+	})
+
+	t.Run("pages attempts with a cursor", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		registerEndpoint(t, store, "endpoint-1", "order.created")
+
+		delivery := dispatchTo(t, env, store,
+			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
+
+		for i := range 3 {
+			must.NoError(t, store.RecordAttempt(ctxFor(t), &Attempt{
+				DeliveryID: delivery.ID, EndpointID: "endpoint-1",
+				AttemptCount: i + 1, StatusCode: 500,
+				AttemptedAt: baseTime.Add(time.Duration(i) * time.Minute),
+			}))
+		}
+
+		filter := filtering.DefaultQueryFilter()
+		filter.MaxResponseSize = new(uint8(2))
+
+		first, err := store.ListAttempts(ctxFor(t), delivery.ID, filter)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, first.Data)
+
+		filter.Cursor = &first.Cursor
+
+		second, err := store.ListAttempts(ctxFor(t), delivery.ID, filter)
+		must.NoError(t, err)
+		test.SliceLen(t, 1, second.Data)
+		test.EqOp(t, uint64(3), second.TotalCount)
+	})
+
+	// A nil filter is the common call and must not page to zero rows.
+	t.Run("a nil filter uses the defaults", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		registerEndpoint(t, store, "endpoint-1", "order.created")
+
+		listed, err := store.ListEndpoints(ctxFor(t), nil)
+		must.NoError(t, err)
+		test.SliceLen(t, 1, listed.Data)
+	})
+
 	t.Run("guards against a nil executor", func(t *testing.T) {
 		t.Parallel()
 
@@ -736,85 +814,5 @@ func TestCoerceTime(T *testing.T) {
 				test.False(t, ok)
 			})
 		}
-	})
-}
-
-// Cursor pagination, for both paged reads. The cursor branch is what a second
-// page actually exercises, and a first-page-only test never renders it.
-func TestSQLStore_Pagination(T *testing.T) {
-	T.Parallel()
-
-	env := newSQLiteEnv(T)
-
-	T.Run("pages endpoints with a cursor", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-
-		for _, id := range []string{"endpoint-1", "endpoint-2", "endpoint-3"} {
-			registerEndpoint(t, store, id, "order.created")
-		}
-
-		filter := filtering.DefaultQueryFilter()
-		filter.MaxResponseSize = new(uint8(2))
-
-		first, err := store.ListEndpoints(ctxFor(t), filter)
-		must.NoError(t, err)
-		must.SliceLen(t, 2, first.Data)
-		test.EqOp(t, "endpoint-2", first.Cursor)
-
-		filter.Cursor = &first.Cursor
-
-		second, err := store.ListEndpoints(ctxFor(t), filter)
-		must.NoError(t, err)
-		must.SliceLen(t, 1, second.Data)
-		test.EqOp(t, "endpoint-3", second.Data[0].ID)
-
-		// The total is the whole set, not the page.
-		test.EqOp(t, uint64(3), second.TotalCount)
-	})
-
-	T.Run("pages attempts with a cursor", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-		registerEndpoint(t, store, "endpoint-1", "order.created")
-
-		delivery := dispatchTo(t, env, store,
-			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
-
-		for i := range 3 {
-			must.NoError(t, store.RecordAttempt(ctxFor(t), &Attempt{
-				DeliveryID: delivery.ID, EndpointID: "endpoint-1",
-				AttemptCount: i + 1, StatusCode: 500,
-				AttemptedAt: baseTime.Add(time.Duration(i) * time.Minute),
-			}))
-		}
-
-		filter := filtering.DefaultQueryFilter()
-		filter.MaxResponseSize = new(uint8(2))
-
-		first, err := store.ListAttempts(ctxFor(t), delivery.ID, filter)
-		must.NoError(t, err)
-		must.SliceLen(t, 2, first.Data)
-
-		filter.Cursor = &first.Cursor
-
-		second, err := store.ListAttempts(ctxFor(t), delivery.ID, filter)
-		must.NoError(t, err)
-		test.SliceLen(t, 1, second.Data)
-		test.EqOp(t, uint64(3), second.TotalCount)
-	})
-
-	// A nil filter is the common call and must not page to zero rows.
-	T.Run("a nil filter uses the defaults", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-		registerEndpoint(t, store, "endpoint-1", "order.created")
-
-		listed, err := store.ListEndpoints(ctxFor(t), nil)
-		must.NoError(t, err)
-		test.SliceLen(t, 1, listed.Data)
 	})
 }
