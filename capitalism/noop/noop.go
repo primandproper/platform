@@ -36,3 +36,23 @@ func (n *paymentManager) CreateSubscription(_ context.Context, _ *capitalism.Sub
 func NewPaymentManager() capitalism.PaymentManager {
 	return &paymentManager{}
 }
+
+var _ capitalism.UsageReporter = (*usageReporter)(nil)
+
+// usageReporter is a no-op usage reporter.
+type usageReporter struct{}
+
+// ReportUsage satisfies our interface.
+func (n *usageReporter) ReportUsage(_ context.Context, _ *capitalism.UsageReportInput) error {
+	return nil
+}
+
+// NewUsageReporter returns a no-op UsageReporter.
+//
+// It is what a deployment that meters but does not bill runs: usage still
+// accumulates durably and quotas are still enforced, and nothing is posted to a
+// provider. That is a normal configuration — an internal quota system — rather
+// than a degraded one.
+func NewUsageReporter() capitalism.UsageReporter {
+	return &usageReporter{}
+}

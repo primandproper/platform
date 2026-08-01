@@ -57,3 +57,21 @@ func NewCapitalismImplementation(logger logging.Logger, tracerProvider tracing.T
 		return nil, errors.Newf("unknown provider: %q", cfg.Provider)
 	}
 }
+
+// NewUsageReporterImplementation provides a capitalism.UsageReporter based on the config.
+//
+// A disabled config yields the noop reporter rather than an error, which is what
+// makes "meter everything, bill nothing" a supported deployment: metering keeps
+// counting durably and enforcing quotas, and nothing reaches a provider.
+func NewUsageReporterImplementation(logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config) (capitalism.UsageReporter, error) {
+	if !cfg.Enabled {
+		return noop.NewUsageReporter(), nil
+	}
+
+	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	case StripeProvider:
+		return stripe.NewStripeUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+	default:
+		return nil, errors.Newf("unknown provider: %q", cfg.Provider)
+	}
+}

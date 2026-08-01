@@ -7,3 +7,4 @@ package capitalismmock
 // Regenerate the moq mocks via `go generate ./capitalism/mock/`.
 
 //go:generate go tool github.com/matryer/moq -out payment_manager_mock.go -pkg capitalismmock -rm -fmt goimports .. PaymentManager:PaymentManagerMock
+//go:generate go tool github.com/matryer/moq -out usage_reporter_mock.go -pkg capitalismmock -rm -fmt goimports .. UsageReporter:UsageReporterMock
