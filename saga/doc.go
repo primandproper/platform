@@ -103,17 +103,18 @@ does not need to be — see the type-erasure note below.
 
 # The state machine
 
-	            ┌──────────────────────────────► completed
-	            │  every step's Do succeeded
-	running ────┤
-	            │  a Do exhausts its attempts
-	            └──► compensating ──┬──────────► compensated
-	                                │  every Undo succeeded
-	                                │
-	                                └──────────► stuck
-	                                   an Undo exhausts its attempts
+	stateDiagram-v2
+	    [*] --> running
+	    running --> completed: every step's Do succeeded
+	    running --> compensating: a Do exhausts its attempts
+	    compensating --> compensated: every Undo succeeded
+	    compensating --> stuck: an Undo exhausts its attempts
+	    stuck --> running: Resume()
+	    stuck --> compensating: Resume()
+	    completed --> [*]
+	    compensated --> [*]
 
-	stuck ──Resume()──► back to whichever of running or compensating it left
+Resume() returns an instance to whichever of running or compensating it left.
 
 Five statuses, and there will not be more. Every additional status in a durable
 execution engine is another pair of edges the compensation logic has to be
