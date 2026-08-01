@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/uploads"
 
@@ -24,10 +25,8 @@ var (
 
 // Save writes the contents of r to the object at path.
 func (u *Uploader) Save(ctx context.Context, path string, r io.Reader, opts ...uploads.SaveOption) error {
-	ctx, op := u.o11y.Begin(ctx)
+	ctx, op := u.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, path))
 	defer op.End()
-
-	op.Set(keys.FilenameKey, path)
 
 	if u.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -85,10 +84,8 @@ func (u *Uploader) OpenRange(ctx context.Context, path string, offset, length in
 }
 
 func (u *Uploader) openRange(ctx context.Context, path string, offset, length int64, failureDesc string) (io.ReadCloser, error) {
-	ctx, op := u.o11y.Begin(ctx)
+	ctx, op := u.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, path))
 	defer op.End()
-
-	op.Set(keys.FilenameKey, path)
 
 	if u.circuitBreaker.CannotProceed() {
 		return nil, circuitbreaking.ErrCircuitBroken
@@ -113,10 +110,8 @@ func (u *Uploader) openRange(ctx context.Context, path string, offset, length in
 
 // Delete removes the object at path.
 func (u *Uploader) Delete(ctx context.Context, path string) error {
-	ctx, op := u.o11y.Begin(ctx)
+	ctx, op := u.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, path))
 	defer op.End()
-
-	op.Set(keys.FilenameKey, path)
 
 	if u.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -139,10 +134,8 @@ func (u *Uploader) Delete(ctx context.Context, path string) error {
 
 // Exists reports whether an object exists at path.
 func (u *Uploader) Exists(ctx context.Context, path string) (bool, error) {
-	ctx, op := u.o11y.Begin(ctx)
+	ctx, op := u.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, path))
 	defer op.End()
-
-	op.Set(keys.FilenameKey, path)
 
 	if u.circuitBreaker.CannotProceed() {
 		return false, circuitbreaking.ErrCircuitBroken
@@ -165,10 +158,8 @@ func (u *Uploader) Exists(ctx context.Context, path string) (bool, error) {
 
 // Attributes fetches the stored metadata for the object at path.
 func (u *Uploader) Attributes(ctx context.Context, path string) (*uploads.Attributes, error) {
-	ctx, op := u.o11y.Begin(ctx)
+	ctx, op := u.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, path))
 	defer op.End()
-
-	op.Set(keys.FilenameKey, path)
 
 	if u.circuitBreaker.CannotProceed() {
 		return nil, circuitbreaking.ErrCircuitBroken
@@ -199,10 +190,8 @@ func (u *Uploader) Attributes(ctx context.Context, path string) (*uploads.Attrib
 // iterator is consumed; the caller may stop early by breaking out of the range loop.
 func (u *Uploader) List(ctx context.Context, prefix string) iter.Seq2[uploads.ObjectInfo, error] {
 	return func(yield func(uploads.ObjectInfo, error) bool) {
-		spanCtx, op := u.o11y.Begin(ctx)
+		spanCtx, op := u.o11y.Begin(ctx, observability.WithValue("prefix", prefix))
 		defer op.End()
-
-		op.Set("prefix", prefix)
 
 		if u.circuitBreaker.CannotProceed() {
 			yield(uploads.ObjectInfo{}, circuitbreaking.ErrCircuitBroken)
@@ -249,10 +238,8 @@ func (u *Uploader) List(ctx context.Context, prefix string) iter.Seq2[uploads.Ob
 // SignedURL mints a signed URL granting temporary, direct access to the object at path. Not all
 // providers support signing (e.g. the in-memory and unsigned filesystem backends return an error).
 func (u *Uploader) SignedURL(ctx context.Context, path string, opts *uploads.SignedURLOptions) (string, error) {
-	ctx, op := u.o11y.Begin(ctx)
+	ctx, op := u.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, path))
 	defer op.End()
-
-	op.Set(keys.FilenameKey, path)
 
 	if u.circuitBreaker.CannotProceed() {
 		return "", circuitbreaking.ErrCircuitBroken

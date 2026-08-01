@@ -46,10 +46,8 @@ func (p *kafkaPublisher) Stop() {
 
 // Publish publishes a message to a Kafka topic.
 func (p *kafkaPublisher) Publish(ctx context.Context, data any) error {
-	ctx, op := p.o11y.Begin(ctx)
+	ctx, op := p.o11y.Begin(ctx, observability.WithValue(keys.TopicKey, p.topic))
 	defer op.End()
-
-	op.Set(keys.TopicKey, p.topic)
 
 	startTime := time.Now()
 

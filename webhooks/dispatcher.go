@@ -284,10 +284,11 @@ func (d *dispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecutor, 
 // The attempt count is reset, so a dead dispatch gets a full budget rather than
 // dying again on its next attempt.
 func (d *dispatcher) Replay(ctx context.Context, deliveryID, endpointID string) error {
-	ctx, op := d.o11y.Begin(ctx)
+	ctx, op := d.o11y.Begin(ctx,
+		observability.WithValue(deliveryIDKey, deliveryID),
+		observability.WithValue(endpointIDKey, endpointID),
+	)
 	defer op.End()
-
-	op.Set(deliveryIDKey, deliveryID).Set(endpointIDKey, endpointID)
 
 	if deliveryID == "" || endpointID == "" {
 		return op.Error(platformerrors.ErrInvalidIDProvided, "replaying webhook delivery")

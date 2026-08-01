@@ -414,10 +414,8 @@ func (w *Worker) cycle(ctx context.Context) {
 		return
 	}
 
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx, observability.WithValue(claimedKey, len(claimed)))
 	defer op.End()
-
-	op.Set(claimedKey, len(claimed))
 
 	sem := make(chan struct{}, w.cfg.Concurrency)
 
@@ -440,15 +438,13 @@ func (w *Worker) cycle(ctx context.Context) {
 func (w *Worker) handle(ctx context.Context, req *Request) {
 	startTime := time.Now()
 
-	ctx, op := w.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := w.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		requestIDKey:   req.ID,
 		requestTypeKey: string(req.Type),
 		subjectIDKey:   req.Subject.ID,
 		statusKey:      string(req.Status),
-	})
+	}))
+	defer op.End()
 
 	// Bounded so a collector that hangs cannot hold the lease past its expiry
 	// and let a second worker start the same request. The config validation
@@ -648,10 +644,11 @@ func (w *Worker) collect(ctx context.Context, req *Request) (*Document, error) {
 // and a nil map access in one domain should cost that domain's section — not
 // every other request in the batch.
 func (w *Worker) collectOne(ctx context.Context, key string, subject Subject) (json.RawMessage, error) {
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx,
+		observability.WithValue(sectionKey, key),
+		observability.WithValue(subjectIDKey, subject.ID),
+	)
 	defer op.End()
-
-	op.Set(sectionKey, key).Set(subjectIDKey, subject.ID)
 
 	collector, ok := w.registry.Collector(key)
 	if !ok {
@@ -780,10 +777,11 @@ func (w *Worker) eraseOne(
 	key string,
 	subject Subject,
 ) (ErasureOutcome, error) {
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx,
+		observability.WithValue(sectionKey, key),
+		observability.WithValue(subjectIDKey, subject.ID),
+	)
 	defer op.End()
-
-	op.Set(sectionKey, key).Set(subjectIDKey, subject.ID)
 
 	eraser, ok := w.registry.Eraser(key)
 	if !ok {

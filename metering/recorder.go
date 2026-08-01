@@ -216,10 +216,8 @@ func (r *DurableRecorder) RecordTx(ctx context.Context, q database.SQLQueryExecu
 func (r *DurableRecorder) record(ctx context.Context, q database.SQLQueryExecutor, usages []Usage) error {
 	startTime := time.Now()
 
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(usages)))
 	defer op.End()
-
-	op.Set(batchSizeKey, len(usages))
 
 	if len(usages) == 0 {
 		return nil

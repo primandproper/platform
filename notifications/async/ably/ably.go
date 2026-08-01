@@ -77,10 +77,11 @@ func NewNotifier(cfg *Config, opts ...Option) (*Notifier, error) {
 
 // Publish sends an event to the given Ably channel.
 func (n *Notifier) Publish(ctx context.Context, channel string, event *async.Event) error {
-	ctx, op := n.o11y.Begin(ctx)
+	ctx, op := n.o11y.Begin(ctx,
+		observability.WithValue("channel", channel),
+		observability.WithValue("event.type", event.Type),
+	)
 	defer op.End()
-
-	op.Set("channel", channel).Set("event.type", event.Type)
 
 	// event.Data is a json.RawMessage ([]byte). Passing it to ably-go directly
 	// makes it base64-encode the payload (encoding "base64"), so subscribers

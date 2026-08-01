@@ -264,9 +264,8 @@ func (i *redisCacheImpl[T]) key(k string) string {
 }
 
 func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	if i.circuitBreaker.CannotProceed() {
 		i.cacheMissCounter.Add(ctx, 1)
@@ -311,9 +310,8 @@ func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
 }
 
 func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	if i.circuitBreaker.CannotProceed() {
 		return nil
@@ -343,9 +341,8 @@ func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts 
 }
 
 func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	if i.circuitBreaker.CannotProceed() {
 		return nil
@@ -372,9 +369,8 @@ func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
 // every key to share a hash slot, so the keys are bucketed by slot and
 // deleted one DEL per slot; a single-node client deletes them in one DEL.
 func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
-	op.Set("length", len(keys))
 
 	if len(keys) == 0 {
 		return nil
@@ -419,9 +415,8 @@ func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error
 // namespace an empty prefix is refused with cache.ErrNamespaceRequired —
 // matching every key in a possibly shared database is not ownership.
 func (i *redisCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("prefix", prefix))
 	defer op.End()
-	op.Set("prefix", prefix)
 
 	if i.namespace == "" && prefix == "" {
 		return cache.ErrNamespaceRequired
@@ -524,9 +519,8 @@ func (i *redisCacheImpl[T]) Ping(ctx context.Context) error {
 // bucketed by slot and fetched one MGET per slot; a single-node client fetches
 // them all in one MGET. Results are keyed by the caller's bare keys.
 func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
-	op.Set("length", len(keys))
 
 	out := make(map[string]*T, len(keys))
 	if len(keys) == 0 {
@@ -595,9 +589,8 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 // mode EVAL requires every key to share a hash slot, so the batch is split per
 // slot.
 func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(items)))
 	defer op.End()
-	op.Set("length", len(items))
 
 	if len(items) == 0 {
 		return nil

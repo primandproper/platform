@@ -325,10 +325,8 @@ func (w *Worker) cycle(ctx context.Context) {
 		return
 	}
 
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx, observability.WithValue(claimedKey, len(claimed)))
 	defer op.End()
-
-	op.Set(claimedKey, len(claimed))
 
 	sem := make(chan struct{}, w.cfg.Concurrency)
 
@@ -356,16 +354,14 @@ func (w *Worker) cycle(ctx context.Context) {
 func (w *Worker) advance(ctx context.Context, inst *Record) {
 	startTime := time.Now()
 
-	ctx, op := w.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := w.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		instanceIDKey: inst.ID,
 		definitionKey: inst.Definition,
 		statusKey:     string(inst.Status),
 		stepIndexKey:  inst.CurrentStep,
 		attemptsKey:   inst.Attempts,
-	})
+	}))
+	defer op.End()
 
 	// Deliberately no timeout on the pass as a whole. Each step is bounded by
 	// StepTimeout inside execute, and drive stops starting new ones once its

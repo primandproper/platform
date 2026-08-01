@@ -147,10 +147,8 @@ func storeOpAttr(operation string) metric.MeasurementOption {
 }
 
 func (s *sqlStore) Record(ctx context.Context, entries []Entry, at time.Time) (RecordResult, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(entries)))
 	defer op.End()
-
-	op.Set(batchSizeKey, len(entries))
 
 	if len(entries) == 0 {
 		return RecordResult{}, nil
@@ -182,10 +180,8 @@ func (s *sqlStore) RecordTx(
 	entries []Entry,
 	at time.Time,
 ) (RecordResult, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(entries)))
 	defer op.End()
-
-	op.Set(batchSizeKey, len(entries))
 
 	if q == nil {
 		return RecordResult{}, op.Error(ErrNilExecutor, "recording metering usage")
@@ -286,14 +282,12 @@ func (s *sqlStore) insertEvent(
 }
 
 func (s *sqlStore) Total(ctx context.Context, subject, meter string, bounds Bounds) (*Total, error) {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:     subject,
 		meterKey:       meter,
 		periodStartKey: bounds.Start,
-	})
+	}))
+	defer op.End()
 
 	query, args := s.tables.buildSelectTotal(s.dialect, subject, meter, bounds.Start, false)
 
@@ -327,16 +321,14 @@ func (s *sqlStore) Consume(
 	behavior QuotaBehavior,
 	at time.Time,
 ) (*Decision, error) {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:  entry.Subject,
 		meterKey:    entry.Meter,
 		quantityKey: entry.Quantity,
 		limitKey:    limit,
 		behaviorKey: string(behavior),
-	})
+	}))
+	defer op.End()
 
 	var decision *Decision
 
@@ -444,10 +436,8 @@ func (s *sqlStore) ClaimFlushable(
 	limit, maxAttempts int,
 	leaseUntil time.Time,
 ) ([]*Total, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
-
-	op.Set(limitKey, limit)
 
 	if limit <= 0 {
 		return nil, nil
@@ -551,10 +541,8 @@ func (s *sqlStore) ReleaseFlush(ctx context.Context, total *Total, lastErr strin
 }
 
 func (s *sqlStore) ReapEvents(ctx context.Context, before time.Time, limit int) (int64, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
-
-	op.Set(limitKey, limit)
 
 	if limit <= 0 {
 		return 0, nil

@@ -6,16 +6,15 @@ import (
 	"encoding/base64"
 	"io"
 
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 
 	"golang.org/x/crypto/nacl/secretbox"
 )
 
 func (e *salsa20Impl) Encrypt(ctx context.Context, content string) (string, error) {
-	_, op := e.o11y.Begin(ctx)
+	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(content)))
 	defer op.End()
-
-	op.Set(keys.LengthKey, len(content))
 
 	var nonce [nonceSize]byte
 	if _, err := io.ReadFull(rand.Reader, nonce[:]); err != nil {

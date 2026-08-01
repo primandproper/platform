@@ -5,6 +5,7 @@ import (
 	"iter"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 )
 
@@ -49,10 +50,8 @@ func (r *standardReader) ChunksFile(name string, n int) (iter.Seq2[[]string, err
 
 // SliceLinesFile opens name and returns up to count lines after skipping offset lines.
 func (r *standardReader) SliceLinesFile(ctx context.Context, name string, offset, count int) ([]string, error) {
-	_, op := r.o11y.Begin(ctx)
+	_, op := r.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, name))
 	defer op.End()
-
-	op.Set(keys.FilenameKey, name)
 
 	f, err := r.fsys.Open(name)
 	if err != nil {

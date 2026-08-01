@@ -53,15 +53,13 @@ func NewArgon2Authenticator(opts ...Option) authentication.Authenticator {
 
 // HashPassword takes a password and hashes it using argon2.
 func (a *Argon2Authenticator) HashPassword(ctx context.Context, password string) (string, error) {
-	_, op := a.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	_, op := a.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		"argon2.memory":      argonParams.Memory,
 		"argon2.iterations":  argonParams.Iterations,
 		"argon2.parallelism": argonParams.Parallelism,
 		"argon2.key_length":  argonParams.KeyLength,
-	})
+	}))
+	defer op.End()
 
 	return argon2id.CreateHash(password, argonParams)
 }
@@ -70,15 +68,13 @@ func (a *Argon2Authenticator) HashPassword(ctx context.Context, password string)
 // A non-match returns (false, nil); only genuine errors (malformed hash,
 // runtime failure) populate err.
 func (a *Argon2Authenticator) PasswordMatches(ctx context.Context, hash, password string) (bool, error) {
-	_, op := a.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	_, op := a.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		"argon2.memory":      argonParams.Memory,
 		"argon2.iterations":  argonParams.Iterations,
 		"argon2.parallelism": argonParams.Parallelism,
 		"argon2.key_length":  argonParams.KeyLength,
-	})
+	}))
+	defer op.End()
 
 	matches, err := argon2id.ComparePasswordAndHash(password, hash)
 	if err != nil {

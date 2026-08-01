@@ -225,15 +225,13 @@ func NewService(ctx context.Context, cfg *ServiceConfig, store Store, opts ...Se
 }
 
 func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectIDKey:    subject.ID,
 		subjectTypeKey:  string(subject.Type),
 		subjectScopeKey: subject.Scope,
 		requestTypeKey:  string(t),
-	})
+	}))
+	defer op.End()
 
 	if err := subject.validate(); err != nil {
 		return nil, op.Error(err, "validating dataprivacy subject")
@@ -280,10 +278,8 @@ func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*
 }
 
 func (s *service) Get(ctx context.Context, requestID string) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
-
-	op.Set(requestIDKey, requestID)
 
 	req, err := s.store.Get(ctx, requestID)
 	if err != nil {
@@ -298,10 +294,11 @@ func (s *service) List(
 	subject Subject,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Request], error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(subjectIDKey, subject.ID),
+		observability.WithValue(subjectScopeKey, subject.Scope),
+	)
 	defer op.End()
-
-	op.Set(subjectIDKey, subject.ID).Set(subjectScopeKey, subject.Scope)
 
 	if err := subject.validate(); err != nil {
 		return nil, op.Error(err, "validating dataprivacy subject")
@@ -349,10 +346,11 @@ func (s *service) transition(
 	event audit.EventType,
 	metadata map[string]string,
 ) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(requestIDKey, requestID),
+		observability.WithValue(statusKey, string(to)),
+	)
 	defer op.End()
-
-	op.Set(requestIDKey, requestID).Set(statusKey, string(to))
 
 	var req *Request
 
@@ -382,10 +380,8 @@ func (s *service) transition(
 }
 
 func (s *service) Download(ctx context.Context, requestID string) (string, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
-
-	op.Set(requestIDKey, requestID)
 
 	req, err := s.artifactRequest(ctx, requestID)
 	if err != nil {
@@ -429,10 +425,8 @@ func (s *service) Download(ctx context.Context, requestID string) (string, error
 }
 
 func (s *service) Open(ctx context.Context, requestID string) (io.ReadCloser, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
-
-	op.Set(requestIDKey, requestID)
 
 	req, err := s.artifactRequest(ctx, requestID)
 	if err != nil {

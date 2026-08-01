@@ -31,10 +31,11 @@ func NewStreamManager[S EventStream](opts ...Option) *StreamManager[S] {
 
 // Add registers a stream for a group and member.
 func (m *StreamManager[S]) Add(ctx context.Context, groupID, memberID string, stream S) {
-	_, op := m.o11y.Begin(ctx)
+	_, op := m.o11y.Begin(ctx,
+		observability.WithValue("group_id", groupID),
+		observability.WithValue("member_id", memberID),
+	)
 	defer op.End()
-
-	op.Set("group_id", groupID).Set("member_id", memberID)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -47,10 +48,11 @@ func (m *StreamManager[S]) Add(ctx context.Context, groupID, memberID string, st
 
 // Remove removes a stream.
 func (m *StreamManager[S]) Remove(ctx context.Context, groupID, memberID string) {
-	_, op := m.o11y.Begin(ctx)
+	_, op := m.o11y.Begin(ctx,
+		observability.WithValue("group_id", groupID),
+		observability.WithValue("member_id", memberID),
+	)
 	defer op.End()
-
-	op.Set("group_id", groupID).Set("member_id", memberID)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -65,10 +67,11 @@ func (m *StreamManager[S]) Remove(ctx context.Context, groupID, memberID string)
 
 // Get returns a specific stream, or the zero value if not found.
 func (m *StreamManager[S]) Get(ctx context.Context, groupID, memberID string) S {
-	_, op := m.o11y.Begin(ctx)
+	_, op := m.o11y.Begin(ctx,
+		observability.WithValue("group_id", groupID),
+		observability.WithValue("member_id", memberID),
+	)
 	defer op.End()
-
-	op.Set("group_id", groupID).Set("member_id", memberID)
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -107,10 +110,11 @@ func (m *StreamManager[S]) GetGroupStreams(ctx context.Context, groupID string) 
 // shouldn't halt the broadcast. Revisit whether per-stream failures should be
 // aggregated and returned (as SendToMember returns its error).
 func (m *StreamManager[S]) BroadcastToGroup(ctx context.Context, groupID string, event *Event) {
-	ctx, op := m.o11y.Begin(ctx)
+	ctx, op := m.o11y.Begin(ctx,
+		observability.WithValue("group_id", groupID),
+		observability.WithValue("event.type", event.Type),
+	)
 	defer op.End()
-
-	op.Set("group_id", groupID).Set("event.type", event.Type)
 
 	// Snapshot the group under the lock, then release it before sending: a stalled
 	// client must never hold the manager lock and block Add/Remove.
@@ -141,10 +145,11 @@ func (m *StreamManager[S]) BroadcastToGroup(ctx context.Context, groupID string,
 // shouldn't halt the broadcast. Revisit whether per-stream failures should be
 // aggregated and returned (as SendToMember returns its error).
 func (m *StreamManager[S]) BroadcastToGroupFiltered(ctx context.Context, groupID string, event *Event, includeFunc func(memberID string) bool) {
-	ctx, op := m.o11y.Begin(ctx)
+	ctx, op := m.o11y.Begin(ctx,
+		observability.WithValue("group_id", groupID),
+		observability.WithValue("event.type", event.Type),
+	)
 	defer op.End()
-
-	op.Set("group_id", groupID).Set("event.type", event.Type)
 
 	// Snapshot the group under the lock, then release it before sending.
 	m.mu.RLock()
@@ -168,10 +173,12 @@ func (m *StreamManager[S]) BroadcastToGroupFiltered(ctx context.Context, groupID
 
 // SendToMember sends an event to a specific member in a group.
 func (m *StreamManager[S]) SendToMember(ctx context.Context, groupID, memberID string, event *Event) error {
-	ctx, op := m.o11y.Begin(ctx)
+	ctx, op := m.o11y.Begin(ctx,
+		observability.WithValue("group_id", groupID),
+		observability.WithValue("member_id", memberID),
+		observability.WithValue("event.type", event.Type),
+	)
 	defer op.End()
-
-	op.Set("group_id", groupID).Set("member_id", memberID).Set("event.type", event.Type)
 
 	// Look up the stream under the lock, then release it before sending.
 	m.mu.RLock()
@@ -192,10 +199,8 @@ func (m *StreamManager[S]) SendToMember(ctx context.Context, groupID, memberID s
 
 // GroupHasStreams returns whether a group has any active streams.
 func (m *StreamManager[S]) GroupHasStreams(ctx context.Context, groupID string) bool {
-	_, op := m.o11y.Begin(ctx)
+	_, op := m.o11y.Begin(ctx, observability.WithValue("group_id", groupID))
 	defer op.End()
-
-	op.Set("group_id", groupID)
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()

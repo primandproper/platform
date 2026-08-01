@@ -354,10 +354,8 @@ func (w *Worker) cycle(ctx context.Context) {
 		w.cycleHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx, observability.WithValue(claimedKey, len(claimed)))
 	defer op.End()
-
-	op.Set(claimedKey, len(claimed))
 
 	// Deliveries run concurrently up to Concurrency, because a batch is
 	// dominated by network round trips to unrelated hosts and running it
@@ -421,15 +419,15 @@ func (w *Worker) handle(ctx context.Context, dispatch *ClaimedDispatch) {
 // time, and a single span over the whole batch cannot say which endpoint is
 // slow.
 func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attempt, error) {
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx,
+		observability.WithValue(dispatchIDKey, dispatch.ID),
+		observability.WithValue(deliveryIDKey, dispatch.DeliveryID),
+		observability.WithValue(endpointIDKey, dispatch.EndpointID),
+		observability.WithValue(eventTypeKey, dispatch.EventType),
+		observability.WithValue(attemptsKey, dispatch.Attempts),
+		observability.WithSpanValue(endpointURLKey, dispatch.Endpoint.URL),
+	)
 	defer op.End()
-
-	op.Set(dispatchIDKey, dispatch.ID).
-		Set(deliveryIDKey, dispatch.DeliveryID).
-		Set(endpointIDKey, dispatch.EndpointID).
-		Set(eventTypeKey, dispatch.EventType).
-		Set(attemptsKey, dispatch.Attempts).
-		SpanOnly(endpointURLKey, dispatch.Endpoint.URL)
 
 	if dispatch.OrderingKey != "" {
 		op.Set(orderingKeyKey, dispatch.OrderingKey)

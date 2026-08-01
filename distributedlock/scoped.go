@@ -283,9 +283,11 @@ func NewScopedLocker(locker Locker, opts ...ScopedOption) (ScopedLocker, error) 
 
 // WithLock implements ScopedLocker, waiting for a contended lock by polling.
 func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(keys.LockKeyKey, key),
+		observability.WithValue(keys.LockTTLKey, s.ttl),
+	)
 	defer op.End()
-	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, s.ttl)
 
 	startTime := time.Now()
 	defer func() {
@@ -336,9 +338,11 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 
 // TryWithLock implements ScopedLocker.
 func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(keys.LockKeyKey, key),
+		observability.WithValue(keys.LockTTLKey, s.ttl),
+	)
 	defer op.End()
-	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, s.ttl)
 
 	startTime := time.Now()
 	defer func() {

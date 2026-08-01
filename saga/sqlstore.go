@@ -190,10 +190,8 @@ func encodeStepNames(names []string) []byte {
 }
 
 func (s *sqlStore) Get(ctx context.Context, instanceID string) (*Record, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(instanceIDKey, instanceID))
 	defer op.End()
-
-	op.Set(instanceIDKey, instanceID)
 
 	query, args := s.tables.buildSelectInstance(s.dialect, instanceID)
 
@@ -275,10 +273,8 @@ func (s *sqlStore) List(
 }
 
 func (s *sqlStore) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*Record, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
-
-	op.Set(limitKey, limit)
 
 	if limit <= 0 {
 		return nil, nil
@@ -377,14 +373,12 @@ func (s *sqlStore) Reschedule(
 	lastErr string,
 	at time.Time,
 ) error {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		instanceIDKey:  instanceID,
 		attemptsKey:    attempts,
 		nextAttemptKey: nextAttempt,
-	})
+	}))
+	defer op.End()
 
 	query, args := s.tables.buildReschedule(s.dialect, instanceID, attempts, nextAttempt, lastErr, at)
 
@@ -392,10 +386,8 @@ func (s *sqlStore) Reschedule(
 }
 
 func (s *sqlStore) Release(ctx context.Context, instanceID string, at time.Time) error {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(instanceIDKey, instanceID))
 	defer op.End()
-
-	op.Set(instanceIDKey, instanceID)
 
 	query, args := s.tables.buildRelease(s.dialect, instanceID, at)
 
@@ -413,14 +405,12 @@ func (s *sqlStore) Requeue(
 	to Status,
 	at time.Time,
 ) (*Record, error) {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		instanceIDKey: instanceID,
 		statusKey:     string(to),
 		fromStatusKey: statusStrings(from),
-	})
+	}))
+	defer op.End()
 
 	if len(from) == 0 {
 		return nil, op.Error(platformerrors.ErrEmptyInputParameter, "no source statuses for saga requeue")

@@ -205,10 +205,8 @@ func (r *runner[T]) start(
 	name string,
 	initial T,
 ) (*Instance[T], error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(definitionKey, name))
 	defer op.End()
-
-	op.Set(definitionKey, name)
 
 	def, err := r.definitionFor(name)
 	if err != nil {
@@ -257,10 +255,8 @@ func (r *runner[T]) start(
 
 // Get implements Runner.
 func (r *runner[T]) Get(ctx context.Context, id string) (*Instance[T], error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(instanceIDKey, id))
 	defer op.End()
-
-	op.Set(instanceIDKey, id)
 
 	rec, err := r.store.Get(ctx, id)
 	if err != nil {
@@ -307,10 +303,8 @@ func (r *runner[T]) List(
 
 // Resume implements Runner.
 func (r *runner[T]) Resume(ctx context.Context, id string) (*Instance[T], error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(instanceIDKey, id))
 	defer op.End()
-
-	op.Set(instanceIDKey, id)
 
 	rec, err := r.store.Get(ctx, id)
 	if err != nil {

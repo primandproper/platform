@@ -127,9 +127,11 @@ func NewRedisLocker(
 
 // Acquire implements distributedlock.Locker.
 func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
-	ctx, op := l.o11y.Begin(ctx)
+	ctx, op := l.o11y.Begin(ctx,
+		observability.WithValue(keys.LockKeyKey, key),
+		observability.WithValue(keys.LockTTLKey, ttl),
+	)
 	defer op.End()
-	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, ttl)
 
 	if key == "" {
 		return nil, distributedlock.ErrEmptyKey
@@ -185,9 +187,8 @@ func (l *locker) Close() error {
 
 // release runs the compare-and-delete release script and translates the result.
 func (l *locker) release(ctx context.Context, fullKey, token string) error {
-	ctx, op := l.o11y.Begin(ctx)
+	ctx, op := l.o11y.Begin(ctx, observability.WithValue("lock.full_key", fullKey))
 	defer op.End()
-	op.Set("lock.full_key", fullKey)
 
 	if l.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -215,9 +216,11 @@ func (l *locker) release(ctx context.Context, fullKey, token string) error {
 
 // refresh runs the compare-and-pexpire refresh script and translates the result.
 func (l *locker) refresh(ctx context.Context, fullKey, token string, ttl time.Duration) error {
-	ctx, op := l.o11y.Begin(ctx)
+	ctx, op := l.o11y.Begin(ctx,
+		observability.WithValue("lock.full_key", fullKey),
+		observability.WithValue(keys.LockTTLKey, ttl),
+	)
 	defer op.End()
-	op.Set("lock.full_key", fullKey).Set(keys.LockTTLKey, ttl)
 
 	if ttl <= 0 {
 		return distributedlock.ErrInvalidTTL

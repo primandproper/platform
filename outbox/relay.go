@@ -429,10 +429,8 @@ func (r *Relay) cycle(ctx context.Context) {
 		r.cycleHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(claimedKey, len(msgs)))
 	defer op.End()
-
-	op.Set(claimedKey, len(msgs))
 
 	// Published serially, in created_at order. The claim predicate admits at
 	// most one message per partition key per batch, so a failure here can never
@@ -468,12 +466,12 @@ func (r *Relay) cycle(ctx context.Context) {
 // It carries its own span: the broker round trip is where a cycle spends its
 // time, and a single span over the whole batch cannot say which topic is slow.
 func (r *Relay) publish(ctx context.Context, msg *claimedMessage) error {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx,
+		observability.WithValue(keys.TopicKey, msg.topic),
+		observability.WithValue(messageIDKey, msg.id),
+		observability.WithValue(attemptsKey, msg.attempts),
+	)
 	defer op.End()
-
-	op.Set(keys.TopicKey, msg.topic).
-		Set(messageIDKey, msg.id).
-		Set(attemptsKey, msg.attempts)
 
 	if msg.key != "" {
 		op.Set(partitionKeyKey, msg.key)
@@ -518,14 +516,12 @@ func (r *Relay) publisherFor(ctx context.Context, topic string) (messagequeue.Pu
 // claim selects a batch, leases it, and reads it back — all in one
 // transaction, so two relays cannot lease the same rows.
 func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
-	ctx, op := r.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := r.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		claimModeKey: string(r.cfg.ClaimMode),
 		batchSizeKey: r.cfg.BatchSize,
 		"db.system":  string(r.cfg.Dialect),
-	})
+	}))
+	defer op.End()
 
 	var claimed []claimedMessage
 

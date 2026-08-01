@@ -109,20 +109,16 @@ func (g *standardGenerator) generateSecret(span tracing.Span, length int) ([]byt
 
 // GenerateRawBytes generates a securely random byte array.
 func (g *standardGenerator) GenerateRawBytes(ctx context.Context, length int) ([]byte, error) {
-	_, op := g.o11y.Begin(ctx)
+	_, op := g.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, length))
 	defer op.End()
-
-	op.Set(keys.LengthKey, length)
 
 	return g.generateSecret(op.Span(), length)
 }
 
 // GenerateHexEncodedString generates a base64-encoded string of a securely random byte array of a given length.
 func (g *standardGenerator) GenerateHexEncodedString(ctx context.Context, length int) (string, error) {
-	_, op := g.o11y.Begin(ctx)
+	_, op := g.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, length))
 	defer op.End()
-
-	op.Set(keys.LengthKey, length)
 
 	b, err := g.generateSecret(op.Span(), length)
 	if err != nil {
@@ -134,10 +130,8 @@ func (g *standardGenerator) GenerateHexEncodedString(ctx context.Context, length
 
 // GenerateBase32EncodedString generates a base64-encoded string of a securely random byte array of a given length.
 func (g *standardGenerator) GenerateBase32EncodedString(ctx context.Context, length int) (string, error) {
-	_, op := g.o11y.Begin(ctx)
+	_, op := g.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, length))
 	defer op.End()
-
-	op.Set(keys.LengthKey, length)
 
 	b, err := g.generateSecret(op.Span(), length)
 	if err != nil {
@@ -149,10 +143,8 @@ func (g *standardGenerator) GenerateBase32EncodedString(ctx context.Context, len
 
 // GenerateBase64EncodedString generates a base64-encoded string of a securely random byte array of a given length.
 func (g *standardGenerator) GenerateBase64EncodedString(ctx context.Context, length int) (string, error) {
-	_, op := g.o11y.Begin(ctx)
+	_, op := g.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, length))
 	defer op.End()
-
-	op.Set(keys.LengthKey, length)
 
 	b, err := g.generateSecret(op.Span(), length)
 	if err != nil {

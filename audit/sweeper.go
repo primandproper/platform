@@ -287,10 +287,11 @@ func (s *Sweeper) Sweep(ctx context.Context) int64 {
 		s.sweepHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(retentionCutoffKey, before),
+		observability.WithValue(scopeCountKey, len(scopes)),
+	)
 	defer op.End()
-
-	op.Set(retentionCutoffKey, before).Set(scopeCountKey, len(scopes))
 
 	var pruned int64
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/encoding"
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
@@ -104,10 +105,8 @@ func decodeBytes[T any](ctx context.Context, logger logging.Logger, tracerProvid
 
 // readFile reads the whole of name into memory under a span.
 func (r *standardReader) readFile(ctx context.Context, name string) ([]byte, error) {
-	_, op := r.o11y.Begin(ctx)
+	_, op := r.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, name))
 	defer op.End()
-
-	op.Set(keys.FilenameKey, name)
 
 	// fs.ReadFile uses fsys's own ReadFile when it has one (embed.FS and osFS-backed os.ReadFile both
 	// do), otherwise it falls back to Open+ReadAll.

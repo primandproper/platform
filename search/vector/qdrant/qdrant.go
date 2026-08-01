@@ -190,10 +190,8 @@ func metricToDistance(m vectorsearch.DistanceMetric) (string, error) {
 // ensureCollection creates the collection if it does not exist. PUT /collections/{name}
 // is idempotent in qdrant when the body matches the existing collection.
 func (i *indexManager[T]) ensureCollection(ctx context.Context) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.collection))
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.collection)
 
 	exists, err := i.collectionExists(ctx)
 	if err != nil {
@@ -239,11 +237,11 @@ func (i *indexManager[T]) collectionExists(ctx context.Context) (bool, error) {
 
 // Upsert implements vectorsearch.Index.
 func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Vector[T]) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx,
+		observability.WithValue(keys.IndexNameKey, i.collection),
+		observability.WithValue(keys.LengthKey, len(vectors)),
+	)
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.collection)
-	op.Set(keys.LengthKey, len(vectors))
 
 	if len(vectors) == 0 {
 		return nil
@@ -306,11 +304,11 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 
 // Delete implements vectorsearch.Index.
 func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx,
+		observability.WithValue(keys.IndexNameKey, i.collection),
+		observability.WithValue(keys.LengthKey, len(ids)),
+	)
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.collection)
-	op.Set(keys.LengthKey, len(ids))
 
 	if len(ids) == 0 {
 		return nil
@@ -358,10 +356,8 @@ func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
 // atomic from the caller's perspective since they hold the only handle to the
 // collection name.
 func (i *indexManager[T]) Wipe(ctx context.Context) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.collection))
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.collection)
 
 	if i.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -396,10 +392,8 @@ func (i *indexManager[T]) Wipe(ctx context.Context) error {
 
 // Query implements vectorsearch.Index.
 func (i *indexManager[T]) Query(ctx context.Context, req vectorsearch.QueryRequest) ([]vectorsearch.QueryResult[T], error) {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.collection))
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.collection)
 
 	if len(req.Embedding) == 0 {
 		return nil, vectorsearch.ErrEmptyEmbedding

@@ -155,9 +155,8 @@ func (i *inMemoryCacheImpl[T]) evictExpired(ctx context.Context, key string) {
 }
 
 func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	startTime := time.Now()
 	defer func() {
@@ -183,9 +182,8 @@ func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) 
 }
 
 func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	startTime := time.Now()
 	defer func() {
@@ -204,9 +202,8 @@ func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T, op
 }
 
 func (i *inMemoryCacheImpl[T]) Delete(ctx context.Context, key string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	startTime := time.Now()
 	defer func() {
@@ -223,9 +220,8 @@ func (i *inMemoryCacheImpl[T]) Delete(ctx context.Context, key string) error {
 }
 
 func (i *inMemoryCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
-	op.Set("length", len(keys))
 
 	startTime := time.Now()
 	defer func() {
@@ -259,9 +255,8 @@ func (i *inMemoryCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[
 }
 
 func (i *inMemoryCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(items)))
 	defer op.End()
-	op.Set("length", len(items))
 
 	startTime := time.Now()
 	defer func() {
@@ -287,9 +282,8 @@ func (i *inMemoryCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T,
 
 // DeleteMany removes the given keys; keys that are absent are not an error.
 func (i *inMemoryCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
-	op.Set("length", len(keys))
 
 	startTime := time.Now()
 	defer func() {
@@ -313,9 +307,8 @@ func (i *inMemoryCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) er
 // provider wholly owns its map, so an empty prefix is permitted and clears
 // everything.
 func (i *inMemoryCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("prefix", prefix))
 	defer op.End()
-	op.Set("prefix", prefix)
 
 	startTime := time.Now()
 	defer func() {

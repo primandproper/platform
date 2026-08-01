@@ -218,10 +218,8 @@ func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {
 
 // Get returns one entry.
 func (r *reader) Get(ctx context.Context, id string) (*Entry, error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(entryIDKey, id))
 	defer op.End()
-
-	op.Set(entryIDKey, id)
 
 	if id == "" {
 		return nil, op.Error(platformerrors.ErrInvalidIDProvided, "getting audit entry")
@@ -301,10 +299,8 @@ func (r *reader) List(
 //
 // A zero from or to leaves that end unbounded.
 func (r *reader) Verify(ctx context.Context, scope string, from, to time.Time) (*VerificationResult, error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(scopeKey, scope))
 	defer op.End()
-
-	op.Set(scopeKey, scope)
 
 	query, args := r.tables.buildSelectChainRange(r.dialect, scope, from, to)
 

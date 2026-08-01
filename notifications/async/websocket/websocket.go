@@ -51,10 +51,12 @@ func NewNotifier(cfg *Config, opts ...Option) (*Notifier, error) {
 
 // Publish sends an event to all connected clients on the given channel.
 func (n *Notifier) Publish(ctx context.Context, channel string, event *async.Event) error {
-	ctx, op := n.o11y.Begin(ctx)
+	ctx, op := n.o11y.Begin(ctx,
+		observability.WithValue(keys.TopicKey, channel),
+		observability.WithValue("event.type", event.Type),
+		observability.WithValue(keys.LengthKey, len(event.Data)),
+	)
 	defer op.End()
-
-	op.Set(keys.TopicKey, channel).Set("event.type", event.Type).Set(keys.LengthKey, len(event.Data))
 
 	esEvent := &eventstream.Event{
 		Type:    event.Type,

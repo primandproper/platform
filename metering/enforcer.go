@@ -236,14 +236,12 @@ func (e *QuotaEnforcer) initInstruments() error {
 func (e *QuotaEnforcer) Check(ctx context.Context, subject, meter string, quantity int64) (*Decision, error) {
 	startTime := time.Now()
 
-	ctx, op := e.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := e.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:  subject,
 		meterKey:    meter,
 		quantityKey: quantity,
-	})
+	}))
+	defer op.End()
 
 	defer func() {
 		e.checkHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), meterAttr(meter))
@@ -308,14 +306,12 @@ func (e *QuotaEnforcer) Consume(ctx context.Context, subject, meter string, quan
 func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, u Usage) (*Decision, error) {
 	startTime := time.Now()
 
-	ctx, op := e.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := e.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:  u.Subject,
 		meterKey:    u.Meter,
 		quantityKey: u.Quantity,
-	})
+	}))
+	defer op.End()
 
 	defer func() {
 		e.consumeHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), meterAttr(u.Meter))

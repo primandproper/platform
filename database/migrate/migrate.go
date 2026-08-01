@@ -273,9 +273,8 @@ func (g *gooseLogger) Fatalf(format string, v ...any) {
 // against one Postgres database serialize on the session advisory lock, so
 // racing replicas wait for the winner instead of erroring.
 func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
-	ctx, op := m.o11y.Begin(ctx)
+	ctx, op := m.o11y.Begin(ctx, observability.WithValue("migrate.dialect", string(m.dialect)))
 	defer op.End()
-	op.Set("migrate.dialect", string(m.dialect))
 
 	if db == nil {
 		return errors.New("nil database provided")

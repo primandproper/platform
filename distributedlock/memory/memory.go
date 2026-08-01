@@ -82,10 +82,11 @@ func NewLocker(opts ...Option) (distributedlock.Locker, error) {
 
 // Acquire implements distributedlock.Locker.
 func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
-	ctx, op := l.o11y.Begin(ctx)
+	ctx, op := l.o11y.Begin(ctx,
+		observability.WithValue(keys.LockKeyKey, key),
+		observability.WithValue(keys.LockTTLKey, ttl),
+	)
 	defer op.End()
-
-	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, ttl)
 
 	if key == "" {
 		return nil, distributedlock.ErrEmptyKey

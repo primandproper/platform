@@ -70,10 +70,11 @@ func NewNotifier(cfg *Config, opts ...Option) (*Notifier, error) {
 
 // Publish sends an event to the given Pusher channel.
 func (n *Notifier) Publish(ctx context.Context, channel string, event *async.Event) error {
-	ctx, op := n.o11y.Begin(ctx)
+	ctx, op := n.o11y.Begin(ctx,
+		observability.WithValue("pusher.channel", channel),
+		observability.WithValue("pusher.event_type", event.Type),
+	)
 	defer op.End()
-
-	op.Set("pusher.channel", channel).Set("pusher.event_type", event.Type)
 
 	if err := n.client.Trigger(channel, event.Type, event.Data); err != nil {
 		n.errorCounter.Add(ctx, 1)

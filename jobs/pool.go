@@ -453,10 +453,8 @@ func (p *Pool) reportConsumerError(err error) {
 // returned — but the goroutines are not waited on, so a handler that ignores
 // its context may still be running when Close returns.
 func (p *Pool) Close(ctx context.Context) error {
-	_, op := p.o11y.Begin(ctx)
+	_, op := p.o11y.Begin(ctx, observability.WithValue(keys.TopicKey, p.cfg.Topic))
 	defer op.End()
-
-	op.Set(keys.TopicKey, p.cfg.Topic)
 
 	p.stopOnce.Do(func() { close(p.stop) })
 

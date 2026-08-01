@@ -8,14 +8,13 @@ import (
 	"encoding/base64"
 	"io"
 
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 )
 
 func (e *aesImpl) Encrypt(ctx context.Context, content string) (string, error) {
-	_, op := e.o11y.Begin(ctx)
+	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(content)))
 	defer op.End()
-
-	op.Set(keys.LengthKey, len(content))
 
 	aesBlock, err := aes.NewCipher(e.key[:])
 	if err != nil {

@@ -75,10 +75,11 @@ func (t *tomlDecoder) Decode(v any) error {
 
 // DecodeBytes decodes bytes into values.
 func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, dest any) error {
-	_, op := e.o11y.Begin(ctx)
+	_, op := e.o11y.Begin(ctx,
+		observability.WithValue(keys.LengthKey, len(data)),
+		observability.WithValue("content_type", ContentTypeToString(e.contentType)),
+	)
 	defer op.End()
-
-	op.Set(keys.LengthKey, len(data)).Set("content_type", ContentTypeToString(e.contentType))
 
 	var d decoder
 	switch e.contentType {
@@ -121,10 +122,8 @@ func (e *emojiDecoder) Decode(v any) error {
 
 // encodeResponse encodes responses.
 func (e *serverEncoderDecoder) encodeResponse(ctx context.Context, res http.ResponseWriter, v any, statusCode int) {
-	_, op := e.o11y.Begin(ctx)
+	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.ResponseStatusKey, statusCode))
 	defer op.End()
-
-	op.Set(keys.ResponseStatusKey, statusCode)
 
 	// choose the encoder from the configured content type, not the writer's pre-set header,
 	// so a configured encoder is honored even when the handler never sets a header.

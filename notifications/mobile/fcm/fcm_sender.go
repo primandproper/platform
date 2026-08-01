@@ -82,10 +82,8 @@ func NewSender(ctx context.Context, cfg *Config, opts ...Option) (*Sender, error
 
 // Send sends a push notification to a single device token.
 func (s *Sender) Send(ctx context.Context, deviceToken, title, body string) error {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue("title", title))
 	defer op.End()
-
-	op.Set("title", title)
 
 	msg := &messaging.Message{
 		Token: deviceToken,
