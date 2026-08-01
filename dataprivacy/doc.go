@@ -83,21 +83,28 @@ request is retried intact.
 
 # The state machine
 
-	                        ┌──────────────────────┐
-	Submit(export) ────────►│       pending        │
-	                        └──────────┬───────────┘
-	Submit(erasure)                    │
-	  │                                │
-	  │  window > 0                    │
-	  ├──► awaiting_confirmation ──────┤ Confirm
-	  │            │                   │
-	  │            │ Cancel            ▼
-	  │            │            ┌─────────────┐
-	  │            ▼            │ processing  │
-	  │        cancelled        └──────┬──────┘
-	  │            ▲                   │
-	  │            │ window lapses     ├──► completed ──► expired
-	  └────────────┴───────────────────┴──► failed
+	```mermaid
+	stateDiagram-v2
+	    [*] --> pending: Submit(export)
+	    [*] --> pending: Submit(erasure), no confirmation window
+	    [*] --> awaiting_confirmation: Submit(erasure), window > 0
+
+	    awaiting_confirmation --> pending: Confirm
+	    awaiting_confirmation --> cancelled: Cancel
+	    awaiting_confirmation --> cancelled: window lapses
+
+	    pending --> processing: claimed by a worker
+	    processing --> pending: failed, attempt remaining
+	    processing --> completed: fulfilled
+	    processing --> failed: attempts exhausted
+
+	    completed --> expired: artifact deleted
+	```
+
+The one cycle is processing back to pending, which is what a retryable failure
+looks like. It terminates because Request.Attempts is charged when a worker
+claims the request rather than when it fails, so a request that reliably kills
+its worker exhausts its attempts and fails rather than being reclaimed forever.
 
 Two-phase confirmation is opt-in: a ServiceConfig.ConfirmationWindow of zero —
 the default — queues an erasure on submission and Confirm is never needed.

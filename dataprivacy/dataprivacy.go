@@ -42,6 +42,22 @@ const (
 	expiredKey      = "dataprivacy.expired"
 	overdueKey      = "dataprivacy.overdue"
 	sweptKey        = "dataprivacy.swept"
+
+	// Store-layer keys. The database client traces the statement, but with the
+	// SQL text suppressed by default — so without these a trace shows an
+	// anonymous query span and no indication of which request it was about.
+	storeOpKey      = "dataprivacy.store_operation"
+	fromStatusKey   = "dataprivacy.from_status"
+	rowsAffectedKey = "dataprivacy.rows_affected"
+	guardMissedKey  = "dataprivacy.guard_missed"
+	selectedKey     = "dataprivacy.selected"
+	resultCountKey  = "dataprivacy.result_count"
+	resultTotalKey  = "dataprivacy.result_total"
+	limitKey        = "dataprivacy.limit"
+	lapsedKey       = "dataprivacy.lapsed"
+	reapedKey       = "dataprivacy.reaped"
+	attemptsKey     = "dataprivacy.attempts"
+	terminalKey     = "dataprivacy.terminal"
 )
 
 var (
@@ -182,23 +198,7 @@ func (t RequestType) Valid() bool {
 
 // Status is where a request has got to.
 //
-// The state machine is:
-//
-//	                        ┌──────────────────────┐
-//	Submit(export) ────────►│       pending        │
-//	                        └──────────┬───────────┘
-//	Submit(erasure)                    │
-//	  │                                │
-//	  │  window > 0                    │
-//	  ├──► awaiting_confirmation ──────┤ Confirm
-//	  │            │                   │
-//	  │            │ Cancel            ▼
-//	  │            │            ┌─────────────┐
-//	  │            ▼            │ processing  │
-//	  │        cancelled        └──────┬──────┘
-//	  │            ▲                   │
-//	  │            │ window lapses     ├──► completed ──► expired
-//	  └────────────┴───────────────────┴──► failed
+// The transitions between these are diagrammed in the package overview.
 //
 // expired is reachable only from completed, and only for an export: it is the
 // state in which the artifact has been deleted and the record of the request
@@ -346,6 +346,24 @@ func (r *Request) Overdue(now time.Time) bool {
 //
 // A Collector must not return partially-collected data alongside an error. The
 // fragment is used or the error is recorded; there is no path that writes both.
+//
+// There is deliberately no as-of time in this signature, and it is worth being
+// clear about what that means. A fragment is the domain's state at the instant
+// Collect ran, which is when a Worker got to the request — not when the subject
+// asked. The two differ by the queue depth plus any retries, and because
+// collectors run concurrently they differ from each other as well: an artifact
+// is a smear across the collection window rather than a snapshot at any one
+// instant. Manifest.GeneratedAt is the only time the artifact states.
+//
+// This matches the ordinary reading of a subject access request — the data held
+// when the response is produced — and it is the only thing a library can
+// promise. Bounding an export to data created on or before Request.RequestedAt
+// would have to be a parameter here, honored by every registered Collector, and
+// nothing in this package could enforce it: a domain with no reliable creation
+// timestamp cannot answer the question at all, and one that ignored the bound
+// would be silently wrong in the direction that matters. An application whose
+// jurisdiction or dispute posture needs that guarantee has to implement it in
+// its collectors, and know that it has.
 type Collector interface {
 	Collect(ctx context.Context, subject Subject) (json.RawMessage, error)
 }

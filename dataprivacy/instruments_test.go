@@ -141,3 +141,19 @@ func TestSweeper_InstrumentFailures(T *testing.T) {
 		})
 	}
 }
+
+func TestSQLStore_InstrumentFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run(storeName+"_guard_misses", func(t *testing.T) {
+		t.Parallel()
+
+		env := newSQLiteEnv(t)
+
+		_, err := NewSQLStore(env.dialect, env.client,
+			WithStoreMetricsProvider(failingInstrumentProvider(storeName+"_guard_misses")))
+
+		must.ErrorIs(t, err, errInstrument)
+		test.StrContains(t, err.Error(), "creating")
+	})
+}

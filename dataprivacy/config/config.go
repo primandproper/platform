@@ -154,9 +154,15 @@ func (cfg *Config) prepare(ctx context.Context) error {
 
 // NewStore builds the Store every part shares. client must be the database
 // holding the request table.
+//
+// Explicit options run after the config-derived ones, so a caller can still
+// override anything.
 func NewStore(
 	ctx context.Context,
 	cfg *Config,
+	logger logging.Logger,
+	tracerProvider tracing.TracerProvider,
+	metricsProvider metrics.Provider,
 	client database.Client,
 	opts ...dataprivacy.SQLStoreOption,
 ) (dataprivacy.Store, error) {
@@ -165,6 +171,16 @@ func NewStore(
 	}
 
 	base := []dataprivacy.SQLStoreOption{dataprivacy.WithTablePrefix(cfg.TablePrefix)}
+
+	if logger != nil {
+		base = append(base, dataprivacy.WithStoreLogger(logger))
+	}
+	if tracerProvider != nil {
+		base = append(base, dataprivacy.WithStoreTracerProvider(tracerProvider))
+	}
+	if metricsProvider != nil {
+		base = append(base, dataprivacy.WithStoreMetricsProvider(metricsProvider))
+	}
 
 	return dataprivacy.NewSQLStore(cfg.Dialect, client, append(base, opts...)...)
 }

@@ -27,6 +27,11 @@ const DocumentFormat = "dataprivacy.export.v1"
 // is the difference between a partial answer and a wrong one.
 type Manifest struct {
 	// GeneratedAt is when the artifact was assembled.
+	//
+	// It is not Request.RequestedAt, and the gap between them is the queue wait
+	// plus any retries. Sections are collected as of roughly this instant rather
+	// than as of the request — see Collector — so this is the time the document
+	// describes.
 	GeneratedAt time.Time `json:"generatedAt"`
 	// Failures maps a section name to why it is missing. Absent when the export
 	// was complete.

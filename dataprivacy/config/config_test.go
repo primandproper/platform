@@ -145,7 +145,7 @@ func TestConstructors(T *testing.T) {
 	T.Run("refuse a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewStore(t.Context(), nil, nil)
+		_, err := NewStore(t.Context(), nil, nil, nil, nil, nil)
 		test.Error(t, err)
 
 		_, err = NewService(t.Context(), nil, nil, nil, nil, nil)
@@ -164,7 +164,8 @@ func TestConstructors(T *testing.T) {
 		env := newConfigEnv(t)
 		cfg := &Config{Dialect: dialect.SQLite, TablePrefix: env.prefix}
 
-		store, err := NewStore(t.Context(), cfg, env.client)
+		store, err := NewStore(t.Context(), cfg,
+			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil), env.client)
 		must.NoError(t, err)
 		must.NotNil(t, store)
 
@@ -208,7 +209,7 @@ func TestConstructors(T *testing.T) {
 		env := newConfigEnv(t)
 		cfg := &Config{Dialect: dialect.Dialect("oracle"), TablePrefix: env.prefix}
 
-		_, err := NewStore(t.Context(), cfg, env.client)
+		_, err := NewStore(t.Context(), cfg, nil, nil, nil, env.client)
 		test.Error(t, err)
 
 		_, err = NewService(t.Context(), cfg, nil, nil, nil, nil)
@@ -227,7 +228,8 @@ func TestConstructors(T *testing.T) {
 		env := newConfigEnv(t)
 		cfg := &Config{Dialect: dialect.SQLite, TablePrefix: env.prefix}
 
-		store, err := NewStore(t.Context(), cfg, env.client)
+		store, err := NewStore(t.Context(), cfg,
+			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil), env.client)
 		must.NoError(t, err)
 
 		registry := dataprivacy.NewRegistry()

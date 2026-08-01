@@ -380,4 +380,19 @@ func TestSQLStoreOptions(T *testing.T) {
 		WithTablePrefix("")(s)
 		test.EqOp(t, "custom", s.tables.prefix())
 	})
+
+	T.Run("observability options", func(t *testing.T) {
+		t.Parallel()
+
+		s := &sqlStore{tables: newTables(DefaultTablePrefix)}
+
+		WithStoreLogger(loggingnoop.NewLogger())(s)
+		test.NotNil(t, s.logger)
+
+		WithStoreTracerProvider(tracingnoop.NewTracerProvider())(s)
+		test.NotNil(t, s.tracerProvider)
+
+		WithStoreMetricsProvider(metrics.EnsureMetricsProvider(nil))(s)
+		test.NotNil(t, s.metricsProvider)
+	})
 }
