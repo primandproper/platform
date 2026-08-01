@@ -222,6 +222,12 @@ func (s *stream) handle(chunk *anyllm.ChatCompletionChunk) {
 // already seen for that call; a fragment does not, because it is the
 // continuation rather than the whole. When nothing has been seen yet both rules
 // agree, so the first delta needs no special case.
+//
+// The one case this cannot get right is a provider that interleaves fragments
+// of several tool calls, since an ID-less fragment can then only be attributed
+// to the most recently opened call. That needs the wire's tool call index, which
+// any-llm-go drops, so it is not recoverable here at all. Neither provider does
+// it today: both stream one call to completion before starting the next.
 func (s *stream) accumulateToolCall(call *anyllm.ToolCall) {
 	args := call.Function.Arguments
 
