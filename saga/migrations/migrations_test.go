@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 
 	"github.com/shoenig/test"
@@ -17,7 +18,7 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			stmts, err := Statements(d, "saga")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err, must.Sprintf("dialect %q", d))
 			must.SliceNotEmpty(t, stmts)
 
@@ -26,7 +27,7 @@ func TestStatements(T *testing.T) {
 			test.StrContains(t, stmts[0], "CREATE TABLE")
 
 			for _, stmt := range stmts {
-				test.StrNotContains(t, stmt, prefixPlaceholder)
+				test.StrNotContains(t, stmt, ddl.Placeholder)
 				test.StrContains(t, stmt, "saga_instances")
 			}
 		}
@@ -42,7 +43,7 @@ func TestStatements(T *testing.T) {
 	T.Run("rejects a prefix that would not render a legal identifier", func(t *testing.T) {
 		t.Parallel()
 
-		for _, prefix := range []string{"", "saga-1", "drop table;--", "9saga"} {
+		for _, prefix := range []string{"saga-1", "drop table;--", "9saga"} {
 			_, err := Statements(dialect.SQLite, prefix)
 			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier, test.Sprintf("prefix %q", prefix))
 		}
@@ -52,7 +53,7 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			stmts, err := Statements(d, "saga")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 
 			create := stmts[0]
@@ -77,10 +78,12 @@ func TestValidatePrefix(T *testing.T) {
 		test.NoError(t, ValidatePrefix("app_saga"))
 	})
 
-	T.Run("rejects an empty prefix", func(t *testing.T) {
+	T.Run("accepts an empty prefix, which renders the component's own names", func(t *testing.T) {
 		t.Parallel()
 
-		test.ErrorIs(t, ValidatePrefix(""), dialect.ErrInvalidIdentifier)
+		// Empty is the ordinary case, not a missing value: it is what a
+		// consumer with one application per database wants.
+		test.NoError(t, ValidatePrefix(""))
 	})
 
 	T.Run("names the table that would be illegal", func(t *testing.T) {
@@ -88,7 +91,7 @@ func TestValidatePrefix(T *testing.T) {
 
 		err := ValidatePrefix("saga-1")
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), "saga-1_instances")
+		test.StrContains(t, err.Error(), "saga-1_saga_instances")
 	})
 }
 

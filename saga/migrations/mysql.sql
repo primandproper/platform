@@ -5,7 +5,7 @@
 -- The step history that is worth having is the lifecycle event stream, which
 -- goes through the outbox and lands wherever the application already keeps
 -- events — not in a table this package would then have to sweep.
-CREATE TABLE IF NOT EXISTS {{PREFIX}}_instances (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}saga_instances (
     id            VARCHAR(64) NOT NULL PRIMARY KEY,
     definition    VARCHAR(255) NOT NULL,
     status        VARCHAR(32) NOT NULL,
@@ -25,10 +25,10 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}_instances (
 -- whole table and the status column leads. Both queries these serve filter on
 -- status first, so putting it in front keeps the index selective for the same
 -- reads the partial clauses serve elsewhere.
-CREATE INDEX {{PREFIX}}_instances_claim_idx
-    ON {{PREFIX}}_instances (status, next_attempt, started_at, id);
+CREATE INDEX {{PREFIX}}saga_instances_claim_idx
+    ON {{PREFIX}}saga_instances (status, next_attempt, started_at, id);
 
 -- Serves the operator read: "which sagas are stuck", and "what has this
 -- definition been doing".
-CREATE INDEX {{PREFIX}}_instances_status_idx
-    ON {{PREFIX}}_instances (status, definition, id);
+CREATE INDEX {{PREFIX}}saga_instances_status_idx
+    ON {{PREFIX}}saga_instances (status, definition, id);

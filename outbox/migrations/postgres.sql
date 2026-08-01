@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS {{TABLE}} (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}outbox_messages (
     id            TEXT PRIMARY KEY,
     topic         TEXT NOT NULL,
     partition_key TEXT NOT NULL DEFAULT '',
@@ -16,18 +16,18 @@ CREATE TABLE IF NOT EXISTS {{TABLE}} (
 -- the index that serves it excludes everything else. Without the partial
 -- clause this index grows with total history rather than with backlog, and the
 -- relay slows down as the table fills.
-CREATE INDEX IF NOT EXISTS {{TABLE}}_claim_idx
-    ON {{TABLE}} (next_attempt, created_at, id)
+CREATE INDEX IF NOT EXISTS {{PREFIX}}outbox_messages_claim_idx
+    ON {{PREFIX}}outbox_messages (next_attempt, created_at, id)
     WHERE published_at IS NULL AND quarantined = FALSE;
 
 -- Serves the NOT EXISTS that enforces per-key ordering. id is part of the key
 -- because the predicate orders on (created_at, id), not created_at alone —
 -- messages enqueued in one call share a timestamp and are separated only by id.
-CREATE INDEX IF NOT EXISTS {{TABLE}}_ordering_idx
-    ON {{TABLE}} (partition_key, created_at, id)
+CREATE INDEX IF NOT EXISTS {{PREFIX}}outbox_messages_ordering_idx
+    ON {{PREFIX}}outbox_messages (partition_key, created_at, id)
     WHERE published_at IS NULL AND quarantined = FALSE;
 
 -- Serves the reaper.
-CREATE INDEX IF NOT EXISTS {{TABLE}}_reap_idx
-    ON {{TABLE}} (published_at)
+CREATE INDEX IF NOT EXISTS {{PREFIX}}outbox_messages_reap_idx
+    ON {{PREFIX}}outbox_messages (published_at)
     WHERE published_at IS NOT NULL;

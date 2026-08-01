@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
 )
 
 // Ensure, that ClientMock does implement database.Client.
@@ -27,6 +28,9 @@ var _ database.Client = &ClientMock{}
 //			},
 //			CurrentTimeFunc: func() time.Time {
 //				panic("mock out the CurrentTime method")
+//			},
+//			DialectFunc: func() dialect.Dialect {
+//				panic("mock out the Dialect method")
 //			},
 //			ReaderFunc: func() database.SQLQueryExecutor {
 //				panic("mock out the Reader method")
@@ -50,6 +54,9 @@ type ClientMock struct {
 	// CurrentTimeFunc mocks the CurrentTime method.
 	CurrentTimeFunc func() time.Time
 
+	// DialectFunc mocks the Dialect method.
+	DialectFunc func() dialect.Dialect
+
 	// ReaderFunc mocks the Reader method.
 	ReaderFunc func() database.SQLQueryExecutor
 
@@ -67,6 +74,9 @@ type ClientMock struct {
 		// CurrentTime holds details about calls to the CurrentTime method.
 		CurrentTime []struct {
 		}
+		// Dialect holds details about calls to the Dialect method.
+		Dialect []struct {
+		}
 		// Reader holds details about calls to the Reader method.
 		Reader []struct {
 		}
@@ -83,6 +93,7 @@ type ClientMock struct {
 	}
 	lockClose           sync.RWMutex
 	lockCurrentTime     sync.RWMutex
+	lockDialect         sync.RWMutex
 	lockReader          sync.RWMutex
 	lockWithTransaction sync.RWMutex
 	lockWriter          sync.RWMutex
@@ -139,6 +150,33 @@ func (mock *ClientMock) CurrentTimeCalls() []struct {
 	mock.lockCurrentTime.RLock()
 	calls = mock.calls.CurrentTime
 	mock.lockCurrentTime.RUnlock()
+	return calls
+}
+
+// Dialect calls DialectFunc.
+func (mock *ClientMock) Dialect() dialect.Dialect {
+	if mock.DialectFunc == nil {
+		panic("ClientMock.DialectFunc: method is nil but Client.Dialect was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockDialect.Lock()
+	mock.calls.Dialect = append(mock.calls.Dialect, callInfo)
+	mock.lockDialect.Unlock()
+	return mock.DialectFunc()
+}
+
+// DialectCalls gets all the calls that were made to Dialect.
+// Check the length with:
+//
+//	len(mockedClient.DialectCalls())
+func (mock *ClientMock) DialectCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockDialect.RLock()
+	calls = mock.calls.Dialect
+	mock.lockDialect.RUnlock()
 	return calls
 }
 

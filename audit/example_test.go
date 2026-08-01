@@ -35,7 +35,7 @@ func Example() {
 		panic(err)
 	}
 
-	reader, err := audit.NewReader(dialect.SQLite, client)
+	reader, err := audit.NewReader(client)
 	if err != nil {
 		panic(err)
 	}
@@ -169,9 +169,9 @@ func ExampleSQL() {
 	//	m, err := migrate.New(dialect.Postgres, myMigrations,
 	//		migrate.WithGeneratedMigration(39, "create_audit_tables", ddl),
 	//	)
-	fmt.Println(ddl[:len("CREATE TABLE IF NOT EXISTS audit_entries")])
+	fmt.Println(ddl[:len("CREATE TABLE IF NOT EXISTS audit_log_entries")])
 
-	// Output: CREATE TABLE IF NOT EXISTS audit_entries
+	// Output: CREATE TABLE IF NOT EXISTS audit_log_entries
 }
 
 // exampleDatabase stands up a throwaway SQLite database with the audit tables

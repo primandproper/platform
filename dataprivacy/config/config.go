@@ -182,7 +182,7 @@ func NewStore(
 		base = append(base, dataprivacy.WithStoreMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewSQLStore(cfg.Dialect, client, append(base, opts...)...)
+	return dataprivacy.NewSQLStore(client, append(base, opts...)...)
 }
 
 // NewService builds the Service applications submit through.

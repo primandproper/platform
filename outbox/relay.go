@@ -86,8 +86,12 @@ func (m ClaimMode) Valid() bool {
 type RelayConfig struct {
 	// Dialect selects the SQL emitted; it must match the database.Client.
 	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
-	// TableName is the outbox table. Defaults to DefaultTableName.
-	TableName string `env:"TABLE_NAME" json:"tableName" yaml:"tableName"`
+	// TablePrefix is the namespace the outbox table carries. Empty renders
+	// outbox_messages; "ddb" renders ddb_outbox_messages.
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+	// table is TablePrefix resolved to a full name, filled by EnsureDefaults so
+	// every query builder below reads one already-qualified string.
+	table string
 	// ClaimMode selects lease-only or SKIP LOCKED claiming.
 	ClaimMode ClaimMode `env:"CLAIM_MODE" json:"claimMode" yaml:"claimMode"`
 	// Backoff drives the retry schedule for messages that fail to publish.
@@ -112,9 +116,7 @@ var _ validation.ValidatableWithContext = (*RelayConfig)(nil)
 // EnsureDefaults fills unset knobs with the package defaults. SQLite is forced
 // to ClaimLease because it has no SKIP LOCKED.
 func (cfg *RelayConfig) EnsureDefaults() {
-	if cfg.TableName == "" {
-		cfg.TableName = DefaultTableName
-	}
+	cfg.table = tableFor(cfg.TablePrefix)
 	if cfg.ClaimMode == "" {
 		cfg.ClaimMode = ClaimSkipLocked
 	}
@@ -279,8 +281,8 @@ func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, pro
 
 	cfg.EnsureDefaults()
 
-	if !dialect.ValidIdentifier(cfg.TableName) {
-		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", cfg.TableName)
+	if !dialect.ValidIdentifier(cfg.table) {
+		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", cfg.table)
 	}
 
 	r := &Relay{
@@ -531,7 +533,7 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 		now := r.clock.Now().UTC()
 
 		selectQuery, selectArgs := buildSelectClaimable(
-			r.cfg.Dialect, r.cfg.TableName, now, r.cfg.BatchSize, r.cfg.ClaimMode == ClaimSkipLocked,
+			r.cfg.Dialect, r.cfg.table, now, r.cfg.BatchSize, r.cfg.ClaimMode == ClaimSkipLocked,
 		)
 
 		ids, err := scanIDs(ctx, q, selectQuery, selectArgs)
@@ -543,12 +545,12 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 			return nil
 		}
 
-		claimQuery, claimArgs := buildClaim(r.cfg.Dialect, r.cfg.TableName, ids, now.Add(r.cfg.LeaseDuration))
+		claimQuery, claimArgs := buildClaim(r.cfg.Dialect, r.cfg.table, ids, now.Add(r.cfg.LeaseDuration))
 		if _, err = q.ExecContext(ctx, claimQuery, claimArgs...); err != nil {
 			return platformerrors.Wrap(err, "claiming outbox messages")
 		}
 
-		fetchQuery, fetchArgs := buildFetch(r.cfg.Dialect, r.cfg.TableName, ids)
+		fetchQuery, fetchArgs := buildFetch(r.cfg.Dialect, r.cfg.table, ids)
 
 		claimed, err = scanMessages(ctx, q, fetchQuery, fetchArgs)
 		if err != nil {
@@ -568,7 +570,7 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 
 // markPublished retires the rows that made it to the broker.
 func (r *Relay) markPublished(ctx context.Context, ids []string) error {
-	query, args := buildMarkPublished(r.cfg.Dialect, r.cfg.TableName, ids, r.clock.Now().UTC())
+	query, args := buildMarkPublished(r.cfg.Dialect, r.cfg.table, ids, r.clock.Now().UTC())
 
 	if _, err := r.client.Writer().ExecContext(ctx, query, args...); err != nil {
 		return platformerrors.Wrap(err, "marking outbox messages published")
@@ -589,7 +591,7 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 	nextAttempt := r.clock.Now().UTC().Add(r.backoffFor(msg.attempts))
 
 	query, args := buildRecordFailure(
-		r.cfg.Dialect, r.cfg.TableName, msg.id, nextAttempt, truncateError(cause), quarantine,
+		r.cfg.Dialect, r.cfg.table, msg.id, nextAttempt, truncateError(cause), quarantine,
 	)
 
 	// The partition key matters here more than anywhere else: a keyed message
@@ -656,7 +658,7 @@ func (r *Relay) sampleBacklog(ctx context.Context) {
 func (r *Relay) backlog(ctx context.Context) (depth int64, age time.Duration, err error) {
 	var oldest any
 	if err = r.client.Reader().
-		QueryRowContext(ctx, buildBacklog(r.cfg.TableName)).
+		QueryRowContext(ctx, buildBacklog(r.cfg.table)).
 		Scan(&depth, &oldest); err != nil {
 		return 0, 0, platformerrors.Wrap(err, "reading outbox backlog")
 	}
@@ -726,7 +728,7 @@ func (r *Relay) reap(ctx context.Context) {
 
 	op.Set(retentionCutoffKey, before)
 
-	query, args := buildReap(r.cfg.Dialect, r.cfg.TableName, before, r.cfg.ReapBatchSize)
+	query, args := buildReap(r.cfg.Dialect, r.cfg.table, before, r.cfg.ReapBatchSize)
 
 	res, err := r.client.Writer().ExecContext(ctx, query, args...)
 	if err != nil {

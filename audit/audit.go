@@ -10,9 +10,14 @@ import (
 // serviceName names the loggers, spans, and metrics this package emits.
 const serviceName = "audit"
 
-// DefaultTablePrefix is the prefix the audit tables carry when none is
-// configured.
-const DefaultTablePrefix = "audit_"
+// DefaultTablePrefix is the namespace the audit tables carry when none is
+// configured, which is none — rendering audit_log_entries and audit_log_chains.
+//
+// The audit_log_ segment is the schema's, not the caller's: a table always says
+// which package created it. Setting a namespace of "ddb" renders
+// ddb_audit_log_entries, for a database shared between applications. A namespace
+// must not end in '_'; database/ddl supplies the separator.
+const DefaultTablePrefix = ""
 
 // Observability keys for this package's spans and log fields. Declared once so
 // a field set on a span and the same field logged beside it cannot drift, and

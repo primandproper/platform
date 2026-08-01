@@ -52,7 +52,18 @@ func newTestClient(t *testing.T) database.Client {
 }
 
 func validConfig() *Config {
-	return &Config{Dialect: dialect.SQLite}
+	return &Config{}
+}
+
+// invalidConfig is the smallest config that fails validation. A retention
+// shorter than a minute is non-zero, so EnsureDefaults leaves it alone rather
+// than repairing the config on the way in.
+func invalidConfig() *Config {
+	cfg := &Config{}
+	cfg.EnsureDefaults()
+	cfg.Worker.Retention = time.Second
+
+	return cfg
 }
 
 var testCatalog = webhooks.Catalog{
@@ -96,27 +107,15 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.NoError(t, cfg.ValidateWithContext(t.Context()))
 	})
 
-	T.Run("missing dialect", func(t *testing.T) {
+	T.Run("rejects a retention shorter than the floor", func(t *testing.T) {
 		t.Parallel()
-
-		cfg := &Config{}
-		cfg.EnsureDefaults()
-
-		test.Error(t, cfg.ValidateWithContext(t.Context()))
-	})
-
-	T.Run("unsupported dialect", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &Config{Dialect: dialect.Dialect("cockroach")}
-		cfg.EnsureDefaults()
 
 		// Asserted on the rendering rather than with errors.Is: ozzo's
 		// validation.Errors is a map with no Unwrap, so the sentinel does not
 		// survive into the chain.
-		err := cfg.ValidateWithContext(t.Context())
+		err := invalidConfig().ValidateWithContext(t.Context())
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), dialect.ErrUnsupported.Error())
+		test.StrContains(t, err.Error(), "retention")
 	})
 
 	// The nested configs are validated through validation.By closures because
@@ -163,7 +162,7 @@ func TestNewStore(T *testing.T) {
 	T.Run("invalid config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewStore(t.Context(), &Config{Dialect: dialect.Dialect("cockroach")}, newTestClient(t))
+		_, err := NewStore(t.Context(), invalidConfig(), newTestClient(t))
 		test.Error(t, err)
 	})
 }

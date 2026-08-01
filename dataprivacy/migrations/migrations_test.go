@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 
 	"github.com/shoenig/test"
@@ -23,10 +24,10 @@ func TestStatements(T *testing.T) {
 
 			// The table is created before the indexes that reference it.
 			test.StrContains(t, stmts[0], "CREATE TABLE")
-			test.StrContains(t, stmts[0], "dp_requests")
+			test.StrContains(t, stmts[0], "dp_dataprivacy_requests")
 
 			for _, stmt := range stmts {
-				test.StrNotContains(t, stmt, prefixPlaceholder, test.Sprintf("dialect %s", d))
+				test.StrNotContains(t, stmt, ddl.Placeholder, test.Sprintf("dialect %s", d))
 
 				// Comments are stripped, which matters: goose splits a
 				// migration on semicolons and would tear a '--' comment
@@ -46,7 +47,7 @@ func TestStatements(T *testing.T) {
 	T.Run("rejects a prefix that would not render a legal identifier", func(t *testing.T) {
 		t.Parallel()
 
-		for _, prefix := range []string{"", "drop table;--", "has space", "1leading"} {
+		for _, prefix := range []string{"drop table;--", "has space", "1leading"} {
 			_, err := Statements(dialect.SQLite, prefix)
 			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier, test.Sprintf("prefix %q", prefix))
 		}
@@ -59,14 +60,14 @@ func TestSQL(T *testing.T) {
 	T.Run("joins the statements into one migration body", func(t *testing.T) {
 		t.Parallel()
 
-		ddl, err := SQL(dialect.Postgres, "dp")
+		body, err := SQL(dialect.Postgres, "dp")
 		must.NoError(t, err)
 
 		stmts, err := Statements(dialect.Postgres, "dp")
 		must.NoError(t, err)
 
-		test.EqOp(t, len(stmts), strings.Count(ddl, ";"))
-		test.True(t, strings.HasSuffix(ddl, ";\n"))
+		test.EqOp(t, len(stmts), strings.Count(body, ";"))
+		test.True(t, strings.HasSuffix(body, ";\n"))
 	})
 
 	T.Run("propagates a bad dialect", func(t *testing.T) {
@@ -88,9 +89,11 @@ func TestValidatePrefix(T *testing.T) {
 		}
 	})
 
-	T.Run("rejects an empty prefix", func(t *testing.T) {
+	T.Run("accepts an empty prefix, which renders the component's own names", func(t *testing.T) {
 		t.Parallel()
 
-		test.ErrorIs(t, ValidatePrefix(""), dialect.ErrInvalidIdentifier)
+		// Empty is the ordinary case, not a missing value: it is what a
+		// consumer with one application per database wants.
+		test.NoError(t, ValidatePrefix(""))
 	})
 }

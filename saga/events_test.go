@@ -232,7 +232,7 @@ func TestNewOutboxPublisher(T *testing.T) {
 
 		var count int
 		must.NoError(t, env.client.Reader().QueryRowContext(t.Context(),
-			"SELECT COUNT(*) FROM "+outbox.DefaultTableName+" WHERE topic = ? AND partition_key = ?",
+			"SELECT COUNT(*) FROM outbox_messages WHERE topic = ? AND partition_key = ?",
 			DefaultEventTopic, "i1").Scan(&count))
 		test.EqOp(t, 2, count)
 	})
@@ -258,7 +258,7 @@ func TestNewOutboxPublisher(T *testing.T) {
 func outboxMigrationStatements(t *testing.T) []string {
 	t.Helper()
 
-	stmts, err := outboxmigrations.Statements(dialect.SQLite, outbox.DefaultTableName)
+	stmts, err := outboxmigrations.Statements(dialect.SQLite, outbox.DefaultTablePrefix)
 	must.NoError(t, err)
 
 	return stmts

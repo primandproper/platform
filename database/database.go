@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
@@ -57,6 +58,15 @@ type (
 	// Callers that genuinely need the concrete pool (migrations, session-pinned advisory
 	// locks, driver features off this seam) can obtain it via the RawAccess capability.
 	Client interface {
+		// Dialect reports the SQL dialect this client speaks.
+		//
+		// It is on the client because the two always travel together: every package in
+		// this module that emits SQL holds a Client and a dialect.Dialect side by side,
+		// and nothing previously stopped the pair disagreeing — a caller could hand
+		// dialect.MySQL to a store backed by a Postgres client and get syntactically
+		// valid SQL that the server rejects at runtime. Sourcing the dialect from the
+		// client makes that mismatch unrepresentable rather than merely unlikely.
+		Dialect() dialect.Dialect
 		// Reader returns an executor for the read database. It exposes no transaction
 		// control by design; use WithTransaction for anything transactional.
 		Reader() SQLQueryExecutor

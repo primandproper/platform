@@ -20,9 +20,14 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// DefaultTablePrefix is the prefix the metering tables carry when no other is
-// configured.
-const DefaultTablePrefix = "metering"
+// DefaultTablePrefix is the namespace the metering tables carry when none is
+// configured, which is none — rendering metering_events and metering_totals.
+//
+// The metering_ segment is the schema's, not the caller's: a table always says
+// which package created it. Setting a namespace of "ddb" renders
+// ddb_metering_events, for a database shared between applications. A namespace must
+// not end in '_'; database/ddl supplies the separator.
+const DefaultTablePrefix = ""
 
 // storeName scopes the store's spans and logger. It is deliberately not
 // serviceName: a trace showing the enforcement decision and the rows behind it
@@ -84,19 +89,21 @@ func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
 
 // NewSQLStore builds a Store over the given database.
 //
-// The dialect must match the client, and the prefix must match the one the
-// migrations were rendered with — nothing here can check either, and a mismatch
-// surfaces as a missing table on the first query rather than at construction.
+// The dialect comes from the client, so the two cannot disagree. The prefix must
+// still match the one the migrations were rendered with — nothing here can check
+// that, and a mismatch surfaces as a missing table on the first query rather
+// than at construction.
 //
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger, traces to a noop provider, and counts into a noop meter.
-func NewSQLStore(d dialect.Dialect, client database.Client, opts ...SQLStoreOption) (Store, error) {
-	if !d.Valid() {
-		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "metering dialect %q", d)
-	}
-
+func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
+	}
+
+	d := client.Dialect()
+	if !d.Valid() {
+		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "metering dialect %q", d)
 	}
 
 	s := &sqlStore{

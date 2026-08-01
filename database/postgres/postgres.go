@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
 
@@ -235,6 +236,12 @@ func (q *Client) ReadPool() *pgxpool.Pool {
 // PgxAccess; see that interface's documentation for the sharing semantics.
 func (q *Client) WritePool() *pgxpool.Pool {
 	return q.writePool
+}
+
+// Dialect reports the SQL dialect this client speaks, which is always
+// dialect.Postgres.
+func (*Client) Dialect() dialect.Dialect {
+	return dialect.Postgres
 }
 
 // Reader returns a non-transactional executor for the read database.

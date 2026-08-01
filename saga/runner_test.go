@@ -404,7 +404,7 @@ func TestRunner_List(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 
-		store, err := NewSQLStore(env.dialect, env.client, WithTablePrefix("absent"))
+		store, err := NewSQLStore(env.client, WithTablePrefix("absent"))
 		must.NoError(t, err)
 
 		runner := newTestRunner(t, store, NewRegistry())

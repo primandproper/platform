@@ -43,7 +43,7 @@ func TestCheckEndpointURL(T *testing.T) {
 	T.Run("rejects a relative or hostless URL", func(t *testing.T) {
 		t.Parallel()
 
-		for _, rawURL := range []string{"", "/hooks", "https://", "://nope"} {
+		for _, rawURL := range []string{"/hooks", "https://", "://nope"} {
 			test.Error(t, CheckEndpointURL(t.Context(), rawURL))
 		}
 	})

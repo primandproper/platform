@@ -33,7 +33,7 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		cfg := sqliteConfig()
 		cfg.EnsureDefaults()
 
-		test.EqOp(t, outbox.DefaultTableName, cfg.Relay.TableName)
+		test.EqOp(t, outbox.DefaultTablePrefix, cfg.Relay.TablePrefix)
 		test.EqOp(t, outbox.DefaultBatchSize, cfg.Relay.BatchSize)
 	})
 
@@ -41,10 +41,10 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		t.Parallel()
 
 		cfg := sqliteConfig()
-		cfg.Relay.TableName = "custom_outbox"
+		cfg.Relay.TablePrefix = "custom_outbox"
 		cfg.EnsureDefaults()
 
-		test.EqOp(t, "custom_outbox", cfg.Relay.TableName)
+		test.EqOp(t, "custom_outbox", cfg.Relay.TablePrefix)
 	})
 }
 
@@ -120,7 +120,7 @@ func TestNewWriter(T *testing.T) {
 			loggingnoop.NewLogger(),
 			tracingnoop.NewTracerProvider(),
 			metricsnoop.NewMetricsProvider(),
-			outbox.WithWriterTableName("override_table"),
+			outbox.WithWriterTablePrefix("override_table"),
 		)
 		must.NoError(t, err)
 		must.NotNil(t, w)

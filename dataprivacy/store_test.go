@@ -541,27 +541,39 @@ func suiteList(t *testing.T, env *storeEnv) {
 	})
 }
 
+// bogusDialectClient reports a dialect this package cannot emit SQL for.
+//
+// The unsupported-dialect branch is otherwise unreachable: the dialect comes
+// from the client rather than the caller, and every client this module ships
+// reports one of the three supported dialects. Only Dialect is consulted before
+// the constructor gives up, so the embedded Client is never called.
+type bogusDialectClient struct {
+	database.Client
+}
+
+func (bogusDialectClient) Dialect() dialect.Dialect { return "oracle" }
+
 func TestNewSQLStore(T *testing.T) {
 	T.Parallel()
 
 	T.Run("rejects an invalid dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewSQLStore(dialect.Dialect("oracle"), newSQLiteEnv(t).client)
+		_, err := NewSQLStore(bogusDialectClient{newSQLiteEnv(t).client})
 		test.True(t, errors.Is(err, dialect.ErrUnsupported))
 	})
 
 	T.Run("rejects a nil client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewSQLStore(dialect.SQLite, nil)
+		_, err := NewSQLStore(nil)
 		test.True(t, errors.Is(err, ErrNilDatabaseClient))
 	})
 
 	T.Run("rejects a prefix that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewSQLStore(dialect.SQLite, newSQLiteEnv(t).client, WithTablePrefix("drop table;--"))
+		_, err := NewSQLStore(newSQLiteEnv(t).client, WithTablePrefix("drop table;--"))
 		test.True(t, errors.Is(err, dialect.ErrInvalidIdentifier))
 	})
 }

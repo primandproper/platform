@@ -36,6 +36,18 @@ func TestSQLStore_SQLite(T *testing.T) {
 	runStoreSuite(T, newSQLiteEnv(T))
 }
 
+// bogusDialectClient reports a dialect this package cannot emit SQL for.
+//
+// The unsupported-dialect branch is otherwise unreachable: the dialect comes
+// from the client rather than the caller, and every client this module ships
+// reports one of the three supported dialects. Only Dialect is consulted before
+// the constructor gives up, so the embedded Client is never called.
+type bogusDialectClient struct {
+	database.Client
+}
+
+func (bogusDialectClient) Dialect() dialect.Dialect { return "oracle" }
+
 func TestNewSQLStore(T *testing.T) {
 	T.Parallel()
 
@@ -44,7 +56,7 @@ func TestNewSQLStore(T *testing.T) {
 	T.Run("refuses an unsupported dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewSQLStore("oracle", env.client)
+		_, err := NewSQLStore(bogusDialectClient{env.client})
 
 		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
@@ -52,7 +64,7 @@ func TestNewSQLStore(T *testing.T) {
 	T.Run("refuses a nil client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewSQLStore(dialect.SQLite, nil)
+		_, err := NewSQLStore(nil)
 
 		test.ErrorIs(t, err, ErrNilDatabaseClient)
 	})
@@ -63,7 +75,7 @@ func TestNewSQLStore(T *testing.T) {
 		// The prefix is interpolated into query text rather than bound, so it is
 		// vetted rather than escaped — and vetted against every name it renders,
 		// not just against itself.
-		_, err := NewSQLStore(dialect.SQLite, env.client, WithTablePrefix("drop; --"))
+		_, err := NewSQLStore(env.client, WithTablePrefix("drop; --"))
 
 		test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 	})
@@ -71,7 +83,7 @@ func TestNewSQLStore(T *testing.T) {
 	T.Run("ignores nil and empty options", func(t *testing.T) {
 		t.Parallel()
 
-		store, err := NewSQLStore(dialect.SQLite, env.client, nil, WithTablePrefix(""))
+		store, err := NewSQLStore(env.client, nil, WithTablePrefix(""))
 		must.NoError(t, err)
 		must.NotNil(t, store)
 	})
@@ -208,8 +220,8 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 		test.EqOp(t, int64(7), total.Quantity)
-		test.EqOp(t, 2, countRows(t, env, prefix+"_events"))
-		test.EqOp(t, 1, countRows(t, env, prefix+"_totals"))
+		test.EqOp(t, 2, countRows(t, env, prefix+"_metering_events"))
+		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_totals"))
 	})
 
 	t.Run("records nothing for an empty batch", func(t *testing.T) {
@@ -551,7 +563,7 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 		_, err := store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
-		test.EqOp(t, 1, countRows(t, env, prefix+"_totals"))
+		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_totals"))
 	})
 
 	t.Run("consumes against a max meter's high-water mark", func(t *testing.T) {
@@ -794,9 +806,9 @@ func suiteReap(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(1), reaped)
-		test.EqOp(t, 0, countRows(t, env, prefix+"_events"))
+		test.EqOp(t, 0, countRows(t, env, prefix+"_metering_events"))
 		// The total survives; only its evidence is retired.
-		test.EqOp(t, 1, countRows(t, env, prefix+"_totals"))
+		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_totals"))
 	})
 
 	t.Run("spares events whose period still owes the provider", func(t *testing.T) {
@@ -813,7 +825,7 @@ func suiteReap(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(0), reaped)
-		test.EqOp(t, 1, countRows(t, env, prefix+"_events"))
+		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_events"))
 	})
 
 	t.Run("spares events inside the retention window", func(t *testing.T) {
@@ -831,7 +843,7 @@ func suiteReap(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(0), reaped)
-		test.EqOp(t, 1, countRows(t, env, prefix+"_events"))
+		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_events"))
 	})
 
 	t.Run("honors the batch limit and does nothing for a non-positive one", func(t *testing.T) {
@@ -858,7 +870,7 @@ func suiteReap(t *testing.T, env *storeEnv) {
 		// Capped, so a long-neglected table is trimmed over several passes rather
 		// than one statement that holds locks for minutes.
 		test.EqOp(t, int64(2), reaped)
-		test.EqOp(t, 1, countRows(t, env, prefix+"_events"))
+		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_events"))
 	})
 }
 

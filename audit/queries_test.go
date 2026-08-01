@@ -394,8 +394,8 @@ func TestNewTables(T *testing.T) {
 	T.Run("derives both names from one prefix", func(t *testing.T) {
 		t.Parallel()
 
-		tables := newTables("custom_")
-		test.EqOp(t, "custom_entries", tables.entries)
-		test.EqOp(t, "custom_chains", tables.chains)
+		tables := newTables("custom")
+		test.EqOp(t, "custom_audit_log_entries", tables.entries)
+		test.EqOp(t, "custom_audit_log_chains", tables.chains)
 	})
 }

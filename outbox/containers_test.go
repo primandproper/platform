@@ -38,11 +38,14 @@ type dialectEnv struct {
 	claimMode ClaimMode
 }
 
-// newTable creates a uniquely named outbox table and returns its name.
+// newTable creates a uniquely namespaced outbox table and returns the
+// namespace. The resolved table name is tableFor(namespace); raw SQL below goes
+// through it rather than concatenating by hand, so the harness and the schema
+// cannot disagree about the component segment.
 func (e *dialectEnv) newTable(t *testing.T) string {
 	t.Helper()
 
-	name := fmt.Sprintf("outbox_%d", tableCounter.Add(1))
+	name := fmt.Sprintf("ns%d", tableCounter.Add(1))
 
 	stmts, err := migrations.Statements(e.dialect, name)
 	must.NoError(t, err)
@@ -59,7 +62,7 @@ func (e *dialectEnv) newTable(t *testing.T) string {
 func (e *dialectEnv) writer(t *testing.T, c *stubClock, table string) *Writer {
 	t.Helper()
 
-	w, err := NewWriter(e.dialect, WithWriterClock(c), WithWriterTableName(table))
+	w, err := NewWriter(e.dialect, WithWriterClock(c), WithWriterTablePrefix(table))
 	must.NoError(t, err)
 
 	return w
@@ -72,7 +75,7 @@ func (e *dialectEnv) relay(t *testing.T, c *stubClock, table string) (*Relay, *r
 	return newTestRelay(t, e.client, c, func(cfg *RelayConfig) {
 		cfg.Dialect = e.dialect
 		cfg.ClaimMode = e.claimMode
-		cfg.TableName = table
+		cfg.TablePrefix = table
 	})
 }
 
@@ -82,7 +85,7 @@ func countIn(t *testing.T, client database.Client, table, where string) int {
 
 	var n int
 	must.NoError(t, client.Reader().
-		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table+" WHERE "+where).
+		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+tableFor(table)+" WHERE "+where).
 		Scan(&n))
 
 	return n
@@ -424,13 +427,13 @@ func TestOutbox_MigratorIntegration_Containers(T *testing.T) {
 
 		c := newStubClock()
 
-		w, err := NewWriter(d, WithWriterClock(c), WithWriterTableName(table))
+		w, err := NewWriter(d, WithWriterClock(c), WithWriterTablePrefix(table))
 		must.NoError(t, err)
 
 		relay, rec := newTestRelay(t, client, c, func(cfg *RelayConfig) {
 			cfg.Dialect = d
 			cfg.ClaimMode = ClaimSkipLocked
-			cfg.TableName = table
+			cfg.TablePrefix = table
 		})
 
 		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {

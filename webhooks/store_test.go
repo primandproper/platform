@@ -13,6 +13,19 @@ import (
 	"github.com/shoenig/test/must"
 )
 
+// bogusDialectClient reports a dialect this package cannot emit SQL for.
+//
+// The unsupported-dialect branch is otherwise unreachable: the dialect comes
+// from the client rather than the caller, and every client this module ships
+// reports one of the three supported dialects. Only the embedded Dialect is
+// consulted before the constructor gives up, so the embedded Client is never
+// called.
+type bogusDialectClient struct {
+	database.Client
+}
+
+func (bogusDialectClient) Dialect() dialect.Dialect { return "oracle" }
+
 func TestNewSQLStore(T *testing.T) {
 	T.Parallel()
 
@@ -21,7 +34,7 @@ func TestNewSQLStore(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 
-		store, err := NewSQLStore(env.dialect, env.client)
+		store, err := NewSQLStore(env.client)
 		must.NoError(t, err)
 		test.NotNil(t, store)
 	})
@@ -31,14 +44,14 @@ func TestNewSQLStore(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 
-		_, err := NewSQLStore(dialect.Dialect("cockroach"), env.client)
+		_, err := NewSQLStore(bogusDialectClient{env.client})
 		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 
 	T.Run("nil client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewSQLStore(dialect.SQLite, nil)
+		_, err := NewSQLStore(nil)
 		test.ErrorIs(t, err, ErrNilDatabaseClient)
 	})
 
@@ -48,7 +61,7 @@ func TestNewSQLStore(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 
-		_, err := NewSQLStore(dialect.SQLite, env.client, WithTablePrefix("webhook; DROP TABLE users"))
+		_, err := NewSQLStore(env.client, WithTablePrefix("webhook; DROP TABLE users"))
 		test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 	})
 }

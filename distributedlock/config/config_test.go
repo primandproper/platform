@@ -9,6 +9,7 @@ import (
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	pglock "github.com/primandproper/platform-go/v9/distributedlock/postgres"
 	redislock "github.com/primandproper/platform-go/v9/distributedlock/redis"
@@ -32,6 +33,7 @@ func (c *stubDBClient) WriteDB() *sql.DB                  { return nil }
 func (c *stubDBClient) ReadDB() *sql.DB                   { return nil }
 func (c *stubDBClient) Reader() database.SQLQueryExecutor { return nil }
 func (c *stubDBClient) Writer() database.SQLQueryExecutor { return nil }
+func (c *stubDBClient) Dialect() dialect.Dialect          { return dialect.Postgres }
 func (c *stubDBClient) Close() error                      { return nil }
 func (c *stubDBClient) CurrentTime() time.Time            { return time.Now() }
 func (c *stubDBClient) RollbackTransaction(_ context.Context, _ database.SQLQueryExecutorAndTransactionManager) {

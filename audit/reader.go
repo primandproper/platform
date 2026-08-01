@@ -172,13 +172,16 @@ func WithReaderMetricsProvider(metricsProvider metrics.Provider) ReaderOption {
 	}
 }
 
-// NewReader builds a Reader over the database holding the audit tables.
-func NewReader(d dialect.Dialect, client database.Client, opts ...ReaderOption) (Reader, error) {
-	if !d.Valid() {
-		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "audit dialect %q", d)
-	}
+// NewReader builds a Reader over the database holding the audit tables. The
+// dialect comes from the client, so the two cannot disagree.
+func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
+	}
+
+	d := client.Dialect()
+	if !d.Valid() {
+		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "audit dialect %q", d)
 	}
 
 	r := &reader{

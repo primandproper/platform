@@ -116,7 +116,7 @@ func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 // The SQL is annotated and validated exactly like a file would be, so it may
 // contain several statements separated by semicolons:
 //
-//	ddl, err := outboxmigrations.SQL(dialect.Postgres, outbox.DefaultTableName)
+//	ddl, err := outboxmigrations.SQL(dialect.Postgres, outbox.DefaultTablePrefix)
 //	// ...
 //	m, err := migrate.New(dialect.Postgres, myMigrations,
 //		migrate.WithGeneratedMigration(37, "create_outbox_messages", ddl),

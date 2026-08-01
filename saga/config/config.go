@@ -3,8 +3,10 @@ Package sagacfg assembles the saga machinery from environment configuration:
 the Store the runner and the worker share, and the Worker that advances
 instances.
 
-Both read one Config, so the dialect and table prefix a Runner writes to are by
-construction the ones the Worker claims from.
+Both read one Config, so the table prefix a Runner writes to is by construction
+the one the Worker claims from. The dialect is not configured here at all: it
+comes from the database.Client, so it cannot disagree with the database the
+statements actually run against.
 
 The registry is not configured here, and cannot be. A step is a Go function, so
 there is no way to express a definition in the environment and no way to load
@@ -20,7 +22,6 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/idempotency"
@@ -35,9 +36,6 @@ import (
 // Config assembles a saga Store and Worker.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
-
-	// Dialect selects the SQL emitted; it must match the database.Client.
-	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
 
 	// TablePrefix names the instance table. It must match the prefix the
 	// migrations were rendered with. Defaults to saga.DefaultTablePrefix.
@@ -73,14 +71,6 @@ func (cfg *Config) EnsureDefaults() {
 // it would otherwise be skipped.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Dialect, validation.Required, validation.By(func(any) error {
-			if !cfg.Dialect.Valid() {
-				return errors.Wrapf(dialect.ErrUnsupported, "saga dialect %q", cfg.Dialect)
-			}
-
-			return nil
-		})),
-		validation.Field(&cfg.TablePrefix, validation.Required),
 		validation.Field(&cfg.EventTopic, validation.Required),
 		validation.Field(&cfg.Worker, validation.By(func(any) error {
 			return cfg.Worker.ValidateWithContext(ctx)
@@ -107,7 +97,7 @@ func ProvideStore(
 		return nil, errors.Wrap(err, "validating saga config")
 	}
 
-	return saga.NewSQLStore(cfg.Dialect, client,
+	return saga.NewSQLStore(client,
 		saga.WithTablePrefix(cfg.TablePrefix),
 		saga.WithStoreLogger(logger),
 		saga.WithStoreTracerProvider(tracerProvider),

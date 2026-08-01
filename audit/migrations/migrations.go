@@ -11,10 +11,10 @@ If you already run database/migrate, hand SQL to WithGeneratedMigration and the
 tables are created by your normal migration run — no DDL copied into your
 repository, nothing to keep in sync as this package evolves:
 
-	ddl, err := migrations.SQL(dialect.Postgres, audit.DefaultTablePrefix)
+	body, err := migrations.SQL(dialect.Postgres, audit.DefaultTablePrefix)
 	// ...
 	m, err := migrate.New(dialect.Postgres, myMigrations,
-		migrate.WithGeneratedMigration(39, "create_audit_tables", ddl),
+		migrate.WithGeneratedMigration(39, "create_audit_tables", body),
 	)
 
 Statements is the same DDL split into individually executable statements, for
@@ -47,6 +47,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
@@ -61,7 +62,18 @@ var mysqlDDL string
 var sqliteDDL string
 
 // prefixPlaceholder is the token each .sql file uses for the table prefix.
-const prefixPlaceholder = "{{PREFIX}}"
+const prefixPlaceholder = ddl.Placeholder
+
+// schema is this package's DDL in each supported dialect. Rendering and prefix
+// vetting go through it, as they do for every other schema-shipping package;
+// what stays local is the append-only triggers, which are built in Go rather
+// than embedded and must not be re-split on semicolons.
+var schema = ddl.Schema{
+	Component: "audit",
+	Postgres:  postgresDDL,
+	MySQL:     mysqlDDL,
+	SQLite:    sqliteDDL,
+}
 
 // validPrefix matches a prefix safe to interpolate into DDL: a bare identifier
 // fragment, or nothing. Prefixes are interpolated rather than bound, so they
@@ -77,12 +89,14 @@ var ErrInvalidPrefix = platformerrors.New("invalid audit table prefix")
 // Statements renders the DDL for the dialect against the given table prefix and
 // splits it into individually executable statements, in dependency order.
 func Statements(d dialect.Dialect, prefix string) ([]string, error) {
-	ddl, err := render(d, prefix)
-	if err != nil {
+	// The local prefix check runs first so a malformed prefix reports this
+	// package's own ErrInvalidPrefix; the shared renderer then resolves the
+	// dialect and vets every name the schema would create.
+	if err := ValidatePrefix(prefix); err != nil {
 		return nil, err
 	}
 
-	return dialect.SplitStatements(ddl), nil
+	return schema.Statements(d, prefix)
 }
 
 // SQL renders the same DDL as Statements, joined back into one migration body.
@@ -90,10 +104,10 @@ func Statements(d dialect.Dialect, prefix string) ([]string, error) {
 // audit tables are created by the consumer's own migration run instead of being
 // copied into their repository:
 //
-//	ddl, err := migrations.SQL(dialect.Postgres, audit.DefaultTablePrefix)
+//	body, err := migrations.SQL(dialect.Postgres, audit.DefaultTablePrefix)
 //	// ...
 //	m, err := migrate.New(dialect.Postgres, myMigrations,
-//		migrate.WithGeneratedMigration(39, "create_audit_tables", ddl),
+//		migrate.WithGeneratedMigration(39, "create_audit_tables", body),
 //	)
 //
 // The comments are already stripped, which matters: goose splits a migration
@@ -139,11 +153,13 @@ const appendOnlyMessage = "audit log entries are append-only"
 // three contain semicolons inside a trigger body, so re-joining them for a tool
 // that splits on semicolons produces fragments, not statements.
 func AppendOnlyStatements(d dialect.Dialect, prefix string) ([]string, error) {
-	if err := validate(d, prefix); err != nil {
+	// Only the prefix is checked here; the switch below is the dialect check,
+	// so an unsupported one is rejected in one place rather than two.
+	if err := ValidatePrefix(prefix); err != nil {
 		return nil, err
 	}
 
-	table := prefix + "entries"
+	table := ddl.Qualify(prefix) + "audit_log_entries"
 
 	switch d {
 	case dialect.Postgres:
@@ -183,36 +199,12 @@ func AppendOnlyStatements(d dialect.Dialect, prefix string) ([]string, error) {
 	}
 }
 
-// render substitutes the prefix into the dialect's DDL.
-func render(d dialect.Dialect, prefix string) (string, error) {
-	if err := validate(d, prefix); err != nil {
-		return "", err
-	}
-
-	var ddl string
-
-	switch d {
-	case dialect.Postgres:
-		ddl = postgresDDL
-	case dialect.MySQL:
-		ddl = mysqlDDL
-	case dialect.SQLite:
-		ddl = sqliteDDL
-	default:
-		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "audit migration dialect %q", d)
-	}
-
-	return strings.ReplaceAll(ddl, prefixPlaceholder, prefix), nil
-}
-
-// validate rejects an unsupported dialect or an unsafe prefix.
-func validate(d dialect.Dialect, prefix string) error {
-	if !d.Valid() {
-		return platformerrors.Wrapf(dialect.ErrUnsupported, "audit migration dialect %q", d)
-	}
+// ValidatePrefix reports whether prefix yields a legal SQL identifier for every
+// table and index this package creates.
+func ValidatePrefix(prefix string) error {
 	if !validPrefix.MatchString(prefix) {
 		return platformerrors.Wrapf(ErrInvalidPrefix, "audit table prefix %q", prefix)
 	}
 
-	return nil
+	return schema.ValidatePrefix(prefix)
 }

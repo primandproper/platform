@@ -83,7 +83,7 @@ func NewWriter(
 		return nil, errors.Wrap(err, "validating outbox config")
 	}
 
-	base := []outbox.WriterOption{outbox.WithWriterTableName(cfg.Relay.TableName)}
+	base := []outbox.WriterOption{outbox.WithWriterTablePrefix(cfg.Relay.TablePrefix)}
 	if logger != nil {
 		base = append(base, outbox.WithWriterLogger(logger))
 	}

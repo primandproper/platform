@@ -62,7 +62,21 @@ func newClient(t *testing.T) database.Client {
 
 // newValidConfig is the smallest config that passes validation.
 func newValidConfig() *Config {
-	return &Config{Dialect: dialect.SQLite}
+	return &Config{}
+}
+
+// newInvalidConfig is the smallest config that fails validation.
+//
+// A lease that does not outlast the post it covers is the flusher's one
+// cross-field constraint, and both values are non-zero — so EnsureDefaults
+// leaves them alone rather than repairing the config on the way in.
+func newInvalidConfig() *Config {
+	cfg := &Config{}
+	cfg.EnsureDefaults()
+	cfg.Flusher.FlushTimeout = time.Hour
+	cfg.Flusher.LeaseDuration = time.Second
+
+	return cfg
 }
 
 // newRegistry builds a registry with one meter and one quota.
@@ -110,26 +124,14 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
 	})
 
-	T.Run("requires a dialect", func(t *testing.T) {
+	T.Run("rejects a flush lease that does not outlast the flush", func(t *testing.T) {
 		t.Parallel()
-
-		cfg := &Config{}
-		cfg.EnsureDefaults()
-
-		test.Error(t, cfg.ValidateWithContext(t.Context()))
-	})
-
-	T.Run("rejects an unsupported dialect", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &Config{Dialect: "oracle"}
-		cfg.EnsureDefaults()
 
 		// ozzo collects field errors into a map, which does not forward
 		// errors.Is to the causes underneath — so this asserts on the rendering.
-		err := cfg.ValidateWithContext(t.Context())
+		err := newInvalidConfig().ValidateWithContext(t.Context())
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), dialect.ErrUnsupported.Error())
+		test.StrContains(t, err.Error(), "must exceed flush timeout")
 	})
 
 	T.Run("validates the nested configs", func(t *testing.T) {
@@ -257,7 +259,7 @@ func TestConstructors(T *testing.T) {
 
 		client := newClient(t)
 		registry := newRegistry(t)
-		bad := &Config{Dialect: "oracle"}
+		bad := newInvalidConfig()
 
 		mapper := metering.ProviderMapperFunc(func(context.Context, string, string) (metering.ProviderRef, error) {
 			return metering.ProviderRef{}, nil
@@ -267,19 +269,19 @@ func TestConstructors(T *testing.T) {
 		// errors.Is to the causes underneath — so these assert on the rendering.
 		_, err := NewStore(t.Context(), bad, nil, nil, nil, client)
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), dialect.ErrUnsupported.Error())
+		test.StrContains(t, err.Error(), "must exceed flush timeout")
 
 		_, err = NewRecorder(t.Context(), bad, nil, nil, nil, nil, registry, nil, nil)
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), dialect.ErrUnsupported.Error())
+		test.StrContains(t, err.Error(), "must exceed flush timeout")
 
 		_, err = NewEnforcer(t.Context(), bad, nil, nil, nil, nil, registry, nil, nil, nil)
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), dialect.ErrUnsupported.Error())
+		test.StrContains(t, err.Error(), "must exceed flush timeout")
 
 		_, err = NewFlusher(t.Context(), bad, nil, nil, nil, nil, mapper, capitalismnoop.NewUsageReporter())
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), dialect.ErrUnsupported.Error())
+		test.StrContains(t, err.Error(), "must exceed flush timeout")
 	})
 
 	T.Run("propagates a component's own refusal", func(t *testing.T) {
@@ -307,7 +309,7 @@ func TestConstructors(T *testing.T) {
 		t.Parallel()
 
 		client := newClient(t)
-		cfg := &Config{Dialect: dialect.SQLite, TablePrefix: "custom_usage"}
+		cfg := &Config{TablePrefix: "custom_usage"}
 
 		stmts, err := migrations.Statements(dialect.SQLite, cfg.TablePrefix)
 		must.NoError(t, err)

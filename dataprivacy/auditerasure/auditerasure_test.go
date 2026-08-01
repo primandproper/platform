@@ -60,7 +60,7 @@ func newAuditEnv(t *testing.T) *auditEnv {
 	recorder, err := audit.NewRecorder(dialect.SQLite)
 	must.NoError(t, err)
 
-	reader, err := audit.NewReader(dialect.SQLite, client)
+	reader, err := audit.NewReader(client)
 	must.NoError(t, err)
 
 	return &auditEnv{client: client, recorder: recorder, reader: reader}
@@ -87,7 +87,7 @@ func (e *auditEnv) countEntries(t *testing.T, scope string) int64 {
 
 	var count int64
 	must.NoError(t, e.client.Reader().
-		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_entries WHERE scope = ?", scope).
+		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_log_entries WHERE scope = ?", scope).
 		Scan(&count))
 
 	return count
@@ -99,7 +99,7 @@ func (e *auditEnv) countChains(t *testing.T, scope string) int64 {
 
 	var count int64
 	must.NoError(t, e.client.Reader().
-		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_chains WHERE scope = ?", scope).
+		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_log_chains WHERE scope = ?", scope).
 		Scan(&count))
 
 	return count
@@ -317,11 +317,11 @@ func TestNew(T *testing.T) {
 	T.Run("WithTablePrefix overrides the constructor's prefix", func(t *testing.T) {
 		t.Parallel()
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix, WithTablePrefix("custom_"))
+		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix, WithTablePrefix("custom"))
 		must.NoError(t, err)
 
-		test.EqOp(t, "custom_entries", eraser.entries)
-		test.EqOp(t, "custom_chains", eraser.chains)
+		test.EqOp(t, "custom_audit_log_entries", eraser.entries)
+		test.EqOp(t, "custom_audit_log_chains", eraser.chains)
 	})
 
 	T.Run("rejects a prefix an option renders illegal", func(t *testing.T) {

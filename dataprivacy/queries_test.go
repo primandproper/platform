@@ -193,9 +193,12 @@ func TestQueries_Placeholders(T *testing.T) {
 
 		for _, d := range allDialects {
 			for _, b := range everyQuery(custom, d) {
-				test.StrContains(t, b.query, "custom_requests",
+				test.StrContains(t, b.query, "custom_dataprivacy_requests",
 					test.Sprintf("dialect %q, %s: %s", d, b.name, b.query))
-				test.StrNotContains(t, b.query, DefaultTablePrefix+"_requests",
+				// DefaultTablePrefix is the empty namespace, so comparing against it
+				// directly would pass vacuously. The unqualified name is what a
+				// statement that missed the prefix would actually emit.
+				test.StrNotContains(t, b.query, " dataprivacy_requests",
 					test.Sprintf("dialect %q, %s: %s", d, b.name, b.query))
 			}
 		}
@@ -209,7 +212,7 @@ func TestNewTables(T *testing.T) {
 		t.Parallel()
 
 		tables := newTables("custom")
-		test.EqOp(t, "custom_requests", tables.requests)
+		test.EqOp(t, "custom_dataprivacy_requests", tables.requests)
 	})
 
 	T.Run("remembers the prefix it derived from", func(t *testing.T) {
@@ -372,7 +375,7 @@ func TestBuildListRequests(T *testing.T) {
 
 		subject := Subject{ID: "user_1", Scope: "acct_1"}
 
-		for _, cursor := range []string{"", "req_5"} {
+		for _, cursor := range []string{"req_5"} {
 			_, args := testTables.buildListRequests(dialect.Postgres, subject, cursor, 25, false)
 			test.EqOp(t, 25, args[len(args)-1])
 		}

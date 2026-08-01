@@ -31,7 +31,7 @@ func newBrokenStore(t *testing.T) Store {
 
 	// A prefix that is a legal identifier and names nothing. Every statement the
 	// store issues then fails at the driver, in the layer that issued it.
-	store, err := NewSQLStore(env.dialect, env.client,
+	store, err := NewSQLStore(env.client,
 		WithTablePrefix("no_such_metering_table"),
 		WithStoreLogger(loggingnoop.NewLogger()),
 		WithStoreTracerProvider(tracingnoop.NewTracerProvider()),
@@ -126,7 +126,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		_, err := store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
-		_, err = env.client.Writer().ExecContext(t.Context(), "DROP TABLE "+prefix+"_events")
+		_, err = env.client.Writer().ExecContext(t.Context(), "DROP TABLE "+prefix+"_metering_events")
 		must.NoError(t, err)
 
 		_, err = store.Consume(t.Context(), newEntry("req-2", 1, AggregationSum), 100, BehaviorBlock, baseTime)
@@ -140,7 +140,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		store, prefix := env.newStoreWithPrefix(t)
 
 		// The ledger write succeeds and the fold into the total does not.
-		_, err := env.client.Writer().ExecContext(t.Context(), "DROP TABLE "+prefix+"_totals")
+		_, err := env.client.Writer().ExecContext(t.Context(), "DROP TABLE "+prefix+"_metering_totals")
 		must.NoError(t, err)
 
 		_, err = store.Record(t.Context(), []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
@@ -158,7 +158,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		// Rename the column the claim writes, so the select finds rows and the
 		// update that leases them fails.
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"ALTER TABLE "+prefix+"_totals RENAME COLUMN claimed_until TO claimed_until_renamed")
+			"ALTER TABLE "+prefix+"_metering_totals RENAME COLUMN claimed_until TO claimed_until_renamed")
 		must.NoError(t, err)
 
 		_, err = store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
@@ -177,7 +177,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		// both succeed and the re-read does not. The re-read exists so the
 		// attempt counts a flusher sees are the ones the claim just wrote.
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"ALTER TABLE "+prefix+"_totals RENAME COLUMN last_error TO last_error_renamed")
+			"ALTER TABLE "+prefix+"_metering_totals RENAME COLUMN last_error TO last_error_renamed")
 		must.NoError(t, err)
 
 		_, err = store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
@@ -194,7 +194,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		// the SELECT that locks the row does not, because the projection asks for
 		// a column that is no longer there.
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"ALTER TABLE "+prefix+"_totals RENAME COLUMN last_error TO last_error_renamed")
+			"ALTER TABLE "+prefix+"_metering_totals RENAME COLUMN last_error TO last_error_renamed")
 		must.NoError(t, err)
 
 		_, err = store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
@@ -217,7 +217,7 @@ func TestSQLStore_ScanFaults(T *testing.T) {
 		// happy to store it; the driver is not happy to scan it into a time.Time,
 		// which is the failure a schema drifting under a running binary produces.
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"UPDATE "+prefix+"_totals SET period_end = 'not a timestamp'")
+			"UPDATE "+prefix+"_metering_totals SET period_end = 'not a timestamp'")
 		must.NoError(t, err)
 
 		_, err = store.Total(t.Context(), testSubject, testMeter, monthBounds)
@@ -236,7 +236,7 @@ func TestSQLStore_ScanFaults(T *testing.T) {
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
 
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"UPDATE "+prefix+"_totals SET period_start = 'not a timestamp'")
+			"UPDATE "+prefix+"_metering_totals SET period_start = 'not a timestamp'")
 		must.NoError(t, err)
 
 		_, err = store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
@@ -344,7 +344,7 @@ func TestSQLStore_WriteFaults(T *testing.T) {
 		// recorded one, and the one whose failure must not be reported as success.
 		_, err := env.client.Writer().ExecContext(t.Context(),
 			"CREATE TRIGGER "+prefix+"_no_update BEFORE UPDATE ON "+prefix+
-				"_totals BEGIN SELECT RAISE(ABORT, 'no updates'); END")
+				"_metering_totals BEGIN SELECT RAISE(ABORT, 'no updates'); END")
 		must.NoError(t, err)
 
 		_, err = store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
@@ -364,7 +364,7 @@ func TestSQLStore_WriteFaults(T *testing.T) {
 		// leased would have two flushers posting the same delta.
 		_, err := env.client.Writer().ExecContext(t.Context(),
 			"CREATE TRIGGER "+prefix+"_no_update BEFORE UPDATE ON "+prefix+
-				"_totals BEGIN SELECT RAISE(ABORT, 'no updates'); END")
+				"_metering_totals BEGIN SELECT RAISE(ABORT, 'no updates'); END")
 		must.NoError(t, err)
 
 		_, err = store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
@@ -451,7 +451,7 @@ func newUnreadableStore(t *testing.T) Store {
 	env := newSQLiteEnv(t)
 	_, prefix := env.newStoreWithPrefix(t)
 
-	store, err := NewSQLStore(env.dialect, &unreadableClient{Client: env.client}, WithTablePrefix(prefix))
+	store, err := NewSQLStore(&unreadableClient{Client: env.client}, WithTablePrefix(prefix))
 	must.NoError(t, err)
 
 	return store

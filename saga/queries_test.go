@@ -46,7 +46,7 @@ func TestTables(T *testing.T) {
 
 		tbl := newTables("app_saga")
 		test.EqOp(t, "app_saga", tbl.prefix())
-		test.EqOp(t, "app_saga_instances", tbl.instances)
+		test.EqOp(t, "app_saga_saga_instances", tbl.instances)
 	})
 }
 
@@ -59,7 +59,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			query, args := newTables("saga").buildInsertInstance(d, inst, []byte(`["one","two"]`), baseTime)
+			query, args := newTables("").buildInsertInstance(d, inst, []byte(`["one","two"]`), baseTime)
 
 			test.StrContains(t, query, "INSERT INTO saga_instances")
 
@@ -77,7 +77,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			query, args := newTables("saga").buildSelectInstance(d, "i1")
+			query, args := newTables("").buildSelectInstance(d, "i1")
 
 			test.StrContains(t, query, instanceColumns)
 			assertPlaceholders(t, d, query, args)
@@ -88,7 +88,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			tbl := newTables("saga")
+			tbl := newTables("")
 
 			query, args := tbl.buildListInstances(d, nil, "", 10, false)
 			test.StrNotContains(t, query, "WHERE")
@@ -122,7 +122,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			query, args := newTables("saga").buildSelectClaimable(d, baseTime, 5, true)
+			query, args := newTables("").buildSelectClaimable(d, baseTime, 5, true)
 
 			test.StrContains(t, query, "status IN (")
 			test.StrContains(t, query, "next_attempt <= ")
@@ -137,7 +137,7 @@ func TestBuilders(T *testing.T) {
 	T.Run("claimable can be asked not to skip locked rows", func(t *testing.T) {
 		t.Parallel()
 
-		query, _ := newTables("saga").buildSelectClaimable(dialect.Postgres, baseTime, 5, false)
+		query, _ := newTables("").buildSelectClaimable(dialect.Postgres, baseTime, 5, false)
 		test.StrNotContains(t, query, "SKIP LOCKED")
 	})
 
@@ -145,7 +145,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			query, args := newTables("saga").buildClaim(d, []string{"a", "b"}, baseTime.Add(time.Minute), baseTime)
+			query, args := newTables("").buildClaim(d, []string{"a", "b"}, baseTime.Add(time.Minute), baseTime)
 
 			test.StrContains(t, query, "attempts = attempts + 1")
 			test.StrContains(t, query, "status IN (")
@@ -157,7 +157,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			query, args := newTables("saga").buildFetchByIDs(d, []string{"a", "b", "c"})
+			query, args := newTables("").buildFetchByIDs(d, []string{"a", "b", "c"})
 
 			test.StrContains(t, query, instanceColumns)
 			test.StrContains(t, query, "status IN (")
@@ -169,7 +169,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			tbl := newTables("saga")
+			tbl := newTables("")
 
 			// Mid-pass: same instant, still running.
 			query, args := tbl.buildAdvance(d, inst, baseTime, baseTime)
@@ -196,7 +196,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			query, args := newTables("saga").buildReschedule(d, "i1", 3, baseTime, "boom", baseTime)
+			query, args := newTables("").buildReschedule(d, "i1", 3, baseTime, "boom", baseTime)
 
 			test.StrContains(t, query, "claimed_until = NULL")
 			test.StrContains(t, query, "status IN (")
@@ -208,7 +208,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			query, args := newTables("saga").buildRelease(d, "i1", baseTime)
+			query, args := newTables("").buildRelease(d, "i1", baseTime)
 
 			test.StrContains(t, query, "claimed_until = NULL")
 			test.StrNotContains(t, query, "next_attempt")
@@ -221,7 +221,7 @@ func TestBuilders(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects {
-			query, args := newTables("saga").buildRequeue(d, "i1", []Status{StatusStuck}, StatusCompensating, baseTime)
+			query, args := newTables("").buildRequeue(d, "i1", []Status{StatusStuck}, StatusCompensating, baseTime)
 
 			test.StrContains(t, query, "resume_status = ''")
 			test.StrContains(t, query, "attempts = 0")

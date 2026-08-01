@@ -35,6 +35,7 @@ var _ database.Client = (*failingClient)(nil)
 
 func (c *failingClient) Reader() database.SQLQueryExecutor { return &failingExecutor{closed: c.closed} }
 func (c *failingClient) Writer() database.SQLQueryExecutor { return &failingExecutor{closed: c.closed} }
+func (*failingClient) Dialect() dialect.Dialect            { return dialect.SQLite }
 func (*failingClient) Close() error                        { return nil }
 func (*failingClient) CurrentTime() time.Time              { return baseTime }
 
@@ -88,7 +89,7 @@ func newFailingClient(t *testing.T) *failingClient {
 func newFailingStore(t *testing.T) Store {
 	t.Helper()
 
-	store, err := NewSQLStore(dialect.SQLite, newFailingClient(t))
+	store, err := NewSQLStore(newFailingClient(t))
 	must.NoError(t, err)
 
 	return store

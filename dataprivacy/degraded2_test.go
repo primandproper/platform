@@ -62,7 +62,7 @@ func newUncountableStore(t *testing.T) Store {
 	// Migrate through the real client, then wrap it.
 	_ = env.newStore(t)
 
-	store, err := NewSQLStore(env.dialect, &uncountableClient{Client: env.client})
+	store, err := NewSQLStore(&uncountableClient{Client: env.client})
 	must.NoError(t, err)
 
 	return store
@@ -112,7 +112,7 @@ func TestSQLStore_CorruptStoredMaps(T *testing.T) {
 		prefix := storePrefix(t, store)
 
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"UPDATE "+prefix+"_requests SET failures = ? WHERE id = ?", []byte("{not json"), req.ID)
+			"UPDATE "+prefix+"_dataprivacy_requests SET failures = ? WHERE id = ?", []byte("{not json"), req.ID)
 		must.NoError(t, err)
 
 		_, err = store.Get(t.Context(), req.ID)

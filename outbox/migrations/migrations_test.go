@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 
 	"github.com/shoenig/test"
@@ -24,7 +25,7 @@ func TestStatements(T *testing.T) {
 			for _, stmt := range stmts {
 				test.True(t, strings.Contains(stmt, "events_outbox"),
 					test.Sprintf("dialect %q statement missing table name: %s", d, stmt))
-				test.False(t, strings.Contains(stmt, tablePlaceholder),
+				test.False(t, strings.Contains(stmt, ddl.Placeholder),
 					test.Sprintf("dialect %q left an unrendered placeholder", d))
 			}
 		}
@@ -35,7 +36,7 @@ func TestStatements(T *testing.T) {
 
 		// Postgres declares indexes separately, so ordering matters here in a
 		// way it does not for MySQL's inline KEY clauses.
-		stmts, err := Statements(dialect.Postgres, "outbox_messages")
+		stmts, err := Statements(dialect.Postgres, "")
 		must.NoError(t, err)
 		must.True(t, len(stmts) >= 2)
 
@@ -49,7 +50,7 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			stmts, err := Statements(d, "outbox_messages")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 
 			for _, stmt := range stmts {
@@ -69,7 +70,7 @@ func TestStatements(T *testing.T) {
 		// result; Postgres never saw it, because only the MySQL DDL happened to
 		// have prose with a semicolon in it.
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			stmts, err := Statements(d, "outbox_messages")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 
 			for _, stmt := range stmts {
@@ -88,7 +89,7 @@ func TestStatements(T *testing.T) {
 		}
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			stmts, err := Statements(d, "outbox_messages")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 
 			for _, col := range required {
@@ -108,7 +109,7 @@ func TestStatements(T *testing.T) {
 	T.Run("rejects a table name that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
-		for _, name := range []string{"", "outbox messages", "outbox; DROP TABLE users", "1outbox"} {
+		for _, name := range []string{"outbox messages", "outbox; DROP TABLE users", "1outbox"} {
 			_, err := Statements(dialect.Postgres, name)
 			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier,
 				test.Sprintf("expected %q to be rejected", name))
@@ -150,7 +151,7 @@ func TestSQL(T *testing.T) {
 
 			test.True(t, strings.Contains(body, "events_outbox"),
 				test.Sprintf("dialect %q missing table name", d))
-			test.False(t, strings.Contains(body, tablePlaceholder),
+			test.False(t, strings.Contains(body, ddl.Placeholder),
 				test.Sprintf("dialect %q left an unrendered placeholder", d))
 
 			// Comments must already be gone: goose splits on ';', so a comment
@@ -171,11 +172,55 @@ func TestSQL(T *testing.T) {
 	T.Run("propagates a table name that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
-		for _, name := range []string{"", "outbox messages", "outbox; DROP TABLE users", "1outbox"} {
+		for _, name := range []string{"outbox messages", "outbox; DROP TABLE users", "1outbox"} {
 			body, err := SQL(dialect.Postgres, name)
 			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier,
 				test.Sprintf("expected %q to be rejected", name))
 			test.EqOp(t, "", body)
 		}
+	})
+}
+
+func TestValidatePrefix(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts an empty namespace", func(t *testing.T) {
+		t.Parallel()
+
+		// Empty renders the component's own names, which is the default.
+		test.NoError(t, ValidatePrefix(""))
+	})
+
+	T.Run("accepts a plain identifier fragment", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, ValidatePrefix("ddb"))
+	})
+
+	T.Run("rejects a trailing separator", func(t *testing.T) {
+		t.Parallel()
+
+		// The renderer supplies the separator; a namespace carrying one too
+		// would render a doubled separator rather than an error.
+		test.ErrorIs(t, ValidatePrefix("ddb_"), ddl.ErrPrefixTrailingSeparator)
+	})
+
+	T.Run("rejects a namespace that would not render an identifier", func(t *testing.T) {
+		t.Parallel()
+
+		for _, namespace := range []string{"ddb-1", "1ddb", "ddb 1"} {
+			test.ErrorIs(t, ValidatePrefix(namespace), dialect.ErrInvalidIdentifier,
+				test.Sprintf("namespace %q", namespace))
+		}
+	})
+
+	T.Run("rejects a namespace that pushes an index name past the limit", func(t *testing.T) {
+		t.Parallel()
+
+		// Index names are the longest identifiers this schema renders, and are
+		// what a table-only check would miss.
+		namespace := strings.Repeat("n", ddl.MaxIdentifierLength-len("outbox_messages_ordering_idx"))
+
+		test.ErrorIs(t, ValidatePrefix(namespace), ddl.ErrPrefixTooLong)
 	})
 }

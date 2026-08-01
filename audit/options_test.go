@@ -78,7 +78,7 @@ func TestRecorderOptions(T *testing.T) {
 
 		r := &recorder{}
 		for _, opt := range []RecorderOption{
-			WithRecorderTablePrefix("custom_"),
+			WithRecorderTablePrefix("custom"),
 			WithRecorderClock(c),
 			WithRecorderLogger(logger),
 			WithRecorderTracerProvider(tracerProvider),
@@ -88,7 +88,7 @@ func TestRecorderOptions(T *testing.T) {
 			opt(r)
 		}
 
-		test.EqOp(t, "custom_", r.prefix)
+		test.EqOp(t, "custom", r.prefix)
 		test.EqOp(t, clock.Clock(c), r.clock)
 		test.EqOp(t, logger, r.logger)
 		test.NotNil(t, r.tracerProvider)
@@ -129,7 +129,7 @@ func TestReaderOptions(T *testing.T) {
 
 		r := &reader{}
 		for _, opt := range []ReaderOption{
-			WithReaderTablePrefix("custom_"),
+			WithReaderTablePrefix("custom"),
 			WithReaderLogger(logger),
 			WithReaderTracerProvider(tracingnoop.NewTracerProvider()),
 			WithReaderMetricsProvider(metrics.EnsureMetricsProvider(nil)),
@@ -137,7 +137,7 @@ func TestReaderOptions(T *testing.T) {
 			opt(r)
 		}
 
-		test.EqOp(t, "custom_", r.prefix)
+		test.EqOp(t, "custom", r.prefix)
 		test.EqOp(t, logger, r.logger)
 		test.NotNil(t, r.tracerProvider)
 		test.NotNil(t, r.metricsProvider)
@@ -156,7 +156,7 @@ func TestReaderOptions(T *testing.T) {
 		t.Parallel()
 
 		for failAt := 1; failAt <= 2; failAt++ {
-			_, err := NewReader(dialect.SQLite, newTestClient(t),
+			_, err := NewReader(newTestClient(t),
 				WithReaderMetricsProvider(failingMetricsProvider(failAt)))
 			test.ErrorIs(t, err, errInstrument, test.Sprintf("instrument %d", failAt))
 		}
@@ -165,7 +165,7 @@ func TestReaderOptions(T *testing.T) {
 	T.Run("ignores nil options", func(t *testing.T) {
 		t.Parallel()
 
-		r, err := NewReader(dialect.SQLite, newTestClient(t), nil)
+		r, err := NewReader(newTestClient(t), nil)
 		must.NoError(t, err)
 		test.NotNil(t, r)
 	})

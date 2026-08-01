@@ -132,8 +132,8 @@ func TestRecorder_Record(T *testing.T) {
 		})
 		test.ErrorIs(t, err, boom)
 
-		test.EqOp(t, 0, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
-		test.EqOp(t, 0, countRows(t, client, DefaultTablePrefix+"chains", "1=1"))
+		test.EqOp(t, 0, countRows(t, client, "audit_log_entries", "1=1"))
+		test.EqOp(t, 0, countRows(t, client, "audit_log_chains", "1=1"))
 	})
 
 	T.Run("refuses a nil executor", func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestRecorder_Record(T *testing.T) {
 
 				// The valid entry that preceded the bad one is not written
 				// either: validation runs over the whole batch first.
-				test.EqOp(t, 0, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+				test.EqOp(t, 0, countRows(t, client, "audit_log_entries", "1=1"))
 			})
 		}
 	})
@@ -249,7 +249,7 @@ func TestRecorder_Record(T *testing.T) {
 
 		record(t, client, recorder, entries...)
 
-		test.EqOp(t, count, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, count, countRows(t, client, "audit_log_entries", "1=1"))
 		test.EqOp(t, int64(count-1), entries[count-1].Seq)
 
 		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
@@ -271,7 +271,7 @@ func TestRecorder_Record(T *testing.T) {
 		// on (scope, seq) is what makes that unrepresentable rather than merely
 		// detectable.
 		_, err := client.Writer().ExecContext(t.Context(),
-			"INSERT INTO "+DefaultTablePrefix+"entries "+
+			"INSERT INTO audit_log_entries "+
 				"(id, seq, scope, recorded_at, event_type, resource_type, resource_id, "+
 				"actor_id, actor_type, actor_ip, change_set, metadata, prev_hash, hash) "+
 				"VALUES ('fork', 0, 'acct_1', ?, 'updated', 'recipe', 'r', 'u', 'user', '', NULL, NULL, '', 'deadbeef')",

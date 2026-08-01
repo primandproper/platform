@@ -44,7 +44,7 @@ type dialectEnv struct {
 func (e *dialectEnv) newPrefix(t *testing.T) string {
 	t.Helper()
 
-	prefix := fmt.Sprintf("audit%d_", prefixCounter.Add(1))
+	prefix := fmt.Sprintf("audit%d", prefixCounter.Add(1))
 	applyMigrations(t, e.client, e.dialect, prefix)
 
 	return prefix
@@ -65,7 +65,7 @@ func (e *dialectEnv) recorder(t *testing.T, c *stubClock, prefix string, opts ..
 func (e *dialectEnv) reader(t *testing.T, prefix string) Reader {
 	t.Helper()
 
-	r, err := NewReader(e.dialect, e.client, WithReaderTablePrefix(prefix))
+	r, err := NewReader(e.client, WithReaderTablePrefix(prefix))
 	must.NoError(t, err)
 
 	return r
@@ -159,7 +159,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		})
 		test.ErrorIs(t, err, boom)
 
-		test.EqOp(t, 0, countRows(t, env.client, prefix+"entries", "1=1"))
+		test.EqOp(t, 0, countRows(t, env.client, prefix+"_audit_log_entries", "1=1"))
 	})
 
 	t.Run("detects tampering", func(t *testing.T) {
@@ -177,7 +177,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		}))
 
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			fmt.Sprintf("UPDATE %sentries SET actor_id = %s WHERE id = %s",
+			fmt.Sprintf("UPDATE %s_audit_log_entries SET actor_id = %s WHERE id = %s",
 				prefix, env.dialect.Placeholder(1), env.dialect.Placeholder(2)),
 			"somebody_else", second.ID)
 		must.NoError(t, err)
@@ -206,7 +206,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		// was actually created.
 		_, err := env.client.Writer().ExecContext(t.Context(),
 			fmt.Sprintf(
-				"INSERT INTO %sentries "+
+				"INSERT INTO %s_audit_log_entries "+
 					"(id, seq, scope, recorded_at, event_type, resource_type, resource_id, "+
 					"actor_id, actor_type, actor_ip, change_set, metadata, prev_hash, hash) "+
 					"VALUES (%s, 0, 'acct_1', %s, 'updated', 'recipe', 'r', 'u', 'user', '', NULL, NULL, '', 'deadbeef')",
@@ -302,7 +302,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 			must.NoError(t, <-errs)
 		}
 
-		test.EqOp(t, writers, countRows(t, env.client, prefix+"entries", "scope = 'brand_new_scope'"))
+		test.EqOp(t, writers, countRows(t, env.client, prefix+"_audit_log_entries", "scope = 'brand_new_scope'"))
 	})
 
 	t.Run("refuses an update once the append-only trigger is installed", func(t *testing.T) {
@@ -320,7 +320,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		}))
 
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			fmt.Sprintf("UPDATE %sentries SET actor_id = 'somebody_else' WHERE id = %s",
+			fmt.Sprintf("UPDATE %s_audit_log_entries SET actor_id = 'somebody_else' WHERE id = %s",
 				prefix, env.dialect.Placeholder(1)),
 			entry.ID)
 		must.Error(t, err)
@@ -428,7 +428,7 @@ func TestAudit_MigratorIntegration_Containers(T *testing.T) {
 		recorder, err := NewRecorder(d, WithRecorderClock(newStubClock()), WithRecorderTablePrefix(prefix))
 		must.NoError(t, err)
 
-		reader, err := NewReader(d, client, WithReaderTablePrefix(prefix))
+		reader, err := NewReader(client, WithReaderTablePrefix(prefix))
 		must.NoError(t, err)
 
 		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
@@ -448,7 +448,7 @@ func TestAudit_MigratorIntegration_Containers(T *testing.T) {
 			must.NoError(t, err)
 			t.Cleanup(func() { _ = client.Close() })
 
-			const prefix = "migrated_audit_"
+			const prefix = "migrated_audit"
 
 			migrateTables(t, client, dialect.Postgres, prefix)
 			assertUsable(t, client, dialect.Postgres, prefix)
@@ -459,7 +459,7 @@ func TestAudit_MigratorIntegration_Containers(T *testing.T) {
 		t.Parallel()
 
 		runWithMySQL(t, func(_ context.Context, client database.Client) {
-			const prefix = "migrated_audit_"
+			const prefix = "migrated_audit"
 
 			migrateTables(t, client, dialect.MySQL, prefix)
 			assertUsable(t, client, dialect.MySQL, prefix)
@@ -476,7 +476,7 @@ func TestAudit_Migrations_RealServers(T *testing.T) {
 		t.Parallel()
 
 		pgtest.Run(t, func(ctx context.Context, pg *pgtest.Instance) {
-			stmts, err := migrations.Statements(dialect.Postgres, "ddl_check_")
+			stmts, err := migrations.Statements(dialect.Postgres, "ddl_check")
 			must.NoError(t, err)
 
 			// Re-running must be a no-op: every statement is IF NOT EXISTS.
@@ -493,7 +493,7 @@ func TestAudit_Migrations_RealServers(T *testing.T) {
 		t.Parallel()
 
 		runWithMySQL(t, func(ctx context.Context, client database.Client) {
-			stmts, err := migrations.Statements(dialect.MySQL, "ddl_check_")
+			stmts, err := migrations.Statements(dialect.MySQL, "ddl_check")
 			must.NoError(t, err)
 
 			// Executed twice: CREATE TABLE IF NOT EXISTS carries the inline KEY
@@ -511,7 +511,7 @@ func TestAudit_Migrations_RealServers(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			stmts, err := migrations.Statements(d, "ddl_check_")
+			stmts, err := migrations.Statements(d, "ddl_check")
 			must.NoError(t, err)
 
 			for _, stmt := range stmts {
