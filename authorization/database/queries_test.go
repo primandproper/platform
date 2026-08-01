@@ -64,8 +64,10 @@ func TestResolver_QueryBuilders(T *testing.T) {
 
 		r := &Resolver{dialect: dialect.Postgres, prefix: "custom_"}
 
-		test.StrContains(t, r.listRolesQuery(), "custom_roles")
-		test.StrNotContains(t, r.listRolesQuery(), DefaultTablePrefix)
+		test.StrContains(t, r.listRolesQuery(), "custom_authz_roles")
+		// The unqualified form must not survive: DefaultTablePrefix is now the
+		// empty namespace, so asserting against it directly would pass vacuously.
+		test.StrNotContains(t, r.listRolesQuery(), "FROM authz_roles")
 	})
 
 	// The recursive CTE is the query only a real server validates, but its

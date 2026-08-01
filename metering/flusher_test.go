@@ -376,7 +376,7 @@ func TestFlusher_Flush(T *testing.T) {
 		// the reap's own predicate refuses to touch anything a failed post still
 		// needs.
 		test.EqOp(t, int64(0), result.EventsReaped)
-		test.EqOp(t, 2, countRows(t, newSQLiteEnvFor(t, store), prefix+"_events"))
+		test.EqOp(t, 2, countRows(t, newSQLiteEnvFor(t, store), prefix+"_metering_events"))
 	})
 
 	T.Run("reaps settled events", func(t *testing.T) {
@@ -397,7 +397,7 @@ func TestFlusher_Flush(T *testing.T) {
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(1), result.EventsReaped)
-		test.EqOp(t, 0, countRows(t, env, prefix+"_events"))
+		test.EqOp(t, 0, countRows(t, env, prefix+"_metering_events"))
 	})
 
 	T.Run("skips the reap when disabled", func(t *testing.T) {
@@ -419,7 +419,7 @@ func TestFlusher_Flush(T *testing.T) {
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(0), result.EventsReaped)
-		test.EqOp(t, 1, countRows(t, env, prefix+"_events"))
+		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_events"))
 	})
 
 	T.Run("reports a reap failure without losing the flush result", func(t *testing.T) {

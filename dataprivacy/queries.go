@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 )
 
@@ -32,7 +33,7 @@ type tables struct {
 func newTables(prefix string) *tables {
 	return &tables{
 		base:     prefix,
-		requests: prefix + "_requests",
+		requests: ddl.Qualify(prefix) + "dataprivacy_requests",
 	}
 }
 

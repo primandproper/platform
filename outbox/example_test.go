@@ -53,7 +53,7 @@ func exampleDatabase(ctx context.Context) (database.Client, func(), error) {
 		return nil, nil, err
 	}
 
-	stmts, err := migrations.Statements(dialect.SQLite, outbox.DefaultTableName)
+	stmts, err := migrations.Statements(dialect.SQLite, outbox.DefaultTablePrefix)
 	if err != nil {
 		cleanup()
 
@@ -77,7 +77,7 @@ func insertOrder(context.Context, database.SQLQueryExecutor, order) error { retu
 func pendingMessages(ctx context.Context, client database.Client) int {
 	var n int
 	if err := client.Reader().
-		QueryRowContext(ctx, "SELECT COUNT(*) FROM "+outbox.DefaultTableName).
+		QueryRowContext(ctx, "SELECT COUNT(*) FROM outbox_messages").
 		Scan(&n); err != nil {
 		panic(err)
 	}
@@ -167,7 +167,7 @@ func ExampleWriter_Enqueue_rollback() {
 // migration sequence at a version you choose, so nothing is copied into your
 // repository and nothing drifts as this package evolves.
 func ExampleSQL() {
-	ddl, err := migrations.SQL(dialect.Postgres, outbox.DefaultTableName)
+	ddl, err := migrations.SQL(dialect.Postgres, outbox.DefaultTablePrefix)
 	if err != nil {
 		panic(err)
 	}
@@ -195,7 +195,7 @@ func ExampleSQL() {
 // ExampleStatements shows the same DDL as individually executable statements,
 // for callers not using database/migrate.
 func ExampleStatements() {
-	stmts, err := migrations.Statements(dialect.Postgres, outbox.DefaultTableName)
+	stmts, err := migrations.Statements(dialect.Postgres, outbox.DefaultTablePrefix)
 	if err != nil {
 		panic(err)
 	}

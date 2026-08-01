@@ -118,7 +118,7 @@ func TestSweeper_Sweep(T *testing.T) {
 		sweeper := sweeperFor(t, client, c, func(cfg *SweeperConfig) { cfg.Retention = 3 * time.Hour })
 
 		test.EqOp(t, int64(1), sweeper.Sweep(t.Context()))
-		test.EqOp(t, 2, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, 2, countRows(t, client, "audit_log_entries", "1=1"))
 
 		// The watermark the sweep left behind is what the oldest survivor is
 		// anchored against; without it this would read as a deleted entry.
@@ -144,7 +144,7 @@ func TestSweeper_Sweep(T *testing.T) {
 		sweeper := sweeperFor(t, client, c, func(cfg *SweeperConfig) { cfg.Retention = time.Hour })
 
 		test.EqOp(t, int64(0), sweeper.Sweep(t.Context()))
-		test.EqOp(t, 1, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, 1, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
 	T.Run("does nothing on an empty log", func(t *testing.T) {
@@ -178,7 +178,7 @@ func TestSweeper_Sweep(T *testing.T) {
 		})
 
 		test.EqOp(t, int64(2), sweeper.Sweep(t.Context()))
-		test.EqOp(t, 3, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, 3, countRows(t, client, "audit_log_entries", "1=1"))
 
 		// Still contiguous, still anchored: a batched sweep is several prefix
 		// prunes, never a hole.
@@ -187,7 +187,7 @@ func TestSweeper_Sweep(T *testing.T) {
 		test.True(t, result.Intact())
 
 		test.EqOp(t, int64(2), sweeper.Sweep(t.Context()))
-		test.EqOp(t, 1, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, 1, countRows(t, client, "audit_log_entries", "1=1"))
 
 		result, err = reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		must.NoError(t, err)
@@ -207,7 +207,7 @@ func TestSweeper_Sweep(T *testing.T) {
 		sweeper := sweeperFor(t, client, c, func(cfg *SweeperConfig) { cfg.Retention = time.Hour })
 
 		test.EqOp(t, int64(2), sweeper.Sweep(t.Context()))
-		test.EqOp(t, 0, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, 0, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
 	T.Run("lets a chain continue after its entries are all pruned", func(t *testing.T) {
@@ -283,7 +283,7 @@ func TestSweeper_RunAndClose(T *testing.T) {
 		// than on a fixed sleep.
 		must.Wait(t, wait.InitialSuccess(
 			wait.BoolFunc(func() bool {
-				return countRows(t, client, DefaultTablePrefix+"entries", "1=1") == 0
+				return countRows(t, client, "audit_log_entries", "1=1") == 0
 			}),
 			wait.Timeout(15*time.Second),
 			wait.Gap(10*time.Millisecond),

@@ -20,29 +20,29 @@ import (
 // resolution without touching the mapping rows.
 func (r *Resolver) resolveQuery(roleCount int) string {
 	return fmt.Sprintf(`WITH RECURSIVE role_tree AS (
-	SELECT %[1]sroles.id AS role_id
-	FROM %[1]sroles
-	WHERE %[1]sroles.archived_at IS NULL
-		AND %[1]sroles.name IN (%[2]s)
+	SELECT %[1]sauthz_roles.id AS role_id
+	FROM %[1]sauthz_roles
+	WHERE %[1]sauthz_roles.archived_at IS NULL
+		AND %[1]sauthz_roles.name IN (%[2]s)
 	UNION
-	SELECT %[1]sroles.id
+	SELECT %[1]sauthz_roles.id
 	FROM role_tree
-	JOIN %[1]srole_hierarchy ON %[1]srole_hierarchy.child_role_id = role_tree.role_id
-	JOIN %[1]sroles ON %[1]sroles.id = %[1]srole_hierarchy.parent_role_id
-	WHERE %[1]sroles.archived_at IS NULL
+	JOIN %[1]sauthz_role_hierarchy ON %[1]sauthz_role_hierarchy.child_role_id = role_tree.role_id
+	JOIN %[1]sauthz_roles ON %[1]sauthz_roles.id = %[1]sauthz_role_hierarchy.parent_role_id
+	WHERE %[1]sauthz_roles.archived_at IS NULL
 )
-SELECT DISTINCT %[1]spermissions.name
+SELECT DISTINCT %[1]sauthz_permissions.name
 FROM role_tree
-JOIN %[1]srole_permissions ON %[1]srole_permissions.role_id = role_tree.role_id
-JOIN %[1]spermissions ON %[1]spermissions.id = %[1]srole_permissions.permission_id
-WHERE %[1]spermissions.archived_at IS NULL`,
+JOIN %[1]sauthz_role_permissions ON %[1]sauthz_role_permissions.role_id = role_tree.role_id
+JOIN %[1]sauthz_permissions ON %[1]sauthz_permissions.id = %[1]sauthz_role_permissions.permission_id
+WHERE %[1]sauthz_permissions.archived_at IS NULL`,
 		r.prefix, r.dialect.Placeholders(1, roleCount))
 }
 
 // listRolesQuery selects every live role.
 func (r *Resolver) listRolesQuery() string {
 	return fmt.Sprintf(
-		`SELECT id, name, description FROM %sroles WHERE archived_at IS NULL ORDER BY name`,
+		`SELECT id, name, description FROM %sauthz_roles WHERE archived_at IS NULL ORDER BY name`,
 		r.prefix,
 	)
 }
@@ -51,17 +51,17 @@ func (r *Resolver) listRolesQuery() string {
 // live role, so Roles can report the policy as it was declared rather than as
 // it resolves.
 func (r *Resolver) rolePermissionsQuery() string {
-	return fmt.Sprintf(`SELECT %[1]srole_permissions.role_id, %[1]spermissions.name
-FROM %[1]srole_permissions
-JOIN %[1]spermissions ON %[1]spermissions.id = %[1]srole_permissions.permission_id
-WHERE %[1]spermissions.archived_at IS NULL`, r.prefix)
+	return fmt.Sprintf(`SELECT %[1]sauthz_role_permissions.role_id, %[1]sauthz_permissions.name
+FROM %[1]sauthz_role_permissions
+JOIN %[1]sauthz_permissions ON %[1]sauthz_permissions.id = %[1]sauthz_role_permissions.permission_id
+WHERE %[1]sauthz_permissions.archived_at IS NULL`, r.prefix)
 }
 
 // roleHierarchyQuery selects the declared parent of every role, by name.
 func (r *Resolver) roleHierarchyQuery() string {
-	return fmt.Sprintf(`SELECT %[1]srole_hierarchy.child_role_id, parent.name
-FROM %[1]srole_hierarchy
-JOIN %[1]sroles AS parent ON parent.id = %[1]srole_hierarchy.parent_role_id
+	return fmt.Sprintf(`SELECT %[1]sauthz_role_hierarchy.child_role_id, parent.name
+FROM %[1]sauthz_role_hierarchy
+JOIN %[1]sauthz_roles AS parent ON parent.id = %[1]sauthz_role_hierarchy.parent_role_id
 WHERE parent.archived_at IS NULL`, r.prefix)
 }
 
@@ -96,7 +96,7 @@ func (r *Resolver) insertNamedRowsQuery(table string, count int) string {
 // statement.
 func (r *Resolver) insertRolePermissionsQuery(count int) string {
 	return fmt.Sprintf(
-		`INSERT INTO %srole_permissions (role_id, permission_id) VALUES %s`,
+		`INSERT INTO %sauthz_role_permissions (role_id, permission_id) VALUES %s`,
 		r.prefix, tupleList(r.dialect, count, 2),
 	)
 }
@@ -105,7 +105,7 @@ func (r *Resolver) insertRolePermissionsQuery(count int) string {
 // statement.
 func (r *Resolver) insertRoleHierarchyRowsQuery(count int) string {
 	return fmt.Sprintf(
-		`INSERT INTO %srole_hierarchy (child_role_id, parent_role_id) VALUES %s`,
+		`INSERT INTO %sauthz_role_hierarchy (child_role_id, parent_role_id) VALUES %s`,
 		r.prefix, tupleList(r.dialect, count, 2),
 	)
 }
@@ -145,7 +145,7 @@ func (r *Resolver) updateNamedQuery(table string) string {
 // them, so an upsert removes permissions as well as adding them.
 func (r *Resolver) deleteRolePermissionsQuery() string {
 	return fmt.Sprintf(
-		`DELETE FROM %srole_permissions WHERE role_id = %s`,
+		`DELETE FROM %sauthz_role_permissions WHERE role_id = %s`,
 		r.prefix, r.dialect.Placeholder(1),
 	)
 }
@@ -153,7 +153,7 @@ func (r *Resolver) deleteRolePermissionsQuery() string {
 // deleteRoleHierarchyQuery clears a role's declared parents ahead of rewriting.
 func (r *Resolver) deleteRoleHierarchyQuery() string {
 	return fmt.Sprintf(
-		`DELETE FROM %srole_hierarchy WHERE child_role_id = %s`,
+		`DELETE FROM %sauthz_role_hierarchy WHERE child_role_id = %s`,
 		r.prefix, r.dialect.Placeholder(1),
 	)
 }
@@ -161,7 +161,7 @@ func (r *Resolver) deleteRoleHierarchyQuery() string {
 // archiveRoleQuery soft-deletes a role by name.
 func (r *Resolver) archiveRoleQuery() string {
 	return fmt.Sprintf(
-		`UPDATE %sroles SET archived_at = CURRENT_TIMESTAMP WHERE name = %s AND archived_at IS NULL`,
+		`UPDATE %sauthz_roles SET archived_at = CURRENT_TIMESTAMP WHERE name = %s AND archived_at IS NULL`,
 		r.prefix, r.dialect.Placeholder(1),
 	)
 }

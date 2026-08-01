@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 
 	"github.com/shoenig/test"
@@ -17,7 +18,7 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			stmts, err := Statements(d, "webhook")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 			test.True(t, len(stmts) > 0)
 
@@ -26,25 +27,25 @@ func TestStatements(T *testing.T) {
 				// carry one — goose splits on semicolons and a '--' comment
 				// containing one would be torn in half.
 				test.False(t, strings.Contains(stmt, "--"))
-				test.False(t, strings.Contains(stmt, prefixPlaceholder))
+				test.False(t, strings.Contains(stmt, ddl.Placeholder))
 			}
 		}
 	})
 
 	// Every table has to exist before anything referencing it. A migration that
-	// creates webhook_subscriptions before webhook_endpoints fails outright on
+	// creates webhooks_subscriptions before webhooks_endpoints fails outright on
 	// the foreign key.
 	T.Run("creates tables in dependency order", func(t *testing.T) {
 		t.Parallel()
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			stmts, err := Statements(d, "webhook")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 
 			joined := strings.Join(stmts, "\n")
 
-			test.True(t, indexOfTable(joined, "webhook_endpoints") < indexOfTable(joined, "webhook_subscriptions"))
-			test.True(t, indexOfTable(joined, "webhook_deliveries") < indexOfTable(joined, "webhook_dispatches"))
+			test.True(t, indexOfTable(joined, "webhooks_endpoints") < indexOfTable(joined, "webhooks_subscriptions"))
+			test.True(t, indexOfTable(joined, "webhooks_deliveries") < indexOfTable(joined, "webhooks_dispatches"))
 		}
 	})
 
@@ -57,7 +58,7 @@ func TestStatements(T *testing.T) {
 		joined := strings.Join(stmts, "\n")
 
 		for _, suffix := range TableSuffixes {
-			test.True(t, strings.Contains(joined, "acme_hook_"+suffix))
+			test.True(t, strings.Contains(joined, "acme_hook_webhooks_"+suffix))
 		}
 	})
 
@@ -73,7 +74,7 @@ func TestStatements(T *testing.T) {
 	T.Run("rejects a prefix that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
-		for _, prefix := range []string{"", "web hook", "webhook; DROP TABLE users", "web-hook", "1webhook"} {
+		for _, prefix := range []string{"web hook", "webhook; DROP TABLE users", "web-hook", "1webhook"} {
 			_, err := Statements(dialect.Postgres, prefix)
 			test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 		}
@@ -86,15 +87,15 @@ func TestSQL(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		ddl, err := SQL(dialect.Postgres, "webhook")
+		body, err := SQL(dialect.Postgres, "webhook")
 		must.NoError(t, err)
 
-		test.True(t, strings.HasSuffix(ddl, ";\n"))
-		test.False(t, strings.Contains(ddl, "--"))
+		test.True(t, strings.HasSuffix(body, ";\n"))
+		test.False(t, strings.Contains(body, "--"))
 
 		stmts, err := Statements(dialect.Postgres, "webhook")
 		must.NoError(t, err)
-		test.EqOp(t, len(stmts), strings.Count(ddl, ";"))
+		test.EqOp(t, len(stmts), strings.Count(body, ";"))
 	})
 
 	T.Run("unsupported dialect", func(t *testing.T) {
@@ -118,7 +119,7 @@ func TestValidatePrefix(T *testing.T) {
 	T.Run("rejects what would not be an identifier", func(t *testing.T) {
 		t.Parallel()
 
-		for _, prefix := range []string{"", "web hook", "web-hook", "webhook;"} {
+		for _, prefix := range []string{"web hook", "web-hook", "webhook;"} {
 			test.ErrorIs(t, ValidatePrefix(prefix), dialect.ErrInvalidIdentifier)
 		}
 	})
@@ -126,6 +127,6 @@ func TestValidatePrefix(T *testing.T) {
 
 // indexOfTable finds where a table is created, ignoring the index statements
 // that also name it.
-func indexOfTable(ddl, table string) int {
-	return strings.Index(ddl, "TABLE IF NOT EXISTS "+table)
+func indexOfTable(body, table string) int {
+	return strings.Index(body, "TABLE IF NOT EXISTS "+table)
 }

@@ -35,6 +35,7 @@ var _ database.Client = (*failingClient)(nil)
 
 func (c *failingClient) Reader() database.SQLQueryExecutor { return &failingExecutor{closed: c.closed} }
 func (c *failingClient) Writer() database.SQLQueryExecutor { return &failingExecutor{closed: c.closed} }
+func (*failingClient) Dialect() dialect.Dialect            { return dialect.SQLite }
 func (*failingClient) Close() error                        { return nil }
 func (*failingClient) CurrentTime() time.Time              { return time.Time{} }
 
@@ -134,7 +135,7 @@ func TestRecorder_PropagatesFailures(T *testing.T) {
 		})
 		test.Error(t, err)
 
-		test.EqOp(t, 0, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, 0, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
 	T.Run("reports a value that cannot be hashed for redaction", func(t *testing.T) {
@@ -176,7 +177,7 @@ func TestReader_PropagatesFailures(T *testing.T) {
 	newFailingReader := func(t *testing.T) Reader {
 		t.Helper()
 
-		r, err := NewReader(dialect.SQLite, newFailingClient(t))
+		r, err := NewReader(newFailingClient(t))
 		must.NoError(t, err)
 
 		return r
@@ -205,7 +206,7 @@ func TestReader_PropagatesFailures(T *testing.T) {
 		recorder := newTestRecorder(t, newStubClock())
 		record(t, client, recorder, entryFor("acct_1", "recipe_1"))
 
-		reader, err := NewReader(dialect.SQLite, &countFailingClient{Client: client})
+		reader, err := NewReader(&countFailingClient{Client: client})
 		must.NoError(t, err)
 
 		_, err = reader.List(t.Context(), nil, nil)
@@ -229,7 +230,7 @@ func TestReader_PropagatesFailures(T *testing.T) {
 		// The chain row is gone but its table is not, so the read fails rather
 		// than reporting no rows — the case where "never pruned" cannot be
 		// assumed.
-		exec(t, client, "DROP TABLE "+DefaultTablePrefix+"chains")
+		exec(t, client, "DROP TABLE "+"audit_log_chains")
 
 		_, err := newTestReader(t, client).Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		test.Error(t, err)
@@ -258,7 +259,7 @@ func TestReader_PropagatesFailures(T *testing.T) {
 		// does not.
 		remaining := 1
 
-		reader, err := NewReader(dialect.SQLite, &rowFailingClient{Client: client, remaining: &remaining})
+		reader, err := NewReader(&rowFailingClient{Client: client, remaining: &remaining})
 		must.NoError(t, err)
 
 		_, err = reader.Verify(t.Context(), "acct_1", second.RecordedAt, time.Time{})
@@ -347,14 +348,14 @@ func TestSweeper_PropagatesFailures(T *testing.T) {
 		// cannot be written — a half-applied migration looks exactly like this.
 		// Every scope therefore fails and rolls back, and the sweep reports
 		// having pruned nothing rather than propagating or lying.
-		exec(t, client, "DROP TABLE "+DefaultTablePrefix+"chains")
+		exec(t, client, "DROP TABLE "+"audit_log_chains")
 
 		s := sweeperFor(t, client, c, func(cfg *SweeperConfig) { cfg.Retention = time.Hour })
 		test.EqOp(t, int64(0), s.Sweep(t.Context()))
 
 		// The rollback is the part that matters: a deletion whose watermark did
 		// not land would leave a gap Verify could not tell from tampering.
-		test.EqOp(t, 2, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, 2, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
 	T.Run("counts a scope listing that fails", func(t *testing.T) {
@@ -367,7 +368,7 @@ func TestSweeper_PropagatesFailures(T *testing.T) {
 		record(t, client, recorder, entryFor("acct_1", "r1"))
 		c.advance(4 * time.Hour)
 
-		exec(t, client, "DROP TABLE "+DefaultTablePrefix+"entries")
+		exec(t, client, "DROP TABLE "+"audit_log_entries")
 
 		s := sweeperFor(t, client, c, func(cfg *SweeperConfig) { cfg.Retention = time.Hour })
 		test.EqOp(t, int64(0), s.Sweep(t.Context()))
@@ -385,7 +386,7 @@ func TestScanRows_ReportsIterationFailure(T *testing.T) {
 		record(T, client, recorder, entryFor("acct_1", "recipe_1"))
 
 		rows, err := client.Reader().QueryContext(t.Context(),
-			"SELECT id FROM "+DefaultTablePrefix+"entries")
+			"SELECT id FROM "+"audit_log_entries")
 		must.NoError(t, err)
 
 		boom := platformerrors.New("callback failed")
@@ -403,13 +404,13 @@ func TestScanRows_ReportsIterationFailure(T *testing.T) {
 		// Field blobs that are not JSON: a decode failure has to be reported
 		// rather than yielding an entry with silently empty changes.
 		exec(t, client,
-			"UPDATE "+DefaultTablePrefix+"entries SET change_set = ? WHERE id = ?", []byte("not json"), entry.ID)
+			"UPDATE audit_log_entries SET change_set = ? WHERE id = ?", []byte("not json"), entry.ID)
 
 		_, err := newTestReader(t, client).Get(t.Context(), entry.ID)
 		test.Error(t, err)
 
 		exec(t, client,
-			"UPDATE "+DefaultTablePrefix+"entries SET change_set = NULL, metadata = ? WHERE id = ?",
+			"UPDATE audit_log_entries SET change_set = NULL, metadata = ? WHERE id = ?",
 			[]byte("not json"), entry.ID)
 
 		_, err = newTestReader(t, client).List(t.Context(), nil, nil)

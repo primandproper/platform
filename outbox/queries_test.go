@@ -23,7 +23,7 @@ func TestBuildInsert(T *testing.T) {
 			{id: "2", topic: "shipments", payload: []byte(`{}`), createdAt: now},
 		}
 
-		query, args := buildInsert(dialect.Postgres, DefaultTableName, rows)
+		query, args := buildInsert(dialect.Postgres, DefaultTablePrefix, rows)
 
 		test.True(t, strings.Contains(query, "($1, $2, $3, $4, $5, $6)"))
 		test.True(t, strings.Contains(query, "($7, $8, $9, $10, $11, $12)"))
@@ -33,7 +33,7 @@ func TestBuildInsert(T *testing.T) {
 		test.Eq(t, any(now), args[4])
 		test.Eq(t, any(now), args[5])
 
-		mysqlQuery, _ := buildInsert(dialect.MySQL, DefaultTableName, rows[:1])
+		mysqlQuery, _ := buildInsert(dialect.MySQL, DefaultTablePrefix, rows[:1])
 		test.True(t, strings.Contains(mysqlQuery, "(?, ?, ?, ?, ?, ?)"))
 	})
 }
@@ -46,22 +46,22 @@ func TestBuildSelectClaimable(T *testing.T) {
 
 		now := time.Now().UTC()
 
-		pg, args := buildSelectClaimable(dialect.Postgres, DefaultTableName, now, 10, true)
+		pg, args := buildSelectClaimable(dialect.Postgres, DefaultTablePrefix, now, 10, true)
 		test.True(t, strings.HasSuffix(pg, "FOR UPDATE SKIP LOCKED"))
 		test.SliceLen(t, 3, args)
 
-		lease, _ := buildSelectClaimable(dialect.Postgres, DefaultTableName, now, 10, false)
+		lease, _ := buildSelectClaimable(dialect.Postgres, DefaultTablePrefix, now, 10, false)
 		test.False(t, strings.Contains(lease, "SKIP LOCKED"))
 
 		// SQLite has no SKIP LOCKED; asking for it must not produce invalid SQL.
-		lite, _ := buildSelectClaimable(dialect.SQLite, DefaultTableName, now, 10, true)
+		lite, _ := buildSelectClaimable(dialect.SQLite, DefaultTablePrefix, now, 10, true)
 		test.False(t, strings.Contains(lite, "SKIP LOCKED"))
 	})
 
 	T.Run("carries the per-key ordering predicate", func(t *testing.T) {
 		t.Parallel()
 
-		query, _ := buildSelectClaimable(dialect.Postgres, DefaultTableName, time.Now().UTC(), 10, false)
+		query, _ := buildSelectClaimable(dialect.Postgres, DefaultTablePrefix, time.Now().UTC(), 10, false)
 
 		// This subquery is the whole ordering guarantee: a keyed row is
 		// claimable only when nothing older with that key is still pending.
@@ -86,13 +86,13 @@ func TestBuildReap(T *testing.T) {
 
 		before := time.Now().UTC()
 
-		mysqlQuery, args := buildReap(dialect.MySQL, DefaultTableName, before, 100)
+		mysqlQuery, args := buildReap(dialect.MySQL, DefaultTablePrefix, before, 100)
 		// MySQL rejects reading the table being deleted from unless the
 		// subquery is materialized.
 		test.True(t, strings.Contains(mysqlQuery, "AS doomed"))
 		test.SliceLen(t, 2, args)
 
-		pgQuery, _ := buildReap(dialect.Postgres, DefaultTableName, before, 100)
+		pgQuery, _ := buildReap(dialect.Postgres, DefaultTablePrefix, before, 100)
 		test.False(t, strings.Contains(pgQuery, "AS doomed"))
 	})
 }
@@ -105,7 +105,7 @@ func TestBuildRecordFailure(T *testing.T) {
 
 		next := time.Now().UTC()
 
-		query, args := buildRecordFailure(dialect.Postgres, DefaultTableName, "id-1", next, "boom", true)
+		query, args := buildRecordFailure(dialect.Postgres, DefaultTablePrefix, "id-1", next, "boom", true)
 
 		test.True(t, strings.Contains(query, "claimed_until = NULL"))
 		test.Eq(t, []any{next, "boom", true, "id-1"}, args)
@@ -154,7 +154,7 @@ func TestBuildBacklog(T *testing.T) {
 	T.Run("excludes published and quarantined rows", func(t *testing.T) {
 		t.Parallel()
 
-		query := buildBacklog(DefaultTableName)
+		query := buildBacklog(DefaultTablePrefix)
 
 		test.True(t, strings.Contains(query, "COUNT(*)"))
 		test.True(t, strings.Contains(query, "MIN(created_at)"))

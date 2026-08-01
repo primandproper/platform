@@ -8,7 +8,9 @@ import (
 	"slices"
 
 	"github.com/primandproper/platform-go/v9/authorization"
+	"github.com/primandproper/platform-go/v9/authorization/database/migrations"
 	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/identifiers"
@@ -22,14 +24,23 @@ import (
 // serviceName names the Resolver's logger, spans, and metrics.
 const serviceName = "authorization_database"
 
-// DefaultTablePrefix is the prefix the policy tables carry when none is
-// configured.
-const DefaultTablePrefix = "authz_"
+// DefaultTablePrefix is the namespace the policy tables carry when none is
+// configured, which is none — rendering authz_roles, authz_permissions, and
+// the two join tables.
+//
+// The authz_ segment is the schema's, not the caller's: a table always says
+// which package created it. Setting a namespace of "ddb" renders
+// ddb_authz_roles, for a database shared between applications. A namespace must
+// not end in '_'; database/ddl supplies the separator.
+const DefaultTablePrefix = ""
 
-// Table name suffixes, appended to the configured prefix.
+// Component-qualified table names, appended to the caller's namespace. They
+// carry the authz_ segment because the schema does: a table always says which
+// package created it, so authz_roles is legible in a shared database without
+// consulting this module.
 const (
-	rolesTable       = "roles"
-	permissionsTable = "permissions"
+	rolesTable       = "authz_roles"
+	permissionsTable = "authz_permissions"
 )
 
 var (
@@ -68,16 +79,22 @@ type Resolver struct {
 	metricsProvider metrics.Provider
 	tracerProvider  tracing.TracerProvider
 	dialect         dialect.Dialect
-	prefix          string
+	// prefix is the caller's namespace with its separator already appended —
+	// "ddb_" for a namespace of "ddb", and empty for none. Every query in
+	// queries.go interpolates it immediately before a component-qualified table
+	// name (%[1]sauthz_roles), so resolving the separator once here keeps that
+	// concatenation out of thirteen format strings.
+	prefix string
 }
 
 // Config configures a Resolver.
 type Config struct {
 	// Dialect selects the SQL emitted. Required.
 	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
-	// TablePrefix is prepended to every policy table name. Empty uses
-	// DefaultTablePrefix; set it to adopt tables that already exist under
-	// another name.
+	// TablePrefix is the namespace prepended to every policy table name. Empty
+	// renders the schema's own names (authz_roles); set it to share a database
+	// between applications, which renders e.g. ddb_authz_roles. It must not end
+	// in '_' — the separator is supplied for you.
 	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
 }
 
@@ -128,7 +145,12 @@ func NewResolver(cfg *Config, db database.SQLQueryExecutor, opts ...Option) (*Re
 		return nil, platformerrors.Wrapf(ErrInvalidTablePrefix, "prefix %q", prefix)
 	}
 
-	r := &Resolver{db: db, dialect: cfg.Dialect, prefix: prefix}
+	if err := migrations.ValidatePrefix(prefix); err != nil {
+		return nil, err
+	}
+
+	// The separator is appended once, here; see the field's comment.
+	r := &Resolver{db: db, dialect: cfg.Dialect, prefix: ddl.Qualify(prefix)}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(r)

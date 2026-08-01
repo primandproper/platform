@@ -10,7 +10,7 @@
 -- Consume locks. Deriving it from the events table on every read would be a
 -- group-by over a table that grows with traffic, on the path this package exists
 -- to keep cheap.
-CREATE TABLE IF NOT EXISTS {{PREFIX}}_events (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}metering_events (
     -- The idempotency key IS the primary key. Dedupe is therefore an INSERT that
     -- either takes or does not, decided by the database in one round trip, and
     -- durable for as long as the row is retained. A cache-backed dedupe would be
@@ -32,13 +32,13 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}_events (
 
 -- Serves the retention reap, which asks one question about time and nothing
 -- else, and the per-period event listing behind a usage breakdown.
-CREATE INDEX {{PREFIX}}_events_period_idx
-    ON {{PREFIX}}_events (subject, meter, period_start, occurred_at);
+CREATE INDEX {{PREFIX}}metering_events_period_idx
+    ON {{PREFIX}}metering_events (subject, meter, period_start, occurred_at);
 
-CREATE INDEX {{PREFIX}}_events_reap_idx
-    ON {{PREFIX}}_events (recorded_at);
+CREATE INDEX {{PREFIX}}metering_events_reap_idx
+    ON {{PREFIX}}metering_events (recorded_at);
 
-CREATE TABLE IF NOT EXISTS {{PREFIX}}_totals (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}metering_totals (
     subject          VARCHAR(255) NOT NULL,
     meter            VARCHAR(64) NOT NULL,
     period_start     DATETIME(6) NOT NULL,
@@ -67,9 +67,9 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}_totals (
 -- whole table. next_flush leads because it is the only column of the claim
 -- predicate that is selective — the quantity > flushed_quantity comparison is
 -- between two columns and no index can serve it anywhere.
-CREATE INDEX {{PREFIX}}_totals_flush_idx
-    ON {{PREFIX}}_totals (next_flush, subject, meter);
+CREATE INDEX {{PREFIX}}metering_totals_flush_idx
+    ON {{PREFIX}}metering_totals (next_flush, subject, meter);
 
 -- Serves "what has this subject used lately", across meters.
-CREATE INDEX {{PREFIX}}_totals_subject_idx
-    ON {{PREFIX}}_totals (subject, period_start, meter);
+CREATE INDEX {{PREFIX}}metering_totals_subject_idx
+    ON {{PREFIX}}metering_totals (subject, period_start, meter);

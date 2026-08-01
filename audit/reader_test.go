@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/filtering"
@@ -13,13 +14,25 @@ import (
 	"github.com/shoenig/test/must"
 )
 
+// bogusDialectClient reports a dialect this package cannot emit SQL for.
+//
+// The unsupported-dialect branch is otherwise unreachable: the dialect comes
+// from the client rather than the caller, and every client this module ships
+// reports one of the three supported dialects. Only Dialect is consulted before
+// the constructor gives up, so the embedded Client is never called.
+type bogusDialectClient struct {
+	database.Client
+}
+
+func (bogusDialectClient) Dialect() dialect.Dialect { return "oracle" }
+
 func TestNewReader(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		r, err := NewReader(dialect.SQLite, newTestClient(t))
+		r, err := NewReader(newTestClient(t))
 		must.NoError(t, err)
 		test.NotNil(t, r)
 	})
@@ -27,21 +40,21 @@ func TestNewReader(T *testing.T) {
 	T.Run("rejects a nil client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewReader(dialect.SQLite, nil)
+		_, err := NewReader(nil)
 		test.ErrorIs(t, err, ErrNilDatabaseClient)
 	})
 
 	T.Run("rejects an unsupported dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewReader("cassandra", newTestClient(t))
+		_, err := NewReader(bogusDialectClient{newTestClient(t)})
 		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 
 	T.Run("rejects an unsafe table prefix", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewReader(dialect.SQLite, newTestClient(t), WithReaderTablePrefix("a-b"))
+		_, err := NewReader(newTestClient(t), WithReaderTablePrefix("a-b"))
 		test.ErrorIs(t, err, ErrInvalidTablePrefix)
 	})
 }
@@ -289,7 +302,7 @@ func TestReader_Verify(T *testing.T) {
 		// Rewriting a column without touching the hashes: exactly what somebody
 		// covering their tracks would do if the chain were not there.
 		exec(t, client,
-			"UPDATE "+DefaultTablePrefix+"entries SET actor_id = 'somebody_else' WHERE id = ?", second.ID)
+			"UPDATE audit_log_entries SET actor_id = 'somebody_else' WHERE id = ?", second.ID)
 
 		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		must.NoError(t, err)
@@ -310,7 +323,7 @@ func TestReader_Verify(T *testing.T) {
 		record(t, client, recorder, first, second)
 
 		exec(t, client,
-			"UPDATE "+DefaultTablePrefix+"entries SET prev_hash = '00' WHERE id = ?", second.ID)
+			"UPDATE audit_log_entries SET prev_hash = '00' WHERE id = ?", second.ID)
 
 		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		must.NoError(t, err)
@@ -330,7 +343,7 @@ func TestReader_Verify(T *testing.T) {
 		first, second, third := entryFor("acct_1", "r1"), entryFor("acct_1", "r2"), entryFor("acct_1", "r3")
 		record(t, client, recorder, first, second, third)
 
-		exec(t, client, "DELETE FROM "+DefaultTablePrefix+"entries WHERE id = ?", second.ID)
+		exec(t, client, "DELETE FROM audit_log_entries WHERE id = ?", second.ID)
 
 		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		must.NoError(t, err)
@@ -351,7 +364,7 @@ func TestReader_Verify(T *testing.T) {
 
 		// Nothing left in range to link against, and no prune watermark to
 		// explain the gap — which is what distinguishes this from retention.
-		exec(t, client, "DELETE FROM "+DefaultTablePrefix+"entries WHERE id = ?", first.ID)
+		exec(t, client, "DELETE FROM audit_log_entries WHERE id = ?", first.ID)
 
 		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		must.NoError(t, err)
@@ -398,7 +411,7 @@ func TestReader_Verify(T *testing.T) {
 		// starts at position zero is exactly what it should be. Reporting a
 		// break here would cry wolf on every log restored without its chain
 		// table.
-		exec(t, client, "DELETE FROM "+DefaultTablePrefix+"chains WHERE scope = 'acct_1'")
+		exec(t, client, "DELETE FROM audit_log_chains WHERE scope = 'acct_1'")
 
 		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		must.NoError(t, err)
@@ -416,7 +429,7 @@ func TestReader_Verify(T *testing.T) {
 		record(t, client, recorder, mine, theirs)
 
 		exec(t, client,
-			"UPDATE "+DefaultTablePrefix+"entries SET resource_id = 'tampered' WHERE id = ?", theirs.ID)
+			"UPDATE audit_log_entries SET resource_id = 'tampered' WHERE id = ?", theirs.ID)
 
 		mineResult, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		must.NoError(t, err)

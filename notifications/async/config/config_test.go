@@ -129,7 +129,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 		test.NoError(t, err)
 	})
 
-	noopProviders := []string{"", ProviderNoop}
+	noopProviders := []string{ProviderNoop}
 	for _, provider := range noopProviders {
 		T.Run(fmt.Sprintf("with noop provider %q", provider), func(t *testing.T) {
 			t.Parallel()

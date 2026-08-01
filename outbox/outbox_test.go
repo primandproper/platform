@@ -24,7 +24,7 @@ func TestNewWriter(T *testing.T) {
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
 			w, err := NewWriter(d)
 			must.NoError(t, err)
-			test.EqOp(t, DefaultTableName, w.table)
+			test.EqOp(t, "outbox_messages", w.table)
 		}
 	})
 
@@ -39,7 +39,7 @@ func TestNewWriter(T *testing.T) {
 		t.Parallel()
 
 		for _, name := range []string{"outbox; DROP TABLE users", "outbox messages", "1outbox", "a.b.c", ""} {
-			_, err := NewWriter(dialect.SQLite, WithWriterTableName(name))
+			_, err := NewWriter(dialect.SQLite, WithWriterTablePrefix(name))
 			if name == "" {
 				// An empty override is ignored rather than rejected.
 				test.NoError(t, err)
@@ -60,7 +60,7 @@ func TestNewWriter(T *testing.T) {
 
 		const bad = "outbox; DROP TABLE users"
 
-		_, writerErr := NewWriter(dialect.SQLite, WithWriterTableName(bad))
+		_, writerErr := NewWriter(dialect.SQLite, WithWriterTablePrefix(bad))
 		_, migrationErr := migrations.Statements(dialect.SQLite, bad)
 
 		must.Error(t, writerErr)
@@ -72,9 +72,9 @@ func TestNewWriter(T *testing.T) {
 	T.Run("accepts a schema-qualified table name", func(t *testing.T) {
 		t.Parallel()
 
-		w, err := NewWriter(dialect.Postgres, WithWriterTableName("events.outbox_messages"))
+		w, err := NewWriter(dialect.Postgres, WithWriterTablePrefix("events"))
 		must.NoError(t, err)
-		test.EqOp(t, "events.outbox_messages", w.table)
+		test.EqOp(t, "events_outbox_messages", w.table)
 	})
 }
 
@@ -225,11 +225,11 @@ func TestOutbox_MigratorIntegration(T *testing.T) {
 
 		migrateOutboxTable(t, client, dialect.SQLite, table)
 
-		w, err := NewWriter(dialect.SQLite, WithWriterClock(c), WithWriterTableName(table))
+		w, err := NewWriter(dialect.SQLite, WithWriterClock(c), WithWriterTablePrefix(table))
 		must.NoError(t, err)
 
 		relay, rec := newTestRelay(t, client, c, func(cfg *RelayConfig) {
-			cfg.TableName = table
+			cfg.TablePrefix = table
 		})
 
 		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {

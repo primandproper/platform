@@ -164,7 +164,7 @@ func TestQueries_DialectSpelling(T *testing.T) {
 
 		pg, _ := tbl.buildUpsertTotal(dialect.Postgres, testSubject, testMeter, AggregationSum, monthBounds, 5, baseTime, baseTime)
 		test.StrContains(t, pg, "ON CONFLICT (subject, meter, period_start) DO UPDATE SET")
-		test.StrContains(t, pg, "mtr_totals.quantity + excluded.quantity")
+		test.StrContains(t, pg, "mtr_metering_totals.quantity + excluded.quantity")
 
 		my, _ := tbl.buildUpsertTotal(dialect.MySQL, testSubject, testMeter, AggregationSum, monthBounds, 5, baseTime, baseTime)
 		test.StrContains(t, my, "ON DUPLICATE KEY UPDATE")
@@ -329,8 +329,8 @@ func TestTables(T *testing.T) {
 	// Derived from one prefix, so adding a third table later cannot introduce an
 	// inconsistently named one.
 	test.EqOp(T, "custom", tbl.prefix())
-	test.EqOp(T, "custom_events", tbl.events)
-	test.EqOp(T, "custom_totals", tbl.totals)
+	test.EqOp(T, "custom_metering_events", tbl.events)
+	test.EqOp(T, "custom_metering_totals", tbl.totals)
 }
 
 func TestKeyTuples(T *testing.T) {

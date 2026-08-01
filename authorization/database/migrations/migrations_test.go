@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 
 	"github.com/shoenig/test"
@@ -22,7 +23,7 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects() {
-			stmts, err := Statements(d, "authz_")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 
 			test.True(t, len(stmts) >= 4)
@@ -33,16 +34,16 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects() {
-			stmts, err := Statements(d, "custom_")
+			stmts, err := Statements(d, "custom")
 			must.NoError(t, err)
 
 			joined := strings.Join(stmts, "\n")
 
-			test.StrContains(t, joined, "custom_roles")
-			test.StrContains(t, joined, "custom_permissions")
-			test.StrContains(t, joined, "custom_role_permissions")
-			test.StrContains(t, joined, "custom_role_hierarchy")
-			test.StrNotContains(t, joined, prefixPlaceholder)
+			test.StrContains(t, joined, "custom_authz_roles")
+			test.StrContains(t, joined, "custom_authz_permissions")
+			test.StrContains(t, joined, "custom_authz_role_permissions")
+			test.StrContains(t, joined, "custom_authz_role_hierarchy")
+			test.StrNotContains(t, joined, ddl.Placeholder)
 		}
 	})
 
@@ -61,7 +62,7 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects() {
-			stmts, err := Statements(d, "authz_")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 
 			joined := strings.Join(stmts, "\n")
@@ -84,7 +85,7 @@ func TestStatements(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects() {
-			stmts, err := Statements(d, "authz_")
+			stmts, err := Statements(d, "")
 			must.NoError(t, err)
 
 			for _, stmt := range stmts {
@@ -96,7 +97,7 @@ func TestStatements(T *testing.T) {
 	T.Run("rejects an unsupported dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := Statements("cockroach", "authz_")
+		_, err := Statements("cockroach", "authz")
 
 		test.True(t, errors.Is(err, dialect.ErrUnsupported))
 	})
@@ -115,7 +116,7 @@ func TestStatements(T *testing.T) {
 		} {
 			_, err := Statements(dialect.SQLite, prefix)
 
-			test.True(t, errors.Is(err, ErrInvalidTablePrefix))
+			test.True(t, errors.Is(err, dialect.ErrInvalidIdentifier))
 		}
 	})
 }
@@ -127,21 +128,21 @@ func TestSQL(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range allDialects() {
-			ddl, err := SQL(d, "authz_")
+			body, err := SQL(d, "authz")
 			must.NoError(t, err)
 
-			test.StrHasSuffix(t, ";\n", ddl)
-			test.StrContains(t, ddl, "authz_roles")
+			test.StrHasSuffix(t, ";\n", body)
+			test.StrContains(t, body, "authz_roles")
 		}
 	})
 
 	T.Run("propagates rendering errors", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := SQL("cockroach", "authz_")
+		_, err := SQL("cockroach", "authz")
 		test.True(t, errors.Is(err, dialect.ErrUnsupported))
 
 		_, err = SQL(dialect.SQLite, "bad-prefix")
-		test.True(t, errors.Is(err, ErrInvalidTablePrefix))
+		test.True(t, errors.Is(err, dialect.ErrInvalidIdentifier))
 	})
 }

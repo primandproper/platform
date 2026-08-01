@@ -117,7 +117,7 @@ func TestSQLStore_InstrumentFailures(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 
-		_, err := NewSQLStore(env.dialect, env.client,
+		_, err := NewSQLStore(env.client,
 			WithStoreMetricsProvider(failingInstrumentProvider(storeName+"_guard_misses")))
 
 		must.ErrorIs(t, err, errInstrument)

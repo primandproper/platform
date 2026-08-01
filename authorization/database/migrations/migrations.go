@@ -1,34 +1,35 @@
 /*
-Package migrations supplies the authorization policy tables' DDL, rendered for
-a dialect and table prefix.
+Package migrations supplies the authorization policy tables' DDL, rendered for a dialect and table prefix.
 
-As in outbox/migrations, no numbered migration file ships here: migration
-numbers are global per consumer, so a platform-owned number would collide with
-the consumer's own the moment either side added one. The version is always the
-consumer's to choose.
+The platform deliberately does not ship a numbered migration file. Migration
+files are numbered globally per consumer, so a platform-owned number would
+collide with the consumer's own the moment either side added one. The version is
+therefore always the consumer's to choose.
+
+If you already run database/migrate, hand SQL to WithGeneratedMigration and the
+tables are created by your normal migration run — no DDL copied into your
+repository, nothing to keep in sync as this package evolves:
 
 	ddl, err := migrations.SQL(dialect.Postgres, database.DefaultTablePrefix)
 	// ...
 	m, err := migrate.New(dialect.Postgres, myMigrations,
-		migrate.WithGeneratedMigration(41, "create_authorization_policy", ddl),
+		migrate.WithGeneratedMigration(44, "create_authorization_tables", ddl),
 	)
 
 Statements is the same DDL split into individually executable statements, for
-callers running it some other way.
+callers running it some other way — a different migration tool, or a test that
+just wants the tables.
 
-The four tables hold policy — what each role grants — and nothing else. Role
-*assignments* are deliberately absent: they reference the consumer's own users
-and tenants, which this package cannot model without owning those tables too.
+The rendering and prefix vetting live in database/ddl, shared with every other
+schema-shipping package in this module.
 */
 package migrations
 
 import (
 	_ "embed"
-	"regexp"
-	"strings"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
 //go:embed postgres.sql
@@ -40,52 +41,36 @@ var mysqlDDL string
 //go:embed sqlite.sql
 var sqliteDDL string
 
-var (
-	// ErrInvalidTablePrefix indicates a prefix that would not produce plain SQL
-	// identifiers. The prefix is interpolated into DDL, so it is restricted
-	// rather than escaped.
-	ErrInvalidTablePrefix = platformerrors.New("invalid authorization table prefix")
-)
-
-// prefixPlaceholder is the token each .sql file uses for the table prefix.
-const prefixPlaceholder = "{{PREFIX}}"
-
-// validPrefix admits an empty prefix and any run of identifier characters that
-// does not begin with a digit, so that prefix+"roles" is always a plain
-// identifier.
-var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)
-
-// Statements renders the DDL for the dialect against the given table prefix and
-// splits it into individually executable statements, in dependency order:
-// roles and permissions first, then the tables referencing them.
-func Statements(d dialect.Dialect, tablePrefix string) ([]string, error) {
-	var ddl string
-
-	switch d {
-	case dialect.Postgres:
-		ddl = postgresDDL
-	case dialect.MySQL:
-		ddl = mysqlDDL
-	case dialect.SQLite:
-		ddl = sqliteDDL
-	default:
-		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "authorization migration dialect %q", d)
-	}
-
-	if !validPrefix.MatchString(tablePrefix) {
-		return nil, platformerrors.Wrapf(ErrInvalidTablePrefix, "prefix %q", tablePrefix)
-	}
-
-	return dialect.SplitStatements(strings.ReplaceAll(ddl, prefixPlaceholder, tablePrefix)), nil
+// schema is this package's DDL in each supported dialect.
+var schema = ddl.Schema{
+	Component: "authorization",
+	Postgres:  postgresDDL,
+	MySQL:     mysqlDDL,
+	SQLite:    sqliteDDL,
 }
 
-// SQL renders the same DDL as Statements, joined back into one migration body
-// for database/migrate's WithGeneratedMigration.
-func SQL(d dialect.Dialect, tablePrefix string) (string, error) {
-	stmts, err := Statements(d, tablePrefix)
-	if err != nil {
-		return "", err
-	}
+// TableSuffixes are the per-table suffixes appended to the prefix. Declared
+// here rather than in the authorization package so the DDL and the queries derive
+// their names from one list.
+var TableSuffixes = []string{"roles", "permissions", "role_permissions", "role_hierarchy"}
 
-	return strings.Join(stmts, ";\n\n") + ";\n", nil
+// Statements renders the DDL for the dialect against the given table prefix and
+// splits it into individually executable statements, each table before its
+// indexes.
+func Statements(d dialect.Dialect, prefix string) ([]string, error) {
+	return schema.Statements(d, prefix)
+}
+
+// ValidatePrefix reports whether prefix yields a legal SQL identifier for every
+// table and index this package creates.
+func ValidatePrefix(prefix string) error {
+	return schema.ValidatePrefix(prefix)
+}
+
+// SQL renders the same DDL as Statements, joined back into one migration body.
+// It is what you hand to database/migrate's WithGeneratedMigration, so the
+// tables are created by the consumer's own migration run instead of being
+// copied into their repository.
+func SQL(d dialect.Dialect, prefix string) (string, error) {
+	return schema.SQL(d, prefix)
 }

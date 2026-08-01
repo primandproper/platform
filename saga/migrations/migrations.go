@@ -20,15 +20,17 @@ repository, nothing to keep in sync as this package evolves:
 Statements is the same DDL split into individually executable statements, for
 callers running it some other way — a different migration tool, or a test that
 just wants the table.
+
+The rendering and prefix vetting live in database/ddl, shared with every other
+schema-shipping package in this module.
 */
 package migrations
 
 import (
 	_ "embed"
-	"strings"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
 //go:embed postgres.sql
@@ -40,8 +42,13 @@ var mysqlDDL string
 //go:embed sqlite.sql
 var sqliteDDL string
 
-// prefixPlaceholder is the token each .sql file uses for the table prefix.
-const prefixPlaceholder = "{{PREFIX}}"
+// schema is this package's DDL in each supported dialect.
+var schema = ddl.Schema{
+	Component: "saga",
+	Postgres:  postgresDDL,
+	MySQL:     mysqlDDL,
+	SQLite:    sqliteDDL,
+}
 
 // TableSuffixes are the per-table suffixes appended to the prefix. Declared
 // here rather than in the saga package so the DDL and the queries derive their
@@ -52,60 +59,19 @@ var TableSuffixes = []string{"instances"}
 // splits it into individually executable statements, the table before its
 // indexes.
 func Statements(d dialect.Dialect, prefix string) ([]string, error) {
-	var ddl string
-
-	switch d {
-	case dialect.Postgres:
-		ddl = postgresDDL
-	case dialect.MySQL:
-		ddl = mysqlDDL
-	case dialect.SQLite:
-		ddl = sqliteDDL
-	default:
-		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "saga migration dialect %q", d)
-	}
-
-	// The prefix is vetted rather than escaped, on the same terms as a table
-	// name: it is interpolated into query text, not bound. Vetting the prefix
-	// alone is not enough — every rendered name has to be a legal identifier
-	// too, and a prefix ending in a character that is fine mid-identifier could
-	// still produce one that is not.
-	if err := ValidatePrefix(prefix); err != nil {
-		return nil, err
-	}
-
-	return dialect.SplitStatements(strings.ReplaceAll(ddl, prefixPlaceholder, prefix)), nil
+	return schema.Statements(d, prefix)
 }
 
 // ValidatePrefix reports whether prefix yields a legal SQL identifier for every
-// table this package creates.
+// table and index this package creates.
 func ValidatePrefix(prefix string) error {
-	if prefix == "" {
-		return platformerrors.Wrap(dialect.ErrInvalidIdentifier, "empty saga table prefix")
-	}
-
-	for _, suffix := range TableSuffixes {
-		if name := prefix + "_" + suffix; !dialect.ValidIdentifier(name) {
-			return platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "saga table %q", name)
-		}
-	}
-
-	return nil
+	return schema.ValidatePrefix(prefix)
 }
 
 // SQL renders the same DDL as Statements, joined back into one migration body.
 // It is what you hand to database/migrate's WithGeneratedMigration, so the
 // instance table is created by the consumer's own migration run instead of
 // being copied into their repository.
-//
-// The comments are already stripped, which matters: goose splits a migration
-// into statements on semicolons, and a '--' comment containing one would be torn
-// in half.
 func SQL(d dialect.Dialect, prefix string) (string, error) {
-	stmts, err := Statements(d, prefix)
-	if err != nil {
-		return "", err
-	}
-
-	return strings.Join(stmts, ";\n\n") + ";\n", nil
+	return schema.SQL(d, prefix)
 }

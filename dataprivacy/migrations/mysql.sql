@@ -2,7 +2,7 @@
 -- that split it across a request table and a disclosure table gained nothing
 -- from the join except the possibility of the two disagreeing about whether an
 -- artifact still existed.
-CREATE TABLE IF NOT EXISTS {{PREFIX}}_requests (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     id              VARCHAR(64) NOT NULL PRIMARY KEY,
     request_type    VARCHAR(32) NOT NULL,
     status          VARCHAR(32) NOT NULL,
@@ -29,24 +29,24 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}_requests (
 -- whole table and the predicate columns lead. Every query these serve filters
 -- on status first, so putting it in front keeps the index selective for the
 -- same queries the partial clauses serve elsewhere.
-CREATE INDEX {{PREFIX}}_requests_claim_idx
-    ON {{PREFIX}}_requests (status, next_attempt, requested_at, id);
+CREATE INDEX {{PREFIX}}dataprivacy_requests_claim_idx
+    ON {{PREFIX}}dataprivacy_requests (status, next_attempt, requested_at, id);
 
 -- "What has been asked in this person's name." Leading with the subject rather
 -- than the time is what makes List a range scan instead of a filter over every
 -- request the system has ever served.
-CREATE INDEX {{PREFIX}}_requests_subject_idx
-    ON {{PREFIX}}_requests (subject_id, subject_scope, requested_at, id);
+CREATE INDEX {{PREFIX}}dataprivacy_requests_subject_idx
+    ON {{PREFIX}}dataprivacy_requests (subject_id, subject_scope, requested_at, id);
 
 -- Serves both the artifact expiry sweep and the confirmation-window lapse
 -- sweep; they differ only in the status they filter on, which leads the index.
-CREATE INDEX {{PREFIX}}_requests_expiry_idx
-    ON {{PREFIX}}_requests (status, expires_at);
+CREATE INDEX {{PREFIX}}dataprivacy_requests_expiry_idx
+    ON {{PREFIX}}dataprivacy_requests (status, expires_at);
 
 -- Serves the overdue gauge.
-CREATE INDEX {{PREFIX}}_requests_status_due_idx
-    ON {{PREFIX}}_requests (status, due_at);
+CREATE INDEX {{PREFIX}}dataprivacy_requests_status_due_idx
+    ON {{PREFIX}}dataprivacy_requests (status, due_at);
 
 -- Serves the retention reap.
-CREATE INDEX {{PREFIX}}_requests_reap_idx
-    ON {{PREFIX}}_requests (completed_at, id);
+CREATE INDEX {{PREFIX}}dataprivacy_requests_reap_idx
+    ON {{PREFIX}}dataprivacy_requests (completed_at, id);

@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/clock"
 	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/encoding"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
@@ -18,9 +19,20 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
-// DefaultTableName is the table Enqueue and the Relay operate on when no other
-// name is configured.
-const DefaultTableName = "outbox_messages"
+// tableFor renders the outbox table name under a namespace. It is the one
+// place the component segment is spelled, so the Writer, the Relay, and the
+// DDL cannot disagree about it.
+func tableFor(prefix string) string {
+	return ddl.Qualify(prefix) + "outbox_messages"
+}
+
+// DefaultTablePrefix is the namespace the outbox table carries when none is
+// configured, which is none — rendering outbox_messages.
+//
+// The outbox_ segment is the schema's, not the caller's: a table always says
+// which package created it. Setting a namespace of "ddb" renders
+// ddb_outbox_messages, for a database shared between applications.
+const DefaultTablePrefix = ""
 
 var (
 	// ErrEmptyTopic indicates a Message was enqueued without a topic.
@@ -71,13 +83,14 @@ type Writer struct {
 // WriterOption configures a Writer.
 type WriterOption func(*Writer)
 
-// WithWriterTableName overrides DefaultTableName. The name must be a plain SQL
-// identifier: it is interpolated into the query text, not bound as a
-// parameter.
-func WithWriterTableName(name string) WriterOption {
+// WithWriterTablePrefix overrides DefaultTablePrefix. The namespace must be a
+// plain SQL identifier fragment with no trailing separator: it is interpolated
+// into the query text, not bound as a parameter, and it must match the one the
+// migrations were rendered with.
+func WithWriterTablePrefix(prefix string) WriterOption {
 	return func(w *Writer) {
-		if name != "" {
-			w.table = name
+		if prefix != "" {
+			w.table = ddl.Qualify(prefix) + "outbox_messages"
 		}
 	}
 }
@@ -124,7 +137,7 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 
 	w := &Writer{
 		dialect: d,
-		table:   DefaultTableName,
+		table:   tableFor(DefaultTablePrefix),
 		clock:   clock.NewClock(),
 	}
 	for _, opt := range opts {

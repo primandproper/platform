@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS {{PREFIX}}entries (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_entries (
     id            TEXT PRIMARY KEY,
     seq           BIGINT NOT NULL,
     scope         TEXT NOT NULL DEFAULT '',
@@ -22,23 +22,23 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}entries (
 -- to detect, because it is not a thing the table can hold.
 --
 -- It also serves the chain-head read, which wants the highest seq in a scope.
-CREATE UNIQUE INDEX IF NOT EXISTS {{PREFIX}}entries_chain_idx
-    ON {{PREFIX}}entries (scope, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_chain_idx
+    ON {{PREFIX}}audit_log_entries (scope, seq);
 
 -- Serves Verify's time-bounded walk and the retention sweep, both of which ask
 -- for one scope's entries within a time range.
-CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_scope_time_idx
-    ON {{PREFIX}}entries (scope, recorded_at);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_scope_time_idx
+    ON {{PREFIX}}audit_log_entries (scope, recorded_at);
 
 -- "What did this principal do." Leading with the actor rather than the time is
 -- what makes the answer a range scan instead of a filter over history.
-CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_actor_idx
-    ON {{PREFIX}}entries (actor_id, recorded_at);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_actor_idx
+    ON {{PREFIX}}audit_log_entries (actor_id, recorded_at);
 
 -- "What happened to this thing." Prefixed on resource_type so the same index
 -- also answers the type-only question List supports.
-CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_resource_idx
-    ON {{PREFIX}}entries (resource_type, resource_id, recorded_at);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_resource_idx
+    ON {{PREFIX}}audit_log_entries (resource_type, resource_id, recorded_at);
 
 -- One row per scope, holding that scope's chain head and how far retention has
 -- pruned it.
@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_resource_idx
 -- It also survives pruning. Once retention deletes a scope's last surviving
 -- entry there is nothing left to derive a head from, and a chain that restarted
 -- at zero would collide with positions it had already used.
-CREATE TABLE IF NOT EXISTS {{PREFIX}}chains (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_chains (
     scope               TEXT PRIMARY KEY,
     head_seq            BIGINT NOT NULL DEFAULT -1,
     head_hash           TEXT NOT NULL DEFAULT '',

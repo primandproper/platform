@@ -128,7 +128,7 @@ func (e *storeEnv) newStore(t *testing.T) Store {
 		must.NoError(t, execErr, must.Sprintf("executing %q", stmt))
 	}
 
-	store, err := NewSQLStore(e.dialect, e.client, WithTablePrefix(prefix))
+	store, err := NewSQLStore(e.client, WithTablePrefix(prefix))
 	must.NoError(t, err)
 
 	return store

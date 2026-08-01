@@ -179,7 +179,7 @@ func exampleWiring() (database.Client, webhooks.Dispatcher) {
 		}
 	}
 
-	store, err := webhooks.NewSQLStore(dialect.SQLite, client)
+	store, err := webhooks.NewSQLStore(client)
 	if err != nil {
 		panic(err)
 	}

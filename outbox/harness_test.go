@@ -98,7 +98,7 @@ func newTestClient(t *testing.T) database.Client {
 	must.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	stmts, err := migrations.Statements(dialect.SQLite, DefaultTableName)
+	stmts, err := migrations.Statements(dialect.SQLite, DefaultTablePrefix)
 	must.NoError(t, err)
 
 	if len(stmts) == 0 {
@@ -129,7 +129,7 @@ func countRows(t *testing.T, client database.Client, where string) int {
 
 	var n int
 	must.NoError(t, client.Reader().
-		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+DefaultTableName+" WHERE "+where).
+		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM outbox_messages WHERE "+where).
 		Scan(&n))
 
 	return n

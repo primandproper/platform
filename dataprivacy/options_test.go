@@ -374,7 +374,7 @@ func TestSQLStoreOptions(T *testing.T) {
 
 		WithTablePrefix("custom")(s)
 		test.EqOp(t, "custom", s.tables.prefix())
-		test.EqOp(t, "custom_requests", s.tables.requests)
+		test.EqOp(t, "custom_dataprivacy_requests", s.tables.requests)
 
 		// An empty prefix would render a table named "_requests".
 		WithTablePrefix("")(s)

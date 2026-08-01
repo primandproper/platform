@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS {{TABLE}} (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}outbox_messages (
     id            TEXT PRIMARY KEY,
     topic         TEXT NOT NULL,
     partition_key TEXT NOT NULL DEFAULT '',
@@ -12,14 +12,14 @@ CREATE TABLE IF NOT EXISTS {{TABLE}} (
     quarantined   BOOLEAN NOT NULL DEFAULT FALSE
 );
 
-CREATE INDEX IF NOT EXISTS {{TABLE}}_claim_idx
-    ON {{TABLE}} (next_attempt, created_at, id)
+CREATE INDEX IF NOT EXISTS {{PREFIX}}outbox_messages_claim_idx
+    ON {{PREFIX}}outbox_messages (next_attempt, created_at, id)
     WHERE published_at IS NULL AND quarantined = FALSE;
 
-CREATE INDEX IF NOT EXISTS {{TABLE}}_ordering_idx
-    ON {{TABLE}} (partition_key, created_at, id)
+CREATE INDEX IF NOT EXISTS {{PREFIX}}outbox_messages_ordering_idx
+    ON {{PREFIX}}outbox_messages (partition_key, created_at, id)
     WHERE published_at IS NULL AND quarantined = FALSE;
 
-CREATE INDEX IF NOT EXISTS {{TABLE}}_reap_idx
-    ON {{TABLE}} (published_at)
+CREATE INDEX IF NOT EXISTS {{PREFIX}}outbox_messages_reap_idx
+    ON {{PREFIX}}outbox_messages (published_at)
     WHERE published_at IS NOT NULL;

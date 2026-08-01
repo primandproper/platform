@@ -14,10 +14,14 @@ import (
 	"github.com/primandproper/platform-go/v9/webhooks/migrations"
 )
 
-// DefaultTablePrefix is the prefix the webhook tables carry when no other is
-// configured. See webhooks/migrations for why it is one prefix and not five
-// names.
-const DefaultTablePrefix = "webhook"
+// DefaultTablePrefix is the namespace the webhooks tables carry when none is
+// configured, which is none — rendering webhooks_endpoints and its four siblings.
+//
+// The webhooks_ segment is the schema's, not the caller's: a table always says
+// which package created it. Setting a namespace of "ddb" renders
+// ddb_webhooks_endpoints, for a database shared between applications. A namespace must
+// not end in '_'; database/ddl supplies the separator.
+const DefaultTablePrefix = ""
 
 var _ Store = (*sqlStore)(nil)
 
@@ -45,16 +49,18 @@ func WithTablePrefix(prefix string) SQLStoreOption {
 
 // NewSQLStore builds a Store over the given database.
 //
-// The dialect must match the client, and the prefix must match the one the
-// migrations were rendered with — nothing here can check either, and a mismatch
-// surfaces as a missing table on the first query rather than at construction.
-func NewSQLStore(d dialect.Dialect, client database.Client, opts ...SQLStoreOption) (Store, error) {
-	if !d.Valid() {
-		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "webhooks dialect %q", d)
-	}
-
+// The dialect comes from the client, so the two cannot disagree. The prefix must
+// still match the one the migrations were rendered with — nothing here can check
+// that, and a mismatch surfaces as a missing table on the first query rather
+// than at construction.
+func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
+	}
+
+	d := client.Dialect()
+	if !d.Valid() {
+		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "webhooks dialect %q", d)
 	}
 
 	s := &sqlStore{

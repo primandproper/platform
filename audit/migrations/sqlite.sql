@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS {{PREFIX}}entries (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_entries (
     id            TEXT PRIMARY KEY,
     seq           BIGINT NOT NULL,
     scope         TEXT NOT NULL DEFAULT '',
@@ -16,19 +16,19 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}entries (
 );
 
 -- See postgres.sql for what each of these is for; the definitions are the same.
-CREATE UNIQUE INDEX IF NOT EXISTS {{PREFIX}}entries_chain_idx
-    ON {{PREFIX}}entries (scope, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_chain_idx
+    ON {{PREFIX}}audit_log_entries (scope, seq);
 
-CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_scope_time_idx
-    ON {{PREFIX}}entries (scope, recorded_at);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_scope_time_idx
+    ON {{PREFIX}}audit_log_entries (scope, recorded_at);
 
-CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_actor_idx
-    ON {{PREFIX}}entries (actor_id, recorded_at);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_actor_idx
+    ON {{PREFIX}}audit_log_entries (actor_id, recorded_at);
 
-CREATE INDEX IF NOT EXISTS {{PREFIX}}entries_resource_idx
-    ON {{PREFIX}}entries (resource_type, resource_id, recorded_at);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_resource_idx
+    ON {{PREFIX}}audit_log_entries (resource_type, resource_id, recorded_at);
 
-CREATE TABLE IF NOT EXISTS {{PREFIX}}chains (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_chains (
     scope               TEXT PRIMARY KEY,
     head_seq            BIGINT NOT NULL DEFAULT -1,
     head_hash           TEXT NOT NULL DEFAULT '',

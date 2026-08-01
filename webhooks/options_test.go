@@ -215,11 +215,11 @@ func TestSQLStoreOptions(T *testing.T) {
 		s := &sqlStore{tables: newTables(DefaultTablePrefix)}
 
 		WithTablePrefix("acme_hook")(s)
-		test.EqOp(t, "acme_hook_dispatches", s.tables.dispatches)
+		test.EqOp(t, "acme_hook_webhooks_dispatches", s.tables.dispatches)
 
 		// An empty prefix would render tables named "_dispatches".
 		WithTablePrefix("")(s)
-		test.EqOp(t, "acme_hook_dispatches", s.tables.dispatches)
+		test.EqOp(t, "acme_hook_webhooks_dispatches", s.tables.dispatches)
 	})
 }
 
@@ -275,7 +275,7 @@ func TestNilOptionsAreSkipped(T *testing.T) {
 		_, err = NewWorker(t.Context(), &WorkerConfig{}, &fakeStore{}, absentWorker)
 		test.NoError(t, err)
 
-		_, err = NewSQLStore(newSQLiteEnv(t).dialect, newSQLiteEnv(t).client, absentStore)
+		_, err = NewSQLStore(newSQLiteEnv(t).client, absentStore)
 		test.NoError(t, err)
 
 		test.NoError(t, Verify(

@@ -543,7 +543,7 @@ func TestNewRelay(T *testing.T) {
 
 		_, err := NewRelay(
 			t.Context(),
-			&RelayConfig{Dialect: dialect.SQLite, TableName: "outbox; DROP TABLE users"},
+			&RelayConfig{Dialect: dialect.SQLite, TablePrefix: "outbox; DROP TABLE users"},
 			newTestClient(t),
 			&mqmock.PublisherProviderMock{},
 		)

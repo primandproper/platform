@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
 	_ "github.com/primandproper/platform-go/v9/database/sqlite"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 
@@ -154,8 +153,7 @@ func newFaultyStore(t *testing.T, env *storeEnv, f *faults) (faulty, healthy Sto
 	must.NoError(t, err)
 	must.NoError(t, db.Close())
 
-	faulty, err = NewSQLStore(dialect.SQLite,
-		&faultyClient{Client: env.client, closed: db, faults: f},
+	faulty, err = NewSQLStore(&faultyClient{Client: env.client, closed: db, faults: f},
 		WithTablePrefix(concrete.tables.prefix()))
 	must.NoError(t, err)
 

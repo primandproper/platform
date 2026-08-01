@@ -40,11 +40,11 @@ func TestAppendOnlyTriggers(T *testing.T) {
 		// Without the trigger this is the edit the chain would merely reveal
 		// after the fact. With it, the database refuses outright.
 		_, err := client.Writer().ExecContext(t.Context(),
-			"UPDATE "+DefaultTablePrefix+"entries SET actor_id = 'somebody_else' WHERE id = ?", entry.ID)
+			"UPDATE audit_log_entries SET actor_id = 'somebody_else' WHERE id = ?", entry.ID)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "append-only")
 
-		test.EqOp(t, 1, countRows(t, client, DefaultTablePrefix+"entries", "actor_id = 'user_1'"))
+		test.EqOp(t, 1, countRows(t, client, "audit_log_entries", "actor_id = 'user_1'"))
 	})
 
 	T.Run("still admit new entries", func(t *testing.T) {
@@ -61,7 +61,7 @@ func TestAppendOnlyTriggers(T *testing.T) {
 		record(t, client, recorder, entryFor("acct_1", "r1"))
 		record(t, client, recorder, entryFor("acct_1", "r2"))
 
-		test.EqOp(t, 2, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		test.EqOp(t, 2, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
 	T.Run("leave deletion to retention", func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestAppendOnlyTriggers(T *testing.T) {
 		// Deliberately permitted: no trigger can tell the retention sweep apart
 		// from an attacker, and a log that cannot be pruned grows forever. The
 		// chain is what covers deletion instead.
-		exec(t, client, "DELETE FROM "+DefaultTablePrefix+"entries WHERE id = ?", entry.ID)
-		test.EqOp(t, 0, countRows(t, client, DefaultTablePrefix+"entries", "1=1"))
+		exec(t, client, "DELETE FROM audit_log_entries WHERE id = ?", entry.ID)
+		test.EqOp(t, 0, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 }

@@ -51,6 +51,7 @@ import (
 	"regexp"
 
 	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
@@ -110,8 +111,8 @@ type Option func(*Eraser)
 // the audit tables were rendered with.
 func WithTablePrefix(prefix string) Option {
 	return func(e *Eraser) {
-		e.entries = prefix + "entries"
-		e.chains = prefix + "chains"
+		e.entries = ddl.Qualify(prefix) + "audit_log_entries"
+		e.chains = ddl.Qualify(prefix) + "audit_log_chains"
 	}
 }
 
@@ -149,8 +150,8 @@ func New(d dialect.Dialect, prefix string, opts ...Option) (*Eraser, error) {
 
 	e := &Eraser{
 		dialect: d,
-		entries: prefix + "entries",
-		chains:  prefix + "chains",
+		entries: ddl.Qualify(prefix) + "audit_log_entries",
+		chains:  ddl.Qualify(prefix) + "audit_log_chains",
 		basis:   DefaultRetentionBasis,
 		resolve: func(_ context.Context, subject dataprivacy.Subject) ([]string, error) {
 			return []string{subject.ID}, nil

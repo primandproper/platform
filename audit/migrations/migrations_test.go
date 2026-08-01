@@ -20,13 +20,13 @@ func TestStatements(T *testing.T) {
 			t.Run(string(d), func(t *testing.T) {
 				t.Parallel()
 
-				stmts, err := Statements(d, "audit_")
+				stmts, err := Statements(d, "")
 				must.NoError(t, err)
 				must.SliceNotEmpty(t, stmts)
 
 				joined := strings.Join(stmts, "\n")
-				test.StrContains(t, joined, "audit_entries")
-				test.StrContains(t, joined, "audit_chains")
+				test.StrContains(t, joined, "audit_log_entries")
+				test.StrContains(t, joined, "audit_log_chains")
 				test.StrNotContains(t, joined, prefixPlaceholder)
 
 				// The uniqueness of (scope, seq) is the guarantee that a forked
@@ -44,7 +44,7 @@ func TestStatements(T *testing.T) {
 	T.Run("orders the table ahead of its indexes", func(t *testing.T) {
 		t.Parallel()
 
-		stmts, err := Statements(dialect.Postgres, "audit_")
+		stmts, err := Statements(dialect.Postgres, "")
 		must.NoError(t, err)
 		must.SliceNotEmpty(t, stmts)
 
@@ -56,13 +56,13 @@ func TestStatements(T *testing.T) {
 
 		stmts, err := Statements(dialect.SQLite, "")
 		must.NoError(t, err)
-		test.StrContains(t, strings.Join(stmts, "\n"), "CREATE TABLE IF NOT EXISTS entries")
+		test.StrContains(t, strings.Join(stmts, "\n"), "CREATE TABLE IF NOT EXISTS audit_log_entries")
 	})
 
 	T.Run("rejects an unsupported dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := Statements("cassandra", "audit_")
+		_, err := Statements("cassandra", "audit")
 		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 
@@ -82,7 +82,7 @@ func TestSQL(T *testing.T) {
 	T.Run("joins the statements back into a migration body", func(t *testing.T) {
 		t.Parallel()
 
-		ddl, err := SQL(dialect.Postgres, "audit_")
+		ddl, err := SQL(dialect.Postgres, "audit")
 		must.NoError(t, err)
 
 		test.StrContains(t, ddl, "CREATE TABLE")
@@ -96,7 +96,7 @@ func TestSQL(T *testing.T) {
 	T.Run("propagates a rendering error", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := SQL("cassandra", "audit_")
+		_, err := SQL("cassandra", "audit")
 		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 }
@@ -111,12 +111,12 @@ func TestAppendOnlyStatements(T *testing.T) {
 			t.Run(string(d), func(t *testing.T) {
 				t.Parallel()
 
-				stmts, err := AppendOnlyStatements(d, "audit_")
+				stmts, err := AppendOnlyStatements(d, "")
 				must.NoError(t, err)
 				must.SliceNotEmpty(t, stmts)
 
 				joined := strings.Join(stmts, "\n")
-				test.StrContains(t, joined, "audit_entries")
+				test.StrContains(t, joined, "audit_log_entries")
 				test.StrContains(t, joined, "BEFORE UPDATE")
 				test.StrContains(t, joined, appendOnlyMessage)
 
@@ -130,7 +130,7 @@ func TestAppendOnlyStatements(T *testing.T) {
 	T.Run("keeps a plpgsql body whole", func(t *testing.T) {
 		t.Parallel()
 
-		stmts, err := AppendOnlyStatements(dialect.Postgres, "audit_")
+		stmts, err := AppendOnlyStatements(dialect.Postgres, "")
 		must.NoError(t, err)
 		must.SliceLen(t, 2, stmts)
 
@@ -145,7 +145,7 @@ func TestAppendOnlyStatements(T *testing.T) {
 	T.Run("rejects an unsupported dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := AppendOnlyStatements("cassandra", "audit_")
+		_, err := AppendOnlyStatements("cassandra", "audit")
 		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 

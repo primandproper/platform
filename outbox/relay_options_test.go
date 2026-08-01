@@ -380,7 +380,7 @@ func TestRelay_databaseFailures(T *testing.T) {
 	dropTable := func(t *testing.T, client database.Client) {
 		t.Helper()
 
-		_, err := client.Writer().ExecContext(t.Context(), "DROP TABLE "+DefaultTableName)
+		_, err := client.Writer().ExecContext(t.Context(), "DROP TABLE outbox_messages")
 		must.NoError(t, err)
 	}
 

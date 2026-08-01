@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/filtering"
 )
@@ -43,8 +44,8 @@ type tables struct {
 // newTables derives both table names from a prefix.
 func newTables(prefix string) *tables {
 	return &tables{
-		entries: prefix + "entries",
-		chains:  prefix + "chains",
+		entries: ddl.Qualify(prefix) + "audit_log_entries",
+		chains:  ddl.Qualify(prefix) + "audit_log_chains",
 	}
 }
 

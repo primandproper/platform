@@ -10,7 +10,7 @@
 -- Consume locks. Deriving it from the events table on every read would be a
 -- group-by over a table that grows with traffic, on the path this package exists
 -- to keep cheap.
-CREATE TABLE IF NOT EXISTS {{PREFIX}}_events (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}metering_events (
     -- The idempotency key IS the primary key. Dedupe is therefore an INSERT that
     -- either takes or does not, decided by the database in one round trip, and
     -- durable for as long as the row is retained. A cache-backed dedupe would be
@@ -28,13 +28,13 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}_events (
 
 -- Serves the retention reap, which asks one question about time and nothing
 -- else, and the per-period event listing behind a usage breakdown.
-CREATE INDEX IF NOT EXISTS {{PREFIX}}_events_period_idx
-    ON {{PREFIX}}_events (subject, meter, period_start, occurred_at);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}metering_events_period_idx
+    ON {{PREFIX}}metering_events (subject, meter, period_start, occurred_at);
 
-CREATE INDEX IF NOT EXISTS {{PREFIX}}_events_reap_idx
-    ON {{PREFIX}}_events (recorded_at);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}metering_events_reap_idx
+    ON {{PREFIX}}metering_events (recorded_at);
 
-CREATE TABLE IF NOT EXISTS {{PREFIX}}_totals (
+CREATE TABLE IF NOT EXISTS {{PREFIX}}metering_totals (
     subject          TEXT NOT NULL,
     meter            TEXT NOT NULL,
     period_start     DATETIME NOT NULL,
@@ -63,10 +63,10 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}_totals (
 -- time has come, and which nobody currently holds. Partial on the one predicate
 -- that matters, so the index tracks the flush backlog rather than the history of
 -- every period ever billed — this table is meant to be kept for years.
-CREATE INDEX IF NOT EXISTS {{PREFIX}}_totals_flush_idx
-    ON {{PREFIX}}_totals (next_flush, subject, meter)
+CREATE INDEX IF NOT EXISTS {{PREFIX}}metering_totals_flush_idx
+    ON {{PREFIX}}metering_totals (next_flush, subject, meter)
     WHERE quantity > flushed_quantity;
 
 -- Serves "what has this subject used lately", across meters.
-CREATE INDEX IF NOT EXISTS {{PREFIX}}_totals_subject_idx
-    ON {{PREFIX}}_totals (subject, period_start, meter);
+CREATE INDEX IF NOT EXISTS {{PREFIX}}metering_totals_subject_idx
+    ON {{PREFIX}}metering_totals (subject, period_start, meter);

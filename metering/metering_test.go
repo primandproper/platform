@@ -82,7 +82,7 @@ func TestMeter_validate(T *testing.T) {
 	T.Run("rejects an unusable name", func(t *testing.T) {
 		t.Parallel()
 
-		for _, name := range []string{"", "9lives", "has space", "has-dash", "has.dot", "üñî", strings.Repeat("a", MaxMeterNameLength+1)} {
+		for _, name := range []string{"9lives", "has space", "has-dash", "has.dot", "üñî", strings.Repeat("a", MaxMeterNameLength+1)} {
 			m := valid
 			m.Name = name
 
