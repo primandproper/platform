@@ -180,3 +180,47 @@ func TestSQL(T *testing.T) {
 		}
 	})
 }
+
+func TestValidatePrefix(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts an empty namespace", func(t *testing.T) {
+		t.Parallel()
+
+		// Empty renders the component's own names, which is the default.
+		test.NoError(t, ValidatePrefix(""))
+	})
+
+	T.Run("accepts a plain identifier fragment", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, ValidatePrefix("ddb"))
+	})
+
+	T.Run("rejects a trailing separator", func(t *testing.T) {
+		t.Parallel()
+
+		// The renderer supplies the separator; a namespace carrying one too
+		// would render a doubled separator rather than an error.
+		test.ErrorIs(t, ValidatePrefix("ddb_"), ddl.ErrPrefixTrailingSeparator)
+	})
+
+	T.Run("rejects a namespace that would not render an identifier", func(t *testing.T) {
+		t.Parallel()
+
+		for _, namespace := range []string{"ddb-1", "1ddb", "ddb 1"} {
+			test.ErrorIs(t, ValidatePrefix(namespace), dialect.ErrInvalidIdentifier,
+				test.Sprintf("namespace %q", namespace))
+		}
+	})
+
+	T.Run("rejects a namespace that pushes an index name past the limit", func(t *testing.T) {
+		t.Parallel()
+
+		// Index names are the longest identifiers this schema renders, and are
+		// what a table-only check would miss.
+		namespace := strings.Repeat("n", ddl.MaxIdentifierLength-len("outbox_messages_ordering_idx"))
+
+		test.ErrorIs(t, ValidatePrefix(namespace), ddl.ErrPrefixTooLong)
+	})
+}

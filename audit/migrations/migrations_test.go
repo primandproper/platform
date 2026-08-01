@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 
 	"github.com/shoenig/test"
@@ -82,15 +83,15 @@ func TestSQL(T *testing.T) {
 	T.Run("joins the statements back into a migration body", func(t *testing.T) {
 		t.Parallel()
 
-		ddl, err := SQL(dialect.Postgres, "audit")
+		body, err := SQL(dialect.Postgres, "audit")
 		must.NoError(t, err)
 
-		test.StrContains(t, ddl, "CREATE TABLE")
-		test.StrHasSuffix(t, ";\n", ddl)
+		test.StrContains(t, body, "CREATE TABLE")
+		test.StrHasSuffix(t, ";\n", body)
 
 		// Comments are stripped before joining: goose splits on semicolons, and
 		// a '--' comment containing one would be torn in half.
-		test.StrNotContains(t, ddl, "--")
+		test.StrNotContains(t, body, "--")
 	})
 
 	T.Run("propagates a rendering error", func(t *testing.T) {
@@ -154,5 +155,45 @@ func TestAppendOnlyStatements(T *testing.T) {
 
 		_, err := AppendOnlyStatements(dialect.Postgres, "audit-")
 		test.ErrorIs(t, err, ErrInvalidPrefix)
+	})
+}
+
+func TestValidatePrefix(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts an empty namespace", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, ValidatePrefix(""))
+	})
+
+	T.Run("accepts a plain identifier fragment", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, ValidatePrefix("ddb"))
+	})
+
+	T.Run("rejects a malformed namespace with this package's own sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		// The local regex runs before the shared check so a malformed namespace
+		// still reports ErrInvalidPrefix rather than the dialect package's.
+		test.ErrorIs(t, ValidatePrefix("ddb-1"), ErrInvalidPrefix)
+	})
+
+	T.Run("rejects a trailing separator", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, ValidatePrefix("ddb_"), ddl.ErrPrefixTrailingSeparator)
+	})
+
+	T.Run("rejects a namespace that pushes an index name past the limit", func(t *testing.T) {
+		t.Parallel()
+
+		// The four index names are the longest identifiers this schema renders,
+		// and the ones the local regex cannot see.
+		namespace := strings.Repeat("n", ddl.MaxIdentifierLength-len("audit_log_entries_scope_time_idx"))
+
+		test.ErrorIs(t, ValidatePrefix(namespace), ddl.ErrPrefixTooLong)
 	})
 }
