@@ -4,8 +4,10 @@ configuration: the Store every part shares, the Recorder usage arrives through,
 the Enforcer quotas are checked against, and the Flusher that posts to the
 billing provider.
 
-All four read one Config, so the dialect and table prefix the Recorder writes to
-are by construction the ones the Enforcer reads and the Flusher flushes.
+All four read one Config, so the table prefix the Recorder writes to is by
+construction the one the Enforcer reads and the Flusher flushes. The dialect is
+not configured here at all: it comes from the database.Client, so it cannot
+disagree with the database the statements actually run against.
 
 The registry is not configured here. Which meters an application counts, and what
 their aggregations mean, is Go code — and there is no useful way to express an
@@ -21,7 +23,6 @@ import (
 	"github.com/primandproper/platform-go/v9/cache"
 	"github.com/primandproper/platform-go/v9/capitalism"
 	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/metering"
 	"github.com/primandproper/platform-go/v9/observability/logging"
@@ -34,9 +35,6 @@ import (
 // Config assembles a metering Store, Recorder, Enforcer, and Flusher.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
-
-	// Dialect selects the SQL emitted; it must match the database.Client.
-	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
 
 	// TablePrefix names the metering tables. It must match the prefix the
 	// migrations were rendered with. Defaults to metering.DefaultTablePrefix.
@@ -72,13 +70,6 @@ func (cfg *Config) EnsureDefaults() {
 // they would otherwise be skipped.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Dialect, validation.Required, validation.By(func(any) error {
-			if !cfg.Dialect.Valid() {
-				return errors.Wrapf(dialect.ErrUnsupported, "metering dialect %q", cfg.Dialect)
-			}
-
-			return nil
-		})),
 		validation.Field(&cfg.Recorder, validation.By(func(any) error {
 			return cfg.Recorder.ValidateWithContext(ctx)
 		})),
@@ -137,7 +128,7 @@ func NewStore(
 		base = append(base, metering.WithStoreMetricsProvider(metricsProvider))
 	}
 
-	return metering.NewSQLStore(cfg.Dialect, client, append(base, opts...)...)
+	return metering.NewSQLStore(client, append(base, opts...)...)
 }
 
 // NewRecorder builds the ingest path.

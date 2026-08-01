@@ -192,5 +192,7 @@ func (stubClient) WithTransaction(context.Context, func(database.SQLQueryExecuto
 	panic("unexpected transaction")
 }
 
+func (stubClient) Dialect() dialect.Dialect { return dialect.SQLite }
+
 func (stubClient) Close() error           { return nil }
 func (stubClient) CurrentTime() time.Time { panic("unexpected clock read") }

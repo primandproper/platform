@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/database/sqlite"
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	lockmemory "github.com/primandproper/platform-go/v9/distributedlock/memory"
@@ -56,7 +55,7 @@ func newLocker(t *testing.T) distributedlock.ScopedLocker {
 }
 
 func validConfig() *Config {
-	cfg := &Config{Dialect: dialect.SQLite}
+	cfg := &Config{}
 	cfg.EnsureDefaults()
 
 	return cfg
@@ -68,7 +67,7 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 	T.Run("fills the prefix, the topic, and the worker", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Dialect: dialect.SQLite}
+		cfg := &Config{}
 		cfg.EnsureDefaults()
 
 		test.EqOp(t, saga.DefaultTablePrefix, cfg.TablePrefix)
@@ -80,7 +79,6 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Dialect:     dialect.Postgres,
 			TablePrefix: "app_saga",
 			EventTopic:  "sagas",
 		}
@@ -100,27 +98,19 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.NoError(t, validConfig().ValidateWithContext(t.Context()))
 	})
 
-	T.Run("rejects a missing dialect", func(t *testing.T) {
+	T.Run("rejects a worker whose advance timeout cannot fit a step", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{}
-		cfg.EnsureDefaults()
-
-		test.Error(t, cfg.ValidateWithContext(t.Context()))
-	})
-
-	T.Run("rejects an unsupported dialect", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &Config{Dialect: dialect.Dialect("oracle")}
-		cfg.EnsureDefaults()
+		cfg := validConfig()
+		cfg.Worker.StepTimeout = time.Hour
+		cfg.Worker.AdvanceTimeout = time.Second
 
 		err := cfg.ValidateWithContext(t.Context())
 		must.Error(t, err)
 
 		// ozzo collects field errors into a map that does not unwrap, so the
 		// assertion is on the rendering rather than on errors.Is.
-		test.StrContains(t, err.Error(), "unsupported SQL dialect")
+		test.StrContains(t, err.Error(), "must be at least the step timeout")
 	})
 
 	T.Run("rejects a worker config that cannot be satisfied", func(t *testing.T) {
@@ -128,15 +118,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		cfg := validConfig()
 		cfg.Worker.LeaseDuration = time.Second
-
-		test.Error(t, cfg.ValidateWithContext(t.Context()))
-	})
-
-	T.Run("rejects an empty table prefix", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := validConfig()
-		cfg.TablePrefix = ""
 
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
@@ -164,7 +145,8 @@ func TestProvideStore(T *testing.T) {
 		t.Parallel()
 
 		cfg := validConfig()
-		cfg.Dialect = dialect.Dialect("oracle")
+		cfg.Worker.StepTimeout = time.Hour
+		cfg.Worker.AdvanceTimeout = time.Second
 
 		_, err := ProvideStore(t.Context(), cfg, nil, nil, nil, newClient(t))
 		test.Error(t, err)
@@ -225,7 +207,8 @@ func TestProvideWorker(T *testing.T) {
 		must.NoError(t, err)
 
 		cfg := validConfig()
-		cfg.Dialect = dialect.Dialect("oracle")
+		cfg.Worker.StepTimeout = time.Hour
+		cfg.Worker.AdvanceTimeout = time.Second
 
 		_, err = ProvideWorker(t.Context(), cfg, nil, nil, nil, store, registry(t), newLocker(t), nil, nil)
 		test.Error(t, err)

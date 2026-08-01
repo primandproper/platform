@@ -9,6 +9,7 @@ import (
 
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/identifiers"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -57,6 +58,7 @@ func (c *testDBClient) WriteDB() *sql.DB                  { return c.db }
 func (c *testDBClient) ReadDB() *sql.DB                   { return c.db }
 func (c *testDBClient) Reader() database.SQLQueryExecutor { return c.db }
 func (c *testDBClient) Writer() database.SQLQueryExecutor { return c.db }
+func (c *testDBClient) Dialect() dialect.Dialect          { return dialect.Postgres }
 func (c *testDBClient) Close() error                      { return c.db.Close() }
 func (c *testDBClient) CurrentTime() time.Time            { return time.Now() }
 func (c *testDBClient) RollbackTransaction(_ context.Context, tx database.SQLQueryExecutorAndTransactionManager) {

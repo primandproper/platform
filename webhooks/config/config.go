@@ -3,8 +3,10 @@ Package webhookscfg assembles the webhook machinery from environment
 configuration: the Store both halves share, the Dispatcher applications write
 through, and the Worker that delivers.
 
-All three read one Config, so the dialect and table prefix the Dispatcher writes
-to are by construction the ones the Worker claims from. The circuit-breaker
+All three read one Config, so the table prefix the Dispatcher writes to is by
+construction the one the Worker claims from. The dialect is not configured here
+at all: it comes from the database.Client, so it cannot disagree with the
+database the statements actually run against. The circuit-breaker
 section configures one breaker per endpoint, built lazily through
 circuitbreakingcfg exactly as it would be standalone.
 */
@@ -17,7 +19,6 @@ import (
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/httpclient"
 	"github.com/primandproper/platform-go/v9/observability/logging"
@@ -32,9 +33,6 @@ import (
 // Config assembles a webhooks Store, Dispatcher, and Worker.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
-
-	// Dialect selects the SQL emitted; it must match the database.Client.
-	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
 
 	// TablePrefix names the five webhook tables. It must match the prefix the
 	// migrations were rendered with. Defaults to webhooks.DefaultTablePrefix.
@@ -72,13 +70,6 @@ func (cfg *Config) EnsureDefaults() {
 // they would otherwise be skipped.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Dialect, validation.Required, validation.By(func(any) error {
-			if !cfg.Dialect.Valid() {
-				return errors.Wrapf(dialect.ErrUnsupported, "webhooks dialect %q", cfg.Dialect)
-			}
-
-			return nil
-		})),
 		validation.Field(&cfg.Worker, validation.By(func(any) error {
 			return cfg.Worker.ValidateWithContext(ctx)
 		})),
@@ -107,7 +98,7 @@ func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...
 
 	base := []webhooks.SQLStoreOption{webhooks.WithTablePrefix(cfg.TablePrefix)}
 
-	return webhooks.NewSQLStore(cfg.Dialect, client, append(base, opts...)...)
+	return webhooks.NewSQLStore(client, append(base, opts...)...)
 }
 
 // NewDispatcher builds a Dispatcher from configuration.

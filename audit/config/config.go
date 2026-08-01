@@ -127,7 +127,7 @@ func NewReader(
 		base = append(base, audit.WithReaderMetricsProvider(metricsProvider))
 	}
 
-	return audit.NewReader(cfg.Sweeper.Dialect, client, append(base, opts...)...)
+	return audit.NewReader(client, append(base, opts...)...)
 }
 
 // NewSweeper builds a Sweeper from configuration. It does not start it; call

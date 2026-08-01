@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -186,6 +187,12 @@ func (q *Client) ReadDB() *sql.DB {
 // and WithTransaction on the Client interface.
 func (q *Client) WriteDB() *sql.DB {
 	return q.writeDB
+}
+
+// Dialect reports the SQL dialect this client speaks, which is always
+// dialect.SQLite.
+func (*Client) Dialect() dialect.Dialect {
+	return dialect.SQLite
 }
 
 // Reader returns a non-transactional executor for the read database.
