@@ -1,12 +1,25 @@
 package dataprivacycfg
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/primandproper/platform-go/v9/audit"
+	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v9/database/sqlite"
 	"github.com/primandproper/platform-go/v9/dataprivacy"
 	"github.com/primandproper/platform-go/v9/dataprivacy/auditerasure"
+	"github.com/primandproper/platform-go/v9/dataprivacy/migrations"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v9/uploads/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -142,4 +155,134 @@ func TestConstructors(T *testing.T) {
 		_, err = NewSweeper(t.Context(), nil, nil, nil, nil, nil, nil)
 		test.Error(t, err)
 	})
+
+	T.Run("assemble every part from one config", func(t *testing.T) {
+		t.Parallel()
+
+		env := newConfigEnv(t)
+		cfg := &Config{Dialect: dialect.SQLite, TablePrefix: env.prefix}
+
+		store, err := NewStore(t.Context(), cfg, env.client)
+		must.NoError(t, err)
+		must.NotNil(t, store)
+
+		svc, err := NewService(t.Context(), cfg,
+			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil), store)
+		must.NoError(t, err)
+		must.NotNil(t, svc)
+
+		registry := dataprivacy.NewRegistry()
+		must.NoError(t, registry.RegisterEraser("identity", dataprivacy.EraserFunc(
+			func(context.Context, database.SQLQueryExecutor, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
+				return dataprivacy.ErasureOutcome{}, nil
+			},
+		)))
+
+		worker, err := NewWorker(t.Context(), cfg,
+			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil),
+			store, registry, nil, false)
+		must.NoError(t, err)
+		must.NotNil(t, worker)
+
+		sweeper, err := NewSweeper(t.Context(), cfg,
+			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil),
+			store, nil)
+		must.NoError(t, err)
+		must.NotNil(t, sweeper)
+
+		// The whole point of one Config: the prefix the Service writes to is by
+		// construction the one the Worker claims from.
+		req, err := svc.Submit(t.Context(), dataprivacy.Subject{ID: "user-1"}, dataprivacy.RequestErasure)
+		must.NoError(t, err)
+
+		read, err := svc.Get(t.Context(), req.ID)
+		must.NoError(t, err)
+		test.EqOp(t, req.ID, read.ID)
+	})
+
+	T.Run("propagate a bad dialect", func(t *testing.T) {
+		t.Parallel()
+
+		env := newConfigEnv(t)
+		cfg := &Config{Dialect: dialect.Dialect("oracle"), TablePrefix: env.prefix}
+
+		_, err := NewStore(t.Context(), cfg, env.client)
+		test.Error(t, err)
+
+		_, err = NewService(t.Context(), cfg, nil, nil, nil, nil)
+		test.Error(t, err)
+
+		_, err = NewWorker(t.Context(), cfg, nil, nil, nil, nil, dataprivacy.NewRegistry(), nil, false)
+		test.Error(t, err)
+
+		_, err = NewSweeper(t.Context(), cfg, nil, nil, nil, nil, nil)
+		test.Error(t, err)
+	})
+
+	T.Run("a worker with an uploader gets a URL signer", func(t *testing.T) {
+		t.Parallel()
+
+		env := newConfigEnv(t)
+		cfg := &Config{Dialect: dialect.SQLite, TablePrefix: env.prefix}
+
+		store, err := NewStore(t.Context(), cfg, env.client)
+		must.NoError(t, err)
+
+		registry := dataprivacy.NewRegistry()
+		must.NoError(t, registry.RegisterCollector("identity", dataprivacy.CollectorFunc(
+			func(context.Context, dataprivacy.Subject) (json.RawMessage, error) {
+				return json.RawMessage(`{}`), nil
+			},
+		)))
+
+		// Supplying the uploader is what satisfies the export worker's storage
+		// requirement and wires the signer in one step.
+		worker, err := NewWorker(t.Context(), cfg, nil, nil, nil, store, registry, noop.NewUploadManager(), false)
+		must.NoError(t, err)
+		test.NotNil(t, worker)
+	})
 }
+
+// configEnv is a SQLite database with a uniquely prefixed request table.
+type configEnv struct {
+	client database.Client
+	prefix string
+}
+
+var configPrefixCounter atomic.Uint64
+
+func newConfigEnv(t *testing.T) *configEnv {
+	t.Helper()
+
+	client, err := sqlite.NewDatabaseClient(t.Context(),
+		&testClientConfig{connectionString: filepath.Join(t.TempDir(), "dataprivacy.db")})
+	must.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	prefix := fmt.Sprintf("cfg_%d", configPrefixCounter.Add(1))
+
+	stmts, err := migrations.Statements(dialect.SQLite, prefix)
+	must.NoError(t, err)
+
+	for _, stmt := range stmts {
+		_, execErr := client.Writer().ExecContext(t.Context(), stmt)
+		must.NoError(t, execErr, must.Sprintf("executing %q", stmt))
+	}
+
+	return &configEnv{client: client, prefix: prefix}
+}
+
+// testClientConfig is the minimum database.ClientConfig a SQLite client needs.
+type testClientConfig struct {
+	connectionString string
+}
+
+var _ database.ClientConfig = (*testClientConfig)(nil)
+
+func (c *testClientConfig) GetReadConnectionString() string   { return c.connectionString }
+func (c *testClientConfig) GetWriteConnectionString() string  { return c.connectionString }
+func (c *testClientConfig) GetMaxPingAttempts() uint64        { return 1 }
+func (c *testClientConfig) GetPingWaitPeriod() time.Duration  { return time.Millisecond }
+func (c *testClientConfig) GetMaxIdleConns() int              { return 2 }
+func (c *testClientConfig) GetMaxOpenConns() int              { return 1 }
+func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }

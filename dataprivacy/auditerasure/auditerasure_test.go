@@ -12,6 +12,7 @@ import (
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/database/sqlite"
 	"github.com/primandproper/platform-go/v9/dataprivacy"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -310,5 +311,45 @@ func TestNew(T *testing.T) {
 		// then bare "entries" and "chains", which are still legal identifiers.
 		_, err := New(dialect.SQLite, "")
 		test.NoError(t, err)
+	})
+
+	T.Run("WithTablePrefix overrides the constructor's prefix", func(t *testing.T) {
+		t.Parallel()
+
+		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix, WithTablePrefix("custom_"))
+		must.NoError(t, err)
+
+		test.EqOp(t, "custom_entries", eraser.entries)
+		test.EqOp(t, "custom_chains", eraser.chains)
+	})
+
+	T.Run("rejects a prefix an option renders illegal", func(t *testing.T) {
+		t.Parallel()
+
+		// The option runs before the identifier check, so a prefix smuggled in
+		// this way is caught on the same terms as the constructor's.
+		_, err := New(dialect.SQLite, audit.DefaultTablePrefix, WithTablePrefix("bad name "))
+		test.ErrorIs(t, err, ErrInvalidTablePrefix)
+	})
+
+	T.Run("propagates a scope resolver error", func(t *testing.T) {
+		t.Parallel()
+
+		env := newAuditEnv(t)
+
+		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix,
+			WithScopeResolver(func(context.Context, dataprivacy.Subject) ([]string, error) {
+				return nil, platformerrors.New("tenant directory is down")
+			}))
+		must.NoError(t, err)
+
+		err = env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			_, eraseErr := eraser.Erase(t.Context(), q, dataprivacy.Subject{ID: "user-1"})
+
+			return eraseErr
+		})
+
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "tenant directory is down")
 	})
 }

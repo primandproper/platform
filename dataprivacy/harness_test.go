@@ -296,6 +296,26 @@ func countingEraser(deleted, anonymized int64, retained map[string]string, ran *
 	})
 }
 
+// failingClaimStore fails every Claim, so a cycle's error path is reachable.
+// Embedding the real Store means only the one method under test is a double.
+type failingClaimStore struct {
+	Store
+}
+
+func (s *failingClaimStore) Claim(context.Context, time.Time, int, time.Time) ([]*Request, error) {
+	return nil, platformerrors.New("the database is unreachable")
+}
+
+// failingOverdueStore fails only the overdue count, so a sweep's other chores
+// still run and the partial result is observable.
+type failingOverdueStore struct {
+	Store
+}
+
+func (s *failingOverdueStore) CountOverdue(context.Context, time.Time) (map[RequestType]int64, error) {
+	return nil, platformerrors.New("the read replica is unreachable")
+}
+
 // stringReader is a small convenience for writing fixture objects.
 func stringReader(content string) io.Reader {
 	return bytes.NewReader([]byte(content))
