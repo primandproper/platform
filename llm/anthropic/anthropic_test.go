@@ -1,10 +1,12 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
+	anyllm "github.com/mozilla-ai/any-llm-go"
+	anyllmerrors "github.com/mozilla-ai/any-llm-go/errors"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel/metric"
@@ -35,6 +39,72 @@ func newRecordingProvider(t *testing.T, cfg *Config) (*anthropicProvider, *obser
 	prov.o11y = obs
 
 	return prov, obs
+}
+
+// newFakeProvider builds a provider whose upstream is a fake rather than an
+// HTTP client, for the paths — streaming above all — where standing up an SSE
+// server would test net/http more than it tests this package.
+func newFakeProvider(t *testing.T, upstream *fakeUpstream) (*anthropicProvider, *observability.RecordingObserver) {
+	t.Helper()
+
+	prov, obs := newRecordingProvider(t, &Config{APIKey: "test-key"})
+	prov.provider = upstream
+
+	return prov, obs
+}
+
+// fakeUpstream is a stand-in for any-llm-go's provider.
+type fakeUpstream struct {
+	completionErr error
+	streamErr     error
+	response      *anyllm.ChatCompletion
+	params        anyllm.CompletionParams
+	chunks        []anyllm.ChatCompletionChunk
+	streamed      bool
+}
+
+func (*fakeUpstream) Name() string {
+	return "fake"
+}
+
+//nolint:gocritic // The any-llm-go interface passes params by value; matching it is not optional.
+func (f *fakeUpstream) Completion(_ context.Context, params anyllm.CompletionParams) (*anyllm.ChatCompletion, error) {
+	f.params = params
+	if f.completionErr != nil {
+		return nil, f.completionErr
+	}
+
+	return f.response, nil
+}
+
+//nolint:gocritic // The any-llm-go interface passes params by value; matching it is not optional.
+func (f *fakeUpstream) CompletionStream(ctx context.Context, params anyllm.CompletionParams) (<-chan anyllm.ChatCompletionChunk, <-chan error) {
+	// Captured before the goroutine starts, so a test can read it without
+	// racing the send.
+	f.params = params
+	f.streamed = true
+
+	chunks := make(chan anyllm.ChatCompletionChunk)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(chunks)
+		defer close(errs)
+
+		for i := range f.chunks {
+			select {
+			case chunks <- f.chunks[i]:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		if f.streamErr != nil {
+			errs <- f.streamErr
+		}
+	}()
+
+	return chunks, errs
 }
 
 // anthropicMessageResponse mimics the Anthropic Messages API response format.
@@ -95,6 +165,17 @@ func TestNewProvider(T *testing.T) {
 		})
 		must.NoError(t, err)
 		must.NotNil(t, provider)
+	})
+
+	T.Run("with a base URL the client rejects", func(t *testing.T) {
+		t.Parallel()
+
+		// A scheme-less base URL is refused by the underlying client, and the
+		// failure has to come back from the constructor rather than surfacing
+		// later as a confusing per-request error.
+		provider, err := NewProvider(&Config{APIKey: "test-key", BaseURL: "example.com/no-scheme"})
+		must.Error(t, err)
+		must.Nil(t, provider)
 	})
 
 	T.Run("with error creating request counter", func(t *testing.T) {
@@ -163,6 +244,41 @@ func TestNewProvider(T *testing.T) {
 	})
 }
 
+func TestAnthropicProvider_Name(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		provider, err := NewProvider(&Config{APIKey: "test-key"})
+		must.NoError(t, err)
+
+		// The vendor, not the component: callers persist this alongside stored
+		// completions, so it must not drift with the metric name.
+		test.EqOp(t, "anthropic", provider.Name())
+	})
+}
+
+func TestAnthropicProvider_Capabilities(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		provider, err := NewProvider(&Config{APIKey: "test-key"})
+		must.NoError(t, err)
+
+		test.Eq(t, llm.Capabilities{
+			Streaming:        true,
+			Tools:            true,
+			Images:           true,
+			PDFs:             true,
+			Reasoning:        true,
+			StructuredOutput: true,
+		}, provider.Capabilities())
+	})
+}
+
 func TestAnthropicProvider_Completion(T *testing.T) {
 	T.Parallel()
 
@@ -183,25 +299,30 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 		})
 
 		ctx := t.Context()
-		result, err := provider.Completion(ctx, llm.CompletionParams{
-			Model: "claude-sonnet-4-20250514",
-			Messages: []llm.Message{
-				{Role: "user", Content: "Hello"},
-			},
+		result, err := provider.Completion(ctx, &llm.CompletionRequest{
+			Model:    "claude-sonnet-4-20250514",
+			Messages: []llm.Message{llm.UserText("Hello")},
 		})
 		must.NoError(t, err)
 		must.NotNil(t, result)
-		must.EqOp(t, "Hello from Claude mock!", result.Content)
+		must.EqOp(t, "Hello from Claude mock!", result.Text())
+		test.EqOp(t, llm.StopReasonEndTurn, result.StopReason)
+
+		must.NotNil(t, result.Usage)
+		test.EqOp(t, 15, result.Usage.TotalTokens)
 
 		obs.ObservedOperationWithData(t, map[string]any{
-			"llm.model": "claude-sonnet-4-20250514",
+			"llm.model":         "claude-sonnet-4-20250514",
+			"llm.message_count": 1,
+			"llm.tokens.total":  15,
+			"llm.stop_reason":   "end_turn",
 		})
 	})
 
-	T.Run("uses default model when not specified", func(t *testing.T) {
+	T.Run("uses the configured default model when the request names none", func(t *testing.T) {
 		t.Parallel()
 
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			must.NoError(t, json.NewEncoder(w).Encode(anthropicMessageResponse("Hi there!")))
 		}))
@@ -216,18 +337,114 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		ctx := t.Context()
-		result, err := provider.Completion(ctx, llm.CompletionParams{
-			Messages: []llm.Message{{Role: "user", Content: "Hi"}},
+		result, err := provider.Completion(t.Context(), &llm.CompletionRequest{
+			Messages: []llm.Message{llm.UserText("Hi")},
 		})
 		must.NoError(t, err)
-		must.EqOp(t, "Hi there!", result.Content)
+		must.EqOp(t, "Hi there!", result.Text())
+	})
+
+	T.Run("falls back to a built-in model when nothing names one", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{response: &anyllm.ChatCompletion{}}
+		provider, obs := newFakeProvider(t, upstream)
+
+		_, err := provider.Completion(t.Context(), &llm.CompletionRequest{
+			Messages: []llm.Message{llm.UserText("Hi")},
+		})
+		must.NoError(t, err)
+
+		test.EqOp(t, fallbackModel, upstream.params.Model)
+		obs.ObservedOperationWithData(t, map[string]any{"llm.model": fallbackModel})
+	})
+
+	T.Run("translates the whole request", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{response: &anyllm.ChatCompletion{}}
+		provider, _ := newFakeProvider(t, upstream)
+
+		_, err := provider.Completion(t.Context(), &llm.CompletionRequest{
+			Model:    "claude-sonnet-4-20250514",
+			System:   "be terse",
+			Messages: []llm.Message{llm.UserText("Hi")},
+			Tools: []llm.Tool{{
+				Name:        "lookup",
+				Description: "looks things up",
+				Schema:      map[string]any{"type": "object"},
+			}},
+			ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceAuto},
+		})
+		must.NoError(t, err)
+
+		must.SliceLen(t, 2, upstream.params.Messages)
+		test.EqOp(t, anyllm.RoleSystem, upstream.params.Messages[0].Role)
+		must.SliceLen(t, 1, upstream.params.Tools)
+		test.EqOp(t, "lookup", upstream.params.Tools[0].Function.Name)
+	})
+
+	T.Run("returns the model's tool calls", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{response: &anyllm.ChatCompletion{
+			Choices: []anyllm.Choice{{
+				FinishReason: anyllm.FinishReasonToolCalls,
+				Message: anyllm.Message{
+					ToolCalls: []anyllm.ToolCall{{
+						ID:       "toolu_1",
+						Function: anyllm.FunctionCall{Name: "lookup", Arguments: `{"q":"x"}`},
+					}},
+				},
+			}},
+		}}
+		provider, _ := newFakeProvider(t, upstream)
+
+		result, err := provider.Completion(t.Context(), &llm.CompletionRequest{
+			Messages: []llm.Message{llm.UserText("Hi")},
+		})
+		must.NoError(t, err)
+
+		test.EqOp(t, llm.StopReasonToolUse, result.StopReason)
+		uses := result.ToolUses()
+		must.SliceLen(t, 1, uses)
+		test.EqOp(t, "toolu_1", uses[0].ID)
+	})
+
+	T.Run("with an unbuildable request", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{}
+		provider, obs := newFakeProvider(t, upstream)
+
+		result, err := provider.Completion(t.Context(), &llm.CompletionRequest{})
+		must.Error(t, err)
+		must.Nil(t, result)
+		must.ErrorIs(t, err, llm.ErrInvalidRequest)
+
+		// The request is rejected here rather than over the network, so the
+		// upstream is never reached.
+		test.EqOp(t, "", upstream.params.Model)
+
+		op := obs.ObservedOperationWithData(t, map[string]any{"llm.message_count": 0})
+		must.SliceLen(t, 1, op.Errors)
+	})
+
+	T.Run("with a nil request", func(t *testing.T) {
+		t.Parallel()
+
+		provider, _ := newFakeProvider(t, &fakeUpstream{})
+
+		result, err := provider.Completion(t.Context(), nil)
+		must.Error(t, err)
+		must.Nil(t, result)
+		must.ErrorIs(t, err, llm.ErrInvalidRequest)
 	})
 
 	T.Run("with API error", func(t *testing.T) {
 		t.Parallel()
 
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"error":{"message":"server error"}}`))
 		}))
@@ -238,10 +455,9 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 			BaseURL: ts.URL,
 		})
 
-		ctx := t.Context()
-		result, err := provider.Completion(ctx, llm.CompletionParams{
+		result, err := provider.Completion(t.Context(), &llm.CompletionRequest{
 			Model:    "claude-sonnet-4-20250514",
-			Messages: []llm.Message{{Role: "user", Content: "Hi"}},
+			Messages: []llm.Message{llm.UserText("Hi")},
 		})
 		must.Error(t, err)
 		must.Nil(t, result)
@@ -252,5 +468,183 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 			"llm.model": "claude-sonnet-4-20250514",
 		})
 		must.SliceLen(t, 1, op.Errors)
+	})
+
+	T.Run("normalizes the upstream error", func(t *testing.T) {
+		t.Parallel()
+
+		rateLimit := anyllmerrors.NewRateLimitError("anthropic", errors.New("429"))
+		rateLimit.RetryAfter = 12
+
+		provider, _ := newFakeProvider(t, &fakeUpstream{completionErr: rateLimit})
+
+		_, err := provider.Completion(t.Context(), &llm.CompletionRequest{
+			Messages: []llm.Message{llm.UserText("Hi")},
+		})
+		must.ErrorIs(t, err, llm.ErrRateLimited)
+
+		limit, ok := errors.AsType[*llm.RateLimitError](err)
+		must.True(t, ok)
+		test.EqOp(t, 12*time.Second, limit.RetryAfter)
+	})
+}
+
+func TestAnthropicProvider_Stream(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{chunks: []anyllm.ChatCompletionChunk{
+			{Choices: []anyllm.ChunkChoice{{Delta: anyllm.ChunkDelta{Content: "Hel"}}}},
+			{Choices: []anyllm.ChunkChoice{{Delta: anyllm.ChunkDelta{Content: "lo"}}}},
+			{
+				Choices: []anyllm.ChunkChoice{{FinishReason: anyllm.FinishReasonStop}},
+				Usage:   &anyllm.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5},
+			},
+		}}
+		provider, obs := newFakeProvider(t, upstream)
+
+		stream, err := provider.Stream(t.Context(), &llm.CompletionRequest{
+			Model:    "claude-sonnet-4-20250514",
+			Messages: []llm.Message{llm.UserText("Hi")},
+		})
+		must.NoError(t, err)
+		t.Cleanup(func() { must.NoError(t, stream.Close()) })
+
+		var text strings.Builder
+		var events int
+		for stream.Next() {
+			event := stream.Current()
+			events++
+			if event.Type == llm.EventTextDelta {
+				text.WriteString(event.Text)
+			}
+		}
+		must.NoError(t, stream.Err())
+
+		test.EqOp(t, "Hello", text.String())
+		test.EqOp(t, 3, events)
+
+		// The span covers the whole stream, so it ends when the stream does and
+		// not when Stream returned.
+		op := obs.ObservedOperationWithData(t, map[string]any{
+			"llm.model": "claude-sonnet-4-20250514",
+		})
+		test.True(t, op.Ended)
+		test.SliceEmpty(t, op.Errors)
+	})
+
+	T.Run("leaves the operation open until the stream ends", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{chunks: []anyllm.ChatCompletionChunk{
+			{Choices: []anyllm.ChunkChoice{{Delta: anyllm.ChunkDelta{Content: "one"}}}},
+			{Choices: []anyllm.ChunkChoice{{FinishReason: anyllm.FinishReasonStop}}},
+		}}
+		provider, obs := newFakeProvider(t, upstream)
+
+		stream, err := provider.Stream(t.Context(), &llm.CompletionRequest{
+			Messages: []llm.Message{llm.UserText("Hi")},
+		})
+		must.NoError(t, err)
+
+		must.True(t, stream.Next())
+
+		// Read straight off the observer: the ObservedOperation helpers treat an
+		// unended operation as a leaked span and fail, which is exactly the
+		// state a stream in flight is supposed to be in.
+		must.SliceLen(t, 1, obs.Operations)
+		op := obs.Operations[0]
+		test.False(t, op.Ended)
+
+		must.NoError(t, stream.Close())
+		test.True(t, op.Ended)
+	})
+
+	T.Run("accumulates streamed tool calls", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{chunks: []anyllm.ChatCompletionChunk{
+			{Choices: []anyllm.ChunkChoice{{Delta: anyllm.ChunkDelta{ToolCalls: []anyllm.ToolCall{{
+				ID:       "toolu_1",
+				Function: anyllm.FunctionCall{Name: "lookup", Arguments: `{"q"`},
+			}}}}}},
+			{Choices: []anyllm.ChunkChoice{{Delta: anyllm.ChunkDelta{ToolCalls: []anyllm.ToolCall{{
+				ID:       "toolu_1",
+				Function: anyllm.FunctionCall{Name: "lookup", Arguments: `{"q":"x"}`},
+			}}}}}},
+			{Choices: []anyllm.ChunkChoice{{FinishReason: anyllm.FinishReasonToolCalls}}},
+		}}
+		provider, _ := newFakeProvider(t, upstream)
+
+		stream, err := provider.Stream(t.Context(), &llm.CompletionRequest{
+			Messages: []llm.Message{llm.UserText("Hi")},
+		})
+		must.NoError(t, err)
+		t.Cleanup(func() { must.NoError(t, stream.Close()) })
+
+		var uses []llm.ToolUse
+		for stream.Next() {
+			if event := stream.Current(); event.Type == llm.EventToolUse {
+				uses = append(uses, *event.ToolUse)
+			}
+		}
+		must.NoError(t, stream.Err())
+
+		must.SliceLen(t, 1, uses)
+		test.EqOp(t, `{"q":"x"}`, string(uses[0].Input))
+	})
+
+	T.Run("with an upstream failure", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{
+			streamErr: anyllmerrors.NewContextLengthError("anthropic", errors.New("too long")),
+		}
+		provider, obs := newFakeProvider(t, upstream)
+
+		stream, err := provider.Stream(t.Context(), &llm.CompletionRequest{
+			Messages: []llm.Message{llm.UserText("Hi")},
+		})
+
+		// A stream that fails after it started reports through Err, not here.
+		must.NoError(t, err)
+		t.Cleanup(func() { must.NoError(t, stream.Close()) })
+
+		test.False(t, stream.Next())
+		must.ErrorIs(t, stream.Err(), llm.ErrContextTooLong)
+
+		op := obs.ObservedOperationWithData(t, map[string]any{"llm.message_count": 1})
+		test.True(t, op.Ended)
+		must.SliceLen(t, 1, op.Errors)
+	})
+
+	T.Run("with an unbuildable request", func(t *testing.T) {
+		t.Parallel()
+
+		upstream := &fakeUpstream{}
+		provider, obs := newFakeProvider(t, upstream)
+
+		stream, err := provider.Stream(t.Context(), &llm.CompletionRequest{})
+		must.Error(t, err)
+		must.Nil(t, stream)
+		must.ErrorIs(t, err, llm.ErrInvalidRequest)
+
+		test.False(t, upstream.streamed)
+
+		op := obs.ObservedOperationWithData(t, map[string]any{"llm.message_count": 0})
+		test.True(t, op.Ended)
+		must.SliceLen(t, 1, op.Errors)
+	})
+
+	T.Run("with a nil request", func(t *testing.T) {
+		t.Parallel()
+
+		provider, _ := newFakeProvider(t, &fakeUpstream{})
+
+		stream, err := provider.Stream(t.Context(), nil)
+		must.Error(t, err)
+		must.Nil(t, stream)
 	})
 }
