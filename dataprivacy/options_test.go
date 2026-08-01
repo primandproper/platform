@@ -1,0 +1,398 @@
+package dataprivacy
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/primandproper/platform-go/v9/audit"
+	auditmock "github.com/primandproper/platform-go/v9/audit/mock"
+	"github.com/primandproper/platform-go/v9/clock"
+	"github.com/primandproper/platform-go/v9/compression"
+	"github.com/primandproper/platform-go/v9/cryptography/encryption/aes"
+	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
+
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
+)
+
+// Every option here follows the same contract: a usable value is applied, and a
+// zero value leaves the existing setting alone rather than clearing it. The
+// second half is the part worth testing — an option that nils out a dependency
+// when handed a nil turns "I did not configure this" into a panic at the first
+// request, and the dependencies here are the ones that write a person's data to
+// storage.
+
+func TestServiceOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithServiceClock", func(t *testing.T) {
+		t.Parallel()
+
+		original := clock.NewClock()
+		s := &service{clock: original}
+
+		replacement := clock.NewClock()
+		WithServiceClock(replacement)(s)
+		test.True(t, s.clock == replacement)
+
+		WithServiceClock(nil)(s)
+		test.True(t, s.clock == replacement)
+	})
+
+	T.Run("WithServiceLogger", func(t *testing.T) {
+		t.Parallel()
+
+		s := &service{}
+
+		logger := loggingnoop.NewLogger()
+		WithServiceLogger(logger)(s)
+		test.NotNil(t, s.logger)
+	})
+
+	T.Run("WithServiceTracerProvider", func(t *testing.T) {
+		t.Parallel()
+
+		s := &service{}
+
+		WithServiceTracerProvider(tracingnoop.NewTracerProvider())(s)
+		test.NotNil(t, s.tracerProvider)
+	})
+
+	T.Run("WithServiceMetricsProvider", func(t *testing.T) {
+		t.Parallel()
+
+		s := &service{}
+
+		WithServiceMetricsProvider(metrics.EnsureMetricsProvider(nil))(s)
+		test.NotNil(t, s.metricsProvider)
+	})
+
+	T.Run("WithServiceUploadManager", func(t *testing.T) {
+		t.Parallel()
+
+		uploader := newMemoryUploader()
+		s := &service{}
+
+		WithServiceUploadManager(uploader)(s)
+		test.NotNil(t, s.uploader)
+
+		// Nilling this out would turn every Download into an unavailable
+		// artifact rather than a configuration error.
+		WithServiceUploadManager(nil)(s)
+		test.NotNil(t, s.uploader)
+	})
+
+	T.Run("WithServiceCompressor", func(t *testing.T) {
+		t.Parallel()
+
+		compressor, err := compression.NewCompressor(compression.AlgorithmZstd)
+		must.NoError(t, err)
+
+		s := &service{}
+
+		WithServiceCompressor(compressor)(s)
+		test.NotNil(t, s.packager.compressor)
+
+		// A cleared compressor reads a compressed artifact as garbage.
+		WithServiceCompressor(nil)(s)
+		test.NotNil(t, s.packager.compressor)
+	})
+
+	T.Run("WithServiceDecryptor", func(t *testing.T) {
+		t.Parallel()
+
+		decryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		must.NoError(t, err)
+
+		s := &service{}
+
+		WithServiceDecryptor(decryptor)(s)
+		test.NotNil(t, s.packager.decryptor)
+
+		// Setting a decryptor also records that artifacts are encrypted, which
+		// is what makes Download refuse rather than hand out ciphertext.
+		test.True(t, s.packager.encrypts())
+
+		WithServiceDecryptor(nil)(s)
+		test.NotNil(t, s.packager.decryptor)
+	})
+
+	T.Run("WithServiceAuditRecorder", func(t *testing.T) {
+		t.Parallel()
+
+		s := &service{}
+
+		WithServiceAuditRecorder(&auditmock.RecorderMock{})(s)
+		test.NotNil(t, s.recorder)
+
+		// Clearing it would silently stop recording who exported whose data.
+		WithServiceAuditRecorder(nil)(s)
+		test.NotNil(t, s.recorder)
+	})
+
+	T.Run("WithActorResolver", func(t *testing.T) {
+		t.Parallel()
+
+		s := &service{actor: func(context.Context) audit.Actor {
+			return audit.Actor{ID: "original"}
+		}}
+
+		WithActorResolver(func(context.Context) audit.Actor {
+			return audit.Actor{ID: "replacement"}
+		})(s)
+		test.EqOp(t, "replacement", s.actor(t.Context()).ID)
+
+		WithActorResolver(nil)(s)
+		test.EqOp(t, "replacement", s.actor(t.Context()).ID)
+	})
+
+	T.Run("the marker encryptor never encrypts", func(t *testing.T) {
+		t.Parallel()
+
+		// It exists only so Download can tell that artifacts are ciphertext;
+		// the Service has no business encrypting anything.
+		_, err := encryptorPresent{}.Encrypt(t.Context(), "plaintext")
+		test.Error(t, err)
+	})
+}
+
+func TestWorkerOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithWorkerClock", func(t *testing.T) {
+		t.Parallel()
+
+		original := clock.NewClock()
+		w := &Worker{clock: original}
+
+		replacement := clock.NewClock()
+		WithWorkerClock(replacement)(w)
+		test.True(t, w.clock == replacement)
+
+		WithWorkerClock(nil)(w)
+		test.True(t, w.clock == replacement)
+	})
+
+	T.Run("WithWorkerLogger", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{}
+
+		WithWorkerLogger(loggingnoop.NewLogger())(w)
+		test.NotNil(t, w.logger)
+	})
+
+	T.Run("WithWorkerTracerProvider", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{}
+
+		WithWorkerTracerProvider(tracingnoop.NewTracerProvider())(w)
+		test.NotNil(t, w.tracerProvider)
+	})
+
+	T.Run("WithWorkerMetricsProvider", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{}
+
+		WithWorkerMetricsProvider(metrics.EnsureMetricsProvider(nil))(w)
+		test.NotNil(t, w.metricsProvider)
+	})
+
+	T.Run("WithWorkerUploadManager", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{}
+
+		WithWorkerUploadManager(newMemoryUploader())(w)
+		test.NotNil(t, w.uploader)
+
+		WithWorkerUploadManager(nil)(w)
+		test.NotNil(t, w.uploader)
+	})
+
+	T.Run("WithWorkerCompressor", func(t *testing.T) {
+		t.Parallel()
+
+		compressor, err := compression.NewCompressor(compression.AlgorithmZstd)
+		must.NoError(t, err)
+
+		w := &Worker{}
+
+		WithWorkerCompressor(compressor)(w)
+		test.NotNil(t, w.packager.compressor)
+
+		WithWorkerCompressor(nil)(w)
+		test.NotNil(t, w.packager.compressor)
+	})
+
+	T.Run("WithWorkerEncryptor", func(t *testing.T) {
+		t.Parallel()
+
+		encryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		must.NoError(t, err)
+
+		w := &Worker{}
+
+		WithWorkerEncryptor(encryptor)(w)
+		test.True(t, w.packager.encrypts())
+
+		// Clearing it would silently start writing plaintext exports to a
+		// bucket an operator believes is encrypted.
+		WithWorkerEncryptor(nil)(w)
+		test.True(t, w.packager.encrypts())
+	})
+
+	T.Run("WithWorkerNotifier", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{}
+
+		WithWorkerNotifier(NotifierFunc(func(context.Context, *Notification) error { return nil }))(w)
+		test.NotNil(t, w.notifier)
+
+		WithWorkerNotifier(nil)(w)
+		test.NotNil(t, w.notifier)
+	})
+
+	T.Run("WithWorkerAuditRecorder", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{}
+
+		WithWorkerAuditRecorder(&auditmock.RecorderMock{})(w)
+		test.NotNil(t, w.recorder)
+
+		WithWorkerAuditRecorder(nil)(w)
+		test.NotNil(t, w.recorder)
+	})
+
+	T.Run("WithWorkerActorResolver", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{actor: func(context.Context) audit.Actor {
+			return audit.Actor{ID: "original"}
+		}}
+
+		WithWorkerActorResolver(func(context.Context) audit.Actor {
+			return audit.Actor{ID: "replacement"}
+		})(w)
+		test.EqOp(t, "replacement", w.actor(t.Context()).ID)
+
+		WithWorkerActorResolver(nil)(w)
+		test.EqOp(t, "replacement", w.actor(t.Context()).ID)
+	})
+
+	T.Run("WithWorkerURLSigner", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{}
+
+		WithWorkerURLSigner(func(context.Context, *Request) (string, time.Time) {
+			return "https://example/x", time.Time{}
+		})(w)
+		must.NotNil(t, w.signer)
+
+		url, _ := w.signer(t.Context(), &Request{})
+		test.EqOp(t, "https://example/x", url)
+
+		WithWorkerURLSigner(nil)(w)
+		must.NotNil(t, w.signer)
+	})
+}
+
+func TestSweeperOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithSweeperClock", func(t *testing.T) {
+		t.Parallel()
+
+		original := clock.NewClock()
+		s := &Sweeper{clock: original}
+
+		replacement := clock.NewClock()
+		WithSweeperClock(replacement)(s)
+		test.True(t, s.clock == replacement)
+
+		WithSweeperClock(nil)(s)
+		test.True(t, s.clock == replacement)
+	})
+
+	T.Run("WithSweeperLogger", func(t *testing.T) {
+		t.Parallel()
+
+		s := &Sweeper{}
+
+		WithSweeperLogger(loggingnoop.NewLogger())(s)
+		test.NotNil(t, s.logger)
+	})
+
+	T.Run("WithSweeperTracerProvider", func(t *testing.T) {
+		t.Parallel()
+
+		s := &Sweeper{}
+
+		WithSweeperTracerProvider(tracingnoop.NewTracerProvider())(s)
+		test.NotNil(t, s.tracerProvider)
+	})
+
+	T.Run("WithSweeperMetricsProvider", func(t *testing.T) {
+		t.Parallel()
+
+		s := &Sweeper{}
+
+		WithSweeperMetricsProvider(metrics.EnsureMetricsProvider(nil))(s)
+		test.NotNil(t, s.metricsProvider)
+	})
+
+	T.Run("WithSweeperUploadManager", func(t *testing.T) {
+		t.Parallel()
+
+		s := &Sweeper{}
+
+		WithSweeperUploadManager(newMemoryUploader())(s)
+		test.NotNil(t, s.uploader)
+
+		// Without it the sweeper expires nothing, so clearing it would silently
+		// stop artifacts ever being deleted.
+		WithSweeperUploadManager(nil)(s)
+		test.NotNil(t, s.uploader)
+	})
+}
+
+func TestSQLStoreOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("WithTablePrefix", func(t *testing.T) {
+		t.Parallel()
+
+		s := &sqlStore{tables: newTables(DefaultTablePrefix)}
+
+		WithTablePrefix("custom")(s)
+		test.EqOp(t, "custom", s.tables.prefix())
+		test.EqOp(t, "custom_requests", s.tables.requests)
+
+		// An empty prefix would render a table named "_requests".
+		WithTablePrefix("")(s)
+		test.EqOp(t, "custom", s.tables.prefix())
+	})
+
+	T.Run("observability options", func(t *testing.T) {
+		t.Parallel()
+
+		s := &sqlStore{tables: newTables(DefaultTablePrefix)}
+
+		WithStoreLogger(loggingnoop.NewLogger())(s)
+		test.NotNil(t, s.logger)
+
+		WithStoreTracerProvider(tracingnoop.NewTracerProvider())(s)
+		test.NotNil(t, s.tracerProvider)
+
+		WithStoreMetricsProvider(metrics.EnsureMetricsProvider(nil))(s)
+		test.NotNil(t, s.metricsProvider)
+	})
+}

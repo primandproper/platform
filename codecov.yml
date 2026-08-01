@@ -1,3 +1,16 @@
+# Generated moq mocks are excluded from coverage. Every <pkg>/mock directory
+# holds exactly two things — the file moq generates and a doc.go carrying the
+# go:generate directive — so nothing hand-written is hidden by this.
+#
+# They are excluded because their coverage number is noise in both directions.
+# A mock method is "covered" only when some test happens to call that method and
+# its Calls accessor, so the figure measures which mocks tests reach rather than
+# whether anything is tested. Left in, a package that adds a mock for a wide
+# interface reports a coverage drop for having made itself easier to test, which
+# is precisely the wrong incentive.
+ignore:
+  - "**/mock/**"
+
 coverage:
   status:
     project:
