@@ -20,7 +20,7 @@ var _ Observer = (*observer)(nil)
 // implementation (see NewRecordingObserver) and assert which fields a unit
 // observed.
 type Observer interface {
-	Begin(ctx context.Context) (context.Context, Operation)
+	Begin(ctx context.Context, opts ...BeginOption) (context.Context, Operation)
 	BeginCustom(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, Operation)
 	Logger() logging.Logger
 	Tracer() tracing.Tracer
@@ -60,14 +60,16 @@ func NewObserverForTest(name string) Observer {
 }
 
 // Begin starts a span named for the calling function and returns an Operation
-// carrying a span-linked logger. It resolves the span name via
+// carrying a span-linked logger, seeded with opts. It resolves the span name via
 // tracing.GetCallerName, which depends on Begin sitting exactly one frame below
 // the instrumented method (the same frame-depth contract Tracer.StartSpan
-// relies on); the span-name test guards that contract.
-func (o *observer) Begin(ctx context.Context) (context.Context, Operation) {
+// relies on); the span-name test guards that contract. The variadic parameter
+// does not disturb it — options are applied after the name is resolved, and
+// GetCallerName counts frames rather than arguments.
+func (o *observer) Begin(ctx context.Context, opts ...BeginOption) (context.Context, Operation) {
 	ctx, span := o.tracer.StartCustomSpan(ctx, tracing.GetCallerName())
 
-	return ctx, newOperation(span, o.logger)
+	return ctx, applyBeginOptions(newOperation(span, o.logger), opts)
 }
 
 // BeginCustom starts an explicitly named span and returns an Operation.

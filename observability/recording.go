@@ -102,9 +102,13 @@ func (o *RecordingObserver) record(op *RecordingOperation, key string, value any
 	}
 }
 
-// Begin returns a RecordingOperation and leaves the context untouched.
-func (o *RecordingObserver) Begin(ctx context.Context) (context.Context, Operation) {
-	return ctx, o.newOperation()
+// Begin returns a RecordingOperation seeded with opts, and leaves the context
+// untouched. Seeded values are recorded as ordinary observations, so a test
+// asserting on them cannot tell whether the unit passed them to Begin or set
+// them afterwards — which is what makes migrating a call site to the option
+// form invisible to its test.
+func (o *RecordingObserver) Begin(ctx context.Context, opts ...BeginOption) (context.Context, Operation) {
+	return ctx, applyBeginOptions(o.newOperation(), opts)
 }
 
 // BeginCustom returns a RecordingOperation and leaves the context untouched.
