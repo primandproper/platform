@@ -1,0 +1,152 @@
+/*
+Package sagacfg assembles the saga machinery from environment configuration:
+the Store the runner and the worker share, and the Worker that advances
+instances.
+
+Both read one Config, so the dialect and table prefix a Runner writes to are by
+construction the ones the Worker claims from.
+
+The registry is not configured here, and cannot be. A step is a Go function, so
+there is no way to express a definition in the environment and no way to load
+one at runtime — it is passed explicitly to ProvideWorker and to the Runner.
+
+Runner construction is likewise not here, for a different reason: NewRunner is
+generic over the state type, and a constructor in a config package would have to
+name that type. Build the store here, hand it to NewRunner[T] at the call site.
+*/
+package sagacfg
+
+import (
+	"context"
+
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v9/distributedlock"
+	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/idempotency"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/saga"
+
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+)
+
+// Config assembles a saga Store and Worker.
+type Config struct {
+	_ struct{} `json:"-" yaml:"-"`
+
+	// Dialect selects the SQL emitted; it must match the database.Client.
+	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
+
+	// TablePrefix names the instance table. It must match the prefix the
+	// migrations were rendered with. Defaults to saga.DefaultTablePrefix.
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+
+	// EventTopic is the outbox topic lifecycle events are published to.
+	// Defaults to saga.DefaultEventTopic.
+	EventTopic string `env:"EVENT_TOPIC" json:"eventTopic" yaml:"eventTopic"`
+
+	// Worker carries the advance loop's knobs.
+	Worker saga.WorkerConfig `env:"init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
+}
+
+var _ validation.ValidatableWithContext = (*Config)(nil)
+
+// EnsureDefaults fills in zero fields.
+func (cfg *Config) EnsureDefaults() {
+	if cfg.TablePrefix == "" {
+		cfg.TablePrefix = saga.DefaultTablePrefix
+	}
+
+	if cfg.EventTopic == "" {
+		cfg.EventTopic = saga.DefaultEventTopic
+	}
+
+	cfg.Worker.EnsureDefaults()
+}
+
+// ValidateWithContext validates a Config.
+//
+// The nested config is validated through a validation.By closure because ozzo
+// dereferences a struct-value field before checking ValidatableWithContext, so
+// it would otherwise be skipped.
+func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	return validation.ValidateStructWithContext(ctx, cfg,
+		validation.Field(&cfg.Dialect, validation.Required, validation.By(func(any) error {
+			if !cfg.Dialect.Valid() {
+				return errors.Wrapf(dialect.ErrUnsupported, "saga dialect %q", cfg.Dialect)
+			}
+
+			return nil
+		})),
+		validation.Field(&cfg.TablePrefix, validation.Required),
+		validation.Field(&cfg.EventTopic, validation.Required),
+		validation.Field(&cfg.Worker, validation.By(func(any) error {
+			return cfg.Worker.ValidateWithContext(ctx)
+		})),
+	)
+}
+
+// ProvideStore builds the saga Store from the config.
+func ProvideStore(
+	ctx context.Context,
+	cfg *Config,
+	logger logging.Logger,
+	tracerProvider tracing.TracerProvider,
+	metricsProvider metrics.Provider,
+	client database.Client,
+) (saga.Store, error) {
+	if cfg == nil {
+		return nil, errors.New("nil saga config provided")
+	}
+
+	cfg.EnsureDefaults()
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating saga config")
+	}
+
+	return saga.NewSQLStore(cfg.Dialect, client,
+		saga.WithTablePrefix(cfg.TablePrefix),
+		saga.WithStoreLogger(logger),
+		saga.WithStoreTracerProvider(tracerProvider),
+		saga.WithStoreMetricsProvider(metricsProvider),
+	)
+}
+
+// ProvideWorker builds the Worker that advances instances.
+//
+// The locker is required and has no default — see saga.ErrNilLocker. The
+// idempotency manager and the event publisher are optional; both may be nil,
+// and the package documentation says what each one being absent costs.
+func ProvideWorker(
+	ctx context.Context,
+	cfg *Config,
+	logger logging.Logger,
+	tracerProvider tracing.TracerProvider,
+	metricsProvider metrics.Provider,
+	store saga.Store,
+	registry *saga.Registry,
+	locker distributedlock.ScopedLocker,
+	manager *idempotency.Manager[saga.StepResult],
+	publisher saga.EventPublisher,
+) (*saga.Worker, error) {
+	if cfg == nil {
+		return nil, errors.New("nil saga config provided")
+	}
+
+	cfg.EnsureDefaults()
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating saga config")
+	}
+
+	return saga.NewWorker(ctx, &cfg.Worker, store, registry, locker,
+		saga.WithWorkerLogger(logger),
+		saga.WithWorkerTracerProvider(tracerProvider),
+		saga.WithWorkerMetricsProvider(metricsProvider),
+		saga.WithWorkerIdempotency(manager),
+		saga.WithWorkerEventPublisher(publisher),
+	)
+}
