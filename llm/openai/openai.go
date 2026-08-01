@@ -7,15 +7,26 @@ import (
 
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/llm"
+	"github.com/primandproper/platform-go/v9/llm/internal/bridge"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/pointer"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
 	anyllmopenai "github.com/mozilla-ai/any-llm-go/providers/openai"
 )
 
-const name = "openai_llm"
+const (
+	// name scopes this package's spans, logs, and metrics.
+	name = "openai_llm"
+	// providerName is what llm.Provider.Name reports. It is the vendor rather
+	// than the component, since callers use it to reason about the model, and
+	// it is stable enough to persist alongside stored completions.
+	providerName = "openai"
+	// fallbackModel is used when neither the request nor the config names one.
+	fallbackModel = "gpt-4o-mini"
+)
+
+var _ llm.Provider = (*openaiProvider)(nil)
 
 // NewProvider creates a new OpenAI-backed LLM provider.
 func NewProvider(cfg *Config, opts ...Option) (llm.Provider, error) {
@@ -71,18 +82,40 @@ type openaiProvider struct {
 	requestCounter metrics.Int64Counter
 	errorCounter   metrics.Int64Counter
 	latencyHist    metrics.Float64Histogram
-	provider       *anyllmopenai.Provider
-	defaultModel   string
+	// provider is the interface rather than the concrete OpenAI provider, so
+	// that the observability and translation seams around it can be exercised
+	// without an HTTP round trip.
+	provider     anyllm.Provider
+	defaultModel string
+}
+
+// Name implements llm.Provider.
+func (*openaiProvider) Name() string {
+	return providerName
+}
+
+// Capabilities implements llm.Provider.
+//
+// PDFs is false: the OpenAI chat completions surface any-llm-go targets takes
+// images but not documents.
+func (*openaiProvider) Capabilities() llm.Capabilities {
+	return llm.Capabilities{
+		Streaming:        true,
+		Tools:            true,
+		Images:           true,
+		PDFs:             false,
+		Reasoning:        true,
+		StructuredOutput: true,
+	}
 }
 
 // Completion implements llm.Provider.
 //
-// Rate limiting: this method does not retry. The underlying any-llm library classifies a
-// 429 as *anyllm.RateLimitError (which carries a RetryAfter) but never retries on its own,
-// so the error is surfaced to the caller unchanged. Callers that want backoff should wrap
-// this call themselves (e.g. with the platform's retry package), inspecting the error via
-// errors.As for *anyllm.RateLimitError / errors.Is for anyllm.ErrRateLimit.
-func (p *openaiProvider) Completion(ctx context.Context, params llm.CompletionParams) (*llm.CompletionResult, error) {
+// It does not retry. A rate limit comes back as an error matching
+// llm.ErrRateLimited — usually a *llm.RateLimitError carrying the provider's
+// advice about how long to wait — and choosing a backoff against that advice is
+// the caller's job, since only the caller knows its own deadline.
+func (p *openaiProvider) Completion(ctx context.Context, req *llm.CompletionRequest) (*llm.CompletionResponse, error) {
 	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
@@ -91,54 +124,92 @@ func (p *openaiProvider) Completion(ctx context.Context, params llm.CompletionPa
 		p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	model := params.Model
-	if model == "" {
-		model = p.defaultModel
-	}
-	if model == "" {
-		model = "gpt-4o-mini"
-	}
-
-	op.Set("llm.model", model).Set("llm.message_count", len(params.Messages))
-
-	anyllmParams := anyllm.CompletionParams{
-		Model:    model,
-		Messages: toAnyLLMMessages(pointer.ToSlice(params.Messages)),
-	}
-
-	resp, err := p.provider.Completion(ctx, anyllmParams)
+	params, err := p.params(req, op)
 	if err != nil {
 		p.errorCounter.Add(ctx, 1)
-		return nil, op.Error(err, "completing request")
+
+		return nil, op.Error(err, "building request")
+	}
+
+	resp, err := p.provider.Completion(ctx, params)
+	if err != nil {
+		p.errorCounter.Add(ctx, 1)
+
+		return nil, op.Error(bridge.NormalizeError(err), "completing request")
 	}
 
 	p.requestCounter.Add(ctx, 1)
 
-	if resp.Usage != nil {
-		op.Set("llm.tokens.total", resp.Usage.TotalTokens)
+	out := bridge.Response(resp)
+	if out.Usage != nil {
+		op.Set("llm.tokens.total", out.Usage.TotalTokens)
 	}
-	if len(resp.Choices) > 0 {
-		op.Set("llm.finish_reason", resp.Choices[0].FinishReason)
-	}
+	op.Set("llm.stop_reason", string(out.StopReason))
 
-	return toCompletionResult(resp), nil
+	return out, nil
 }
 
-func toAnyLLMMessages(msgs []*llm.Message) []anyllm.Message {
-	out := make([]anyllm.Message, len(msgs))
-	for i, m := range msgs {
-		out[i] = anyllm.Message{
-			Role:    m.Role,
-			Content: m.Content,
+// Stream implements llm.Provider.
+//
+// The span and the latency measurement cover the whole stream rather than the
+// call that starts it, which is why they are ended by the returned stream's
+// finish hook instead of a defer here. A consumer that abandons the stream
+// without closing it leaves both open; llm.Stream documents Close as mandatory
+// for exactly this reason.
+func (p *openaiProvider) Stream(ctx context.Context, req *llm.CompletionRequest) (llm.Stream, error) {
+	ctx, op := p.o11y.Begin(ctx)
+
+	params, err := p.params(req, op)
+	if err != nil {
+		defer op.End()
+		p.errorCounter.Add(ctx, 1)
+
+		return nil, op.Error(err, "building request")
+	}
+
+	// OpenAI omits token accounting from a stream unless asked, so a streamed
+	// llm.EventDone would otherwise carry no Usage at all. Anthropic reports it
+	// unconditionally and ignores this option, which is why it is set here
+	// rather than in the shared translation.
+	params.StreamOptions = &anyllm.StreamOptions{IncludeUsage: true}
+
+	startTime := time.Now()
+	p.requestCounter.Add(ctx, 1)
+
+	streamCtx, cancel := context.WithCancel(ctx)
+	chunks, errs := p.provider.CompletionStream(streamCtx, params)
+
+	return bridge.Stream(chunks, errs, func(streamErr error) {
+		cancel()
+		p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+
+		if streamErr != nil {
+			p.errorCounter.Add(ctx, 1)
+			op.Acknowledge(streamErr, "streaming completion")
 		}
-	}
-	return out
+
+		op.End()
+	}), nil
 }
 
-func toCompletionResult(resp *anyllm.ChatCompletion) *llm.CompletionResult {
-	content := ""
-	if len(resp.Choices) > 0 {
-		content = resp.Choices[0].Message.ContentString()
+// params resolves the model and translates the request, recording what was
+// asked for on the operation either way.
+func (p *openaiProvider) params(req *llm.CompletionRequest, op observability.Operation) (anyllm.CompletionParams, error) {
+	model := ""
+	messageCount := 0
+	if req != nil {
+		model = req.Model
+		messageCount = len(req.Messages)
 	}
-	return &llm.CompletionResult{Content: content}
+
+	if model == "" {
+		model = p.defaultModel
+	}
+	if model == "" {
+		model = fallbackModel
+	}
+
+	op.Set("llm.model", model).Set("llm.message_count", messageCount)
+
+	return bridge.Params(req, model)
 }

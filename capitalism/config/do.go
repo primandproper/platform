@@ -28,3 +28,18 @@ func RegisterPaymentManager(i do.Injector) {
 		)
 	})
 }
+
+// RegisterUsageReporter registers a capitalism.UsageReporter with the injector.
+//
+// It is a separate registration from RegisterPaymentManager because the two are
+// wanted by different processes: an API server charges, and a worker reports
+// usage. A deployment registers whichever of the two it actually runs.
+func RegisterUsageReporter(i do.Injector) {
+	do.Provide[capitalism.UsageReporter](i, func(i do.Injector) (capitalism.UsageReporter, error) {
+		return NewUsageReporterImplementation(
+			do.MustInvoke[logging.Logger](i),
+			do.MustInvoke[tracing.TracerProvider](i),
+			do.MustInvoke[*Config](i),
+		)
+	})
+}
