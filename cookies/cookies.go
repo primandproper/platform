@@ -86,10 +86,8 @@ func NewCookieManager(cfg *Config, opts ...Option) (Manager, error) {
 
 // Encode wraps securecookie's Encode method.
 func (m *manager) Encode(ctx context.Context, name string, value any) (string, error) {
-	_, op := m.o11y.Begin(ctx)
+	_, op := m.o11y.Begin(ctx, observability.WithValue(keys.NameKey, name))
 	defer op.End()
-
-	op.Set(keys.NameKey, name)
 
 	encoded, err := m.secureCookie.Encode(name, value)
 	if err != nil {
@@ -104,10 +102,8 @@ func (m *manager) Encode(ctx context.Context, name string, value any) (string, e
 // SameSite, and MaxAge/Expires from Lifetime, plus a non-negotiable HttpOnly
 // default. Callers hand the result to http.SetCookie.
 func (m *manager) BuildCookie(ctx context.Context, name string, value any) (*http.Cookie, error) {
-	_, op := m.o11y.Begin(ctx)
+	_, op := m.o11y.Begin(ctx, observability.WithValue(keys.NameKey, name))
 	defer op.End()
-
-	op.Set(keys.NameKey, name)
 
 	encoded, err := m.secureCookie.Encode(name, value)
 	if err != nil {
@@ -134,10 +130,8 @@ func (m *manager) BuildCookie(ctx context.Context, name string, value any) (*htt
 
 // Decode wraps securecookie's Decode method.
 func (m *manager) Decode(ctx context.Context, name, value string, dst any) error {
-	_, op := m.o11y.Begin(ctx)
+	_, op := m.o11y.Begin(ctx, observability.WithValue(keys.NameKey, name))
 	defer op.End()
-
-	op.Set(keys.NameKey, name)
 
 	if err := m.secureCookie.Decode(name, value, dst); err != nil {
 		return observability.PrepareError(err, op.Span(), "decoding cookie")

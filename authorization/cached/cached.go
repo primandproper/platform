@@ -206,10 +206,8 @@ func (r *Resolver) PermissionsForRoles(ctx context.Context, roles ...string) (*a
 		return authorization.NewPermissionSet(), nil
 	}
 
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(keys.AuthorizationRolesKey, roles))
 	defer op.End()
-
-	op.Set(keys.AuthorizationRolesKey, roles)
 
 	key := r.key(roles)
 	// The key embeds the generation counter and every role name, which is
@@ -269,10 +267,8 @@ func (r *Resolver) Invalidate(ctx context.Context, roles ...string) error {
 		return nil
 	}
 
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(keys.AuthorizationRolesKey, roles))
 	defer op.End()
-
-	op.Set(keys.AuthorizationRolesKey, roles)
 
 	if err := r.cache.Delete(ctx, r.key(roles)); err != nil {
 		return op.Error(err, "invalidating cached policy resolution")

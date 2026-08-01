@@ -65,55 +65,6 @@ type Sweeper struct {
 	cfg SweeperConfig
 }
 
-// SweeperOption configures a Sweeper.
-type SweeperOption func(*Sweeper)
-
-// WithSweeperClock swaps the clock deciding what has expired.
-func WithSweeperClock(c clock.Clock) SweeperOption {
-	return func(s *Sweeper) {
-		if c != nil {
-			s.clock = c
-		}
-	}
-}
-
-// WithSweeperLogger attaches a logger.
-func WithSweeperLogger(logger logging.Logger) SweeperOption {
-	return func(s *Sweeper) {
-		s.logger = logger
-	}
-}
-
-// WithSweeperTracerProvider attaches a tracer provider.
-func WithSweeperTracerProvider(tracerProvider tracing.TracerProvider) SweeperOption {
-	return func(s *Sweeper) {
-		s.tracerProvider = tracerProvider
-	}
-}
-
-// WithSweeperMetricsProvider attaches a metrics provider, enabling the overdue
-// gauge — which is the one instrument in this package worth alerting on.
-func WithSweeperMetricsProvider(metricsProvider metrics.Provider) SweeperOption {
-	return func(s *Sweeper) {
-		s.metricsProvider = metricsProvider
-	}
-}
-
-// WithSweeperUploadManager supplies the storage artifacts are deleted from. It
-// must be the same storage the Worker writes to.
-//
-// Without it the Sweeper refuses to expire artifacts at all rather than marking
-// rows expired against objects it cannot delete — a row that says the artifact
-// is gone while the artifact is not is worse than no sweep, because it stops
-// anybody looking.
-func WithSweeperUploadManager(manager uploads.UploadManager) SweeperOption {
-	return func(s *Sweeper) {
-		if manager != nil {
-			s.uploader = manager
-		}
-	}
-}
-
 // NewSweeper builds a Sweeper. It does not schedule it; see Job.
 //
 // ctx is used to validate the config and is not retained.

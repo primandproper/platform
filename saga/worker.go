@@ -85,76 +85,6 @@ type Worker struct {
 	stopOnce sync.Once
 }
 
-// WorkerOption configures a Worker.
-type WorkerOption func(*Worker)
-
-// WithWorkerClock swaps the clock driving the poll loop, leases, and backoff.
-func WithWorkerClock(c clock.Clock) WorkerOption {
-	return func(w *Worker) {
-		if c != nil {
-			w.clock = c
-		}
-	}
-}
-
-// WithWorkerLogger attaches a logger. A stuck instance is reported through it
-// and nowhere else — there is no caller to return it to — so without one the
-// only signal that a saga needs a human is a counter.
-func WithWorkerLogger(logger logging.Logger) WorkerOption {
-	return func(w *Worker) {
-		w.logger = logger
-	}
-}
-
-// WithWorkerTracerProvider attaches a tracer provider. Cycles that claim
-// nothing are not traced — a root span every poll interval is noise, and this
-// worker polls every second.
-func WithWorkerTracerProvider(tracerProvider tracing.TracerProvider) WorkerOption {
-	return func(w *Worker) {
-		w.tracerProvider = tracerProvider
-	}
-}
-
-// WithWorkerMetricsProvider attaches a metrics provider.
-func WithWorkerMetricsProvider(metricsProvider metrics.Provider) WorkerOption {
-	return func(w *Worker) {
-		w.metricsProvider = metricsProvider
-	}
-}
-
-// WithWorkerEventPublisher attaches the publisher lifecycle events go through.
-// Pair it with the Runner's, or a subscriber gets a started event and then
-// silence.
-func WithWorkerEventPublisher(publisher EventPublisher) WorkerOption {
-	return func(w *Worker) {
-		if publisher != nil {
-			w.publisher = publisher
-		}
-	}
-}
-
-// WithWorkerIdempotency supplies the manager that suppresses a re-executed
-// step, keyed per (instance, step, phase).
-//
-// It is worth setting, and it is worth understanding what it does and does not
-// buy — see the package documentation's section on exactly-once. Briefly: the
-// key is committed with the step's recorded result, so a crash between "the
-// step succeeded" and "the row says so" replays instead of re-executing. A
-// crash between "the effect landed" and "the idempotency store committed" still
-// re-executes, and no library that does not share a transaction with the step
-// can close that window.
-//
-// Without a manager, every step runs again on every resumption. That is correct
-// for a step that only reads or that writes an idempotent upsert, and it is a
-// duplicate charge for anything else.
-func WithWorkerIdempotency(manager *idempotency.Manager[StepResult]) WorkerOption {
-	return func(w *Worker) {
-		if manager != nil {
-			w.idempotency = manager
-		}
-	}
-}
-
 // NewWorker builds a Worker. It does not start it; call Run.
 //
 // ctx is used to validate the config and is not retained — Run takes its own.
@@ -325,10 +255,8 @@ func (w *Worker) cycle(ctx context.Context) {
 		return
 	}
 
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx, observability.WithValue(claimedKey, len(claimed)))
 	defer op.End()
-
-	op.Set(claimedKey, len(claimed))
 
 	sem := make(chan struct{}, w.cfg.Concurrency)
 
@@ -356,16 +284,14 @@ func (w *Worker) cycle(ctx context.Context) {
 func (w *Worker) advance(ctx context.Context, inst *Record) {
 	startTime := time.Now()
 
-	ctx, op := w.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := w.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		instanceIDKey: inst.ID,
 		definitionKey: inst.Definition,
 		statusKey:     string(inst.Status),
 		stepIndexKey:  inst.CurrentStep,
 		attemptsKey:   inst.Attempts,
-	})
+	}))
+	defer op.End()
 
 	// Deliberately no timeout on the pass as a whole. Each step is bounded by
 	// StepTimeout inside execute, and drive stops starting new ones once its

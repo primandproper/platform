@@ -85,18 +85,6 @@ type EmailNotifier struct {
 // MessageRenderer builds the subject line and HTML body for a notification.
 type MessageRenderer func(notification *Notification, to Recipient) (subject, htmlBody string)
 
-// EmailNotifierOption configures an EmailNotifier.
-type EmailNotifierOption func(*EmailNotifier)
-
-// WithMessageRenderer replaces the default message.
-func WithMessageRenderer(renderer MessageRenderer) EmailNotifierOption {
-	return func(n *EmailNotifier) {
-		if renderer != nil {
-			n.renderer = renderer
-		}
-	}
-}
-
 var _ Notifier = (*EmailNotifier)(nil)
 
 // NewEmailNotifier builds a Notifier over an email.Emailer.

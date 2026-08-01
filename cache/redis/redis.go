@@ -89,86 +89,6 @@ type redisCacheImpl[T any] struct {
 	isCluster        bool
 }
 
-// Option configures a redis cache at construction.
-//
-// It carries no type parameter even though the cache does. Go cannot infer a
-// type argument from a call's result type, so an Option[T] would force every
-// call site to spell the cached type out by hand — WithLogger[MyValue](l) —
-// forever. WithCodec is the one option that depends on the cached type; it
-// stays generic but still needs no annotation, because T is inferable from the
-// codec it is handed.
-type Option func(*options)
-
-// options accumulates what the options set, so Option can stay free of the
-// cache's type parameter.
-type options struct {
-	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
-	metricsProvider metrics.Provider
-
-	// codec holds a cache.Codec[T] for the T of the cache being built. It is
-	// typed as any because Option cannot name T; NewRedisCache asserts it back
-	// to the concrete type and reports a mismatch rather than ignoring it.
-	codec any
-
-	scanPageSize int64
-}
-
-// WithCodec swaps the value codec. The default is cache.NewGobCodec; supply a
-// fixed-format codec when gob's per-value overhead matters (large batch
-// reads). Values written with one codec are unreadable through another — see
-// cache.Codec for the migration caveat.
-//
-// T is inferred from the codec, so this needs no type argument:
-//
-//	redis.WithCodec(cache.NewJSONCodec[Session]())
-//
-// It must match the cache it configures. Because Option carries no type
-// parameter, a codec for the wrong type cannot be rejected by the compiler;
-// NewRedisCache returns ErrCodecTypeMismatch instead, at construction.
-func WithCodec[T any](codec cache.Codec[T]) Option {
-	return func(o *options) {
-		if codec != nil {
-			o.codec = codec
-		}
-	}
-}
-
-// WithScanPageSize sets the COUNT a single SCAN iteration asks for during
-// prefix deletion. It is a hint to redis, not a guarantee: an iteration may
-// return more or fewer keys.
-//
-// The default of 1000 trades round trips against per-command latency. Raise it
-// to sweep a large keyspace in fewer round trips; lower it on a latency-
-// sensitive shared instance, since redis serves SCAN on its single command
-// thread and a large COUNT blocks other clients for the duration. A
-// non-positive size is ignored, keeping the default.
-func WithScanPageSize(size int64) Option {
-	return func(o *options) {
-		if size > 0 {
-			o.scanPageSize = size
-		}
-	}
-}
-
-// WithLogger attaches a logger. An absent logger logs nowhere.
-func WithLogger(logger logging.Logger) Option {
-	return func(o *options) { o.logger = logger }
-}
-
-// WithTracerProvider attaches a tracer provider, enabling spans on every cache
-// operation. An absent tracer provider traces nowhere.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
-	return func(o *options) { o.tracerProvider = tracerProvider }
-}
-
-// WithMetricsProvider attaches a metrics provider for the cache's hit, miss,
-// set, delete, and error counters and its latency histogram. An absent
-// provider records nothing.
-func WithMetricsProvider(metricsProvider metrics.Provider) Option {
-	return func(o *options) { o.metricsProvider = metricsProvider }
-}
-
 // NewRedisCache builds a new redis-backed cache. When cfg.Namespace is set,
 // every key is transparently prefixed with it: callers always use bare keys,
 // the namespace marks which entries this cache owns, and Flush becomes
@@ -264,9 +184,8 @@ func (i *redisCacheImpl[T]) key(k string) string {
 }
 
 func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	if i.circuitBreaker.CannotProceed() {
 		i.cacheMissCounter.Add(ctx, 1)
@@ -311,9 +230,8 @@ func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
 }
 
 func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	if i.circuitBreaker.CannotProceed() {
 		return nil
@@ -343,9 +261,8 @@ func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts 
 }
 
 func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
-	op.Set("name", key)
 
 	if i.circuitBreaker.CannotProceed() {
 		return nil
@@ -372,9 +289,8 @@ func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
 // every key to share a hash slot, so the keys are bucketed by slot and
 // deleted one DEL per slot; a single-node client deletes them in one DEL.
 func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
-	op.Set("length", len(keys))
 
 	if len(keys) == 0 {
 		return nil
@@ -419,9 +335,8 @@ func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error
 // namespace an empty prefix is refused with cache.ErrNamespaceRequired —
 // matching every key in a possibly shared database is not ownership.
 func (i *redisCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("prefix", prefix))
 	defer op.End()
-	op.Set("prefix", prefix)
 
 	if i.namespace == "" && prefix == "" {
 		return cache.ErrNamespaceRequired
@@ -524,9 +439,8 @@ func (i *redisCacheImpl[T]) Ping(ctx context.Context) error {
 // bucketed by slot and fetched one MGET per slot; a single-node client fetches
 // them all in one MGET. Results are keyed by the caller's bare keys.
 func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
-	op.Set("length", len(keys))
 
 	out := make(map[string]*T, len(keys))
 	if len(keys) == 0 {
@@ -595,9 +509,8 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 // mode EVAL requires every key to share a hash slot, so the batch is split per
 // slot.
 func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(items)))
 	defer op.End()
-	op.Set("length", len(items))
 
 	if len(items) == 0 {
 		return nil

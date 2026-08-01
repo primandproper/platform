@@ -174,10 +174,8 @@ const ensureSchemaLockKey int64 = 0x7067766563746f72 // "pgvector" as ASCII
 // and concurrently — concurrent callers serialize via a transaction-scoped advisory
 // lock so they observe each other's CREATE EXTENSION as already-done.
 func (i *indexManager[T]) ensureTable(ctx context.Context) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.indexName))
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.indexName)
 
 	stmts := []string{
 		`CREATE EXTENSION IF NOT EXISTS vector`,
@@ -219,11 +217,11 @@ func (i *indexManager[T]) ensureTable(ctx context.Context) error {
 
 // Upsert implements vectorsearch.Index.
 func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Vector[T]) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx,
+		observability.WithValue(keys.IndexNameKey, i.indexName),
+		observability.WithValue(keys.LengthKey, len(vectors)),
+	)
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.indexName)
-	op.Set(keys.LengthKey, len(vectors))
 
 	if len(vectors) == 0 {
 		return nil
@@ -302,11 +300,11 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 
 // Delete implements vectorsearch.Index.
 func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx,
+		observability.WithValue(keys.IndexNameKey, i.indexName),
+		observability.WithValue(keys.LengthKey, len(ids)),
+	)
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.indexName)
-	op.Set(keys.LengthKey, len(ids))
 
 	if len(ids) == 0 {
 		return nil
@@ -334,10 +332,8 @@ func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
 
 // Wipe implements vectorsearch.Index.
 func (i *indexManager[T]) Wipe(ctx context.Context) error {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.indexName))
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.indexName)
 
 	if i.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -362,10 +358,8 @@ func (i *indexManager[T]) Wipe(ctx context.Context) error {
 
 // Query implements vectorsearch.Index.
 func (i *indexManager[T]) Query(ctx context.Context, req vectorsearch.QueryRequest) ([]vectorsearch.QueryResult[T], error) {
-	ctx, op := i.o11y.Begin(ctx)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.indexName))
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, i.indexName)
 
 	if len(req.Embedding) == 0 {
 		return nil, vectorsearch.ErrEmptyEmbedding

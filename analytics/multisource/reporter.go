@@ -86,10 +86,13 @@ func withSourceProperty(source string, properties map[string]any) map[string]any
 
 // TrackEvent records an event for an identified user.
 func (m *MultiSourceEventReporter) TrackEvent(ctx context.Context, source, event, userID string, properties map[string]any) error {
-	ctx, op := m.o11y.Begin(ctx)
+	ctx, op := m.o11y.Begin(ctx,
+		observability.WithValue("source", source),
+		observability.WithValue("event", event),
+		observability.WithValue("user_id", userID),
+		observability.WithValue(keys.LengthKey, len(properties)),
+	)
 	defer op.End()
-
-	op.Set("source", source).Set("event", event).Set("user_id", userID).Set(keys.LengthKey, len(properties))
 
 	return m.getReporter(source).EventOccurred(ctx, event, userID, withSourceProperty(source, properties))
 }
@@ -97,20 +100,25 @@ func (m *MultiSourceEventReporter) TrackEvent(ctx context.Context, source, event
 // AddUser identifies a user against the reporter for the given source, forwarding the
 // user's traits. Every underlying reporter supports identify via analytics.EventReporter.AddUser.
 func (m *MultiSourceEventReporter) AddUser(ctx context.Context, source, userID string, properties map[string]any) error {
-	ctx, op := m.o11y.Begin(ctx)
+	ctx, op := m.o11y.Begin(ctx,
+		observability.WithValue("source", source),
+		observability.WithValue("user_id", userID),
+		observability.WithValue(keys.LengthKey, len(properties)),
+	)
 	defer op.End()
-
-	op.Set("source", source).Set("user_id", userID).Set(keys.LengthKey, len(properties))
 
 	return m.getReporter(source).AddUser(ctx, userID, withSourceProperty(source, properties))
 }
 
 // TrackAnonymousEvent records an event for an anonymous user.
 func (m *MultiSourceEventReporter) TrackAnonymousEvent(ctx context.Context, source, event, anonymousID string, properties map[string]any) error {
-	ctx, op := m.o11y.Begin(ctx)
+	ctx, op := m.o11y.Begin(ctx,
+		observability.WithValue("source", source),
+		observability.WithValue("event", event),
+		observability.WithValue("anonymous_id", anonymousID),
+		observability.WithValue(keys.LengthKey, len(properties)),
+	)
 	defer op.End()
-
-	op.Set("source", source).Set("event", event).Set("anonymous_id", anonymousID).Set(keys.LengthKey, len(properties))
 
 	return m.getReporter(source).EventOccurredAnonymous(ctx, event, anonymousID, withSourceProperty(source, properties))
 }

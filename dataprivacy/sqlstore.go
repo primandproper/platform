@@ -54,41 +54,6 @@ type sqlStore struct {
 	dialect         dialect.Dialect
 }
 
-// SQLStoreOption configures a SQL Store.
-type SQLStoreOption func(*sqlStore)
-
-// WithTablePrefix overrides DefaultTablePrefix. It must be a plain SQL
-// identifier fragment: it is interpolated into the query text, not bound as a
-// parameter, and it must match the prefix the migrations were rendered with.
-func WithTablePrefix(prefix string) SQLStoreOption {
-	return func(s *sqlStore) {
-		if prefix != "" {
-			s.tables = newTables(prefix)
-		}
-	}
-}
-
-// WithStoreLogger attaches a logger.
-func WithStoreLogger(logger logging.Logger) SQLStoreOption {
-	return func(s *sqlStore) {
-		s.logger = logger
-	}
-}
-
-// WithStoreTracerProvider attaches a tracer provider.
-func WithStoreTracerProvider(tracerProvider tracing.TracerProvider) SQLStoreOption {
-	return func(s *sqlStore) {
-		s.tracerProvider = tracerProvider
-	}
-}
-
-// WithStoreMetricsProvider attaches a metrics provider.
-func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
-	return func(s *sqlStore) {
-		s.metricsProvider = metricsProvider
-	}
-}
-
 // NewSQLStore builds a Store over the given database.
 //
 // The dialect comes from the client, so the two cannot disagree. The prefix must
@@ -182,10 +147,8 @@ func (s *sqlStore) Save(ctx context.Context, q database.SQLQueryExecutor, req *R
 }
 
 func (s *sqlStore) Get(ctx context.Context, requestID string) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
-
-	op.Set(requestIDKey, requestID)
 
 	query, args := s.tables.buildSelectRequest(s.dialect, requestID)
 
@@ -214,14 +177,12 @@ func (s *sqlStore) List(
 	subject Subject,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Request], error) {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectIDKey:    subject.ID,
 		subjectTypeKey:  string(subject.Type),
 		subjectScopeKey: subject.Scope,
-	})
+	}))
+	defer op.End()
 
 	if filter == nil {
 		filter = filtering.DefaultQueryFilter()
@@ -276,14 +237,12 @@ func (s *sqlStore) Transition(
 	to Status,
 	at time.Time,
 ) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		requestIDKey:  requestID,
 		statusKey:     string(to),
 		fromStatusKey: statusStrings(from),
-	})
+	}))
+	defer op.End()
 
 	if q == nil {
 		return nil, op.Error(ErrNilExecutor, "transitioning dataprivacy request")
@@ -334,10 +293,8 @@ func (s *sqlStore) Transition(
 }
 
 func (s *sqlStore) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
-
-	op.Set(limitKey, limit)
 
 	if limit <= 0 {
 		return nil, nil
@@ -477,14 +434,12 @@ func (s *sqlStore) Fail(
 	lastErr string,
 	terminal bool,
 ) error {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		requestIDKey: requestID,
 		attemptsKey:  attempts,
 		terminalKey:  terminal,
-	})
+	}))
+	defer op.End()
 
 	query, args := s.tables.buildFail(s.dialect, requestID, attempts, nextAttempt, lastErr, terminal)
 
@@ -496,10 +451,8 @@ func (s *sqlStore) Fail(
 }
 
 func (s *sqlStore) ExpiringArtifacts(ctx context.Context, now time.Time, limit int) ([]*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
-
-	op.Set(limitKey, limit)
 
 	if limit <= 0 {
 		return nil, nil
@@ -526,10 +479,8 @@ func (s *sqlStore) ExpiringArtifacts(ctx context.Context, now time.Time, limit i
 }
 
 func (s *sqlStore) MarkExpired(ctx context.Context, requestID string, at time.Time) error {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
-
-	op.Set(requestIDKey, requestID)
 
 	query, args := s.tables.buildMarkExpired(s.dialect, requestID, at)
 
@@ -541,10 +492,8 @@ func (s *sqlStore) MarkExpired(ctx context.Context, requestID string, at time.Ti
 }
 
 func (s *sqlStore) LapseUnconfirmed(ctx context.Context, now time.Time, limit int) (int64, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
-
-	op.Set(limitKey, limit)
 
 	if limit <= 0 {
 		return 0, nil
@@ -611,10 +560,8 @@ func (s *sqlStore) CountOverdue(ctx context.Context, now time.Time) (counts map[
 }
 
 func (s *sqlStore) Reap(ctx context.Context, before time.Time, limit int) (int64, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
-
-	op.Set(limitKey, limit)
 
 	if limit <= 0 {
 		return 0, nil

@@ -108,18 +108,6 @@ type outboxPublisher struct {
 
 var _ EventPublisher = (*outboxPublisher)(nil)
 
-// OutboxPublisherOption configures an outbox-backed EventPublisher.
-type OutboxPublisherOption func(*outboxPublisher)
-
-// WithEventTopic overrides DefaultEventTopic.
-func WithEventTopic(topic string) OutboxPublisherOption {
-	return func(p *outboxPublisher) {
-		if topic != "" {
-			p.topic = topic
-		}
-	}
-}
-
 // NewOutboxPublisher builds an EventPublisher over an outbox.Writer, so
 // lifecycle events commit with the instance row they describe and are relayed
 // to the broker afterward.

@@ -112,10 +112,11 @@ func (c *EventReporter) Close() {
 
 // AddUser upsert's a user's identity.
 func (c *EventReporter) AddUser(ctx context.Context, userID string, properties map[string]any) error {
-	ctx, op := c.o11y.Begin(ctx)
+	ctx, op := c.o11y.Begin(ctx,
+		observability.WithValue(keys.UserIDKey, userID),
+		observability.WithValue(keys.LengthKey, len(properties)),
+	)
 	defer op.End()
-
-	op.Set(keys.UserIDKey, userID).Set(keys.LengthKey, len(properties))
 
 	if c.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -156,10 +157,13 @@ func (c *EventReporter) EventOccurredAnonymous(ctx context.Context, event, anony
 }
 
 func (c *EventReporter) eventOccurred(ctx context.Context, event, userID string, anonymous bool, properties map[string]any) error {
-	ctx, op := c.o11y.Begin(ctx)
+	ctx, op := c.o11y.Begin(ctx,
+		observability.WithValue("event", event),
+		observability.WithValue(keys.UserIDKey, userID),
+		observability.WithValue(keys.LengthKey, len(properties)),
+		observability.WithValue("anonymous", anonymous),
+	)
 	defer op.End()
-
-	op.Set("event", event).Set(keys.UserIDKey, userID).Set(keys.LengthKey, len(properties)).Set("anonymous", anonymous)
 
 	if c.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken

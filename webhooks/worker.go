@@ -93,87 +93,6 @@ type Worker struct {
 	stopOnce   sync.Once
 }
 
-// WorkerOption configures a Worker.
-type WorkerOption func(*Worker)
-
-// WithWorkerClock swaps the clock driving the poll loop, leases, and backoff.
-func WithWorkerClock(c clock.Clock) WorkerOption {
-	return func(w *Worker) {
-		if c != nil {
-			w.clock = c
-		}
-	}
-}
-
-// WithWorkerLogger attaches a logger. The worker reports every delivery failure
-// and every dead dispatch through it; without one, a subscriber that has stopped
-// accepting deliveries is visible only in metrics.
-func WithWorkerLogger(logger logging.Logger) WorkerOption {
-	return func(w *Worker) {
-		w.logger = logger
-	}
-}
-
-// WithWorkerTracerProvider attaches a tracer provider. Cycles that claim
-// nothing are not traced — a root span every poll interval is noise.
-func WithWorkerTracerProvider(tracerProvider tracing.TracerProvider) WorkerOption {
-	return func(w *Worker) {
-		w.tracerProvider = tracerProvider
-	}
-}
-
-// WithWorkerMetricsProvider attaches a metrics provider.
-func WithWorkerMetricsProvider(metricsProvider metrics.Provider) WorkerOption {
-	return func(w *Worker) {
-		w.metricsProvider = metricsProvider
-	}
-}
-
-// WithHTTPClient supplies the client every delivery goes through.
-//
-// One client for the whole worker is the point. A client built per delivery —
-// which is what this package was extracted to replace — reuses no connections,
-// so every delivery pays a fresh TCP handshake and a fresh TLS handshake to a
-// subscriber it just talked to.
-//
-// The supplied client's redirect policy is overridden: following a redirect
-// would deliver a signed payload to a host the operator never registered and
-// never had checked, which turns an open redirect on a subscriber's domain into
-// an SSRF. Its transport is left alone.
-func WithHTTPClient(client *http.Client) WorkerOption {
-	return func(w *Worker) {
-		if client != nil {
-			w.client = client
-		}
-	}
-}
-
-// WithWorkerURLChecker replaces the URL policy re-checked at delivery.
-//
-// Pair it with the Dispatcher's WithDispatcherURLChecker: an endpoint accepted
-// at registration and refused here sits in the backlog until it dies, so the
-// two halves must agree. See URLChecker for what replacing it costs.
-func WithWorkerURLChecker(checker URLChecker) WorkerOption {
-	return func(w *Worker) {
-		if checker != nil {
-			w.checkURL = checker
-		}
-	}
-}
-
-// WithCircuitBreakerFactory supplies the per-endpoint circuit breakers.
-//
-// Without it every endpoint gets a noop breaker and a permanently dead
-// subscriber is retried at full rate forever, competing with healthy endpoints
-// for the same worker pool.
-func WithCircuitBreakerFactory(factory CircuitBreakerFactory) WorkerOption {
-	return func(w *Worker) {
-		if factory != nil {
-			w.breaker = factory
-		}
-	}
-}
-
 // NewWorker builds a Worker. It does not start it; call Run.
 //
 // ctx is used to validate the config and is not retained — Run takes its own.
@@ -354,10 +273,8 @@ func (w *Worker) cycle(ctx context.Context) {
 		w.cycleHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx, observability.WithValue(claimedKey, len(claimed)))
 	defer op.End()
-
-	op.Set(claimedKey, len(claimed))
 
 	// Deliveries run concurrently up to Concurrency, because a batch is
 	// dominated by network round trips to unrelated hosts and running it
@@ -421,15 +338,15 @@ func (w *Worker) handle(ctx context.Context, dispatch *ClaimedDispatch) {
 // time, and a single span over the whole batch cannot say which endpoint is
 // slow.
 func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attempt, error) {
-	ctx, op := w.o11y.Begin(ctx)
+	ctx, op := w.o11y.Begin(ctx,
+		observability.WithValue(dispatchIDKey, dispatch.ID),
+		observability.WithValue(deliveryIDKey, dispatch.DeliveryID),
+		observability.WithValue(endpointIDKey, dispatch.EndpointID),
+		observability.WithValue(eventTypeKey, dispatch.EventType),
+		observability.WithValue(attemptsKey, dispatch.Attempts),
+		observability.WithSpanValue(endpointURLKey, dispatch.Endpoint.URL),
+	)
 	defer op.End()
-
-	op.Set(dispatchIDKey, dispatch.ID).
-		Set(deliveryIDKey, dispatch.DeliveryID).
-		Set(endpointIDKey, dispatch.EndpointID).
-		Set(eventTypeKey, dispatch.EventType).
-		Set(attemptsKey, dispatch.Attempts).
-		SpanOnly(endpointURLKey, dispatch.Endpoint.URL)
 
 	if dispatch.OrderingKey != "" {
 		op.Set(orderingKeyKey, dispatch.OrderingKey)

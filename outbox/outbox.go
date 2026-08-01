@@ -34,16 +34,6 @@ func tableFor(prefix string) string {
 // ddb_outbox_messages, for a database shared between applications.
 const DefaultTablePrefix = ""
 
-var (
-	// ErrEmptyTopic indicates a Message was enqueued without a topic.
-	ErrEmptyTopic = platformerrors.New("empty outbox message topic")
-	// ErrNilPayload indicates a Message was enqueued with no payload.
-	ErrNilPayload = platformerrors.New("nil outbox message payload")
-	// ErrNilExecutor indicates Enqueue was called without a query executor. It
-	// wraps errors.ErrNilInputParameter, so a caller may check either.
-	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
-)
-
 // Message is one event awaiting publication.
 type Message struct {
 	// Payload is marshaled to JSON at enqueue and republished verbatim, so the
@@ -78,55 +68,6 @@ type Writer struct {
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
 	table           string
-}
-
-// WriterOption configures a Writer.
-type WriterOption func(*Writer)
-
-// WithWriterTablePrefix overrides DefaultTablePrefix. The namespace must be a
-// plain SQL identifier fragment with no trailing separator: it is interpolated
-// into the query text, not bound as a parameter, and it must match the one the
-// migrations were rendered with.
-func WithWriterTablePrefix(prefix string) WriterOption {
-	return func(w *Writer) {
-		if prefix != "" {
-			w.table = ddl.Qualify(prefix) + "outbox_messages"
-		}
-	}
-}
-
-// WithWriterClock swaps the clock used to stamp created_at and next_attempt.
-func WithWriterClock(c clock.Clock) WriterOption {
-	return func(w *Writer) {
-		if c != nil {
-			w.clock = c
-		}
-	}
-}
-
-// WithWriterLogger attaches a logger.
-func WithWriterLogger(logger logging.Logger) WriterOption {
-	return func(w *Writer) {
-		w.logger = logger
-	}
-}
-
-// WithWriterTracerProvider attaches a tracer provider, so an Enqueue shows up
-// as a child of the span that owns the transaction.
-func WithWriterTracerProvider(tracerProvider tracing.TracerProvider) WriterOption {
-	return func(w *Writer) {
-		w.tracerProvider = tracerProvider
-	}
-}
-
-// WithWriterMetricsProvider attaches a metrics provider, enabling
-// outbox_messages_enqueued. Pair it with the Relay's provider: enqueue rate
-// against publish rate is what tells you whether the relay is keeping up, and
-// neither number answers that alone.
-func WithWriterMetricsProvider(metricsProvider metrics.Provider) WriterOption {
-	return func(w *Writer) {
-		w.metricsProvider = metricsProvider
-	}
 }
 
 // NewWriter builds a Writer for the given dialect.

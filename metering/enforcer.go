@@ -66,80 +66,6 @@ type QuotaEnforcer struct {
 	cfg EnforcerConfig
 }
 
-// EnforcerOption configures a QuotaEnforcer.
-type EnforcerOption func(*QuotaEnforcer)
-
-// WithEnforcerClock swaps the clock deciding which period "now" falls in and how
-// long a cached total lives.
-func WithEnforcerClock(c clock.Clock) EnforcerOption {
-	return func(e *QuotaEnforcer) {
-		if c != nil {
-			e.clock = c
-		}
-	}
-}
-
-// WithEnforcerCache attaches the cache Check reads through.
-//
-// Without one, Check reads the durable total on every call. That is correct — and
-// it is the thing this package warns about at length, because a durable read on
-// every request is how metering becomes the latency bottleneck of the system it
-// was added to measure. An enforcer with no cache logs that it has none at
-// construction, so the omission is noticed before production does.
-func WithEnforcerCache(totals cache.Cache[CachedTotal]) EnforcerOption {
-	return func(e *QuotaEnforcer) {
-		if totals != nil {
-			e.totals = totals
-		}
-	}
-}
-
-// WithEnforcerQuotaSource swaps where a subject's limits come from. Defaults to
-// the Registry's static quotas — see NewRegistryQuotaSource for when that is the
-// wrong answer.
-func WithEnforcerQuotaSource(quotas QuotaSource) EnforcerOption {
-	return func(e *QuotaEnforcer) {
-		if quotas != nil {
-			e.quotas = quotas
-		}
-	}
-}
-
-// WithEnforcerPeriodResolver swaps the resolver deciding which window a decision
-// is about.
-//
-// It must be the same resolver the Recorder uses. Two resolvers that disagree
-// about where a period begins would have the enforcer reading a total the
-// recorder is not writing to, which presents as a quota that never fills.
-func WithEnforcerPeriodResolver(resolver PeriodResolver) EnforcerOption {
-	return func(e *QuotaEnforcer) {
-		if resolver != nil {
-			e.resolver = resolver
-		}
-	}
-}
-
-// WithEnforcerLogger attaches a logger.
-func WithEnforcerLogger(logger logging.Logger) EnforcerOption {
-	return func(e *QuotaEnforcer) {
-		e.logger = logger
-	}
-}
-
-// WithEnforcerTracerProvider attaches a tracer provider.
-func WithEnforcerTracerProvider(tracerProvider tracing.TracerProvider) EnforcerOption {
-	return func(e *QuotaEnforcer) {
-		e.tracerProvider = tracerProvider
-	}
-}
-
-// WithEnforcerMetricsProvider attaches a metrics provider.
-func WithEnforcerMetricsProvider(metricsProvider metrics.Provider) EnforcerOption {
-	return func(e *QuotaEnforcer) {
-		e.metricsProvider = metricsProvider
-	}
-}
-
 // NewQuotaEnforcer builds the read path over a Store and a Registry.
 //
 // ctx is used to validate the config and is not retained.
@@ -236,14 +162,12 @@ func (e *QuotaEnforcer) initInstruments() error {
 func (e *QuotaEnforcer) Check(ctx context.Context, subject, meter string, quantity int64) (*Decision, error) {
 	startTime := time.Now()
 
-	ctx, op := e.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := e.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:  subject,
 		meterKey:    meter,
 		quantityKey: quantity,
-	})
+	}))
+	defer op.End()
 
 	defer func() {
 		e.checkHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), meterAttr(meter))
@@ -308,14 +232,12 @@ func (e *QuotaEnforcer) Consume(ctx context.Context, subject, meter string, quan
 func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, u Usage) (*Decision, error) {
 	startTime := time.Now()
 
-	ctx, op := e.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := e.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:  u.Subject,
 		meterKey:    u.Meter,
 		quantityKey: u.Quantity,
-	})
+	}))
+	defer op.End()
 
 	defer func() {
 		e.consumeHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), meterAttr(u.Meter))

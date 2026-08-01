@@ -7,14 +7,13 @@ import (
 	"encoding/base64"
 
 	"github.com/primandproper/platform-go/v9/cryptography/encryption"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 )
 
 func (e *aesImpl) Decrypt(ctx context.Context, content string) (string, error) {
-	_, op := e.o11y.Begin(ctx)
+	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(content)))
 	defer op.End()
-
-	op.Set(keys.LengthKey, len(content))
 
 	ciphered, err := base64.URLEncoding.DecodeString(content)
 	if err != nil {

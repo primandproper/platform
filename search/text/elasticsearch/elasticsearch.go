@@ -126,10 +126,8 @@ func elasticsearchIsReadyToInit(
 }
 
 func (sm *indexManager[T]) ensureIndices(ctx context.Context) error {
-	ctx, op := sm.o11y.Begin(ctx)
+	ctx, op := sm.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, sm.indexName))
 	defer op.End()
-
-	op.Set(keys.IndexNameKey, sm.indexName)
 
 	if sm.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken

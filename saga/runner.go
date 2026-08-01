@@ -44,68 +44,6 @@ type runner[T any] struct {
 	metricsProvider metrics.Provider
 }
 
-// RunnerOption configures a Runner at construction.
-//
-// It is deliberately not parameterized on the Runner's T. Nothing here depends
-// on it, and Go cannot infer a type argument from a call's result type — so an
-// Option[T] would force every call site to spell the state type out by hand,
-// WithRunnerClock[OrderState](c), forever.
-type RunnerOption func(*runnerOptions)
-
-// runnerOptions accumulates what the options set, so RunnerOption can stay free
-// of the Runner's type parameter.
-type runnerOptions struct {
-	clock           clock.Clock
-	publisher       EventPublisher
-	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
-	metricsProvider metrics.Provider
-}
-
-// WithRunnerClock swaps the clock stamping instances.
-func WithRunnerClock(c clock.Clock) RunnerOption {
-	return func(o *runnerOptions) {
-		if c != nil {
-			o.clock = c
-		}
-	}
-}
-
-// WithRunnerEventPublisher attaches the publisher lifecycle events go through.
-//
-// Without one, starting a saga is silent: the row exists and a Worker will
-// advance it, but nothing downstream is told. Attach one and the started event
-// commits in the same transaction as the instance, so a subscriber that sees
-// the event can always read the instance.
-func WithRunnerEventPublisher(publisher EventPublisher) RunnerOption {
-	return func(o *runnerOptions) {
-		if publisher != nil {
-			o.publisher = publisher
-		}
-	}
-}
-
-// WithRunnerLogger attaches a logger.
-func WithRunnerLogger(logger logging.Logger) RunnerOption {
-	return func(o *runnerOptions) {
-		o.logger = logger
-	}
-}
-
-// WithRunnerTracerProvider attaches a tracer provider.
-func WithRunnerTracerProvider(tracerProvider tracing.TracerProvider) RunnerOption {
-	return func(o *runnerOptions) {
-		o.tracerProvider = tracerProvider
-	}
-}
-
-// WithRunnerMetricsProvider attaches a metrics provider.
-func WithRunnerMetricsProvider(metricsProvider metrics.Provider) RunnerOption {
-	return func(o *runnerOptions) {
-		o.metricsProvider = metricsProvider
-	}
-}
-
 // NewRunner builds a Runner over a Store and a Registry.
 //
 // There is no config: a Runner writes one row and reads others, and every knob
@@ -205,10 +143,8 @@ func (r *runner[T]) start(
 	name string,
 	initial T,
 ) (*Instance[T], error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(definitionKey, name))
 	defer op.End()
-
-	op.Set(definitionKey, name)
 
 	def, err := r.definitionFor(name)
 	if err != nil {
@@ -257,10 +193,8 @@ func (r *runner[T]) start(
 
 // Get implements Runner.
 func (r *runner[T]) Get(ctx context.Context, id string) (*Instance[T], error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(instanceIDKey, id))
 	defer op.End()
-
-	op.Set(instanceIDKey, id)
 
 	rec, err := r.store.Get(ctx, id)
 	if err != nil {
@@ -307,10 +241,8 @@ func (r *runner[T]) List(
 
 // Resume implements Runner.
 func (r *runner[T]) Resume(ctx context.Context, id string) (*Instance[T], error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(instanceIDKey, id))
 	defer op.End()
-
-	op.Set(instanceIDKey, id)
 
 	rec, err := r.store.Get(ctx, id)
 	if err != nil {

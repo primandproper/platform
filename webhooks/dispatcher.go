@@ -47,69 +47,6 @@ type dispatcher struct {
 	metricsProvider metrics.Provider
 }
 
-// DispatcherOption configures a Dispatcher.
-type DispatcherOption func(*dispatcher)
-
-// WithCatalog supplies the set of event types the application publishes.
-//
-// Without it every event type is unknown and both Register and Dispatch reject
-// everything, which is deliberate: a catalog-free dispatcher would accept
-// subscriptions to typo'd event types that then never fire, and diagnosing that
-// means noticing an absence.
-func WithCatalog(catalog Catalog) DispatcherOption {
-	return func(d *dispatcher) {
-		if catalog != nil {
-			d.catalog = catalog
-		}
-	}
-}
-
-// WithDispatcherURLChecker replaces the URL policy Register enforces.
-//
-// Pair it with the Worker's WithWorkerURLChecker: an endpoint accepted at
-// registration and refused at delivery sits in the backlog until it dies, so
-// the two halves must agree. See URLChecker for what replacing it costs.
-func WithDispatcherURLChecker(checker URLChecker) DispatcherOption {
-	return func(d *dispatcher) {
-		if checker != nil {
-			d.checkURL = checker
-		}
-	}
-}
-
-// WithDispatcherClock swaps the clock stamping deliveries.
-func WithDispatcherClock(c clock.Clock) DispatcherOption {
-	return func(d *dispatcher) {
-		if c != nil {
-			d.clock = c
-		}
-	}
-}
-
-// WithDispatcherLogger attaches a logger.
-func WithDispatcherLogger(logger logging.Logger) DispatcherOption {
-	return func(d *dispatcher) {
-		d.logger = logger
-	}
-}
-
-// WithDispatcherTracerProvider attaches a tracer provider, so a Dispatch shows
-// up as a child of the span that owns the transaction.
-func WithDispatcherTracerProvider(tracerProvider tracing.TracerProvider) DispatcherOption {
-	return func(d *dispatcher) {
-		d.tracerProvider = tracerProvider
-	}
-}
-
-// WithDispatcherMetricsProvider attaches a metrics provider. Pair it with the
-// Worker's: dispatch rate against delivery rate is what says whether the worker
-// is keeping up, and neither number answers that alone.
-func WithDispatcherMetricsProvider(metricsProvider metrics.Provider) DispatcherOption {
-	return func(d *dispatcher) {
-		d.metricsProvider = metricsProvider
-	}
-}
-
 // NewDispatcher builds a Dispatcher over the given Store.
 func NewDispatcher(store Store, opts ...DispatcherOption) (Dispatcher, error) {
 	if store == nil {
@@ -284,10 +221,11 @@ func (d *dispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecutor, 
 // The attempt count is reset, so a dead dispatch gets a full budget rather than
 // dying again on its next attempt.
 func (d *dispatcher) Replay(ctx context.Context, deliveryID, endpointID string) error {
-	ctx, op := d.o11y.Begin(ctx)
+	ctx, op := d.o11y.Begin(ctx,
+		observability.WithValue(deliveryIDKey, deliveryID),
+		observability.WithValue(endpointIDKey, endpointID),
+	)
 	defer op.End()
-
-	op.Set(deliveryIDKey, deliveryID).Set(endpointIDKey, endpointID)
 
 	if deliveryID == "" || endpointID == "" {
 		return op.Error(platformerrors.ErrInvalidIDProvided, "replaying webhook delivery")

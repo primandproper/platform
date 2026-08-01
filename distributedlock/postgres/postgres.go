@@ -119,9 +119,11 @@ func NewPostgresLocker(
 
 // Acquire implements distributedlock.Locker.
 func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
-	ctx, op := l.o11y.Begin(ctx)
+	ctx, op := l.o11y.Begin(ctx,
+		observability.WithValue(keys.LockKeyKey, key),
+		observability.WithValue(keys.LockTTLKey, ttl),
+	)
 	defer op.End()
-	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, ttl)
 
 	if key == "" {
 		return nil, distributedlock.ErrEmptyKey
@@ -231,9 +233,11 @@ func (l *locker) Close() error {
 // release runs the unlock SQL on the dedicated conn and returns it to the pool.
 // It removes the handle from the locker's outstanding map.
 func (l *locker) release(ctx context.Context, h *lock) error {
-	ctx, op := l.o11y.Begin(ctx)
+	ctx, op := l.o11y.Begin(ctx,
+		observability.WithValue(keys.LockKeyKey, h.key),
+		observability.WithValue(keys.LockIDKey, h.lockID),
+	)
 	defer op.End()
-	op.Set(keys.LockKeyKey, h.key).Set(keys.LockIDKey, h.lockID)
 
 	if l.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
@@ -280,9 +284,12 @@ func (l *locker) release(ctx context.Context, h *lock) error {
 // locks have no native TTL; refreshing is purely a liveness check that lets the
 // caller bump their local TTL bookkeeping.
 func (l *locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error {
-	ctx, op := l.o11y.Begin(ctx)
+	ctx, op := l.o11y.Begin(ctx,
+		observability.WithValue(keys.LockKeyKey, h.key),
+		observability.WithValue(keys.LockIDKey, h.lockID),
+		observability.WithValue(keys.LockTTLKey, ttl),
+	)
 	defer op.End()
-	op.Set(keys.LockKeyKey, h.key).Set(keys.LockIDKey, h.lockID).Set(keys.LockTTLKey, ttl)
 
 	if ttl <= 0 {
 		return distributedlock.ErrInvalidTTL

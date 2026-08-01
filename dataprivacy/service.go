@@ -9,8 +9,6 @@ import (
 
 	"github.com/primandproper/platform-go/v9/audit"
 	"github.com/primandproper/platform-go/v9/clock"
-	"github.com/primandproper/platform-go/v9/compression"
-	"github.com/primandproper/platform-go/v9/cryptography/encryption"
 	"github.com/primandproper/platform-go/v9/database"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/filtering"
@@ -66,108 +64,12 @@ type service struct {
 // for a self-service portal and misleading for a staff tool.
 type ActorResolver func(ctx context.Context) audit.Actor
 
-// ServiceOption configures a Service.
-type ServiceOption func(*service)
-
-// WithServiceClock swaps the clock stamping submission, deadline, and expiry.
-func WithServiceClock(c clock.Clock) ServiceOption {
-	return func(s *service) {
-		if c != nil {
-			s.clock = c
-		}
-	}
-}
-
-// WithServiceLogger attaches a logger.
-func WithServiceLogger(logger logging.Logger) ServiceOption {
-	return func(s *service) {
-		s.logger = logger
-	}
-}
-
-// WithServiceTracerProvider attaches a tracer provider.
-func WithServiceTracerProvider(tracerProvider tracing.TracerProvider) ServiceOption {
-	return func(s *service) {
-		s.tracerProvider = tracerProvider
-	}
-}
-
-// WithServiceMetricsProvider attaches a metrics provider.
-func WithServiceMetricsProvider(metricsProvider metrics.Provider) ServiceOption {
-	return func(s *service) {
-		s.metricsProvider = metricsProvider
-	}
-}
-
-// WithServiceUploadManager supplies the storage artifacts are read from.
-//
-// It must be the same storage, and the same path prefix, that the Worker writes
-// to. Nothing here can check that, and a mismatch surfaces as an artifact that
-// exists in the bucket and cannot be found by the service that promised it.
-func WithServiceUploadManager(manager uploads.UploadManager) ServiceOption {
-	return func(s *service) {
-		if manager != nil {
-			s.uploader = manager
-		}
-	}
-}
-
-// WithServiceCompressor supplies the compressor artifacts were written with. It
-// must match the Worker's, or Open returns garbage.
-func WithServiceCompressor(compressor compression.Compressor) ServiceOption {
-	return func(s *service) {
-		if compressor != nil {
-			s.packager.compressor = compressor
-		}
-	}
-}
-
-// WithServiceDecryptor supplies the decryptor for artifacts written encrypted.
-// It must match the Worker's encryptor.
-//
-// Setting it also disables Download: see ErrArtifactEncrypted.
-func WithServiceDecryptor(decryptor encryption.Decryptor) ServiceOption {
-	return func(s *service) {
-		if decryptor != nil {
-			s.packager.decryptor = decryptor
-			// Recorded so Download can refuse rather than hand out a link to
-			// ciphertext. The Service never encrypts — only the Worker does —
-			// but a configured decryptor is proof that the Worker encrypts, and
-			// is the only evidence of that available on this side.
-			s.packager.encryptor = encryptorPresent{}
-		}
-	}
-}
-
 // encryptorPresent is a marker recording that artifacts are encrypted, without
 // the Service holding an encryptor it would never use.
 type encryptorPresent struct{}
 
 func (encryptorPresent) Encrypt(context.Context, string) (string, error) {
 	return "", platformerrors.New("dataprivacy service does not encrypt")
-}
-
-// WithServiceAuditRecorder attaches the audit log this package writes to.
-//
-// Every submission and every state change it drives is recorded. That is not
-// decoration: an export artifact is the most sensitive object an application
-// produces, and a system that can produce one without leaving a record of who
-// asked has a data exfiltration path with no alarm on it.
-func WithServiceAuditRecorder(recorder audit.Recorder) ServiceOption {
-	return func(s *service) {
-		if recorder != nil {
-			s.recorder = recorder
-		}
-	}
-}
-
-// WithActorResolver supplies the principal recorded in audit entries.
-func WithActorResolver(resolver ActorResolver) ServiceOption {
-	return func(s *service) {
-		if resolver != nil {
-			s.actor = resolver
-		}
-	}
 }
 
 // NewService builds a Service.
@@ -225,15 +127,13 @@ func NewService(ctx context.Context, cfg *ServiceConfig, store Store, opts ...Se
 }
 
 func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	op.SetValues(map[string]any{
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectIDKey:    subject.ID,
 		subjectTypeKey:  string(subject.Type),
 		subjectScopeKey: subject.Scope,
 		requestTypeKey:  string(t),
-	})
+	}))
+	defer op.End()
 
 	if err := subject.validate(); err != nil {
 		return nil, op.Error(err, "validating dataprivacy subject")
@@ -280,10 +180,8 @@ func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*
 }
 
 func (s *service) Get(ctx context.Context, requestID string) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
-
-	op.Set(requestIDKey, requestID)
 
 	req, err := s.store.Get(ctx, requestID)
 	if err != nil {
@@ -298,10 +196,11 @@ func (s *service) List(
 	subject Subject,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Request], error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(subjectIDKey, subject.ID),
+		observability.WithValue(subjectScopeKey, subject.Scope),
+	)
 	defer op.End()
-
-	op.Set(subjectIDKey, subject.ID).Set(subjectScopeKey, subject.Scope)
 
 	if err := subject.validate(); err != nil {
 		return nil, op.Error(err, "validating dataprivacy subject")
@@ -349,10 +248,11 @@ func (s *service) transition(
 	event audit.EventType,
 	metadata map[string]string,
 ) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(requestIDKey, requestID),
+		observability.WithValue(statusKey, string(to)),
+	)
 	defer op.End()
-
-	op.Set(requestIDKey, requestID).Set(statusKey, string(to))
 
 	var req *Request
 
@@ -382,10 +282,8 @@ func (s *service) transition(
 }
 
 func (s *service) Download(ctx context.Context, requestID string) (string, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
-
-	op.Set(requestIDKey, requestID)
 
 	req, err := s.artifactRequest(ctx, requestID)
 	if err != nil {
@@ -429,10 +327,8 @@ func (s *service) Download(ctx context.Context, requestID string) (string, error
 }
 
 func (s *service) Open(ctx context.Context, requestID string) (io.ReadCloser, error) {
-	ctx, op := s.o11y.Begin(ctx)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
-
-	op.Set(requestIDKey, requestID)
 
 	req, err := s.artifactRequest(ctx, requestID)
 	if err != nil {

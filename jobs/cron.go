@@ -19,11 +19,6 @@ const cronTZPrefix = "CRON_TZ="
 // crontab and robfig/cron both accept.
 var cronTZPrefixes = []string{cronTZPrefix, "TZ="}
 
-// ErrInvalidCronSpec indicates a cron expression that could not be parsed. It
-// joins the parser's own error, whose message names the offending field, so the
-// sentinel is checkable and the detail is still readable.
-var ErrInvalidCronSpec = platformerrors.New("invalid cron spec")
-
 // Schedule decides when a job fires next.
 //
 // It is the seam between the Scheduler and the calendar. Cron covers standard

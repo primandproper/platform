@@ -133,45 +133,6 @@ type reader struct {
 	prefix          string
 }
 
-// ReaderOption configures a Reader.
-type ReaderOption func(*reader)
-
-// WithReaderTablePrefix overrides DefaultTablePrefix. It must match the prefix
-// the Recorder writes with.
-func WithReaderTablePrefix(prefix string) ReaderOption {
-	return func(r *reader) {
-		if prefix != "" {
-			r.prefix = prefix
-		}
-	}
-}
-
-// WithReaderLogger attaches a logger.
-func WithReaderLogger(logger logging.Logger) ReaderOption {
-	return func(r *reader) {
-		r.logger = logger
-	}
-}
-
-// WithReaderTracerProvider attaches a tracer provider.
-func WithReaderTracerProvider(tracerProvider tracing.TracerProvider) ReaderOption {
-	return func(r *reader) {
-		r.tracerProvider = tracerProvider
-	}
-}
-
-// WithReaderMetricsProvider attaches a metrics provider, enabling
-// audit_verifications and audit_chain_breaks.
-//
-// Alert on audit_chain_breaks. Everything else this package emits describes
-// throughput; that one says the log is no longer evidence, and it is the only
-// instrument here whose non-zero value is an incident on its own.
-func WithReaderMetricsProvider(metricsProvider metrics.Provider) ReaderOption {
-	return func(r *reader) {
-		r.metricsProvider = metricsProvider
-	}
-}
-
 // NewReader builds a Reader over the database holding the audit tables. The
 // dialect comes from the client, so the two cannot disagree.
 func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {
@@ -218,10 +179,8 @@ func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {
 
 // Get returns one entry.
 func (r *reader) Get(ctx context.Context, id string) (*Entry, error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(entryIDKey, id))
 	defer op.End()
-
-	op.Set(entryIDKey, id)
 
 	if id == "" {
 		return nil, op.Error(platformerrors.ErrInvalidIDProvided, "getting audit entry")
@@ -301,10 +260,8 @@ func (r *reader) List(
 //
 // A zero from or to leaves that end unbounded.
 func (r *reader) Verify(ctx context.Context, scope string, from, to time.Time) (*VerificationResult, error) {
-	ctx, op := r.o11y.Begin(ctx)
+	ctx, op := r.o11y.Begin(ctx, observability.WithValue(scopeKey, scope))
 	defer op.End()
-
-	op.Set(scopeKey, scope)
 
 	query, args := r.tables.buildSelectChainRange(r.dialect, scope, from, to)
 

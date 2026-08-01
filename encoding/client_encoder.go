@@ -83,10 +83,9 @@ func marshalFuncFor(ct ContentType) func(v any) ([]byte, error) {
 }
 
 func (e *clientEncoder) Unmarshal(ctx context.Context, data []byte, v any) error {
-	_, op := e.o11y.Begin(ctx)
+	_, op := e.o11y.Begin(ctx, observability.WithValue("data_length", len(data)))
 	defer op.End()
 
-	op.Set("data_length", len(data))
 	var unmarshalFunc func(data []byte, v any) error
 
 	switch e.contentType {

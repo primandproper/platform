@@ -43,16 +43,6 @@ const (
 	permissionsTable = "authz_permissions"
 )
 
-var (
-	// ErrInvalidTablePrefix indicates a prefix that is not a plain SQL
-	// identifier fragment. Prefixes are interpolated into queries rather than
-	// bound, so they are restricted rather than escaped.
-	ErrInvalidTablePrefix = platformerrors.New("invalid authorization table prefix")
-	// ErrNilExecutor indicates a query executor was required and not supplied.
-	// It wraps errors.ErrNilInputParameter, so a caller may check either.
-	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
-)
-
 var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)
 
 var _ authorization.PolicyResolver = (*Resolver)(nil)
@@ -96,31 +86,6 @@ type Config struct {
 	// between applications, which renders e.g. ddb_authz_roles. It must not end
 	// in '_' — the separator is supplied for you.
 	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
-}
-
-// Option configures a Resolver.
-type Option func(*Resolver)
-
-// WithLogger attaches a logger.
-func WithLogger(logger logging.Logger) Option {
-	return func(r *Resolver) {
-		r.logger = logger
-	}
-}
-
-// WithTracerProvider attaches a tracer provider, so a policy resolution shows
-// up as a child of the span that triggered it.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
-	return func(r *Resolver) {
-		r.tracerProvider = tracerProvider
-	}
-}
-
-// WithMetricsProvider attaches a metrics provider.
-func WithMetricsProvider(metricsProvider metrics.Provider) Option {
-	return func(r *Resolver) {
-		r.metricsProvider = metricsProvider
-	}
 }
 
 // NewResolver builds a Resolver. The executor is used for reads; writes take
