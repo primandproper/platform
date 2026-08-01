@@ -111,42 +111,6 @@ type Flusher struct {
 	cfg FlusherConfig
 }
 
-// FlusherOption configures a Flusher.
-type FlusherOption func(*Flusher)
-
-// WithFlusherClock swaps the clock driving leases and backoff.
-func WithFlusherClock(c clock.Clock) FlusherOption {
-	return func(f *Flusher) {
-		if c != nil {
-			f.clock = c
-		}
-	}
-}
-
-// WithFlusherLogger attaches a logger. A total that has exhausted its attempts is
-// reported through it and nowhere else — there is no caller to return it to — so
-// without one, usage that will never be billed is visible only in metrics.
-func WithFlusherLogger(logger logging.Logger) FlusherOption {
-	return func(f *Flusher) {
-		f.logger = logger
-	}
-}
-
-// WithFlusherTracerProvider attaches a tracer provider.
-func WithFlusherTracerProvider(tracerProvider tracing.TracerProvider) FlusherOption {
-	return func(f *Flusher) {
-		f.tracerProvider = tracerProvider
-	}
-}
-
-// WithFlusherMetricsProvider attaches a metrics provider, enabling the backlog
-// gauge — which is the one instrument in this package worth alerting on.
-func WithFlusherMetricsProvider(metricsProvider metrics.Provider) FlusherOption {
-	return func(f *Flusher) {
-		f.metricsProvider = metricsProvider
-	}
-}
-
 // NewFlusher builds a Flusher. It does not schedule it; see Job.
 //
 // ctx is used to validate the config and is not retained.

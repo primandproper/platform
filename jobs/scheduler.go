@@ -19,7 +19,6 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/panicking"
 
-	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -47,28 +46,6 @@ const (
 	jobScheduleKey = "jobs.schedule"
 	jobRanKey      = "jobs.ran"
 	jobOverranKey  = "jobs.overran_interval"
-)
-
-var (
-	// ErrJobPanicked wraps the value recovered from a scheduled job that
-	// panicked. The Scheduler contains the panic rather than letting it unwind
-	// the job's goroutine, which would stop that job — and only that job —
-	// silently for the life of the process.
-	ErrJobPanicked = platformerrors.New("scheduled job panicked")
-	// ErrNilLocker indicates a nil Locker was passed to NewScheduler. It wraps
-	// errors.ErrNilInputParameter, so a caller may check either.
-	ErrNilLocker = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil distributed locker")
-	// ErrSchedulerRunning indicates Register was called after Run. The job set
-	// is fixed at Run, because each job owns a goroutine started there.
-	ErrSchedulerRunning = platformerrors.New("scheduler is already running")
-	// ErrDuplicateJob indicates two jobs were registered under one name. Names
-	// are the lock keys, so duplicates would contend with each other rather
-	// than run independently.
-	ErrDuplicateJob = platformerrors.New("duplicate job name")
-	// ErrInvalidJob indicates a job with no name, no function, or no usable
-	// cadence — neither a positive interval nor a schedule, both at once, or a
-	// schedule that will never fire.
-	ErrInvalidJob = platformerrors.New("invalid job")
 )
 
 // Job is one piece of periodic work. It is registered before the Scheduler runs
@@ -139,54 +116,6 @@ func (j *Job) validate(now time.Time) error {
 	return nil
 }
 
-// SchedulerConfig configures a Scheduler.
-type SchedulerConfig struct {
-	// LockKeyPrefix namespaces every lock key the Scheduler takes.
-	LockKeyPrefix string `env:"LOCK_KEY_PREFIX" json:"lockKeyPrefix" yaml:"lockKeyPrefix"`
-	// Timezone is the IANA name of the zone that cron schedules are read in
-	// when they did not settle the question themselves — "America/Chicago". It
-	// is what a service whose jobs all belong to one calendar sets once,
-	// instead of repeating a CRON_TZ prefix on every expression.
-	//
-	// A schedule built by CronIn, or one whose spec carries its own CRON_TZ,
-	// ignores this: both are more specific. Empty means DefaultTimezone.
-	//
-	// It is resolved by NewScheduler, so a name the runtime cannot load fails
-	// construction rather than the first fire. Anything but UTC needs the
-	// zoneinfo database in the image.
-	Timezone string `env:"TIMEZONE" json:"timezone" yaml:"timezone"`
-	// DefaultLeaseTTL is the lease length for jobs that do not set their own.
-	DefaultLeaseTTL time.Duration `env:"DEFAULT_LEASE_TTL" json:"defaultLeaseTTL" yaml:"defaultLeaseTTL"`
-	// DefaultTimeout bounds one execution for jobs that do not set their own.
-	// Zero means no timeout.
-	DefaultTimeout time.Duration `env:"DEFAULT_TIMEOUT" json:"defaultTimeout" yaml:"defaultTimeout"`
-}
-
-var _ validation.ValidatableWithContext = (*SchedulerConfig)(nil)
-
-// EnsureDefaults fills unset knobs with the package defaults.
-func (cfg *SchedulerConfig) EnsureDefaults() {
-	if cfg.LockKeyPrefix == "" {
-		cfg.LockKeyPrefix = DefaultLockKeyPrefix
-	}
-
-	if cfg.DefaultLeaseTTL <= 0 {
-		cfg.DefaultLeaseTTL = DefaultLeaseTTL
-	}
-
-	if cfg.Timezone == "" {
-		cfg.Timezone = DefaultTimezone
-	}
-}
-
-// ValidateWithContext validates a SchedulerConfig.
-func (cfg *SchedulerConfig) ValidateWithContext(ctx context.Context) error {
-	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.DefaultLeaseTTL, validation.Required, validation.Min(time.Second)),
-		validation.Field(&cfg.DefaultTimeout, validation.Min(time.Duration(0))),
-	)
-}
-
 // Scheduler runs registered jobs on an interval or on a calendar, each
 // execution held under a distributed lock so that at most one replica runs a
 // given job per tick.
@@ -231,45 +160,6 @@ type Scheduler struct {
 	mu       sync.Mutex
 	stopOnce sync.Once
 	running  bool
-}
-
-// SchedulerOption configures a Scheduler.
-type SchedulerOption func(*Scheduler)
-
-// WithSchedulerClock swaps the clock driving the tickers. Tests generally do
-// not need it: inside a testing/synctest bubble the default clock already reads
-// bubble time, so a daily job fires instantly and deterministically.
-func WithSchedulerClock(c clock.Clock) SchedulerOption {
-	return func(s *Scheduler) {
-		if c != nil {
-			s.clock = c
-		}
-	}
-}
-
-// WithSchedulerLogger attaches a logger. A job's error goes nowhere else —
-// there is no caller to return it to — so without one a job that has been
-// failing for a week is visible only in metrics.
-func WithSchedulerLogger(logger logging.Logger) SchedulerOption {
-	return func(s *Scheduler) {
-		s.logger = logger
-	}
-}
-
-// WithSchedulerTracerProvider attaches a tracer provider. A tick that is skipped
-// because another replica holds the lease is still traced: "did this replica
-// decline, or did nobody run it" is the question a missed job actually raises.
-func WithSchedulerTracerProvider(tracerProvider tracing.TracerProvider) SchedulerOption {
-	return func(s *Scheduler) {
-		s.tracerProvider = tracerProvider
-	}
-}
-
-// WithSchedulerMetricsProvider attaches a metrics provider.
-func WithSchedulerMetricsProvider(metricsProvider metrics.Provider) SchedulerOption {
-	return func(s *Scheduler) {
-		s.metricsProvider = metricsProvider
-	}
 }
 
 // NewScheduler builds a Scheduler. It registers no jobs and starts nothing;

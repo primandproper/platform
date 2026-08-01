@@ -133,45 +133,6 @@ type reader struct {
 	prefix          string
 }
 
-// ReaderOption configures a Reader.
-type ReaderOption func(*reader)
-
-// WithReaderTablePrefix overrides DefaultTablePrefix. It must match the prefix
-// the Recorder writes with.
-func WithReaderTablePrefix(prefix string) ReaderOption {
-	return func(r *reader) {
-		if prefix != "" {
-			r.prefix = prefix
-		}
-	}
-}
-
-// WithReaderLogger attaches a logger.
-func WithReaderLogger(logger logging.Logger) ReaderOption {
-	return func(r *reader) {
-		r.logger = logger
-	}
-}
-
-// WithReaderTracerProvider attaches a tracer provider.
-func WithReaderTracerProvider(tracerProvider tracing.TracerProvider) ReaderOption {
-	return func(r *reader) {
-		r.tracerProvider = tracerProvider
-	}
-}
-
-// WithReaderMetricsProvider attaches a metrics provider, enabling
-// audit_verifications and audit_chain_breaks.
-//
-// Alert on audit_chain_breaks. Everything else this package emits describes
-// throughput; that one says the log is no longer evidence, and it is the only
-// instrument here whose non-zero value is an incident on its own.
-func WithReaderMetricsProvider(metricsProvider metrics.Provider) ReaderOption {
-	return func(r *reader) {
-		r.metricsProvider = metricsProvider
-	}
-}
-
 // NewReader builds a Reader over the database holding the audit tables. The
 // dialect comes from the client, so the two cannot disagree.
 func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {

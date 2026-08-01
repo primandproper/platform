@@ -52,41 +52,6 @@ type sqlStore struct {
 	dialect         dialect.Dialect
 }
 
-// SQLStoreOption configures a SQL Store.
-type SQLStoreOption func(*sqlStore)
-
-// WithTablePrefix overrides DefaultTablePrefix. It must be a plain SQL identifier
-// fragment: it is interpolated into the query text, not bound as a parameter, and
-// it must match the prefix the migrations were rendered with.
-func WithTablePrefix(prefix string) SQLStoreOption {
-	return func(s *sqlStore) {
-		if prefix != "" {
-			s.tables = newTables(prefix)
-		}
-	}
-}
-
-// WithStoreLogger attaches a logger.
-func WithStoreLogger(logger logging.Logger) SQLStoreOption {
-	return func(s *sqlStore) {
-		s.logger = logger
-	}
-}
-
-// WithStoreTracerProvider attaches a tracer provider.
-func WithStoreTracerProvider(tracerProvider tracing.TracerProvider) SQLStoreOption {
-	return func(s *sqlStore) {
-		s.tracerProvider = tracerProvider
-	}
-}
-
-// WithStoreMetricsProvider attaches a metrics provider.
-func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
-	return func(s *sqlStore) {
-		s.metricsProvider = metricsProvider
-	}
-}
-
 // NewSQLStore builds a Store over the given database.
 //
 // The dialect comes from the client, so the two cannot disagree. The prefix must

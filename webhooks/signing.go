@@ -126,38 +126,9 @@ func Sign(secret Secret, body []byte, at time.Time) (string, error) {
 	return sb.String(), nil
 }
 
-// VerifyOption customizes Verify.
-type VerifyOption func(*verifyConfig)
-
 type verifyConfig struct {
 	now       time.Time
 	tolerance time.Duration
-}
-
-// WithTolerance overrides DefaultTolerance — how far the signature's timestamp
-// may sit from the verifier's clock. A non-positive duration leaves the default
-// in place.
-//
-// There is deliberately no way to disable the check. A signature with no
-// freshness bound is replayable forever, which is the property this scheme
-// exists to remove.
-func WithTolerance(d time.Duration) VerifyOption {
-	return func(c *verifyConfig) {
-		if d > 0 {
-			c.tolerance = d
-		}
-	}
-}
-
-// WithVerificationTime pins the time Verify compares the signature's timestamp
-// against, instead of the wall clock. It exists for tests and for replaying a
-// captured request against a known instant.
-func WithVerificationTime(t time.Time) VerifyOption {
-	return func(c *verifyConfig) {
-		if !t.IsZero() {
-			c.now = t
-		}
-	}
 }
 
 // Verify checks a SignatureHeader value against body under secret, and is what

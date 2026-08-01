@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/primandproper/platform-go/v9/clock"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
@@ -17,7 +16,6 @@ import (
 	"github.com/primandproper/platform-go/v9/panicking"
 	"github.com/primandproper/platform-go/v9/retry"
 
-	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -40,25 +38,6 @@ const (
 	payloadSizeKey = "jobs.payload_bytes"
 	concurrencyKey = "jobs.concurrency"
 	panicStackKey  = "jobs.panic_stack"
-)
-
-var (
-	// ErrHandlerPanicked wraps the value recovered from a handler that panicked.
-	// The Pool contains the panic rather than letting it unwind the worker
-	// goroutine and take the process with it, then treats it as an ordinary
-	// attempt failure.
-	ErrHandlerPanicked = platformerrors.New("job handler panicked")
-	// ErrNilHandler indicates a nil Handler was passed to NewPool. It wraps
-	// errors.ErrNilInputParameter, so a caller may check either.
-	ErrNilHandler = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil job handler")
-	// ErrNilConsumerProvider indicates a nil ConsumerProvider was passed to
-	// NewPool. It wraps errors.ErrNilInputParameter, so a caller may check
-	// either.
-	ErrNilConsumerProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil consumer provider")
-	// ErrNilPublisherProvider indicates a nil PublisherProvider was passed to
-	// NewTopicDeadLetter. It wraps errors.ErrNilInputParameter, so a caller may
-	// check either.
-	ErrNilPublisherProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil publisher provider")
 )
 
 // message is one payload in flight between the consumer and a worker, together
@@ -92,46 +71,6 @@ func (m *message) linkToOrigin() []trace.SpanStartOption {
 // parse three more times, and each of those attempts is latency a healthy
 // message spends waiting behind it.
 type Handler func(ctx context.Context, payload []byte) error
-
-// PoolConfig configures a Pool.
-type PoolConfig struct {
-	// Topic is the queue topic to consume.
-	Topic string `env:"TOPIC" json:"topic" yaml:"topic"`
-	// Retry drives per-message retries. MaxAttempts is how many times the
-	// handler runs before the message is dead-lettered, so MaxAttempts of 1
-	// means no retry at all.
-	Retry retry.Config `envPrefix:"RETRY_" json:"retry" yaml:"retry"`
-	// Concurrency is how many messages the Pool handles at once. It is also the
-	// bound on read-ahead: the Pool holds at most this many messages in memory,
-	// because a consumed message is handed directly to a free worker and the
-	// consumer blocks when there is none.
-	Concurrency int `env:"CONCURRENCY" json:"concurrency" yaml:"concurrency"`
-	// HandlerTimeout bounds one attempt. Zero — the default — means no timeout,
-	// in which case a handler that neither returns nor honors its context
-	// occupies a worker permanently and will hold up Close.
-	HandlerTimeout time.Duration `env:"HANDLER_TIMEOUT" json:"handlerTimeout" yaml:"handlerTimeout"`
-}
-
-var _ validation.ValidatableWithContext = (*PoolConfig)(nil)
-
-// EnsureDefaults fills unset knobs with the package defaults.
-func (cfg *PoolConfig) EnsureDefaults() {
-	if cfg.Concurrency <= 0 {
-		cfg.Concurrency = DefaultConcurrency
-	}
-
-	cfg.Retry.EnsureDefaults()
-}
-
-// ValidateWithContext validates a PoolConfig.
-func (cfg *PoolConfig) ValidateWithContext(ctx context.Context) error {
-	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Topic, validation.Required),
-		validation.Field(&cfg.Concurrency, validation.Required, validation.Min(1)),
-		validation.Field(&cfg.HandlerTimeout, validation.Min(time.Duration(0))),
-		validation.Field(&cfg.Retry, validation.By(func(any) error { return cfg.Retry.ValidateWithContext(ctx) })),
-	)
-}
 
 // Pool binds a messagequeue consumer to a handler with a bounded set of
 // workers, per-message retry, and a dead-letter path. It owns the goroutines
@@ -190,70 +129,6 @@ type Pool struct {
 
 	wg       sync.WaitGroup
 	stopOnce sync.Once
-}
-
-// PoolOption configures a Pool.
-type PoolOption func(*Pool)
-
-// WithPoolDeadLetter sets where messages go once they have exhausted their
-// attempts. Without one the Pool has no terminal destination and drops them,
-// logging at error level and incrementing jobs_pool_messages_dropped — which is
-// a defensible choice for a topic whose messages are individually worthless,
-// and a silent data-loss bug for every other topic.
-//
-// NewTopicDeadLetter builds the usual implementation.
-func WithPoolDeadLetter(fn DeadLetterFunc) PoolOption {
-	return func(p *Pool) {
-		if fn != nil {
-			p.deadLtr = fn
-		}
-	}
-}
-
-// WithPoolClock swaps the clock used to stamp dead-letter envelopes and measure
-// handler latency.
-func WithPoolClock(c clock.Clock) PoolOption {
-	return func(p *Pool) {
-		if c != nil {
-			p.clock = c
-		}
-	}
-}
-
-// WithPoolLogger attaches a logger. Nothing in the Pool's steady state is
-// surfaced to a caller — there is no caller — so without a logger a handler
-// that fails every message is visible only in metrics.
-func WithPoolLogger(logger logging.Logger) PoolOption {
-	return func(p *Pool) {
-		p.logger = logger
-	}
-}
-
-// WithPoolTracerProvider attaches a tracer provider. Each message gets a root
-// span covering all of its attempts.
-func WithPoolTracerProvider(tracerProvider tracing.TracerProvider) PoolOption {
-	return func(p *Pool) {
-		p.tracerProvider = tracerProvider
-	}
-}
-
-// WithPoolMetricsProvider attaches a metrics provider.
-func WithPoolMetricsProvider(metricsProvider metrics.Provider) PoolOption {
-	return func(p *Pool) {
-		p.metricsProvider = metricsProvider
-	}
-}
-
-// WithPoolRetryPolicy replaces the retry policy built from PoolConfig.Retry.
-// The policy still governs how many times the handler runs, so a policy whose
-// attempt count disagrees with PoolConfig.Retry.MaxAttempts changes when a
-// message is dead-lettered.
-func WithPoolRetryPolicy(policy retry.Policy) PoolOption {
-	return func(p *Pool) {
-		if policy != nil {
-			p.policy = policy
-		}
-	}
 }
 
 // NewPool subscribes to cfg.Topic and returns a Pool bound to handler. It does

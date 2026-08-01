@@ -16,8 +16,6 @@ import (
 
 	"github.com/primandproper/platform-go/v9/audit"
 	"github.com/primandproper/platform-go/v9/clock"
-	"github.com/primandproper/platform-go/v9/compression"
-	"github.com/primandproper/platform-go/v9/cryptography/encryption"
 	"github.com/primandproper/platform-go/v9/database"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
@@ -118,125 +116,6 @@ type Worker struct {
 	cfg WorkerConfig
 
 	stopOnce sync.Once
-}
-
-// WorkerOption configures a Worker.
-type WorkerOption func(*Worker)
-
-// WithWorkerClock swaps the clock driving the poll loop, leases, and backoff.
-func WithWorkerClock(c clock.Clock) WorkerOption {
-	return func(w *Worker) {
-		if c != nil {
-			w.clock = c
-		}
-	}
-}
-
-// WithWorkerLogger attaches a logger. A failing collector is reported through
-// it and nowhere else — there is no caller to return it to — so without one a
-// domain that has been failing to collect for a week is visible only in
-// metrics.
-func WithWorkerLogger(logger logging.Logger) WorkerOption {
-	return func(w *Worker) {
-		w.logger = logger
-	}
-}
-
-// WithWorkerTracerProvider attaches a tracer provider. Cycles that claim
-// nothing are not traced — a root span every poll interval is noise.
-func WithWorkerTracerProvider(tracerProvider tracing.TracerProvider) WorkerOption {
-	return func(w *Worker) {
-		w.tracerProvider = tracerProvider
-	}
-}
-
-// WithWorkerMetricsProvider attaches a metrics provider.
-func WithWorkerMetricsProvider(metricsProvider metrics.Provider) WorkerOption {
-	return func(w *Worker) {
-		w.metricsProvider = metricsProvider
-	}
-}
-
-// WithWorkerUploadManager supplies the storage artifacts are written to.
-// Required for exports; an erasure-only Worker does not need it.
-func WithWorkerUploadManager(manager uploads.UploadManager) WorkerOption {
-	return func(w *Worker) {
-		if manager != nil {
-			w.uploader = manager
-		}
-	}
-}
-
-// WithWorkerCompressor compresses artifacts before they are stored.
-//
-// Worth setting. An export is JSON assembled from every domain in an
-// application, which is the most compressible shape there is — and the artifact
-// is written once and read at most once, so the compression is nearly free.
-func WithWorkerCompressor(compressor compression.Compressor) WorkerOption {
-	return func(w *Worker) {
-		if compressor != nil {
-			w.packager.compressor = compressor
-		}
-	}
-}
-
-// WithWorkerEncryptor encrypts artifacts at rest.
-//
-// It changes what delivery is possible: an encrypted artifact cannot be handed
-// out as a signed URL, because the subject would receive ciphertext. See
-// ErrArtifactEncrypted. Configure the Service with the matching decryptor.
-func WithWorkerEncryptor(encryptor encryption.Encryptor) WorkerOption {
-	return func(w *Worker) {
-		if encryptor != nil {
-			w.packager.encryptor = encryptor
-		}
-	}
-}
-
-// WithWorkerNotifier supplies who to tell when a request finishes.
-func WithWorkerNotifier(notifier Notifier) WorkerOption {
-	return func(w *Worker) {
-		if notifier != nil {
-			w.notifier = notifier
-		}
-	}
-}
-
-// WithWorkerAuditRecorder attaches the audit log completions are recorded in.
-//
-// The completion entry is the one that says what was actually disclosed or
-// destroyed, and it is written in the same transaction as the state change it
-// describes.
-func WithWorkerAuditRecorder(recorder audit.Recorder) WorkerOption {
-	return func(w *Worker) {
-		if recorder != nil {
-			w.recorder = recorder
-		}
-	}
-}
-
-// WithWorkerActorResolver supplies the principal recorded in audit entries.
-func WithWorkerActorResolver(resolver ActorResolver) WorkerOption {
-	return func(w *Worker) {
-		if resolver != nil {
-			w.actor = resolver
-		}
-	}
-}
-
-// WithWorkerURLSigner supplies how a notification's download URL is minted.
-//
-// It exists so the Worker can hand the subject a link without holding a
-// Service — which would be circular, since a Service is the thing that reads
-// what this Worker writes. The signer returns the URL and its expiry; an empty
-// URL means the notification carries no link, which is correct for encrypted
-// artifacts and for providers that cannot sign.
-func WithWorkerURLSigner(signer func(ctx context.Context, req *Request) (url string, expiresAt time.Time)) WorkerOption {
-	return func(w *Worker) {
-		if signer != nil {
-			w.signer = signer
-		}
-	}
 }
 
 // NewWorker builds a Worker. It does not start it; call Run.
