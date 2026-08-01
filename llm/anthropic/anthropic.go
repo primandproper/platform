@@ -7,15 +7,26 @@ import (
 
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/llm"
+	"github.com/primandproper/platform-go/v9/llm/internal/bridge"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/pointer"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
 	anyllmanthropic "github.com/mozilla-ai/any-llm-go/providers/anthropic"
 )
 
-const name = "anthropic_llm"
+const (
+	// name scopes this package's spans, logs, and metrics.
+	name = "anthropic_llm"
+	// providerName is what llm.Provider.Name reports. It is the vendor rather
+	// than the component, since callers use it to reason about the model, and
+	// it is stable enough to persist alongside stored completions.
+	providerName = "anthropic"
+	// fallbackModel is used when neither the request nor the config names one.
+	fallbackModel = "claude-sonnet-4-20250514"
+)
+
+var _ llm.Provider = (*anthropicProvider)(nil)
 
 // NewProvider creates a new Anthropic-backed LLM provider.
 func NewProvider(cfg *Config, opts ...Option) (llm.Provider, error) {
@@ -71,18 +82,42 @@ type anthropicProvider struct {
 	requestCounter metrics.Int64Counter
 	errorCounter   metrics.Int64Counter
 	latencyHist    metrics.Float64Histogram
-	provider       *anyllmanthropic.Provider
-	defaultModel   string
+	// provider is the interface rather than the concrete Anthropic provider, so
+	// that the observability and translation seams around it can be exercised
+	// without an HTTP round trip.
+	provider     anyllm.Provider
+	defaultModel string
+}
+
+// Name implements llm.Provider.
+func (*anthropicProvider) Name() string {
+	return providerName
+}
+
+// Capabilities implements llm.Provider.
+//
+// PDFs is true because Anthropic accepts document blocks, but note that nothing
+// in the platform's surface reaches them yet: llm.Part has no document kind, so
+// the capability describes the provider rather than what a caller can currently
+// ask for.
+func (*anthropicProvider) Capabilities() llm.Capabilities {
+	return llm.Capabilities{
+		Streaming:        true,
+		Tools:            true,
+		Images:           true,
+		PDFs:             true,
+		Reasoning:        true,
+		StructuredOutput: true,
+	}
 }
 
 // Completion implements llm.Provider.
 //
-// Rate limiting: this method does not retry. The underlying any-llm library classifies a
-// 429 as *anyllm.RateLimitError (which carries a RetryAfter) but never retries on its own,
-// so the error is surfaced to the caller unchanged. Callers that want backoff should wrap
-// this call themselves (e.g. with the platform's retry package), inspecting the error via
-// errors.As for *anyllm.RateLimitError / errors.Is for anyllm.ErrRateLimit.
-func (p *anthropicProvider) Completion(ctx context.Context, params llm.CompletionParams) (*llm.CompletionResult, error) {
+// It does not retry. A rate limit comes back as an error matching
+// llm.ErrRateLimited — usually a *llm.RateLimitError carrying the provider's
+// advice about how long to wait — and choosing a backoff against that advice is
+// the caller's job, since only the caller knows its own deadline.
+func (p *anthropicProvider) Completion(ctx context.Context, req *llm.CompletionRequest) (*llm.CompletionResponse, error) {
 	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
@@ -91,54 +126,86 @@ func (p *anthropicProvider) Completion(ctx context.Context, params llm.Completio
 		p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	model := params.Model
-	if model == "" {
-		model = p.defaultModel
-	}
-	if model == "" {
-		model = "claude-sonnet-4-20250514"
-	}
-
-	op.Set("llm.model", model).Set("llm.message_count", len(params.Messages))
-
-	anyllmParams := anyllm.CompletionParams{
-		Model:    model,
-		Messages: toAnyLLMMessages(pointer.ToSlice(params.Messages)),
-	}
-
-	resp, err := p.provider.Completion(ctx, anyllmParams)
+	params, err := p.params(req, op)
 	if err != nil {
 		p.errorCounter.Add(ctx, 1)
-		return nil, op.Error(err, "completing request")
+
+		return nil, op.Error(err, "building request")
+	}
+
+	resp, err := p.provider.Completion(ctx, params)
+	if err != nil {
+		p.errorCounter.Add(ctx, 1)
+
+		return nil, op.Error(bridge.NormalizeError(err), "completing request")
 	}
 
 	p.requestCounter.Add(ctx, 1)
 
-	if resp.Usage != nil {
-		op.Set("llm.tokens.total", resp.Usage.TotalTokens)
+	out := bridge.Response(resp)
+	if out.Usage != nil {
+		op.Set("llm.tokens.total", out.Usage.TotalTokens)
 	}
-	if len(resp.Choices) > 0 {
-		op.Set("llm.finish_reason", resp.Choices[0].FinishReason)
-	}
+	op.Set("llm.stop_reason", string(out.StopReason))
 
-	return toCompletionResult(resp), nil
+	return out, nil
 }
 
-func toAnyLLMMessages(msgs []*llm.Message) []anyllm.Message {
-	out := make([]anyllm.Message, len(msgs))
-	for i, m := range msgs {
-		out[i] = anyllm.Message{
-			Role:    m.Role,
-			Content: m.Content,
+// Stream implements llm.Provider.
+//
+// The span and the latency measurement cover the whole stream rather than the
+// call that starts it, which is why they are ended by the returned stream's
+// finish hook instead of a defer here. A consumer that abandons the stream
+// without closing it leaves both open; llm.Stream documents Close as mandatory
+// for exactly this reason.
+func (p *anthropicProvider) Stream(ctx context.Context, req *llm.CompletionRequest) (llm.Stream, error) {
+	ctx, op := p.o11y.Begin(ctx)
+
+	params, err := p.params(req, op)
+	if err != nil {
+		defer op.End()
+		p.errorCounter.Add(ctx, 1)
+
+		return nil, op.Error(err, "building request")
+	}
+
+	startTime := time.Now()
+	p.requestCounter.Add(ctx, 1)
+
+	streamCtx, cancel := context.WithCancel(ctx)
+	chunks, errs := p.provider.CompletionStream(streamCtx, params)
+
+	return bridge.Stream(chunks, errs, func(streamErr error) {
+		cancel()
+		p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+
+		if streamErr != nil {
+			p.errorCounter.Add(ctx, 1)
+			op.Acknowledge(streamErr, "streaming completion")
 		}
-	}
-	return out
+
+		op.End()
+	}), nil
 }
 
-func toCompletionResult(resp *anyllm.ChatCompletion) *llm.CompletionResult {
-	content := ""
-	if len(resp.Choices) > 0 {
-		content = resp.Choices[0].Message.ContentString()
+// params resolves the model and translates the request, recording what was
+// asked for on the operation either way.
+func (p *anthropicProvider) params(req *llm.CompletionRequest, op observability.Operation) (anyllm.CompletionParams, error) {
+	model := ""
+	messageCount := 0
+	if req != nil {
+		model = req.Model
+		messageCount = len(req.Messages)
 	}
-	return &llm.CompletionResult{Content: content}
+
+	if model == "" {
+		model = p.defaultModel
+	}
+	if model == "" {
+		model = fallbackModel
+	}
+
+	op.Set("llm.model", model).Set("llm.message_count", messageCount)
+
+	return bridge.Params(req, model)
 }
