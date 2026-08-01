@@ -38,13 +38,19 @@ const (
 var RunningTests = strings.TrimSpace(strings.ToLower(os.Getenv("RUN_CONTAINER_TESTS"))) == "true"
 
 // SkipIfNotRunning skips the current test or benchmark (via SkipNow) when
-// RunningTests is false. It is the one-line equivalent of `if
-// !containers.RunningTests { tb.SkipNow() }` that every container-backed test
-// and benchmark in the repo needs. It accepts testing.TB so both *testing.T
-// and *testing.B can use it.
+// RunningTests is false, or when -short is set. It is the one-line equivalent
+// of the gate every container-backed test and benchmark in the repo needs. It
+// accepts testing.TB so both *testing.T and *testing.B can use it.
+//
+// -short skips even with RUN_CONTAINER_TESTS=true, and deliberately so: -short
+// is the caller saying they want a fast answer, and pulling images and standing
+// up a database is the slowest thing this repo does. A gate that honored only
+// the environment variable would leave -short meaningless for exactly the tests
+// it exists to skip.
 func SkipIfNotRunning(tb testing.TB) {
 	tb.Helper()
-	if !RunningTests {
+
+	if !RunningTests || testing.Short() {
 		tb.SkipNow()
 	}
 }
