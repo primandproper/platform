@@ -160,18 +160,26 @@ func (s *sqlStore) Save(ctx context.Context, q database.SQLQueryExecutor, inst *
 		nextAttemptKey: nextAttempt,
 	})
 
-	stepNames, err := json.Marshal(inst.StepNames)
-	if err != nil {
-		return op.Error(err, "encoding saga step names")
-	}
+	query, args := s.tables.buildInsertInstance(s.dialect, inst, encodeStepNames(inst.StepNames), nextAttempt)
 
-	query, args := s.tables.buildInsertInstance(s.dialect, inst, stepNames, nextAttempt)
-
-	if _, err = q.ExecContext(ctx, query, args...); err != nil {
+	if _, err := q.ExecContext(ctx, query, args...); err != nil {
 		return op.Error(err, "inserting saga instance")
 	}
 
 	return nil
+}
+
+// encodeStepNames renders a step list for storage.
+//
+// It returns no error because it cannot produce one. json.Marshal fails on
+// cycles, channels, funcs, and NaNs; a []string is none of those, and an error
+// branch here would be one nothing can reach and no test can cover. The
+// decode side does return an error, because a column can be edited by hand.
+func encodeStepNames(names []string) []byte {
+	//nolint:errcheck,errchkjson // a []string always marshals; see the comment above.
+	encoded, _ := json.Marshal(names)
+
+	return encoded
 }
 
 func (s *sqlStore) Get(ctx context.Context, instanceID string) (*Record, error) {
