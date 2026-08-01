@@ -215,3 +215,21 @@ func TestRequestType_Valid(T *testing.T) {
 		test.False(t, RequestType("rectification").Valid())
 	})
 }
+
+func TestPackager_MalformedFragment(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a fragment that is not JSON fails the encode", func(t *testing.T) {
+		t.Parallel()
+
+		doc := testDocument()
+		doc.Data["broken"] = json.RawMessage(`{"unterminated":`)
+
+		// The Worker validates fragments before assembly precisely so this
+		// cannot happen there; the guard here is what makes that a defense in
+		// depth rather than the only check.
+		_, err := (&packager{}).encode(t.Context(), doc)
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "encoding dataprivacy export document")
+	})
+}

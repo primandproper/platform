@@ -2,6 +2,7 @@ package auditerasure
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -351,5 +352,118 @@ func TestNew(T *testing.T) {
 
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "tenant directory is down")
+	})
+}
+
+// errDatabase is what the fault-injecting executor returns.
+var errDatabase = platformerrors.New("database is on fire")
+
+// failingExecutor fails every statement.
+//
+// The eraser's error paths are otherwise unreachable — a real database does not
+// fail on demand — and they decide whether a half-applied audit deletion is
+// reported or silently swallowed. A swallowed error here means an erasure that
+// reports success having left the subject's audit scope in place.
+type failingExecutor struct {
+	closed *sql.DB
+}
+
+var _ database.SQLQueryExecutor = (*failingExecutor)(nil)
+
+func (*failingExecutor) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, errDatabase
+}
+
+func (*failingExecutor) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	return nil, errDatabase
+}
+
+func (*failingExecutor) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	return nil, errDatabase
+}
+
+// QueryRowContext delegates to a closed pool, whose Row reports an error on
+// Scan. A zero-value &sql.Row{} panics instead of reporting.
+func (e *failingExecutor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return e.closed.QueryRowContext(ctx, query, args...)
+}
+
+func newClosedPool(t *testing.T) *sql.DB {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "closed.db"))
+	must.NoError(t, err)
+	must.NoError(t, db.Close())
+
+	return db
+}
+
+// countOnlyExecutor lets the deletes through against a live database but fails
+// the retained-count read, isolating the second half of Erase.
+type countOnlyExecutor struct {
+	database.SQLQueryExecutor
+
+	closed *sql.DB
+}
+
+func (e *countOnlyExecutor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return e.closed.QueryRowContext(ctx, query, args...)
+}
+
+func TestEraser_PropagatesFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a failing delete is reported", func(t *testing.T) {
+		t.Parallel()
+
+		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		must.NoError(t, err)
+
+		_, err = eraser.Erase(t.Context(), &failingExecutor{closed: newClosedPool(t)},
+			dataprivacy.Subject{ID: "user-1"})
+
+		must.ErrorIs(t, err, errDatabase)
+		test.StrContains(t, err.Error(), "deleting audit entries")
+	})
+
+	T.Run("a failing retained count is reported", func(t *testing.T) {
+		t.Parallel()
+
+		env := newAuditEnv(t)
+		env.record(t, "user-1", "user-1", "recipe-1")
+
+		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		must.NoError(t, err)
+
+		closed := newClosedPool(t)
+
+		err = env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			_, eraseErr := eraser.Erase(t.Context(),
+				&countOnlyExecutor{SQLQueryExecutor: q, closed: closed},
+				dataprivacy.Subject{ID: "user-1"})
+
+			return eraseErr
+		})
+
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "counting retained audit entries")
+	})
+
+	T.Run("no scopes still counts what is retained", func(t *testing.T) {
+		t.Parallel()
+
+		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix,
+			WithScopeResolver(func(context.Context, dataprivacy.Subject) ([]string, error) {
+				return nil, nil
+			}))
+		must.NoError(t, err)
+
+		// The delete is skipped entirely, so the only statement is the count —
+		// and its failure still has to surface.
+		_, err = eraser.Erase(t.Context(), &failingExecutor{closed: newClosedPool(t)},
+			dataprivacy.Subject{ID: "user-1"})
+
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "counting retained audit entries")
 	})
 }

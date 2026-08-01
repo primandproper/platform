@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/audit"
+	"github.com/primandproper/platform-go/v9/compression"
+	"github.com/primandproper/platform-go/v9/cryptography/encryption/aes"
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/database/sqlite"
@@ -286,3 +288,65 @@ func (c *testClientConfig) GetPingWaitPeriod() time.Duration  { return time.Mill
 func (c *testClientConfig) GetMaxIdleConns() int              { return 2 }
 func (c *testClientConfig) GetMaxOpenConns() int              { return 1 }
 func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
+
+func TestRegisterAuditEraser_Failures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("propagates a config that will not validate", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := RegisterAuditEraser(t.Context(), &Config{Dialect: dialect.Dialect("oracle")},
+			dataprivacy.NewRegistry())
+		test.Error(t, err)
+	})
+
+	T.Run("propagates a registry that already holds the key", func(t *testing.T) {
+		t.Parallel()
+
+		registry := dataprivacy.NewRegistry()
+		must.NoError(t, registry.RegisterEraser(auditerasure.DefaultKey, dataprivacy.EraserFunc(
+			func(context.Context, database.SQLQueryExecutor, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
+				return dataprivacy.ErasureOutcome{}, nil
+			},
+		)))
+
+		// An application that registered its own audit eraser and also left the
+		// built-in one enabled is told, rather than having one silently win.
+		_, err := RegisterAuditEraser(t.Context(), &Config{Dialect: dialect.SQLite}, registry)
+		test.ErrorIs(t, err, dataprivacy.ErrDuplicateKey)
+	})
+}
+
+func TestEnsurePackaging_Supplied(T *testing.T) {
+	T.Parallel()
+
+	T.Run("pairs the worker and service codecs", func(t *testing.T) {
+		t.Parallel()
+
+		compressor, err := compression.NewCompressor(compression.AlgorithmZstd)
+		must.NoError(t, err)
+
+		encryptorDecryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		must.NoError(t, err)
+
+		// The pairing is the point: an artifact written with one compressor and
+		// read with another is unreadable, and the failure would surface at the
+		// subject rather than at startup.
+		workerOpts, serviceOpts := EnsurePackaging(compressor, encryptorDecryptor)
+
+		test.SliceLen(t, 2, workerOpts)
+		test.SliceLen(t, 2, serviceOpts)
+	})
+
+	T.Run("a compressor alone pairs one option each", func(t *testing.T) {
+		t.Parallel()
+
+		compressor, err := compression.NewCompressor(compression.AlgorithmS2)
+		must.NoError(t, err)
+
+		workerOpts, serviceOpts := EnsurePackaging(compressor, nil)
+
+		test.SliceLen(t, 1, workerOpts)
+		test.SliceLen(t, 1, serviceOpts)
+	})
+}
