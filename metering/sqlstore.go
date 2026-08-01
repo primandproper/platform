@@ -1,0 +1,788 @@
+package metering
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/metering/migrations"
+	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+)
+
+// DefaultTablePrefix is the prefix the metering tables carry when no other is
+// configured.
+const DefaultTablePrefix = "metering"
+
+// storeName scopes the store's spans and logger. It is deliberately not
+// serviceName: a trace showing the enforcement decision and the rows behind it
+// wants those distinguishable, and one scope for both would make a total read
+// look like a Check in every span listing.
+const storeName = serviceName + "_store"
+
+var _ Store = (*sqlStore)(nil)
+
+// sqlStore is the SQL-backed Store, against the schema metering/migrations
+// renders.
+type sqlStore struct {
+	client database.Client
+	tables *tables
+	o11y   observability.Observer
+	logger logging.Logger
+
+	guardMissCounter metrics.Int64Counter
+
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
+	dialect         dialect.Dialect
+}
+
+// SQLStoreOption configures a SQL Store.
+type SQLStoreOption func(*sqlStore)
+
+// WithTablePrefix overrides DefaultTablePrefix. It must be a plain SQL identifier
+// fragment: it is interpolated into the query text, not bound as a parameter, and
+// it must match the prefix the migrations were rendered with.
+func WithTablePrefix(prefix string) SQLStoreOption {
+	return func(s *sqlStore) {
+		if prefix != "" {
+			s.tables = newTables(prefix)
+		}
+	}
+}
+
+// WithStoreLogger attaches a logger.
+func WithStoreLogger(logger logging.Logger) SQLStoreOption {
+	return func(s *sqlStore) {
+		s.logger = logger
+	}
+}
+
+// WithStoreTracerProvider attaches a tracer provider.
+func WithStoreTracerProvider(tracerProvider tracing.TracerProvider) SQLStoreOption {
+	return func(s *sqlStore) {
+		s.tracerProvider = tracerProvider
+	}
+}
+
+// WithStoreMetricsProvider attaches a metrics provider.
+func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
+	return func(s *sqlStore) {
+		s.metricsProvider = metricsProvider
+	}
+}
+
+// NewSQLStore builds a Store over the given database.
+//
+// The dialect must match the client, and the prefix must match the one the
+// migrations were rendered with — nothing here can check either, and a mismatch
+// surfaces as a missing table on the first query rather than at construction.
+//
+// Observability is optional and defaults to nothing: an unconfigured store logs
+// to a noop logger, traces to a noop provider, and counts into a noop meter.
+func NewSQLStore(d dialect.Dialect, client database.Client, opts ...SQLStoreOption) (Store, error) {
+	if !d.Valid() {
+		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "metering dialect %q", d)
+	}
+
+	if client == nil {
+		return nil, ErrNilDatabaseClient
+	}
+
+	s := &sqlStore{
+		client:  client,
+		dialect: d,
+		tables:  newTables(DefaultTablePrefix),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+
+	if err := migrations.ValidatePrefix(s.tables.prefix()); err != nil {
+		return nil, err
+	}
+
+	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
+	s.logger = s.o11y.Logger()
+
+	// One counter, and only one. The Recorder, Enforcer, and Flusher own the
+	// business totals — recorded, allowed, denied, flushed — and a second name for
+	// the same event is how two dashboards come to disagree. What no caller can
+	// count is this: a guarded write that matched no row. That is not a database
+	// error, and above this layer it is indistinguishable from one.
+	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
+
+	var err error
+	if s.guardMissCounter, err = mp.NewInt64Counter(storeName + "_guard_misses"); err != nil {
+		return nil, platformerrors.Wrap(err, "creating metering store guard miss counter")
+	}
+
+	return s, nil
+}
+
+// storeOpAttr labels a guard miss with the operation that missed, so the metric
+// distinguishes a lapsed flush lease from a settle that raced another flusher —
+// one is routine and one wants looking at.
+func storeOpAttr(operation string) metric.MeasurementOption {
+	return metric.WithAttributes(attribute.String(storeOpKey, operation))
+}
+
+func (s *sqlStore) Record(ctx context.Context, entries []Entry, at time.Time) (RecordResult, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	op.Set(batchSizeKey, len(entries))
+
+	if len(entries) == 0 {
+		return RecordResult{}, nil
+	}
+
+	var result RecordResult
+
+	// One transaction for the whole batch, so a crash mid-batch leaves neither
+	// half-counted events nor a total folded from records whose ledger rows never
+	// landed. The ledger and the aggregate it feeds are one fact.
+	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		var txErr error
+		result, txErr = s.record(ctx, op, q, entries, at)
+
+		return txErr
+	})
+	if err != nil {
+		return RecordResult{}, err
+	}
+
+	op.Set(acceptedKey, result.Accepted).Set(duplicateKey, result.Duplicates)
+
+	return result, nil
+}
+
+func (s *sqlStore) RecordTx(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	entries []Entry,
+	at time.Time,
+) (RecordResult, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	op.Set(batchSizeKey, len(entries))
+
+	if q == nil {
+		return RecordResult{}, op.Error(ErrNilExecutor, "recording metering usage")
+	}
+
+	if len(entries) == 0 {
+		return RecordResult{}, nil
+	}
+
+	result, err := s.record(ctx, op, q, entries, at)
+	if err != nil {
+		return RecordResult{}, err
+	}
+
+	op.Set(acceptedKey, result.Accepted).Set(duplicateKey, result.Duplicates)
+
+	return result, nil
+}
+
+// record is the shared body of Record and RecordTx: dedupe every entry against
+// the ledger, then fold what survived into its period's total.
+func (s *sqlStore) record(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	entries []Entry,
+	at time.Time,
+) (RecordResult, error) {
+	var (
+		result   RecordResult
+		accepted = make([]Entry, 0, len(entries))
+	)
+
+	for i := range entries {
+		entry := &entries[i]
+
+		inserted, err := s.insertEvent(ctx, q, entry, at)
+		if err != nil {
+			return RecordResult{}, op.Error(err, "recording metering usage event")
+		}
+
+		if !inserted {
+			result.Duplicates++
+
+			continue
+		}
+
+		accepted = append(accepted, *entry)
+	}
+
+	result.Accepted = len(accepted)
+
+	// Grouped, so a thousand records for one subject and period cost one total
+	// update rather than a thousand. The in-process fold and the SQL fold are the
+	// same function, so the grouping cannot change the answer.
+	groups := groupEntries(accepted)
+	for i := range groups {
+		group := &groups[i]
+
+		query, args := s.tables.buildUpsertTotal(
+			s.dialect, group.subject, group.meter, group.aggregation,
+			group.bounds, group.quantity, group.lastOccurredAt, at,
+		)
+
+		if _, err := q.ExecContext(ctx, query, args...); err != nil {
+			return RecordResult{}, op.Error(err, "folding metering usage into its total")
+		}
+	}
+
+	return result, nil
+}
+
+// insertEvent writes one ledger row, reporting whether it was new.
+func (s *sqlStore) insertEvent(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	entry *Entry,
+	at time.Time,
+) (bool, error) {
+	dimensions, err := encodeDimensions(entry.Dimensions)
+	if err != nil {
+		return false, err
+	}
+
+	query, args := s.tables.buildInsertEvent(s.dialect, entry, dimensions, at)
+
+	res, err := q.ExecContext(ctx, query, args...)
+	if err != nil {
+		return false, err
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	return affected > 0, nil
+}
+
+func (s *sqlStore) Total(ctx context.Context, subject, meter string, bounds Bounds) (*Total, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	op.SetValues(map[string]any{
+		subjectKey:     subject,
+		meterKey:       meter,
+		periodStartKey: bounds.Start,
+	})
+
+	query, args := s.tables.buildSelectTotal(s.dialect, subject, meter, bounds.Start, false)
+
+	total, err := scanTotal(s.client.Reader().QueryRowContext(ctx, query, args...))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// An absent row is a number, not a missing value: nothing recorded
+			// means nothing used. Returning an error here would make every read
+			// path branch on the ordinary case of a period that has just begun.
+			return &Total{
+				Subject:     subject,
+				Meter:       meter,
+				PeriodStart: bounds.Start.UTC(),
+				PeriodEnd:   bounds.End.UTC(),
+			}, nil
+		}
+
+		return nil, op.Error(err, "reading metering total")
+	}
+
+	op.Set(usedKey, total.Quantity)
+
+	return total, nil
+}
+
+//nolint:gocritic // hugeParam: Entry is taken by value to match Store.Consume's interface
+func (s *sqlStore) Consume(
+	ctx context.Context,
+	entry Entry,
+	limit int64,
+	behavior QuotaBehavior,
+	at time.Time,
+) (*Decision, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	op.SetValues(map[string]any{
+		subjectKey:  entry.Subject,
+		meterKey:    entry.Meter,
+		quantityKey: entry.Quantity,
+		limitKey:    limit,
+		behaviorKey: string(behavior),
+	})
+
+	var decision *Decision
+
+	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		var txErr error
+		decision, txErr = s.consume(ctx, op, q, &entry, limit, behavior, at)
+
+		return txErr
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	op.SetValues(map[string]any{
+		allowedKey:   decision.Allowed,
+		usedKey:      decision.Used,
+		overageKey:   decision.Overage,
+		duplicateKey: decision.Duplicate,
+	})
+
+	return decision, nil
+}
+
+// consume is the serialized decide-then-record that makes Enforcer.Consume
+// exact.
+//
+// The order is load-bearing. The zero row is inserted first so there is something
+// to lock; the lock is taken before the total is read, so the number decided
+// against is the committed one; the decision is made before the ledger row is
+// written, so a refused consume does not burn its idempotency key on usage it
+// never recorded; and the total is only folded once the ledger row proves the
+// usage is new.
+func (s *sqlStore) consume(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	entry *Entry,
+	limit int64,
+	behavior QuotaBehavior,
+	at time.Time,
+) (*Decision, error) {
+	zeroQuery, zeroArgs := s.tables.buildInsertZeroTotal(
+		s.dialect, entry.Subject, entry.Meter, entry.Aggregation, entry.Bounds, at,
+	)
+
+	if _, err := q.ExecContext(ctx, zeroQuery, zeroArgs...); err != nil {
+		return nil, op.Error(err, "opening metering total")
+	}
+
+	selectQuery, selectArgs := s.tables.buildSelectTotal(
+		s.dialect, entry.Subject, entry.Meter, entry.Bounds.Start, true,
+	)
+
+	total, err := scanTotal(q.QueryRowContext(ctx, selectQuery, selectArgs...))
+	if err != nil {
+		return nil, op.Error(err, "locking metering total")
+	}
+
+	newer := !entry.OccurredAt.Before(total.LastOccurredAt)
+	projected := entry.Aggregation.Fold(total.Quantity, entry.Quantity, newer)
+
+	decision := newDecision(entry.Meter, behavior, projected, limit, entry.Bounds.End)
+
+	if !decision.Allowed && !behavior.records() {
+		// Refused, and nothing written — including no ledger row. Burning the
+		// idempotency key on a consume that recorded nothing would make the
+		// caller's retry look like a duplicate and be answered with a total that
+		// never included their usage.
+		decision.Used = total.Quantity
+		decision.Overage = overageOf(total.Quantity, limit)
+
+		return decision, nil
+	}
+
+	inserted, err := s.insertEvent(ctx, q, entry, at)
+	if err != nil {
+		return nil, op.Error(err, "recording metering usage event")
+	}
+
+	if !inserted {
+		// Already counted under this key. The decision reports the true current
+		// total rather than the projected one, which is what a retried request
+		// should see: its usage is in there already.
+		decision.Duplicate = true
+		decision.Used = total.Quantity
+		decision.Overage = overageOf(total.Quantity, limit)
+
+		return decision, nil
+	}
+
+	applyQuery, applyArgs := s.tables.buildApplyConsume(
+		s.dialect, entry.Subject, entry.Meter, entry.Bounds.Start, projected, entry.OccurredAt, at,
+	)
+
+	if _, err = q.ExecContext(ctx, applyQuery, applyArgs...); err != nil {
+		return nil, op.Error(err, "applying metering consume")
+	}
+
+	return decision, nil
+}
+
+func (s *sqlStore) ClaimFlushable(
+	ctx context.Context,
+	now time.Time,
+	limit, maxAttempts int,
+	leaseUntil time.Time,
+) ([]*Total, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	op.Set(limitKey, limit)
+
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	var (
+		claimed  []*Total
+		selected int
+	)
+
+	// The select and the update run in one transaction so that FOR UPDATE SKIP
+	// LOCKED means anything. Without it the lock is released before the update,
+	// and two flushers select the same totals.
+	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		selectQuery, selectArgs := s.tables.buildSelectFlushable(s.dialect, now, limit, maxAttempts, true)
+
+		keys, keyErr := scanTotalKeys(ctx, q, selectQuery, selectArgs)
+		if keyErr != nil {
+			return op.Error(keyErr, "selecting flushable metering totals")
+		}
+
+		selected = len(keys)
+
+		if selected == 0 {
+			return nil
+		}
+
+		claimQuery, claimArgs := s.tables.buildClaimFlushable(s.dialect, keys, leaseUntil)
+		if _, execErr := q.ExecContext(ctx, claimQuery, claimArgs...); execErr != nil {
+			return op.Error(execErr, "claiming flushable metering totals")
+		}
+
+		// Re-read rather than project from the select, so the attempt counts the
+		// flusher sees are the ones the claim just wrote. A flusher deciding
+		// whether it has exhausted its budget from a pre-increment count would
+		// grant every total one attempt more than configured.
+		fetchQuery, fetchArgs := s.tables.buildFetchTotalsByKey(s.dialect, keys)
+
+		var fetchErr error
+		if claimed, fetchErr = scanTotals(ctx, q, fetchQuery, fetchArgs); fetchErr != nil {
+			return op.Error(fetchErr, "reading claimed metering totals")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	op.Set(resultCountKey, len(claimed))
+
+	// A flush pass that keeps coming back full is a pass that is not keeping up,
+	// and what it is failing to post is revenue.
+	if len(claimed) == limit {
+		op.Logger().WithValue(limitKey, limit).
+			Info("metering flush filled its batch; usage may be accumulating faster than it is flushed")
+	}
+
+	return claimed, nil
+}
+
+func (s *sqlStore) MarkFlushed(ctx context.Context, total *Total, flushed int64, at time.Time) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if total == nil {
+		return op.Error(platformerrors.ErrNilInputParameter, "marking metering total flushed")
+	}
+
+	op.SetValues(map[string]any{
+		subjectKey:  total.Subject,
+		meterKey:    total.Meter,
+		sequenceKey: total.FlushSequence,
+		flushedKey:  flushed,
+	})
+
+	query, args := s.tables.buildMarkFlushed(s.dialect, total, flushed, at)
+
+	return s.execExpectingRow(ctx, op, query, args, "mark_flushed",
+		"marking metering total flushed")
+}
+
+func (s *sqlStore) ReleaseFlush(ctx context.Context, total *Total, lastErr string, nextFlush time.Time) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if total == nil {
+		return op.Error(platformerrors.ErrNilInputParameter, "releasing metering flush lease")
+	}
+
+	op.SetValues(map[string]any{
+		subjectKey:  total.Subject,
+		meterKey:    total.Meter,
+		sequenceKey: total.FlushSequence,
+	})
+
+	query, args := s.tables.buildReleaseFlush(s.dialect, total, lastErr, nextFlush, nextFlush)
+
+	return s.execExpectingRow(ctx, op, query, args, "release_flush",
+		"releasing metering flush lease")
+}
+
+func (s *sqlStore) ReapEvents(ctx context.Context, before time.Time, limit int) (int64, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	op.Set(limitKey, limit)
+
+	if limit <= 0 {
+		return 0, nil
+	}
+
+	query, args := s.tables.buildReapEvents(s.dialect, before, limit)
+
+	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, op.Error(err, "reaping metering usage events")
+	}
+
+	reaped, err := result.RowsAffected()
+	if err != nil {
+		return 0, op.Error(err, "reading reaped metering usage event count")
+	}
+
+	op.Set(reapedKey, reaped)
+
+	return reaped, nil
+}
+
+// WithTransaction delegates to the client, which begins its own span for the
+// transaction. Wrapping it here would nest a second span around the first and say
+// nothing the client's does not.
+func (s *sqlStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+	return s.client.WithTransaction(ctx, fn)
+}
+
+// execExpectingRow runs a guarded UPDATE and reports one that matched nothing.
+//
+// The distinction matters more here than it looks. A settle that matches no rows
+// means the total's flush sequence moved while this flusher was posting — its
+// lease lapsed and somebody else took over — and treating that as success would
+// have two flushers each believe they own the next sequence number.
+func (s *sqlStore) execExpectingRow(
+	ctx context.Context,
+	op observability.Operation,
+	query string,
+	args []any,
+	operation, description string,
+) error {
+	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	if err != nil {
+		return op.Error(err, "%s", description)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return op.Error(err, "reading result of %s", description)
+	}
+
+	op.Set(rowsAffectedKey, affected)
+
+	if affected == 0 {
+		s.guardMissCounter.Add(ctx, 1, storeOpAttr(operation))
+		op.Logger().Info("metering total moved on before its flush could be settled")
+
+		return platformerrors.Newf("metering total is no longer at the expected flush sequence")
+	}
+
+	return nil
+}
+
+// entryGroup is one period's worth of accepted records for one subject and meter,
+// already folded down to a single contribution.
+type entryGroup struct {
+	bounds         Bounds
+	lastOccurredAt time.Time
+	subject        string
+	meter          string
+	aggregation    Aggregation
+	quantity       int64
+}
+
+// groupEntries folds accepted records down to one contribution per subject,
+// meter, and period, preserving the order in which each group was first seen.
+//
+// Order matters only for reproducibility: the statements a batch issues are the
+// same on every run, which is what makes a failing batch debuggable and a query
+// test assertable.
+func groupEntries(entries []Entry) []entryGroup {
+	var (
+		order  []string
+		groups = map[string]*entryGroup{}
+	)
+
+	for i := range entries {
+		e := &entries[i]
+
+		key := e.Subject + "\x00" + e.Meter + "\x00" + e.Bounds.Start.UTC().Format(time.RFC3339Nano)
+
+		group, ok := groups[key]
+		if !ok {
+			group = &entryGroup{
+				subject:     e.Subject,
+				meter:       e.Meter,
+				aggregation: e.Aggregation,
+				bounds:      e.Bounds,
+				// Seeded at the window's start rather than the zero time, so a
+				// last-aggregation meter's first record is always "newer" and the
+				// column never holds a year-one timestamp for GREATEST to compare
+				// against.
+				lastOccurredAt: e.Bounds.Start,
+			}
+			groups[key] = group
+			order = append(order, key)
+		}
+
+		newer := !e.OccurredAt.Before(group.lastOccurredAt)
+		group.quantity = e.Aggregation.Fold(group.quantity, e.Quantity, newer)
+
+		if newer {
+			group.lastOccurredAt = e.OccurredAt
+		}
+	}
+
+	grouped := make([]entryGroup, 0, len(order))
+	for _, key := range order {
+		grouped = append(grouped, *groups[key])
+	}
+
+	return grouped
+}
+
+// newDecision assembles the answer to a quota question from a projected total.
+func newDecision(meter string, behavior QuotaBehavior, projected, limit int64, resetsAt time.Time) *Decision {
+	return &Decision{
+		Meter:    meter,
+		Behavior: behavior,
+		Used:     projected,
+		Limit:    limit,
+		Overage:  overageOf(projected, limit),
+		ResetsAt: resetsAt.UTC(),
+		// Over the limit is refused only under BehaviorBlock. Warn and
+		// AllowOverage both let it through, and differ in whether the caller is
+		// meant to do anything about it — which is what Decision.Overage and
+		// Decision.Behavior are for.
+		Allowed: projected <= limit || behavior.records(),
+	}
+}
+
+// overageOf is how far a total is past a limit, or zero when it is not.
+func overageOf(used, limit int64) int64 {
+	return max(0, used-limit)
+}
+
+// scanTotalKeys drains a composite-key projection.
+func scanTotalKeys(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (keys []totalKey, err error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = platformerrors.Wrap(closeErr, "closing metering total key rows")
+		}
+	}()
+
+	for rows.Next() {
+		var k totalKey
+		if err = rows.Scan(&k.subject, &k.meter, &k.periodStart); err != nil {
+			return nil, err
+		}
+
+		k.periodStart = k.periodStart.UTC()
+		keys = append(keys, k)
+	}
+
+	return keys, rows.Err()
+}
+
+// scanTotals drains a total projection.
+func scanTotals(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (totals []*Total, err error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = platformerrors.Wrap(closeErr, "closing metering total rows")
+		}
+	}()
+
+	for rows.Next() {
+		total, scanErr := scanTotal(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+
+		totals = append(totals, total)
+	}
+
+	return totals, rows.Err()
+}
+
+// scanTotal reads one row of totalColumns.
+func scanTotal(scanner database.Scanner) (*Total, error) {
+	var (
+		total       Total
+		aggregation string
+		lastErr     sql.NullString
+	)
+
+	if err := scanner.Scan(
+		&total.Subject, &total.Meter, &total.PeriodStart, &total.PeriodEnd, &aggregation,
+		&total.Quantity, &total.LastOccurredAt, &total.FlushedQuantity,
+		&total.FlushSequence, &total.FlushAttempts, &total.NextFlush, &lastErr,
+	); err != nil {
+		return nil, err
+	}
+
+	total.Aggregation = Aggregation(aggregation)
+	total.PeriodStart = total.PeriodStart.UTC()
+	total.PeriodEnd = total.PeriodEnd.UTC()
+	total.LastOccurredAt = total.LastOccurredAt.UTC()
+	total.NextFlush = total.NextFlush.UTC()
+	total.LastError = database.StringFromNullString(lastErr)
+
+	return &total, nil
+}
+
+// encodeDimensions renders a usage record's dimensions for storage, or nil for an
+// empty set. Nil and empty collapse deliberately: they say the same thing, and
+// storing two renderings would make a round trip depend on which call site wrote
+// the row.
+func encodeDimensions(dimensions map[string]string) ([]byte, error) {
+	if len(dimensions) == 0 {
+		return nil, nil
+	}
+
+	encoded, err := json.Marshal(dimensions)
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "encoding metering usage dimensions")
+	}
+
+	return encoded, nil
+}

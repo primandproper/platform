@@ -59,3 +59,46 @@ func TestRegisterPaymentManager(T *testing.T) {
 		test.NotNil(t, pm)
 	})
 }
+
+func TestRegisterUsageReporter(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		i := do.New()
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
+		do.ProvideValue(i, &Config{
+			Enabled:  true,
+			Provider: StripeProvider,
+			Stripe:   &stripe.Config{APIKey: "sk_test_123", WebhookSecret: t.Name()},
+		})
+
+		RegisterUsageReporter(i)
+
+		reporter, err := do.Invoke[capitalism.UsageReporter](i)
+		must.NoError(t, err)
+		test.NotNil(t, reporter)
+	})
+
+	T.Run("is registered independently of the payment manager", func(t *testing.T) {
+		t.Parallel()
+
+		// The two are wanted by different processes — an API server charges, a
+		// worker reports usage — so a deployment registers whichever it runs.
+		i := do.New()
+		do.ProvideValue(i, loggingnoop.NewLogger())
+		do.ProvideValue(i, tracingnoop.NewTracerProvider())
+		do.ProvideValue(i, &Config{Enabled: false})
+
+		RegisterUsageReporter(i)
+
+		reporter, err := do.Invoke[capitalism.UsageReporter](i)
+		must.NoError(t, err)
+		test.NotNil(t, reporter)
+
+		_, err = do.Invoke[capitalism.PaymentManager](i)
+		test.Error(t, err)
+	})
+}

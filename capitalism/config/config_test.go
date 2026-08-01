@@ -93,3 +93,57 @@ func TestNewCapitalismImplementation(T *testing.T) {
 		test.Error(t, err)
 	})
 }
+
+func TestNewUsageReporterImplementation(T *testing.T) {
+	T.Parallel()
+
+	T.Run("with stripe provider", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Enabled:  true,
+			Provider: StripeProvider,
+			Stripe:   &stripe.Config{APIKey: "sk_test_123", WebhookSecret: t.Name()},
+		}
+
+		reporter, err := NewUsageReporterImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg)
+		must.NoError(t, err)
+		test.NotNil(t, reporter)
+	})
+
+	T.Run("requires an API key for stripe", func(t *testing.T) {
+		t.Parallel()
+
+		// There is no inbound path for usage reporting, so a reporter without a
+		// key could do nothing at all.
+		cfg := &Config{
+			Enabled:  true,
+			Provider: StripeProvider,
+			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
+		}
+
+		_, err := NewUsageReporterImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg)
+		test.Error(t, err)
+	})
+
+	T.Run("disabled returns noop", func(t *testing.T) {
+		t.Parallel()
+
+		// "Meter everything, bill nothing" is a supported deployment rather than
+		// an error, which is why this yields the noop instead of refusing.
+		reporter, err := NewUsageReporterImplementation(
+			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), &Config{Enabled: false})
+		must.NoError(t, err)
+		test.NotNil(t, reporter)
+	})
+
+	T.Run("with unknown provider", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Enabled: true, Provider: "unknown"}
+
+		reporter, err := NewUsageReporterImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg)
+		test.Nil(t, reporter)
+		test.Error(t, err)
+	})
+}
