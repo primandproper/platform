@@ -66,16 +66,16 @@ type Worker struct {
 	stop chan struct{}
 	done chan struct{}
 
-	stepCounter        metrics.Int64Counter
-	stepFailureCounter metrics.Int64Counter
-	completedCounter   metrics.Int64Counter
-	compensatingGauge  metrics.Int64Counter
-	compensatedCounter metrics.Int64Counter
-	stuckCounter       metrics.Int64Counter
-	claimErrCounter    metrics.Int64Counter
-	contendedCounter   metrics.Int64Counter
-	stepHist           metrics.Float64Histogram
-	advanceHist        metrics.Float64Histogram
+	stepCounter          metrics.Int64Counter
+	stepFailureCounter   metrics.Int64Counter
+	completedCounter     metrics.Int64Counter
+	compensationsCounter metrics.Int64Counter
+	compensatedCounter   metrics.Int64Counter
+	stuckCounter         metrics.Int64Counter
+	claimErrCounter      metrics.Int64Counter
+	contendedCounter     metrics.Int64Counter
+	stepHist             metrics.Float64Histogram
+	advanceHist          metrics.Float64Histogram
 
 	tracerProvider  tracing.TracerProvider
 	metricsProvider metrics.Provider
@@ -163,8 +163,13 @@ func (w *Worker) buildInstruments() error {
 	if w.completedCounter, err = mp.NewInt64Counter(serviceName + "_instances_completed"); err != nil {
 		return platformerrors.Wrap(err, "creating instances completed counter")
 	}
-	if w.compensatingGauge, err = mp.NewInt64Counter(serviceName + "_instances_compensating"); err != nil {
-		return platformerrors.Wrap(err, "creating instances compensating counter")
+	// "_compensations_started" rather than "_instances_compensating": this is a
+	// monotonic counter, and the old name reads as a gauge — the number of
+	// instances compensating right now. Metric names lock into dashboards and
+	// alerts the moment they ship, so the name has to match what the instrument
+	// actually is before the tag, not after.
+	if w.compensationsCounter, err = mp.NewInt64Counter(serviceName + "_compensations_started"); err != nil {
+		return platformerrors.Wrap(err, "creating compensations started counter")
 	}
 	if w.compensatedCounter, err = mp.NewInt64Counter(serviceName + "_instances_compensated"); err != nil {
 		return platformerrors.Wrap(err, "creating instances compensated counter")
@@ -500,7 +505,7 @@ func (w *Worker) failForward(ctx context.Context, def *definition, inst *Record,
 	inst.LastError = truncateError(cause)
 	inst.Attempts = 0
 
-	w.compensatingGauge.Add(ctx, 1, definitionAttr(inst.Definition))
+	w.compensationsCounter.Add(ctx, 1, definitionAttr(inst.Definition))
 
 	w.logger.WithValues(map[string]any{
 		instanceIDKey: inst.ID,

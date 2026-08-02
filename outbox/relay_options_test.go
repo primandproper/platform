@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
-	databasemock "github.com/primandproper/platform-go/v9/database/mock"
 	"github.com/primandproper/platform-go/v9/database/dialect"
+	databasemock "github.com/primandproper/platform-go/v9/database/mock"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	mqmock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"

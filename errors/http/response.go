@@ -39,7 +39,11 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
-// AsError returns the error message.
+// AsError returns the APIError as an error, or nil when the receiver is nil.
+//
+// It exists because a typed nil *APIError placed in an error interface is
+// non-nil, so returning e.AsError() is how a caller gets a comparison against
+// nil that means what it says.
 func (e *APIError) AsError() error {
 	if e == nil {
 		return nil

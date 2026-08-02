@@ -37,18 +37,18 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		Provider                 string               `env:"PROVIDER"                    envDefault:"postgres"           json:"provider"                 yaml:"provider"`
-		ReadConnection           ConnectionDetails    `envPrefix:"READ_CONNECTION_"      json:"readConnection"           yaml:"readConnection"`
-		WriteConnection          ConnectionDetails    `envPrefix:"WRITE_CONNECTION_"     json:"writeConnection"          yaml:"writeConnection"`
-		PingWaitPeriod           time.Duration        `env:"PING_WAIT_PERIOD"            envDefault:"1s"                 json:"pingWaitPeriod"           yaml:"pingWaitPeriod"`
-		MaxPingAttempts          uint64               `env:"MAX_PING_ATTEMPTS"           json:"maxPingAttempts"          yaml:"maxPingAttempts"`
-		ConnMaxLifetime          time.Duration        `env:"CONN_MAX_LIFETIME"           envDefault:"30m"                json:"connMaxLifetime"          yaml:"connMaxLifetime"`
-		MaxIdleConns             uint16               `env:"MAX_IDLE_CONNS"              envDefault:"5"                  json:"maxIdleConns"             yaml:"maxIdleConns"`
-		MaxOpenConns             uint16               `env:"MAX_OPEN_CONNS"              envDefault:"7"                  json:"maxOpenConns"             yaml:"maxOpenConns"`
-		Debug                    bool                 `env:"DEBUG"                       json:"debug"                    yaml:"debug"`
-		LogQueries               bool                 `env:"LOG_QUERIES"                 json:"logQueries"               yaml:"logQueries"`
-		RunMigrations            bool                 `env:"RUN_MIGRATIONS"              json:"runMigrations"            yaml:"runMigrations"`
-		EnableDatabaseMetrics    bool                 `env:"ENABLE_DATABASE_METRICS"     json:"enableDatabaseMetrics"    yaml:"enableDatabaseMetrics"`
+		Provider              string            `env:"PROVIDER"                envDefault:"postgres"        json:"provider"              yaml:"provider"`
+		ReadConnection        ConnectionDetails `envPrefix:"READ_CONNECTION_"  json:"readConnection"        yaml:"readConnection"`
+		WriteConnection       ConnectionDetails `envPrefix:"WRITE_CONNECTION_" json:"writeConnection"       yaml:"writeConnection"`
+		PingWaitPeriod        time.Duration     `env:"PING_WAIT_PERIOD"        envDefault:"1s"              json:"pingWaitPeriod"        yaml:"pingWaitPeriod"`
+		MaxPingAttempts       uint64            `env:"MAX_PING_ATTEMPTS"       json:"maxPingAttempts"       yaml:"maxPingAttempts"`
+		ConnMaxLifetime       time.Duration     `env:"CONN_MAX_LIFETIME"       envDefault:"30m"             json:"connMaxLifetime"       yaml:"connMaxLifetime"`
+		MaxIdleConns          uint16            `env:"MAX_IDLE_CONNS"          envDefault:"5"               json:"maxIdleConns"          yaml:"maxIdleConns"`
+		MaxOpenConns          uint16            `env:"MAX_OPEN_CONNS"          envDefault:"7"               json:"maxOpenConns"          yaml:"maxOpenConns"`
+		Debug                 bool              `env:"DEBUG"                   json:"debug"                 yaml:"debug"`
+		LogQueries            bool              `env:"LOG_QUERIES"             json:"logQueries"            yaml:"logQueries"`
+		RunMigrations         bool              `env:"RUN_MIGRATIONS"          json:"runMigrations"         yaml:"runMigrations"`
+		EnableDatabaseMetrics bool              `env:"ENABLE_DATABASE_METRICS" json:"enableDatabaseMetrics" yaml:"enableDatabaseMetrics"`
 	}
 
 	ConnectionDetails struct {

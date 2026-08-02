@@ -10,13 +10,13 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v9/secrets"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel/metric"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"github.com/primandproper/platform-go/v9/secrets"
 )
 
 func TestNewKubectlSecretSource(T *testing.T) {

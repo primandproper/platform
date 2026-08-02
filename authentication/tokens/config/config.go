@@ -25,10 +25,10 @@ const (
 type (
 	// Config is the configuration structure.
 	Config struct {
-		Provider                string        `env:"PROVIDER"                   json:"provider"                yaml:"provider"`
-		Issuer                  string        `env:"ISSUER"                     json:"issuer"                  yaml:"issuer"`
-		Audience                string        `env:"AUDIENCE"                   json:"audience"                yaml:"audience"`
-		Base64EncodedSigningKey string        `env:"SIGNING_KEY"                json:"base64EncodedSigningKey" yaml:"base64EncodedSigningKey"`
+		Provider                string `env:"PROVIDER"    json:"provider"                yaml:"provider"`
+		Issuer                  string `env:"ISSUER"      json:"issuer"                  yaml:"issuer"`
+		Audience                string `env:"AUDIENCE"    json:"audience"                yaml:"audience"`
+		Base64EncodedSigningKey string `env:"SIGNING_KEY" json:"base64EncodedSigningKey" yaml:"base64EncodedSigningKey"`
 	}
 )
 

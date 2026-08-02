@@ -55,9 +55,9 @@ func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (embeddings.E
 }
 
 type embeddingRequest struct {
+	Model          string   `json:"model"`
+	EncodingFormat string   `json:"encoding_format"`
 	Input          []string `json:"input"`
-	Model          string `json:"model"`
-	EncodingFormat string `json:"encoding_format"`
 }
 
 type embeddingResponse struct {
@@ -197,7 +197,6 @@ func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Inpu
 
 	return out[0], nil
 }
-
 
 func toFloat32(f64 []float64) []float32 {
 	out := make([]float32, len(f64))

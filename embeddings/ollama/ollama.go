@@ -112,11 +112,6 @@ func (e *embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 
 	op.Set("embedding.model", model).Set(keys.LengthKey, len(inputs))
 
-	baseURL := e.cfg.BaseURL
-	if baseURL == "" {
-		baseURL = defaultBaseURL
-	}
-
 	reqBody := embeddingRequest{
 		Model: model,
 		Input: texts,
@@ -196,7 +191,6 @@ func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Inpu
 
 	return out[0], nil
 }
-
 
 func toFloat32(f64 []float64) []float32 {
 	out := make([]float32, len(f64))

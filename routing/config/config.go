@@ -32,10 +32,10 @@ const (
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
-	Chi        *chi.Config        `env:",init"     envPrefix:"CHI_"          json:"chiConfig,omitempty"        yaml:"chiConfig,omitempty"`
-	Stdlib     *stdlib.Config     `env:",init"     envPrefix:"STDLIB_"       json:"stdlibConfig,omitempty"     yaml:"stdlibConfig,omitempty"`
-	HTTPRouter *httprouter.Config `env:",init"     envPrefix:"HTTPROUTER_"   json:"httpRouterConfig,omitempty" yaml:"httpRouterConfig,omitempty"`
-	Gin        *gin.Config        `env:",init"     envPrefix:"GIN_"          json:"ginConfig,omitempty"        yaml:"ginConfig,omitempty"`
+	Chi        *chi.Config        `env:",init"    envPrefix:"CHI_"          json:"chiConfig,omitempty"        yaml:"chiConfig,omitempty"`
+	Stdlib     *stdlib.Config     `env:",init"    envPrefix:"STDLIB_"       json:"stdlibConfig,omitempty"     yaml:"stdlibConfig,omitempty"`
+	HTTPRouter *httprouter.Config `env:",init"    envPrefix:"HTTPROUTER_"   json:"httpRouterConfig,omitempty" yaml:"httpRouterConfig,omitempty"`
+	Gin        *gin.Config        `env:",init"    envPrefix:"GIN_"          json:"ginConfig,omitempty"        yaml:"ginConfig,omitempty"`
 	Provider   string             `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 }
 

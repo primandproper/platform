@@ -24,7 +24,7 @@ const (
 
 // Config configures a partitioned (keyed) circuit breaker.
 type Config struct {
-	Keys []string                  `env:"KEYS" json:"circuitBreakerKeys" yaml:"circuitBreakerKeys"`
+	Keys []string                  `env:"KEYS"  json:"circuitBreakerKeys" yaml:"circuitBreakerKeys"`
 	Base circuitbreakingcfg.Config `env:",init" envPrefix:"BASE_"         json:"base"               yaml:"base"`
 }
 

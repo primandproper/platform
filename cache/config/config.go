@@ -27,9 +27,9 @@ const (
 type (
 	// Config is the configuration for the cache.
 	Config struct {
-		Redis          *redis.Config             `env:",init"     envPrefix:"REDIS_"            json:"redis"                yaml:"redis"`
+		Redis          *redis.Config             `env:",init"    envPrefix:"REDIS_"            json:"redis"                yaml:"redis"`
 		Provider       string                    `env:"PROVIDER" json:"provider"               yaml:"provider"`
-		CircuitBreaker circuitbreakingcfg.Config `env:",init"     envPrefix:"CIRCUIT_BREAKING_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
+		CircuitBreaker circuitbreakingcfg.Config `env:",init"    envPrefix:"CIRCUIT_BREAKING_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
 		// Expiry is the default expiry for writes that don't specify one via
 		// cache.WithExpiry; a non-positive value means entries never expire by
 		// default.

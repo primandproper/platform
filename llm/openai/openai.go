@@ -95,7 +95,6 @@ func (*openaiProvider) Name() string {
 }
 
 // Capabilities implements llm.Provider.
-//
 func (*openaiProvider) Capabilities() llm.Capabilities {
 	return llm.Capabilities{
 		Streaming:        true,

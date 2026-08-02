@@ -2,9 +2,9 @@ package distributedlockcfg
 
 import (
 	"context"
-	"strconv"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 

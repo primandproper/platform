@@ -46,13 +46,19 @@ The Makefile `THIS` variable must be the full module path (`github.com/primandpr
 
 **Interface + multi-implementation:** Most packages define an interface with multiple implementations selected by config. Examples: `cache.Cache[T]` (Redis, memory), `logging.Logger` (slog, zap, zerolog), `secrets.SecretSource` (env, GCP, AWS SSM), `uploads` (S3, GCS, filesystem).
 
-**Config structs:** Each major package has a `config` subpackage using `env:` struct tags, `ValidateWithContext()` via `go-ozzo/ozzo-validation`, and `EnsureDefaults()`.
+**Config structs:** Each major package has a `config` subpackage using `env:` struct tags and `ValidateWithContext()` via `go-ozzo/ozzo-validation`. Most, but not all, also have `EnsureDefaults()` — packages whose defaults are expressible as `envDefault:` tags use those instead.
+
+Constructors call the validation their config defines, and apply defaults *before* validating: an unset field that has a documented default is not a validation failure, and validating first turns the common case into one. Selecting an implementation is deliberate — an unrecognized provider name returns `platformerrors.ErrUnknownProvider` rather than a working-looking noop. Where a noop is genuinely wanted it has to be named.
 
 **OpenTelemetry throughout:** Database, HTTP, gRPC, and messaging all instrument with OTel for traces, metrics, and logs.
 
 **Error handling:** Uses `cockroachdb/errors` for rich error context. Platform-level sentinels are defined in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which import the packages whose sentinels they map — so nothing in those packages may import `errors/http` or `errors/grpc` back.
 
-**Options vs. config seams:** Constructors take `logger`/`tracerProvider`/`metricsProvider` as `WithX` options, never positionally; the `config` subpackages are the one place those are positional, in the order `ctx, cfg, logger, tracerProvider, metricsProvider, deps..., opts...`. Every package uses `WithTracerProvider(tracing.TracerProvider)` — never a ready-made `tracing.Tracer`, which would let a span's instrumentation scope come from the caller instead of the component. `Option` types are **not** parameterized on their package's generic type, even in generic packages (`cache`, `idempotency`, `eventcapture`): Go cannot infer a type argument from a call's result type, so an `Option[T]` forces every call site to spell `T` out forever. Options that genuinely need the type parameter (`WithCodec`, `WithRecordable`, `WithTransform`, `WithObserver`, `WithKeyOrder`) stay generic but infer it from their argument, and the constructor type-asserts and reports a mismatch.
+**Options vs. config seams:** Constructors take `logger`/`tracerProvider`/`metricsProvider` as `WithX` options, never positionally; the `config` subpackages are the one place those are positional, in the order `ctx, cfg, logger, tracerProvider, metricsProvider, deps..., opts...`.
+
+There is one deliberate exception outside the config subpackages: `observability.NewObserver(name, logger, tracerProvider)` is positional everywhere. It is the repo-wide DI seam every package's constructor funnels its options into, called once per constructor and never by consumers, and giving it options of its own would mean every package threading options through to build the thing that consumes its options.
+
+Every package uses `WithTracerProvider(tracing.TracerProvider)` — never a ready-made `tracing.Tracer`, which would let a span's instrumentation scope come from the caller instead of the component. `Option` types are **not** parameterized on their package's generic type, even in generic packages (`cache`, `idempotency`, `eventcapture`): Go cannot infer a type argument from a call's result type, so an `Option[T]` forces every call site to spell `T` out forever. Options that genuinely need the type parameter (`WithCodec`, `WithRecordable`, `WithTransform`, `WithObserver`, `WithKeyOrder`) stay generic but infer it from their argument, and the constructor type-asserts and reports a mismatch.
 
 ## Testing
 

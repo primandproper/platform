@@ -144,10 +144,10 @@ func (s *signer) parseToken(tokenString string) (*jwt.Token, error) {
 // still there for anyone who wants it.
 func mapParseError(err error) error {
 	for from, to := range map[error]error{
-		jwt.ErrTokenExpired:          tokens.ErrTokenExpired,
-		jwt.ErrTokenNotValidYet:      tokens.ErrTokenNotYetValid,
-		jwt.ErrTokenInvalidAudience:  tokens.ErrInvalidAudience,
-		jwt.ErrTokenInvalidIssuer:    tokens.ErrInvalidIssuer,
+		jwt.ErrTokenExpired:         tokens.ErrTokenExpired,
+		jwt.ErrTokenNotValidYet:     tokens.ErrTokenNotYetValid,
+		jwt.ErrTokenInvalidAudience: tokens.ErrInvalidAudience,
+		jwt.ErrTokenInvalidIssuer:   tokens.ErrInvalidIssuer,
 	} {
 		if errors.Is(err, from) {
 			return platformerrors.Join(to, err)

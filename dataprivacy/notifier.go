@@ -1,9 +1,9 @@
 package dataprivacy
 
 import (
-	"html"
 	"context"
 	"fmt"
+	"html"
 	"time"
 
 	"github.com/primandproper/platform-go/v9/email"

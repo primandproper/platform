@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/analytics"
-	"github.com/primandproper/platform-go/v9/errors"
 	analyticscfg "github.com/primandproper/platform-go/v9/analytics/config"
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 )
 

@@ -62,10 +62,10 @@ type Relay struct {
 	provider messagequeue.PublisherProvider
 	// dialect is read from client at construction rather than configured, so
 	// the SQL this relay emits cannot disagree with the database it runs on.
-	dialect  dialect.Dialect
-	clock    clock.Clock
-	o11y     observability.Observer
-	logger   logging.Logger
+	dialect dialect.Dialect
+	clock   clock.Clock
+	o11y    observability.Observer
+	logger  logging.Logger
 
 	publishers map[string]messagequeue.Publisher
 

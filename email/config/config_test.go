@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/email/mailgun"
 	"github.com/primandproper/platform-go/v9/email/mailjet"
 	"github.com/primandproper/platform-go/v9/email/postmark"
 	"github.com/primandproper/platform-go/v9/email/resend"
 	"github.com/primandproper/platform-go/v9/email/sendgrid"
 	"github.com/primandproper/platform-go/v9/email/ses"
+	"github.com/primandproper/platform-go/v9/errors"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
@@ -122,7 +122,7 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 func TestConfig_NewEmailer(T *testing.T) {
 	T.Parallel()
 
-	providers := []string{
+	allProviders := []string{
 		ProviderSendgrid,
 		ProviderMailgun,
 		ProviderMailjet,
@@ -130,7 +130,7 @@ func TestConfig_NewEmailer(T *testing.T) {
 		ProviderPostmark,
 	}
 
-	for _, provider := range providers {
+	for _, provider := range allProviders {
 		T.Run(fmt.Sprintf("with %s", provider), func(t *testing.T) {
 			t.Parallel()
 

@@ -7,13 +7,19 @@ import (
 )
 
 type (
-	// Publisher produces events onto a queue.
+	// Publisher writes messages onto a queue.
 	Publisher interface {
 		// Stop halts all publishing.
 		Stop()
 		// Publish writes a message onto a message queue.
 		Publish(ctx context.Context, data any) error
-		// PublishAsync writes a message onto a message queue, but logs any encountered errors instead of returning them.
+		// PublishAsync writes a message onto a message queue, logging any error
+		// instead of returning it.
+		//
+		// "Async" names the error handling, not the delivery: it publishes on the
+		// calling goroutine and returns when the publish has finished, exactly as
+		// Publish does. A caller that wants the publish off its own goroutine has
+		// to arrange that itself.
 		PublishAsync(ctx context.Context, data any)
 	}
 

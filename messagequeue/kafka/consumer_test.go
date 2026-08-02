@@ -235,7 +235,6 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-
 		consumeCtx, stopConsuming := context.WithCancel(ctx)
 		defer stopConsuming()
 		c.Consume(consumeCtx, nil)
@@ -375,7 +374,6 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 				return errors.New("handler failed")
 			},
 		}
-
 
 		consumeCtx, stopConsuming := context.WithCancel(ctx)
 		defer stopConsuming()

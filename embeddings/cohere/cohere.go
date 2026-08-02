@@ -200,7 +200,6 @@ func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Inpu
 	return out[0], nil
 }
 
-
 func toFloat32(f64 []float64) []float32 {
 	out := make([]float32, len(f64))
 	for i, v := range f64 {

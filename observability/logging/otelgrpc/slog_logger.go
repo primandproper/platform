@@ -34,14 +34,14 @@ func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName strin
 	}
 
 	var level slog.Leveler
-	switch {
-	case lvl == logging.DebugLevel:
+	switch lvl {
+	case logging.DebugLevel:
 		level = slog.LevelDebug
-	case lvl == logging.InfoLevel:
+	case logging.InfoLevel:
 		level = slog.LevelInfo
-	case lvl == logging.WarnLevel:
+	case logging.WarnLevel:
 		level = slog.LevelWarn
-	case lvl == logging.ErrorLevel:
+	case logging.ErrorLevel:
 		level = slog.LevelError
 	}
 

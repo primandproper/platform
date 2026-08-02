@@ -10,12 +10,10 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/secrets"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
-
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -131,7 +129,7 @@ func (g *gcpSecretSource) GetSecret(ctx context.Context, name string) (string, e
 		// without knowing which provider it got.
 		if status.Code(err) == codes.NotFound {
 			return "", op.Error(
-				platformerrors.Join(secrets.ErrSecretNotFound, err),
+				errors.Join(secrets.ErrSecretNotFound, err),
 				"accessing secret %q", name,
 			)
 		}

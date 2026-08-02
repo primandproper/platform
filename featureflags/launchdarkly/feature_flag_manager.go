@@ -1,8 +1,8 @@
 package launchdarkly
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -35,14 +35,14 @@ var (
 type (
 	// featureFlagManager implements the feature flag interface using OpenFeature.
 	featureFlagManager struct {
-		domain         string
-		ldClient       *ld.LDClient
-		ofClient       *openfeature.Client
 		circuitBreaker circuitbreaking.CircuitBreaker
 		o11y           observability.Observer
 		evalCounter    metrics.Int64Counter
 		errorCounter   metrics.Int64Counter
 		latencyHist    metrics.Float64Histogram
+		ldClient       *ld.LDClient
+		ofClient       *openfeature.Client
+		domain         string
 	}
 )
 

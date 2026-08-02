@@ -1,9 +1,9 @@
 package textsearchcfg
 
 import (
-	"strconv"
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"

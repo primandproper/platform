@@ -1,11 +1,11 @@
 package vectorsearchcfg
 
 import (
-	"strconv"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"

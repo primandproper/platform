@@ -464,9 +464,14 @@ type Service interface {
 	// rest, and ErrNoURLSigner when the storage provider cannot sign.
 	Download(ctx context.Context, requestID string) (string, error)
 
-	// Open streams a completed export's artifact as canonical JSON, reversing
+	// Open returns a completed export's artifact as canonical JSON, reversing
 	// whatever compression and encryption it was stored under. The caller must
 	// close it.
+	//
+	// It does not stream, despite returning a reader: decryption and
+	// decompression both need the whole object, so the artifact is read into
+	// memory in full and the reader hands it back. Sizing follows from that —
+	// see DefaultMaxDocumentBytes for the ceiling an export is built under.
 	//
 	// It is the path that always works — every storage provider, encrypted or
 	// not — at the cost of proxying the bytes through the application. Prefer

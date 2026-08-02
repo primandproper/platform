@@ -1,8 +1,8 @@
 package ssm
 
 import (
-	stderrors "errors"
 	"context"
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,7 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/secrets"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -118,7 +117,7 @@ func (s *ssmSecretSource) GetSecret(ctx context.Context, name string) (string, e
 		var notFound *ssmtypes.ParameterNotFound
 		if stderrors.As(err, &notFound) {
 			return "", op.Error(
-				platformerrors.Join(secrets.ErrSecretNotFound, err),
+				errors.Join(secrets.ErrSecretNotFound, err),
 				"getting parameter %q", name,
 			)
 		}

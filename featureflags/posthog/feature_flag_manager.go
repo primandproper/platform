@@ -1,8 +1,8 @@
 package posthog
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -32,14 +32,14 @@ var (
 type (
 	// featureFlagManager implements the feature flag interface using OpenFeature.
 	featureFlagManager struct {
-		domain         string
 		o11y           observability.Observer
 		posthogClient  posthog.Client
-		ofClient       *openfeature.Client
 		circuitBreaker circuitbreaking.CircuitBreaker
 		evalCounter    metrics.Int64Counter
 		errorCounter   metrics.Int64Counter
 		latencyHist    metrics.Float64Histogram
+		ofClient       *openfeature.Client
+		domain         string
 	}
 )
 

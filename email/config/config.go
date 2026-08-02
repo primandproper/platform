@@ -64,14 +64,14 @@ func knownProvider(p string) bool {
 type (
 	// Config is the configuration structure.
 	Config struct {
-		Sendgrid                            *sendgrid.Config          `env:",init"                                    envPrefix:"SENDGRID_"                      json:"sendgrid"                            yaml:"sendgrid"`
-		Mailgun                             *mailgun.Config           `env:",init"                                    envPrefix:"MAILGUN_"                       json:"mailgun"                             yaml:"mailgun"`
-		Mailjet                             *mailjet.Config           `env:",init"                                    envPrefix:"MAILJET_"                       json:"mailjet"                             yaml:"mailjet"`
-		Resend                              *resend.Config            `env:",init"                                    envPrefix:"RESEND_"                        json:"resend"                              yaml:"resend"`
-		Postmark                            *postmark.Config          `env:",init"                                    envPrefix:"POSTMARK_"                      json:"postmark"                            yaml:"postmark"`
-		SES                                 *ses.Config               `env:",init"                                    envPrefix:"SES_"                           json:"ses"                                 yaml:"ses"`
-		Provider                            string                    `env:"PROVIDER"                                json:"provider"                            yaml:"provider"`
-		CircuitBreaker                      circuitbreakingcfg.Config `env:",init"                                    envPrefix:"CIRCUIT_BREAKING_"              json:"circuitBreakerConfig"                yaml:"circuitBreakerConfig"`
+		Sendgrid       *sendgrid.Config          `env:",init"    envPrefix:"SENDGRID_"         json:"sendgrid"             yaml:"sendgrid"`
+		Mailgun        *mailgun.Config           `env:",init"    envPrefix:"MAILGUN_"          json:"mailgun"              yaml:"mailgun"`
+		Mailjet        *mailjet.Config           `env:",init"    envPrefix:"MAILJET_"          json:"mailjet"              yaml:"mailjet"`
+		Resend         *resend.Config            `env:",init"    envPrefix:"RESEND_"           json:"resend"               yaml:"resend"`
+		Postmark       *postmark.Config          `env:",init"    envPrefix:"POSTMARK_"         json:"postmark"             yaml:"postmark"`
+		SES            *ses.Config               `env:",init"    envPrefix:"SES_"              json:"ses"                  yaml:"ses"`
+		Provider       string                    `env:"PROVIDER" json:"provider"               yaml:"provider"`
+		CircuitBreaker circuitbreakingcfg.Config `env:",init"    envPrefix:"CIRCUIT_BREAKING_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
 	}
 )
 

@@ -174,5 +174,6 @@ func (p *publisherProvider) NewPublisher(ctx context.Context, topic string) (mes
 // Ping is a no-op for SQS (SQS is a managed service).
 func (p *publisherProvider) Ping(context.Context) error { return nil }
 
-// Close returns a Publisher for a given topic.
+// Close is a no-op: the SQS client is a stateless HTTP client with nothing to
+// release.
 func (p *publisherProvider) Close() {}

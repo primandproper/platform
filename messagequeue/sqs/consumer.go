@@ -1,14 +1,13 @@
 package sqs
 
 import (
-	"time"
-	"strings"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/primandproper/platform-go/v9/errors"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -245,7 +244,7 @@ func (p *consumerProvider) NewConsumer(ctx context.Context, topic string, handle
 	// handler, and their own would never see a message.
 	if _, ok := p.consumerCache[topic]; ok {
 		return nil, op.Error(
-			platformerrors.Wrapf(messagequeue.ErrConsumerAlreadyRegistered, "topic %q", topic),
+			errors.Wrapf(messagequeue.ErrConsumerAlreadyRegistered, "topic %q", topic),
 			"providing consumer",
 		)
 	}

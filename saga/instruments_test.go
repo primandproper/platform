@@ -61,7 +61,7 @@ func TestWorker_InstrumentFailures(T *testing.T) {
 		serviceName + "_steps_completed",
 		serviceName + "_step_failures",
 		serviceName + "_instances_completed",
-		serviceName + "_instances_compensating",
+		serviceName + "_compensations_started",
 		serviceName + "_instances_compensated",
 		serviceName + "_instances_stuck",
 		serviceName + "_claim_errors",

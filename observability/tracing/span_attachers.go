@@ -195,7 +195,7 @@ func AttachQueryFilterToSpan(span trace.Span, filter *filtering.QueryFilter) {
 	}
 }
 
-// AttachUserAgentDataToSpan attaches a given search query to a span.
+// AttachUserAgentDataToSpan attaches a request's user-agent details to a span.
 func AttachUserAgentDataToSpan(span trace.Span, req *http.Request) {
 	header := req.Header.Get("User-Agent")
 	ua := useragent.New(header)
