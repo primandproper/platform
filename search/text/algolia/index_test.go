@@ -12,10 +12,12 @@ import (
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
+	textsearch "github.com/primandproper/platform-go/v9/search/text"
 
 	algoliasearch "github.com/algolia/algoliasearch-client-go/v3/algolia/search"
 	algoliatransport "github.com/algolia/algoliasearch-client-go/v3/algolia/transport"
 	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 var _ algoliatransport.Requester = (*testRequester)(nil)
@@ -210,7 +212,7 @@ func TestIndexManager_Search(T *testing.T) {
 
 		im := buildTestIndexManagerWithCircuitBreaker(t, cb)
 
-		results, err := im.Search(context.Background(), "query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "query"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.ErrorIs(t, err, circuitbreaking.ErrCircuitBroken)
@@ -226,7 +228,7 @@ func TestIndexManager_Search(T *testing.T) {
 
 		im := buildTestIndexManagerWithCircuitBreaker(t, cb)
 
-		results, err := im.Search(context.Background(), "")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: ""})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.ErrorIs(t, err, ErrEmptyQueryProvided)
@@ -243,7 +245,7 @@ func TestIndexManager_Search(T *testing.T) {
 
 		im := buildTestIndexManagerWithCircuitBreaker(t, cb)
 
-		results, err := im.Search(context.Background(), "test query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test query"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -265,10 +267,10 @@ func TestIndexManager_Search(T *testing.T) {
 
 		im, obs := buildTestIndexManagerWithMockServer(t, handler, cb)
 
-		results, err := im.Search(context.Background(), "test query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test query"})
 		test.NoError(t, err)
 		test.NotNil(t, results)
-		test.SliceLen(t, 1, results)
+		test.SliceLen(t, 1, results.Hits)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 		test.SliceLen(t, 1, cb.SucceededCalls())
 
@@ -292,10 +294,10 @@ func TestIndexManager_Search(T *testing.T) {
 
 		im, _ := buildTestIndexManagerWithMockServer(t, handler, cb)
 
-		results, err := im.Search(context.Background(), "test query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test query"})
 		test.NoError(t, err)
 		test.NotNil(t, results)
-		test.SliceEmpty(t, results)
+		test.SliceEmpty(t, results.Hits)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 		test.SliceLen(t, 1, cb.SucceededCalls())
 	})
@@ -315,15 +317,15 @@ func TestIndexManager_Search(T *testing.T) {
 
 		im, _ := buildTestIndexManagerWithMockServer(t, handler, cb)
 
-		results, err := im.Search(context.Background(), "test query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test query"})
 		test.NoError(t, err)
-		test.SliceLen(t, 3, results)
-		test.EqOp(t, "abc", results[0].ID)
-		test.EqOp(t, "first", results[0].Name)
-		test.EqOp(t, "def", results[1].ID)
-		test.EqOp(t, "second", results[1].Name)
-		test.EqOp(t, "ghi", results[2].ID)
-		test.EqOp(t, "third", results[2].Name)
+		test.SliceLen(t, 3, results.Hits)
+		test.EqOp(t, "abc", results.Hits[0].ID)
+		test.EqOp(t, "first", results.Hits[0].Name)
+		test.EqOp(t, "def", results.Hits[1].ID)
+		test.EqOp(t, "second", results.Hits[1].Name)
+		test.EqOp(t, "ghi", results.Hits[2].ID)
+		test.EqOp(t, "third", results.Hits[2].Name)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 		test.SliceLen(t, 1, cb.SucceededCalls())
 	})
@@ -342,7 +344,7 @@ func TestIndexManager_Search(T *testing.T) {
 
 		im, obs := buildTestIndexManagerWithMockServer(t, handler, cb)
 
-		results, err := im.Search(context.Background(), "test query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test query"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -368,10 +370,10 @@ func TestIndexManager_Search(T *testing.T) {
 
 		im, _ := buildTestIndexManagerWithMockServer(t, handler, cb)
 
-		results, err := im.Search(context.Background(), "test query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test query"})
 		test.NoError(t, err)
 		test.NotNil(t, results)
-		test.SliceLen(t, 1, results)
+		test.SliceLen(t, 1, results.Hits)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 		test.SliceLen(t, 1, cb.SucceededCalls())
 	})
@@ -486,5 +488,125 @@ func TestIndexManager_Wipe(T *testing.T) {
 		test.NoError(t, err)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 		test.SliceLen(t, 1, cb.SucceededCalls())
+	})
+}
+
+func TestIndexManager_Search_Pagination(T *testing.T) {
+	T.Parallel()
+
+	T.Run("issues a next cursor while pages remain", func(t *testing.T) {
+		t.Parallel()
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"hits":[{"objectID":"123"}],"nbHits":3,"page":0,"nbPages":3,"hitsPerPage":1,"processingTimeMS":1}`))
+		})
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			SucceededFunc:     func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithMockServer(t, handler, cb)
+
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 1})
+		must.NoError(t, err)
+		test.False(t, results.Done())
+
+		// The cursor is opaque to callers but must resume where this page ended.
+		position, decodeErr := textsearch.DecodeCursor("algolia", results.NextCursor)
+		must.NoError(t, decodeErr)
+		test.EqOp(t, 1, position)
+	})
+
+	T.Run("the last page has no next cursor", func(t *testing.T) {
+		t.Parallel()
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"hits":[{"objectID":"123"}],"nbHits":3,"page":2,"nbPages":3,"hitsPerPage":1,"processingTimeMS":1}`))
+		})
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			SucceededFunc:     func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithMockServer(t, handler, cb)
+
+		cursor, err := textsearch.EncodeCursor("algolia", 2)
+		must.NoError(t, err)
+
+		results, searchErr := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 1, Cursor: cursor})
+		must.NoError(t, searchErr)
+		test.True(t, results.Done())
+	})
+
+	T.Run("an empty page ends the walk even when nbPages disagrees", func(t *testing.T) {
+		t.Parallel()
+
+		// Algolia reports nbPages from the total, so a page past the end still
+		// claims more pages exist. Without the len check that is an endless walk.
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"hits":[],"nbHits":3,"page":0,"nbPages":3,"hitsPerPage":1,"processingTimeMS":1}`))
+		})
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			SucceededFunc:     func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithMockServer(t, handler, cb)
+
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 1})
+		must.NoError(t, err)
+		test.True(t, results.Done())
+	})
+
+	T.Run("a cursor from another backend is refused", func(t *testing.T) {
+		t.Parallel()
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"hits":[],"nbHits":0,"page":0,"nbPages":0,"hitsPerPage":20,"processingTimeMS":1}`))
+		})
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			FailedFunc:        func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithMockServer(t, handler, cb)
+
+		cursor, err := textsearch.EncodeCursor("elasticsearch", 10)
+		must.NoError(t, err)
+
+		results, searchErr := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Cursor: cursor})
+		test.ErrorIs(t, searchErr, textsearch.ErrInvalidCursor)
+		test.Nil(t, results)
+	})
+
+	T.Run("the requested limit reaches the query", func(t *testing.T) {
+		t.Parallel()
+
+		var gotBody string
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			gotBody = string(body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"hits":[],"nbHits":0,"page":0,"nbPages":0,"hitsPerPage":7,"processingTimeMS":1}`))
+		})
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			SucceededFunc:     func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithMockServer(t, handler, cb)
+
+		_, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 7})
+		must.NoError(t, err)
+		test.StrContains(t, gotBody, "hitsPerPage=7")
 	})
 }
