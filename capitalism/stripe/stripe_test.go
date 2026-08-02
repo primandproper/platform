@@ -15,22 +15,31 @@ import (
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"github.com/stripe/stripe-go/v75"
-	"github.com/stripe/stripe-go/v75/webhook"
+	"github.com/stripe/stripe-go/v81"
+	"github.com/stripe/stripe-go/v81/webhook"
 )
+
+// stripeAPIVersion is the API version the vendored stripe-go expects on a
+// webhook event.
+//
+// It has to be spelled out here because the SDK keeps its own copy unexported and
+// rejects an event stamped with any other version. A stripe-go bump that moves it
+// fails these tests, which is the point: the same mismatch would reject every real
+// webhook until the endpoint's version was moved too.
+const stripeAPIVersion = "2025-02-24.acacia"
 
 type errReader struct{}
 
 func (*errReader) Read([]byte) (int, error) { return 0, fmt.Errorf("read error") }
 func (*errReader) Close() error             { return nil }
 
-func TestNewStripePaymentManager(T *testing.T) {
+func TestNewPaymentManager(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewStripePaymentManager(&Config{}, nil)
+		pm, err := NewPaymentManager(&Config{}, nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, pm)
@@ -39,7 +48,7 @@ func TestNewStripePaymentManager(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewStripePaymentManager(nil, nil)
+		pm, err := NewPaymentManager(nil, nil)
 
 		test.Error(t, err)
 		test.Nil(t, pm)
@@ -53,7 +62,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(&Config{}, nil)
+		pmIface, err := NewPaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 
@@ -79,7 +88,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		exampleInput := &stripe.Event{
 			APIResource: stripe.APIResource{},
 			Account:     "",
-			APIVersion:  "2023-08-16",
+			APIVersion:  stripeAPIVersion,
 			Created:     0,
 			Data: &stripe.EventData{
 				Object:             nil,
@@ -133,7 +142,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(&Config{}, nil)
+		pmIface, err := NewPaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 
@@ -150,7 +159,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(&Config{}, nil)
+		pmIface, err := NewPaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 		pm.webhookSecret = "some_secret"
@@ -169,7 +178,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(&Config{}, nil)
+		pmIface, err := NewPaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 		pm.webhookSecret = "some_secret"
@@ -187,7 +196,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(&Config{}, nil)
+		pmIface, err := NewPaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 
@@ -197,7 +206,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		must.NoError(t, err)
 
 		exampleInput := &stripe.Event{
-			APIVersion: "2023-08-16",
+			APIVersion: stripeAPIVersion,
 			Data: &stripe.EventData{
 				Raw: json.RawMessage(rawMessage),
 			},
@@ -242,7 +251,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewStripePaymentManager(&Config{}, nil)
+		pmIface, err := NewPaymentManager(&Config{}, nil)
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 
@@ -250,7 +259,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		pm.o11y = obs
 
 		exampleInput := &stripe.Event{
-			APIVersion: "2023-08-16",
+			APIVersion: stripeAPIVersion,
 			Data: &stripe.EventData{
 				Raw: json.RawMessage(`{}`),
 			},

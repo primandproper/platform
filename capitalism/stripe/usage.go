@@ -2,25 +2,56 @@ package stripe
 
 import (
 	"context"
+	"maps"
+	"strconv"
 
 	"github.com/primandproper/platform-go/v9/capitalism"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
 
-	"github.com/stripe/stripe-go/v75"
-	"github.com/stripe/stripe-go/v75/client"
+	"github.com/stripe/stripe-go/v81"
+	"github.com/stripe/stripe-go/v81/client"
 )
 
-const usageImplementationName = "stripe_usage_reporter"
+const (
+	usageImplementationName = "stripe_usage_reporter"
+
+	// customerPayloadKey and valuePayloadKey are the meter event payload keys
+	// Stripe reads to decide who is billed and how much.
+	//
+	// They are the defaults for a meter's customer_mapping.event_payload_key and
+	// value_settings.event_payload_key. A meter created with either overridden
+	// will not aggregate events posted by this adapter, which is a configuration
+	// mismatch rather than something the adapter can detect: the override lives
+	// on the meter, and reading it back would cost an API call per post.
+	customerPayloadKey = "stripe_customer_id"
+	valuePayloadKey    = "value"
+)
 
 var (
 	_ capitalism.UsageReporter = (*stripeUsageReporter)(nil)
 
-	// ErrEmptySubscriptionItem indicates a report with no provider handle to post
-	// against. Stripe puts the subscription item in the request path, so an empty
-	// one would be a request to a different endpoint entirely rather than a
-	// validation error at the API.
-	ErrEmptySubscriptionItem = platformerrors.New("empty stripe subscription item ID")
+	// ErrEmptyCustomerID indicates a report with no customer to bill. Stripe's
+	// meter events key on a customer rather than on a subscription item, so an
+	// empty one is usage that belongs to nobody.
+	ErrEmptyCustomerID = platformerrors.New("empty stripe customer ID")
+
+	// ErrEmptyMeterName indicates a report with no meter to count against.
+	//
+	// The name is what ties an event to a billing meter, and this adapter can
+	// only check that one was supplied: whether it names a meter that exists is
+	// Stripe's to decide, and the answer lives in a dashboard this code cannot
+	// see.
+	ErrEmptyMeterName = platformerrors.New("empty stripe meter name")
+
+	// ErrReservedPayloadKey indicates metadata that would overwrite a reserved
+	// meter event payload key.
+	//
+	// Stripe's meter event payload is one flat map, and two of its keys decide
+	// who is billed and how much. Annotation that landed on either would move a
+	// charge to a different customer or change its size, so a collision is
+	// refused rather than resolved in the caller's favor or ours.
+	ErrReservedPayloadKey = platformerrors.New("usage metadata uses a reserved stripe meter event payload key")
 
 	// ErrEmptyUsageIdempotencyKey indicates a report with no idempotency key.
 	//
@@ -31,18 +62,18 @@ var (
 	ErrEmptyUsageIdempotencyKey = platformerrors.New("empty stripe usage idempotency key")
 )
 
-// stripeUsageReporter posts usage records to Stripe's metered billing API.
+// stripeUsageReporter posts meter events to Stripe's usage-based billing API.
 type stripeUsageReporter struct {
 	o11y   observability.Observer
 	client *client.API
 }
 
-// NewStripeUsageReporter builds a Stripe-backed UsageReporter.
+// NewUsageReporter builds a Stripe-backed UsageReporter.
 //
-// Unlike NewStripePaymentManager, the API key is required: there is no inbound
-// path here, so a reporter without one could do nothing at all and would fail on
-// its first flush rather than at startup.
-func NewStripeUsageReporter(cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
+// Unlike NewPaymentManager, the API key is required: there is no inbound path
+// here, so a reporter without one could do nothing at all and would fail on its
+// first flush rather than at startup.
+func NewUsageReporter(cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -62,16 +93,16 @@ func NewStripeUsageReporter(cfg *Config, opts ...Option) (capitalism.UsageReport
 	}, nil
 }
 
-// ReportUsage posts one usage record, incrementing the subscription item's usage
-// for the current billing period.
+// ReportUsage posts one meter event, adding the reported quantity to the
+// customer's total for the meter in the current billing period.
 //
-// The action is always increment. Stripe's other action, set, overwrites the
-// usage at a timestamp — which sounds appealing for a flush that knows the
-// running total, and is a trap: two flushes for the same period with different
-// timestamps would leave the smaller one standing beside the larger rather than
-// replacing it. An increment carrying the delta since the last flush, under a
-// key derived from the flush's sequence number, is the combination that survives
-// a retry.
+// Meter events are Stripe's replacement for the usage-records endpoint this
+// adapter used to post to, and they are additive by construction: there is no
+// "set" action to overwrite a period's total, only events that Stripe aggregates.
+// That removes the trap the old API had — a "set" for one period arriving at two
+// different timestamps left the smaller total standing beside the larger rather
+// than replacing it — and leaves the same discipline in place: post the delta
+// since the last flush, under a key derived from the flush's sequence number.
 func (s *stripeUsageReporter) ReportUsage(ctx context.Context, input *capitalism.UsageReportInput) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
@@ -80,47 +111,87 @@ func (s *stripeUsageReporter) ReportUsage(ctx context.Context, input *capitalism
 		return op.Error(platformerrors.ErrNilInputParameter, "reporting usage")
 	}
 
-	if input.SubscriptionItemID == "" {
-		return op.Error(ErrEmptySubscriptionItem, "reporting usage")
+	if input.CustomerID == "" {
+		return op.Error(ErrEmptyCustomerID, "reporting usage")
+	}
+
+	if input.MeterName == "" {
+		return op.Error(ErrEmptyMeterName, "reporting usage")
 	}
 
 	if input.IdempotencyKey == "" {
 		return op.Error(ErrEmptyUsageIdempotencyKey, "reporting usage")
 	}
 
-	op.Set("stripe.subscription_item_id", input.SubscriptionItemID).
-		Set("stripe.usage_quantity", input.Quantity)
-
-	action := stripe.UsageRecordActionIncrement
-	params := &stripe.UsageRecordParams{
-		SubscriptionItem: &input.SubscriptionItemID,
-		Action:           &action,
-		Quantity:         &input.Quantity,
-	}
-
-	if input.OccurredAt.IsZero() {
-		// "now" rather than a locally computed timestamp: Stripe rejects a usage
-		// record dated in the future, and a worker whose clock runs a few seconds
-		// fast would otherwise have every flush refused.
-		params.TimestampNow = new(true)
-	} else {
-		params.Timestamp = new(input.OccurredAt.Unix())
-	}
-
-	// input.Metadata is deliberately not forwarded. Stripe's usage record object
-	// carries none — the create endpoint accepts only the item, action, quantity,
-	// and timestamp — and the SDK refuses the request outright rather than
-	// ignoring the field. What a usage record is about is recoverable from the
-	// subscription item it was posted against, so nothing is lost that a
-	// reconciliation would need.
-	applyRequestParams(&params.Params, ctx, input.IdempotencyKey)
-
-	record, err := s.client.UsageRecords.New(params)
+	payload, err := meterEventPayload(input)
 	if err != nil {
 		return op.Error(err, "reporting usage")
 	}
 
-	op.Set("stripe.usage_record_id", record.ID)
+	op.Set("stripe.customer_id", input.CustomerID).
+		Set("stripe.meter_event_name", input.MeterName).
+		Set("stripe.usage_quantity", input.Quantity)
+
+	params := &stripe.BillingMeterEventParams{
+		EventName: new(input.MeterName),
+		Payload:   payload,
+		// Stripe deduplicates meter events by identifier over a rolling window of
+		// at least 24 hours, which outlives the idempotency key header's own
+		// replay window and covers the case the header cannot: a retry the flush
+		// loop reassembles rather than repeats byte for byte.
+		Identifier: new(input.IdempotencyKey),
+	}
+
+	if !input.OccurredAt.IsZero() {
+		// Left unset for a zero time, so Stripe stamps it. A locally computed
+		// "now" would be refused on a worker whose clock runs more than five
+		// minutes fast, and Stripe's own clock is the one the window is measured
+		// against.
+		//
+		// An explicit time still has to land inside that window: Stripe refuses an
+		// event dated more than 35 days in the past or more than five minutes
+		// ahead. A flush that has been failing for longer than that has lost the
+		// usage regardless of what this adapter does with it.
+		params.Timestamp = new(input.OccurredAt.Unix())
+	}
+
+	applyRequestParams(&params.Params, ctx, input.IdempotencyKey)
+
+	event, err := s.client.BillingMeterEvents.New(params)
+	if err != nil {
+		return op.Error(err, "reporting usage")
+	}
+
+	op.Set("stripe.meter_event_identifier", event.Identifier)
 
 	return nil
+}
+
+// meterEventPayload renders the input as a Stripe meter event payload.
+//
+// The payload is where a meter event carries everything Stripe reads, including
+// the customer and the quantity, so it is also where caller metadata has to go if
+// it is to go anywhere. Metadata that collides with one of the reserved keys is
+// an error rather than an overwrite in either direction — silently dropping it
+// loses an annotation the caller thought it stored, and silently honoring it
+// bills somebody else.
+func meterEventPayload(input *capitalism.UsageReportInput) (map[string]string, error) {
+	var reserved []string
+	for _, key := range []string{customerPayloadKey, valuePayloadKey} {
+		if _, ok := input.Metadata[key]; ok {
+			reserved = append(reserved, key)
+		}
+	}
+
+	if len(reserved) > 0 {
+		return nil, platformerrors.Wrapf(ErrReservedPayloadKey, "keys %v", reserved)
+	}
+
+	payload := make(map[string]string, len(input.Metadata)+2)
+	maps.Copy(payload, input.Metadata)
+
+	payload[customerPayloadKey] = input.CustomerID
+	payload[valuePayloadKey] = strconv.FormatInt(input.Quantity, 10)
+
+	return payload, nil
 }

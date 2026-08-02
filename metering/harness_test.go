@@ -335,10 +335,18 @@ func (r *recordingReporter) recorded() []capitalism.UsageReportInput {
 	return posts
 }
 
-// staticMapper resolves every subject and meter to one provider handle.
-func staticMapper(subscriptionItemID string) ProviderMapper {
+// zeroMapper resolves every subject and meter to nothing at all, which the
+// Flusher reads as "not billable" rather than as something to post.
+func zeroMapper() ProviderMapper {
 	return ProviderMapperFunc(func(context.Context, string, string) (ProviderRef, error) {
-		return ProviderRef{SubscriptionItemID: subscriptionItemID}, nil
+		return ProviderRef{}, nil
+	})
+}
+
+// staticMapper resolves every subject and meter to one pair of provider handles.
+func staticMapper(customerID string) ProviderMapper {
+	return ProviderMapperFunc(func(_ context.Context, _, meter string) (ProviderRef, error) {
+		return ProviderRef{CustomerID: customerID, MeterName: meter}, nil
 	})
 }
 

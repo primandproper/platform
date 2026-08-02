@@ -21,12 +21,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-func TestNewKubernetesSecretSource(T *testing.T) {
+func TestNewSecretSource(T *testing.T) {
 	T.Parallel()
 
 	T.Run("nil config returns error", func(t *testing.T) {
 		t.Parallel()
-		source, err := NewKubernetesSecretSource(context.Background(), nil, nil)
+		source, err := NewSecretSource(context.Background(), nil, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "config is required")
@@ -35,7 +35,7 @@ func TestNewKubernetesSecretSource(T *testing.T) {
 	T.Run("missing namespace returns error", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{}
-		source, err := NewKubernetesSecretSource(context.Background(), cfg, nil)
+		source, err := NewSecretSource(context.Background(), cfg, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 	})
@@ -44,7 +44,7 @@ func TestNewKubernetesSecretSource(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubernetesSecretSource(context.Background(), cfg, mc)
+		source, err := NewSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 	})
@@ -60,7 +60,7 @@ func TestNewKubernetesSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubernetesSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
+		source, err := NewSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -84,7 +84,7 @@ func TestNewKubernetesSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubernetesSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
+		source, err := NewSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -109,7 +109,7 @@ func TestNewKubernetesSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubernetesSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
+		source, err := NewSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -123,7 +123,7 @@ func TestNewKubernetesSecretSource(T *testing.T) {
 func newRecordingSource(t *testing.T, cfg *Config, client SecretGetter) (*kubernetesSecretSource, *observability.RecordingObserver) {
 	t.Helper()
 
-	source, err := NewKubernetesSecretSource(context.Background(), cfg, client)
+	source, err := NewSecretSource(context.Background(), cfg, client)
 	must.NoError(t, err)
 
 	k, ok := source.(*kubernetesSecretSource)
@@ -165,7 +165,7 @@ func TestKubernetesSecretSource_GetSecret(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubernetesSecretSource(context.Background(), cfg, mc)
+		source, err := NewSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		_, err = source.GetSecret(context.Background(), "no-slash")
@@ -226,7 +226,7 @@ func TestKubernetesSecretSource_Close(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubernetesSecretSource(context.Background(), cfg, mc)
+		source, err := NewSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		err = source.Close()

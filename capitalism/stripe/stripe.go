@@ -10,9 +10,9 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
 
-	"github.com/stripe/stripe-go/v75"
-	"github.com/stripe/stripe-go/v75/client"
-	"github.com/stripe/stripe-go/v75/webhook"
+	"github.com/stripe/stripe-go/v81"
+	"github.com/stripe/stripe-go/v81/client"
+	"github.com/stripe/stripe-go/v81/webhook"
 )
 
 const (
@@ -70,10 +70,10 @@ type (
 	}
 )
 
-// NewStripePaymentManager builds a Stripe-backed PaymentManager. When cfg.APIKey is set, an API
+// NewPaymentManager builds a Stripe-backed PaymentManager. When cfg.APIKey is set, an API
 // client is initialized for outbound operations; otherwise only the inbound webhook path works.
 // handler is optional and invoked for every verified event.
-func NewStripePaymentManager(cfg *Config, handler EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
+func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}

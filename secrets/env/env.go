@@ -20,8 +20,8 @@ type envSecretSource struct {
 	latencyHist   metrics.Float64Histogram
 }
 
-// NewEnvSecretSource returns a SecretSource that reads from environment variables.
-func NewEnvSecretSource(opts ...Option) (secrets.SecretSource, error) {
+// NewSecretSource returns a SecretSource that reads from environment variables.
+func NewSecretSource(opts ...Option) (secrets.SecretSource, error) {
 	o := newOptions(opts)
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 

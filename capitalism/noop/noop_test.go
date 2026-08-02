@@ -44,7 +44,7 @@ func TestUsageReporter_ReportUsage(T *testing.T) {
 		reporter := NewUsageReporter()
 
 		test.NoError(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
-			SubscriptionItemID: "si_123", Quantity: 1, IdempotencyKey: "mtr_abc",
+			CustomerID: "cus_123", MeterName: "api_requests", Quantity: 1, IdempotencyKey: "mtr_abc",
 		}))
 		test.NoError(t, reporter.ReportUsage(t.Context(), nil))
 	})

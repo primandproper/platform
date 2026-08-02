@@ -21,9 +21,9 @@ import (
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"github.com/stripe/stripe-go/v75"
-	"github.com/stripe/stripe-go/v75/client"
-	"github.com/stripe/stripe-go/v75/webhook"
+	"github.com/stripe/stripe-go/v81"
+	"github.com/stripe/stripe-go/v81/client"
+	"github.com/stripe/stripe-go/v81/webhook"
 )
 
 var errArbitraryHandler = platformerrors.New("arbitrary handler error")
@@ -115,7 +115,7 @@ func TestStripePaymentManager_CreatePaymentIntent(T *testing.T) {
 	T.Run("errors without an API key", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewStripePaymentManager(&Config{WebhookSecret: "whsec"}, nil)
+		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"}, nil)
 		must.NoError(t, err)
 
 		result, err := pm.CreatePaymentIntent(t.Context(), &capitalism.PaymentIntentCreationInput{Amount: 1, Currency: "usd"})
@@ -167,7 +167,7 @@ func TestStripePaymentManager_CreateCustomer(T *testing.T) {
 	T.Run("errors without an API key", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewStripePaymentManager(&Config{WebhookSecret: "whsec"}, nil)
+		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"}, nil)
 		must.NoError(t, err)
 
 		id, err := pm.CreateCustomer(t.Context(), &capitalism.CustomerCreationInput{Email: "x@y.z"})
@@ -229,7 +229,7 @@ func TestStripePaymentManager_CreateSubscription(T *testing.T) {
 	T.Run("errors without an API key", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewStripePaymentManager(&Config{WebhookSecret: "whsec"}, nil)
+		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"}, nil)
 		must.NoError(t, err)
 
 		id, err := pm.CreateSubscription(t.Context(), &capitalism.SubscriptionCreationInput{CustomerID: "cus_abc", PriceID: "price_xyz"})
@@ -246,7 +246,7 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 
 		ctx := t.Context()
 		event := &stripe.Event{
-			APIVersion: "2023-08-16",
+			APIVersion: stripeAPIVersion,
 			ID:         "evt_test_123",
 			Data:       &stripe.EventData{Raw: []byte(`{}`)},
 			Type:       stripe.EventTypePaymentIntentSucceeded,
@@ -286,7 +286,7 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 			return nil
 		}
 
-		pm, err := NewStripePaymentManager(&Config{WebhookSecret: secret}, handler)
+		pm, err := NewPaymentManager(&Config{WebhookSecret: secret}, handler)
 		must.NoError(t, err)
 		impl := pm.(*stripePaymentManager)
 
@@ -307,7 +307,7 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 			return errArbitraryHandler
 		}
 
-		pm, err := NewStripePaymentManager(&Config{WebhookSecret: secret}, handler)
+		pm, err := NewPaymentManager(&Config{WebhookSecret: secret}, handler)
 		must.NoError(t, err)
 		impl := pm.(*stripePaymentManager)
 

@@ -42,7 +42,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
-// NewCapitalismImplementation provides a capitalism.PaymentManager implementation based on the
+// NewPaymentManager provides a capitalism.PaymentManager implementation based on the
 // config. stripeEventHandler is optional (may be nil) and, for the Stripe provider, is invoked with
 // each verified webhook event.
 func NewPaymentManager(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, stripeEventHandler stripe.EventHandler) (capitalism.PaymentManager, error) {
@@ -52,13 +52,13 @@ func NewPaymentManager(ctx context.Context, cfg *Config, logger logging.Logger, 
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case StripeProvider:
-		return stripe.NewStripePaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+		return stripe.NewPaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
 	default:
 		return nil, errors.Newf("unknown provider: %q", cfg.Provider)
 	}
 }
 
-// NewUsageReporterImplementation provides a capitalism.UsageReporter based on the config.
+// NewUsageReporter provides a capitalism.UsageReporter based on the config.
 //
 // A disabled config yields the noop reporter rather than an error, which is what
 // makes "meter everything, bill nothing" a supported deployment: metering keeps
@@ -70,7 +70,7 @@ func NewUsageReporter(ctx context.Context, cfg *Config, logger logging.Logger, t
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case StripeProvider:
-		return stripe.NewStripeUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+		return stripe.NewUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
 	default:
 		return nil, errors.Newf("unknown provider: %q", cfg.Provider)
 	}

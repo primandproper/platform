@@ -54,7 +54,7 @@ type FlushResult struct {
 	// Flushed is how many were posted to the provider and settled.
 	Flushed int
 
-	// Skipped is how many had no provider handle and were settled without a post
+	// Skipped is how many had no provider ref and were settled without a post
 	// — a subject on a plan that does not bill for that meter. Not a failure; see
 	// ErrNoProviderRef.
 	Skipped int
@@ -380,7 +380,14 @@ func (f *Flusher) flushOne(ctx context.Context, total *Total) (outcome flushOutc
 		return outcomeFailed, 0
 	}
 
-	if ref.SubscriptionItemID == "" {
+	// A wholly zero ref is read as the ErrNoProviderRef the mapper did not bother
+	// to return: nothing to post, settled rather than retried.
+	//
+	// A half-filled one is not. A customer with no meter, or a meter with no
+	// customer, is a mapper bug rather than a free plan, and letting it through to
+	// the reporter's own validation makes it a visible failure instead of usage
+	// that quietly stops being billed.
+	if ref == (ProviderRef{}) {
 		return f.settle(ctx, op, total, delta, true), 0
 	}
 
@@ -418,8 +425,9 @@ func (f *Flusher) report(ctx context.Context, total *Total, ref ProviderRef, del
 	}()
 
 	return f.reporter.ReportUsage(ctx, &capitalism.UsageReportInput{
-		SubscriptionItemID: ref.SubscriptionItemID,
-		Quantity:           delta,
+		CustomerID: ref.CustomerID,
+		MeterName:  ref.MeterName,
+		Quantity:   delta,
 		// The period's own end, not the wall clock. A pass that runs a minute
 		// after a period closed still belongs to that period, and providers place
 		// a usage record by its timestamp.

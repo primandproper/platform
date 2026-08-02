@@ -52,7 +52,7 @@ func TestNewFlusher(T *testing.T) {
 	T.Parallel()
 
 	store := newSQLiteEnv(T).newStore(T)
-	mapper := staticMapper("si_123")
+	mapper := staticMapper("cus_123")
 
 	T.Run("refuses a nil config, store, mapper, or reporter", func(t *testing.T) {
 		t.Parallel()
@@ -120,7 +120,7 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("posts the accumulated usage", func(t *testing.T) {
 		t.Parallel()
 
-		env := newTestFlusher(t, staticMapper("si_123"))
+		env := newTestFlusher(t, staticMapper("cus_123"))
 
 		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
 
@@ -134,7 +134,8 @@ func TestFlusher_Flush(T *testing.T) {
 		posts := env.reporter.recorded()
 		must.SliceLen(t, 1, posts)
 
-		test.EqOp(t, "si_123", posts[0].SubscriptionItemID)
+		test.EqOp(t, "cus_123", posts[0].CustomerID)
+		test.EqOp(t, testMeter, posts[0].MeterName)
 		test.EqOp(t, int64(42), posts[0].Quantity)
 		test.StrHasPrefix(t, idempotencyKeyPrefix, posts[0].IdempotencyKey)
 		test.EqOp(t, testMeter, posts[0].Metadata["metering_meter"])
@@ -145,7 +146,7 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("posts the delta, not the running total", func(t *testing.T) {
 		t.Parallel()
 
-		env := newTestFlusher(t, staticMapper("si_123"))
+		env := newTestFlusher(t, staticMapper("cus_123"))
 
 		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
 		_, err := env.flusher.Flush(t.Context())
@@ -172,7 +173,7 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("posts nothing when there is nothing to post", func(t *testing.T) {
 		t.Parallel()
 
-		env := newTestFlusher(t, staticMapper("si_123"))
+		env := newTestFlusher(t, staticMapper("cus_123"))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -184,7 +185,7 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("posts nothing twice for the same usage", func(t *testing.T) {
 		t.Parallel()
 
-		env := newTestFlusher(t, staticMapper("si_123"))
+		env := newTestFlusher(t, staticMapper("cus_123"))
 
 		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
 
@@ -223,10 +224,10 @@ func TestFlusher_Flush(T *testing.T) {
 		test.EqOp(t, 0, again.Claimed)
 	})
 
-	T.Run("settles without posting for an empty provider handle", func(t *testing.T) {
+	T.Run("settles without posting for an empty provider ref", func(t *testing.T) {
 		t.Parallel()
 
-		env := newTestFlusher(t, staticMapper(""))
+		env := newTestFlusher(t, zeroMapper())
 
 		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
 
@@ -235,6 +236,29 @@ func TestFlusher_Flush(T *testing.T) {
 
 		test.EqOp(t, 1, result.Skipped)
 		test.SliceEmpty(t, env.reporter.recorded())
+	})
+
+	T.Run("posts a half-filled provider ref rather than skipping it", func(t *testing.T) {
+		t.Parallel()
+
+		// A customer with no meter is a mapper bug, not a free plan. Letting it
+		// reach the reporter's own validation makes it a visible failure instead of
+		// usage that quietly stops being billed.
+		env := newTestFlusher(t, ProviderMapperFunc(func(context.Context, string, string) (ProviderRef, error) {
+			return ProviderRef{CustomerID: "cus_123"}, nil
+		}))
+
+		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+
+		result, err := env.flusher.Flush(t.Context())
+		must.NoError(t, err)
+
+		test.EqOp(t, 0, result.Skipped)
+
+		posts := env.reporter.recorded()
+		must.SliceLen(t, 1, posts)
+		test.EqOp(t, "cus_123", posts[0].CustomerID)
+		test.EqOp(t, "", posts[0].MeterName)
 	})
 
 	T.Run("retries a total whose mapping failed", func(t *testing.T) {
@@ -265,7 +289,7 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("retries a post the provider refused, under the same key", func(t *testing.T) {
 		t.Parallel()
 
-		env := newTestFlusher(t, staticMapper("si_123"))
+		env := newTestFlusher(t, staticMapper("cus_123"))
 		env.reporter.err = errArbitrary
 
 		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
@@ -293,7 +317,7 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("contains a panic from the provider SDK", func(t *testing.T) {
 		t.Parallel()
 
-		env := newTestFlusher(t, staticMapper("si_123"))
+		env := newTestFlusher(t, staticMapper("cus_123"))
 		env.reporter.panicNow = true
 
 		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
@@ -311,7 +335,7 @@ func TestFlusher_Flush(T *testing.T) {
 		t.Parallel()
 
 		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, store, staticMapper("si_123"))
+		env := newTestFlusherOver(t, store, staticMapper("cus_123"))
 		env.flusher.cfg.MaxAttempts = 2
 		env.reporter.err = errArbitrary
 
@@ -343,7 +367,7 @@ func TestFlusher_Flush(T *testing.T) {
 		t.Parallel()
 
 		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, &failingClaimStore{Store: store}, staticMapper("si_123"))
+		env := newTestFlusherOver(t, &failingClaimStore{Store: store}, staticMapper("cus_123"))
 
 		_, err := env.flusher.Flush(t.Context())
 
@@ -354,7 +378,7 @@ func TestFlusher_Flush(T *testing.T) {
 		t.Parallel()
 
 		store, prefix := newSQLiteEnv(t).newStoreWithPrefix(t)
-		env := newTestFlusherOver(t, store, staticMapper("si_123"))
+		env := newTestFlusherOver(t, store, staticMapper("cus_123"))
 
 		must.NoError(t, mustRecord(t, store, newEntry("settled", 10, AggregationSum)))
 		_, err := env.flusher.Flush(t.Context())
@@ -384,7 +408,7 @@ func TestFlusher_Flush(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
-		flushEnv := newTestFlusherOver(t, store, staticMapper("si_123"))
+		flushEnv := newTestFlusherOver(t, store, staticMapper("cus_123"))
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
 
@@ -405,7 +429,7 @@ func TestFlusher_Flush(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
-		flushEnv := newTestFlusherOver(t, store, staticMapper("si_123"))
+		flushEnv := newTestFlusherOver(t, store, staticMapper("cus_123"))
 		flushEnv.flusher.cfg.DisableReap = true
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
@@ -426,7 +450,7 @@ func TestFlusher_Flush(T *testing.T) {
 		t.Parallel()
 
 		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, &failingReapStore{Store: store}, staticMapper("si_123"))
+		env := newTestFlusherOver(t, &failingReapStore{Store: store}, staticMapper("cus_123"))
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
 
@@ -443,7 +467,7 @@ func TestFlusher_Flush(T *testing.T) {
 		t.Parallel()
 
 		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, &failingSettleStore{Store: store}, staticMapper("si_123"))
+		env := newTestFlusherOver(t, &failingSettleStore{Store: store}, staticMapper("cus_123"))
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
 
@@ -461,7 +485,7 @@ func TestFlusher_Flush(T *testing.T) {
 		t.Parallel()
 
 		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, &failingReleaseStore{Store: store}, staticMapper("si_123"))
+		env := newTestFlusherOver(t, &failingReleaseStore{Store: store}, staticMapper("cus_123"))
 		env.reporter.err = errArbitrary
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
@@ -477,7 +501,7 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("posts several totals concurrently", func(t *testing.T) {
 		t.Parallel()
 
-		env := newTestFlusher(t, staticMapper("si_123"))
+		env := newTestFlusher(t, staticMapper("cus_123"))
 
 		for _, subject := range []string{"a", "b", "c", "d", "e"} {
 			entry := newEntry("req-"+subject, 1, AggregationSum)
@@ -497,7 +521,7 @@ func TestFlusher_Flush(T *testing.T) {
 func TestFlusher_reportTimestamp(T *testing.T) {
 	T.Parallel()
 
-	env := newTestFlusher(T, staticMapper("si_123"))
+	env := newTestFlusher(T, staticMapper("cus_123"))
 
 	T.Run("stamps now while the period is open", func(t *testing.T) {
 		t.Parallel()
@@ -589,7 +613,7 @@ func TestFlushIdempotencyKey(T *testing.T) {
 func TestFlusher_Job(T *testing.T) {
 	T.Parallel()
 
-	env := newTestFlusher(T, staticMapper("si_123"))
+	env := newTestFlusher(T, staticMapper("cus_123"))
 
 	job := env.flusher.Job(jobs.MustCron("0 * * * *"), 10*time.Minute)
 
@@ -608,7 +632,7 @@ func TestFlusher_Job(T *testing.T) {
 func TestFlusher_backoff(T *testing.T) {
 	T.Parallel()
 
-	env := newTestFlusher(T, staticMapper("si_123"))
+	env := newTestFlusher(T, staticMapper("cus_123"))
 
 	// Full jitter rather than the equal jitter retry.Execute sleeps with: this
 	// schedule is written into a row and read by a fleet, and without spreading, a
