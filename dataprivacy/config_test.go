@@ -110,7 +110,6 @@ func TestSweeperConfig(T *testing.T) {
 		cfg := &SweeperConfig{}
 		cfg.EnsureDefaults()
 
-		test.EqOp(t, DefaultSweepInterval, cfg.SweepInterval)
 		test.EqOp(t, DefaultRequestRetention, cfg.RequestRetention)
 		test.EqOp(t, DefaultSweepBatchSize, cfg.BatchSize)
 		test.False(t, cfg.DisableReap)

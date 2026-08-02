@@ -8,7 +8,7 @@ import (
 
 // NewInstrumentedSQLTracer wraps a Tracer for instrumentedsql.
 func NewInstrumentedSQLTracer(tracerProvider TracerProvider, name string) instrumentedsql.Tracer {
-	return &instrumentedSQLTracerWrapper{tracer: NewTracer(tracerProvider.Tracer(name))}
+	return &instrumentedSQLTracerWrapper{tracer: NewNamedTracer(tracerProvider, name)}
 }
 
 var _ instrumentedsql.Tracer = (*instrumentedSQLTracerWrapper)(nil)

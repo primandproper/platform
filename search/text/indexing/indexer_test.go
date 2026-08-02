@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
 	mockpublishers "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -20,7 +19,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-var testQueuesConfig = &msgconfig.QueuesConfig{SearchIndexRequestsTopicName: "search_index_requests"}
+const testIndexTopic = "search_index_requests"
 
 func TestNewIndexScheduler(T *testing.T) {
 	T.Parallel()
@@ -55,7 +54,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		test.NoError(t, err)
 		test.NotNil(t, scheduler)
 		test.Eq(t, []string{"test_type"}, scheduler.allIndexTypes)
@@ -63,7 +62,7 @@ func TestNewIndexScheduler(T *testing.T) {
 
 		test.SliceLen(t, 1, metricsProvider.NewInt64CounterCalls())
 		test.SliceLen(t, 1, messageQueueProvider.NewPublisherCalls())
-		test.EqOp(t, testQueuesConfig.SearchIndexRequestsTopicName, messageQueueProvider.NewPublisherCalls()[0].Topic)
+		test.EqOp(t, testIndexTopic, messageQueueProvider.NewPublisherCalls()[0].Topic)
 	})
 
 	T.Run("with nil index functions", func(t *testing.T) {
@@ -90,7 +89,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, nil, WithMetricsProvider(metricsProvider))
 		test.NoError(t, err)
 		test.NotNil(t, scheduler)
 		test.SliceEmpty(t, scheduler.allIndexTypes)
@@ -115,7 +114,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, nil, WithMetricsProvider(metricsProvider))
 		test.Error(t, err)
 		test.Nil(t, scheduler)
 		test.StrContains(t, err.Error(), "metrics error")
@@ -147,7 +146,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, nil, WithMetricsProvider(metricsProvider))
 		test.Error(t, err)
 		test.Nil(t, scheduler)
 		test.StrContains(t, err.Error(), "message queue error")
@@ -198,7 +197,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		obs := observability.NewRecordingObserver()
@@ -251,7 +250,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// No publisher calls expected for empty results
@@ -297,7 +296,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// sql.ErrNoRows should be handled gracefully and return nil
@@ -338,7 +337,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		obs := observability.NewRecordingObserver()
@@ -382,7 +381,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		}
 
 		// Create scheduler with empty index functions
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, map[string]Function{}, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, map[string]Function{}, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// This should not happen in normal operation since random.Element would return empty string
@@ -438,7 +437,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		err = scheduler.IndexTypes(ctx)
@@ -488,7 +487,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		err = scheduler.IndexTypes(ctx)

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	encryptioncfg "github.com/primandproper/platform-go/v9/cryptography/encryption/config"
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/mysql"
 	"github.com/primandproper/platform-go/v9/database/postgres"
@@ -38,8 +37,6 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		Encryption               encryptioncfg.Config `env:",init"                        envPrefix:"ENCRYPTION_"         json:"encryption"               yaml:"encryption"`
-		OAuth2TokenEncryptionKey string               `env:"OAUTH2_TOKEN_ENCRYPTION_KEY" json:"oauth2TokenEncryptionKey" yaml:"oauth2TokenEncryptionKey"`
 		Provider                 string               `env:"PROVIDER"                    envDefault:"postgres"           json:"provider"                 yaml:"provider"`
 		ReadConnection           ConnectionDetails    `envPrefix:"READ_CONNECTION_"      json:"readConnection"           yaml:"readConnection"`
 		WriteConnection          ConnectionDetails    `envPrefix:"WRITE_CONNECTION_"     json:"writeConnection"          yaml:"writeConnection"`

@@ -24,33 +24,6 @@ func Test_cleanString(T *testing.T) {
 	})
 }
 
-func TestQueuesConfig_ValidateWithContext(T *testing.T) {
-	T.Parallel()
-
-	T.Run("valid", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &QueuesConfig{
-			DataChangesTopicName:              "data-changes",
-			OutboundEmailsTopicName:           "outbound-emails",
-			SearchIndexRequestsTopicName:      "search-index-requests",
-			MobileNotificationsTopicName:      "mobile-notifications",
-			UserDataAggregationTopicName:      "user-data-aggregation",
-			WebhookExecutionRequestsTopicName: "webhook-execution-requests",
-		}
-
-		test.NoError(t, cfg.ValidateWithContext(t.Context()))
-	})
-
-	T.Run("missing fields", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &QueuesConfig{}
-
-		test.Error(t, cfg.ValidateWithContext(t.Context()))
-	})
-}
-
 func TestNewConsumerProvider(T *testing.T) {
 	T.Parallel()
 

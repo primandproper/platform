@@ -74,7 +74,12 @@ const (
 	// in-flight request with it. Failing the one request loudly is better.
 	DefaultMaxDocumentBytes int64 = 512 << 20 // 512 MiB
 
-	// DefaultSweepInterval is how often the Sweeper runs.
+	// DefaultSweepInterval is the recommended cadence for running the Sweeper.
+	//
+	// It is a suggestion for the caller's scheduler, not something this package
+	// acts on: the Sweeper has no ticker of its own and does one pass per call.
+	// It was previously also a config field, which read as though setting it made
+	// the Sweeper run on that interval — nothing ever did.
 	DefaultSweepInterval = time.Hour
 
 	// DefaultSweepBatchSize caps how much one sweep tick does.
@@ -266,10 +271,6 @@ func (cfg *WorkerConfig) ValidateWithContext(ctx context.Context) error {
 
 // SweeperConfig configures the expiry, lapse, and retention sweeps.
 type SweeperConfig struct {
-	// SweepInterval is how often the Sweeper runs. Ignored when the Sweeper is
-	// driven by the jobs scheduler, which owns its own cadence.
-	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval" yaml:"sweepInterval"`
-
 	// RequestRetention is how long a terminal request record is kept. Defaults
 	// to DefaultRequestRetention.
 	RequestRetention time.Duration `env:"REQUEST_RETENTION" json:"requestRetention" yaml:"requestRetention"`
@@ -292,9 +293,6 @@ var _ validation.ValidatableWithContext = (*SweeperConfig)(nil)
 
 // EnsureDefaults fills unset knobs with the package defaults.
 func (cfg *SweeperConfig) EnsureDefaults() {
-	if cfg.SweepInterval <= 0 {
-		cfg.SweepInterval = DefaultSweepInterval
-	}
 	if cfg.RequestRetention <= 0 {
 		cfg.RequestRetention = DefaultRequestRetention
 	}
@@ -306,7 +304,6 @@ func (cfg *SweeperConfig) EnsureDefaults() {
 // ValidateWithContext validates a SweeperConfig.
 func (cfg *SweeperConfig) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.SweepInterval, validation.Required),
 		validation.Field(&cfg.RequestRetention, validation.Required),
 		validation.Field(&cfg.BatchSize, validation.Required, validation.Min(1)),
 	)

@@ -14,7 +14,7 @@ func Test_instrumentedSQLSpanWrapper_NewChild(T *testing.T) {
 		ctx, span := StartSpan(t.Context())
 		w := &instrumentedSQLSpanWrapper{
 			ctx:    ctx,
-			tracer: NewTracer((&noopTracerProvider{}).Tracer(t.Name())),
+			tracer: NewNamedTracer(nil, t.Name()),
 			span:   span,
 		}
 

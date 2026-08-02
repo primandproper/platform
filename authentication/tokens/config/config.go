@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/primandproper/platform-go/v9/authentication/tokens"
 	"github.com/primandproper/platform-go/v9/authentication/tokens/jwt"
@@ -30,8 +29,6 @@ type (
 		Issuer                  string        `env:"ISSUER"                     json:"issuer"                  yaml:"issuer"`
 		Audience                string        `env:"AUDIENCE"                   json:"audience"                yaml:"audience"`
 		Base64EncodedSigningKey string        `env:"SIGNING_KEY"                json:"base64EncodedSigningKey" yaml:"base64EncodedSigningKey"`
-		MaxAccessTokenLifetime  time.Duration `env:"MAX_ACCESS_TOKEN_LIFETIME"  json:"maxAccessTokenLifetime"  yaml:"maxAccessTokenLifetime"`
-		MaxRefreshTokenLifetime time.Duration `env:"MAX_REFRESH_TOKEN_LIFETIME" json:"maxRefreshTokenLifetime" yaml:"maxRefreshTokenLifetime"`
 	}
 )
 

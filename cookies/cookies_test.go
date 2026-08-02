@@ -19,7 +19,6 @@ const (
 
 func buildConfigForTest() *Config {
 	return &Config{
-		CookieName:            "platform_cookie",
 		Base64EncodedHashKey:  base64.StdEncoding.EncodeToString([]byte(testKey)),
 		Base64EncodedBlockKey: base64.StdEncoding.EncodeToString([]byte(testKey)),
 	}

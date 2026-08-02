@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
 	mockpublishers "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
@@ -45,14 +44,13 @@ func TestRegisterIndexScheduler(T *testing.T) {
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, metricsProvider)
 		do.ProvideValue[messagequeue.PublisherProvider](i, messageQueueProvider)
-		do.ProvideValue(i, &msgconfig.QueuesConfig{SearchIndexRequestsTopicName: "test_topic"})
 		do.ProvideValue(i, map[string]Function{
 			"test": func(ctx context.Context) ([]string, error) {
 				return nil, nil
 			},
 		})
 
-		RegisterIndexScheduler(i)
+		RegisterIndexScheduler(i, "test_topic")
 
 		scheduler, err := do.Invoke[*IndexScheduler](i)
 		must.NoError(t, err)
