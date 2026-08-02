@@ -8,7 +8,7 @@ import (
 	distributedlockcfg "github.com/primandproper/platform-go/v9/distributedlock/config"
 	pglock "github.com/primandproper/platform-go/v9/distributedlock/postgres"
 	"github.com/primandproper/platform-go/v9/jobs"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
+	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
 	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
@@ -22,7 +22,7 @@ import (
 func poolConfig() *PoolConfig {
 	return &PoolConfig{
 		Pool:  jobs.PoolConfig{Topic: "background_work"},
-		Queue: msgconfig.Config{Consumer: msgconfig.MessageQueueConfig{Provider: msgconfig.ProviderNoop}},
+		Queue: messagequeuecfg.Config{Consumer: messagequeuecfg.MessageQueueConfig{Provider: messagequeuecfg.ProviderNoop}},
 	}
 }
 
@@ -110,9 +110,9 @@ func TestNewPool(T *testing.T) {
 		// PubSub with no project ID fails client construction, which is the
 		// cheapest way to make the provider step fail without a network.
 		cfg := poolConfig()
-		cfg.Queue = msgconfig.Config{
-			Consumer: msgconfig.MessageQueueConfig{
-				Provider: msgconfig.ProviderPubSub,
+		cfg.Queue = messagequeuecfg.Config{
+			Consumer: messagequeuecfg.MessageQueueConfig{
+				Provider: messagequeuecfg.ProviderPubSub,
 				PubSub:   pubsub.Config{},
 			},
 		}

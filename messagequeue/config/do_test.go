@@ -1,4 +1,4 @@
-package msgconfig
+package messagequeuecfg
 
 import (
 	"testing"

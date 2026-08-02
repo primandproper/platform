@@ -6,7 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	databasemock "github.com/primandproper/platform-go/v9/database/mock"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
+	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
 	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
@@ -22,7 +22,7 @@ import (
 func sqliteConfig() *Config {
 	return &Config{
 		Relay: outbox.RelayConfig{},
-		Queue: msgconfig.Config{Publisher: msgconfig.MessageQueueConfig{Provider: msgconfig.ProviderNoop}},
+		Queue: messagequeuecfg.Config{Publisher: messagequeuecfg.MessageQueueConfig{Provider: messagequeuecfg.ProviderNoop}},
 	}
 }
 
@@ -180,9 +180,9 @@ func TestNewRelay(T *testing.T) {
 		// PubSub with no project ID fails client construction, which is the
 		// cheapest way to make the provider step fail without a network.
 		cfg := sqliteConfig()
-		cfg.Queue = msgconfig.Config{
-			Publisher: msgconfig.MessageQueueConfig{
-				Provider: msgconfig.ProviderPubSub,
+		cfg.Queue = messagequeuecfg.Config{
+			Publisher: messagequeuecfg.MessageQueueConfig{
+				Provider: messagequeuecfg.ProviderPubSub,
 				PubSub:   pubsub.Config{},
 			},
 		}

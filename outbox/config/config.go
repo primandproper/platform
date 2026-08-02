@@ -15,7 +15,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/errors"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
+	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
@@ -32,7 +32,7 @@ type Config struct {
 	// to. An empty provider selects the noop publisher, which is right for
 	// tests and wrong for production: messages would be claimed, "published"
 	// nowhere, and marked done.
-	Queue msgconfig.Config `env:",init" envPrefix:"QUEUE_" json:"queue" yaml:"queue"`
+	Queue messagequeuecfg.Config `env:",init" envPrefix:"QUEUE_" json:"queue" yaml:"queue"`
 
 	// Relay carries the outbox's own knobs. Its Dialect and TableName also
 	// drive the Writer, so the writing and claiming halves cannot disagree
@@ -128,7 +128,7 @@ func NewRelay(
 		return nil, errors.Wrap(err, "validating outbox config")
 	}
 
-	provider, err := msgconfig.NewPublisherProvider(ctx, logger, tracerProvider, metricsProvider, &cfg.Queue)
+	provider, err := messagequeuecfg.NewPublisherProvider(ctx, logger, tracerProvider, metricsProvider, &cfg.Queue)
 	if err != nil {
 		return nil, errors.Wrap(err, "building outbox publisher provider")
 	}

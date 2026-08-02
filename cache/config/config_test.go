@@ -1,4 +1,4 @@
-package config
+package cachecfg
 
 import (
 	"errors"

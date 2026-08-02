@@ -1,4 +1,4 @@
-package config
+package encryptioncfg
 
 import (
 	"testing"

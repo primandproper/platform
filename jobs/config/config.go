@@ -16,7 +16,7 @@ import (
 	distributedlockcfg "github.com/primandproper/platform-go/v9/distributedlock/config"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/jobs"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
+	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
@@ -31,7 +31,7 @@ type PoolConfig struct {
 	// Queue configures the consumer the Pool reads from. An empty provider
 	// selects the noop consumer, which delivers nothing — right for tests,
 	// wrong for production.
-	Queue msgconfig.Config `env:",init" envPrefix:"QUEUE_" json:"queue" yaml:"queue"`
+	Queue messagequeuecfg.Config `env:",init" envPrefix:"QUEUE_" json:"queue" yaml:"queue"`
 
 	// Pool carries the worker pool's own knobs.
 	Pool jobs.PoolConfig `env:",init" json:"pool" yaml:"pool"`
@@ -81,7 +81,7 @@ func NewPool(
 		return nil, errors.Wrap(err, "validating jobs pool config")
 	}
 
-	provider, err := msgconfig.NewConsumerProvider(ctx, logger, tracerProvider, metricsProvider, &cfg.Queue)
+	provider, err := messagequeuecfg.NewConsumerProvider(ctx, logger, tracerProvider, metricsProvider, &cfg.Queue)
 	if err != nil {
 		return nil, errors.Wrap(err, "building jobs consumer provider")
 	}
