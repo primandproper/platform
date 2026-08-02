@@ -8,6 +8,7 @@ import (
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v9/observability/profiling"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -99,20 +100,42 @@ func TestInvokePillars(T *testing.T) {
 		test.Nil(t, pillars.TracerProvider)
 	})
 
+	// Distinguishing a pillar that failed to build from one nobody registered is
+	// what keeps a misconfigured exporter from silently degrading to a noop, so
+	// every lookup InvokePillars performs is checked for it.
 	T.Run("a registered pillar that fails to build is an error", func(t *testing.T) {
 		t.Parallel()
 
-		// Distinguishing this from "nobody registered one" is what keeps a
-		// misconfigured exporter from silently degrading to a noop.
-		errBuild := errors.New("building the metrics provider")
+		errBuild := errors.New("building the pillar")
 
-		i := do.New()
-		do.Provide[metrics.Provider](i, func(do.Injector) (metrics.Provider, error) {
-			return nil, errBuild
-		})
+		for name, register := range map[string]func(do.Injector){
+			"pillars": func(i do.Injector) {
+				do.Provide(i, func(do.Injector) (*Pillars, error) { return nil, errBuild })
+			},
+			"logger": func(i do.Injector) {
+				do.Provide(i, func(do.Injector) (logging.Logger, error) { return nil, errBuild })
+			},
+			"tracer provider": func(i do.Injector) {
+				do.Provide(i, func(do.Injector) (tracing.TracerProvider, error) { return nil, errBuild })
+			},
+			"metrics provider": func(i do.Injector) {
+				do.Provide(i, func(do.Injector) (metrics.Provider, error) { return nil, errBuild })
+			},
+			"profiler": func(i do.Injector) {
+				do.Provide(i, func(do.Injector) (profiling.Provider, error) { return nil, errBuild })
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
-		_, err := InvokePillars(i)
-		must.Error(t, err)
-		test.ErrorIs(t, err, errBuild)
+				i := do.New()
+				register(i)
+
+				pillars, err := InvokePillars(i)
+				must.Error(t, err)
+				test.ErrorIs(t, err, errBuild)
+				test.Nil(t, pillars)
+			})
+		}
 	})
 }
