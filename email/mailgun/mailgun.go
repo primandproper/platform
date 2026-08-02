@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
@@ -97,6 +99,21 @@ func NewMailgunEmailer(cfg *Config, client *http.Client, circuitBreaker circuitb
 	return e, nil
 }
 
+// formatAddress renders a display name and address as one RFC 5322 mailbox,
+// quoting and escaping the name.
+//
+// Building it with Sprintf instead — as this package used to — lets a comma in
+// an attacker-influenced display name inject extra recipients, because mailgun
+// accepts a comma-separated list wherever it accepts an address. The other
+// providers in this package escape via mail.Address for the same reason.
+func formatAddress(name, address string) string {
+	if strings.TrimSpace(name) == "" {
+		return address
+	}
+
+	return (&mail.Address{Name: name, Address: address}).String()
+}
+
 // SendEmail sends an email.
 func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMessage) error {
 	ctx, op := e.o11y.Begin(ctx)
@@ -113,17 +130,12 @@ func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMes
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	from := details.FromAddress
-	if details.FromName != "" {
-		from = fmt.Sprintf("%s <%s>", details.FromName, details.FromAddress)
-	}
-
-	to := details.ToAddress
-	if details.ToName != "" {
-		to = fmt.Sprintf("%s <%s>", details.ToName, details.ToAddress)
-	}
-
-	msg := mailgun.NewMessage(from, details.Subject, "", to)
+	msg := mailgun.NewMessage(
+		formatAddress(details.FromName, details.FromAddress),
+		details.Subject,
+		"",
+		formatAddress(details.ToName, details.ToAddress),
+	)
 	msg.SetHTML(details.HTMLContent)
 
 	if _, _, err := e.client.Send(ctx, msg); err != nil {

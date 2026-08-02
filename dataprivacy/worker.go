@@ -328,10 +328,16 @@ func (w *Worker) handle(ctx context.Context, req *Request) {
 	// Bounded so a collector that hangs cannot hold the lease past its expiry
 	// and let a second worker start the same request. The config validation
 	// enforces LeaseDuration > FulfillmentTimeout for exactly this reason.
-	ctx, cancel := context.WithTimeout(ctx, w.cfg.FulfillmentTimeout)
+	//
+	// The bounded context is deliberately not reused for the bookkeeping below:
+	// on a fulfillment timeout it is already done, so every write made through it
+	// — including the one recording the failure — is guaranteed to fail too. That
+	// left the request in StatusProcessing with nothing to move it, which is the
+	// wedge this separation exists to prevent.
+	fulfillCtx, cancel := context.WithTimeout(ctx, w.cfg.FulfillmentTimeout)
 	defer cancel()
 
-	err := w.fulfill(ctx, req)
+	err := w.fulfill(fulfillCtx, req)
 
 	w.fulfillHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), requestTypeAttr(req.Type))
 

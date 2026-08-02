@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/primandproper/platform-go/v9/secrets"
 )
 
 func TestNewKubectlSecretSource(T *testing.T) {
@@ -183,7 +184,10 @@ func TestKubectlSecretSource_GetSecret(T *testing.T) {
 
 		_, err := source.GetSecret(t.Context(), "db-creds/password")
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), "key \"password\" not found")
+		// A missing key in an existing secret is the same answer, to the caller,
+		// as a missing secret.
+		test.ErrorIs(t, err, secrets.ErrSecretNotFound)
+		test.StrContains(t, err.Error(), "key \"password\"")
 
 		// The identifiers must still have been observed even though the lookup failed.
 		obs.ObservedOperationWithData(t, map[string]any{

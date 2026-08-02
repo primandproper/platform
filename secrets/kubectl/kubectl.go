@@ -12,6 +12,7 @@ import (
 	"github.com/primandproper/platform-go/v9/secrets"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -116,13 +117,29 @@ func (k *kubectlSecretSource) GetSecret(ctx context.Context, name string) (strin
 	secret, err := k.client.Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		k.errorCounter.Add(ctx, 1)
+
+		// Mapped, not passed through: secrets.ErrSecretNotFound exists so a
+		// caller can tell "no such secret" from "could not reach the provider"
+		// without knowing which provider it got.
+		if apierrors.IsNotFound(err) {
+			return "", op.Error(
+				errors.Join(secrets.ErrSecretNotFound, err),
+				"getting kubernetes secret %q", secretName,
+			)
+		}
+
 		return "", op.Error(err, "getting kubernetes secret %q", secretName)
 	}
 
+	// A missing key inside an existing secret is the same answer as a missing
+	// secret, as far as a caller asking for "secret-name/key" is concerned.
 	data, ok := secret.Data[key]
 	if !ok {
 		k.errorCounter.Add(ctx, 1)
-		return "", errors.Newf("key %q not found in kubernetes secret %q", key, secretName)
+		return "", op.Error(
+			errors.Wrapf(secrets.ErrSecretNotFound, "key %q in kubernetes secret %q", key, secretName),
+			"getting kubernetes secret key",
+		)
 	}
 
 	k.lookupCounter.Add(ctx, 1)

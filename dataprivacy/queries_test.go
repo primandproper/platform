@@ -100,7 +100,7 @@ func everyQuery(testTables *tables, d dialect.Dialect) []builtQuery {
 	query, args = testTables.buildSelectClaimable(d, baseTime, 10, false)
 	add("buildSelectClaimable/unlocked", query, args)
 
-	query, args = testTables.buildClaim(d, ids, baseTime)
+	query, args = testTables.buildClaim(d, ids, baseTime, baseTime)
 	add("buildClaim", query, args)
 
 	query, args = testTables.buildFetchByIDs(d, ids, StatusProcessing)
@@ -509,16 +509,18 @@ func TestBuildSelectClaimable(T *testing.T) {
 		}
 	})
 
-	T.Run("takes only pending work that is due and unleased", func(t *testing.T) {
+	T.Run("takes due work that is pending or abandoned mid-flight", func(t *testing.T) {
 		t.Parallel()
 
 		query, args := testTables.buildSelectClaimable(dialect.Postgres, baseTime, 10, false)
 
-		// The lease check is what lets a crashed worker's requests be picked up
-		// again without a second worker stealing one that is still in flight.
-		test.StrContains(t, query, "status = $1 AND next_attempt <= $2")
-		test.StrContains(t, query, "(claimed_until IS NULL OR claimed_until <= $3)")
-		test.Eq(t, []any{"pending", baseTime.UTC(), baseTime.UTC(), 10}, args)
+		// The processing-with-an-expired-lease arm is what reclaims a crashed
+		// worker's request. Without it those rows were never candidates at all,
+		// so the claimed_until predicate could never fire and an erasure request
+		// sat in "processing" forever.
+		test.StrContains(t, query, "next_attempt <= $1")
+		test.StrContains(t, query, "(status = $2 OR (status = $3 AND claimed_until IS NOT NULL AND claimed_until <= $4))")
+		test.Eq(t, []any{baseTime.UTC(), "pending", "processing", baseTime.UTC(), 10}, args)
 	})
 
 	T.Run("serves the oldest request first", func(t *testing.T) {
@@ -538,7 +540,7 @@ func TestBuildClaim(T *testing.T) {
 	T.Run("charges an attempt as it leases", func(t *testing.T) {
 		t.Parallel()
 
-		query, _ := testTables.buildClaim(dialect.Postgres, []string{"req_1"}, baseTime)
+		query, _ := testTables.buildClaim(dialect.Postgres, []string{"req_1"}, baseTime, baseTime)
 
 		// Incrementing here rather than on failure is what bounds a request whose
 		// collector reliably kills the worker: it consumes attempts even when
@@ -546,14 +548,17 @@ func TestBuildClaim(T *testing.T) {
 		test.StrContains(t, query, "attempts = attempts + 1")
 	})
 
-	T.Run("re-checks the status it just selected on", func(t *testing.T) {
+	T.Run("re-checks the statuses it just selected on", func(t *testing.T) {
 		t.Parallel()
 
-		query, args := testTables.buildClaim(dialect.Postgres, []string{"req_1", "req_2"}, baseTime)
+		query, args := testTables.buildClaim(dialect.Postgres, []string{"req_1", "req_2"}, baseTime, baseTime)
 
-		// Between the SELECT and this UPDATE a subject may have cancelled.
-		test.StrContains(t, query, "WHERE id IN ($3, $4) AND status = $5")
-		test.Eq(t, []any{"processing", baseTime.UTC(), "req_1", "req_2", "pending"}, args)
+		// Between the SELECT and this UPDATE a subject may have cancelled, or
+		// another worker may have claimed the same expired lease — so the reclaim
+		// arm requires the lease to still be expired, and exactly one of two
+		// racing workers wins.
+		test.StrContains(t, query, "WHERE id IN ($3, $4) AND (status = $5 OR (status = $6 AND claimed_until IS NOT NULL AND claimed_until <= $7))")
+		test.Eq(t, []any{"processing", baseTime.UTC(), "req_1", "req_2", "pending", "processing", baseTime.UTC()}, args)
 	})
 }
 

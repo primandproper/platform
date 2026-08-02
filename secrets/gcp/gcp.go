@@ -10,10 +10,14 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/secrets"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const name = "gcp_secret_source"
@@ -121,6 +125,17 @@ func (g *gcpSecretSource) GetSecret(ctx context.Context, name string) (string, e
 	resp, err := g.client.AccessSecretVersion(ctx, req)
 	if err != nil {
 		g.errorCounter.Add(ctx, 1)
+
+		// Mapped, not passed through: secrets.ErrSecretNotFound exists so a
+		// caller can tell "no such secret" from "could not reach the provider"
+		// without knowing which provider it got.
+		if status.Code(err) == codes.NotFound {
+			return "", op.Error(
+				platformerrors.Join(secrets.ErrSecretNotFound, err),
+				"accessing secret %q", name,
+			)
+		}
+
 		return "", op.Error(err, "accessing secret %q", name)
 	}
 	if resp.Payload == nil || resp.Payload.Data == nil {

@@ -188,21 +188,33 @@ func (t *tables) buildTransition(d dialect.Dialect, requestID string, from []Sta
 }
 
 // buildSelectClaimable renders the query picking the next batch of request IDs
-// to claim: pending, due, and not currently leased by another worker.
+// to claim: due, and either pending or abandoned mid-flight.
+//
+// The second case is what reclaims a row whose worker died. A crash leaves the
+// request in StatusProcessing with a lease that then quietly expires, and while
+// this query matched only StatusPending nothing ever looked at those rows again
+// — so the claimed_until predicate, which exists precisely to find them, could
+// never fire. A subject's erasure request sat in "processing" forever, which is
+// both a broken promise and, in most jurisdictions, a missed legal deadline.
+//
+// Attempts are still incremented by the claim, so a request that reliably kills
+// its worker exhausts its attempts and fails rather than being reclaimed until
+// the end of time.
 func (t *tables) buildSelectClaimable(d dialect.Dialect, now time.Time, limit int, skipLocked bool) (query string, args []any) {
 	query = fmt.Sprintf(
 		"SELECT id FROM %s "+
-			"WHERE status = %s AND next_attempt <= %s "+
-			"AND (claimed_until IS NULL OR claimed_until <= %s) "+
+			"WHERE next_attempt <= %s "+
+			"AND (status = %s OR (status = %s AND claimed_until IS NOT NULL AND claimed_until <= %s)) "+
 			"ORDER BY requested_at, id LIMIT %s",
-		t.requests, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
+		t.requests,
+		d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4), d.Placeholder(5),
 	)
 
 	if skipLocked && d.SupportsSkipLocked() {
 		query += " FOR UPDATE SKIP LOCKED"
 	}
 
-	return query, []any{string(StatusPending), now.UTC(), now.UTC(), limit}
+	return query, []any{now.UTC(), string(StatusPending), string(StatusProcessing), now.UTC(), limit}
 }
 
 // buildClaim renders the UPDATE that leases the selected rows.
@@ -210,24 +222,30 @@ func (t *tables) buildSelectClaimable(d dialect.Dialect, now time.Time, limit in
 // The attempt count is incremented here rather than on failure: a worker that
 // crashes mid-fulfillment has still consumed an attempt, so a request whose
 // collector reliably kills the process eventually fails rather than being
-// reclaimed forever. The status guard is repeated even though the rows were
-// just selected as pending, because between the SELECT and this UPDATE a
-// subject may have cancelled.
-func (t *tables) buildClaim(d dialect.Dialect, ids []string, claimedUntil time.Time) (query string, args []any) {
-	args = make([]any, 0, len(ids)+3)
+// reclaimed forever.
+//
+// The guard is repeated even though the rows were just selected, because between
+// the SELECT and this UPDATE a subject may have cancelled, or another worker may
+// have claimed the same expired lease. It admits both statuses the selection
+// admits, and for the reclaim case requires the lease to still be expired — so
+// of two workers racing on the same abandoned row, exactly one wins.
+func (t *tables) buildClaim(d dialect.Dialect, ids []string, now, claimedUntil time.Time) (query string, args []any) {
+	args = make([]any, 0, len(ids)+5)
 	args = append(args, string(StatusProcessing), claimedUntil.UTC())
 
 	for _, id := range ids {
 		args = append(args, id)
 	}
 
-	args = append(args, string(StatusPending))
+	args = append(args, string(StatusPending), string(StatusProcessing), now.UTC())
 
 	return fmt.Sprintf(
 		"UPDATE %s SET status = %s, claimed_until = %s, attempts = attempts + 1 "+
-			"WHERE id IN (%s) AND status = %s",
+			"WHERE id IN (%s) "+
+			"AND (status = %s OR (status = %s AND claimed_until IS NOT NULL AND claimed_until <= %s))",
 		t.requests, d.Placeholder(1), d.Placeholder(2),
-		d.Placeholders(3, len(ids)), d.Placeholder(len(args)),
+		d.Placeholders(3, len(ids)),
+		d.Placeholder(len(args)-2), d.Placeholder(len(args)-1), d.Placeholder(len(args)),
 	), args
 }
 
