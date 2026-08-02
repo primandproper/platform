@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	mockencoding "github.com/primandproper/platform-go/v9/encoding/mock"
+	encodingmock "github.com/primandproper/platform-go/v9/encoding/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/random"
 
@@ -111,7 +111,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		must.NoError(t, err)
 		eventPayload := pm.encoderDecoder.MustEncode(ctx, event)
 
-		encoderDecoder := &mockencoding.ServerEncoderDecoderMock{
+		encoderDecoder := &encodingmock.ServerEncoderDecoderMock{
 			DecodeBytesFunc: func(_ context.Context, _ []byte, _ any) error {
 				return nil
 			},
@@ -220,7 +220,7 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		must.NoError(t, err)
 		eventPayload := pm.encoderDecoder.MustEncode(ctx, event)
 
-		encoderDecoder := &mockencoding.ServerEncoderDecoderMock{
+		encoderDecoder := &encodingmock.ServerEncoderDecoderMock{
 			DecodeBytesFunc: func(_ context.Context, _ []byte, _ any) error {
 				return fmt.Errorf("decode error")
 			},

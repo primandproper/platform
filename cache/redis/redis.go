@@ -67,6 +67,7 @@ type redisClient interface {
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Eval(ctx context.Context, script string, keys []string, args ...any) *redis.Cmd
 	Ping(ctx context.Context) *redis.StatusCmd
+	Close() error
 }
 
 type redisCacheImpl[T any] struct {
@@ -96,7 +97,7 @@ type redisCacheImpl[T any] struct {
 // Flush and an empty-prefix DeleteByPrefix return cache.ErrNamespaceRequired
 // rather than guess at ownership in a possibly shared database.
 func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreaking.CircuitBreaker, opts ...Option) (cache.Cache[T], error) {
-	if cfg == nil || len(cfg.QueueAddresses) == 0 {
+	if cfg == nil || len(cfg.Addresses) == 0 {
 		return nil, fmt.Errorf("at least one redis address is required")
 	}
 
@@ -188,8 +189,7 @@ func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
 	defer op.End()
 
 	if i.circuitBreaker.CannotProceed() {
-		i.cacheMissCounter.Add(ctx, 1)
-		return nil, cache.ErrNotFound
+		return nil, cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -234,7 +234,7 @@ func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts 
 	defer op.End()
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -265,7 +265,7 @@ func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
 	defer op.End()
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -297,7 +297,7 @@ func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error
 	}
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -343,7 +343,7 @@ func (i *redisCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) e
 	}
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -448,8 +448,7 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 	}
 
 	if i.circuitBreaker.CannotProceed() {
-		i.cacheMissCounter.Add(ctx, int64(len(keys)))
-		return out, nil
+		return nil, cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -517,7 +516,7 @@ func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, op
 	}
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -637,16 +636,16 @@ func buildRedisClient(cfg *Config) redisClient {
 	var c redisClient
 	if cfg.clusterMode() {
 		c = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:        cfg.QueueAddresses,
+			Addrs:        cfg.Addresses,
 			Username:     cfg.Username,
 			Password:     cfg.Password,
 			DialTimeout:  1 * time.Second,
 			ReadTimeout:  1 * time.Second,
 			WriteTimeout: 1 * time.Second,
 		})
-	} else if len(cfg.QueueAddresses) == 1 {
+	} else if len(cfg.Addresses) == 1 {
 		c = redis.NewClient(&redis.Options{
-			Addr:         cfg.QueueAddresses[0],
+			Addr:         cfg.Addresses[0],
 			Username:     cfg.Username,
 			Password:     cfg.Password,
 			DialTimeout:  1 * time.Second,
@@ -656,4 +655,16 @@ func buildRedisClient(cfg *Config) redisClient {
 	}
 
 	return c
+}
+
+// Close releases the connection pool. It does not evict anything: the entries
+// live in redis and outlive any one client.
+//
+// It is safe to call more than once — go-redis's Close is idempotent.
+func (c *redisCacheImpl[T]) Close() error {
+	if c.client == nil {
+		return nil
+	}
+
+	return c.client.Close()
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"sync"
 
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -37,7 +38,7 @@ type (
 // sendErr delivers err on errs without wedging: it also selects on ctx so a
 // consumer whose error channel is no longer being drained still unblocks when the
 // context is canceled during shutdown.
-func (r *redisConsumer) sendErr(ctx context.Context, errs chan error, err error) {
+func (r *redisConsumer) sendErr(ctx context.Context, errs chan<- error, err error) {
 	if errs == nil {
 		return
 	}
@@ -86,11 +87,7 @@ func provideRedisConsumer(ctx context.Context, logger logging.Logger, tracerProv
 
 // Consume reads messages and applies the handler to their payloads.
 // Writes errors to the error chan if it isn't nil.
-func (r *redisConsumer) Consume(ctx context.Context, stopChan chan bool, errs chan error) {
-	if stopChan == nil {
-		stopChan = make(chan bool, 1)
-	}
-
+func (r *redisConsumer) Consume(ctx context.Context, errs chan<- error) {
 	// Closing the subscription on exit unsubscribes from the topic and releases the
 	// server-side subscription rather than leaking it.
 	defer func() {
@@ -119,8 +116,6 @@ func (r *redisConsumer) Consume(ctx context.Context, stopChan chan bool, errs ch
 				r.sendErr(msgCtx, errs, err)
 			}
 			op.End()
-		case <-stopChan:
-			return
 		}
 	}
 }
@@ -185,11 +180,12 @@ func (p *consumerProvider) NewConsumer(ctx context.Context, topic string, handle
 	}
 
 	p.consumerCacheMu.RLock()
-	if cachedPub, ok := p.consumerCache[topic]; ok {
-		p.consumerCacheMu.RUnlock()
-		return cachedPub, nil
-	}
+	_, exists := p.consumerCache[topic]
 	p.consumerCacheMu.RUnlock()
+
+	if exists {
+		return nil, platformerrors.Wrapf(messagequeue.ErrConsumerAlreadyRegistered, "topic %q", topic)
+	}
 
 	// Build the consumer outside the cache lock — provideRedisConsumer now
 	// does a network RTT waiting for SUBSCRIBE confirmation, and we don't
@@ -203,11 +199,12 @@ func (p *consumerProvider) NewConsumer(ctx context.Context, topic string, handle
 	defer p.consumerCacheMu.Unlock()
 	// Re-check in case a concurrent caller beat us to it. If so, close the
 	// subscription we just opened so the losing racer's live subscription doesn't leak.
-	if cachedPub, ok := p.consumerCache[topic]; ok {
+	if _, ok := p.consumerCache[topic]; ok {
 		if err = c.subscription.Close(); err != nil {
 			logger.Error("closing redundant redis subscription", err)
 		}
-		return cachedPub, nil
+
+		return nil, platformerrors.Wrapf(messagequeue.ErrConsumerAlreadyRegistered, "topic %q", topic)
 	}
 	p.consumerCache[topic] = c
 

@@ -95,15 +95,11 @@ func (*openaiProvider) Name() string {
 }
 
 // Capabilities implements llm.Provider.
-//
-// PDFs is false: the OpenAI chat completions surface any-llm-go targets takes
-// images but not documents.
 func (*openaiProvider) Capabilities() llm.Capabilities {
 	return llm.Capabilities{
 		Streaming:        true,
 		Tools:            true,
 		Images:           true,
-		PDFs:             false,
 		Reasoning:        true,
 		StructuredOutput: true,
 	}

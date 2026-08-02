@@ -1,4 +1,4 @@
-package config
+package encryptioncfg
 
 import (
 	"testing"
@@ -19,6 +19,7 @@ func TestRegisterEncryptorDecryptor(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, &Config{Provider: ProviderAES})
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, loggingnoop.NewLogger())

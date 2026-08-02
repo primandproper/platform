@@ -42,7 +42,9 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 		test.MapLen(t, 1, reporter.reporters)
 	})
 
-	T.Run("with invalid source falls back to noop", func(t *testing.T) {
+	// Substituting a noop lasted the whole process lifetime, so every event for
+	// that source was dropped until someone redeployed.
+	T.Run("with an invalid source", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -54,9 +56,8 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 		}
 
 		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources)
-		must.NoError(t, err)
-		must.NotNil(t, reporter)
-		test.MapLen(t, 1, reporter.reporters)
+		test.Error(t, err)
+		test.Nil(t, reporter)
 	})
 
 	T.Run("with unrecognized provider uses noop", func(t *testing.T) {

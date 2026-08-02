@@ -100,7 +100,13 @@ func elasticsearchIsReadyToInit(
 
 	c, err := provideElasticsearchClient(cfg)
 	if err != nil {
-		logger.WithValue("attempt_count", attemptCount).Debug("client setup failed, waiting for elasticsearch")
+		// Returning rather than falling through: the loop below calls Do() on the
+		// client, and a failed construction leaves it nil, so the very next line
+		// panicked. A client that cannot be built will not build on the next tick
+		// either — the config is wrong, and no amount of waiting fixes it.
+		logger.WithValue("attempt_count", attemptCount).Error("client setup failed, cannot probe elasticsearch", err)
+
+		return false
 	}
 
 	for {

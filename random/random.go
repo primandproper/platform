@@ -7,15 +7,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"io"
-	"log"
 
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
-)
-
-const (
-	arbitrarySize uint16 = 128
 )
 
 var (
@@ -23,12 +18,6 @@ var (
 
 	defaultGenerator = NewGenerator()
 )
-
-func init() {
-	if _, err := rand.Read(make([]byte, arbitrarySize)); err != nil {
-		log.Fatalf("crypto/rand is unavailable: %v", err)
-	}
-}
 
 type (
 	// Generator should generate random strings securely.
@@ -115,7 +104,7 @@ func (g *standardGenerator) GenerateRawBytes(ctx context.Context, length int) ([
 	return g.generateSecret(op.Span(), length)
 }
 
-// GenerateHexEncodedString generates a base64-encoded string of a securely random byte array of a given length.
+// GenerateHexEncodedString generates a hex-encoded string of a securely random byte array of a given length.
 func (g *standardGenerator) GenerateHexEncodedString(ctx context.Context, length int) (string, error) {
 	_, op := g.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, length))
 	defer op.End()
@@ -128,7 +117,7 @@ func (g *standardGenerator) GenerateHexEncodedString(ctx context.Context, length
 	return hex.EncodeToString(b), nil
 }
 
-// GenerateBase32EncodedString generates a base64-encoded string of a securely random byte array of a given length.
+// GenerateBase32EncodedString generates a base32-encoded string of a securely random byte array of a given length.
 func (g *standardGenerator) GenerateBase32EncodedString(ctx context.Context, length int) (string, error) {
 	_, op := g.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, length))
 	defer op.End()

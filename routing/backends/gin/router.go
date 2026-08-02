@@ -13,6 +13,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/logging"
@@ -40,6 +41,7 @@ type backend struct {
 	standard []func(http.Handler) http.Handler
 	user     []func(http.Handler) http.Handler
 	once     sync.Once
+	sealed   atomic.Bool
 }
 
 // NewBackend constructs a gin-backed routing.Backend with the standard
@@ -49,6 +51,14 @@ type backend struct {
 // debug-mode route logging; the platform logging middleware provides request
 // logs instead.
 func NewBackend(cfg *Config, opts ...Option) routing.Backend {
+	// A nil config is the zero config, not a panic. The config subpackage
+	// dispatches on Provider and hands whichever sub-config happens to be set —
+	// which is nil unless the deployment filled that provider's section in, so
+	// every backend here got one on a perfectly ordinary configuration.
+	if cfg == nil {
+		cfg = &Config{}
+	}
+
 	gin.SetMode(gin.ReleaseMode)
 
 	o := newOptions(opts)
@@ -71,7 +81,18 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 
 // Use installs global middleware, applied to every route. It may be called at
 // any time before Handler.
+// Use appends middleware to the chain.
+//
+// It must be called before Handler(). The chain is composed once, on the first
+// Handler() call, so middleware added afterwards was silently dropped — the
+// server ran without the authentication or rate limiting the caller believed it
+// had registered. That is now a panic: a middleware that does not run is not a
+// condition a process should serve traffic in.
 func (b *backend) Use(middleware ...routing.Middleware) {
+	if b.sealed.Load() {
+		panic("routing: Use called after Handler; middleware must be registered before the handler is built")
+	}
+
 	b.user = append(b.user, httpmw.Convert(middleware...)...)
 }
 
@@ -102,6 +123,8 @@ func (b *backend) PathValue(req *http.Request, name string) string {
 // Handler returns the composed http.Handler: the standard middleware stack and
 // any user middleware wrapped around the gin engine.
 func (b *backend) Handler() http.Handler {
+	b.sealed.Store(true)
+
 	b.once.Do(func() {
 		all := make([]func(http.Handler) http.Handler, 0, len(b.standard)+len(b.user))
 		all = append(all, b.standard...)

@@ -1,7 +1,5 @@
-// Package randommock provides mock implementations of the random package's
-// interfaces. Both the hand-written testify-based Generator and the
-// moq-generated GeneratorMock live here during the testify → moq migration.
-// New test code should prefer GeneratorMock.
+// Package randommock provides moq-generated mock implementations of the random
+// package's interfaces.
 package randommock
 
 // Regenerate the moq mocks via `go generate ./random/mock/`.

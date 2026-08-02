@@ -1,4 +1,4 @@
-package config
+package capitalismcfg
 
 import (
 	"context"
@@ -22,7 +22,7 @@ const (
 type (
 	// Config allows for the configuration of this package and its subpackages.
 	Config struct {
-		Stripe   *stripe.Config `env:"init"     envPrefix:"STRIPE_" json:"stripe"   yaml:"stripe"`
+		Stripe   *stripe.Config `env:",init"    envPrefix:"STRIPE_" json:"stripe"   yaml:"stripe"`
 		Provider string         `env:"PROVIDER" json:"provider"     yaml:"provider"`
 		Enabled  bool           `env:"ENABLED"  json:"enabled"      yaml:"enabled"`
 	}
@@ -45,7 +45,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewCapitalismImplementation provides a capitalism.PaymentManager implementation based on the
 // config. stripeEventHandler is optional (may be nil) and, for the Stripe provider, is invoked with
 // each verified webhook event.
-func NewCapitalismImplementation(logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config, stripeEventHandler stripe.EventHandler) (capitalism.PaymentManager, error) {
+func NewPaymentManager(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, stripeEventHandler stripe.EventHandler) (capitalism.PaymentManager, error) {
 	if !cfg.Enabled {
 		return noop.NewPaymentManager(), nil
 	}
@@ -63,7 +63,7 @@ func NewCapitalismImplementation(logger logging.Logger, tracerProvider tracing.T
 // A disabled config yields the noop reporter rather than an error, which is what
 // makes "meter everything, bill nothing" a supported deployment: metering keeps
 // counting durably and enforcing quotas, and nothing reaches a provider.
-func NewUsageReporterImplementation(logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config) (capitalism.UsageReporter, error) {
+func NewUsageReporter(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (capitalism.UsageReporter, error) {
 	if !cfg.Enabled {
 		return noop.NewUsageReporter(), nil
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/embeddings"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
@@ -23,6 +24,7 @@ func TestRegisterEmbedder(T *testing.T) {
 		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
+		do.ProvideValue(i, metricsnoop.NewMetricsProvider())
 		do.ProvideValue(i, &Config{})
 
 		RegisterEmbedder(i)

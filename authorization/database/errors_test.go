@@ -9,7 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -512,13 +512,13 @@ func TestNewResolver_MetricsFailure(T *testing.T) {
 			must.NoError(t, err)
 			t.Cleanup(func() { _ = db.Close() })
 
-			mp := &mockmetrics.ProviderMock{
+			mp := &metricsmock.ProviderMock{
 				NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 					if name == failOn {
 						return nil, errBoom
 					}
 
-					return &mockmetrics.Int64CounterMock{}, nil
+					return &metricsmock.Int64CounterMock{}, nil
 				},
 			}
 

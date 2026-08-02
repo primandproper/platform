@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	encryptioncfg "github.com/primandproper/platform-go/v9/cryptography/encryption/config"
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/mysql"
 	"github.com/primandproper/platform-go/v9/database/postgres"
@@ -38,20 +37,18 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		Encryption               encryptioncfg.Config `env:"init"                        envPrefix:"ENCRYPTION_"         json:"encryption"               yaml:"encryption"`
-		OAuth2TokenEncryptionKey string               `env:"OAUTH2_TOKEN_ENCRYPTION_KEY" json:"oauth2TokenEncryptionKey" yaml:"oauth2TokenEncryptionKey"`
-		Provider                 string               `env:"PROVIDER"                    envDefault:"postgres"           json:"provider"                 yaml:"provider"`
-		ReadConnection           ConnectionDetails    `envPrefix:"READ_CONNECTION_"      json:"readConnection"           yaml:"readConnection"`
-		WriteConnection          ConnectionDetails    `envPrefix:"WRITE_CONNECTION_"     json:"writeConnection"          yaml:"writeConnection"`
-		PingWaitPeriod           time.Duration        `env:"PING_WAIT_PERIOD"            envDefault:"1s"                 json:"pingWaitPeriod"           yaml:"pingWaitPeriod"`
-		MaxPingAttempts          uint64               `env:"MAX_PING_ATTEMPTS"           json:"maxPingAttempts"          yaml:"maxPingAttempts"`
-		ConnMaxLifetime          time.Duration        `env:"CONN_MAX_LIFETIME"           envDefault:"30m"                json:"connMaxLifetime"          yaml:"connMaxLifetime"`
-		MaxIdleConns             uint16               `env:"MAX_IDLE_CONNS"              envDefault:"5"                  json:"maxIdleConns"             yaml:"maxIdleConns"`
-		MaxOpenConns             uint16               `env:"MAX_OPEN_CONNS"              envDefault:"7"                  json:"maxOpenConns"             yaml:"maxOpenConns"`
-		Debug                    bool                 `env:"DEBUG"                       json:"debug"                    yaml:"debug"`
-		LogQueries               bool                 `env:"LOG_QUERIES"                 json:"logQueries"               yaml:"logQueries"`
-		RunMigrations            bool                 `env:"RUN_MIGRATIONS"              json:"runMigrations"            yaml:"runMigrations"`
-		EnableDatabaseMetrics    bool                 `env:"ENABLE_DATABASE_METRICS"     json:"enableDatabaseMetrics"    yaml:"enableDatabaseMetrics"`
+		Provider              string            `env:"PROVIDER"                envDefault:"postgres"        json:"provider"              yaml:"provider"`
+		ReadConnection        ConnectionDetails `envPrefix:"READ_CONNECTION_"  json:"readConnection"        yaml:"readConnection"`
+		WriteConnection       ConnectionDetails `envPrefix:"WRITE_CONNECTION_" json:"writeConnection"       yaml:"writeConnection"`
+		PingWaitPeriod        time.Duration     `env:"PING_WAIT_PERIOD"        envDefault:"1s"              json:"pingWaitPeriod"        yaml:"pingWaitPeriod"`
+		MaxPingAttempts       uint64            `env:"MAX_PING_ATTEMPTS"       json:"maxPingAttempts"       yaml:"maxPingAttempts"`
+		ConnMaxLifetime       time.Duration     `env:"CONN_MAX_LIFETIME"       envDefault:"30m"             json:"connMaxLifetime"       yaml:"connMaxLifetime"`
+		MaxIdleConns          uint16            `env:"MAX_IDLE_CONNS"          envDefault:"5"               json:"maxIdleConns"          yaml:"maxIdleConns"`
+		MaxOpenConns          uint16            `env:"MAX_OPEN_CONNS"          envDefault:"7"               json:"maxOpenConns"          yaml:"maxOpenConns"`
+		Debug                 bool              `env:"DEBUG"                   json:"debug"                 yaml:"debug"`
+		LogQueries            bool              `env:"LOG_QUERIES"             json:"logQueries"            yaml:"logQueries"`
+		RunMigrations         bool              `env:"RUN_MIGRATIONS"          json:"runMigrations"         yaml:"runMigrations"`
+		EnableDatabaseMetrics bool              `env:"ENABLE_DATABASE_METRICS" json:"enableDatabaseMetrics" yaml:"enableDatabaseMetrics"`
 	}
 
 	ConnectionDetails struct {
@@ -350,11 +347,11 @@ func (x *ConnectionDetails) LoadFromURL(u string) error {
 // (e.g. db_sql_latency_milliseconds). DB metrics are off by default to avoid high cardinality.
 func NewDatabase(
 	ctx context.Context,
+	cfg *Config,
 	logger logging.Logger,
 	tracerProvider tracing.TracerProvider,
-	cfg *Config,
-	migrator database.Migrator,
 	metricsProvider metrics.Provider,
+	migrator database.Migrator,
 ) (client database.Client, err error) {
 	var dbMetricsProvider metrics.Provider
 	if cfg.EnableDatabaseMetrics && metricsProvider != nil {

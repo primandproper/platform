@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	stderrors "errors"
 
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 
@@ -58,6 +59,43 @@ func encodeErrorToDetails(ctx context.Context, err error) *anypb.Any {
 	}
 }
 
+// clientMessage returns the status message a client sees.
+//
+// It is derived from the gRPC code, not from err.Error(). A handler error's text
+// is the whole wrapped chain — table names, connection strings, the specific
+// permission that was missing — and this package's own sentinels are documented
+// as deliberately generic precisely because their message reaches clients
+// verbatim. Putting arbitrary internal text on that same channel contradicted
+// the stance the package states about itself.
+//
+// The full error still crosses the wire in the status *details*, encoded, which
+// is what DecodeErrorFromStatus reads to keep errors.Is working between
+// services. That detail is for trusted service-to-service callers; do not expose
+// an interceptor-wrapped server directly to untrusted clients without stripping
+// it at the edge.
+func clientMessage(code codes.Code, err error) string {
+	// Platform sentinels are written to be client-safe, so their own text is
+	// better than a generic string — it tells the caller what to do differently.
+	for _, sentinel := range clientSafeSentinels {
+		if stderrors.Is(err, sentinel) {
+			return sentinel.Error()
+		}
+	}
+
+	return code.String()
+}
+
+// clientSafeSentinels are the platform errors whose messages are documented as
+// safe to return verbatim.
+var clientSafeSentinels = []error{
+	platformerrors.ErrPermissionDenied,
+	platformerrors.ErrNilInputParameter,
+	platformerrors.ErrEmptyInputParameter,
+	platformerrors.ErrNilInputProvided,
+	platformerrors.ErrInvalidIDProvided,
+	platformerrors.ErrEmptyInputProvided,
+}
+
 // UnaryErrorEncodingInterceptor returns a unary interceptor that encodes handler
 // errors into gRPC status details for wire transmission.
 // Handlers should return errors (optionally wrapped); the interceptor will
@@ -75,9 +113,10 @@ func UnaryErrorEncodingInterceptor() grpc.UnaryServerInterceptor {
 		}
 
 		code := MapToGRPC(err, codes.Unknown)
-		msg := err.Error()
 
-		// If already a status.Error, preserve code and details.
+		// An error the handler already shaped as a status carries a message the
+		// handler chose to expose; anything else gets a code-derived one.
+		msg := clientMessage(code, err)
 		if st, ok := status.FromError(err); ok {
 			code = MapToGRPC(err, st.Code())
 			msg = st.Message()
@@ -108,8 +147,10 @@ func StreamErrorEncodingInterceptor() grpc.StreamServerInterceptor {
 		}
 
 		code := MapToGRPC(err, codes.Unknown)
-		msg := err.Error()
 
+		// An error the handler already shaped as a status carries a message the
+		// handler chose to expose; anything else gets a code-derived one.
+		msg := clientMessage(code, err)
 		if st, ok := status.FromError(err); ok {
 			code = MapToGRPC(err, st.Code())
 			msg = st.Message()

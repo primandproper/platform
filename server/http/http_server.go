@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	perrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
-	"github.com/primandproper/platform-go/v9/panicking"
 	"github.com/primandproper/platform-go/v9/routing"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -35,8 +35,12 @@ func skipNoisePaths(r *http.Request) bool {
 
 type (
 	Server interface {
-		Serve()
-		Shutdown(context.Context) error
+		// Serve binds the listener and serves until Shutdown is called or the
+		// context is done. A graceful close reports no error.
+		Serve(ctx context.Context) error
+		// Shutdown drains in-flight requests, then flushes and shuts down the
+		// tracer provider.
+		Shutdown(ctx context.Context) error
 		Router() *routing.Router
 	}
 
@@ -44,7 +48,6 @@ type (
 	server struct {
 		logger         logging.Logger
 		router         *routing.Router
-		panicker       panicking.Panicker
 		httpServer     *http.Server
 		tracerProvider tracing.TracerProvider
 		config         *Config
@@ -52,23 +55,32 @@ type (
 )
 
 // NewHTTPServer builds a new server instance.
-// serverSettings may be nil, which is treated as a zero-valued Config.
-// serviceName, when non-empty, is used for the server's logger; otherwise "api_server" is used.
+//
+// serverSettings may be nil, which is treated as a zero-valued Config. The
+// config is validated: a server that never binds because Port was unset should
+// fail here rather than at the first request that does not arrive.
+//
+// The service name comes from WithServiceName, not a positional argument, so it
+// sits with the other observability wiring — and matches the gRPC sibling.
 func NewHTTPServer(
+	ctx context.Context,
 	serverSettings *Config,
 	router *routing.Router,
-	serviceName string,
 	opts ...Option,
 ) (Server, error) {
 	if serverSettings == nil {
 		serverSettings = &Config{}
 	}
 
+	if err := serverSettings.ValidateWithContext(ctx); err != nil {
+		return nil, perrors.Wrap(err, "validating http server config")
+	}
+
 	o := newOptions(opts)
 
 	loggerName := defaultLoggerName
-	if serviceName != "" {
-		loggerName = serviceName
+	if o.serviceName != "" {
+		loggerName = o.serviceName
 	}
 	srv := &server{
 		config: serverSettings,
@@ -76,7 +88,6 @@ func NewHTTPServer(
 		// infra things,
 		router:         router,
 		logger:         logging.NewNamedLogger(o.logger, loggerName),
-		panicker:       panicking.NewProductionPanicker(),
 		httpServer:     provideStdLibHTTPServer(serverSettings),
 		tracerProvider: tracing.EnsureTracerProvider(o.tracerProvider),
 	}
@@ -111,57 +122,69 @@ func (s *server) Shutdown(ctx context.Context) error {
 		s.logger.Error("flushing traces", flushErr)
 	}
 
+	if shutdownErr := s.tracerProvider.Shutdown(ctx); shutdownErr != nil {
+		s.logger.Error("shutting down tracer provider", shutdownErr)
+	}
+
 	return err
 }
 
-// Serve serves HTTP traffic.
-func (s *server) Serve() {
+// Serve serves HTTP traffic until Shutdown is called or ctx is done.
+//
+// It returns the failure rather than panicking through a hard-wired panicker:
+// a library cannot decide that a bind failure should take the host process
+// down, and a caller that wants that can still do it from the returned error.
+// A graceful close reports nil.
+func (s *server) Serve(ctx context.Context) error {
 	s.logger.Debug("setting up server")
 
+	// The injected provider, not the OTel global: without WithTracerProvider,
+	// otelhttp reads the global, which this package never sets — so request
+	// tracing silently produced nothing while Shutdown dutifully flushed a
+	// provider that had seen none of it.
 	s.httpServer.Handler = otelhttp.NewHandler(
 		s.router.Handler(),
 		"http_server",
+		otelhttp.WithTracerProvider(s.tracerProvider),
 		otelhttp.WithSpanNameFormatter(tracing.FormatSpan),
 		otelhttp.WithFilter(skipNoisePaths),
 	)
 
 	http2ServerConf := &http2.Server{}
 	if err := http2.ConfigureServer(s.httpServer, http2ServerConf); err != nil {
-		s.logger.Error("configuring HTTP2", err)
-		s.panicker.Panic(err)
+		return perrors.Wrap(err, "configuring HTTP2")
 	}
 
 	// Bind the listener up front, bounded by StartupDeadline, so a slow or wedged
 	// bind fails fast rather than hanging indefinitely.
-	listener, err := s.listen()
+	listener, err := s.listen(ctx)
 	if err != nil {
-		s.logger.Error("binding listener", err)
-		s.panicker.Panic(err)
-		return
+		return perrors.Wrap(err, "binding listener")
 	}
 
 	if s.config.SSLCertificateFile != "" && s.config.SSLCertificateKeyFile != "" {
 		s.logger.WithValue("port", s.httpServer.Addr).Info("Listening for HTTPS requests")
 		// returns ErrServerClosed on graceful close.
 		if err = s.httpServer.ServeTLS(listener, s.config.SSLCertificateFile, s.config.SSLCertificateKeyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.logger.Error("serving HTTPS traffic", err)
-			s.panicker.Panic(err)
+			return perrors.Wrap(err, "serving HTTPS traffic")
 		}
-	} else {
-		s.logger.WithValue("port", s.httpServer.Addr).Info("Listening for HTTP requests")
-		// returns ErrServerClosed on graceful close.
-		if err = s.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.logger.Error("serving HTTP traffic", err)
-			s.panicker.Panic(err)
-		}
+
+		return nil
 	}
+
+	s.logger.WithValue("port", s.httpServer.Addr).Info("Listening for HTTP requests")
+	// returns ErrServerClosed on graceful close.
+	if err = s.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return perrors.Wrap(err, "serving HTTP traffic")
+	}
+
+	return nil
 }
 
 // listen binds the TCP listener the server serves on. When StartupDeadline is
 // configured it bounds the bind with that deadline, so binding cannot hang
 // indefinitely during startup.
-func (s *server) listen() (net.Listener, error) {
-	ctx := context.Background()
+func (s *server) listen(ctx context.Context) (net.Listener, error) {
 	if s.config.StartupDeadline > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, s.config.StartupDeadline)

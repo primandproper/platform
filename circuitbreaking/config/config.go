@@ -119,8 +119,7 @@ func (cfg *Config) NewCircuitBreaker(ctx context.Context, logger logging.Logger,
 	logger = logging.EnsureLogger(logger).WithValue("circuit_breaker", cfg.Name)
 
 	if err := cfg.ValidateWithContext(ctx); err != nil {
-		logger.Error("invalid config passed, providing noop circuit breaker", err)
-		return noop.NewCircuitBreaker(), nil
+		return nil, errors.Wrap(err, "validating circuit breaker config")
 	}
 
 	metricsProvider = metrics.EnsureMetricsProvider(metricsProvider)

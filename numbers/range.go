@@ -26,12 +26,6 @@ type (
 		Min *T `json:"min,omitempty"`
 		Max *T `json:"max,omitempty"`
 	}
-
-	// OpenRangeUpdateRequestInput represents an update request for an open range.
-	OpenRangeUpdateRequestInput[T Numeric] struct {
-		Min *T `json:"min,omitempty"`
-		Max *T `json:"max,omitempty"`
-	}
 )
 
 var _ validation.ValidatableWithContext = (*MinRange[int])(nil)

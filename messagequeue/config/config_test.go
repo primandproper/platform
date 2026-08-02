@@ -1,8 +1,9 @@
-package msgconfig
+package messagequeuecfg
 
 import (
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue/kafka"
 	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
 	"github.com/primandproper/platform-go/v9/messagequeue/sqs"
@@ -20,33 +21,6 @@ func Test_cleanString(T *testing.T) {
 		t.Parallel()
 
 		test.NotEq(t, "", cleanString(t.Name()))
-	})
-}
-
-func TestQueuesConfig_ValidateWithContext(T *testing.T) {
-	T.Parallel()
-
-	T.Run("valid", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &QueuesConfig{
-			DataChangesTopicName:              "data-changes",
-			OutboundEmailsTopicName:           "outbound-emails",
-			SearchIndexRequestsTopicName:      "search-index-requests",
-			MobileNotificationsTopicName:      "mobile-notifications",
-			UserDataAggregationTopicName:      "user-data-aggregation",
-			WebhookExecutionRequestsTopicName: "webhook-execution-requests",
-		}
-
-		test.NoError(t, cfg.ValidateWithContext(t.Context()))
-	})
-
-	T.Run("missing fields", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &QueuesConfig{}
-
-		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 }
 
@@ -120,12 +94,23 @@ func TestNewConsumerProvider(T *testing.T) {
 		test.Error(t, err)
 	})
 
-	T.Run("with unknown provider falls back to noop", func(t *testing.T) {
+	T.Run("with the noop provider", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Consumer: MessageQueueConfig{Provider: ProviderNoop}}
+		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		test.NoError(t, err)
+		test.NotNil(t, p)
+	})
+
+	// An unset or typo'd provider used to yield a noop consumer that read
+	// nothing, which is invisible until someone notices a queue growing.
+	T.Run("with unknown provider returns ErrUnknownProvider", func(t *testing.T) {
 		t.Parallel()
 
 		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, &Config{})
-		test.NoError(t, err)
-		test.NotNil(t, p)
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+		test.Nil(t, p)
 	})
 }
 
@@ -216,12 +201,23 @@ func TestNewPublisherProvider(T *testing.T) {
 		test.Error(t, err)
 	})
 
-	T.Run("with unknown provider falls back to noop", func(t *testing.T) {
+	T.Run("with the noop provider", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Publisher: MessageQueueConfig{Provider: ProviderNoop}}
+		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		test.NoError(t, err)
+		test.NotNil(t, p)
+	})
+
+	// An unset or typo'd provider used to yield a noop publisher that discarded
+	// every message it was handed.
+	T.Run("with unknown provider returns ErrUnknownProvider", func(t *testing.T) {
 		t.Parallel()
 
 		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, &Config{})
-		test.NoError(t, err)
-		test.NotNil(t, p)
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+		test.Nil(t, p)
 	})
 }
 

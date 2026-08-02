@@ -6,6 +6,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/analytics"
 	"github.com/primandproper/platform-go/v9/analytics/noop"
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 )
@@ -56,9 +57,13 @@ func (m *MultiSourceEventReporter) knownSources() []string {
 
 // Close flushes and closes every underlying reporter. Reporters shared across multiple sources
 // (e.g. PostHog sources with the same API key) are closed exactly once.
-func (m *MultiSourceEventReporter) Close() {
+func (m *MultiSourceEventReporter) Close(ctx context.Context) error {
+	// Every reporter is closed even if an earlier one fails, and the failures
+	// are joined: one source's flush failing is no reason to leak the rest.
+	var errs []error
+
 	seen := make(map[analytics.EventReporter]struct{}, len(m.reporters))
-	for _, r := range m.reporters {
+	for source, r := range m.reporters {
 		if r == nil {
 			continue
 		}
@@ -66,13 +71,19 @@ func (m *MultiSourceEventReporter) Close() {
 			continue
 		}
 		seen[r] = struct{}{}
-		r.Close()
+
+		if err := r.Close(ctx); err != nil {
+			errs = append(errs, errors.Wrapf(err, "closing reporter for source %q", source))
+		}
 	}
+
+	return errors.Join(errs...)
 }
 
-// Shutdown implements do.Shutdowner so the DI container flushes buffered events on shutdown.
-func (m *MultiSourceEventReporter) Shutdown() {
-	m.Close()
+// Shutdown implements do.Shutdowner so the DI container flushes buffered events
+// on shutdown, and reports a failed final flush rather than swallowing it.
+func (m *MultiSourceEventReporter) Shutdown(ctx context.Context) error {
+	return m.Close(ctx)
 }
 
 // withSourceProperty returns a copy of properties with the source property set.

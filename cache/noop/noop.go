@@ -60,3 +60,8 @@ func (*Cache[T]) Flush(context.Context) error {
 func (*Cache[T]) Ping(context.Context) error {
 	return nil
 }
+
+// Close satisfies the interface and releases nothing.
+func (c *Cache[T]) Close() error {
+	return nil
+}

@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/primandproper/platform-go/v9/authorization"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 )
 
@@ -101,20 +102,37 @@ func (r *Resolver) permissionsForRoles(roles ...string) *authorization.Permissio
 		return authorization.NewPermissionSet()
 	}
 
-	key := memoKey(roles)
-	if got, ok := r.memo.Load(key); ok {
-		if set, isSet := got.(*authorization.PermissionSet); isSet {
-			return set
-		}
-	}
-
 	// Unknown roles contribute nothing rather than erroring, so a principal
 	// still assigned a role the policy has since dropped loses that authority
 	// instead of losing the ability to make requests.
+	//
+	// They are also filtered out *before* the memo key is built. The role names
+	// come from the caller — in most deployments, from a token an attacker can
+	// influence — and the memo is unbounded and lives for the process's lifetime,
+	// so keying on the raw list is a memory-growth primitive: request N distinct
+	// junk role names, get N permanent entries. Filtering first bounds the key
+	// space by the policy's own role set.
+	known := make([]string, 0, len(roles))
 	sets := make([]*authorization.PermissionSet, 0, len(roles))
+
 	for _, name := range roles {
 		if set, ok := r.expanded[name]; ok {
+			known = append(known, name)
 			sets = append(sets, set)
+		}
+	}
+
+	key, err := memoKey(known)
+	if err != nil {
+		// A NUL in a role name would make two different role lists collide on one
+		// key — and a collision here hands one principal another's permissions.
+		// Refuse to memoize rather than answer from a poisoned entry.
+		return authorization.NewPermissionSet().Union(sets...)
+	}
+
+	if got, ok := r.memo.Load(key); ok {
+		if set, isSet := got.(*authorization.PermissionSet); isSet {
+			return set
 		}
 	}
 
@@ -142,9 +160,21 @@ func (r *Resolver) Roles(context.Context) ([]authorization.Role, error) {
 // memoKey builds a stable key for a set of role names. It sorts a copy so that
 // the same roles in a different order hit the same entry, and joins on NUL
 // because a role name cannot usefully contain one.
-func memoKey(roles []string) string {
+// memoKey builds the cache key for a set of role names.
+//
+// NUL is the separator because it cannot appear in any sane role name — but
+// "cannot" has to be checked rather than assumed, since a name containing one
+// would let {"a\x00b"} and {"a", "b"} produce the same key, and a collision here
+// grants one principal another's permissions.
+func memoKey(roles []string) (string, error) {
 	sorted := slices.Clone(roles)
 	slices.Sort(sorted)
 
-	return strings.Join(sorted, "\x00")
+	for _, name := range sorted {
+		if strings.ContainsRune(name, 0) {
+			return "", platformerrors.Newf("role name %q contains a NUL byte", name)
+		}
+	}
+
+	return strings.Join(sorted, "\x00"), nil
 }

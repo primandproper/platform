@@ -14,18 +14,29 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
 )
 
 const (
 	defaultBaseURL = "http://localhost:11434"
 	defaultModel   = "nomic-embed-text"
-	providerName   = "ollama"
+	// name scopes this package's spans, logs, and metrics. It is qualified with
+	// the component so that a vendor instrumented by more than one platform
+	// package does not end up sharing an instrumentation scope.
+	name = "ollama_embeddings"
+	// providerName is what the Provider field of a returned Embedding reports:
+	// the vendor rather than the component, since it is stored alongside the
+	// vector and read back to reason about the model.
+	providerName = "ollama"
 )
 
 type embedder struct {
-	o11y   observability.Observer
-	client *http.Client
-	cfg    *Config
+	o11y           observability.Observer
+	client         *http.Client
+	cfg            *Config
+	requestCounter metrics.Int64Counter
+	errorCounter   metrics.Int64Counter
+	latencyHist    metrics.Float64Histogram
 }
 
 // NewEmbedder creates a new Ollama-backed embeddings provider.
@@ -51,49 +62,101 @@ func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (embeddings.E
 	}
 	client := &http.Client{Timeout: timeout}
 
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
+
+	requestCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_requests", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating request counter")
+	}
+
+	errorCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_errors", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating error counter")
+	}
+
+	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating latency histogram")
+	}
+
 	return &embedder{
-		o11y:   observability.NewObserver(providerName, logger, o.tracerProvider),
-		client: client,
-		cfg:    cfg,
+		o11y:           observability.NewObserver(name, logger, o.tracerProvider),
+		client:         client,
+		cfg:            cfg,
+		requestCounter: requestCounter,
+		errorCounter:   errorCounter,
+		latencyHist:    latencyHist,
 	}, nil
 }
 
 type embeddingRequest struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
+	Model string   `json:"model"`
+	Input []string `json:"input"`
 }
 
 type embeddingResponse struct {
 	Embeddings [][]float64 `json:"embeddings"`
 }
 
-// GenerateEmbedding implements embeddings.Embedder.
+// GenerateEmbeddings implements embeddings.Embedder.
+//
+// Every input in a call must resolve to the same model, because Ollama embeds
+// one batch against one model; a batch spanning two models is rejected rather
+// than silently split, which would make the round-trip count depend on the
+// caller's ordering.
 //
 // Rate limiting: this method does not retry. A non-200 response (including 429 Too Many
 // Requests) is surfaced to the caller as an error carrying the status code; it is not
 // retried or backed off. Callers that want retry/backoff should wrap this call themselves
 // (e.g. with the platform's retry package).
-func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Input) (*embeddings.Embedding, error) {
+func (e *embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.Input) (_ []*embeddings.Embedding, err error) {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	if input == nil {
-		return nil, embeddings.ErrNilInput
+	if len(inputs) == 0 {
+		return []*embeddings.Embedding{}, nil
 	}
 
-	model := input.Model
-	if model == "" {
-		model = e.cfg.DefaultModel
-	}
-	if model == "" {
-		model = defaultModel
+	// Instrumented here rather than in GenerateEmbedding, which delegates to
+	// this method — counting both would double every single-input call.
+	e.requestCounter.Add(ctx, 1)
+	startTime := time.Now()
+	defer func() {
+		e.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+		if err != nil {
+			e.errorCounter.Add(ctx, 1)
+		}
+	}()
+
+	texts := make([]string, len(inputs))
+	var model string
+	for i, input := range inputs {
+		if input == nil {
+			return nil, embeddings.ErrNilInput
+		}
+
+		texts[i] = input.Content
+
+		m := input.Model
+		if m == "" {
+			m = e.cfg.DefaultModel
+		}
+		if m == "" {
+			m = defaultModel
+		}
+
+		if i == 0 {
+			model = m
+		} else if m != model {
+			return nil, op.Error(errors.Newf("batch spans models %q and %q", model, m), "mixed models in one batch")
+		}
 	}
 
-	op.Set("embedding.model", model).Set(keys.LengthKey, len(input.Content))
+	op.Set("embedding.model", model).Set(keys.LengthKey, len(inputs))
 
 	reqBody := embeddingRequest{
 		Model: model,
-		Input: input.Content,
+		Input: texts,
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -132,23 +195,43 @@ func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Inpu
 		return nil, op.Error(err, "decoding ollama embedding response")
 	}
 
-	if len(embResp.Embeddings) == 0 {
-		err = errors.New("ollama embedding response contained no data")
-		return nil, op.Error(err, "empty response")
+	if len(embResp.Embeddings) != len(inputs) {
+		return nil, op.Error(
+			errors.Newf("ollama returned %d embeddings for %d inputs", len(embResp.Embeddings), len(inputs)),
+			"mismatched response length",
+		)
 	}
 
-	vector := toFloat32(embResp.Embeddings[0])
+	now := time.Now()
+	out := make([]*embeddings.Embedding, len(inputs))
+	for i, raw := range embResp.Embeddings {
+		vector := toFloat32(raw)
+		out[i] = &embeddings.Embedding{
+			Vector:      vector,
+			SourceText:  texts[i],
+			Model:       model,
+			Provider:    providerName,
+			Dimensions:  len(vector),
+			GeneratedAt: now,
+		}
+	}
 
-	op.Set("embedding.dimensions", len(vector))
+	op.Set("embedding.dimensions", out[0].Dimensions)
 
-	return &embeddings.Embedding{
-		Vector:      vector,
-		SourceText:  input.Content,
-		Model:       model,
-		Provider:    providerName,
-		Dimensions:  len(vector),
-		GeneratedAt: time.Now(),
-	}, nil
+	return out, nil
+}
+
+// GenerateEmbedding implements embeddings.Embedder by embedding one input.
+//
+// It is a thin wrapper over GenerateEmbeddings: Ollama's API takes an array,
+// so one input is simply a batch of one.
+func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Input) (*embeddings.Embedding, error) {
+	out, err := e.GenerateEmbeddings(ctx, []*embeddings.Input{input})
+	if err != nil {
+		return nil, err
+	}
+
+	return out[0], nil
 }
 
 func toFloat32(f64 []float64) []float32 {

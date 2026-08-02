@@ -30,10 +30,18 @@ type Tracer interface {
 	StartCustomSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, Span)
 }
 
-// TracerProvider is a simple alias for trace.TracerProvider.
+// TracerProvider is trace.TracerProvider plus the two lifecycle methods a
+// process needs at exit.
+//
+// ForceFlush drains what is buffered; Shutdown drains and then releases — it
+// stops the span processor's goroutine and closes the exporter's connection.
+// Flushing alone leaves both running, which is why Shutdown is part of the
+// interface rather than something callers type-assert for: an implementation
+// that cannot be shut down is one this package should not accept.
 type TracerProvider interface {
 	trace.TracerProvider
 	ForceFlush(context.Context) error
+	Shutdown(context.Context) error
 }
 
 type noopTracerProvider struct {
@@ -45,6 +53,10 @@ func (n *noopTracerProvider) Tracer(instrumentationName string, opts ...trace.Tr
 }
 
 func (n *noopTracerProvider) ForceFlush(context.Context) error {
+	return nil
+}
+
+func (n *noopTracerProvider) Shutdown(context.Context) error {
 	return nil
 }
 

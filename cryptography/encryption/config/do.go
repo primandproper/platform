@@ -1,6 +1,8 @@
-package config
+package encryptioncfg
 
 import (
+	"context"
+
 	"github.com/primandproper/platform-go/v9/cryptography/encryption"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
@@ -17,9 +19,10 @@ import (
 func RegisterEncryptorDecryptor(i do.Injector) {
 	do.Provide[encryption.EncryptorDecryptor](i, func(i do.Injector) (encryption.EncryptorDecryptor, error) {
 		return NewEncryptorDecryptor(
+			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[tracing.TracerProvider](i),
 			do.MustInvoke[logging.Logger](i),
+			do.MustInvoke[tracing.TracerProvider](i),
 			do.MustInvoke[encryption.MasterKey](i),
 		)
 	})

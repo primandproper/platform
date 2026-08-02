@@ -19,7 +19,6 @@ const (
 
 type Config struct {
 	Domain                string        `env:"DOMAIN"      json:"domain"                yaml:"domain"`
-	CookieName            string        `env:"COOKIE_NAME" json:"cookieName"            yaml:"cookieName"`
 	Base64EncodedHashKey  string        `env:"HASH_KEY"    json:"base64EncodedHashKey"  yaml:"base64EncodedHashKey"`
 	Base64EncodedBlockKey string        `env:"BLOCK_KEY"   json:"base64EncodedBlockKey" yaml:"base64EncodedBlockKey"`
 	SameSite              string        `env:"SAME_SITE"   json:"sameSite"              yaml:"sameSite"`
@@ -31,7 +30,6 @@ const minCookieLifetime = 5 * time.Minute
 
 func (c *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.CookieName, validation.Required),
 		validation.Field(&c.Base64EncodedHashKey, validation.Required),
 		validation.Field(&c.Base64EncodedBlockKey, validation.Required),
 		validation.Field(&c.Lifetime, validation.Min(minCookieLifetime)),

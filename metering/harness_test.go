@@ -431,3 +431,6 @@ func countRows(t *testing.T, env *storeEnv, table string) int {
 
 	return count
 }
+
+// Close satisfies cache.Cache.
+func (s *stubCache) Close() error { return nil }

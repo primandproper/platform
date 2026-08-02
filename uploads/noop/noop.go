@@ -65,3 +65,8 @@ func (*UploadManager) List(context.Context, string) iter.Seq2[uploads.ObjectInfo
 func (*UploadManager) SignedURL(context.Context, string, *uploads.SignedURLOptions) (string, error) {
 	return "", nil
 }
+
+// Close satisfies the interface and releases nothing.
+func (u *UploadManager) Close() error {
+	return nil
+}

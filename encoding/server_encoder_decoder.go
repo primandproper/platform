@@ -37,6 +37,7 @@ var (
 type (
 	// ServerEncoderDecoder is an interface that allows for multiple implementations of HTTP response formats.
 	ServerEncoderDecoder interface {
+		RespondWithData(ctx context.Context, res http.ResponseWriter, val any)
 		EncodeResponseWithStatus(ctx context.Context, res http.ResponseWriter, val any, statusCode int)
 		DecodeRequest(ctx context.Context, req *http.Request, dest any) error
 		DecodeBytes(ctx context.Context, payload []byte, dest any) error
@@ -77,7 +78,7 @@ func (t *tomlDecoder) Decode(v any) error {
 func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, dest any) error {
 	_, op := e.o11y.Begin(ctx,
 		observability.WithValue(keys.LengthKey, len(data)),
-		observability.WithValue("content_type", ContentTypeToString(e.contentType)),
+		observability.WithValue("content_type", e.contentType.String()),
 	)
 	defer op.End()
 
@@ -94,7 +95,8 @@ func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, des
 	default:
 		dec := json.NewDecoder(bytes.NewReader(data))
 
-		// if the below line is commented, it means you eat at weenie hut jr's.
+		// Unknown fields are rejected rather than ignored, so a typo'd or stale
+		// field in a payload surfaces as a decode error instead of a zero value.
 		dec.DisallowUnknownFields()
 
 		d = dec
@@ -127,12 +129,7 @@ func (e *serverEncoderDecoder) encodeResponse(ctx context.Context, res http.Resp
 
 	// choose the encoder from the configured content type, not the writer's pre-set header,
 	// so a configured encoder is honored even when the handler never sets a header.
-	header := ContentTypeToString(e.contentType)
-	if header == "" {
-		header = contentTypeJSON
-	}
-
-	res.Header().Set(ContentTypeHeaderKey, header)
+	res.Header().Set(ContentTypeHeaderKey, e.contentType.String())
 	res.WriteHeader(statusCode)
 
 	out, err := marshalFuncFor(e.contentType)(v)
@@ -166,7 +163,7 @@ func (e *serverEncoderDecoder) MustEncode(ctx context.Context, v any) []byte {
 
 	out, err := marshalFuncFor(e.contentType)(v)
 	if err != nil {
-		e.panicker.Panic(errors.Wrapf(err, "encoding %s content", ContentTypeToString(e.contentType)))
+		e.panicker.Panic(errors.Wrapf(err, "encoding %s content", e.contentType))
 	}
 
 	return out
@@ -194,7 +191,7 @@ func (e *serverEncoderDecoder) DecodeRequest(ctx context.Context, req *http.Requ
 	defer op.End()
 
 	var d decoder
-	switch contentTypeFromString(req.Header.Get(ContentTypeHeaderKey)) {
+	switch contentTypeFromRequestHeader(req.Header.Get(ContentTypeHeaderKey)) {
 	case ContentTypeXML:
 		d = xml.NewDecoder(req.Body)
 	case ContentTypeTOML:
@@ -206,7 +203,8 @@ func (e *serverEncoderDecoder) DecodeRequest(ctx context.Context, req *http.Requ
 	default:
 		dec := json.NewDecoder(req.Body)
 
-		// if the below line is commented, it means you eat at weenie hut jr's.
+		// Unknown fields are rejected rather than ignored, so a typo'd or stale
+		// field in a payload surfaces as a decode error instead of a zero value.
 		dec.DisallowUnknownFields()
 
 		d = dec

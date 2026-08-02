@@ -10,7 +10,8 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/shoenig/test"
@@ -68,11 +69,12 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 1)
 
 		cancel()
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 
 		// The reader (group membership + connections) must be closed on exit.
 		test.EqOp(t, 1, reader.closeCalls)
@@ -97,14 +99,14 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			handlerFunc:     func(context.Context, []byte) error { return nil },
 		}
 
-		stopChan := make(chan bool, 1)
 		done := make(chan struct{})
+		consumeCtx, stopConsuming := context.WithCancel(t.Context())
 		go func() {
-			c.Consume(t.Context(), stopChan, nil)
+			c.Consume(consumeCtx, nil)
 			close(done)
 		}()
 
-		stopChan <- true
+		stopConsuming()
 
 		select {
 		case <-done:
@@ -134,14 +136,16 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 1)
 
-		stopChan <- true
-		c.Consume(ctx, stopChan, errs)
+		// Already-cancelled: Consume must return promptly rather than block.
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		stopConsuming()
+
+		c.Consume(consumeCtx, errs)
 	})
 
-	T.Run("with nil stop channel", func(t *testing.T) {
+	T.Run("with a nil error channel", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -164,7 +168,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		errs := make(chan error, 1)
 
 		cancel()
-		c.Consume(ctx, nil, errs)
+		c.Consume(ctx, errs)
 	})
 
 	T.Run("with fetch error and context still alive", func(t *testing.T) {
@@ -194,10 +198,11 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 10)
 
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 
 		select {
 		case receivedErr := <-errs:
@@ -230,9 +235,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
-
-		c.Consume(ctx, stopChan, nil)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, nil)
 	})
 
 	T.Run("with successful message handling", func(t *testing.T) {
@@ -264,7 +269,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            obs,
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(_ context.Context, data []byte) error {
 				handlerCalled = true
 				test.Eq(t, []byte("test-message"), data)
@@ -273,10 +278,11 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 10)
 
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 		test.True(t, handlerCalled)
 		test.EqOp(t, 1, reader.commitCalls)
 
@@ -314,17 +320,18 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            obs,
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return handlerErr
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 10)
 
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 
 		receivedErr := <-errs
 		test.Error(t, receivedErr)
@@ -361,16 +368,16 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return errors.New("handler failed")
 			},
 		}
 
-		stopChan := make(chan bool, 1)
-
-		c.Consume(ctx, stopChan, nil)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, nil)
 	})
 
 	T.Run("does not commit past a failed message", func(t *testing.T) {
@@ -405,7 +412,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
 				handlerCalls++
 				return handlerErr
@@ -414,7 +421,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		errs := make(chan error, 1)
 
-		c.Consume(ctx, make(chan bool, 1), errs)
+		c.Consume(ctx, errs)
 
 		// The failed message must not have been committed, and the consumer must not
 		// have advanced to (and committed) the following message.
@@ -452,17 +459,18 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            obs,
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return nil
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 10)
 
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 		test.EqOp(t, 1, reader.commitCalls)
 
 		// The topic and payload length must still have been observed, and the
@@ -539,9 +547,9 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 
 		ctx := t.Context()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 			},
 		}
 
@@ -562,7 +570,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})
 
-	T.Run("with cache hit", func(t *testing.T) {
+	T.Run("rejects a second consumer for the same topic", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -581,10 +589,13 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		test.NoError(t, err)
 		test.NotNil(t, first)
 
+		// The second caller used to get the first caller's consumer, wired to the
+		// first caller's handler — so their own handler never saw a message, with
+		// nothing failing and nothing logged. Worse once a handler error has
+		// stopped that consumer's read loop: the cached instance is permanently
+		// dead and still handed out.
 		second, err := provider.NewConsumer(ctx, t.Name(), hf)
-		test.NoError(t, err)
-		test.NotNil(t, second)
-
-		test.True(t, first == second)
+		test.ErrorIs(t, err, messagequeue.ErrConsumerAlreadyRegistered)
+		test.Nil(t, second)
 	})
 }

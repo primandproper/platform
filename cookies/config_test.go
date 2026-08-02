@@ -14,7 +14,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			CookieName:            t.Name(),
 			Base64EncodedHashKey:  t.Name(),
 			Base64EncodedBlockKey: t.Name(),
 			Lifetime:              24 * time.Hour,
@@ -27,21 +26,9 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			CookieName:            t.Name(),
 			Base64EncodedHashKey:  t.Name(),
 			Base64EncodedBlockKey: t.Name(),
 			Lifetime:              1 * time.Minute,
-		}
-
-		test.Error(t, cfg.ValidateWithContext(t.Context()))
-	})
-
-	T.Run("with missing name", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &Config{
-			Base64EncodedHashKey:  t.Name(),
-			Base64EncodedBlockKey: t.Name(),
 		}
 
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
@@ -71,7 +58,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			CookieName:            t.Name(),
 			Base64EncodedHashKey:  t.Name(),
 			Base64EncodedBlockKey: t.Name(),
 			Lifetime:              24 * time.Hour,
@@ -85,7 +71,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			CookieName:            t.Name(),
 			Base64EncodedHashKey:  t.Name(),
 			Base64EncodedBlockKey: t.Name(),
 			Lifetime:              24 * time.Hour,
@@ -99,7 +84,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			CookieName:            t.Name(),
 			Base64EncodedHashKey:  t.Name(),
 			Base64EncodedBlockKey: t.Name(),
 			Lifetime:              24 * time.Hour,
@@ -113,7 +97,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			CookieName:            t.Name(),
 			Base64EncodedHashKey:  t.Name(),
 			Base64EncodedBlockKey: t.Name(),
 			Lifetime:              24 * time.Hour,

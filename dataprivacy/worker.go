@@ -24,6 +24,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/panicking"
 	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 	"github.com/primandproper/platform-go/v9/uploads"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -328,10 +329,16 @@ func (w *Worker) handle(ctx context.Context, req *Request) {
 	// Bounded so a collector that hangs cannot hold the lease past its expiry
 	// and let a second worker start the same request. The config validation
 	// enforces LeaseDuration > FulfillmentTimeout for exactly this reason.
-	ctx, cancel := context.WithTimeout(ctx, w.cfg.FulfillmentTimeout)
+	//
+	// The bounded context is deliberately not reused for the bookkeeping below:
+	// on a fulfillment timeout it is already done, so every write made through it
+	// — including the one recording the failure — is guaranteed to fail too. That
+	// left the request in StatusProcessing with nothing to move it, which is the
+	// wedge this separation exists to prevent.
+	fulfillCtx, cancel := context.WithTimeout(ctx, w.cfg.FulfillmentTimeout)
 	defer cancel()
 
-	err := w.fulfill(ctx, req)
+	err := w.fulfill(fulfillCtx, req)
 
 	w.fulfillHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), requestTypeAttr(req.Type))
 
@@ -787,7 +794,7 @@ func (w *Worker) record(ctx context.Context, q database.SQLQueryExecutor, req *R
 
 // backoffFor computes the delay before a request's next attempt.
 //
-// The schedule comes from retry.DelayFor, so this and anything using a
+// The schedule comes from retrycfg.DelayFor, so this and anything using a
 // retry.Policy grow their delays identically from the same Config. The wait is
 // persisted as a timestamp rather than slept through, so it survives a restart,
 // and the jitter is full rather than equal — several workers share this table,
@@ -798,7 +805,7 @@ func (w *Worker) backoffFor(attempts int) time.Duration {
 		attempts = 1
 	}
 
-	delay := float64(retry.DelayFor(w.cfg.Backoff, uint(attempts)))
+	delay := float64(retrycfg.DelayFor(w.cfg.Backoff, uint(attempts)))
 
 	if w.cfg.Backoff.UseJitter {
 		// Full jitter. Not security-sensitive: this only decorrelates retry

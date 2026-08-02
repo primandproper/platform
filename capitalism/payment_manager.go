@@ -3,7 +3,19 @@ package capitalism
 import (
 	"context"
 	"net/http"
+
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
+
+// ErrPaymentsDisabled is returned by the noop PaymentManager from every
+// operation that would otherwise move money or create provider-side state.
+//
+// It exists because the alternative — returning a zero value and a nil error —
+// hands the caller an empty customer or subscription ID that it will happily
+// persist, so the first sign of trouble is a customer record pointing at
+// nothing. A deployment that genuinely wants no billing gets that by not
+// calling these methods, not by having them lie.
+var ErrPaymentsDisabled = platformerrors.New("payments are disabled")
 
 type (
 	// PaymentManager handles payments via 3rd-party providers.

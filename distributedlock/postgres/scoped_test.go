@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	cbmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	"github.com/primandproper/platform-go/v9/identifiers"
@@ -141,7 +141,7 @@ func TestPostgresScopedLocker_WithLock_Unit(T *testing.T) {
 		t.Parallel()
 
 		client, _ := buildSqlmockClient(t)
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -160,7 +160,7 @@ func TestPostgresScopedLocker_WithLock_Unit(T *testing.T) {
 
 		client, mock := buildSqlmockClient(t)
 		var failed int
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() { failed++ },
 		}
@@ -267,7 +267,7 @@ func TestPostgresScopedLocker_TryWithLock_Unit(T *testing.T) {
 		t.Parallel()
 
 		client, _ := buildSqlmockClient(t)
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -287,7 +287,7 @@ func TestPostgresScopedLocker_TryWithLock_Unit(T *testing.T) {
 
 		client, mock := buildSqlmockClient(t)
 		var failed int
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() { failed++ },
 		}

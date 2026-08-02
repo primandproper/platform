@@ -2,6 +2,7 @@ package ssm
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 )
 
 const name = "ssm_secret_source"
@@ -107,6 +109,19 @@ func (s *ssmSecretSource) GetSecret(ctx context.Context, name string) (string, e
 	output, err := s.client.GetParameter(ctx, input)
 	if err != nil {
 		s.errorCounter.Add(ctx, 1)
+
+		// Mapped, not passed through: secrets.ErrSecretNotFound exists so a
+		// caller can tell "no such secret" from "could not reach the provider"
+		// without knowing which provider it got, and a raw ParameterNotFound
+		// breaks that contract the moment the deployment switches backends.
+		var notFound *ssmtypes.ParameterNotFound
+		if stderrors.As(err, &notFound) {
+			return "", op.Error(
+				errors.Join(secrets.ErrSecretNotFound, err),
+				"getting parameter %q", name,
+			)
+		}
+
 		return "", op.Error(err, "getting parameter %q", name)
 	}
 	if output.Parameter == nil {

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -44,7 +44,7 @@ type WorkerConfig struct {
 	UserAgent string `env:"USER_AGENT" json:"userAgent" yaml:"userAgent"`
 	// Backoff drives the retry schedule for failed deliveries. MaxAttempts is
 	// the threshold past which a dispatch is marked dead.
-	Backoff retry.Config `envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
 	// PollInterval is how often the worker looks for work.
 	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval" yaml:"pollInterval"`
 	// LeaseDuration is how long a claim is held before it can be reclaimed.

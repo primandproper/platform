@@ -11,7 +11,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
@@ -63,11 +63,12 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		obs := observability.NewRecordingObserver()
 		actual.o11y = obs
 
-		stopChan := make(chan bool, 1)
 		errorsChan := make(chan error, 1)
 		done := make(chan struct{})
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
 		go func() {
-			consumer.Consume(ctx, stopChan, errorsChan)
+			consumer.Consume(consumeCtx, errorsChan)
 			close(done)
 		}()
 
@@ -75,7 +76,7 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		must.NoError(t, publisher.Publish(ctx, []byte("blah")))
 
 		<-time.After(time.Second)
-		stopChan <- true
+		stopConsuming()
 		// Wait for Consume to return so its observations are visible here without
 		// racing the consume goroutine.
 		<-done
@@ -122,11 +123,12 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		obs := observability.NewRecordingObserver()
 		actual.o11y = obs
 
-		stopChan := make(chan bool, 1)
 		errorsChan := make(chan error, 1)
 		done := make(chan struct{})
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
 		go func() {
-			consumer.Consume(ctx, stopChan, errorsChan)
+			consumer.Consume(consumeCtx, errorsChan)
 			close(done)
 		}()
 
@@ -145,7 +147,8 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		// errorsChan before op.End(), so we must let the goroutine finish before
 		// asserting, both for End and to avoid racing its observations.
 		select {
-		case stopChan <- true:
+		default:
+			stopConsuming()
 		case <-time.After(time.Second):
 		}
 		<-done
@@ -191,7 +194,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		test.NotNil(t, actual)
 	})
 
-	T.Run("hitting cache", func(t *testing.T) {
+	T.Run("rejects a second consumer for the same topic", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -215,13 +218,12 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		test.NoError(t, err)
 		must.NotNil(t, first)
 
+		// The second caller used to get the first caller's consumer, wired to the
+		// first caller's handler — so their own handler never saw a message, with
+		// nothing failing and nothing logged.
 		second, err := conPro.NewConsumer(ctx, t.Name(), hf)
-		test.NoError(t, err)
-		must.NotNil(t, second)
-
-		// Second call for the same topic must return the exact same instance
-		// from the cache — no second SUBSCRIBE round-trip.
-		test.True(t, first == second)
+		test.ErrorIs(t, err, messagequeue.ErrConsumerAlreadyRegistered)
+		test.Nil(t, second)
 	})
 
 	T.Run("with empty topic", func(t *testing.T) {
@@ -246,7 +248,7 @@ func Test_provideRedisConsumer(T *testing.T) {
 	T.Run("returns error when NewInt64Counter fails", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricnoop.Int64Counter{}, errors.New("forced error")
 			},

@@ -8,7 +8,8 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	"github.com/primandproper/platform-go/v9/secrets"
 
@@ -69,10 +70,10 @@ func TestNewSSMSecretSource(T *testing.T) {
 	T.Run("with error creating lookup counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, name+"_lookups", counterName)
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -87,13 +88,13 @@ func TestNewSSMSecretSource(T *testing.T) {
 	T.Run("with error creating error counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case name + "_lookups":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case name + "_errors":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+					return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -115,9 +116,9 @@ func TestNewSSMSecretSource(T *testing.T) {
 		h, histErr := noopMP.NewFloat64Histogram("test")
 		must.NoError(t, histErr)
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), nil
+				return metricstest.Int64Counter(t, "x"), nil
 			},
 			NewFloat64HistogramFunc: func(histName string, _ ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 				test.EqOp(t, name+"_latency_ms", histName)

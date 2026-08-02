@@ -1,4 +1,4 @@
-package config
+package mobilecfg
 
 import (
 	"crypto/ecdsa"
@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/notifications/mobile"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
@@ -68,7 +69,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ""}
-		test.NoError(t, cfg.ValidateWithContext(ctx))
+		test.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("with apns_fcm provider and both nil", func(t *testing.T) {
@@ -124,15 +125,15 @@ func TestConfig_NewPushSender(T *testing.T) {
 	logger := loggingnoop.NewLogger()
 	tracer := tracingnoop.NewTracerProvider()
 
-	T.Run("with empty provider returns noop", func(t *testing.T) {
+	// A sender that reports success without sending is only noticed by the users
+	// who got no push, so it has to be asked for by name.
+	T.Run("with empty provider is an error", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := Config{Provider: ""}
 		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
-		must.NoError(t, err)
-		must.NotNil(t, sender)
-		// Noop returns nil on SendPush
-		test.NoError(t, sender.SendPush(ctx, "ios", "token", mobile.PushMessage{Title: "title", Body: "body"}))
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+		test.Nil(t, sender)
 	})
 
 	T.Run("with noop provider returns noop", func(t *testing.T) {
@@ -221,14 +222,13 @@ func TestConfig_NewPushSender(T *testing.T) {
 		test.Nil(t, sender)
 	})
 
-	T.Run("with unknown provider returns noop", func(t *testing.T) {
+	T.Run("with unknown provider is an error", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := Config{Provider: "unknown"}
 		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
-		must.NoError(t, err)
-		must.NotNil(t, sender)
-		test.NoError(t, sender.SendPush(ctx, "ios", "token", mobile.PushMessage{Title: "title", Body: "body"}))
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+		test.Nil(t, sender)
 	})
 
 	T.Run("with apns_fcm provider and valid FCM creds returns multi-platform sender", func(t *testing.T) {

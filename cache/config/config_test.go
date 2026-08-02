@@ -1,4 +1,4 @@
-package config
+package cachecfg
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -40,7 +40,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderRedis,
-			Redis:    &redis.Config{QueueAddresses: []string{"localhost:6379"}},
+			Redis:    &redis.Config{Addresses: []string{"localhost:6379"}},
 		}
 
 		test.NoError(t, cfg.ValidateWithContext(t.Context()))
@@ -80,7 +80,7 @@ func TestNewCache(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderRedis,
-			Redis:    &redis.Config{QueueAddresses: []string{"localhost:6379"}},
+			Redis:    &redis.Config{Addresses: []string{"localhost:6379"}},
 		}
 		cfg.CircuitBreaker.Name = "cache-breaker"
 
@@ -101,7 +101,7 @@ func TestNewCache(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderRedis,
-			Redis:    &redis.Config{QueueAddresses: []string{"localhost:6379", "localhost:6380"}},
+			Redis:    &redis.Config{Addresses: []string{"localhost:6379", "localhost:6380"}},
 		}
 		cfg.CircuitBreaker.Name = "cache-breaker-cluster"
 
@@ -122,7 +122,7 @@ func TestNewCache(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderRedis,
-			Redis:    &redis.Config{QueueAddresses: []string{"localhost:6379"}},
+			Redis:    &redis.Config{Addresses: []string{"localhost:6379"}},
 			CircuitBreaker: circuitbreakingcfg.Config{
 				Name:                   "redis-cache-breaker",
 				ErrorRate:              50,
@@ -130,7 +130,7 @@ func TestNewCache(T *testing.T) {
 			},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "redis-cache-breaker_circuit_breaker_tripped", name)
 				return nil, errors.New("counter init failure")

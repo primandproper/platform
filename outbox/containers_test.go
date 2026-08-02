@@ -73,7 +73,6 @@ func (e *dialectEnv) relay(t *testing.T, c *stubClock, table string) (*Relay, *r
 	t.Helper()
 
 	return newTestRelay(t, e.client, c, func(cfg *RelayConfig) {
-		cfg.Dialect = e.dialect
 		cfg.ClaimMode = e.claimMode
 		cfg.TablePrefix = table
 	})
@@ -431,7 +430,6 @@ func TestOutbox_MigratorIntegration_Containers(T *testing.T) {
 		must.NoError(t, err)
 
 		relay, rec := newTestRelay(t, client, c, func(cfg *RelayConfig) {
-			cfg.Dialect = d
 			cfg.ClaimMode = ClaimSkipLocked
 			cfg.TablePrefix = table
 		})

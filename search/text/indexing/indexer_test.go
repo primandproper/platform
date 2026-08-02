@@ -7,12 +7,11 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
-	mockpublishers "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	textsearch "github.com/primandproper/platform-go/v9/search/text"
 
 	"github.com/shoenig/test"
@@ -20,7 +19,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-var testQueuesConfig = &msgconfig.QueuesConfig{SearchIndexRequestsTopicName: "search_index_requests"}
+const testIndexTopic = "search_index_requests"
 
 func TestNewIndexScheduler(T *testing.T) {
 	T.Parallel()
@@ -31,10 +30,10 @@ func TestNewIndexScheduler(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -42,8 +41,8 @@ func TestNewIndexScheduler(T *testing.T) {
 		}
 
 		// Mock message queue provider
-		publisher := &mockpublishers.PublisherMock{}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		publisher := &messagequeuemock.PublisherMock{}
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
@@ -55,7 +54,7 @@ func TestNewIndexScheduler(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		test.NoError(t, err)
 		test.NotNil(t, scheduler)
 		test.Eq(t, []string{"test_type"}, scheduler.allIndexTypes)
@@ -63,7 +62,7 @@ func TestNewIndexScheduler(T *testing.T) {
 
 		test.SliceLen(t, 1, metricsProvider.NewInt64CounterCalls())
 		test.SliceLen(t, 1, messageQueueProvider.NewPublisherCalls())
-		test.EqOp(t, testQueuesConfig.SearchIndexRequestsTopicName, messageQueueProvider.NewPublisherCalls()[0].Topic)
+		test.EqOp(t, testIndexTopic, messageQueueProvider.NewPublisherCalls()[0].Topic)
 	})
 
 	T.Run("with nil index functions", func(t *testing.T) {
@@ -72,10 +71,10 @@ func TestNewIndexScheduler(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -83,14 +82,14 @@ func TestNewIndexScheduler(T *testing.T) {
 		}
 
 		// Mock message queue provider
-		publisher := &mockpublishers.PublisherMock{}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		publisher := &messagequeuemock.PublisherMock{}
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, nil, WithMetricsProvider(metricsProvider))
 		test.NoError(t, err)
 		test.NotNil(t, scheduler)
 		test.SliceEmpty(t, scheduler.allIndexTypes)
@@ -105,17 +104,17 @@ func TestNewIndexScheduler(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{}
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{}
 
 		// Mock metrics provider to return error - need to return a valid interface and error
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
-				return &mockmetrics.Int64CounterMock{}, errors.New("metrics error")
+				return &metricsmock.Int64CounterMock{}, errors.New("metrics error")
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, nil, WithMetricsProvider(metricsProvider))
 		test.Error(t, err)
 		test.Nil(t, scheduler)
 		test.StrContains(t, err.Error(), "metrics error")
@@ -130,10 +129,10 @@ func TestNewIndexScheduler(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -141,13 +140,13 @@ func TestNewIndexScheduler(T *testing.T) {
 		}
 
 		// Mock message queue provider to return error - need to return a valid interface and error
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
-				return &mockpublishers.PublisherMock{}, errors.New("message queue error")
+				return &messagequeuemock.PublisherMock{}, errors.New("message queue error")
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, nil, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, nil, WithMetricsProvider(metricsProvider))
 		test.Error(t, err)
 		test.Nil(t, scheduler)
 		test.StrContains(t, err.Error(), "message queue error")
@@ -166,10 +165,10 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -177,7 +176,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		}
 
 		// Mock message queue provider - all publishes succeed
-		publisher := &mockpublishers.PublisherMock{
+		publisher := &messagequeuemock.PublisherMock{
 			PublishFunc: func(_ context.Context, data any) error {
 				req, ok := data.(*textsearch.IndexRequest)
 				must.True(t, ok)
@@ -185,7 +184,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 				return nil
 			},
 		}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
@@ -198,7 +197,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		obs := observability.NewRecordingObserver()
@@ -226,10 +225,10 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -237,8 +236,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		}
 
 		// Mock message queue provider - no Publish calls expected
-		publisher := &mockpublishers.PublisherMock{}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		publisher := &messagequeuemock.PublisherMock{}
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
@@ -251,7 +250,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// No publisher calls expected for empty results
@@ -272,10 +271,10 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -283,8 +282,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		}
 
 		// Mock message queue provider - no Publish calls expected
-		publisher := &mockpublishers.PublisherMock{}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		publisher := &messagequeuemock.PublisherMock{}
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
@@ -297,7 +296,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// sql.ErrNoRows should be handled gracefully and return nil
@@ -313,10 +312,10 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -324,8 +323,8 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		}
 
 		// Mock message queue provider - no Publish calls expected
-		publisher := &mockpublishers.PublisherMock{}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		publisher := &messagequeuemock.PublisherMock{}
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
@@ -338,7 +337,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		obs := observability.NewRecordingObserver()
@@ -363,10 +362,10 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -374,15 +373,15 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		}
 
 		// Mock message queue provider - no Publish calls expected
-		publisher := &mockpublishers.PublisherMock{}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		publisher := &messagequeuemock.PublisherMock{}
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
 		}
 
 		// Create scheduler with empty index functions
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, map[string]Function{}, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, map[string]Function{}, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		// This should not happen in normal operation since random.Element would return empty string
@@ -402,10 +401,10 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -418,14 +417,14 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			"id2": errors.New("publish failed"),
 			"id3": nil,
 		}
-		publisher := &mockpublishers.PublisherMock{
+		publisher := &messagequeuemock.PublisherMock{
 			PublishFunc: func(_ context.Context, data any) error {
 				req, ok := data.(*textsearch.IndexRequest)
 				must.True(t, ok)
 				return publishResults[req.RowID]
 			},
 		}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
@@ -438,7 +437,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		err = scheduler.IndexTypes(ctx)
@@ -459,10 +458,10 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		ctx := t.Context()
 
 		// Mock metrics provider
-		int64Counter := &mockmetrics.Int64CounterMock{
+		int64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
-		metricsProvider := &mockmetrics.ProviderMock{
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
@@ -470,12 +469,12 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 		}
 
 		// Mock message queue provider - all publishes fail
-		publisher := &mockpublishers.PublisherMock{
+		publisher := &messagequeuemock.PublisherMock{
 			PublishFunc: func(_ context.Context, _ any) error {
 				return errors.New("publish failed")
 			},
 		}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},
@@ -488,7 +487,7 @@ func TestIndexScheduler_IndexTypes(T *testing.T) {
 			},
 		}
 
-		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testQueuesConfig, indexFunctions, WithMetricsProvider(metricsProvider))
+		scheduler, err := NewIndexScheduler(ctx, messageQueueProvider, testIndexTopic, indexFunctions, WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 
 		err = scheduler.IndexTypes(ctx)

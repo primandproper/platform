@@ -57,7 +57,7 @@ func TestStatements(T *testing.T) {
 
 		joined := strings.Join(stmts, "\n")
 
-		for _, suffix := range TableSuffixes {
+		for _, suffix := range []string{"endpoints", "subscriptions", "deliveries", "dispatches", "attempts"} {
 			test.True(t, strings.Contains(joined, "acme_hook_webhooks_"+suffix))
 		}
 	})

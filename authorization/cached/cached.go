@@ -209,7 +209,11 @@ func (r *Resolver) PermissionsForRoles(ctx context.Context, roles ...string) (*a
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(keys.AuthorizationRolesKey, roles))
 	defer op.End()
 
-	key := r.key(roles)
+	key, err := r.key(roles)
+	if err != nil {
+		return nil, op.Error(err, "building policy cache key")
+	}
+
 	// The key embeds the generation counter and every role name, which is
 	// useful when reading a fault log and noise on every span.
 	op.LogOnly("cache.key", key)
@@ -270,7 +274,12 @@ func (r *Resolver) Invalidate(ctx context.Context, roles ...string) error {
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(keys.AuthorizationRolesKey, roles))
 	defer op.End()
 
-	if err := r.cache.Delete(ctx, r.key(roles)); err != nil {
+	key, err := r.key(roles)
+	if err != nil {
+		return op.Error(err, "building policy cache key")
+	}
+
+	if err = r.cache.Delete(ctx, key); err != nil {
 		return op.Error(err, "invalidating cached policy resolution")
 	}
 
@@ -291,9 +300,20 @@ func (r *Resolver) InvalidateAll() {
 // key builds the cache key for a role set: format version, generation, then the
 // sorted role names. Sorting means the same roles in a different order share an
 // entry.
-func (r *Resolver) key(roles []string) string {
+//
+// NUL is the separator because it cannot appear in any sane role name — but a
+// name containing one would let {"a\x00b"} and {"a", "b"} produce the same key,
+// and a cache-entry collision here serves one principal another's permissions.
+// So it is checked rather than assumed, and a violating name is an error.
+func (r *Resolver) key(roles []string) (string, error) {
 	sorted := slices.Clone(roles)
 	slices.Sort(sorted)
+
+	for _, name := range sorted {
+		if strings.ContainsRune(name, 0) {
+			return "", platformerrors.Newf("role name %q contains a NUL byte", name)
+		}
+	}
 
 	var b strings.Builder
 	b.WriteString(keyFormatVersion)
@@ -302,5 +322,5 @@ func (r *Resolver) key(roles []string) string {
 	b.WriteByte(':')
 	b.WriteString(strings.Join(sorted, "\x00"))
 
-	return b.String()
+	return b.String(), nil
 }

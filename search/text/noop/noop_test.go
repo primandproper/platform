@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	textsearch "github.com/primandproper/platform-go/v9/search/text"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -15,10 +17,10 @@ func TestIndexManager_Search(T *testing.T) {
 		t.Parallel()
 
 		m := NewIndexManager[string]()
-		results, err := m.Search(context.Background(), "query")
+		results, err := m.Search(context.Background(), textsearch.SearchRequest{Query: "query"})
 
 		must.NoError(t, err)
-		test.SliceEmpty(t, results)
+		test.SliceEmpty(t, results.Hits)
 		test.NotNil(t, results)
 	})
 }

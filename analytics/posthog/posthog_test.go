@@ -4,14 +4,15 @@ import (
 	"errors"
 	"testing"
 
-	mockCircuitBreaker "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/identifiers"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -23,7 +24,7 @@ import (
 func newRecordingReporter(t *testing.T, apiKey string) (*EventReporter, *observability.RecordingObserver) {
 	t.Helper()
 
-	reporter, err := NewPostHogEventReporter(apiKey, cbnoop.NewCircuitBreaker())
+	reporter, err := NewEventReporter(apiKey, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, reporter)
 
@@ -36,7 +37,7 @@ func newRecordingReporter(t *testing.T, apiKey string) (*EventReporter, *observa
 	return c, obs
 }
 
-func TestNewPostHogEventReporter(T *testing.T) {
+func TestNewEventReporter(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -44,7 +45,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 
 		cfg := &Config{APIKey: t.Name()}
 
-		collector, err := NewPostHogEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 	})
@@ -54,7 +55,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 
 		cfg := &Config{}
 
-		collector, err := NewPostHogEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 	})
@@ -62,14 +63,14 @@ func TestNewPostHogEventReporter(T *testing.T) {
 	T.Run("with error creating event counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, name+"_events", counterName)
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
-		collector, err := NewPostHogEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
+		collector, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -79,20 +80,20 @@ func TestNewPostHogEventReporter(T *testing.T) {
 	T.Run("with error creating error counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case name + "_events":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case name + "_errors":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+					return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
 			},
 		}
 
-		collector, err := NewPostHogEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
+		collector, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -106,10 +107,10 @@ func TestBreakerCallback(T *testing.T) {
 	T.Run("Success drives the circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockCircuitBreaker.CircuitBreakerMock{SucceededFunc: func() {}}
+		cb := &circuitbreakingmock.CircuitBreakerMock{SucceededFunc: func() {}}
 		cbk := &breakerCallback{
 			circuitBreaker: cb,
-			errorCounter:   metrics.Int64CounterForTest(t, name+"_errors"),
+			errorCounter:   metricstest.Int64Counter(t, name+"_errors"),
 			logger:         loggingnoop.NewLogger(),
 		}
 
@@ -122,7 +123,7 @@ func TestBreakerCallback(T *testing.T) {
 		t.Parallel()
 
 		cbk := &breakerCallback{
-			errorCounter: metrics.Int64CounterForTest(t, name+"_errors"),
+			errorCounter: metricstest.Int64Counter(t, name+"_errors"),
 			logger:       loggingnoop.NewLogger(),
 		}
 
@@ -132,10 +133,10 @@ func TestBreakerCallback(T *testing.T) {
 	T.Run("Failure records the error and trips the circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockCircuitBreaker.CircuitBreakerMock{FailedFunc: func() {}}
+		cb := &circuitbreakingmock.CircuitBreakerMock{FailedFunc: func() {}}
 		cbk := &breakerCallback{
 			circuitBreaker: cb,
-			errorCounter:   metrics.Int64CounterForTest(t, name+"_errors"),
+			errorCounter:   metricstest.Int64Counter(t, name+"_errors"),
 			logger:         loggingnoop.NewLogger(),
 		}
 
@@ -148,7 +149,7 @@ func TestBreakerCallback(T *testing.T) {
 		t.Parallel()
 
 		cbk := &breakerCallback{
-			errorCounter: metrics.Int64CounterForTest(t, name+"_errors"),
+			errorCounter: metricstest.Int64Counter(t, name+"_errors"),
 			logger:       loggingnoop.NewLogger(),
 		}
 
@@ -164,11 +165,11 @@ func TestPostHogEventReporter_Close(T *testing.T) {
 
 		cfg := &Config{APIKey: t.Name()}
 
-		collector, err := NewPostHogEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 
-		collector.Close()
+		_ = collector.Close(t.Context())
 	})
 }
 

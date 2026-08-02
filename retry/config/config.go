@@ -1,4 +1,4 @@
-package retry
+package retrycfg
 
 import (
 	"context"
@@ -15,7 +15,12 @@ const (
 )
 
 // Config configures retry behavior.
+//
+// It is embedded in the configs of packages that retry (outbox, saga, metering,
+// dataprivacy, jobs, webhooks) as well as read from the environment directly,
+// which is why the zero value is meaningful: EnsureDefaults fills it in.
 type Config struct {
+	Provider     string        `env:"PROVIDER"      json:"provider"     yaml:"provider"`
 	MaxAttempts  uint          `env:"MAX_ATTEMPTS"  json:"maxAttempts"  yaml:"maxAttempts"`
 	InitialDelay time.Duration `env:"INITIAL_DELAY" json:"initialDelay" yaml:"initialDelay"`
 	MaxDelay     time.Duration `env:"MAX_DELAY"     json:"maxDelay"     yaml:"maxDelay"`
@@ -50,6 +55,7 @@ func (cfg *Config) EnsureDefaults() {
 // ValidateWithContext validates the config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
+		validation.Field(&cfg.Provider, validation.In(providers...)),
 		validation.Field(&cfg.MaxAttempts, validation.Required, validation.Min(uint(1))),
 		validation.Field(&cfg.InitialDelay, validation.Required, validation.Min(time.Millisecond)),
 		validation.Field(&cfg.MaxDelay, validation.Required, validation.Min(time.Millisecond)),

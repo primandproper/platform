@@ -35,8 +35,8 @@ type (
 	}
 )
 
-// NewPostHogEventReporter returns a new PostHog-backed EventReporter.
-func NewPostHogEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (analytics.EventReporter, error) {
+// NewEventReporter returns a new PostHog-backed EventReporter.
+func NewEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (analytics.EventReporter, error) {
 	if apiKey == "" {
 		return nil, ErrEmptyAPIToken
 	}
@@ -112,10 +112,18 @@ func (cb *breakerCallback) Failure(_ posthog.APIMessage, err error) {
 }
 
 // Close wraps the internal client's Close method.
-func (c *EventReporter) Close() {
+func (c *EventReporter) Close(ctx context.Context) error {
+	_, op := c.o11y.Begin(ctx)
+	defer op.End()
+
+	// The error is returned rather than only logged: this is the final flush of
+	// whatever is still buffered, and a caller shutting down is the last chance
+	// anyone has to notice those events did not make it.
 	if err := c.client.Close(); err != nil {
-		c.o11y.Logger().Error("closing connection", err)
+		return observability.PrepareError(err, op.Span(), "closing connection")
 	}
+
+	return nil
 }
 
 // AddUser upsert's a user's identity.

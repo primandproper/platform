@@ -1,4 +1,4 @@
-package config
+package capitalismcfg
 
 import (
 	"testing"
@@ -51,7 +51,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 	})
 }
 
-func TestNewCapitalismImplementation(T *testing.T) {
+func TestNewPaymentManager(T *testing.T) {
 	T.Parallel()
 
 	T.Run("with stripe provider", func(t *testing.T) {
@@ -63,7 +63,7 @@ func TestNewCapitalismImplementation(T *testing.T) {
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		}
 
-		pm, err := NewCapitalismImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil)
+		pm, err := NewPaymentManager(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		must.NoError(t, err)
 		test.NotNil(t, pm)
 	})
@@ -75,7 +75,7 @@ func TestNewCapitalismImplementation(T *testing.T) {
 			Enabled: false,
 		}
 
-		pm, err := NewCapitalismImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil)
+		pm, err := NewPaymentManager(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		must.NoError(t, err)
 		test.NotNil(t, pm)
 	})
@@ -88,13 +88,13 @@ func TestNewCapitalismImplementation(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		pm, err := NewCapitalismImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg, nil)
+		pm, err := NewPaymentManager(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		test.Nil(t, pm)
 		test.Error(t, err)
 	})
 }
 
-func TestNewUsageReporterImplementation(T *testing.T) {
+func TestNewUsageReporter(T *testing.T) {
 	T.Parallel()
 
 	T.Run("with stripe provider", func(t *testing.T) {
@@ -106,7 +106,7 @@ func TestNewUsageReporterImplementation(T *testing.T) {
 			Stripe:   &stripe.Config{APIKey: "sk_test_123", WebhookSecret: t.Name()},
 		}
 
-		reporter, err := NewUsageReporterImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg)
+		reporter, err := NewUsageReporter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		must.NoError(t, err)
 		test.NotNil(t, reporter)
 	})
@@ -122,7 +122,7 @@ func TestNewUsageReporterImplementation(T *testing.T) {
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		}
 
-		_, err := NewUsageReporterImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg)
+		_, err := NewUsageReporter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		test.Error(t, err)
 	})
 
@@ -131,8 +131,8 @@ func TestNewUsageReporterImplementation(T *testing.T) {
 
 		// "Meter everything, bill nothing" is a supported deployment rather than
 		// an error, which is why this yields the noop instead of refusing.
-		reporter, err := NewUsageReporterImplementation(
-			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), &Config{Enabled: false})
+		reporter, err := NewUsageReporter(
+			t.Context(), &Config{Enabled: false}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		must.NoError(t, err)
 		test.NotNil(t, reporter)
 	})
@@ -142,7 +142,7 @@ func TestNewUsageReporterImplementation(T *testing.T) {
 
 		cfg := &Config{Enabled: true, Provider: "unknown"}
 
-		reporter, err := NewUsageReporterImplementation(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), cfg)
+		reporter, err := NewUsageReporter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 		test.Nil(t, reporter)
 		test.Error(t, err)
 	})

@@ -12,7 +12,7 @@ import (
 	clockmock "github.com/primandproper/platform-go/v9/clock/mock"
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	"github.com/primandproper/platform-go/v9/distributedlock/memory"
-	dlmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
+	distributedlockmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
 	"github.com/primandproper/platform-go/v9/jobs"
 	lognoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
@@ -1097,9 +1097,9 @@ func TestScheduler_Leasing(T *testing.T) {
 			spy := newCounterSpy()
 			ran := make(chan struct{}, 1)
 
-			locker := &dlmock.LockerMock{
+			locker := &distributedlockmock.LockerMock{
 				AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
-					return &dlmock.LockMock{
+					return &distributedlockmock.LockMock{
 						ReleaseFunc: func(context.Context) error {
 							return distributedlock.ErrLockNotHeld
 						},
@@ -1141,9 +1141,9 @@ func TestScheduler_Leasing(T *testing.T) {
 			// Not ErrLockNotHeld: the lease did not expire, the backend simply
 			// could not be told to let go of it. That is a lock error rather
 			// than a "this job may have run twice" warning.
-			locker := &dlmock.LockerMock{
+			locker := &distributedlockmock.LockerMock{
 				AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
-					return &dlmock.LockMock{
+					return &distributedlockmock.LockMock{
 						ReleaseFunc: func(context.Context) error {
 							return errors.New("lock backend is down")
 						},
@@ -1184,7 +1184,7 @@ func TestScheduler_Leasing(T *testing.T) {
 			spy := newCounterSpy()
 			var runs atomic.Int64
 
-			locker := &dlmock.LockerMock{
+			locker := &distributedlockmock.LockerMock{
 				AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
 					return nil, errors.New("lock backend is down")
 				},

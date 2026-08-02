@@ -6,23 +6,23 @@ import (
 	"io"
 )
 
-func Decode(data []byte, ct *contentType, dest any) error {
-	if ct == nil {
+// Decode parses data in the given encoding into dest.
+//
+// The zero ContentType means JSON, so callers with nothing to say about the
+// encoding can pass it and get the obvious default.
+func Decode(data []byte, ct ContentType, dest any) error {
+	if ct == "" {
 		ct = ContentTypeJSON
 	}
 
-	if err := NewServerEncoderDecoder(ct).DecodeBytes(context.Background(), data, dest); err != nil {
-		return err
-	}
-
-	return nil
+	return NewServerEncoderDecoder(ct).DecodeBytes(context.Background(), data, dest)
 }
 
 // Encode renders data in the given encoding, defaulting to JSON. It is the
 // error-returning counterpart of Decode, and the entry point to reach for when
 // something outside an HTTP handler needs bytes.
-func Encode(data any, ct *contentType) ([]byte, error) {
-	if ct == nil {
+func Encode(data any, ct ContentType) ([]byte, error) {
+	if ct == "" {
 		ct = ContentTypeJSON
 	}
 
@@ -35,8 +35,9 @@ func EncodeJSON(data any) ([]byte, error) {
 	return Encode(data, ContentTypeJSON)
 }
 
-// MustEncode encodes a given piece of data to a given encoding.
-func MustEncode(data any, ct *contentType) []byte {
+// MustEncode encodes a given piece of data to a given encoding, panicking on
+// failure.
+func MustEncode(data any, ct ContentType) []byte {
 	out, err := Encode(data, ct)
 	if err != nil {
 		panic(err)
@@ -45,12 +46,9 @@ func MustEncode(data any, ct *contentType) []byte {
 	return out
 }
 
-// MustDecode encodes a given piece of data to a given encoding.
-func MustDecode(data []byte, ct *contentType, dest any) {
-	if ct == nil {
-		ct = ContentTypeJSON
-	}
-
+// MustDecode decodes a given piece of data from a given encoding into dest,
+// panicking on failure.
+func MustDecode(data []byte, ct ContentType, dest any) {
 	if err := Decode(data, ct, dest); err != nil {
 		panic(err)
 	}
@@ -61,11 +59,12 @@ func MustEncodeJSON(data any) []byte {
 	return MustEncode(data, ContentTypeJSON)
 }
 
+// DecodeJSON decodes JSON data into dest.
 func DecodeJSON(data []byte, dest any) error {
 	return Decode(data, ContentTypeJSON, dest)
 }
 
-// MustDecodeJSON JSON encodes a piece of data.
+// MustDecodeJSON decodes JSON data into dest, panicking on failure.
 func MustDecodeJSON(data []byte, dest any) {
 	MustDecode(data, ContentTypeJSON, dest)
 }

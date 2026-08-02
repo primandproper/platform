@@ -17,17 +17,10 @@ func NewTracerForTest(name string) Tracer {
 	return NewNamedTracer(nil, name)
 }
 
-// Deprecated: Use NewNamedTracer instead.
-func NewTracer(t trace.Tracer) Tracer {
-	return &otelTraceWrapper{
-		tracer: t,
-	}
-}
-
 // NewNamedTracer creates a named Tracer from the given TracerProvider.
 // If tracerProvider is nil, a noop TracerProvider is used.
 func NewNamedTracer(tracerProvider TracerProvider, name string) Tracer {
-	return NewTracer(EnsureTracerProvider(tracerProvider).Tracer(name))
+	return &otelTraceWrapper{tracer: EnsureTracerProvider(tracerProvider).Tracer(name)}
 }
 
 // StartSpan wraps tracer.Start.

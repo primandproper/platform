@@ -280,7 +280,7 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 			called bool
 			gotID  string
 		)
-		handler := func(_ context.Context, event *stripe.Event) error {
+		handler := func(_ context.Context, event *Event) error {
 			called = true
 			gotID = event.ID
 			return nil
@@ -303,7 +303,7 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 		secret, err := random.GenerateHexEncodedString(ctx, 32)
 		must.NoError(t, err)
 
-		handler := func(_ context.Context, _ *stripe.Event) error {
+		handler := func(_ context.Context, _ *Event) error {
 			return errArbitraryHandler
 		}
 

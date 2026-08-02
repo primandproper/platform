@@ -9,7 +9,8 @@ import (
 	"github.com/primandproper/platform-go/v9/llm/openai"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
@@ -174,9 +175,9 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 			},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -198,9 +199,9 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 			},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 

@@ -50,11 +50,6 @@ var schema = ddl.Schema{
 	SQLite:    sqliteDDL,
 }
 
-// TableSuffixes are the per-table suffixes appended to the prefix. Declared
-// here rather than in the saga package so the DDL and the queries derive their
-// names from one list.
-var TableSuffixes = []string{"instances"}
-
 // Statements renders the DDL for the dialect against the given table prefix and
 // splits it into individually executable statements, the table before its
 // indexes.

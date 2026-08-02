@@ -4,214 +4,82 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
 
-func TestExponentialBackoffPolicy_Execute(T *testing.T) {
+func TestUnretryable(T *testing.T) {
 	T.Parallel()
 
-	T.Run("success on first attempt", func(t *testing.T) {
+	T.Run("marks an error unretryable while preserving the chain", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{MaxAttempts: 3})
-		ctx := context.Background()
-		attempts := 0
-
-		err := policy.Execute(ctx, func(ctx context.Context) error {
-			attempts++
-			return nil
-		})
-
-		must.NoError(t, err)
-		test.EqOp(t, 1, attempts)
-	})
-
-	T.Run("success after retries", func(t *testing.T) {
-		t.Parallel()
-
-		policy := NewExponentialBackoffPolicy(Config{
-			MaxAttempts:  5,
-			InitialDelay: 1,
-			MaxDelay:     10,
-			UseJitter:    false,
-		})
-		ctx := context.Background()
-		attempts := 0
-
-		err := policy.Execute(ctx, func(ctx context.Context) error {
-			attempts++
-			if attempts < 3 {
-				return errors.New("transient")
-			}
-			return nil
-		})
-
-		must.NoError(t, err)
-		test.EqOp(t, 3, attempts)
-	})
-
-	T.Run("returns last error after max attempts", func(t *testing.T) {
-		t.Parallel()
-
-		policy := NewExponentialBackoffPolicy(Config{
-			MaxAttempts:  3,
-			InitialDelay: 1,
-			MaxDelay:     10,
-			UseJitter:    false,
-		})
-		ctx := context.Background()
-		attempts := 0
-		expectedErr := errors.New("final failure")
-
-		err := policy.Execute(ctx, func(ctx context.Context) error {
-			attempts++
-			if attempts < 3 {
-				return errors.New("transient")
-			}
-			return expectedErr
-		})
+		sentinel := errors.New("underlying")
+		err := Unretryable(sentinel)
 
 		must.Error(t, err)
-		test.ErrorIs(t, err, expectedErr)
-		test.EqOp(t, 3, attempts)
+		test.ErrorIs(t, err, ErrUnretryable)
+		test.ErrorIs(t, err, sentinel)
 	})
 
-	T.Run("stops immediately on a canceled context error", func(t *testing.T) {
+	T.Run("nil stays nil", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
-			MaxAttempts:  5,
-			InitialDelay: time.Millisecond,
-			MaxDelay:     10 * time.Millisecond,
-		})
-		attempts := 0
-
-		err := policy.Execute(context.Background(), func(ctx context.Context) error {
-			attempts++
-			return context.Canceled
-		})
-
-		test.ErrorIs(t, err, context.Canceled)
-		// Retrying a canceled context is pointless; it must not burn all 5 attempts.
-		test.EqOp(t, 1, attempts)
+		test.NoError(t, Unretryable(nil))
 	})
 
-	T.Run("stops immediately on an Unretryable error", func(t *testing.T) {
+	T.Run("wrapping twice still matches both", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
-			MaxAttempts:  5,
-			InitialDelay: time.Millisecond,
-			MaxDelay:     10 * time.Millisecond,
-		})
-		attempts := 0
-		underlying := errors.New("fatal")
-
-		err := policy.Execute(context.Background(), func(ctx context.Context) error {
-			attempts++
-			return Unretryable(underlying)
-		})
+		sentinel := errors.New("underlying")
+		err := Unretryable(Unretryable(sentinel))
 
 		test.ErrorIs(t, err, ErrUnretryable)
-		test.ErrorIs(t, err, underlying)
-		test.EqOp(t, 1, attempts)
-	})
-
-	// Regression: a sub-2ns InitialDelay makes int64(delay)/2 truncate to 0, and
-	// rand.Int64N(0) panics. With jitter enabled this would crash on the first
-	// backoff instead of retrying.
-	T.Run("does not panic when jitter delay is too small to halve", func(t *testing.T) {
-		t.Parallel()
-
-		policy := NewExponentialBackoffPolicy(Config{
-			MaxAttempts:  3,
-			InitialDelay: 1,
-			MaxDelay:     10,
-			UseJitter:    true,
-		})
-		ctx := context.Background()
-		attempts := 0
-
-		err := policy.Execute(ctx, func(ctx context.Context) error {
-			attempts++
-			return errors.New("transient")
-		})
-
-		must.Error(t, err)
-		test.EqOp(t, 3, attempts)
-	})
-
-	T.Run("respects context cancellation", func(t *testing.T) {
-		t.Parallel()
-
-		policy := NewExponentialBackoffPolicy(Config{
-			MaxAttempts:  10,
-			InitialDelay: time.Hour,
-			UseJitter:    false,
-		})
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		err := policy.Execute(ctx, func(ctx context.Context) error {
-			return errors.New("fail")
-		})
-
-		must.Error(t, err)
-		test.ErrorIs(t, err, context.Canceled)
+		test.ErrorIs(t, err, sentinel)
 	})
 }
 
-func TestDelayFor(T *testing.T) {
+func TestIsTerminal(T *testing.T) {
 	T.Parallel()
 
-	// The schedule this returns is the one Execute sleeps through and the one
-	// outbox's relay persists as a timestamp, so these numbers are a contract
-	// between two packages rather than an internal detail of either.
-	T.Run("grows by the multiplier from a 1-indexed attempt", func(t *testing.T) {
+	T.Run("an ordinary error is retryable", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := Config{InitialDelay: 100 * time.Millisecond, Multiplier: 2, MaxDelay: time.Hour}
-
-		test.EqOp(t, 100*time.Millisecond, DelayFor(cfg, 1))
-		test.EqOp(t, 200*time.Millisecond, DelayFor(cfg, 2))
-		test.EqOp(t, 400*time.Millisecond, DelayFor(cfg, 3))
-		test.EqOp(t, 800*time.Millisecond, DelayFor(cfg, 4))
+		test.False(t, IsTerminal(t.Context(), errors.New("transient")))
 	})
 
-	T.Run("caps at MaxDelay rather than growing without bound", func(t *testing.T) {
+	T.Run("nil error with a live context is not terminal", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := Config{InitialDelay: time.Second, Multiplier: 10, MaxDelay: 30 * time.Second}
-
-		test.EqOp(t, 10*time.Second, DelayFor(cfg, 2))
-		test.EqOp(t, 30*time.Second, DelayFor(cfg, 3))
-		// Far enough out that the unclamped value would overflow a Duration.
-		test.EqOp(t, 30*time.Second, DelayFor(cfg, 500))
+		test.False(t, IsTerminal(t.Context(), nil))
 	})
 
-	// Attempt counts arrive from stored rows and from loop indices, so a zero
-	// is a plausible input rather than a programming error. Treating it as the
-	// first attempt beats returning zero, which would schedule an immediate
-	// retry of something that just failed.
-	T.Run("treats an attempt below one as the first attempt", func(t *testing.T) {
+	T.Run("an explicitly unretryable error is terminal", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := Config{InitialDelay: 250 * time.Millisecond, Multiplier: 2, MaxDelay: time.Minute}
-
-		test.EqOp(t, DelayFor(cfg, 1), DelayFor(cfg, 0))
+		test.True(t, IsTerminal(t.Context(), Unretryable(errors.New("fatal"))))
 	})
 
-	T.Run("does not mutate the config it is given", func(t *testing.T) {
+	T.Run("a canceled loop context is terminal", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := Config{InitialDelay: 100 * time.Millisecond, Multiplier: 2, MaxDelay: time.Hour}
-		before := cfg
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
 
-		DelayFor(cfg, 5)
+		test.True(t, IsTerminal(ctx, errors.New("transient")))
+	})
 
-		test.EqOp(t, before, cfg)
+	T.Run("a per-attempt deadline is not terminal", func(t *testing.T) {
+		t.Parallel()
+
+		// The operation bounded itself and blew its own deadline. The retry
+		// loop's context is untouched, so another attempt can still succeed —
+		// this is the case the ctx-not-err check exists to keep retryable.
+		attemptCtx, cancel := context.WithTimeout(t.Context(), 0)
+		defer cancel()
+		<-attemptCtx.Done()
+
+		test.False(t, IsTerminal(t.Context(), attemptCtx.Err()))
 	})
 }

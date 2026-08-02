@@ -11,8 +11,8 @@ import (
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	mqmock "github.com/primandproper/platform-go/v9/messagequeue/mock"
-	"github.com/primandproper/platform-go/v9/retry"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -69,12 +69,12 @@ func newTestRelay(t *testing.T, client database.Client, c *stubClock, opts ...fu
 
 	rec := &recordingPublisher{}
 
-	publisher := &mqmock.PublisherMock{
+	publisher := &messagequeuemock.PublisherMock{
 		PublishFunc: rec.Publish,
 		StopFunc:    func() {},
 	}
 
-	provider := &mqmock.PublisherProviderMock{
+	provider := &messagequeuemock.PublisherProviderMock{
 		NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 			return publisher, nil
 		},
@@ -82,9 +82,8 @@ func newTestRelay(t *testing.T, client database.Client, c *stubClock, opts ...fu
 	}
 
 	cfg := &RelayConfig{
-		Dialect:   dialect.SQLite,
 		ClaimMode: ClaimLease,
-		Backoff: retry.Config{
+		Backoff: retrycfg.Config{
 			MaxAttempts:  3,
 			InitialDelay: time.Second,
 			MaxDelay:     time.Minute,
@@ -526,12 +525,12 @@ func TestNewRelay(T *testing.T) {
 	T.Run("rejects missing dependencies", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &RelayConfig{Dialect: dialect.SQLite}
+		cfg := &RelayConfig{}
 
 		_, err := NewRelay(t.Context(), nil, nil, nil)
 		test.Error(t, err)
 
-		_, err = NewRelay(t.Context(), cfg, nil, &mqmock.PublisherProviderMock{})
+		_, err = NewRelay(t.Context(), cfg, nil, &messagequeuemock.PublisherProviderMock{})
 		test.ErrorIs(t, err, ErrNilDatabaseClient)
 
 		_, err = NewRelay(t.Context(), cfg, newTestClient(t), nil)
@@ -543,22 +542,24 @@ func TestNewRelay(T *testing.T) {
 
 		_, err := NewRelay(
 			t.Context(),
-			&RelayConfig{Dialect: dialect.SQLite, TablePrefix: "outbox; DROP TABLE users"},
+			&RelayConfig{TablePrefix: "outbox; DROP TABLE users"},
 			newTestClient(t),
-			&mqmock.PublisherProviderMock{},
+			&messagequeuemock.PublisherProviderMock{},
 		)
 		test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 	})
 
-	T.Run("rejects SKIP LOCKED on a dialect that cannot do it", func(t *testing.T) {
+	T.Run("downgrades SKIP LOCKED on a dialect that cannot do it", func(t *testing.T) {
 		t.Parallel()
 
-		// EnsureDefaults downgrades SQLite to ClaimLease rather than failing,
-		// since SKIP LOCKED is the default mode.
-		cfg := &RelayConfig{Dialect: dialect.SQLite, ClaimMode: ClaimSkipLocked}
-		cfg.EnsureDefaults()
+		// The downgrade happens once the dialect is known, which is when
+		// NewRelay reads it off the client — SQLite has no SKIP LOCKED.
+		cfg := &RelayConfig{ClaimMode: ClaimSkipLocked}
 
-		test.EqOp(t, ClaimLease, cfg.ClaimMode)
+		r, err := NewRelay(t.Context(), cfg, newTestClient(t), &messagequeuemock.PublisherProviderMock{})
+		must.NoError(t, err)
+
+		test.EqOp(t, ClaimLease, r.cfg.ClaimMode)
 	})
 }
 
@@ -570,7 +571,7 @@ func TestRelay_backoffFor(T *testing.T) {
 
 		c := newStubClock()
 		relay, _ := newTestRelay(t, newTestClient(t), c, func(cfg *RelayConfig) {
-			cfg.Backoff = retry.Config{
+			cfg.Backoff = retrycfg.Config{
 				MaxAttempts:  10,
 				InitialDelay: time.Second,
 				MaxDelay:     10 * time.Second,

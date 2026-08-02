@@ -21,6 +21,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/panicking"
 	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -66,16 +67,16 @@ type Worker struct {
 	stop chan struct{}
 	done chan struct{}
 
-	stepCounter        metrics.Int64Counter
-	stepFailureCounter metrics.Int64Counter
-	completedCounter   metrics.Int64Counter
-	compensatingGauge  metrics.Int64Counter
-	compensatedCounter metrics.Int64Counter
-	stuckCounter       metrics.Int64Counter
-	claimErrCounter    metrics.Int64Counter
-	contendedCounter   metrics.Int64Counter
-	stepHist           metrics.Float64Histogram
-	advanceHist        metrics.Float64Histogram
+	stepCounter          metrics.Int64Counter
+	stepFailureCounter   metrics.Int64Counter
+	completedCounter     metrics.Int64Counter
+	compensationsCounter metrics.Int64Counter
+	compensatedCounter   metrics.Int64Counter
+	stuckCounter         metrics.Int64Counter
+	claimErrCounter      metrics.Int64Counter
+	contendedCounter     metrics.Int64Counter
+	stepHist             metrics.Float64Histogram
+	advanceHist          metrics.Float64Histogram
 
 	tracerProvider  tracing.TracerProvider
 	metricsProvider metrics.Provider
@@ -163,8 +164,13 @@ func (w *Worker) buildInstruments() error {
 	if w.completedCounter, err = mp.NewInt64Counter(serviceName + "_instances_completed"); err != nil {
 		return platformerrors.Wrap(err, "creating instances completed counter")
 	}
-	if w.compensatingGauge, err = mp.NewInt64Counter(serviceName + "_instances_compensating"); err != nil {
-		return platformerrors.Wrap(err, "creating instances compensating counter")
+	// "_compensations_started" rather than "_instances_compensating": this is a
+	// monotonic counter, and the old name reads as a gauge — the number of
+	// instances compensating right now. Metric names lock into dashboards and
+	// alerts the moment they ship, so the name has to match what the instrument
+	// actually is before the tag, not after.
+	if w.compensationsCounter, err = mp.NewInt64Counter(serviceName + "_compensations_started"); err != nil {
+		return platformerrors.Wrap(err, "creating compensations started counter")
 	}
 	if w.compensatedCounter, err = mp.NewInt64Counter(serviceName + "_instances_compensated"); err != nil {
 		return platformerrors.Wrap(err, "creating instances compensated counter")
@@ -500,7 +506,7 @@ func (w *Worker) failForward(ctx context.Context, def *definition, inst *Record,
 	inst.LastError = truncateError(cause)
 	inst.Attempts = 0
 
-	w.compensatingGauge.Add(ctx, 1, definitionAttr(inst.Definition))
+	w.compensationsCounter.Add(ctx, 1, definitionAttr(inst.Definition))
 
 	w.logger.WithValues(map[string]any{
 		instanceIDKey: inst.ID,
@@ -806,7 +812,7 @@ func (w *Worker) exhausted(cause error, attempts int, phase string) bool {
 
 // backoffFor computes the delay before a step's next attempt.
 //
-// The schedule comes from retry.DelayFor, so this and anything using a
+// The schedule comes from retrycfg.DelayFor, so this and anything using a
 // retry.Policy grow their delays identically from the same Config. The wait is
 // persisted as a timestamp rather than slept through, so it survives a restart,
 // and the jitter is full rather than equal — several workers share this table,
@@ -819,7 +825,7 @@ func (w *Worker) backoffFor(attempts int, phase string) time.Duration {
 
 	cfg := w.cfg.budgetFor(phase)
 
-	delay := float64(retry.DelayFor(cfg, uint(attempts)))
+	delay := float64(retrycfg.DelayFor(cfg, uint(attempts)))
 
 	if cfg.UseJitter {
 		// Full jitter. Not security-sensitive: this only decorrelates retry

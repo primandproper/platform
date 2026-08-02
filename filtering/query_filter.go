@@ -27,7 +27,12 @@ var (
 )
 
 const (
-	// MaxQueryFilterLimit is the maximum value for list queries.
+	// MaxQueryFilterLimit is the maximum value for list queries. Anything larger
+	// clamps to it.
+	//
+	// The field is uint16 rather than uint8 deliberately: at uint8 the ceiling
+	// sat five above the limit, so `maxResponseSize: 300` was an unmarshal
+	// error rather than the clamp every other over-limit value gets.
 	MaxQueryFilterLimit = 250
 	// DefaultQueryFilterLimit represents how many results we return in a response by default.
 	DefaultQueryFilterLimit = 50
@@ -62,7 +67,7 @@ type (
 		PreviousCursor     string       `json:"previousCursor"`
 		FilteredCount      uint64       `json:"filteredCount"`
 		TotalCount         uint64       `json:"totalCount"`
-		MaxResponseSize    uint8        `json:"maxResponseSize"`
+		MaxResponseSize    uint16       `json:"maxResponseSize"`
 	}
 
 	// QueryFilter represents all the filters a User could apply to a list query.
@@ -74,7 +79,7 @@ type (
 		CreatedBefore   *time.Time `json:"createdBefore,omitempty"`
 		UpdatedAfter    *time.Time `json:"updatedAfter,omitempty"`
 		UpdatedBefore   *time.Time `json:"updatedBefore,omitempty"`
-		MaxResponseSize *uint8     `json:"maxResponseSize,omitempty"`
+		MaxResponseSize *uint16    `json:"maxResponseSize,omitempty"`
 		IncludeArchived *bool      `json:"includeArchived,omitempty"`
 		Cursor          *string    `json:"cursor,omitempty"`
 	}
@@ -89,7 +94,7 @@ type (
 // DefaultQueryFilter builds the default query filter.
 func DefaultQueryFilter() *QueryFilter {
 	return &QueryFilter{
-		MaxResponseSize: new(uint8(DefaultQueryFilterLimit)),
+		MaxResponseSize: new(uint16(DefaultQueryFilterLimit)),
 		SortBy:          SortAscending,
 	}
 }
@@ -140,7 +145,7 @@ func (qf *QueryFilter) FromParams(params url.Values) {
 	}
 
 	if i, err := strconv.ParseUint(params.Get(QueryKeyLimit), 10, 64); err == nil {
-		qf.MaxResponseSize = new(uint8(math.Min(math.Max(float64(i), 0), MaxQueryFilterLimit)))
+		qf.MaxResponseSize = new(uint16(math.Min(math.Max(float64(i), 0), MaxQueryFilterLimit)))
 	}
 
 	if t, err := time.Parse(time.RFC3339Nano, params.Get(QueryKeyCreatedBefore)); err == nil {
@@ -247,7 +252,7 @@ func ExtractQueryFilterFromRequest(req *http.Request) *QueryFilter {
 
 	if qf.MaxResponseSize != nil {
 		if *qf.MaxResponseSize == 0 {
-			qf.MaxResponseSize = new(uint8(DefaultQueryFilterLimit))
+			qf.MaxResponseSize = new(uint16(DefaultQueryFilterLimit))
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/featureflags"
 	"github.com/primandproper/platform-go/v9/featureflags/launchdarkly"
 	"github.com/primandproper/platform-go/v9/featureflags/noop"
@@ -23,6 +24,10 @@ const (
 	ProviderLaunchDarkly = "launchdarkly"
 	// ProviderPostHog is used to indicate the PostHog provider.
 	ProviderPostHog = "posthog"
+	// ProviderNoop reports every flag as its default. It must be selected
+	// deliberately — an unset or typo'd provider is an error, because a manager
+	// that silently answers "off" for everything looks like a quiet rollout.
+	ProviderNoop = "noop"
 )
 
 type (
@@ -45,19 +50,27 @@ func (cfg *Config) EnsureDefaults() {
 // ValidateWithContext validates the config.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.In(ProviderLaunchDarkly, ProviderPostHog, "")),
+		validation.Field(&c.Provider, validation.Required, validation.In(ProviderLaunchDarkly, ProviderPostHog, ProviderNoop)),
 		validation.Field(&c.LaunchDarkly, validation.When(c.Provider == ProviderLaunchDarkly, validation.Required)),
 		validation.Field(&c.PostHog, validation.When(c.Provider == ProviderPostHog, validation.Required)),
 	)
 }
 
-func (c *Config) NewFeatureFlagManager(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker) (featureflags.FeatureFlagManager, error) {
+func (c *Config) NewFeatureFlagManager(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker) (featureflags.FeatureFlagManager, error) {
+	c.EnsureDefaults()
+
+	if err := c.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating feature flag config")
+	}
+
 	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
 	case ProviderLaunchDarkly:
 		return launchdarkly.NewFeatureFlagManager(c.LaunchDarkly, httpClient, circuitBreaker, launchdarkly.WithLogger(logger), launchdarkly.WithTracerProvider(tracerProvider), launchdarkly.WithMetricsProvider(metricsProvider))
 	case ProviderPostHog:
 		return posthog.NewFeatureFlagManager(c.PostHog, circuitBreaker, posthog.WithLogger(logger), posthog.WithTracerProvider(tracerProvider), posthog.WithMetricsProvider(metricsProvider))
-	default:
+	case ProviderNoop:
 		return noop.NewFeatureFlagManager(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "feature flag provider %q", c.Provider)
 	}
 }

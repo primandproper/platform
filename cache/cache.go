@@ -16,6 +16,21 @@ var (
 	// owns. Configure a namespace (e.g. the redis provider's
 	// Config.Namespace) to enable whole-cache operations.
 	ErrNamespaceRequired = errors.New("operation requires a configured key namespace")
+
+	// ErrUnavailable indicates the cache did not perform the operation because
+	// its backing store is unreachable — typically a tripped circuit breaker.
+	//
+	// It is deliberately distinct from ErrNotFound. A read that answers "not
+	// found" during an outage is indistinguishable from one that answers it
+	// because the key really is absent, and a caller whose whole purpose is to
+	// notice absence — idempotency's FailClosed, say — is then told exactly what
+	// it must not be told. A write that answers nil during an outage is worse:
+	// it reports that a delete happened, and the stale value it did not delete
+	// is served for the rest of its TTL.
+	//
+	// Callers that would rather treat unavailability as a miss can say so, by
+	// checking for this error; callers that must not cannot be tricked into it.
+	ErrUnavailable = errors.New("cache is unavailable")
 )
 
 // NoExpiry is the WithExpiry value for entries that should never expire. It
@@ -65,6 +80,11 @@ type (
 		// providers that wholly own their store (memory) always succeed.
 		Flush(ctx context.Context) error
 		Ping(ctx context.Context) error
+		// Close releases the resources the cache holds — a connection pool, a
+		// background sweep — and is safe to call more than once. It does not
+		// evict anything: entries in a shared backing store outlive the handle
+		// that wrote them. After Close the cache must not be used again.
+		Close() error
 	}
 
 	// WriteConfig is the resolved per-call write configuration. Providers

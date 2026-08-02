@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/cache"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/testutils/containers/redistest"
@@ -39,7 +40,7 @@ func gobEncodeExample(t *testing.T, e *example) string {
 	return buf.String()
 }
 
-func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *mockcircuitbreaking.CircuitBreakerMock, *observability.RecordingObserver) {
+func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *circuitbreakingmock.CircuitBreakerMock, *observability.RecordingObserver) {
 	t.Helper()
 
 	mp := metricsnoop.NewMetricsProvider()
@@ -63,7 +64,7 @@ func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *m
 	must.NoError(t, err)
 
 	client := &redisClientMock{}
-	cb := &mockcircuitbreaking.CircuitBreakerMock{}
+	cb := &circuitbreakingmock.CircuitBreakerMock{}
 	obs := observability.NewRecordingObserver()
 
 	return &redisCacheImpl[example]{
@@ -91,9 +92,9 @@ type counterResult struct {
 // newCounterProviderMock returns a metrics.Provider mock whose NewInt64Counter
 // implementation looks up the result keyed on the counter name. Unknown names
 // fail the test.
-func newCounterProviderMock(t *testing.T, results map[string]counterResult) *mockmetrics.ProviderMock {
+func newCounterProviderMock(t *testing.T, results map[string]counterResult) *metricsmock.ProviderMock {
 	t.Helper()
-	return &mockmetrics.ProviderMock{
+	return &metricsmock.ProviderMock{
 		NewInt64CounterFunc: func(metricName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			res, ok := results[metricName]
 			if !ok {
@@ -109,14 +110,14 @@ func buildContainerBackedRedisConfig(t *testing.T) *Config {
 
 	container := redistest.Start(t)
 	return &Config{
-		QueueAddresses: []string{redistest.Address(t, container)},
+		Addresses: []string{redistest.Address(t, container)},
 	}
 }
 
 func TestNewRedisCache(T *testing.T) {
 	T.Parallel()
 
-	okCounter := func() metrics.Int64Counter { return metrics.Int64CounterForTest(T, "x") }
+	okCounter := func() metrics.Int64Counter { return metricstest.Int64Counter(T, "x") }
 
 	T.Run("with no addresses", func(t *testing.T) {
 		t.Parallel()
@@ -137,7 +138,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with single address", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
@@ -147,7 +148,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with multiple addresses", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379", "localhost:6380"}}
+		cfg := &Config{Addresses: []string{"localhost:6379", "localhost:6380"}}
 
 		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
@@ -157,7 +158,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache hit counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits": {counter: okCounter(), err: errors.New("counter error")},
@@ -172,7 +173,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache miss counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits":   {counter: okCounter()},
@@ -188,7 +189,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache set counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits":   {counter: okCounter()},
@@ -205,7 +206,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache delete counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits":    {counter: okCounter()},
@@ -223,7 +224,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache error counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits":    {counter: okCounter()},
@@ -242,15 +243,15 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating latency histogram", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		noopMP := metricsnoop.NewMetricsProvider()
 		h, histErr := noopMP.NewFloat64Histogram("test")
 		must.NoError(t, histErr)
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), nil
+				return metricstest.Int64Counter(t, "x"), nil
 			},
 			NewFloat64HistogramFunc: func(metricName string, _ ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 				test.EqOp(t, name+"_cache_latency_ms", metricName)
@@ -328,8 +329,10 @@ func Test_redisCacheImpl_Get_Unit(T *testing.T) {
 
 		cb.CannotProceedFunc = func() bool { return true }
 
+		// Not ErrNotFound: a caller that must distinguish "absent" from
+		// "unreachable" — idempotency's FailClosed — has to be able to.
 		actual, err := impl.Get(ctx, exampleKey)
-		test.ErrorIs(t, err, cache.ErrNotFound)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
 		test.Nil(t, actual)
 
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -472,8 +475,9 @@ func Test_redisCacheImpl_Set_Unit(T *testing.T) {
 
 		cb.CannotProceedFunc = func() bool { return true }
 
+		// The write did not happen, so reporting success would be a lie.
 		err := impl.Set(ctx, exampleKey, &example{Name: t.Name()})
-		test.NoError(t, err)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
 
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 	})
@@ -555,8 +559,10 @@ func Test_redisCacheImpl_Delete_Unit(T *testing.T) {
 
 		cb.CannotProceedFunc = func() bool { return true }
 
+		// A dropped Delete reported as success serves the stale value for the
+		// rest of its TTL.
 		err := impl.Delete(ctx, exampleKey)
-		test.NoError(t, err)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
 
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 	})
@@ -674,7 +680,7 @@ func Test_redisCacheImpl_GetMany_Unit(T *testing.T) {
 		cb.CannotProceedFunc = func() bool { return true }
 
 		out, err := impl.GetMany(ctx, []string{"a", "b"})
-		test.NoError(t, err)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
 		test.MapLen(t, 0, out)
 		test.SliceLen(t, 0, client.MGetCalls())
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -803,7 +809,7 @@ func Test_redisCacheImpl_SetMany_Unit(T *testing.T) {
 
 		cb.CannotProceedFunc = func() bool { return true }
 
-		test.NoError(t, impl.SetMany(ctx, map[string]*example{"a": {Name: "a"}}))
+		test.ErrorIs(t, impl.SetMany(ctx, map[string]*example{"a": {Name: "a"}}), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.EvalCalls())
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 	})
@@ -894,9 +900,9 @@ func Test_buildRedisClient(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			QueueAddresses: []string{"localhost:6379"},
-			Username:       "user",
-			Password:       "pass",
+			Addresses: []string{"localhost:6379"},
+			Username:  "user",
+			Password:  "pass",
 		}
 
 		c := buildRedisClient(cfg)
@@ -907,9 +913,9 @@ func Test_buildRedisClient(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			QueueAddresses: []string{"localhost:6379", "localhost:6380"},
-			Username:       "user",
-			Password:       "pass",
+			Addresses: []string{"localhost:6379", "localhost:6380"},
+			Username:  "user",
+			Password:  "pass",
 		}
 
 		c := buildRedisClient(cfg)
@@ -920,7 +926,7 @@ func Test_buildRedisClient(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			QueueAddresses: []string{},
+			Addresses: []string{},
 		}
 
 		c := buildRedisClient(cfg)
@@ -1032,8 +1038,10 @@ func (brokenCodec) Decode([]byte) (*example, error) { return nil, errCodecBroken
 func Test_redisCacheImpl_OpenCircuit_Unit(T *testing.T) {
 	T.Parallel()
 
-	// An open breaker short-circuits every write path into a silent success:
-	// a cache that cannot be reached must not fail the request behind it.
+	// An open breaker skips the round trip on every write path and says so.
+	// It used to return nil, which reported a write that never happened — and a
+	// dropped Delete reported as success serves the stale value for the rest of
+	// its TTL.
 	openBreaker := func(t *testing.T) (*redisCacheImpl[example], *redisClientMock) {
 		t.Helper()
 
@@ -1043,40 +1051,40 @@ func Test_redisCacheImpl_OpenCircuit_Unit(T *testing.T) {
 		return impl, client
 	}
 
-	T.Run("Set is a no-op", func(t *testing.T) {
+	T.Run("Set reports unavailability", func(t *testing.T) {
 		t.Parallel()
 
 		impl, client := openBreaker(t)
 
-		must.NoError(t, impl.Set(t.Context(), exampleKey, &example{Name: "spot"}))
+		test.ErrorIs(t, impl.Set(t.Context(), exampleKey, &example{Name: "spot"}), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.SetCalls())
 	})
 
-	T.Run("DeleteMany is a no-op", func(t *testing.T) {
+	T.Run("DeleteMany reports unavailability", func(t *testing.T) {
 		t.Parallel()
 
 		impl, client := openBreaker(t)
 
-		must.NoError(t, impl.DeleteMany(t.Context(), []string{"a", "b"}))
+		test.ErrorIs(t, impl.DeleteMany(t.Context(), []string{"a", "b"}), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.DelCalls())
 	})
 
-	T.Run("DeleteByPrefix is a no-op", func(t *testing.T) {
+	T.Run("DeleteByPrefix reports unavailability", func(t *testing.T) {
 		t.Parallel()
 
 		impl, client := openBreaker(t)
 		impl.namespace = "ns:"
 
-		must.NoError(t, impl.DeleteByPrefix(t.Context(), "p:"))
+		test.ErrorIs(t, impl.DeleteByPrefix(t.Context(), "p:"), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.ScanCalls())
 	})
 
-	T.Run("SetMany is a no-op", func(t *testing.T) {
+	T.Run("SetMany reports unavailability", func(t *testing.T) {
 		t.Parallel()
 
 		impl, client := openBreaker(t)
 
-		must.NoError(t, impl.SetMany(t.Context(), map[string]*example{"a": {Name: "spot"}}))
+		test.ErrorIs(t, impl.SetMany(t.Context(), map[string]*example{"a": {Name: "spot"}}), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.EvalCalls())
 	})
 }
@@ -1161,7 +1169,7 @@ func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 		t.Parallel()
 
 		_, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithCodec(cache.NewGobCodec[struct{ Other string }]()),
@@ -1173,7 +1181,7 @@ func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 		t.Parallel()
 
 		c, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithCodec(nameCodec{}),
@@ -1490,7 +1498,7 @@ func TestWithScanPageSize(T *testing.T) {
 	// scanCount drives a one-page prefix deletion and reports the COUNT the
 	// cache actually handed to SCAN, so these assert the option reaches the
 	// wire rather than just landing in a struct field.
-	scanCount := func(t *testing.T, impl *redisCacheImpl[example], client *redisClientMock, cb *mockcircuitbreaking.CircuitBreakerMock) int64 {
+	scanCount := func(t *testing.T, impl *redisCacheImpl[example], client *redisClientMock, cb *circuitbreakingmock.CircuitBreakerMock) int64 {
 		t.Helper()
 
 		ctx := t.Context()
@@ -1545,7 +1553,7 @@ func TestWithScanPageSize(T *testing.T) {
 		t.Parallel()
 
 		c, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithScanPageSize(64),
@@ -1583,7 +1591,7 @@ func TestWithLogger(T *testing.T) {
 		t.Parallel()
 
 		c, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithLogger(loggingnoop.NewLogger()),
@@ -1621,7 +1629,7 @@ func TestWithTracerProvider(T *testing.T) {
 		t.Parallel()
 
 		c, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithTracerProvider(tracingnoop.NewTracerProvider()),

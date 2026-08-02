@@ -17,7 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -208,7 +208,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, o11yName+"_sends", counterName)
 				return (*metrics.Int64CounterImpl)(nil), errors.New("counter error")
@@ -234,7 +234,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case o11yName + "_sends":

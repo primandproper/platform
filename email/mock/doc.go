@@ -1,7 +1,5 @@
-// Package emailmock provides mock implementations of the email package's
-// interfaces. Both the hand-written testify-based Emailer type and the
-// moq-generated EmailerMock type live here during the testify → moq
-// migration. New test code should prefer the moq-generated types.
+// Package emailmock provides moq-generated mock implementations of the email
+// package's interfaces.
 package emailmock
 
 // Regenerate the moq mocks via `go generate ./email/mock/`.

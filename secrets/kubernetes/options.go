@@ -1,4 +1,4 @@
-package kubectl
+package kubernetes
 
 import (
 	"github.com/primandproper/platform-go/v9/observability/logging"

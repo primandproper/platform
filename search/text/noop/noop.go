@@ -16,9 +16,10 @@ func NewIndexManager[T any]() textsearch.Index[T] {
 	return &indexManager[T]{}
 }
 
-// Search is a no-op method.
-func (*indexManager[T]) Search(context.Context, string) ([]*T, error) {
-	return []*T{}, nil
+// Search is a no-op method. It returns no hits and no next cursor, so a caller
+// paging through results terminates on the first call rather than looping.
+func (*indexManager[T]) Search(context.Context, textsearch.SearchRequest) (*textsearch.SearchResults[T], error) {
+	return &textsearch.SearchResults[T]{Hits: []*T{}}, nil
 }
 
 // Index is a no-op method.

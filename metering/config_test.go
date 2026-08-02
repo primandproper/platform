@@ -88,7 +88,6 @@ func TestFlusherConfig(T *testing.T) {
 		cfg := &FlusherConfig{}
 		cfg.EnsureDefaults()
 
-		test.EqOp(t, DefaultFlushInterval, cfg.FlushInterval)
 		test.EqOp(t, DefaultFlushLeaseDuration, cfg.LeaseDuration)
 		test.EqOp(t, DefaultFlushTimeout, cfg.FlushTimeout)
 		test.EqOp(t, DefaultEventRetention, cfg.EventRetention)
@@ -105,7 +104,6 @@ func TestFlusherConfig(T *testing.T) {
 		t.Parallel()
 
 		cfg := &FlusherConfig{
-			FlushInterval:  time.Minute,
 			LeaseDuration:  2 * time.Minute,
 			FlushTimeout:   time.Second,
 			EventRetention: time.Hour,
@@ -117,7 +115,6 @@ func TestFlusherConfig(T *testing.T) {
 		}
 		cfg.EnsureDefaults()
 
-		test.EqOp(t, time.Minute, cfg.FlushInterval)
 		test.EqOp(t, 7, cfg.BatchSize)
 		test.True(t, cfg.DisableReap)
 

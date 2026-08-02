@@ -9,7 +9,7 @@ import (
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -60,7 +60,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			// A proxy source with no provider/credentials must fail validation rather
 			// than silently degrading to a noop at runtime.
 			ProxySources: ProxySourcesConfig{
-				Web: &SourceConfig{Provider: ProviderSegment},
+				"web": {Provider: ProviderSegment},
 			},
 		}
 
@@ -77,7 +77,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 				Segment:  &segment.Config{APIToken: t.Name()},
 			},
 			ProxySources: ProxySourcesConfig{
-				Web: &SourceConfig{Provider: ProviderSegment, Segment: &segment.Config{APIToken: t.Name()}},
+				"web": {Provider: ProviderSegment, Segment: &segment.Config{APIToken: t.Name()}},
 			},
 		}
 
@@ -193,7 +193,7 @@ func TestConfig_NewCollector(T *testing.T) {
 			},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, options ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.SliceEmpty(t, options)
 				return nil, errors.New("arbitrary")
@@ -240,15 +240,15 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 
 		cfg := &Config{
 			ProxySources: ProxySourcesConfig{
-				IOS: &SourceConfig{},
-				Web: &SourceConfig{},
+				"ios": {},
+				"web": {},
 			},
 		}
 		cfg.EnsureDefaults()
 
 		test.NotEq(t, "", cfg.CircuitBreaker.Name)
-		test.NotEq(t, "", cfg.ProxySources.IOS.CircuitBreaker.Name)
-		test.NotEq(t, "", cfg.ProxySources.Web.CircuitBreaker.Name)
+		test.NotEq(t, "", cfg.ProxySources["ios"].CircuitBreaker.Name)
+		test.NotEq(t, "", cfg.ProxySources["web"].CircuitBreaker.Name)
 	})
 }
 
@@ -266,7 +266,7 @@ func TestProxySourcesConfig_ToMap(T *testing.T) {
 		t.Parallel()
 
 		ios := &SourceConfig{Provider: ProviderSegment}
-		p := ProxySourcesConfig{IOS: ios}
+		p := ProxySourcesConfig{"ios": ios}
 		m := p.ToMap()
 
 		test.MapLen(t, 1, m)
@@ -277,7 +277,7 @@ func TestProxySourcesConfig_ToMap(T *testing.T) {
 		t.Parallel()
 
 		web := &SourceConfig{Provider: ProviderPostHog}
-		p := ProxySourcesConfig{Web: web}
+		p := ProxySourcesConfig{"web": web}
 		m := p.ToMap()
 
 		test.MapLen(t, 1, m)
@@ -289,7 +289,7 @@ func TestProxySourcesConfig_ToMap(T *testing.T) {
 
 		ios := &SourceConfig{Provider: ProviderSegment}
 		web := &SourceConfig{Provider: ProviderPostHog}
-		p := ProxySourcesConfig{IOS: ios, Web: web}
+		p := ProxySourcesConfig{"ios": ios, "web": web}
 		m := p.ToMap()
 
 		test.MapLen(t, 2, m)

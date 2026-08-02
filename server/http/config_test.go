@@ -17,13 +17,14 @@ func TestConfig_Validate(T *testing.T) {
 		cfg := &Config{
 			StartupDeadline: time.Second,
 			Port:            8080,
-			Debug:           true,
 		}
 
 		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 
-	T.Run("returns error with missing port", func(t *testing.T) {
+	// Port 0 asks the OS for an ephemeral port, which is a real configuration
+	// and the one the tests in this package bind on.
+	T.Run("accepts an unset port", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -31,15 +32,28 @@ func TestConfig_Validate(T *testing.T) {
 			StartupDeadline: time.Second,
 		}
 
-		test.Error(t, cfg.ValidateWithContext(ctx))
+		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 
-	T.Run("returns error with missing startup deadline", func(t *testing.T) {
+	// A zero StartupDeadline means the bind is unbounded, which is the default.
+	T.Run("accepts an unset startup deadline", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		cfg := &Config{
 			Port: 8080,
+		}
+
+		test.NoError(t, cfg.ValidateWithContext(ctx))
+	})
+
+	T.Run("rejects a negative timeout", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{
+			Port:        8080,
+			ReadTimeout: -time.Second,
 		}
 
 		test.Error(t, cfg.ValidateWithContext(ctx))
@@ -58,12 +72,12 @@ func TestConfig_Validate(T *testing.T) {
 		test.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
-	T.Run("returns error with empty config", func(t *testing.T) {
+	T.Run("accepts the zero config", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		cfg := &Config{}
 
-		test.Error(t, cfg.ValidateWithContext(ctx))
+		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 }

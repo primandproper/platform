@@ -1,4 +1,4 @@
-package kubectl
+package kubernetes
 
 import (
 	"context"
@@ -7,22 +7,26 @@ import (
 
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v9/secrets"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel/metric"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-func TestNewKubectlSecretSource(T *testing.T) {
+func TestNewKubernetesSecretSource(T *testing.T) {
 	T.Parallel()
 
 	T.Run("nil config returns error", func(t *testing.T) {
 		t.Parallel()
-		source, err := NewKubectlSecretSource(context.Background(), nil, nil)
+		source, err := NewKubernetesSecretSource(context.Background(), nil, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "config is required")
@@ -31,7 +35,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 	T.Run("missing namespace returns error", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, nil)
+		source, err := NewKubernetesSecretSource(context.Background(), cfg, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
 	})
@@ -40,7 +44,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, mc)
+		source, err := NewKubernetesSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 	})
@@ -48,15 +52,15 @@ func TestNewKubectlSecretSource(T *testing.T) {
 	T.Run("with error creating lookup counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, name+"_lookups", counterName)
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
+		source, err := NewKubernetesSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -66,13 +70,13 @@ func TestNewKubectlSecretSource(T *testing.T) {
 	T.Run("with error creating error counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case name + "_lookups":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case name + "_errors":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+					return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -80,7 +84,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
+		source, err := NewKubernetesSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -94,9 +98,9 @@ func TestNewKubectlSecretSource(T *testing.T) {
 		h, histErr := noopMP.NewFloat64Histogram("test")
 		must.NoError(t, histErr)
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), nil
+				return metricstest.Int64Counter(t, "x"), nil
 			},
 			NewFloat64HistogramFunc: func(histName string, _ ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 				test.EqOp(t, name+"_latency_ms", histName)
@@ -105,7 +109,7 @@ func TestNewKubectlSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Namespace: "default"}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
+		source, err := NewKubernetesSecretSource(context.Background(), cfg, &mockSecretGetter{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -114,15 +118,15 @@ func TestNewKubectlSecretSource(T *testing.T) {
 	})
 }
 
-// newRecordingSource builds a kubectlSecretSource with a RecordingObserver swapped in, so a
+// newRecordingSource builds a kubernetesSecretSource with a RecordingObserver swapped in, so a
 // test can both drive GetSecret and assert which identifiers it observed.
-func newRecordingSource(t *testing.T, cfg *Config, client SecretGetter) (*kubectlSecretSource, *observability.RecordingObserver) {
+func newRecordingSource(t *testing.T, cfg *Config, client SecretGetter) (*kubernetesSecretSource, *observability.RecordingObserver) {
 	t.Helper()
 
-	source, err := NewKubectlSecretSource(context.Background(), cfg, client)
+	source, err := NewKubernetesSecretSource(context.Background(), cfg, client)
 	must.NoError(t, err)
 
-	k, ok := source.(*kubectlSecretSource)
+	k, ok := source.(*kubernetesSecretSource)
 	must.True(t, ok)
 
 	obs := observability.NewRecordingObserver()
@@ -131,7 +135,7 @@ func newRecordingSource(t *testing.T, cfg *Config, client SecretGetter) (*kubect
 	return k, obs
 }
 
-func TestKubectlSecretSource_GetSecret(T *testing.T) {
+func TestKubernetesSecretSource_GetSecret(T *testing.T) {
 	T.Parallel()
 
 	T.Run("success", func(t *testing.T) {
@@ -161,7 +165,7 @@ func TestKubectlSecretSource_GetSecret(T *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, mc)
+		source, err := NewKubernetesSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		_, err = source.GetSecret(context.Background(), "no-slash")
@@ -183,7 +187,10 @@ func TestKubectlSecretSource_GetSecret(T *testing.T) {
 
 		_, err := source.GetSecret(t.Context(), "db-creds/password")
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), "key \"password\" not found")
+		// A missing key in an existing secret is the same answer, to the caller,
+		// as a missing secret.
+		test.ErrorIs(t, err, secrets.ErrSecretNotFound)
+		test.StrContains(t, err.Error(), "key \"password\"")
 
 		// The identifiers must still have been observed even though the lookup failed.
 		obs.ObservedOperationWithData(t, map[string]any{
@@ -212,14 +219,14 @@ func TestKubectlSecretSource_GetSecret(T *testing.T) {
 	})
 }
 
-func TestKubectlSecretSource_Close(T *testing.T) {
+func TestKubernetesSecretSource_Close(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Namespace: "default"}
 		mc := &mockSecretGetter{}
-		source, err := NewKubectlSecretSource(context.Background(), cfg, mc)
+		source, err := NewKubernetesSecretSource(context.Background(), cfg, mc)
 		must.NoError(t, err)
 
 		err = source.Close()
@@ -266,4 +273,50 @@ func (m *mockSecretGetter) Get(_ context.Context, name string, _ metav1.GetOptio
 		return nil, m.err
 	}
 	return m.secret, nil
+}
+
+func TestKubernetesSecretSource_GetSecret_ErrorMapping(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a missing secret maps to the platform sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		mc := &mockSecretGetter{
+			err: apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "db-creds"),
+		}
+		source, _ := newRecordingSource(t, &Config{Namespace: "default"}, mc)
+
+		got, err := source.GetSecret(t.Context(), "db-creds/password")
+		// Mapped rather than passed through, so a caller can tell "no such
+		// secret" from "could not reach the provider" without knowing which
+		// provider it got.
+		test.ErrorIs(t, err, secrets.ErrSecretNotFound)
+		test.EqOp(t, "", got)
+	})
+
+	T.Run("a missing secret preserves the underlying cause", func(t *testing.T) {
+		t.Parallel()
+
+		underlying := apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "db-creds")
+		mc := &mockSecretGetter{err: underlying}
+		source, _ := newRecordingSource(t, &Config{Namespace: "default"}, mc)
+
+		_, err := source.GetSecret(t.Context(), "db-creds/password")
+		test.ErrorIs(t, err, underlying)
+	})
+
+	T.Run("an unreachable API server is not reported as not-found", func(t *testing.T) {
+		t.Parallel()
+
+		underlying := errors.New("connection refused")
+		mc := &mockSecretGetter{err: underlying}
+		source, _ := newRecordingSource(t, &Config{Namespace: "default"}, mc)
+
+		got, err := source.GetSecret(t.Context(), "db-creds/password")
+		must.Error(t, err)
+		// The distinction the sentinel exists to make: absent is not unreachable.
+		test.False(t, errors.Is(err, secrets.ErrSecretNotFound))
+		test.ErrorIs(t, err, underlying)
+		test.EqOp(t, "", got)
+	})
 }

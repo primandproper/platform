@@ -17,6 +17,10 @@ type UploadManager interface {
 	Delete(ctx context.Context, path string) error
 	// Exists reports whether an object exists at path.
 	Exists(ctx context.Context, path string) (bool, error)
+	// Close releases the provider's client — for the gocloud-backed providers,
+	// the underlying *blob.Bucket. It does not delete anything. After Close the
+	// manager must not be used again.
+	Close() error
 }
 
 type (

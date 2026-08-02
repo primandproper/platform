@@ -10,7 +10,7 @@ statements actually run against.
 
 The registry is not configured here, and cannot be. A step is a Go function, so
 there is no way to express a definition in the environment and no way to load
-one at runtime — it is passed explicitly to ProvideWorker and to the Runner.
+one at runtime — it is passed explicitly to NewWorker and to the Runner.
 
 Runner construction is likewise not here, for a different reason: NewRunner is
 generic over the state type, and a constructor in a config package would have to
@@ -46,7 +46,7 @@ type Config struct {
 	EventTopic string `env:"EVENT_TOPIC" json:"eventTopic" yaml:"eventTopic"`
 
 	// Worker carries the advance loop's knobs.
-	Worker saga.WorkerConfig `env:"init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
+	Worker saga.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
@@ -78,8 +78,8 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
-// ProvideStore builds the saga Store from the config.
-func ProvideStore(
+// NewStore builds the saga Store from the config.
+func NewStore(
 	ctx context.Context,
 	cfg *Config,
 	logger logging.Logger,
@@ -105,12 +105,12 @@ func ProvideStore(
 	)
 }
 
-// ProvideWorker builds the Worker that advances instances.
+// NewWorker builds the Worker that advances instances.
 //
 // The locker is required and has no default — see saga.ErrNilLocker. The
 // idempotency manager and the event publisher are optional; both may be nil,
 // and the package documentation says what each one being absent costs.
-func ProvideWorker(
+func NewWorker(
 	ctx context.Context,
 	cfg *Config,
 	logger logging.Logger,

@@ -13,11 +13,11 @@ import (
 func TestDecode(T *testing.T) {
 	T.Parallel()
 
-	T.Run("with nil content type", func(t *testing.T) {
+	T.Run("with zero content type", func(t *testing.T) {
 		t.Parallel()
 
 		var dest example
-		test.NoError(t, Decode([]byte(`{"name":"test"}`), nil, &dest))
+		test.NoError(t, Decode([]byte(`{"name":"test"}`), "", &dest))
 		test.EqOp(t, "test", dest.Name)
 	})
 
@@ -49,17 +49,17 @@ func TestDecode(T *testing.T) {
 		t.Parallel()
 
 		var dest example
-		test.Error(t, Decode([]byte(`{invalid`), nil, &dest))
+		test.Error(t, Decode([]byte(`{invalid`), "", &dest))
 	})
 }
 
 func TestMustEncode(T *testing.T) {
 	T.Parallel()
 
-	T.Run("with nil content type", func(t *testing.T) {
+	T.Run("with zero content type", func(t *testing.T) {
 		t.Parallel()
 
-		result := MustEncode(&example{Name: t.Name()}, nil)
+		result := MustEncode(&example{Name: t.Name()}, "")
 		test.SliceNotEmpty(t, result)
 	})
 
@@ -77,18 +77,18 @@ func TestMustEncode(T *testing.T) {
 			test.NotNil(t, recover())
 		}()
 
-		MustEncode(&broken{Name: json.Number(t.Name())}, nil)
+		MustEncode(&broken{Name: json.Number(t.Name())}, "")
 	})
 }
 
 func TestMustDecode(T *testing.T) {
 	T.Parallel()
 
-	T.Run("with nil content type", func(t *testing.T) {
+	T.Run("with zero content type", func(t *testing.T) {
 		t.Parallel()
 
 		var dest example
-		MustDecode([]byte(`{"name":"test"}`), nil, &dest)
+		MustDecode([]byte(`{"name":"test"}`), "", &dest)
 		test.EqOp(t, "test", dest.Name)
 	})
 
@@ -116,7 +116,7 @@ func TestMustDecode(T *testing.T) {
 		}()
 
 		var dest example
-		MustDecode([]byte(`{invalid`), nil, &dest)
+		MustDecode([]byte(`{invalid`), "", &dest)
 	})
 }
 

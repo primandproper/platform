@@ -17,7 +17,9 @@ func NewEventReporter() analytics.EventReporter {
 }
 
 // Close does nothing.
-func (c *eventReporter) Close() {}
+func (c *eventReporter) Close(context.Context) error {
+	return nil
+}
 
 // AddUser does nothing.
 func (c *eventReporter) AddUser(context.Context, string, map[string]any) error {

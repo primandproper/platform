@@ -97,8 +97,15 @@ func (p *Pillars) Shutdown(ctx context.Context) error {
 	}
 
 	if p.TracerProvider != nil {
+		// Flush first, then shut down: Shutdown stops the span processor and
+		// closes the exporter connection, and a flush afterwards would have
+		// nothing left to flush with.
 		if err := p.TracerProvider.ForceFlush(ctx); err != nil {
 			errs = multierror.Append(errs, errors.Wrap(err, "flushing tracer provider"))
+		}
+
+		if err := p.TracerProvider.Shutdown(ctx); err != nil {
+			errs = multierror.Append(errs, errors.Wrap(err, "shutting down tracer provider"))
 		}
 	}
 

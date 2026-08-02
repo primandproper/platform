@@ -3,9 +3,10 @@ package outboxcfg
 import (
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	databasemock "github.com/primandproper/platform-go/v9/database/mock"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
+	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
 	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
@@ -20,7 +21,8 @@ import (
 // publisher.
 func sqliteConfig() *Config {
 	return &Config{
-		Relay: outbox.RelayConfig{Dialect: dialect.SQLite},
+		Relay: outbox.RelayConfig{},
+		Queue: messagequeuecfg.Config{Publisher: messagequeuecfg.MessageQueueConfig{Provider: messagequeuecfg.ProviderNoop}},
 	}
 }
 
@@ -67,9 +69,18 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		cfg := &Config{}
 		cfg.EnsureDefaults()
+		cfg.Relay.ClaimMode = "telepathy"
 
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
+}
+
+// sqliteClient is a database.Client that reports SQLite and nothing else; the
+// Writer only reads the dialect off it.
+func sqliteClient() database.Client {
+	return &databasemock.ClientMock{
+		DialectFunc: func() dialect.Dialect { return dialect.SQLite },
+	}
 }
 
 func TestNewWriter(T *testing.T) {
@@ -78,7 +89,7 @@ func TestNewWriter(T *testing.T) {
 	T.Run("builds a writer from the relay section", func(t *testing.T) {
 		t.Parallel()
 
-		w, err := NewWriter(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil)
+		w, err := NewWriter(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, sqliteClient())
 		must.NoError(t, err)
 		must.NotNil(t, w)
 	})
@@ -86,15 +97,17 @@ func TestNewWriter(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewWriter(t.Context(), nil, nil, nil, nil)
+		_, err := NewWriter(t.Context(), nil, nil, nil, nil, sqliteClient())
 		test.Error(t, err)
 	})
 
-	T.Run("rejects a config without a dialect", func(t *testing.T) {
+	// The dialect comes from the client now, so a config without one is fine;
+	// a client without one is not.
+	T.Run("rejects a nil client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewWriter(t.Context(), &Config{}, nil, nil, nil)
-		test.Error(t, err)
+		_, err := NewWriter(t.Context(), sqliteConfig(), nil, nil, nil, nil)
+		test.ErrorIs(t, err, outbox.ErrNilDatabaseClient)
 	})
 
 	T.Run("derives options from every observability argument", func(t *testing.T) {
@@ -106,6 +119,7 @@ func TestNewWriter(T *testing.T) {
 			loggingnoop.NewLogger(),
 			tracingnoop.NewTracerProvider(),
 			metricsnoop.NewMetricsProvider(),
+			sqliteClient(),
 		)
 		must.NoError(t, err)
 		must.NotNil(t, w)
@@ -120,6 +134,7 @@ func TestNewWriter(T *testing.T) {
 			loggingnoop.NewLogger(),
 			tracingnoop.NewTracerProvider(),
 			metricsnoop.NewMetricsProvider(),
+			sqliteClient(),
 			outbox.WithWriterTablePrefix("override_table"),
 		)
 		must.NoError(t, err)
@@ -130,10 +145,10 @@ func TestNewWriter(T *testing.T) {
 func TestNewRelay(T *testing.T) {
 	T.Parallel()
 
-	T.Run("builds a relay with a noop publisher by default", func(t *testing.T) {
+	T.Run("builds a relay with a noop publisher", func(t *testing.T) {
 		t.Parallel()
 
-		r, err := NewRelay(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, &databasemock.ClientMock{})
+		r, err := NewRelay(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, sqliteClient())
 		must.NoError(t, err)
 		must.NotNil(t, r)
 	})
@@ -141,7 +156,7 @@ func TestNewRelay(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewRelay(t.Context(), nil, loggingnoop.NewLogger(), nil, nil, &databasemock.ClientMock{})
+		_, err := NewRelay(t.Context(), nil, loggingnoop.NewLogger(), nil, nil, sqliteClient())
 		test.Error(t, err)
 	})
 
@@ -152,10 +167,10 @@ func TestNewRelay(T *testing.T) {
 		test.Error(t, err)
 	})
 
-	T.Run("rejects a config without a dialect", func(t *testing.T) {
+	T.Run("rejects a nil client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewRelay(t.Context(), &Config{}, loggingnoop.NewLogger(), nil, nil, &databasemock.ClientMock{})
+		_, err := NewRelay(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, nil)
 		test.Error(t, err)
 	})
 
@@ -165,14 +180,14 @@ func TestNewRelay(T *testing.T) {
 		// PubSub with no project ID fails client construction, which is the
 		// cheapest way to make the provider step fail without a network.
 		cfg := sqliteConfig()
-		cfg.Queue = msgconfig.Config{
-			Publisher: msgconfig.MessageQueueConfig{
-				Provider: msgconfig.ProviderPubSub,
+		cfg.Queue = messagequeuecfg.Config{
+			Publisher: messagequeuecfg.MessageQueueConfig{
+				Provider: messagequeuecfg.ProviderPubSub,
 				PubSub:   pubsub.Config{},
 			},
 		}
 
-		r, err := NewRelay(t.Context(), cfg, loggingnoop.NewLogger(), nil, nil, &databasemock.ClientMock{})
+		r, err := NewRelay(t.Context(), cfg, loggingnoop.NewLogger(), nil, nil, sqliteClient())
 		test.Nil(t, r)
 		test.Error(t, err)
 	})
@@ -186,7 +201,7 @@ func TestNewRelay(T *testing.T) {
 			loggingnoop.NewLogger(),
 			tracingnoop.NewTracerProvider(),
 			metricsnoop.NewMetricsProvider(),
-			&databasemock.ClientMock{},
+			sqliteClient(),
 		)
 		must.NoError(t, err)
 		must.NotNil(t, r)

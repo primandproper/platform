@@ -61,7 +61,7 @@ func newRedisManager(
 	tb.Helper()
 
 	store, err := cacheredis.NewRedisCache[Record[wireShaped]](
-		&cacheredis.Config{QueueAddresses: []string{address}, Namespace: prefix},
+		&cacheredis.Config{Addresses: []string{address}, Namespace: prefix},
 		time.Hour,
 		nil,
 	)
@@ -248,7 +248,7 @@ func TestIdempotency_PostgresLock(T *testing.T) {
 		must.NoError(T, lockErr)
 
 		store, storeErr := cacheredis.NewRedisCache[Record[wireShaped]](
-			&cacheredis.Config{QueueAddresses: []string{address}, Namespace: "pglock:"},
+			&cacheredis.Config{Addresses: []string{address}, Namespace: "pglock:"},
 			time.Hour,
 			nil,
 		)

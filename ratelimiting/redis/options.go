@@ -1,7 +1,9 @@
 package redis
 
 import (
+	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 // Option configures the redis-backed rate limiter this package constructs.
@@ -9,6 +11,8 @@ import (
 type Option func(*options)
 
 type options struct {
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
 	metricsProvider metrics.Provider
 }
 
@@ -27,4 +31,15 @@ func newOptions(opts []Option) *options {
 // rejected, and error counters.
 func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 	return func(o *options) { o.metricsProvider = metricsProvider }
+}
+
+// WithLogger attaches a logger.
+func WithLogger(logger logging.Logger) Option {
+	return func(o *options) { o.logger = logger }
+}
+
+// WithTracerProvider attaches a tracer provider, so the limiter's spans are
+// children of the request that consulted it.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+	return func(o *options) { o.tracerProvider = tracerProvider }
 }

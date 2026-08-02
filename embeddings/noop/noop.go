@@ -32,3 +32,18 @@ func (*Embedder) GenerateEmbedding(_ context.Context, input *embeddings.Input) (
 		GeneratedAt: time.Now(),
 	}, nil
 }
+
+// GenerateEmbeddings returns one empty embedding per input.
+func (e *Embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.Input) ([]*embeddings.Embedding, error) {
+	out := make([]*embeddings.Embedding, len(inputs))
+	for i, input := range inputs {
+		emb, err := e.GenerateEmbedding(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+
+		out[i] = emb
+	}
+
+	return out, nil
+}

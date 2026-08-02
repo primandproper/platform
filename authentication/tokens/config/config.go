@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/primandproper/platform-go/v9/authentication/tokens"
 	"github.com/primandproper/platform-go/v9/authentication/tokens/jwt"
@@ -26,12 +25,10 @@ const (
 type (
 	// Config is the configuration structure.
 	Config struct {
-		Provider                string        `env:"PROVIDER"                   json:"provider"                yaml:"provider"`
-		Issuer                  string        `env:"ISSUER"                     json:"issuer"                  yaml:"issuer"`
-		Audience                string        `env:"AUDIENCE"                   json:"audience"                yaml:"audience"`
-		Base64EncodedSigningKey string        `env:"SIGNING_KEY"                json:"base64EncodedSigningKey" yaml:"base64EncodedSigningKey"`
-		MaxAccessTokenLifetime  time.Duration `env:"MAX_ACCESS_TOKEN_LIFETIME"  json:"maxAccessTokenLifetime"  yaml:"maxAccessTokenLifetime"`
-		MaxRefreshTokenLifetime time.Duration `env:"MAX_REFRESH_TOKEN_LIFETIME" json:"maxRefreshTokenLifetime" yaml:"maxRefreshTokenLifetime"`
+		Provider                string `env:"PROVIDER"    json:"provider"                yaml:"provider"`
+		Issuer                  string `env:"ISSUER"      json:"issuer"                  yaml:"issuer"`
+		Audience                string `env:"AUDIENCE"    json:"audience"                yaml:"audience"`
+		Base64EncodedSigningKey string `env:"SIGNING_KEY" json:"base64EncodedSigningKey" yaml:"base64EncodedSigningKey"`
 	}
 )
 
@@ -62,9 +59,9 @@ func (cfg *Config) NewTokenIssuer(logger logging.Logger, tracerProvider tracing.
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case ProviderJWT:
-		return jwt.NewJWTSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, jwt.WithLogger(logger), jwt.WithTracerProvider(tracerProvider))
+		return jwt.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, jwt.WithLogger(logger), jwt.WithTracerProvider(tracerProvider))
 	case ProviderPASETO:
-		return paseto.NewPASETOSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, paseto.WithLogger(logger), paseto.WithTracerProvider(tracerProvider))
+		return paseto.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, paseto.WithLogger(logger), paseto.WithTracerProvider(tracerProvider))
 	default:
 		return nil, fmt.Errorf("unknown token issuer provider: %q", cfg.Provider)
 	}

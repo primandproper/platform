@@ -63,11 +63,7 @@ func subscriptionNameForTopic(projectID, topic string) string {
 	return fmt.Sprintf("projects/%s/subscriptions/%s", projectID, topic)
 }
 
-func (c *pubSubConsumer) Consume(ctx context.Context, stopChan chan bool, errors chan error) {
-	if stopChan == nil {
-		stopChan = make(chan bool, 1)
-	}
-
+func (c *pubSubConsumer) Consume(ctx context.Context, errors chan<- error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -88,16 +84,6 @@ func (c *pubSubConsumer) Consume(ctx context.Context, stopChan chan bool, errors
 	}
 
 	subscriber := c.consumer.Subscriber(sub.GetName())
-
-	// Also select on ctx.Done so this watcher exits on the normal (external ctx
-	// cancellation) shutdown path instead of blocking forever on <-stopChan.
-	go func() {
-		select {
-		case <-stopChan:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
 
 	if err = subscriber.Receive(ctx, func(receivedContext context.Context, m *pubsub.Message) {
 		msgCtx, op := c.o11y.BeginCustom(receivedContext, "consume_message")

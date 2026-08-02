@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	cbmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/dialect"
@@ -239,7 +239,7 @@ func TestLocker_Acquire_Unit(T *testing.T) {
 		t.Parallel()
 		client, _ := buildSqlmockClient(t)
 		t.Cleanup(func() { _ = client.Close() })
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 		l := newTestLockerWithCB(t, client, cb)
@@ -373,7 +373,7 @@ func TestLocker_Release_Unit(T *testing.T) {
 		client, mock := buildSqlmockClient(t)
 		t.Cleanup(func() { _ = client.Close() })
 		var cannotProceedCalls int
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool {
 				cannotProceedCalls++
 				return cannotProceedCalls > 1 // first call (Acquire) proceeds, second (Release) is blocked
@@ -439,7 +439,7 @@ func TestLocker_Release_Unit(T *testing.T) {
 		t.Parallel()
 		client, mock := buildSqlmockClient(t)
 		t.Cleanup(func() { _ = client.Close() })
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 			FailedFunc:        func() {},
@@ -526,7 +526,7 @@ func TestLocker_Refresh_Unit(T *testing.T) {
 		client, mock := buildSqlmockClient(t)
 		t.Cleanup(func() { _ = client.Close() })
 		var cannotProceedCalls int
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool {
 				cannotProceedCalls++
 				return cannotProceedCalls > 1 // first call (Acquire) proceeds, second (Refresh) is blocked

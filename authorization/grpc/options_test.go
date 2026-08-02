@@ -6,7 +6,7 @@ import (
 
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
 	"github.com/shoenig/test"
@@ -77,13 +77,13 @@ func TestNewEnforcer_MetricsFailure(T *testing.T) {
 		T.Run("surfaces a failure creating "+failOn, func(t *testing.T) {
 			t.Parallel()
 
-			mp := &mockmetrics.ProviderMock{
+			mp := &metricsmock.ProviderMock{
 				NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 					if name == failOn {
 						return nil, errBoom
 					}
 
-					return &mockmetrics.Int64CounterMock{}, nil
+					return &metricsmock.Int64CounterMock{}, nil
 				},
 			}
 

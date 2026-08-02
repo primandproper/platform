@@ -11,42 +11,50 @@ const (
 	LoggerNameKey = "service_name"
 )
 
-var (
-	// InfoLevel describes a info-level log.
-	InfoLevel Level = new(level("info"))
+const (
 	// DebugLevel describes a debug-level log.
-	DebugLevel Level = new(level("debug"))
-	// ErrorLevel describes a error-level log.
-	ErrorLevel Level = new(level("error"))
+	DebugLevel Level = "debug"
+	// InfoLevel describes an info-level log.
+	InfoLevel Level = "info"
 	// WarnLevel describes a warn-level log.
-	WarnLevel Level = new(level("warn"))
+	WarnLevel Level = "warn"
+	// ErrorLevel describes an error-level log.
+	ErrorLevel Level = "error"
 )
 
+// AllLevels returns every level this package defines, in increasing severity.
 func AllLevels() []Level {
-	return []Level{InfoLevel, DebugLevel, ErrorLevel, WarnLevel}
-}
-
-// LevelsEqual reports whether two Levels denote the same log level.
-// Level is a pointer alias, so a plain `==` compares pointer identity — which is
-// wrong for a Level decoded from env/JSON (a fresh pointer that never equals the
-// package singletons). Compare by the underlying value instead.
-func LevelsEqual(a, b Level) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-
-	return *a == *b
+	return []Level{DebugLevel, InfoLevel, WarnLevel, ErrorLevel}
 }
 
 type (
-	level string
-
-	// Level is a simple string alias for dependency injection's sake.
-	Level *level
+	// Level names the severity threshold a Logger emits at.
+	//
+	// It is a string-backed value type, so == compares the level rather than a
+	// pointer, and a Level decoded from env or JSON equals the constant it names.
+	// The zero value is the empty Level, which every implementation reads as
+	// InfoLevel.
+	Level string
 
 	// RequestIDFunc fetches a string ID from a request.
 	RequestIDFunc func(*http.Request) string
 )
+
+// String returns the level's name.
+func (l Level) String() string {
+	return string(l)
+}
+
+// Valid reports whether l names one of the levels this package defines. The
+// zero value is not valid; implementations treat it as InfoLevel.
+func (l Level) Valid() bool {
+	switch l {
+	case DebugLevel, InfoLevel, WarnLevel, ErrorLevel:
+		return true
+	default:
+		return false
+	}
+}
 
 // Logger represents a simple logging interface we can build wrappers around.
 // NOTICE: someone, naive and green, may be enticed to add a method to this interface akin to:

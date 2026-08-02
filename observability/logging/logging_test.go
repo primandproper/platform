@@ -223,3 +223,64 @@ func TestExtractRequestInfo(T *testing.T) {
 
 var _ Logger = (*noopLogger)(nil)
 var _ trace.Span = trace.Span(nil)
+
+func TestLevel_String(T *testing.T) {
+	T.Parallel()
+
+	T.Run("named levels round-trip", func(t *testing.T) {
+		t.Parallel()
+
+		for _, level := range AllLevels() {
+			test.EqOp(t, string(level), level.String())
+		}
+	})
+
+	T.Run("the zero value is the empty string", func(t *testing.T) {
+		t.Parallel()
+
+		var level Level
+		test.EqOp(t, "", level.String())
+	})
+}
+
+func TestLevel_Valid(T *testing.T) {
+	T.Parallel()
+
+	T.Run("every level this package defines is valid", func(t *testing.T) {
+		t.Parallel()
+
+		for _, level := range AllLevels() {
+			test.True(t, level.Valid(), test.Sprintf("expected %q to be valid", level))
+		}
+	})
+
+	T.Run("the zero value is not valid", func(t *testing.T) {
+		t.Parallel()
+
+		// Implementations read it as InfoLevel, but "unset" and "info" are
+		// different answers to "did the caller choose a level".
+		var level Level
+		test.False(t, level.Valid())
+	})
+
+	T.Run("an unrecognized level is not valid", func(t *testing.T) {
+		t.Parallel()
+
+		test.False(t, Level("trace").Valid())
+		// Levels are spelled lowercase; the comparison is exact, not folded.
+		test.False(t, Level("INFO").Valid())
+	})
+}
+
+func TestLevel_ValueSemantics(T *testing.T) {
+	T.Parallel()
+
+	T.Run("equal levels compare equal", func(t *testing.T) {
+		t.Parallel()
+
+		// The whole point of Level being string-backed rather than a pointer:
+		// == answers the question, and LevelsEqual no longer needs to exist.
+		test.EqOp(t, InfoLevel, Level("info"))
+		test.True(t, InfoLevel == Level(InfoLevel.String()))
+	})
+}

@@ -2,6 +2,7 @@ package cohere
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,10 +13,14 @@ import (
 
 	"github.com/primandproper/platform-go/v9/embeddings"
 	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // newRecordingEmbedder builds an embedder via the public constructor, then swaps
@@ -329,8 +334,11 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		e := &embedder{
-			cfg:  &Config{APIKey: "test-key"},
-			o11y: observability.NewObserverForTest("test"),
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{APIKey: "test-key"},
+			o11y:           observability.NewObserverForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					test.StrContains(t, r.URL.String(), defaultBaseURL)
@@ -353,9 +361,12 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		e := &embedder{
-			cfg:    &Config{APIKey: "test-key", BaseURL: string([]byte{0x7f})},
-			o11y:   observability.NewObserverForTest("test"),
-			client: &http.Client{},
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{APIKey: "test-key", BaseURL: string([]byte{0x7f})},
+			o11y:           observability.NewObserverForTest("test"),
+			client:         &http.Client{},
 		}
 
 		result, err := e.GenerateEmbedding(t.Context(), &embeddings.Input{Content: "hello"})
@@ -369,8 +380,11 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		body := `{"embeddings":{"float":[[0.1,0.2]]}}`
 		e := &embedder{
-			cfg:  &Config{APIKey: "test-key", BaseURL: "http://localhost"},
-			o11y: observability.NewObserverForTest("test"),
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{APIKey: "test-key", BaseURL: "http://localhost"},
+			o11y:           observability.NewObserverForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return &http.Response{
@@ -391,8 +405,11 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		e := &embedder{
-			cfg:  &Config{APIKey: "test-key", BaseURL: "http://localhost"},
-			o11y: observability.NewObserverForTest("test"),
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{APIKey: "test-key", BaseURL: "http://localhost"},
+			o11y:           observability.NewObserverForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return &http.Response{
@@ -418,5 +435,110 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		test.ErrorIs(t, err, embeddings.ErrNilInput)
 		test.Nil(t, result)
+	})
+}
+
+func TestNewEmbedder_InstrumentFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("with error creating request counter", func(t *testing.T) {
+		t.Parallel()
+
+		mp := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				test.EqOp(t, name+"_requests", counterName)
+
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
+			},
+		}
+
+		e, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithMetricsProvider(mp))
+		must.Error(t, err)
+		must.Nil(t, e)
+		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
+	})
+
+	T.Run("with error creating error counter", func(t *testing.T) {
+		t.Parallel()
+
+		mp := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				if counterName == name+"_errors" {
+					return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
+				}
+
+				return metricstest.Int64Counter(t, "x"), nil
+			},
+		}
+
+		e, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithMetricsProvider(mp))
+		must.Error(t, err)
+		must.Nil(t, e)
+		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
+	})
+
+	T.Run("with error creating latency histogram", func(t *testing.T) {
+		t.Parallel()
+
+		mp := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				return metricstest.Int64Counter(t, "x"), nil
+			},
+			NewFloat64HistogramFunc: func(histName string, _ ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+				test.EqOp(t, name+"_latency_ms", histName)
+
+				return metricstest.Float64Histogram(t, "x"), errors.New("arbitrary")
+			},
+		}
+
+		e, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithMetricsProvider(mp))
+		must.Error(t, err)
+		must.Nil(t, e)
+		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
+	})
+}
+
+func TestEmbedder_GenerateEmbeddings_Batch(T *testing.T) {
+	T.Parallel()
+
+	T.Run("no inputs makes no request", func(t *testing.T) {
+		t.Parallel()
+
+		e := &embedder{
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{},
+			o11y:           observability.NewObserverForTest("test"),
+			// A nil client would panic if a request were attempted, which is the
+			// assertion: an empty batch must short-circuit before the round trip.
+			client: nil,
+		}
+
+		results, err := e.GenerateEmbeddings(t.Context(), nil)
+		must.NoError(t, err)
+		test.SliceEmpty(t, results)
+	})
+
+	T.Run("a batch spanning two models is refused", func(t *testing.T) {
+		t.Parallel()
+
+		e := &embedder{
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{},
+			o11y:           observability.NewObserverForTest("test"),
+			client:         nil,
+		}
+
+		// Refused rather than split: one request embeds against one model, and
+		// splitting would make the round-trip count depend on input ordering.
+		results, err := e.GenerateEmbeddings(t.Context(), []*embeddings.Input{
+			{Content: "first", Model: "model-a"},
+			{Content: "second", Model: "model-b"},
+		})
+		must.Error(t, err)
+		test.Nil(t, results)
 	})
 }

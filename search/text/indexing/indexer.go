@@ -8,7 +8,6 @@ import (
 
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	msgconfig "github.com/primandproper/platform-go/v9/messagequeue/config"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
@@ -37,10 +36,16 @@ type IndexScheduler struct {
 	allIndexTypes            []string
 }
 
+// NewIndexScheduler builds a scheduler that publishes index requests to topic.
+//
+// The topic is a plain string rather than a field on a shared queue-catalog
+// config: which topic carries index requests is the application's decision, and
+// naming it in this module's config made every consumer inherit one
+// application's topic names.
 func NewIndexScheduler(
 	ctx context.Context,
 	messageQueuePublisherProvider messagequeue.PublisherProvider,
-	queues *msgconfig.QueuesConfig,
+	topic string,
 	indexFunctions map[string]Function,
 	opts ...Option,
 ) (*IndexScheduler, error) {
@@ -51,7 +56,7 @@ func NewIndexScheduler(
 		return nil, err
 	}
 
-	searchDataIndexPublisher, err := messageQueuePublisherProvider.NewPublisher(ctx, queues.SearchIndexRequestsTopicName)
+	searchDataIndexPublisher, err := messageQueuePublisherProvider.NewPublisher(ctx, topic)
 	if err != nil {
 		return nil, err
 	}

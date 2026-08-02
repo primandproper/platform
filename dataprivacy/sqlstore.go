@@ -323,7 +323,7 @@ func (s *sqlStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 			return nil
 		}
 
-		claimQuery, claimArgs := s.tables.buildClaim(s.dialect, ids, leaseUntil)
+		claimQuery, claimArgs := s.tables.buildClaim(s.dialect, ids, now, leaseUntil)
 		if _, err = q.ExecContext(ctx, claimQuery, claimArgs...); err != nil {
 			return op.Error(err, "claiming dataprivacy requests")
 		}

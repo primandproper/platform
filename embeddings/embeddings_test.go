@@ -33,3 +33,44 @@ func TestNoopEmbedder_GenerateEmbedding(T *testing.T) {
 		test.False(t, result.GeneratedAt.IsZero())
 	})
 }
+
+func TestEmbedder_batchContract(T *testing.T) {
+	T.Parallel()
+
+	// The contract every provider owes GenerateEmbeddings, asserted against the
+	// noop embedder so it stays true of the shape rather than of one backend.
+	e := embeddingsnoop.NewEmbedder()
+
+	T.Run("returns one embedding per input, in order", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := e.GenerateEmbeddings(t.Context(), []*embeddings.Input{
+			{Content: "first"},
+			{Content: "second"},
+			{Content: "third"},
+		})
+		must.NoError(t, err)
+		must.SliceLen(t, 3, out)
+
+		test.EqOp(t, "first", out[0].SourceText)
+		test.EqOp(t, "second", out[1].SourceText)
+		test.EqOp(t, "third", out[2].SourceText)
+	})
+
+	T.Run("an empty batch is not an error", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := e.GenerateEmbeddings(t.Context(), nil)
+		must.NoError(t, err)
+		test.SliceEmpty(t, out)
+	})
+
+	// The whole call fails rather than returning a slice with a hole in it.
+	T.Run("a nil input fails the whole batch", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := e.GenerateEmbeddings(t.Context(), []*embeddings.Input{{Content: "ok"}, nil})
+		test.ErrorIs(t, err, embeddings.ErrNilInput)
+		test.Nil(t, out)
+	})
+}

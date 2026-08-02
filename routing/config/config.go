@@ -32,25 +32,29 @@ const (
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
-	Chi        *chi.Config        `env:"init"     envPrefix:"CHI_"          json:"chiConfig,omitempty"        yaml:"chiConfig,omitempty"`
-	Stdlib     *stdlib.Config     `env:"init"     envPrefix:"STDLIB_"       json:"stdlibConfig,omitempty"     yaml:"stdlibConfig,omitempty"`
-	HTTPRouter *httprouter.Config `env:"init"     envPrefix:"HTTPROUTER_"   json:"httpRouterConfig,omitempty" yaml:"httpRouterConfig,omitempty"`
-	Gin        *gin.Config        `env:"init"     envPrefix:"GIN_"          json:"ginConfig,omitempty"        yaml:"ginConfig,omitempty"`
+	Chi        *chi.Config        `env:",init"    envPrefix:"CHI_"          json:"chiConfig,omitempty"        yaml:"chiConfig,omitempty"`
+	Stdlib     *stdlib.Config     `env:",init"    envPrefix:"STDLIB_"       json:"stdlibConfig,omitempty"     yaml:"stdlibConfig,omitempty"`
+	HTTPRouter *httprouter.Config `env:",init"    envPrefix:"HTTPROUTER_"   json:"httpRouterConfig,omitempty" yaml:"httpRouterConfig,omitempty"`
+	Gin        *gin.Config        `env:",init"    envPrefix:"GIN_"          json:"ginConfig,omitempty"        yaml:"ginConfig,omitempty"`
 	Provider   string             `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a router config struct.
+//
+// Provider is Required as well as constrained: ozzo's In skips empty values, so
+// without it an unset provider validated cleanly and then matched no dispatch
+// case.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderChi, ProviderStdlib, ProviderHTTPRouter, ProviderGin)),
+		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderChi, ProviderStdlib, ProviderHTTPRouter, ProviderGin)),
 	)
 }
 
 // NewBackend provides a routing.Backend from a routing config, selecting the
 // underlying router library by provider.
-func NewBackend(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider) (routing.Backend, error) {
+func NewBackend(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider) (routing.Backend, error) {
 	switch cfg.Provider {
 	case ProviderChi:
 		return chi.NewBackend(cfg.Chi, chi.WithLogger(logger), chi.WithTracerProvider(tracerProvider), chi.WithMetricsProvider(metricProvider)), nil
@@ -68,14 +72,15 @@ func NewBackend(cfg *Config, logger logging.Logger, tracerProvider tracing.Trace
 // NewRouter provides a fully-wired *routing.Router from a routing config: it
 // selects the backend by provider and layers the declarative Router on top.
 func NewRouter(
+	ctx context.Context,
 	cfg *Config,
-	enc encoding.ServerEncoderDecoder,
 	logger logging.Logger,
 	tracerProvider tracing.TracerProvider,
 	metricProvider metrics.Provider,
+	enc encoding.ServerEncoderDecoder,
 	opts ...routing.RouterOption,
 ) (*routing.Router, error) {
-	backend, err := NewBackend(cfg, logger, tracerProvider, metricProvider)
+	backend, err := NewBackend(ctx, cfg, logger, tracerProvider, metricProvider)
 	if err != nil {
 		return nil, err
 	}

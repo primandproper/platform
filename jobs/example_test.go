@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v9/distributedlock/memory"
 	"github.com/primandproper/platform-go/v9/jobs"
 	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 )
 
 // ExampleNewPool consumes a topic with a bounded set of workers, retrying a
@@ -25,7 +26,7 @@ func ExampleNewPool() {
 	pool, err := jobs.NewPool(ctx, &jobs.PoolConfig{
 		Topic:       "orders",
 		Concurrency: 4,
-		Retry:       retry.Config{MaxAttempts: 2, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond},
+		Retry:       retrycfg.Config{MaxAttempts: 2, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond},
 	}, queue.provider, func(_ context.Context, payload []byte) error {
 		if string(payload) == "malformed" {
 			// Nothing will make this parse on a second attempt, so skip the

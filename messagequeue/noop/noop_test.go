@@ -98,7 +98,7 @@ func TestConsumer_Consume(T *testing.T) {
 		t.Parallel()
 
 		c := NewConsumer()
-		c.Consume(context.Background(), make(chan bool), make(chan error))
+		c.Consume(context.Background(), make(chan error))
 	})
 }
 

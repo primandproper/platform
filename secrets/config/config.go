@@ -2,6 +2,7 @@ package secretscfg
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/errors"
@@ -11,7 +12,7 @@ import (
 	"github.com/primandproper/platform-go/v9/secrets"
 	"github.com/primandproper/platform-go/v9/secrets/env"
 	"github.com/primandproper/platform-go/v9/secrets/gcp"
-	"github.com/primandproper/platform-go/v9/secrets/kubectl"
+	"github.com/primandproper/platform-go/v9/secrets/kubernetes"
 	"github.com/primandproper/platform-go/v9/secrets/noop"
 	"github.com/primandproper/platform-go/v9/secrets/ssm"
 
@@ -27,20 +28,29 @@ const (
 	ProviderGCP = "gcp"
 	// ProviderSSM represents AWS SSM Parameter Store.
 	ProviderSSM = "ssm"
-	// ProviderKubectl represents Kubernetes secrets.
-	ProviderKubectl = "kubectl"
+	// ProviderKubernetes represents Kubernetes secrets.
+	ProviderKubernetes = "kubernetes"
 )
 
 // Config configures secret source selection.
 type Config struct {
-	GCPClient     gcp.SecretVersionAccessor `json:"-"       yaml:"-"`
-	SSMClient     ssm.GetParameterAPI       `json:"-"       yaml:"-"`
-	KubectlClient kubectl.SecretGetter      `json:"-"       yaml:"-"`
-	Env           *env.Config               `env:"init"     envPrefix:"ENV_"     json:"env,omitempty"     yaml:"env,omitempty"`
-	GCP           *gcp.Config               `env:"init"     envPrefix:"GCP_"     json:"gcp,omitempty"     yaml:"gcp,omitempty"`
-	SSM           *ssm.Config               `env:"init"     envPrefix:"SSM_"     json:"ssm,omitempty"     yaml:"ssm,omitempty"`
-	Kubectl       *kubectl.Config           `env:"init"     envPrefix:"KUBECTL_" json:"kubectl,omitempty" yaml:"kubectl,omitempty"`
-	Provider      string                    `env:"PROVIDER" json:"provider"      yaml:"provider"`
+	GCPClient        gcp.SecretVersionAccessor `json:"-"       yaml:"-"`
+	SSMClient        ssm.GetParameterAPI       `json:"-"       yaml:"-"`
+	KubernetesClient kubernetes.SecretGetter   `json:"-"       yaml:"-"`
+	Env              *env.Config               `env:",init"    envPrefix:"ENV_"        json:"env,omitempty"        yaml:"env,omitempty"`
+	GCP              *gcp.Config               `env:",init"    envPrefix:"GCP_"        json:"gcp,omitempty"        yaml:"gcp,omitempty"`
+	SSM              *ssm.Config               `env:",init"    envPrefix:"SSM_"        json:"ssm,omitempty"        yaml:"ssm,omitempty"`
+	Kubernetes       *kubernetes.Config        `env:",init"    envPrefix:"KUBERNETES_" json:"kubernetes,omitempty" yaml:"kubernetes,omitempty"`
+	Provider         string                    `env:"PROVIDER" json:"provider"         yaml:"provider"`
+}
+
+// providers are every provider this package implements, plus the empty string,
+// which selects the env source. Validation and NewSecretSource both read it.
+var providers = []string{"", ProviderEnv, ProviderNoop, ProviderGCP, ProviderSSM, ProviderKubernetes}
+
+// normalizeProvider canonicalizes a provider name the way NewSecretSource does.
+func normalizeProvider(provider string) string {
+	return strings.TrimSpace(strings.ToLower(provider))
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
@@ -48,10 +58,18 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // ValidateWithContext validates the config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderEnv, ProviderNoop, ProviderGCP, ProviderSSM, ProviderKubectl, "")),
-		validation.Field(&cfg.GCP, validation.When(cfg.Provider == ProviderGCP, validation.Required), validation.When(cfg.Provider != ProviderGCP, validation.Nil)),
-		validation.Field(&cfg.SSM, validation.When(cfg.Provider == ProviderSSM, validation.Required), validation.When(cfg.Provider != ProviderSSM, validation.Nil)),
-		validation.Field(&cfg.Kubectl, validation.When(cfg.Provider == ProviderKubectl, validation.Required), validation.When(cfg.Provider != ProviderKubectl, validation.Nil)),
+		validation.Field(&cfg.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "GCP" and " gcp " while NewSecretSource accepted both.
+			if !slices.Contains(providers, normalizeProvider(cfg.Provider)) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "secrets provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&cfg.GCP, validation.When(normalizeProvider(cfg.Provider) == ProviderGCP, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderGCP, validation.Nil)),
+		validation.Field(&cfg.SSM, validation.When(normalizeProvider(cfg.Provider) == ProviderSSM, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderSSM, validation.Nil)),
+		validation.Field(&cfg.Kubernetes, validation.When(normalizeProvider(cfg.Provider) == ProviderKubernetes, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderKubernetes, validation.Nil)),
 	)
 }
 
@@ -61,7 +79,7 @@ func (cfg *Config) NewSecretSource(ctx context.Context, logger logging.Logger, t
 		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 	}
 
-	provider := strings.TrimSpace(strings.ToLower(cfg.Provider))
+	provider := normalizeProvider(cfg.Provider)
 	switch provider {
 	case "", ProviderEnv:
 		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
@@ -77,11 +95,11 @@ func (cfg *Config) NewSecretSource(ctx context.Context, logger logging.Logger, t
 			return nil, errors.New("ssm provider requires ssm config")
 		}
 		return ssm.NewSSMSecretSource(ctx, cfg.SSM, cfg.SSMClient, ssm.WithLogger(logger), ssm.WithTracerProvider(tracerProvider), ssm.WithMetricsProvider(metricsProvider))
-	case ProviderKubectl:
-		if cfg.Kubectl == nil {
-			return nil, errors.New("kubectl provider requires kubectl config")
+	case ProviderKubernetes:
+		if cfg.Kubernetes == nil {
+			return nil, errors.New("kubernetes provider requires kubernetes config")
 		}
-		return kubectl.NewKubectlSecretSource(ctx, cfg.Kubectl, cfg.KubectlClient, kubectl.WithLogger(logger), kubectl.WithTracerProvider(tracerProvider), kubectl.WithMetricsProvider(metricsProvider))
+		return kubernetes.NewKubernetesSecretSource(ctx, cfg.Kubernetes, cfg.KubernetesClient, kubernetes.WithLogger(logger), kubernetes.WithTracerProvider(tracerProvider), kubernetes.WithMetricsProvider(metricsProvider))
 	default:
 		return nil, errors.Newf("unknown secret source provider: %q", cfg.Provider)
 	}

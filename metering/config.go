@@ -5,7 +5,7 @@ import (
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -37,8 +37,12 @@ const (
 	// statement round.
 	DefaultBatchSize = 100
 
-	// DefaultFlushInterval is how often the Flusher runs when it is driven by a
-	// ticker rather than the jobs scheduler.
+	// DefaultFlushInterval is the recommended cadence for running the Flusher.
+	//
+	// It is a suggestion for the caller's scheduler, not something this package
+	// acts on: the Flusher has no ticker of its own and does one pass per call.
+	// It was previously also a config field, which read as though setting it made
+	// the Flusher run on that interval — nothing ever did.
 	DefaultFlushInterval = 5 * time.Minute
 
 	// DefaultFlushBatchSize is how many subject-meter-period totals one flush
@@ -169,11 +173,7 @@ func (cfg *EnforcerConfig) ValidateWithContext(ctx context.Context) error {
 // provider.
 type FlusherConfig struct {
 	// Backoff schedules the retry of a total whose post failed.
-	Backoff retry.Config `env:"init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
-
-	// FlushInterval is how often the Flusher runs. Ignored when the Flusher is
-	// driven by the jobs scheduler, which owns its own cadence.
-	FlushInterval time.Duration `env:"FLUSH_INTERVAL" json:"flushInterval" yaml:"flushInterval"`
+	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
 
 	// LeaseDuration is how long a claimed total stays leased. It must exceed
 	// FlushTimeout — see ValidateWithContext.
@@ -212,9 +212,6 @@ var _ validation.ValidatableWithContext = (*FlusherConfig)(nil)
 
 // EnsureDefaults fills unset knobs with the package defaults.
 func (cfg *FlusherConfig) EnsureDefaults() {
-	if cfg.FlushInterval <= 0 {
-		cfg.FlushInterval = DefaultFlushInterval
-	}
 	if cfg.LeaseDuration <= 0 {
 		cfg.LeaseDuration = DefaultFlushLeaseDuration
 	}
@@ -243,7 +240,6 @@ func (cfg *FlusherConfig) EnsureDefaults() {
 // ValidateWithContext validates a FlusherConfig.
 func (cfg *FlusherConfig) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.FlushInterval, validation.Required),
 		validation.Field(&cfg.FlushTimeout, validation.Required),
 		validation.Field(&cfg.EventRetention, validation.Required),
 		validation.Field(&cfg.BatchSize, validation.Required, validation.Min(1)),

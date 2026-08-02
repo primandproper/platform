@@ -14,6 +14,8 @@ type queryContainer struct {
 
 type searchQuery struct {
 	Query queryContainer `json:"query"`
+	From  int            `json:"from"`
+	Size  int            `json:"size"`
 }
 
 type esHit struct {

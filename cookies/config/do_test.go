@@ -21,7 +21,6 @@ func TestRegisterCookieManager(T *testing.T) {
 
 		key := base64.StdEncoding.EncodeToString([]byte("HEREISA32CHARSECRETWHICHISMADEUP"))
 		cfg := &cookies.Config{
-			CookieName:            t.Name(),
 			Base64EncodedHashKey:  key,
 			Base64EncodedBlockKey: key,
 			Lifetime:              24 * time.Hour,

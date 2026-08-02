@@ -1,15 +1,15 @@
-package retry_test
+package retrycfg_test
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 )
 
 func ExampleNewExponentialBackoffPolicy() {
-	policy := retry.NewExponentialBackoffPolicy(retry.Config{
+	policy := retrycfg.NewExponentialBackoffPolicy(retrycfg.Config{
 		MaxAttempts:  3,
 		InitialDelay: 10 * time.Millisecond,
 		MaxDelay:     100 * time.Millisecond,

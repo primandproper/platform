@@ -6,7 +6,6 @@ import (
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/circuitbreaking/partitioned"
-	"github.com/primandproper/platform-go/v9/circuitbreaking/partitioned/noop"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
@@ -25,8 +24,8 @@ const (
 
 // Config configures a partitioned (keyed) circuit breaker.
 type Config struct {
-	Keys []string                  `env:"KEYS" json:"circuitBreakerKeys" yaml:"circuitBreakerKeys"`
-	Base circuitbreakingcfg.Config `env:"init" envPrefix:"BASE_"         json:"base"               yaml:"base"`
+	Keys []string                  `env:"KEYS"  json:"circuitBreakerKeys" yaml:"circuitBreakerKeys"`
+	Base circuitbreakingcfg.Config `env:",init" envPrefix:"BASE_"         json:"base"               yaml:"base"`
 }
 
 // EnsureDefaults ensures the config has sane defaults.
@@ -53,12 +52,14 @@ func (cfg *Config) NewKeyedCircuitBreaker(ctx context.Context, logger logging.Lo
 
 	logger = logging.EnsureLogger(logger)
 
-	if err := cfg.ValidateWithContext(ctx); err != nil {
-		logger.Error("invalid config passed, providing noop keyed circuit breaker", err)
-		return noop.NewKeyedCircuitBreaker(), nil
-	}
-
+	// Defaults are applied before validating, matching the base package: an unset
+	// Base.Name is the common case, and validating first turned it into a noop
+	// keyed breaker — protection that looks wired and does nothing.
 	cfg.EnsureDefaults()
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating keyed circuit breaker config")
+	}
 
 	global, err := cfg.Base.NewCircuitBreaker(ctx, logger, metricsProvider, circuitbreakingcfg.WithMetricAttributes(attribute.String(partitionAttributeKey, globalPartition)))
 	if err != nil {

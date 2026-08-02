@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/authentication/tokens"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/identifiers"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -26,7 +27,15 @@ type (
 	}
 )
 
-func NewPASETOSigner(issuer, audience string, signingKey []byte, opts ...Option) (tokens.Issuer, error) {
+// NewSigner builds a PASETO-backed tokens.Issuer.
+//
+// An empty signingKey is rejected: a zero-length key is not a secret, and the
+// tokens minted under one are forgeable by anyone who notices.
+func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (tokens.Issuer, error) {
+	if len(signingKey) == 0 {
+		return nil, platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "PASETO signing key")
+	}
+
 	o := newOptions(opts)
 
 	s := &signer{

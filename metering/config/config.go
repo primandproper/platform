@@ -41,13 +41,13 @@ type Config struct {
 	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
 
 	// Enforcer carries the read path's knobs.
-	Enforcer metering.EnforcerConfig `env:"init" envPrefix:"ENFORCER_" json:"enforcer" yaml:"enforcer"`
+	Enforcer metering.EnforcerConfig `env:",init" envPrefix:"ENFORCER_" json:"enforcer" yaml:"enforcer"`
 
 	// Flusher carries the provider push's knobs.
-	Flusher metering.FlusherConfig `env:"init" envPrefix:"FLUSHER_" json:"flusher" yaml:"flusher"`
+	Flusher metering.FlusherConfig `env:",init" envPrefix:"FLUSHER_" json:"flusher" yaml:"flusher"`
 
 	// Recorder carries the ingest path's knobs.
-	Recorder metering.RecorderConfig `env:"init" envPrefix:"RECORDER_" json:"recorder" yaml:"recorder"`
+	Recorder metering.RecorderConfig `env:",init" envPrefix:"RECORDER_" json:"recorder" yaml:"recorder"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

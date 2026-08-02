@@ -134,8 +134,11 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 		// Assert the outbound request carried the right fields — not just that no error
 		// came back. This is the effect C-08 corrupted: sender/recipient swapped and HTML
 		// smuggled into the plain-text body.
-		test.EqOp(t, "Sender Name <sender@example.com>", gotForm.Get("from"))
-		test.EqOp(t, "Recipient Name <recipient@example.com>", gotForm.Get("to"))
+		// Display names are quoted, matching every other provider in this package:
+		// they go through mail.Address, so a comma in a name cannot become a
+		// second recipient.
+		test.EqOp(t, `"Sender Name" <sender@example.com>`, gotForm.Get("from"))
+		test.EqOp(t, `"Recipient Name" <recipient@example.com>`, gotForm.Get("to"))
 		test.EqOp(t, details.Subject, gotForm.Get("subject"))
 		test.EqOp(t, details.HTMLContent, gotForm.Get("html"))
 		test.EqOp(t, "", gotForm.Get("text"))
@@ -193,5 +196,35 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 			keys.EmailToAddressKey: details.ToAddress,
 		})
 		must.SliceLen(t, 1, op.Errors)
+	})
+}
+
+func Test_formatAddress(T *testing.T) {
+	T.Parallel()
+
+	T.Run("bare address when there is no name", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "a@example.com", formatAddress("", "a@example.com"))
+		test.EqOp(t, "a@example.com", formatAddress("   ", "a@example.com"))
+	})
+
+	// mailgun accepts a comma-separated list wherever it accepts an address, so
+	// an unescaped comma in a display name adds recipients.
+	T.Run("quotes a display name containing a comma", func(t *testing.T) {
+		t.Parallel()
+
+		got := formatAddress(`Spot, attacker@evil.example`, "a@example.com")
+
+		test.StrContains(t, got, `"Spot, attacker@evil.example"`)
+		test.StrHasSuffix(t, "<a@example.com>", got)
+	})
+
+	T.Run("escapes quotes in a display name", func(t *testing.T) {
+		t.Parallel()
+
+		got := formatAddress(`Spot "the" Dog`, "a@example.com")
+
+		test.StrContains(t, got, `\"the\"`)
 	})
 }

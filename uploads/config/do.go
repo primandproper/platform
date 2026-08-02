@@ -1,4 +1,4 @@
-package config
+package uploadscfg
 
 import (
 	"github.com/primandproper/platform-go/v9/uploads/objectstorage"

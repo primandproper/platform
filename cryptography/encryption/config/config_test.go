@@ -1,4 +1,4 @@
-package config
+package encryptioncfg
 
 import (
 	"testing"
@@ -57,7 +57,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("aes provider", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(&Config{Provider: ProviderAES}, tracerProvider, logger, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: ProviderAES}, logger, tracerProvider, key)
 		test.NoError(t, err)
 		test.NotNil(t, encDec)
 	})
@@ -65,7 +65,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("salsa20 provider", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(&Config{Provider: ProviderSalsa20}, tracerProvider, logger, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: ProviderSalsa20}, logger, tracerProvider, key)
 		test.NoError(t, err)
 		test.NotNil(t, encDec)
 	})
@@ -73,7 +73,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("empty provider errors", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(&Config{}, tracerProvider, logger, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{}, logger, tracerProvider, key)
 		test.Error(t, err)
 		test.Nil(t, encDec)
 	})
@@ -81,7 +81,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("unknown provider errors", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(&Config{Provider: "invalid"}, tracerProvider, logger, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: "invalid"}, logger, tracerProvider, key)
 		test.Error(t, err)
 		test.Nil(t, encDec)
 	})
@@ -89,7 +89,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("nil config errors", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(nil, tracerProvider, logger, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), nil, logger, tracerProvider, key)
 		test.Error(t, err)
 		test.Nil(t, encDec)
 	})

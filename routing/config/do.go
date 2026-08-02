@@ -1,6 +1,8 @@
 package routingcfg
 
 import (
+	"context"
+
 	"github.com/primandproper/platform-go/v9/encoding"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
@@ -16,6 +18,7 @@ import (
 func RegisterRouter(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (routing.Backend, error) {
 		return NewBackend(
+			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			do.MustInvoke[logging.Logger](i),
 			do.MustInvoke[tracing.TracerProvider](i),

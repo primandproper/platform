@@ -122,13 +122,3 @@ func TestSQL(T *testing.T) {
 		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 }
-
-func TestTableSuffixes(T *testing.T) {
-	T.Parallel()
-
-	T.Run("names the one table this package creates", func(t *testing.T) {
-		t.Parallel()
-
-		test.Eq(t, []string{"instances"}, TableSuffixes)
-	})
-}

@@ -18,7 +18,7 @@ func TestResponse(T *testing.T) {
 
 		out := Response(&anyllm.ChatCompletion{
 			ID:    "resp-1",
-			Model: "claude-sonnet-4-20250514",
+			Model: "claude-sonnet-5",
 			Choices: []anyllm.Choice{{
 				FinishReason: anyllm.FinishReasonStop,
 				Message: anyllm.Message{
@@ -36,7 +36,7 @@ func TestResponse(T *testing.T) {
 		must.NotNil(t, out)
 
 		test.EqOp(t, "resp-1", out.ID)
-		test.EqOp(t, "claude-sonnet-4-20250514", out.Model)
+		test.EqOp(t, "claude-sonnet-5", out.Model)
 		test.EqOp(t, llm.StopReasonEndTurn, out.StopReason)
 		test.EqOp(t, "hello", out.Text())
 

@@ -23,7 +23,16 @@ const (
 	// it is stable enough to persist alongside stored completions.
 	providerName = "anthropic"
 	// fallbackModel is used when neither the request nor the config names one.
-	fallbackModel = "claude-sonnet-4-20250514"
+	//
+	// It is deliberately a current, non-dated model alias rather than a pinned
+	// snapshot: a dated ID retires on a published schedule and then starts
+	// 404ing with no code change on this side, which is a failure that shows up
+	// in production on a date nobody wrote down. The alias tracks the model.
+	//
+	// Sonnet tier is the default because this is what a caller who named no
+	// model at all gets — a library should not silently select the most
+	// expensive option on their behalf.
+	fallbackModel = "claude-sonnet-5"
 )
 
 var _ llm.Provider = (*anthropicProvider)(nil)
@@ -96,8 +105,6 @@ func (*anthropicProvider) Name() string {
 
 // Capabilities implements llm.Provider.
 //
-// PDFs is true because Anthropic accepts document blocks, but note that nothing
-// in the platform's surface reaches them yet: llm.Part has no document kind, so
 // the capability describes the provider rather than what a caller can currently
 // ask for.
 func (*anthropicProvider) Capabilities() llm.Capabilities {
@@ -105,7 +112,6 @@ func (*anthropicProvider) Capabilities() llm.Capabilities {
 		Streaming:        true,
 		Tools:            true,
 		Images:           true,
-		PDFs:             true,
 		Reasoning:        true,
 		StructuredOutput: true,
 	}

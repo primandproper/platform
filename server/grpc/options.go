@@ -13,6 +13,8 @@ type Option func(*options)
 type options struct {
 	logger         logging.Logger
 	tracerProvider tracing.TracerProvider
+	serviceName    string
+	reflection     bool
 }
 
 func newOptions(opts []Option) *options {
@@ -35,4 +37,22 @@ func WithLogger(logger logging.Logger) Option {
 // RPCs.
 func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
+}
+
+// WithServiceName names the server's logger and instrumentation scope. It
+// mirrors the HTTP server's serviceName, which is an option there for the same
+// reason: a hardcoded name makes two servers in one process indistinguishable
+// in logs.
+func WithServiceName(serviceName string) Option {
+	return func(o *options) { o.serviceName = serviceName }
+}
+
+// WithReflection registers the gRPC server reflection service.
+//
+// It is off by default. Reflection enumerates every method and message the
+// server exposes to anyone who can reach the port, which is a debugging
+// convenience in development and an inventory of the attack surface in
+// production — so it is opted into rather than out of.
+func WithReflection() Option {
+	return func(o *options) { o.reflection = true }
 }

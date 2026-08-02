@@ -33,6 +33,7 @@ type inMemoryCacheImpl[T any] struct {
 	metricsProvider   metrics.Provider
 	clock             clock.Clock
 	janitor           func()
+	stopJanitor       context.CancelFunc
 	cacheHitCounter   metrics.Int64Counter
 	cacheMissCounter  metrics.Int64Counter
 	cacheSetCounter   metrics.Int64Counter
@@ -71,8 +72,13 @@ func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (cache
 
 	// Staged, not started: the sweep must not observe a half-built cache, so it
 	// is launched at the end of construction once the counters exist.
+	//
+	// The derived context is what Close cancels, so the sweep stops either on
+	// Close or when the caller's own context is done, whichever comes first.
 	if o.janitorCtx != nil && o.janitorInterval > 0 {
-		i.janitor = func() { go i.sweepEvery(o.janitorCtx, o.janitorInterval) }
+		janitorCtx, stop := context.WithCancel(o.janitorCtx)
+		i.stopJanitor = stop
+		i.janitor = func() { go i.sweepEvery(janitorCtx, o.janitorInterval) }
 	}
 
 	i.o11y = observability.NewObserver(name, i.logger, i.tracerProvider)
@@ -353,6 +359,18 @@ func (i *inMemoryCacheImpl[T]) Ping(ctx context.Context) error {
 	defer op.End()
 
 	op.Logger().Debug("ping")
+
+	return nil
+}
+
+// Close stops the janitor, if one is running. Entries are left in place: the
+// map is unreachable once the cache is, and Close is not an eviction.
+//
+// It is safe to call more than once.
+func (i *inMemoryCacheImpl[T]) Close() error {
+	if i.stopJanitor != nil {
+		i.stopJanitor()
+	}
 
 	return nil
 }

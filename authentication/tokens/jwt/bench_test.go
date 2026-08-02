@@ -8,7 +8,7 @@ import (
 )
 
 func BenchmarkJWTSigner(b *testing.B) {
-	s, err := NewJWTSigner("platform-bench", "bench", []byte("HEREISA32CHARSECRETWHICHISMADEUP"))
+	s, err := NewSigner("platform-bench", "bench", []byte("HEREISA32CHARSECRETWHICHISMADEUP"))
 	must.NoError(b, err)
 
 	ctx := b.Context()

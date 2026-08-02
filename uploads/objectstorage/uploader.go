@@ -49,13 +49,13 @@ type (
 	// Config configures our UploadManager.
 	Config struct {
 		_                 struct{}                  `json:"-"            yaml:"-"`
-		FilesystemConfig  *FilesystemConfig         `env:"init"          envPrefix:"FILESYSTEM_"       json:"filesystem,omitempty"   yaml:"filesystem,omitempty"`
-		R2Config          *R2Config                 `env:"init"          envPrefix:"R2_"               json:"r2,omitempty"           yaml:"r2,omitempty"`
-		BackblazeB2Config *BackblazeB2Config        `env:"init"          envPrefix:"BACKBLAZE_B2_"     json:"backblazeB2,omitempty"  yaml:"backblazeB2,omitempty"`
+		FilesystemConfig  *FilesystemConfig         `env:",init"         envPrefix:"FILESYSTEM_"       json:"filesystem,omitempty"   yaml:"filesystem,omitempty"`
+		R2Config          *R2Config                 `env:",init"         envPrefix:"R2_"               json:"r2,omitempty"           yaml:"r2,omitempty"`
+		BackblazeB2Config *BackblazeB2Config        `env:",init"         envPrefix:"BACKBLAZE_B2_"     json:"backblazeB2,omitempty"  yaml:"backblazeB2,omitempty"`
 		BucketPrefix      string                    `env:"BUCKET_PREFIX" json:"bucketPrefix,omitempty" yaml:"bucketPrefix,omitempty"`
 		BucketName        string                    `env:"BUCKET_NAME"   json:"bucketName,omitempty"   yaml:"bucketName,omitempty"`
 		Provider          string                    `env:"PROVIDER"      json:"provider,omitempty"     yaml:"provider,omitempty"`
-		CircuitBreaker    circuitbreakingcfg.Config `env:"init"          envPrefix:"CIRCUIT_BREAKING_" json:"circuitBreakerConfig"   yaml:"circuitBreakerConfig"`
+		CircuitBreaker    circuitbreakingcfg.Config `env:",init"         envPrefix:"CIRCUIT_BREAKING_" json:"circuitBreakerConfig"   yaml:"circuitBreakerConfig"`
 	}
 )
 
@@ -69,7 +69,7 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 
 	return validation.ValidateStructWithContext(ctx, c,
 		validation.Field(&c.BucketName, validation.Required),
-		validation.Field(&c.Provider, validation.In(S3Provider, FilesystemProvider, MemoryProvider, GCPCloudStorageProvider, R2Provider, BackblazeB2Provider)),
+		validation.Field(&c.Provider, validation.Required, validation.In(S3Provider, FilesystemProvider, MemoryProvider, GCPCloudStorageProvider, R2Provider, BackblazeB2Provider)),
 		validation.Field(&c.FilesystemConfig, validation.When(c.Provider == FilesystemProvider, validation.Required).Else(validation.Nil)),
 		validation.Field(&c.R2Config, validation.When(c.Provider == R2Provider, validation.Required).Else(validation.Nil)),
 		validation.Field(&c.BackblazeB2Config, validation.When(c.Provider == BackblazeB2Provider, validation.Required).Else(validation.Nil)),
@@ -241,7 +241,17 @@ func (u *Uploader) selectBucket(ctx context.Context, cfg *Config) (err error) {
 	}
 
 	if cfg.BucketPrefix != "" {
-		u.bucket = blob.PrefixedBucket(u.bucket, cfg.BucketPrefix)
+		// The trailing separator is enforced rather than assumed. gocloud
+		// concatenates the prefix with the key verbatim, so a prefix of "acme"
+		// turns key "1/x" into "acme1/x" — which is also what tenant "acme1"
+		// writes, so two tenants silently share a namespace and List returns each
+		// other's objects.
+		prefix := cfg.BucketPrefix
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+
+		u.bucket = blob.PrefixedBucket(u.bucket, prefix)
 	}
 
 	return err

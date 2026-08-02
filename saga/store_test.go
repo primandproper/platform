@@ -407,7 +407,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		}
 
 		filter := filtering.DefaultQueryFilter()
-		filter.MaxResponseSize = pointer.To(uint8(2))
+		filter.MaxResponseSize = pointer.To(uint16(2))
 
 		first, err := store.List(t.Context(), nil, filter)
 		must.NoError(t, err)

@@ -39,7 +39,7 @@ type Config struct {
 
 	// Sweeper carries the retention knobs, and the dialect and table prefix that
 	// the Recorder and Reader take as well.
-	Sweeper audit.SweeperConfig `env:"init" json:"sweeper" yaml:"sweeper"`
+	Sweeper audit.SweeperConfig `env:",init" json:"sweeper" yaml:"sweeper"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

@@ -27,7 +27,7 @@ Pool binds a messagequeue.Consumer to a Handler:
 	go pool.Run()
 	defer func() { _ = pool.Close(shutdownCtx) }()
 
-A returned error retries with backoff from retry.Config; past MaxAttempts the
+A returned error retries with backoff from retrycfg.Config; past MaxAttempts the
 message is dead-lettered. An error wrapped with retry.Unretryable skips the
 remaining attempts and goes straight there, which is what a payload that fails
 to parse deserves — it will fail to parse three more times, and each of those

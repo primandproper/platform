@@ -28,11 +28,16 @@ const (
 // Config dispatches to a vectorsearch provider implementation.
 type Config struct {
 	_              struct{}                  `json:"-"       yaml:"-"`
-	Pgvector       *pgvector.Config          `env:"init"     envPrefix:"PGVECTOR_"        json:"pgvector"             yaml:"pgvector"`
-	Qdrant         *qdrant.Config            `env:"init"     envPrefix:"QDRANT_"          json:"qdrant"               yaml:"qdrant"`
+	Pgvector       *pgvector.Config          `env:",init"    envPrefix:"PGVECTOR_"        json:"pgvector"             yaml:"pgvector"`
+	Qdrant         *qdrant.Config            `env:",init"    envPrefix:"QDRANT_"          json:"qdrant"               yaml:"qdrant"`
 	Provider       string                    `env:"PROVIDER" json:"provider"              yaml:"provider"`
-	CircuitBreaker circuitbreakingcfg.Config `env:"init"     envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
+	CircuitBreaker circuitbreakingcfg.Config `env:",init"    envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
 }
+
+// ProviderNoop indexes and searches nothing. It must be selected deliberately —
+// an unset or typo'd provider is an error, because an index that quietly accepts
+// every write and returns no hits looks like an empty corpus.
+const ProviderNoop = "noop"
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
@@ -42,7 +47,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	cfg.Provider = strings.TrimSpace(strings.ToLower(cfg.Provider))
 
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(PGvectorProvider, QdrantProvider)),
+		validation.Field(&cfg.Provider, validation.Required, validation.In(PGvectorProvider, QdrantProvider, ProviderNoop)),
 		validation.Field(&cfg.Pgvector, validation.When(cfg.Provider == PGvectorProvider, validation.Required)),
 		validation.Field(&cfg.Qdrant, validation.When(cfg.Provider == QdrantProvider, validation.Required)),
 	)
@@ -50,8 +55,8 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 // NewIndex builds a vectorsearch.Index for the configured provider. The db
 // argument is required only when Provider is PGvectorProvider; pass nil otherwise.
-// Unknown or empty providers fall back to a noop index, matching the search/text
-// dispatch convention.
+// An unknown or empty provider is an error; the noop index is reachable by
+// naming it, matching the search/text dispatch convention.
 func NewIndex[T any](
 	ctx context.Context,
 	logger logging.Logger,
@@ -65,6 +70,10 @@ func NewIndex[T any](
 		return nil, vectorsearch.ErrNilConfig
 	}
 
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating vector search config")
+	}
+
 	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, logger, metricsProvider)
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing vector search circuit breaker")
@@ -75,7 +84,9 @@ func NewIndex[T any](
 		return pgvector.NewIndex[T](ctx, cfg.Pgvector, db, indexName, circuitBreaker, pgvector.WithLogger(logger), pgvector.WithTracerProvider(tracerProvider), pgvector.WithMetricsProvider(metricsProvider))
 	case QdrantProvider:
 		return qdrant.NewIndex[T](ctx, cfg.Qdrant, indexName, circuitBreaker, qdrant.WithLogger(logger), qdrant.WithTracerProvider(tracerProvider), qdrant.WithMetricsProvider(metricsProvider))
-	default:
+	case ProviderNoop:
 		return noop.NewIndex[T](), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "vector search provider %q", cfg.Provider)
 	}
 }

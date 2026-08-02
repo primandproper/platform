@@ -166,7 +166,7 @@ func TestRouter_encoderFor(T *testing.T) {
 
 	r := newTestRouter(T, newFakeBackend())
 
-	test.EqOp(T, r.enc, r.encoderFor(nil))
+	test.EqOp(T, r.enc, r.encoderFor(""))
 
 	first := r.encoderFor(encoding.ContentTypeXML)
 	test.NotNil(T, first)

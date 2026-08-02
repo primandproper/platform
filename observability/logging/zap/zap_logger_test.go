@@ -101,7 +101,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 		l, ok := NewZapLogger(logging.DebugLevel).(*zapLogger)
 		must.True(t, ok)
 
-		l.SetLevel(nil)
+		l.SetLevel("")
 	})
 }
 

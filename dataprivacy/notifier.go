@@ -3,6 +3,7 @@ package dataprivacy
 import (
 	"context"
 	"fmt"
+	"html"
 	"time"
 
 	"github.com/primandproper/platform-go/v9/email"
@@ -162,10 +163,18 @@ func (n *EmailNotifier) Notify(ctx context.Context, notification *Notification) 
 func renderDefaultMessage(notification *Notification, to Recipient) (subject, htmlBody string) {
 	req := notification.Request
 
+	// Everything interpolated below lands in an HTML mail body, so it is escaped
+	// first. The display name in particular is subject-supplied in most
+	// deployments — it is whatever they typed into a profile form — and pasting
+	// it in raw makes every one of these notifications an injection sink.
 	greeting := "Hello"
 	if to.Name != "" {
-		greeting = "Hello " + to.Name
+		greeting = "Hello " + html.EscapeString(to.Name)
 	}
+
+	requestID := html.EscapeString(req.ID)
+	requestType := html.EscapeString(string(req.Type))
+	downloadURL := html.EscapeString(notification.DownloadURL)
 
 	switch {
 	case req.Status == StatusFailed:
@@ -173,7 +182,7 @@ func renderDefaultMessage(notification *Notification, to Recipient) (subject, ht
 			fmt.Sprintf(
 				"<p>%s,</p><p>We were unable to complete your %s request (reference %s). "+
 					"Our team has been notified and will follow up.</p>",
-				greeting, req.Type, req.ID,
+				greeting, requestType, requestID,
 			)
 
 	case req.Type == RequestErasure:
@@ -181,7 +190,7 @@ func renderDefaultMessage(notification *Notification, to Recipient) (subject, ht
 			fmt.Sprintf(
 				"<p>%s,</p><p>Your erasure request (reference %s) has been completed. "+
 					"Some records may have been retained where we are legally required to keep them.</p>",
-				greeting, req.ID,
+				greeting, requestID,
 			)
 
 	case notification.DownloadURL == "":
@@ -189,7 +198,7 @@ func renderDefaultMessage(notification *Notification, to Recipient) (subject, ht
 			fmt.Sprintf(
 				"<p>%s,</p><p>Your data export (reference %s) is ready. "+
 					"Please sign in to download it.</p>",
-				greeting, req.ID,
+				greeting, requestID,
 			)
 
 	default:
@@ -198,7 +207,7 @@ func renderDefaultMessage(notification *Notification, to Recipient) (subject, ht
 				"<p>%s,</p><p>Your data export (reference %s) is ready.</p>"+
 					"<p><a href=%q>Download your data</a></p>"+
 					"<p>This link expires at %s. The export itself is deleted at %s.</p>",
-				greeting, req.ID, notification.DownloadURL,
+				greeting, requestID, downloadURL,
 				notification.ExpiresAt.Format(time.RFC1123),
 				req.ExpiresAt.Format(time.RFC1123),
 			)

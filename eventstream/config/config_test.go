@@ -1,4 +1,4 @@
-package config
+package eventstreamcfg
 
 import (
 	"testing"
@@ -52,9 +52,9 @@ func TestNewEventStreamUpgrader(T *testing.T) {
 	T.Run("SSE", func(t *testing.T) {
 		t.Parallel()
 
-		upgrader, err := NewEventStreamUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{
+		upgrader, err := NewEventStreamUpgrader(t.Context(), &Config{
 			Provider: ProviderSSE,
-		})
+		}, nil, tracingnoop.NewTracerProvider())
 
 		must.NoError(t, err)
 		test.NotNil(t, upgrader)
@@ -63,9 +63,9 @@ func TestNewEventStreamUpgrader(T *testing.T) {
 	T.Run("WebSocket", func(t *testing.T) {
 		t.Parallel()
 
-		upgrader, err := NewEventStreamUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{
+		upgrader, err := NewEventStreamUpgrader(t.Context(), &Config{
 			Provider: ProviderWebSocket,
-		})
+		}, nil, tracingnoop.NewTracerProvider())
 
 		must.NoError(t, err)
 		test.NotNil(t, upgrader)
@@ -74,7 +74,7 @@ func TestNewEventStreamUpgrader(T *testing.T) {
 	T.Run("invalid provider", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewEventStreamUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{})
+		_, err := NewEventStreamUpgrader(t.Context(), &Config{}, nil, tracingnoop.NewTracerProvider())
 
 		test.Error(t, err)
 	})
@@ -86,9 +86,9 @@ func TestNewBidirectionalEventStreamUpgrader(T *testing.T) {
 	T.Run("SSE returns error", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewBidirectionalEventStreamUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{
+		_, err := NewBidirectionalEventStreamUpgrader(t.Context(), &Config{
 			Provider: ProviderSSE,
-		})
+		}, nil, tracingnoop.NewTracerProvider())
 
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "SSE does not support bidirectional")
@@ -97,9 +97,9 @@ func TestNewBidirectionalEventStreamUpgrader(T *testing.T) {
 	T.Run("WebSocket", func(t *testing.T) {
 		t.Parallel()
 
-		upgrader, err := NewBidirectionalEventStreamUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{
+		upgrader, err := NewBidirectionalEventStreamUpgrader(t.Context(), &Config{
 			Provider: ProviderWebSocket,
-		})
+		}, nil, tracingnoop.NewTracerProvider())
 
 		must.NoError(t, err)
 		test.NotNil(t, upgrader)
@@ -108,7 +108,7 @@ func TestNewBidirectionalEventStreamUpgrader(T *testing.T) {
 	T.Run("invalid provider", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewBidirectionalEventStreamUpgrader(nil, tracingnoop.NewTracerProvider(), &Config{})
+		_, err := NewBidirectionalEventStreamUpgrader(t.Context(), &Config{}, nil, tracingnoop.NewTracerProvider())
 
 		test.Error(t, err)
 	})

@@ -2,17 +2,19 @@ package cohere
 
 import (
 	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 // Option configures the embedder this package constructs. The zero
-// configuration works: an absent logger logs nowhere and an absent tracer
-// provider traces nowhere.
+// configuration works: an absent logger logs nowhere, an absent tracer
+// provider traces nowhere, and an absent metrics provider records nothing.
 type Option func(*options)
 
 type options struct {
-	logger         logging.Logger
-	tracerProvider tracing.TracerProvider
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
 }
 
 func newOptions(opts []Option) *options {
@@ -35,4 +37,10 @@ func WithLogger(logger logging.Logger) Option {
 // operation.
 func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
+}
+
+// WithMetricsProvider attaches a metrics provider for the package's request,
+// error, and latency instruments.
+func WithMetricsProvider(metricsProvider metrics.Provider) Option {
+	return func(o *options) { o.metricsProvider = metricsProvider }
 }

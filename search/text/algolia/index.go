@@ -7,11 +7,22 @@ import (
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/keys"
+	textsearch "github.com/primandproper/platform-go/v9/search/text"
+
+	"github.com/algolia/algoliasearch-client-go/v3/algolia/opt"
 )
 
 const (
 	objectIDKey = "objectID"
 	idKey       = "id"
+
+	// backendName tags cursors this package issues, so one cannot be resumed
+	// against a different backend.
+	backendName = "algolia"
+
+	// maxSearchLimit caps a single page. Algolia's own ceiling for
+	// hitsPerPage is 1000, which is far past useful.
+	maxSearchLimit = 200
 )
 
 var (
@@ -54,8 +65,8 @@ func (m *indexManager[T]) Index(ctx context.Context, id string, value any) error
 	return nil
 }
 
-// Search implements our indexManager interface.
-func (m *indexManager[T]) Search(ctx context.Context, query string) ([]*T, error) {
+// Search implements our IndexSearcher interface.
+func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchRequest) (*textsearch.SearchResults[T], error) {
 	_, op := m.o11y.Begin(ctx)
 	defer op.End()
 
@@ -63,13 +74,26 @@ func (m *indexManager[T]) Search(ctx context.Context, query string) ([]*T, error
 		return nil, circuitbreaking.ErrCircuitBroken
 	}
 
-	op.Set(keys.SearchQueryKey, query)
+	op.Set(keys.SearchQueryKey, req.Query)
 
-	if query == "" {
+	if req.Query == "" {
 		return nil, ErrEmptyQueryProvided
 	}
 
-	res, searchErr := m.client.Search(query)
+	// Algolia paginates by page number, not document offset, so that is what
+	// this backend's cursor carries.
+	page, err := textsearch.DecodeCursor(backendName, req.Cursor)
+	if err != nil {
+		m.circuitBreaker.Failed()
+
+		return nil, err
+	}
+
+	hitsPerPage := textsearch.EffectiveLimit(req.Limit, maxSearchLimit)
+
+	op.Set("search.page", page).Set("search.hitsPerPage", hitsPerPage)
+
+	res, searchErr := m.client.Search(req.Query, opt.Page(page), opt.HitsPerPage(hitsPerPage))
 	if searchErr != nil {
 		m.circuitBreaker.Failed()
 		return nil, searchErr
@@ -86,9 +110,9 @@ func (m *indexManager[T]) Search(ctx context.Context, query string) ([]*T, error
 		}
 
 		var encodedAsJSON []byte
-		encodedAsJSON, err := json.Marshal(hit)
-		if err != nil {
-			return nil, err
+		encodedAsJSON, marshalErr := json.Marshal(hit)
+		if marshalErr != nil {
+			return nil, marshalErr
 		}
 
 		if unmarshalErr := json.Unmarshal(encodedAsJSON, &x); unmarshalErr != nil {
@@ -101,8 +125,22 @@ func (m *indexManager[T]) Search(ctx context.Context, query string) ([]*T, error
 	op.Set(keys.LengthKey, len(results))
 	op.Logger().Debug("search performed")
 
+	out := &textsearch.SearchResults[T]{Hits: results}
+
+	// NbPages is authoritative for whether another page exists; a short page is
+	// not the signal, since Algolia can return fewer hits than hitsPerPage and
+	// still have more pages behind it.
+	if next := page + 1; len(results) > 0 && next < res.NbPages {
+		if out.NextCursor, err = textsearch.EncodeCursor(backendName, next); err != nil {
+			m.circuitBreaker.Failed()
+
+			return nil, err
+		}
+	}
+
 	m.circuitBreaker.Succeeded()
-	return results, nil
+
+	return out, nil
 }
 
 // Delete implements our indexManager interface.

@@ -30,7 +30,9 @@ var errStub = errors.New("stub error")
 type mockTracerProvider struct {
 	noop.TracerProvider
 	forceFlushFunc  func(ctx context.Context) error
+	shutdownFunc    func(ctx context.Context) error
 	forceFlushCalls int
+	shutdownCalls   int
 }
 
 func (m *mockTracerProvider) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
@@ -43,6 +45,14 @@ func (m *mockTracerProvider) ForceFlush(ctx context.Context) error {
 		return nil
 	}
 	return m.forceFlushFunc(ctx)
+}
+
+func (m *mockTracerProvider) Shutdown(ctx context.Context) error {
+	m.shutdownCalls++
+	if m.shutdownFunc == nil {
+		return nil
+	}
+	return m.shutdownFunc(ctx)
 }
 
 func generateTestTLSCerts(t *testing.T) (certFile, keyFile string) {
@@ -125,7 +135,7 @@ func TestNewGRPCServer(T *testing.T) {
 
 		cfg := &Config{
 			Port:                  0,
-			HTTPSCertificateFile:  "/nonexistent/cert.pem",
+			TLSCertificateFile:    "/nonexistent/cert.pem",
 			TLSCertificateKeyFile: "/nonexistent/key.pem",
 		}
 
@@ -142,7 +152,7 @@ func TestNewGRPCServer(T *testing.T) {
 
 		cfg := &Config{
 			Port:                  0,
-			HTTPSCertificateFile:  certFile,
+			TLSCertificateFile:    certFile,
 			TLSCertificateKeyFile: keyFile,
 		}
 
@@ -229,7 +239,7 @@ func TestServer_Shutdown(T *testing.T) {
 		srv, err := NewGRPCServer(cfg, nil, nil, nil, WithTracerProvider(mtp))
 		must.NoError(t, err)
 
-		srv.Shutdown(context.Background())
+		_ = srv.Shutdown(context.Background())
 
 		test.EqOp(t, 1, mtp.forceFlushCalls)
 	})
@@ -296,7 +306,7 @@ func TestServer_Serve(T *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			srv.Serve(ctx)
+			_ = srv.Serve(ctx)
 			close(done)
 		}()
 
@@ -322,6 +332,101 @@ func TestServer_Serve(T *testing.T) {
 		must.NoError(t, err)
 
 		// Should return immediately because the port is already in use.
-		srv.Serve(t.Context())
+		_ = srv.Serve(t.Context())
+	})
+}
+
+func TestNewGRPCServer_Options(T *testing.T) {
+	T.Parallel()
+
+	T.Run("reflection is off unless asked for", func(t *testing.T) {
+		t.Parallel()
+
+		// Reflection publishes a full method inventory to anyone who can reach
+		// the port, so it is opt-in rather than always registered.
+		srv, err := NewGRPCServer(&Config{Port: 0}, nil, nil, nil)
+		must.NoError(t, err)
+		must.NotNil(t, srv)
+
+		test.MapEmpty(t, srv.grpcServer.GetServiceInfo())
+	})
+
+	T.Run("WithReflection registers the reflection service", func(t *testing.T) {
+		t.Parallel()
+
+		srv, err := NewGRPCServer(&Config{Port: 0}, nil, nil, nil, WithReflection())
+		must.NoError(t, err)
+		must.NotNil(t, srv)
+
+		test.MapNotEmpty(t, srv.grpcServer.GetServiceInfo())
+	})
+
+	T.Run("WithServiceName names the logger", func(t *testing.T) {
+		t.Parallel()
+
+		srv, err := NewGRPCServer(&Config{Port: 0}, nil, nil, nil, WithServiceName("billing"))
+		must.NoError(t, err)
+		must.NotNil(t, srv.logger)
+	})
+}
+
+func TestServer_Serve_ReturnValues(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a bind failure is returned rather than swallowed", func(t *testing.T) {
+		t.Parallel()
+
+		lis, err := new(net.ListenConfig).Listen(t.Context(), "tcp", ":0")
+		must.NoError(t, err)
+		t.Cleanup(func() { _ = lis.Close() })
+
+		port, ok := lis.Addr().(*net.TCPAddr)
+		must.True(t, ok)
+
+		srv, err := NewGRPCServer(&Config{Port: uint16(port.Port)}, nil, nil, nil)
+		must.NoError(t, err)
+
+		// This used to return nothing at all, so a dead server was silent.
+		test.Error(t, srv.Serve(t.Context()))
+	})
+
+	T.Run("a graceful stop reports success", func(t *testing.T) {
+		t.Parallel()
+
+		srv, err := NewGRPCServer(&Config{Port: 0}, nil, nil, nil)
+		must.NoError(t, err)
+
+		errs := make(chan error, 1)
+		go func() { errs <- srv.Serve(t.Context()) }()
+
+		time.Sleep(50 * time.Millisecond)
+		srv.grpcServer.GracefulStop()
+
+		// grpc.ErrServerStopped is the one "this is normal" answer, and must not
+		// reach the caller as a failure.
+		test.NoError(t, <-errs)
+	})
+}
+
+func TestServer_Shutdown_ContextExpiry(T *testing.T) {
+	T.Parallel()
+
+	T.Run("an expired context reports its error after a hard stop", func(t *testing.T) {
+		t.Parallel()
+
+		srv, err := NewGRPCServer(&Config{Port: 0}, nil, nil, nil)
+		must.NoError(t, err)
+
+		serveErrs := make(chan error, 1)
+		go func() { serveErrs <- srv.Serve(t.Context()) }()
+		time.Sleep(50 * time.Millisecond)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		// The drain deadline is already blown, so Shutdown falls back to Stop and
+		// reports why it could not drain.
+		test.ErrorIs(t, srv.Shutdown(ctx), context.Canceled)
+		<-serveErrs
 	})
 }

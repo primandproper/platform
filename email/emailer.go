@@ -5,22 +5,20 @@ import (
 )
 
 type (
-	// EmailBranding holds app-specific branding used when building Hermes email templates.
-	EmailBranding struct {
-		CompanyName string
-		LogoURL     string
-	}
-
-	// OutboundEmailMessage is a collection of fields that are useful for sending emails.
+	// OutboundEmailMessage is a collection of fields that are useful for sending
+	// emails.
+	//
+	// It carries only what an SMTP-or-API emailer needs to address and render one
+	// message. Application identifiers — which user this concerns, which test
+	// produced it — belong to the application's own envelope, not to the
+	// platform's transport type.
 	OutboundEmailMessage struct {
-		UserID      string
-		ToAddress   string
-		ToName      string
-		FromAddress string
-		FromName    string
-		Subject     string
-		HTMLContent string
-		TestID      string `json:"testID,omitempty"`
+		ToAddress   string `json:"toAddress"`
+		ToName      string `json:"toName"`
+		FromAddress string `json:"fromAddress"`
+		FromName    string `json:"fromName"`
+		Subject     string `json:"subject"`
+		HTMLContent string `json:"htmlContent"`
 	}
 
 	// Emailer represents a service that can send emails.

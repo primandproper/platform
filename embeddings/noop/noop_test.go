@@ -50,3 +50,47 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		test.Nil(t, result)
 	})
 }
+
+func TestEmbedder_GenerateEmbeddings(T *testing.T) {
+	T.Parallel()
+
+	T.Run("returns one embedding per input", func(t *testing.T) {
+		t.Parallel()
+
+		e := NewEmbedder()
+		results, err := e.GenerateEmbeddings(t.Context(), []*embeddings.Input{
+			{Content: "first"},
+			{Content: "second"},
+		})
+
+		must.NoError(t, err)
+		must.SliceLen(t, 2, results)
+		test.EqOp(t, "first", results[0].SourceText)
+		test.EqOp(t, "second", results[1].SourceText)
+		test.SliceEmpty(t, results[0].Vector)
+		test.EqOp(t, "noop", results[1].Provider)
+	})
+
+	T.Run("returns an empty slice for no inputs", func(t *testing.T) {
+		t.Parallel()
+
+		e := NewEmbedder()
+		results, err := e.GenerateEmbeddings(t.Context(), nil)
+
+		must.NoError(t, err)
+		test.SliceEmpty(t, results)
+	})
+
+	T.Run("propagates the nil-input error rather than a partial batch", func(t *testing.T) {
+		t.Parallel()
+
+		e := NewEmbedder()
+		results, err := e.GenerateEmbeddings(t.Context(), []*embeddings.Input{
+			{Content: "fine"},
+			nil,
+		})
+
+		test.ErrorIs(t, err, embeddings.ErrNilInput)
+		test.Nil(t, results)
+	})
+}

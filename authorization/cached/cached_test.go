@@ -17,7 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -402,13 +402,13 @@ func TestNewResolver_MetricsFailure(T *testing.T) {
 		T.Run("surfaces a failure creating "+failOn, func(t *testing.T) {
 			t.Parallel()
 
-			mp := &mockmetrics.ProviderMock{
+			mp := &metricsmock.ProviderMock{
 				NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 					if name == failOn {
 						return nil, errBoom
 					}
 
-					return &mockmetrics.Int64CounterMock{}, nil
+					return &metricsmock.Int64CounterMock{}, nil
 				},
 			}
 
@@ -494,7 +494,9 @@ func TestResolver_Key(T *testing.T) {
 
 		r := newTestResolver(t, &countingResolver{})
 
-		test.True(t, strings.HasPrefix(r.key([]string{"member"}), keyFormatVersion+":"))
+		key, err := r.key([]string{"member"})
+		must.NoError(t, err)
+		test.True(t, strings.HasPrefix(key, keyFormatVersion+":"))
 	})
 
 	T.Run("changes with the generation", func(t *testing.T) {
@@ -502,10 +504,15 @@ func TestResolver_Key(T *testing.T) {
 
 		r := newTestResolver(t, &countingResolver{})
 
-		before := r.key([]string{"member"})
+		before, err := r.key([]string{"member"})
+		must.NoError(t, err)
+
 		r.InvalidateAll()
 
-		test.NotEq(t, before, r.key([]string{"member"}))
+		after, err := r.key([]string{"member"})
+		must.NoError(t, err)
+
+		test.NotEq(t, before, after)
 	})
 
 	T.Run("does not mutate the caller's slice", func(t *testing.T) {
@@ -514,8 +521,20 @@ func TestResolver_Key(T *testing.T) {
 		r := newTestResolver(t, &countingResolver{})
 
 		roles := []string{"zebra", "aardvark"}
-		_ = r.key(roles)
+		_, err := r.key(roles)
+		must.NoError(t, err)
 
 		test.Eq(t, []string{"zebra", "aardvark"}, roles)
+	})
+
+	// A NUL in a role name would make {"a\x00b"} and {"a", "b"} collide on one
+	// key, and a collision here serves one principal another's permissions.
+	T.Run("rejects a role name containing NUL", func(t *testing.T) {
+		t.Parallel()
+
+		r := newTestResolver(t, &countingResolver{})
+
+		_, err := r.key([]string{"admin\x00member"})
+		test.Error(t, err)
 	})
 }

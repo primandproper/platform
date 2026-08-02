@@ -192,7 +192,7 @@ func TestReader_List(T *testing.T) {
 		}
 
 		filter := filtering.DefaultQueryFilter()
-		filter.MaxResponseSize = pointer.To(uint8(2))
+		filter.MaxResponseSize = pointer.To(uint16(2))
 
 		first, err := reader.List(t.Context(), nil, filter)
 		must.NoError(t, err)

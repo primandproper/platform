@@ -14,8 +14,8 @@ A Go library providing infrastructure abstractions for cloud-native services. Ea
 This repository follows a deliberately conservative release model:
 
 - **Only tagged releases are supported.** If it isn't behind a version tag, it can change or break without notice, and no support or compatibility is promised for it.
-- **`main` moves ahead of the latest release.** New work — including breaking changes — lands on `main` well before it is deemed release-worthy. The current major module path is `/v7`, and the latest supported release is **`v7.1.1`**. Anything on `main` beyond that tag is unreleased and subject to change.
-- **Semantic Versioning, enforced by Go's module paths.** Breaking changes increment the major version and the module import path (`/v6` → `/v7`), so a major bump can never silently break a consumer that hasn't opted in.
+- **`main` moves ahead of the latest release.** New work — including breaking changes — lands on `main` well before it is deemed release-worthy. The current major module path is `/v9`, and the latest supported release is **`v8.0.0`**. `/v9` is unreleased: everything on `main` is subject to change until it is tagged.
+- **Semantic Versioning, enforced by Go's module paths.** Breaking changes increment the major version and the module import path (`/v8` → `/v9`), so a major bump can never silently break a consumer that hasn't opted in.
 - **No stability guarantees on unreleased APIs.** Interfaces, config shapes, and package boundaries on `main` are subject to change until they ship in a release.
 
 If you depend on this library, pin to a released tag. If you want to track upcoming work, `main` is fair game — just don't expect it to hold still.
@@ -32,11 +32,13 @@ Because breaking changes ride the major-version import path, upgrading across ma
 
 **Interface + implementations.** Every major concern is defined as an interface (e.g., `cache.Cache[T]`, `logging.Logger`, `secrets.SecretSource`), with provider implementations in subpackages. Swap implementations via config without touching call sites. Most packages ship a `noop` implementation for tests and for cleanly disabling a concern.
 
-**Config structs.** Each package has a `config` subpackage with `env:`-tagged structs, `ValidateWithContext()` (via `go-ozzo/ozzo-validation`), and `EnsureDefaults()`. Configuration is the seam that selects an implementation.
+**Config structs.** Each package has a `config` subpackage with `env:`-tagged structs and `ValidateWithContext()` (via `go-ozzo/ozzo-validation`). Configuration is the seam that selects an implementation. Most, but not all, also have `EnsureDefaults()` — packages whose defaults are expressible as `envDefault:` tags use those instead.
+
+Selecting an implementation is deliberate: an unrecognized provider name returns `errors.ErrUnknownProvider` rather than a working-looking noop, because a typo that silently discards every message or never limits a request is a production incident that looks like a healthy process. Where a noop is genuinely wanted it has to be asked for by name.
 
 **OpenTelemetry throughout.** HTTP, gRPC, database, and messaging layers emit traces and metrics. Observability primitives (logging, tracing, metrics, profiling) live under `observability/`.
 
-**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `internal`/`errors`.
+**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which import the packages whose sentinels they map — so nothing in those packages may import them back.
 
 ## Package Catalog
 
@@ -49,7 +51,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `cache`    | Generic key/value cache (`Cache[T]`) | redis, memory                         |
 | `uploads`  | Blob/object storage & image handling | objectstorage (S3-compatible), images |
 | `files`    | Filesystem & streaming helpers       | —                                     |
-| `secrets`  | Secret sourcing                      | env, gcp, ssm, kubectl                |
+| `secrets`  | Secret sourcing                      | env, gcp, ssm, kubernetes                |
 
 ### Messaging & events
 | Package         | Purpose                    | Implementations                                   |
@@ -81,6 +83,10 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `observability` | Logging, tracing, metrics, profiling | logging (slog, zap, zerolog); OTel tracing/metrics |
 | `healthcheck`   | Health/readiness checks              | —                                                  |
 | `version`       | Build/version metadata               | —                                                  |
+| `metering`      | Durable usage metering & quotas      | postgres, mysql, sqlite                            |
+| `webhooks`      | Outbound webhook delivery            | postgres, mysql, sqlite                            |
+| `clock`         | Injectable time                      | —                                                  |
+| `config`        | Config loading & env parsing         | —                                                  |
 
 ### Auth & security
 | Package          | Purpose                             | Implementations                |
@@ -91,6 +97,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `cryptography`   | Cryptographic primitives            | —                              |
 | `random`         | Secure randomness                   | —                              |
 | `identifiers`    | ID generation                       | —                              |
+| `dataprivacy`    | Subject access & erasure requests   | postgres, mysql, sqlite        |
 
 ### AI, ML & product
 | Package        | Purpose                      | Implementations               |
@@ -110,6 +117,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `filtering`       | Query filters / pagination | —                       |
 | `qrcodes`         | QR code generation         | —                       |
 | `artifacts`       | Artifact handling          | —                       |
+| `eventcapture`    | Recording domain events    | —                       |
 
 ### Utilities
 `errors`, `pointer`, `numbers`, `bitmask`, `reflection`, `panicking`, `testutils`, `fake`.
@@ -123,6 +131,7 @@ make lint           # Run golangci-lint (Docker) + shellcheck
 make test           # Run tests (race detector, shuffle, failfast)
 make build          # Build all packages
 make generate       # Regenerate moq mocks after changing a mocked interface
+make bench          # Run benchmarks
 make revendor       # Clean and re-vendor dependencies
 ```
 

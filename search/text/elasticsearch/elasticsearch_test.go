@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/identifiers"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
+	textsearch "github.com/primandproper/platform-go/v9/search/text"
 	"github.com/primandproper/platform-go/v9/testutils/containers"
 
 	"github.com/shoenig/test"
@@ -231,10 +232,10 @@ func TestElasticsearch_Container(T *testing.T) {
 
 			time.Sleep(5 * time.Second)
 
-			results, err := im.Search(ctx, searchable.Name)
+			results, err := im.Search(ctx, textsearch.SearchRequest{Query: searchable.Name})
 			test.NoError(t, err)
-			must.SliceLen(t, 1, results)
-			test.Eq(t, searchable, results[0])
+			must.SliceLen(t, 1, results.Hits)
+			test.Eq(t, searchable, results.Hits[0])
 
 			test.NoError(t, im.Delete(ctx, searchable.ID))
 		})
@@ -303,10 +304,10 @@ func TestElasticsearch_Container(T *testing.T) {
 
 			time.Sleep(2 * time.Second)
 
-			results, err := im.Search(ctx, "test")
+			results, err := im.Search(ctx, textsearch.SearchRequest{Query: "test"})
 			test.NoError(t, err)
-			test.SliceLen(t, 1, results)
-			test.EqOp(t, searchable.ID, results[0].ID)
+			test.SliceLen(t, 1, results.Hits)
+			test.EqOp(t, searchable.ID, results.Hits[0].ID)
 		})
 
 		T.Run("Search empty query error", func(t *testing.T) {
@@ -316,7 +317,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			im, err := NewIndexManager[example](ctx, cfg, "search_empty_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
-			results, err := im.Search(ctx, "")
+			results, err := im.Search(ctx, textsearch.SearchRequest{Query: ""})
 			test.Error(t, err)
 			test.Nil(t, results)
 			test.ErrorIs(t, err, ErrEmptyQueryProvided)
@@ -329,9 +330,9 @@ func TestElasticsearch_Container(T *testing.T) {
 			im, err := NewIndexManager[example](ctx, cfg, "search_noresult_"+identifiers.New(), cbnoop.NewCircuitBreaker())
 			must.NoError(t, err)
 
-			results, err := im.Search(ctx, "nonexistent document")
+			results, err := im.Search(ctx, textsearch.SearchRequest{Query: "nonexistent document"})
 			test.NoError(t, err)
-			test.SliceLen(t, 0, results)
+			test.SliceLen(t, 0, results.Hits)
 		})
 
 		// --- Delete ---
@@ -379,17 +380,17 @@ func TestElasticsearch_Container(T *testing.T) {
 
 			time.Sleep(2 * time.Second)
 
-			results, err := im.Search(ctx, "wipe")
+			results, err := im.Search(ctx, textsearch.SearchRequest{Query: "wipe"})
 			must.NoError(t, err)
-			must.SliceLen(t, 1, results)
+			must.SliceLen(t, 1, results.Hits)
 
 			test.NoError(t, im.Wipe(ctx))
 
 			time.Sleep(2 * time.Second)
 
-			results, err = im.Search(ctx, "wipe")
+			results, err = im.Search(ctx, textsearch.SearchRequest{Query: "wipe"})
 			test.NoError(t, err)
-			test.SliceLen(t, 0, results)
+			test.SliceLen(t, 0, results.Hits)
 		})
 	})
 }
@@ -400,7 +401,7 @@ func TestIndexManager_ensureIndices_CircuitBroken(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -415,7 +416,7 @@ func TestIndexManager_ensureIndices_CircuitBroken(T *testing.T) {
 	T.Run("with unreachable server", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -445,7 +446,7 @@ func TestIndexManager_ensureIndices_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -476,7 +477,7 @@ func TestIndexManager_ensureIndices_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -511,7 +512,7 @@ func TestIndexManager_ensureIndices_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -539,7 +540,7 @@ func TestIndexManager_ensureIndices_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -651,7 +652,7 @@ func TestNewIndexManager_Unit(T *testing.T) {
 
 		logger := loggingnoop.NewLogger()
 		tracerProvider := tracingnoop.NewTracerProvider()
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -710,7 +711,7 @@ func TestNewIndexManager_Unit(T *testing.T) {
 
 		logger := loggingnoop.NewLogger()
 		tracerProvider := tracingnoop.NewTracerProvider()
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}

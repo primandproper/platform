@@ -36,10 +36,30 @@ var (
 )
 
 type (
+	// Event is a verified webhook event, in this module's own vocabulary.
+	//
+	// It exists so that stripe-go's types stay out of the exported API. A handler
+	// typed on *stripe.Event pins every consumer of this module to the exact
+	// stripe-go major it was built against, and turns each of that SDK's major
+	// bumps into a breaking change for platform-go — for callers who never
+	// mention Stripe.
+	//
+	// Payload is the raw JSON of the event's data object, exactly as it arrived.
+	// A consumer that needs the typed struct decodes it with whatever stripe-go
+	// version it chooses, on its own schedule.
+	Event struct {
+		// ID is the provider's event identifier, stable for deduplication.
+		ID string
+		// Type is the provider's event type, e.g. "payment_intent.succeeded".
+		Type string
+		// Payload is the raw JSON of the event's data object.
+		Payload []byte
+	}
+
 	// EventHandler is an optional callback invoked with each verified Stripe event, letting a
 	// consumer act on a webhook (e.g. fulfill an order) after signature verification succeeds.
 	// A nil handler leaves the default behavior (decode known events + log) in place.
-	EventHandler func(ctx context.Context, event *stripe.Event) error
+	EventHandler func(ctx context.Context, event *Event) error
 
 	stripePaymentManager struct {
 		o11y           observability.Observer
@@ -113,7 +133,11 @@ func (s *stripePaymentManager) HandleEventWebhook(req *http.Request) error {
 	// Hand the verified event to the consumer callback (if any) so it can act on it, rather than
 	// decoding it here and dropping it on the floor.
 	if s.handler != nil {
-		if err = s.handler(ctx, &event); err != nil {
+		if err = s.handler(ctx, &Event{
+			ID:      event.ID,
+			Type:    string(event.Type),
+			Payload: event.Data.Raw,
+		}); err != nil {
 			return op.Error(err, "handling stripe event")
 		}
 	}

@@ -61,7 +61,7 @@ func TestNewBackend(T *testing.T) {
 		T.Run("with "+tc.name+" provider", func(t *testing.T) {
 			t.Parallel()
 
-			backend, err := NewBackend(tc.cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+			backend, err := NewBackend(t.Context(), tc.cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 			must.NoError(t, err)
 			test.NotNil(t, backend)
 		})
@@ -74,7 +74,7 @@ func TestNewBackend(T *testing.T) {
 			Provider: "bogus",
 		}
 
-		backend, err := NewBackend(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		backend, err := NewBackend(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
 		test.Nil(t, backend)
 		test.Error(t, err)
 	})
@@ -91,7 +91,7 @@ func TestNewRouter(T *testing.T) {
 			Chi:      &chi.Config{ServiceName: t.Name()},
 		}
 
-		router, err := NewRouter(cfg, testEncoder(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		router, err := NewRouter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), testEncoder())
 		must.NoError(t, err)
 		test.NotNil(t, router)
 	})
@@ -103,7 +103,7 @@ func TestNewRouter(T *testing.T) {
 			Provider: "bogus",
 		}
 
-		router, err := NewRouter(cfg, testEncoder(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		router, err := NewRouter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), testEncoder())
 		test.Nil(t, router)
 		test.Error(t, err)
 	})

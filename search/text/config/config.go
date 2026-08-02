@@ -24,14 +24,19 @@ const (
 	AlgoliaProvider = "algolia"
 )
 
+// ProviderNoop indexes and searches nothing. It must be selected deliberately —
+// an unset or typo'd provider is an error, because an index that quietly accepts
+// every write and returns no hits looks like an empty corpus.
+const ProviderNoop = "noop"
+
 // Config contains settings regarding search indices.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
-	Algolia        *algolia.Config           `env:"init"     envPrefix:"ALGOLIA_"         json:"algolia"              yaml:"algolia"`
-	Elasticsearch  *elasticsearch.Config     `env:"init"     envPrefix:"ELASTICSEARCH_"   json:"elasticsearch"        yaml:"elasticsearch"`
+	Algolia        *algolia.Config           `env:",init"    envPrefix:"ALGOLIA_"         json:"algolia"              yaml:"algolia"`
+	Elasticsearch  *elasticsearch.Config     `env:",init"    envPrefix:"ELASTICSEARCH_"   json:"elasticsearch"        yaml:"elasticsearch"`
 	Provider       string                    `env:"PROVIDER" json:"provider"              yaml:"provider"`
-	CircuitBreaker circuitbreakingcfg.Config `env:"init"     envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
+	CircuitBreaker circuitbreakingcfg.Config `env:",init"    envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
@@ -42,7 +47,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	cfg.Provider = strings.TrimSpace(strings.ToLower(cfg.Provider))
 
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ElasticsearchProvider, AlgoliaProvider)),
+		validation.Field(&cfg.Provider, validation.Required, validation.In(ElasticsearchProvider, AlgoliaProvider, ProviderNoop)),
 		validation.Field(&cfg.Algolia, validation.When(cfg.Provider == AlgoliaProvider, validation.Required)),
 		validation.Field(&cfg.Elasticsearch, validation.When(cfg.Provider == ElasticsearchProvider, validation.Required)),
 	)
@@ -51,14 +56,19 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewIndex validates a Config struct.
 func NewIndex[T any](
 	ctx context.Context,
+	cfg *Config,
 	logger logging.Logger,
 	tracerProvider tracing.TracerProvider,
 	metricsProvider metrics.Provider,
-	cfg *Config,
 	indexName string,
 ) (textsearch.Index[T], error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
+	}
+
+	// The package doc has always claimed this validates; now it does.
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating text search config")
 	}
 
 	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, logger, metricsProvider)
@@ -71,7 +81,9 @@ func NewIndex[T any](
 		return elasticsearch.NewIndexManager[T](ctx, cfg.Elasticsearch, indexName, circuitBreaker, elasticsearch.WithLogger(logger), elasticsearch.WithTracerProvider(tracerProvider))
 	case AlgoliaProvider:
 		return algolia.NewIndexManager[T](cfg.Algolia, indexName, circuitBreaker, algolia.WithLogger(logger), algolia.WithTracerProvider(tracerProvider))
-	default:
+	case ProviderNoop:
 		return noop.NewIndexManager[T](), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "text search provider %q", cfg.Provider)
 	}
 }

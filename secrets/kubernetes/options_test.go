@@ -1,4 +1,4 @@
-package kubectl
+package kubernetes
 
 import (
 	"testing"

@@ -19,7 +19,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -60,9 +60,12 @@ type claimedMessage struct {
 type Relay struct {
 	client   database.Client
 	provider messagequeue.PublisherProvider
-	clock    clock.Clock
-	o11y     observability.Observer
-	logger   logging.Logger
+	// dialect is read from client at construction rather than configured, so
+	// the SQL this relay emits cannot disagree with the database it runs on.
+	dialect dialect.Dialect
+	clock   clock.Clock
+	o11y    observability.Observer
+	logger  logging.Logger
 
 	publishers map[string]messagequeue.Publisher
 
@@ -105,12 +108,18 @@ func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, pro
 
 	cfg.EnsureDefaults()
 
+	d := client.Dialect()
+	if err := cfg.resolveForDialect(d); err != nil {
+		return nil, err
+	}
+
 	if !dialect.ValidIdentifier(cfg.table) {
 		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", cfg.table)
 	}
 
 	r := &Relay{
 		cfg:        *cfg,
+		dialect:    d,
 		client:     client,
 		provider:   provider,
 		clock:      clock.NewClock(),
@@ -343,7 +352,7 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 	ctx, op := r.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		claimModeKey: string(r.cfg.ClaimMode),
 		batchSizeKey: r.cfg.BatchSize,
-		"db.system":  string(r.cfg.Dialect),
+		"db.system":  string(r.dialect),
 	}))
 	defer op.End()
 
@@ -353,7 +362,7 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 		now := r.clock.Now().UTC()
 
 		selectQuery, selectArgs := buildSelectClaimable(
-			r.cfg.Dialect, r.cfg.table, now, r.cfg.BatchSize, r.cfg.ClaimMode == ClaimSkipLocked,
+			r.dialect, r.cfg.table, now, r.cfg.BatchSize, r.cfg.ClaimMode == ClaimSkipLocked,
 		)
 
 		ids, err := scanIDs(ctx, q, selectQuery, selectArgs)
@@ -365,12 +374,12 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 			return nil
 		}
 
-		claimQuery, claimArgs := buildClaim(r.cfg.Dialect, r.cfg.table, ids, now.Add(r.cfg.LeaseDuration))
+		claimQuery, claimArgs := buildClaim(r.dialect, r.cfg.table, ids, now.Add(r.cfg.LeaseDuration))
 		if _, err = q.ExecContext(ctx, claimQuery, claimArgs...); err != nil {
 			return platformerrors.Wrap(err, "claiming outbox messages")
 		}
 
-		fetchQuery, fetchArgs := buildFetch(r.cfg.Dialect, r.cfg.table, ids)
+		fetchQuery, fetchArgs := buildFetch(r.dialect, r.cfg.table, ids)
 
 		claimed, err = scanMessages(ctx, q, fetchQuery, fetchArgs)
 		if err != nil {
@@ -390,7 +399,7 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 
 // markPublished retires the rows that made it to the broker.
 func (r *Relay) markPublished(ctx context.Context, ids []string) error {
-	query, args := buildMarkPublished(r.cfg.Dialect, r.cfg.table, ids, r.clock.Now().UTC())
+	query, args := buildMarkPublished(r.dialect, r.cfg.table, ids, r.clock.Now().UTC())
 
 	if _, err := r.client.Writer().ExecContext(ctx, query, args...); err != nil {
 		return platformerrors.Wrap(err, "marking outbox messages published")
@@ -411,7 +420,7 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 	nextAttempt := r.clock.Now().UTC().Add(r.backoffFor(msg.attempts))
 
 	query, args := buildRecordFailure(
-		r.cfg.Dialect, r.cfg.table, msg.id, nextAttempt, truncateError(cause), quarantine,
+		r.dialect, r.cfg.table, msg.id, nextAttempt, truncateError(cause), quarantine,
 	)
 
 	// The partition key matters here more than anywhere else: a keyed message
@@ -548,7 +557,7 @@ func (r *Relay) reap(ctx context.Context) {
 
 	op.Set(retentionCutoffKey, before)
 
-	query, args := buildReap(r.cfg.Dialect, r.cfg.table, before, r.cfg.ReapBatchSize)
+	query, args := buildReap(r.dialect, r.cfg.table, before, r.cfg.ReapBatchSize)
 
 	res, err := r.client.Writer().ExecContext(ctx, query, args...)
 	if err != nil {
@@ -583,7 +592,7 @@ func topicAttr(topic string) metric.MeasurementOption {
 
 // backoffFor computes the delay before a message's next attempt.
 //
-// The schedule comes from retry.DelayFor, so the relay and anything using a
+// The schedule comes from retrycfg.DelayFor, so the relay and anything using a
 // retry.Policy grow their delays identically from the same Config. What differs
 // is everything around it: the wait is persisted as a timestamp rather than
 // slept through, so it survives a relay restart, and the jitter is full rather
@@ -595,7 +604,7 @@ func (r *Relay) backoffFor(attempts int) time.Duration {
 		attempts = 1
 	}
 
-	delay := float64(retry.DelayFor(r.cfg.Backoff, uint(attempts)))
+	delay := float64(retrycfg.DelayFor(r.cfg.Backoff, uint(attempts)))
 
 	if r.cfg.Backoff.UseJitter {
 		// Full jitter. Not security-sensitive: this only decorrelates retry

@@ -15,13 +15,13 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/distributedlock"
-	dlmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
+	distributedlockmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	mockmq "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -35,16 +35,16 @@ const observedTopic = "observed-topic"
 func newObservedPool(t *testing.T, handler Handler) (*Pool, *observability.RecordingObserver) {
 	t.Helper()
 
-	provider := &mockmq.ConsumerProviderMock{
+	provider := &messagequeuemock.ConsumerProviderMock{
 		NewConsumerFunc: func(context.Context, string, messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
-			return &mockmq.ConsumerMock{}, nil
+			return &messagequeuemock.ConsumerMock{}, nil
 		},
 	}
 
 	pool, err := NewPool(t.Context(), &PoolConfig{
 		Topic:       observedTopic,
 		Concurrency: 1,
-		Retry: retry.Config{
+		Retry: retrycfg.Config{
 			MaxAttempts:  2,
 			InitialDelay: time.Millisecond,
 			MaxDelay:     time.Millisecond,
@@ -162,9 +162,9 @@ func TestScheduler_observability(T *testing.T) {
 	T.Run("a run observes the job, its lease, and that it ran", func(t *testing.T) {
 		t.Parallel()
 
-		locker := &dlmock.LockerMock{
+		locker := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
-				return &dlmock.LockMock{
+				return &distributedlockmock.LockMock{
 					ReleaseFunc: func(context.Context) error { return nil },
 				}, nil
 			},
@@ -185,7 +185,7 @@ func TestScheduler_observability(T *testing.T) {
 	T.Run("a skipped tick is still traced, and says it did not run", func(t *testing.T) {
 		t.Parallel()
 
-		locker := &dlmock.LockerMock{
+		locker := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
 				return nil, distributedlock.ErrLockNotAcquired
 			},
@@ -214,9 +214,9 @@ func TestScheduler_observability(T *testing.T) {
 			Run:      func(context.Context) error { return nil },
 		}
 
-		locker := &dlmock.LockerMock{
+		locker := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
-				return &dlmock.LockMock{
+				return &distributedlockmock.LockMock{
 					ReleaseFunc: func(context.Context) error { return nil },
 				}, nil
 			},

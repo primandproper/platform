@@ -106,7 +106,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 
 			ctx := t.Context()
 			res := httptest.NewRecorder()
-			res.Header().Set(ContentTypeHeaderKey, ContentTypeToString(tc.contentType))
+			res.Header().Set(ContentTypeHeaderKey, tc.contentType.String())
 
 			encoderDecoder.encodeResponse(ctx, res, ex, http.StatusOK)
 			actual := res.Body.String()
@@ -123,7 +123,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 
 		ctx := t.Context()
 		res := httptest.NewRecorder()
-		res.Header().Set(ContentTypeHeaderKey, ContentTypeToString(ContentTypeEmoji))
+		res.Header().Set(ContentTypeHeaderKey, ContentTypeEmoji.String())
 
 		encoderDecoder.encodeResponse(ctx, res, ex, http.StatusOK)
 		actual := res.Body.String()
@@ -364,7 +364,7 @@ func TestServerEncoderDecoder_DecodeRequest(T *testing.T) {
 				bytes.NewReader(bs),
 			)
 			must.NoError(t, err)
-			req.Header.Set(ContentTypeHeaderKey, ContentTypeToString(tc.contentType))
+			req.Header.Set(ContentTypeHeaderKey, tc.contentType.String())
 
 			var x example
 			test.NoError(t, encoderDecoder.DecodeRequest(ctx, req, &x))

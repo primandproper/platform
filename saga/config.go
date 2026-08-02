@@ -5,7 +5,7 @@ import (
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -85,11 +85,11 @@ type WorkerConfig struct {
 
 	// Backoff schedules the retry of a step that failed, and its MaxAttempts is
 	// the forward budget: a Do that fails this many times begins compensation.
-	Backoff retry.Config `env:"init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
 
 	// CompensationBackoff schedules the retry of a compensation. Its
 	// MaxAttempts is the budget past which the instance is marked stuck.
-	CompensationBackoff retry.Config `env:"init" envPrefix:"COMPENSATION_BACKOFF_" json:"compensationBackoff" yaml:"compensationBackoff"`
+	CompensationBackoff retrycfg.Config `env:",init" envPrefix:"COMPENSATION_BACKOFF_" json:"compensationBackoff" yaml:"compensationBackoff"`
 
 	// PollInterval is how often the Worker looks for instances to advance.
 	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval" yaml:"pollInterval"`
@@ -216,7 +216,7 @@ func (cfg *WorkerConfig) ValidateWithContext(ctx context.Context) error {
 }
 
 // budgetFor returns the attempt budget and backoff schedule for a phase.
-func (cfg *WorkerConfig) budgetFor(phase string) retry.Config {
+func (cfg *WorkerConfig) budgetFor(phase string) retrycfg.Config {
 	if phase == phaseUndo {
 		return cfg.CompensationBackoff
 	}

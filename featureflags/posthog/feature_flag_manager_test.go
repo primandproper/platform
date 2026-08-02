@@ -10,14 +10,15 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	mockCircuitBreaker "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/featureflags"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	openfeatureposthog "github.com/dhaus67/openfeature-posthog-go"
@@ -219,10 +220,10 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 	T.Run("with error creating eval counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, serviceName+"_evaluations", counterName)
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -239,13 +240,13 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 	T.Run("with error creating error counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case serviceName + "_evaluations":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case serviceName + "_errors":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+					return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -265,9 +266,9 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 	T.Run("with error creating latency histogram", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), nil
+				return metricstest.Int64Counter(t, "x"), nil
 			},
 			NewFloat64HistogramFunc: func(histName string, _ ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 				test.EqOp(t, serviceName+"_latency_ms", histName)
@@ -359,7 +360,7 @@ func TestFeatureFlagManager_CanUseFeature(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &mockCircuitBreaker.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CanProceedFunc: func() bool { return false },
 		}
 
@@ -414,7 +415,7 @@ func TestFeatureFlagManager_GetStringValue(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &mockCircuitBreaker.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CanProceedFunc: func() bool { return false },
 		}
 
@@ -469,7 +470,7 @@ func TestFeatureFlagManager_GetInt64Value(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &mockCircuitBreaker.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CanProceedFunc: func() bool { return false },
 		}
 
@@ -524,7 +525,7 @@ func TestFeatureFlagManager_GetFloat64Value(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &mockCircuitBreaker.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CanProceedFunc: func() bool { return false },
 		}
 
@@ -581,7 +582,7 @@ func TestFeatureFlagManager_GetObjectValue(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &mockCircuitBreaker.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CanProceedFunc: func() bool { return false },
 		}
 

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
 	"github.com/redis/go-redis/v9"
@@ -55,6 +57,7 @@ func buildTestRateLimiter(t *testing.T) (*rateLimiter, *mockRedisClient) {
 	must.NoError(t, err)
 
 	return &rateLimiter{
+		o11y:            observability.NewObserver(redisName, nil, nil),
 		client:          client,
 		requestsPerSec:  10,
 		burstSize:       20,
@@ -148,10 +151,10 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			Addresses: []string{"localhost:6379"},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, redisName+"_allowed", counterName)
-				return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 			},
 		}
 
@@ -169,13 +172,13 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			Addresses: []string{"localhost:6379"},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case redisName + "_allowed":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case redisName + "_rejected":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+					return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -196,13 +199,13 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			Addresses: []string{"localhost:6379"},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case redisName + "_allowed", redisName + "_rejected":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case redisName + "_errors":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+					return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -269,7 +272,7 @@ func Test_rateLimiter_Allow(T *testing.T) {
 		must.NoError(t, err)
 
 		// 0.5 rps with a burst of 3: the old int64(0.5)=0 limit rejected everything.
-		rl := &rateLimiter{client: client, requestsPerSec: 0.5, burstSize: 3, allowedCounter: allowed, rejectedCounter: rejected, errorCounter: errc}
+		rl := &rateLimiter{o11y: observability.NewObserver(redisName, nil, nil), client: client, requestsPerSec: 0.5, burstSize: 3, allowedCounter: allowed, rejectedCounter: rejected, errorCounter: errc}
 
 		cmd := redis.NewCmd(ctx)
 		cmd.SetVal(int64(1))

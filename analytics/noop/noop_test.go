@@ -27,7 +27,7 @@ func TestEventReporter_Close(T *testing.T) {
 
 		r := NewEventReporter()
 		test.NotPanic(t, func() {
-			r.Close()
+			_ = r.Close(t.Context())
 		})
 	})
 }

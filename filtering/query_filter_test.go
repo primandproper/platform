@@ -24,7 +24,7 @@ func TestDefaultQueryFilter(T *testing.T) {
 
 		must.NotNil(t, qf)
 		must.NotNil(t, qf.MaxResponseSize)
-		test.EqOp(t, uint8(DefaultQueryFilterLimit), *qf.MaxResponseSize)
+		test.EqOp(t, uint16(DefaultQueryFilterLimit), *qf.MaxResponseSize)
 		must.NotNil(t, qf.SortBy)
 		test.EqOp(t, SortAscending, qf.SortBy)
 	})
@@ -40,7 +40,7 @@ func TestQueryFilter_AttachToLogger(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint8(MaxQueryFilterLimit)),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
 			CreatedAfter:    new(time.Now().Truncate(time.Second)),
 			CreatedBefore:   new(time.Now().Truncate(time.Second)),
 			UpdatedAfter:    new(time.Now().Truncate(time.Second)),
@@ -73,7 +73,7 @@ func TestQueryFilter_FromParams(T *testing.T) {
 		actual := &QueryFilter{}
 		expected := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint8(MaxQueryFilterLimit)),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
 			CreatedAfter:    new(tt),
 			CreatedBefore:   new(tt),
 			UpdatedAfter:    new(tt),
@@ -140,7 +140,7 @@ func TestQueryFilter_ToValues(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint8(MaxQueryFilterLimit)),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
 			CreatedAfter:    new(tt),
 			CreatedBefore:   new(tt),
 			UpdatedAfter:    new(tt),
@@ -186,7 +186,7 @@ func TestExtractQueryFilter(T *testing.T) {
 
 		expected := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint8(MaxQueryFilterLimit)),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
 			CreatedAfter:    new(tt),
 			CreatedBefore:   new(tt),
 			UpdatedAfter:    new(tt),
@@ -220,7 +220,7 @@ func TestExtractQueryFilter(T *testing.T) {
 
 		expected := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint8(DefaultQueryFilterLimit)),
+			MaxResponseSize: new(uint16(DefaultQueryFilterLimit)),
 			SortBy:          SortAscending,
 		}
 		exampleInput := url.Values{
@@ -246,7 +246,7 @@ func TestQueryFilter_ToPagination(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint8(MaxQueryFilterLimit)),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
 		}
 
 		expected := Pagination{
@@ -276,7 +276,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint8(MaxQueryFilterLimit)),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
 		}
 
 		data := []*string{new("a"), new("b")}
@@ -305,7 +305,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint8(MaxQueryFilterLimit)),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
 		}
 
 		data := []*string{}
@@ -333,7 +333,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 		t.Parallel()
 
 		qf := &QueryFilter{
-			MaxResponseSize: new(uint8(MaxQueryFilterLimit)),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
 		}
 
 		data := []*string{new("a"), new("b")}

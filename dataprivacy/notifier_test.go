@@ -312,3 +312,32 @@ func TestEmailNotifier_Notify(T *testing.T) {
 		test.StrNotContains(t, sent.HTMLContent, "user-secret-identifier")
 	})
 }
+
+func Test_renderDefaultMessage_escapesInterpolatedValues(T *testing.T) {
+	T.Parallel()
+
+	// The recipient's display name is whatever they typed into a profile form in
+	// most deployments, and it lands in an HTML mail body.
+	T.Run("escapes the recipient name", func(t *testing.T) {
+		t.Parallel()
+
+		_, body := renderDefaultMessage(
+			&Notification{Request: &Request{ID: "req_1", Type: RequestErasure, Status: StatusCompleted}},
+			Recipient{Name: `<script>alert(1)</script>`},
+		)
+
+		test.StrNotContains(t, body, "<script>")
+		test.StrContains(t, body, "&lt;script&gt;")
+	})
+
+	T.Run("escapes the request ID", func(t *testing.T) {
+		t.Parallel()
+
+		_, body := renderDefaultMessage(
+			&Notification{Request: &Request{ID: `"><img src=x onerror=alert(1)>`, Type: RequestErasure, Status: StatusCompleted}},
+			Recipient{Name: "Spot"},
+		)
+
+		test.StrNotContains(t, body, "<img")
+	})
+}

@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
+	textsearch "github.com/primandproper/platform-go/v9/search/text"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/shoenig/test"
@@ -73,7 +75,7 @@ func TestIndexManager_Index_CircuitBroken(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -88,7 +90,7 @@ func TestIndexManager_Index_CircuitBroken(T *testing.T) {
 	T.Run("with unmarshalable value", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 		}
 
@@ -102,7 +104,7 @@ func TestIndexManager_Index_CircuitBroken(T *testing.T) {
 	T.Run("with unreachable server", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -130,7 +132,7 @@ func TestIndexManager_Index_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -159,7 +161,7 @@ func TestIndexManager_Index_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -185,13 +187,13 @@ func TestIndexManager_Search_CircuitBroken(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
 		im, _ := buildTestIndexManagerForUnit(t, cb)
 
-		results, err := im.Search(context.Background(), "query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "query"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.ErrorIs(t, err, circuitbreaking.ErrCircuitBroken)
@@ -201,13 +203,13 @@ func TestIndexManager_Search_CircuitBroken(T *testing.T) {
 	T.Run("with empty query", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 		}
 
 		im, _ := buildTestIndexManagerForUnit(t, cb)
 
-		results, err := im.Search(context.Background(), "")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: ""})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.ErrorIs(t, err, ErrEmptyQueryProvided)
@@ -217,14 +219,14 @@ func TestIndexManager_Search_CircuitBroken(T *testing.T) {
 	T.Run("with unreachable server", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
 
 		im, _ := buildTestIndexManagerForUnit(t, cb)
 
-		results, err := im.Search(context.Background(), "test query")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test query"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -251,18 +253,18 @@ func TestIndexManager_Search_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
 
 		im, obs := buildTestIndexManagerWithServer(t, server, cb)
 
-		results, err := im.Search(context.Background(), "test")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test"})
 		test.NoError(t, err)
-		must.SliceLen(t, 1, results)
-		test.EqOp(t, "123", results[0].ID)
-		test.EqOp(t, "test", results[0].Name)
+		must.SliceLen(t, 1, results.Hits)
+		test.EqOp(t, "123", results.Hits[0].ID)
+		test.EqOp(t, "test", results.Hits[0].Name)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 		test.SliceLen(t, 1, cb.SucceededCalls())
 
@@ -282,14 +284,14 @@ func TestIndexManager_Search_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
 
 		im, _ := buildTestIndexManagerWithServer(t, server, cb)
 
-		results, err := im.Search(context.Background(), "test")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -307,14 +309,14 @@ func TestIndexManager_Search_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
 
 		im, _ := buildTestIndexManagerWithServer(t, server, cb)
 
-		results, err := im.Search(context.Background(), "test")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -336,14 +338,14 @@ func TestIndexManager_Search_ErrorResponseDecodeFailure_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
 
 		im, _ := buildTestIndexManagerWithServer(t, server, cb)
 
-		results, err := im.Search(context.Background(), "test")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -365,14 +367,14 @@ func TestIndexManager_Search_SourceUnmarshalError_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
 
 		im, _ := buildTestIndexManagerWithServer(t, server, cb)
 
-		results, err := im.Search(context.Background(), "test")
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test"})
 		test.Error(t, err)
 		test.Nil(t, results)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -386,7 +388,7 @@ func TestIndexManager_Delete_CircuitBroken(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -401,7 +403,7 @@ func TestIndexManager_Delete_CircuitBroken(T *testing.T) {
 	T.Run("with unreachable server", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -429,7 +431,7 @@ func TestIndexManager_Delete_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -457,7 +459,7 @@ func TestIndexManager_Delete_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -492,7 +494,7 @@ func TestIndexManager_Wipe_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -518,7 +520,7 @@ func TestIndexManager_Wipe_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -534,7 +536,7 @@ func TestIndexManager_Wipe_Unit(T *testing.T) {
 	T.Run("circuit broken", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -542,5 +544,134 @@ func TestIndexManager_Wipe_Unit(T *testing.T) {
 
 		err := im.Wipe(context.Background())
 		test.ErrorIs(t, err, circuitbreaking.ErrCircuitBroken)
+	})
+}
+
+func TestIndexManager_Search_Pagination(T *testing.T) {
+	T.Parallel()
+
+	// esSearchServer replies with one hit and the given total, recording the
+	// request body so the from/size actually sent can be asserted.
+	esSearchServer := func(t *testing.T, total int, body *string) *httptest.Server {
+		t.Helper()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if body != nil {
+				raw, _ := io.ReadAll(r.Body)
+				*body = string(raw)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Elastic-Product", "Elasticsearch")
+			_, _ = fmt.Fprintf(w, `{"hits":{"total":{"value":%d},"hits":[{"_id":"1","_source":{"id":"1","name":"first"}}]}}`, total)
+		}))
+		t.Cleanup(server.Close)
+
+		return server
+	}
+
+	T.Run("issues a next cursor while hits remain", func(t *testing.T) {
+		t.Parallel()
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			SucceededFunc:     func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithServer(t, esSearchServer(t, 10, nil), cb)
+
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 1})
+		must.NoError(t, err)
+		test.False(t, results.Done())
+
+		position, decodeErr := textsearch.DecodeCursor("elasticsearch", results.NextCursor)
+		must.NoError(t, decodeErr)
+		test.EqOp(t, 1, position)
+	})
+
+	T.Run("no next cursor once the total is reached", func(t *testing.T) {
+		t.Parallel()
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			SucceededFunc:     func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithServer(t, esSearchServer(t, 1, nil), cb)
+
+		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 1})
+		must.NoError(t, err)
+		test.True(t, results.Done())
+	})
+
+	T.Run("the cursor becomes the from of the next request", func(t *testing.T) {
+		t.Parallel()
+
+		var body string
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			SucceededFunc:     func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithServer(t, esSearchServer(t, 100, &body), cb)
+
+		cursor, err := textsearch.EncodeCursor("elasticsearch", 40)
+		must.NoError(t, err)
+
+		_, searchErr := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 5, Cursor: cursor})
+		must.NoError(t, searchErr)
+		test.StrContains(t, body, `"from":40`)
+		test.StrContains(t, body, `"size":5`)
+	})
+
+	T.Run("an unset limit sends the shared default, not Elasticsearch's 10", func(t *testing.T) {
+		t.Parallel()
+
+		var body string
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+			SucceededFunc:     func() {},
+		}
+
+		im, _ := buildTestIndexManagerWithServer(t, esSearchServer(t, 100, &body), cb)
+
+		_, err := im.Search(context.Background(), textsearch.SearchRequest{Query: "test"})
+		must.NoError(t, err)
+		test.StrContains(t, body, fmt.Sprintf(`"size":%d`, textsearch.DefaultSearchLimit))
+	})
+
+	T.Run("paging past the result window is refused by name", func(t *testing.T) {
+		t.Parallel()
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+		}
+
+		im, _ := buildTestIndexManagerForUnit(t, cb)
+
+		// from + size beyond max_result_window is rejected by the cluster, so it
+		// is caught here rather than surfacing as an opaque 500.
+		cursor, err := textsearch.EncodeCursor("elasticsearch", 9999)
+		must.NoError(t, err)
+
+		results, searchErr := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 25, Cursor: cursor})
+		test.ErrorIs(t, searchErr, ErrResultWindowExceeded)
+		test.Nil(t, results)
+	})
+
+	T.Run("a cursor from another backend is refused", func(t *testing.T) {
+		t.Parallel()
+
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CannotProceedFunc: func() bool { return false },
+		}
+
+		im, _ := buildTestIndexManagerForUnit(t, cb)
+
+		cursor, err := textsearch.EncodeCursor("algolia", 2)
+		must.NoError(t, err)
+
+		results, searchErr := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Cursor: cursor})
+		test.ErrorIs(t, searchErr, textsearch.ErrInvalidCursor)
+		test.Nil(t, results)
 	})
 }

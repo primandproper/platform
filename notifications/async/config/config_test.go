@@ -167,7 +167,7 @@ func TestNewAsyncNotifierFromConfig(T *testing.T) {
 			Provider: ProviderNoop,
 		}
 
-		actual, err := NewAsyncNotifier(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		actual, err := NewAsyncNotifier(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		test.NoError(t, err)
 		test.NotNil(t, actual)
 	})
@@ -179,7 +179,7 @@ func TestNewAsyncNotifierFromConfig(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		actual, err := NewAsyncNotifier(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		actual, err := NewAsyncNotifier(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
 		test.Nil(t, actual)
 		test.Error(t, err)
 	})
