@@ -420,12 +420,21 @@ func (s *sqlStore) Reap(ctx context.Context, before time.Time, limit int) (int64
 			return platformerrors.Wrap(err, "reaping webhook dispatches")
 		}
 
-		if reaped, err = res.RowsAffected(); err != nil {
+		// A driver that cannot report row counts is not the same as a reap that
+		// deleted nothing, and conflating the two skipped the two dependent
+		// DELETEs below on every cycle — so the attempts and deliveries tables grew
+		// without bound on exactly the drivers that cannot tell you they are.
+		affected, rowsErr := res.RowsAffected()
+		switch {
+		case rowsErr != nil:
+			// Count unavailable: press on, and report 0 rather than a number this
+			// driver never gave us.
 			reaped = 0
-		}
-
-		if reaped == 0 {
+		case affected == 0:
+			// Nothing aged out, so there is nothing orphaned to collect either.
 			return nil
+		default:
+			reaped = affected
 		}
 
 		query, args = s.tables.buildReapAttempts(s.dialect, limit)

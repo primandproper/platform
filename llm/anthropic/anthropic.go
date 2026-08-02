@@ -23,7 +23,16 @@ const (
 	// it is stable enough to persist alongside stored completions.
 	providerName = "anthropic"
 	// fallbackModel is used when neither the request nor the config names one.
-	fallbackModel = "claude-sonnet-4-20250514"
+	//
+	// It is deliberately a current, non-dated model alias rather than a pinned
+	// snapshot: a dated ID retires on a published schedule and then starts
+	// 404ing with no code change on this side, which is a failure that shows up
+	// in production on a date nobody wrote down. The alias tracks the model.
+	//
+	// Sonnet tier is the default because this is what a caller who named no
+	// model at all gets — a library should not silently select the most
+	// expensive option on their behalf.
+	fallbackModel = "claude-sonnet-5"
 )
 
 var _ llm.Provider = (*anthropicProvider)(nil)

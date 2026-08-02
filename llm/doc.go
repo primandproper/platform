@@ -17,7 +17,7 @@ parts in order, and flattening it to text with the tool call hoisted into a
 sidecar field loses the order. The common cases stay one-liners:
 
 	req := &llm.CompletionRequest{
-		Model:  "claude-sonnet-4-20250514",
+		Model:  "claude-sonnet-5",
 		System: "You are terse.",
 		Messages: []llm.Message{
 			llm.UserText("What is the capital of France?"),

@@ -241,3 +241,53 @@ func Test_compressor_DecompressBytes(T *testing.T) {
 		})
 	}
 }
+
+func TestCompressor_DecompressBytes_boundsConcatenatedFrames(T *testing.T) {
+	T.Parallel()
+
+	// zstd's WithDecoderMaxMemory bounds one frame. N concatenated frames each
+	// under the cap decompress to N times it, which walks straight around the
+	// documented limit — so the total is enforced on bytes actually produced.
+	T.Run("zstd", func(t *testing.T) {
+		t.Parallel()
+
+		const limit = 1 << 16
+
+		c, err := NewCompressor(AlgorithmZstd, WithMaxDecompressedBytes(limit))
+		must.NoError(t, err)
+
+		// Four frames, each comfortably under the limit on its own, together over it.
+		frame, err := c.CompressBytes(make([]byte, limit/2))
+		must.NoError(t, err)
+
+		var concatenated []byte
+		for range 4 {
+			concatenated = append(concatenated, frame...)
+		}
+
+		out, err := c.DecompressBytes(concatenated)
+		test.ErrorIs(t, err, ErrDecompressedTooLarge)
+		test.Nil(t, out)
+	})
+
+	T.Run("s2", func(t *testing.T) {
+		t.Parallel()
+
+		const limit = 1 << 16
+
+		c, err := NewCompressor(AlgorithmS2, WithMaxDecompressedBytes(limit))
+		must.NoError(t, err)
+
+		frame, err := c.CompressBytes(make([]byte, limit/2))
+		must.NoError(t, err)
+
+		var concatenated []byte
+		for range 4 {
+			concatenated = append(concatenated, frame...)
+		}
+
+		out, err := c.DecompressBytes(concatenated)
+		test.ErrorIs(t, err, ErrDecompressedTooLarge)
+		test.Nil(t, out)
+	})
+}

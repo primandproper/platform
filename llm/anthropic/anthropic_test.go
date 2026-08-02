@@ -113,7 +113,7 @@ func anthropicMessageResponse(content string) map[string]any {
 		"id":          "msg-test",
 		"type":        "message",
 		"role":        "assistant",
-		"model":       "claude-sonnet-4-20250514",
+		"model":       "claude-sonnet-5",
 		"content":     []map[string]any{{"type": "text", "text": content}},
 		"stop_reason": "end_turn",
 		"usage": map[string]any{
@@ -299,7 +299,7 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 
 		ctx := t.Context()
 		result, err := provider.Completion(ctx, &llm.CompletionRequest{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-5",
 			Messages: []llm.Message{llm.UserText("Hello")},
 		})
 		must.NoError(t, err)
@@ -311,7 +311,7 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 		test.EqOp(t, 15, result.Usage.TotalTokens)
 
 		obs.ObservedOperationWithData(t, map[string]any{
-			"llm.model":         "claude-sonnet-4-20250514",
+			"llm.model":         "claude-sonnet-5",
 			"llm.message_count": 1,
 			"llm.tokens.total":  15,
 			"llm.stop_reason":   "end_turn",
@@ -365,7 +365,7 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 		provider, _ := newFakeProvider(t, upstream)
 
 		_, err := provider.Completion(t.Context(), &llm.CompletionRequest{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-5",
 			System:   "be terse",
 			Messages: []llm.Message{llm.UserText("Hi")},
 			Tools: []llm.Tool{{
@@ -455,7 +455,7 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 		})
 
 		result, err := provider.Completion(t.Context(), &llm.CompletionRequest{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-5",
 			Messages: []llm.Message{llm.UserText("Hi")},
 		})
 		must.Error(t, err)
@@ -464,7 +464,7 @@ func TestAnthropicProvider_Completion(T *testing.T) {
 		// Even though the request failed, the values must still have been observed,
 		// and the failure itself recorded on the operation.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			"llm.model": "claude-sonnet-4-20250514",
+			"llm.model": "claude-sonnet-5",
 		})
 		must.SliceLen(t, 1, op.Errors)
 	})
@@ -505,7 +505,7 @@ func TestAnthropicProvider_Stream(T *testing.T) {
 		provider, obs := newFakeProvider(t, upstream)
 
 		stream, err := provider.Stream(t.Context(), &llm.CompletionRequest{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-5",
 			Messages: []llm.Message{llm.UserText("Hi")},
 		})
 		must.NoError(t, err)
@@ -528,7 +528,7 @@ func TestAnthropicProvider_Stream(T *testing.T) {
 		// The span covers the whole stream, so it ends when the stream does and
 		// not when Stream returned.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			"llm.model": "claude-sonnet-4-20250514",
+			"llm.model": "claude-sonnet-5",
 		})
 		test.True(t, op.Ended)
 		test.SliceEmpty(t, op.Errors)

@@ -79,7 +79,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 		test.EqOp(t, 3, attempts)
 	})
 
-	T.Run("stops immediately on a canceled context error", func(t *testing.T) {
+	T.Run("stops immediately when the loop's own context is canceled", func(t *testing.T) {
 		t.Parallel()
 
 		policy := NewExponentialBackoffPolicy(Config{
@@ -89,14 +89,50 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 		})
 		attempts := 0
 
-		err := policy.Execute(context.Background(), func(ctx context.Context) error {
+		ctx, cancel := context.WithCancel(t.Context())
+
+		err := policy.Execute(ctx, func(context.Context) error {
 			attempts++
+			cancel()
+
 			return context.Canceled
 		})
 
 		test.ErrorIs(t, err, context.Canceled)
-		// Retrying a canceled context is pointless; it must not burn all 5 attempts.
+		// Retrying under a canceled context is pointless; it must not burn all 5.
 		test.EqOp(t, 1, attempts)
+	})
+
+	// The regression: a per-attempt timeout is the classic transient failure, and
+	// matching the returned error against context.DeadlineExceeded made the loop
+	// give up on attempt one for exactly the case it exists to survive.
+	T.Run("retries a per-attempt deadline while the loop's context is live", func(t *testing.T) {
+		t.Parallel()
+
+		policy := NewExponentialBackoffPolicy(Config{
+			MaxAttempts:  5,
+			InitialDelay: time.Millisecond,
+			MaxDelay:     10 * time.Millisecond,
+		})
+		attempts := 0
+
+		err := policy.Execute(t.Context(), func(ctx context.Context) error {
+			attempts++
+
+			// What an operation that bounds itself with its own timeout returns.
+			attemptCtx, cancel := context.WithTimeout(ctx, time.Nanosecond)
+			defer cancel()
+			<-attemptCtx.Done()
+
+			if attempts < 3 {
+				return attemptCtx.Err()
+			}
+
+			return nil
+		})
+
+		test.NoError(t, err)
+		test.EqOp(t, 3, attempts)
 	})
 
 	T.Run("stops immediately on an Unretryable error", func(t *testing.T) {

@@ -241,7 +241,17 @@ func (u *Uploader) selectBucket(ctx context.Context, cfg *Config) (err error) {
 	}
 
 	if cfg.BucketPrefix != "" {
-		u.bucket = blob.PrefixedBucket(u.bucket, cfg.BucketPrefix)
+		// The trailing separator is enforced rather than assumed. gocloud
+		// concatenates the prefix with the key verbatim, so a prefix of "acme"
+		// turns key "1/x" into "acme1/x" — which is also what tenant "acme1"
+		// writes, so two tenants silently share a namespace and List returns each
+		// other's objects.
+		prefix := cfg.BucketPrefix
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+
+		u.bucket = blob.PrefixedBucket(u.bucket, prefix)
 	}
 
 	return err

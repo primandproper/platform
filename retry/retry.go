@@ -25,12 +25,17 @@ func Unretryable(err error) error {
 }
 
 // isTerminal reports whether an operation error should abort the retry loop
-// rather than trigger another attempt: a canceled/expired context (retrying can
-// never succeed) or an explicitly non-retryable error.
-func isTerminal(err error) bool {
-	return errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, ErrUnretryable)
+// rather than trigger another attempt: this loop's own context is done, so
+// retrying can never succeed, or the error is explicitly non-retryable.
+//
+// The question is asked of ctx, not of err. Matching err against
+// context.DeadlineExceeded treats a *per-attempt* timeout as terminal — and a
+// per-attempt timeout is the single most common transient failure there is, so
+// the loop gave up on attempt one for exactly the case it exists to survive.
+// An operation that bounds itself with its own context.WithTimeout hands back a
+// wrapped DeadlineExceeded while this loop's deadline is nowhere near.
+func isTerminal(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || errors.Is(err, ErrUnretryable)
 }
 
 // Policy executes operations with retry logic.
@@ -97,10 +102,10 @@ func (e *exponentialBackoff) Execute(ctx context.Context, operation func(ctx con
 			return nil
 		}
 
-		// A canceled/expired context or an explicitly non-retryable error can never
-		// be resolved by another attempt — return immediately instead of sleeping and
-		// burning the remaining attempts.
-		if isTerminal(lastErr) {
+		// A canceled/expired loop context or an explicitly non-retryable error can
+		// never be resolved by another attempt — return immediately instead of
+		// sleeping and burning the remaining attempts.
+		if isTerminal(ctx, lastErr) {
 			return lastErr
 		}
 

@@ -115,39 +115,46 @@ func (c *compressor) CompressBytes(in []byte) ([]byte, error) {
 	}
 }
 
+// copyBounded drains r into a buffer, refusing to produce more than
+// maxDecompressedBytes.
+//
+// It copies one byte past the limit and treats reaching that byte as the
+// overflow signal, so the check is on bytes actually produced rather than on
+// anything the input claims about itself.
+func (c *compressor) copyBounded(r io.Reader) ([]byte, error) {
+	limit := int64(c.maxDecompressedBytes)
+
+	var b bytes.Buffer
+
+	n, err := io.CopyN(&b, r, limit+1)
+	if err != nil && !stderrors.Is(err, io.EOF) {
+		return nil, err
+	}
+
+	if n > limit {
+		return nil, ErrDecompressedTooLarge
+	}
+
+	return b.Bytes(), nil
+}
+
 func (c *compressor) DecompressBytes(in []byte) ([]byte, error) {
 	switch c.algo {
 	case AlgorithmZstd:
-		// WithDecoderMaxMemory caps the decompressed output; the decoder returns an error
-		// once a frame would exceed it, so a bomb fails instead of exhausting memory.
+		// WithDecoderMaxMemory is a *per-frame* cap, not a total-output one: N
+		// concatenated frames each just under the limit decompress to N times it,
+		// which is the whole bound walked straight around. It stays on as a cheap
+		// early failure, and the copy below enforces the documented total.
 		d, err := zstd.NewReader(bytes.NewReader(in), zstd.WithDecoderMaxMemory(c.maxDecompressedBytes))
 		if err != nil {
 			return nil, err
 		}
 		defer d.Close()
 
-		var b bytes.Buffer
-		if _, err = io.Copy(&b, d); err != nil {
-			return nil, err
-		}
-
-		return b.Bytes(), nil
+		return c.copyBounded(d)
 	case AlgorithmS2:
-		dec := s2.NewReader(bytes.NewReader(in))
-
-		// s2's streaming reader has no built-in output cap, so bound it manually: copy at
-		// most maxDecompressedBytes+1 and treat reaching the extra byte as an overflow.
-		limit := int64(c.maxDecompressedBytes)
-		var b bytes.Buffer
-		n, err := io.CopyN(&b, dec, limit+1)
-		if err != nil && !stderrors.Is(err, io.EOF) {
-			return nil, err
-		}
-		if n > limit {
-			return nil, ErrDecompressedTooLarge
-		}
-
-		return b.Bytes(), nil
+		// s2's streaming reader has no output cap of its own, built-in or per-frame.
+		return c.copyBounded(s2.NewReader(bytes.NewReader(in)))
 	default:
 		return nil, errors.Newf("unsupported compression algorithm: %s", c.algo)
 	}
