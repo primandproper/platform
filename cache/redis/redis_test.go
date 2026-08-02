@@ -328,8 +328,10 @@ func Test_redisCacheImpl_Get_Unit(T *testing.T) {
 
 		cb.CannotProceedFunc = func() bool { return true }
 
+		// Not ErrNotFound: a caller that must distinguish "absent" from
+		// "unreachable" — idempotency's FailClosed — has to be able to.
 		actual, err := impl.Get(ctx, exampleKey)
-		test.ErrorIs(t, err, cache.ErrNotFound)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
 		test.Nil(t, actual)
 
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -472,8 +474,9 @@ func Test_redisCacheImpl_Set_Unit(T *testing.T) {
 
 		cb.CannotProceedFunc = func() bool { return true }
 
+		// The write did not happen, so reporting success would be a lie.
 		err := impl.Set(ctx, exampleKey, &example{Name: t.Name()})
-		test.NoError(t, err)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
 
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 	})
@@ -555,8 +558,10 @@ func Test_redisCacheImpl_Delete_Unit(T *testing.T) {
 
 		cb.CannotProceedFunc = func() bool { return true }
 
+		// A dropped Delete reported as success serves the stale value for the
+		// rest of its TTL.
 		err := impl.Delete(ctx, exampleKey)
-		test.NoError(t, err)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
 
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 	})
@@ -674,7 +679,7 @@ func Test_redisCacheImpl_GetMany_Unit(T *testing.T) {
 		cb.CannotProceedFunc = func() bool { return true }
 
 		out, err := impl.GetMany(ctx, []string{"a", "b"})
-		test.NoError(t, err)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
 		test.MapLen(t, 0, out)
 		test.SliceLen(t, 0, client.MGetCalls())
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
@@ -803,7 +808,7 @@ func Test_redisCacheImpl_SetMany_Unit(T *testing.T) {
 
 		cb.CannotProceedFunc = func() bool { return true }
 
-		test.NoError(t, impl.SetMany(ctx, map[string]*example{"a": {Name: "a"}}))
+		test.ErrorIs(t, impl.SetMany(ctx, map[string]*example{"a": {Name: "a"}}), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.EvalCalls())
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 	})
@@ -1032,8 +1037,10 @@ func (brokenCodec) Decode([]byte) (*example, error) { return nil, errCodecBroken
 func Test_redisCacheImpl_OpenCircuit_Unit(T *testing.T) {
 	T.Parallel()
 
-	// An open breaker short-circuits every write path into a silent success:
-	// a cache that cannot be reached must not fail the request behind it.
+	// An open breaker skips the round trip on every write path and says so.
+	// It used to return nil, which reported a write that never happened — and a
+	// dropped Delete reported as success serves the stale value for the rest of
+	// its TTL.
 	openBreaker := func(t *testing.T) (*redisCacheImpl[example], *redisClientMock) {
 		t.Helper()
 
@@ -1043,40 +1050,40 @@ func Test_redisCacheImpl_OpenCircuit_Unit(T *testing.T) {
 		return impl, client
 	}
 
-	T.Run("Set is a no-op", func(t *testing.T) {
+	T.Run("Set reports unavailability", func(t *testing.T) {
 		t.Parallel()
 
 		impl, client := openBreaker(t)
 
-		must.NoError(t, impl.Set(t.Context(), exampleKey, &example{Name: "spot"}))
+		test.ErrorIs(t, impl.Set(t.Context(), exampleKey, &example{Name: "spot"}), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.SetCalls())
 	})
 
-	T.Run("DeleteMany is a no-op", func(t *testing.T) {
+	T.Run("DeleteMany reports unavailability", func(t *testing.T) {
 		t.Parallel()
 
 		impl, client := openBreaker(t)
 
-		must.NoError(t, impl.DeleteMany(t.Context(), []string{"a", "b"}))
+		test.ErrorIs(t, impl.DeleteMany(t.Context(), []string{"a", "b"}), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.DelCalls())
 	})
 
-	T.Run("DeleteByPrefix is a no-op", func(t *testing.T) {
+	T.Run("DeleteByPrefix reports unavailability", func(t *testing.T) {
 		t.Parallel()
 
 		impl, client := openBreaker(t)
 		impl.namespace = "ns:"
 
-		must.NoError(t, impl.DeleteByPrefix(t.Context(), "p:"))
+		test.ErrorIs(t, impl.DeleteByPrefix(t.Context(), "p:"), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.ScanCalls())
 	})
 
-	T.Run("SetMany is a no-op", func(t *testing.T) {
+	T.Run("SetMany reports unavailability", func(t *testing.T) {
 		t.Parallel()
 
 		impl, client := openBreaker(t)
 
-		must.NoError(t, impl.SetMany(t.Context(), map[string]*example{"a": {Name: "spot"}}))
+		test.ErrorIs(t, impl.SetMany(t.Context(), map[string]*example{"a": {Name: "spot"}}), cache.ErrUnavailable)
 		test.SliceLen(t, 0, client.EvalCalls())
 	})
 }

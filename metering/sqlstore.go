@@ -220,6 +220,26 @@ func (s *sqlStore) record(
 }
 
 // insertEvent writes one ledger row, reporting whether it was new.
+// eventExists reports whether this entry's (meter, idempotency_key) is already
+// in the ledger.
+func (s *sqlStore) eventExists(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	entry *Entry,
+) (bool, error) {
+	query, args := s.tables.buildEventExists(s.dialect, entry.Meter, entry.IdempotencyKey)
+
+	var found int
+	switch err := q.QueryRowContext(ctx, query, args...).Scan(&found); {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 func (s *sqlStore) insertEvent(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -358,10 +378,29 @@ func (s *sqlStore) consume(
 	decision := newDecision(entry.Meter, behavior, projected, limit, entry.Bounds.End)
 
 	if !decision.Allowed && !behavior.records() {
-		// Refused, and nothing written — including no ledger row. Burning the
-		// idempotency key on a consume that recorded nothing would make the
-		// caller's retry look like a duplicate and be answered with a total that
-		// never included their usage.
+		// About to refuse — but first, is this a retry of a consume that already
+		// succeeded? The projection above added this entry's quantity to a total
+		// that already includes it, so a retry near the limit projects over it and
+		// is refused, telling the caller their already-counted usage was denied.
+		//
+		// The probe is read-only: the refusal path must still write nothing, since
+		// burning the idempotency key on a consume that recorded nothing would make
+		// the caller's next retry look like a duplicate and be answered with a
+		// total that never included their usage.
+		counted, probeErr := s.eventExists(ctx, q, entry)
+		if probeErr != nil {
+			return nil, op.Error(probeErr, "probing metering dedupe")
+		}
+
+		if counted {
+			decision.Duplicate = true
+			decision.Allowed = true
+			decision.Used = total.Quantity
+			decision.Overage = overageOf(total.Quantity, limit)
+
+			return decision, nil
+		}
+
 		decision.Used = total.Quantity
 		decision.Overage = overageOf(total.Quantity, limit)
 

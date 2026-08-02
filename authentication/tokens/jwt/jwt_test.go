@@ -18,7 +18,7 @@ import (
 func newRecordingSigner(t *testing.T) (*signer, *observability.RecordingObserver) {
 	t.Helper()
 
-	issuer, err := NewJWTSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+	issuer, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 	must.NoError(t, err)
 
 	s := issuer.(*signer)
@@ -70,7 +70,7 @@ func Test_signer_IssueJWT(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewJWTSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -86,7 +86,7 @@ func Test_signer_IssueJWT(T *testing.T) {
 	T.Run("with extra claims", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewJWTSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -125,7 +125,7 @@ func Test_signer_IssueJWT(T *testing.T) {
 	T.Run("rejects reserved claim key", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewJWTSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		_, _, err = s.IssueToken(t.Context(), exampleSubject, exampleExpiry, map[string]any{
@@ -141,7 +141,7 @@ func Test_signer_ParseToken(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewJWTSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -195,7 +195,7 @@ func Test_signer_ParseToken(T *testing.T) {
 	T.Run("missing optional claim returns empty string", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewJWTSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -265,5 +265,53 @@ func Test_signer_ParseToken(T *testing.T) {
 		parsed, err := s.ParseToken(t.Context(), craftJWT(t, claims))
 		test.ErrorIs(t, err, jwt.ErrTokenInvalidIssuer)
 		test.Nil(t, parsed)
+	})
+}
+
+func TestNewSigner_rejectsAnEmptyKey(T *testing.T) {
+	T.Parallel()
+
+	// HS256 will mint and verify tokens under a zero-length HMAC key, so anyone
+	// who knows the algorithm can forge one.
+	for _, key := range [][]byte{nil, {}} {
+		T.Run("rejects an empty signing key", func(t *testing.T) {
+			t.Parallel()
+
+			issuer, err := NewSigner("platform-test", t.Name(), key)
+			test.Error(t, err)
+			test.Nil(t, issuer)
+		})
+	}
+}
+
+func TestSigner_ParseToken_mapsProviderSentinels(T *testing.T) {
+	T.Parallel()
+
+	// The Issuer interface promises provider-independent errors, so a refresh
+	// flow branching on tokens.ErrTokenExpired keeps working across a
+	// JWT-to-PASETO switch the design calls safe.
+	T.Run("an expired token reports tokens.ErrTokenExpired", func(t *testing.T) {
+		t.Parallel()
+
+		key := []byte("00000000000000000000000000000000")
+
+		issuer, err := NewSigner("platform-test", t.Name(), key)
+		must.NoError(t, err)
+
+		// Built directly rather than through IssueToken, which clamps a
+		// non-positive expiry up to its default.
+		now := time.Now()
+		token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"iss": "platform-test",
+			"aud": t.Name(),
+			"sub": "subject",
+			"iat": now.Add(-2 * time.Hour).Unix(),
+			"exp": now.Add(-time.Hour).Unix(),
+		}).SignedString(key)
+		must.NoError(t, err)
+
+		claims, err := issuer.ParseToken(t.Context(), token)
+		test.Nil(t, claims)
+		test.ErrorIs(t, err, tokens.ErrTokenExpired)
 	})
 }

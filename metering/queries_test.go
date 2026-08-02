@@ -138,7 +138,7 @@ func TestQueries_DialectSpelling(T *testing.T) {
 		entry := newEntry("req-1", 1, AggregationSum)
 
 		pg, _ := tbl.buildInsertEvent(dialect.Postgres, &entry, nil, baseTime)
-		test.StrContains(t, pg, "ON CONFLICT (idempotency_key) DO NOTHING")
+		test.StrContains(t, pg, "ON CONFLICT (meter, idempotency_key) DO NOTHING")
 		test.StrNotContains(t, pg, "IGNORE")
 
 		my, _ := tbl.buildInsertEvent(dialect.MySQL, &entry, nil, baseTime)

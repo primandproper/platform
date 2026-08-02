@@ -1049,3 +1049,32 @@ func TestManager_Do_StoreDegradation(T *testing.T) {
 		test.EqOp(t, int64(1), fn.Calls())
 	})
 }
+
+func TestManager_FailClosed_treatsAnUnavailableStoreAsUnavailable(T *testing.T) {
+	T.Parallel()
+
+	// The regression this guards: cache/redis used to answer an open circuit
+	// breaker with cache.ErrNotFound on reads and a nil error on writes, so
+	// during a redis outage FailClosed saw a clean miss and a successful write
+	// and ran the side effect again — with no signal that anything was wrong.
+	// That is precisely what FailClosed exists to prevent, and the default
+	// breaker config trips exactly when it matters.
+	T.Run("an unavailable store is not a miss", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCountingStore(t)
+		store.getErr = cache.ErrUnavailable
+		store.failGetAfter = 0
+
+		m := newManagerOver(t, store)
+
+		var ran bool
+		_, err := m.Do(t.Context(), testKey, testFingerprint, func(context.Context) (*payload, error) {
+			ran = true
+			return &payload{}, nil
+		})
+
+		test.ErrorIs(t, err, ErrStoreUnavailable)
+		test.False(t, ran)
+	})
+}

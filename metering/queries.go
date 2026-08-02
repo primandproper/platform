@@ -81,7 +81,10 @@ func (t *tables) buildInsertEvent(d dialect.Dialect, e *Entry, dimensions []byte
 	)
 
 	if d == dialect.Postgres {
-		query += " ON CONFLICT (idempotency_key) DO NOTHING"
+		// The conflict target is the events table's primary key, which is scoped
+		// to the meter: one request routinely feeds several meters, and deduping
+		// on the key alone silently drops every meter after the first.
+		query += " ON CONFLICT (meter, idempotency_key) DO NOTHING"
 	}
 
 	return query, args
@@ -272,6 +275,22 @@ func (t *tables) buildSelectTotal(
 	}
 
 	return query, []any{subject, meter, periodStart.UTC()}
+}
+
+// buildEventExists renders the read-only dedupe probe: has this (meter,
+// idempotency_key) already been counted?
+//
+// It exists so that a consume which is about to be refused can find out whether
+// it is a retry of one that already succeeded, without writing anything. The
+// insert-based probe cannot answer that question on the refusal path, because
+// the refusal path deliberately writes nothing.
+func (t *tables) buildEventExists(d dialect.Dialect, meter, idempotencyKey string) (query string, args []any) {
+	query = fmt.Sprintf(
+		"SELECT 1 FROM %s WHERE meter = %s AND idempotency_key = %s",
+		t.events, d.Placeholder(1), d.Placeholder(2),
+	)
+
+	return query, []any{meter, idempotencyKey}
 }
 
 // supportsRowLock reports whether the dialect can take an explicit row lock with

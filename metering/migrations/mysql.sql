@@ -11,23 +11,31 @@
 -- group-by over a table that grows with traffic, on the path this package exists
 -- to keep cheap.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}metering_events (
-    -- The idempotency key IS the primary key. Dedupe is therefore an INSERT that
-    -- either takes or does not, decided by the database in one round trip, and
-    -- durable for as long as the row is retained. A cache-backed dedupe would be
-    -- correct for as long as the cache held, and a billing period is longer than
-    -- any cache TTL anybody sets.
+    -- Dedupe is an INSERT that either takes or does not, decided by the database
+    -- in one round trip, and durable for as long as the row is retained. A
+    -- cache-backed dedupe would be correct only for as long as the cache held,
+    -- and a billing period is longer than any cache TTL anybody sets.
+    --
+    -- The primary key is (meter, idempotency_key), not the key alone. Callers
+    -- are told to use a request ID as the idempotency key, and one request
+    -- routinely feeds more than one meter — an API call that bills both a
+    -- request count and a byte count. Keyed on the key alone the second meter's
+    -- insert is silently deduped against the first, and the customer is
+    -- under-billed for it forever.
     --
     -- VARCHAR(255) rather than TEXT because MySQL cannot index a TEXT column
     -- without a prefix length, and a prefix-indexed primary key would dedupe on
     -- the first N bytes — quietly discarding usage whose keys share a prefix.
-    idempotency_key VARCHAR(255) NOT NULL PRIMARY KEY,
+    idempotency_key VARCHAR(255) NOT NULL,
     subject         VARCHAR(255) NOT NULL,
     meter           VARCHAR(64) NOT NULL,
     quantity        BIGINT NOT NULL,
     occurred_at     DATETIME(6) NOT NULL,
     recorded_at     DATETIME(6) NOT NULL,
     period_start    DATETIME(6) NOT NULL,
-    dimensions      BLOB
+    dimensions      BLOB,
+
+    PRIMARY KEY (meter, idempotency_key)
 );
 
 -- Serves the retention reap, which asks one question about time and nothing

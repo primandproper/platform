@@ -54,7 +54,7 @@ const (
 func newRecordingSigner(t *testing.T, signingKey []byte) (*signer, *observability.RecordingObserver) {
 	t.Helper()
 
-	issuer, err := NewPASETOSigner("platform-test", t.Name(), signingKey)
+	issuer, err := NewSigner("platform-test", t.Name(), signingKey)
 	must.NoError(t, err)
 
 	s, ok := issuer.(*signer)
@@ -72,7 +72,7 @@ func Test_signer_IssueToken(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -88,7 +88,7 @@ func Test_signer_IssueToken(T *testing.T) {
 	T.Run("with extra claims", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -127,7 +127,7 @@ func Test_signer_IssueToken(T *testing.T) {
 	T.Run("rejects reserved claim key", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		_, _, err = s.IssueToken(t.Context(), exampleSubject, exampleExpiry, map[string]any{
@@ -143,7 +143,7 @@ func Test_signer_ParseToken(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -178,10 +178,10 @@ func Test_signer_ParseToken(T *testing.T) {
 		must.SliceLen(t, 1, op.Errors)
 	})
 
-	T.Run("with invalid key", func(t *testing.T) {
+	T.Run("with the wrong key", func(t *testing.T) {
 		t.Parallel()
 
-		s, obs := newRecordingSigner(t, nil)
+		s, obs := newRecordingSigner(t, []byte("00000000000000000000000000000000"))
 
 		ctx := t.Context()
 
@@ -196,7 +196,7 @@ func Test_signer_ParseToken(T *testing.T) {
 	T.Run("missing optional claim returns empty string", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewPASETOSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+		s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 		must.NoError(t, err)
 
 		ctx := t.Context()
@@ -295,4 +295,20 @@ func Test_signer_ParseToken(T *testing.T) {
 		must.NotNil(t, parsed)
 		test.EqOp(t, exampleSubject, parsed.Subject())
 	})
+}
+
+func TestNewSigner_rejectsAnEmptyKey(T *testing.T) {
+	T.Parallel()
+
+	// A zero-length key is not a secret; tokens minted under one are forgeable
+	// by anyone who notices.
+	for _, key := range [][]byte{nil, {}} {
+		T.Run("rejects an empty signing key", func(t *testing.T) {
+			t.Parallel()
+
+			issuer, err := NewSigner("platform-test", t.Name(), key)
+			test.Error(t, err)
+			test.Nil(t, issuer)
+		})
+	}
 }

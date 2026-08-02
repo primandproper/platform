@@ -189,8 +189,7 @@ func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
 	defer op.End()
 
 	if i.circuitBreaker.CannotProceed() {
-		i.cacheMissCounter.Add(ctx, 1)
-		return nil, cache.ErrNotFound
+		return nil, cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -235,7 +234,7 @@ func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts 
 	defer op.End()
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -266,7 +265,7 @@ func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
 	defer op.End()
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -298,7 +297,7 @@ func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error
 	}
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -344,7 +343,7 @@ func (i *redisCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) e
 	}
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -449,8 +448,7 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 	}
 
 	if i.circuitBreaker.CannotProceed() {
-		i.cacheMissCounter.Add(ctx, int64(len(keys)))
-		return out, nil
+		return nil, cache.ErrUnavailable
 	}
 
 	startTime := time.Now()
@@ -518,7 +516,7 @@ func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, op
 	}
 
 	if i.circuitBreaker.CannotProceed() {
-		return nil
+		return cache.ErrUnavailable
 	}
 
 	startTime := time.Now()

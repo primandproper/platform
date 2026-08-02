@@ -2,10 +2,12 @@ package jwt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/primandproper/platform-go/v9/authentication/tokens"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/identifiers"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -26,7 +28,16 @@ type (
 	}
 )
 
-func NewJWTSigner(issuer, audience string, signingKey []byte, opts ...Option) (tokens.Issuer, error) {
+// NewSigner builds a JWT-backed tokens.Issuer.
+//
+// An empty signingKey is rejected rather than accepted: HS256 will happily mint
+// and verify tokens under a zero-length HMAC key, so anyone who knows the
+// algorithm can forge one.
+func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (tokens.Issuer, error) {
+	if len(signingKey) == 0 {
+		return nil, platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "JWT signing key")
+	}
+
 	o := newOptions(opts)
 
 	s := &signer{
@@ -115,10 +126,35 @@ func (s *signer) parseToken(tokenString string) (*jwt.Token, error) {
 		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
-		return nil, err
+		return nil, mapParseError(err)
 	}
 
 	return parsedToken, nil
+}
+
+// mapParseError translates golang-jwt's sentinels to the tokens package's.
+//
+// The Issuer interface promises provider-independent errors: a refresh flow
+// that branches on tokens.ErrTokenExpired must keep working when a deployment
+// switches from JWT to PASETO, which the design calls a safe change. Without
+// this the JWT signer returned jwt.ErrTokenExpired and the PASETO signer
+// returned tokens.ErrTokenExpired, so that branch silently stopped matching.
+//
+// The original error is wrapped, not discarded, so the provider's own detail is
+// still there for anyone who wants it.
+func mapParseError(err error) error {
+	for from, to := range map[error]error{
+		jwt.ErrTokenExpired:          tokens.ErrTokenExpired,
+		jwt.ErrTokenNotValidYet:      tokens.ErrTokenNotYetValid,
+		jwt.ErrTokenInvalidAudience:  tokens.ErrInvalidAudience,
+		jwt.ErrTokenInvalidIssuer:    tokens.ErrInvalidIssuer,
+	} {
+		if errors.Is(err, from) {
+			return platformerrors.Join(to, err)
+		}
+	}
+
+	return err
 }
 
 // jwtClaims adapts jwt.MapClaims to tokens.Claims.
