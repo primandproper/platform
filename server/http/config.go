@@ -23,19 +23,28 @@ type (
 		WriteTimeout          time.Duration `env:"WRITE_TIMEOUT"                json:"writeTimeout,omitempty"      yaml:"writeTimeout,omitempty"`
 		IdleTimeout           time.Duration `env:"IDLE_TIMEOUT"                 json:"idleTimeout,omitempty"       yaml:"idleTimeout,omitempty"`
 		Port                  uint16        `env:"PORT"                         json:"port"                        yaml:"port"`
-		Debug                 bool          `env:"DEBUG"                        json:"debug"                       yaml:"debug"`
 	}
 )
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct.
+//
+// Neither Port nor StartupDeadline is Required, because zero is meaningful for
+// both: port 0 asks the OS for an ephemeral port, and a zero StartupDeadline
+// means the bind is unbounded. They were Required while nothing called this,
+// which is how the rules came to reject configurations the server accepts.
+//
+// The timeouts are checked for sign instead: a negative one is always a
+// mistake, and net/http reads it as "no timeout" rather than rejecting it.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(
 		ctx,
 		cfg,
-		validation.Field(&cfg.Port, validation.Required),
-		validation.Field(&cfg.StartupDeadline, validation.Required),
+		validation.Field(&cfg.StartupDeadline, validation.Min(time.Duration(0))),
+		validation.Field(&cfg.ReadTimeout, validation.Min(time.Duration(0))),
+		validation.Field(&cfg.WriteTimeout, validation.Min(time.Duration(0))),
+		validation.Field(&cfg.IdleTimeout, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.AppleAppSiteAssociation),
 	)
 }

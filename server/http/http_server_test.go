@@ -22,7 +22,6 @@ import (
 	"github.com/primandproper/platform-go/v9/encoding"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v9/panicking"
 	"github.com/primandproper/platform-go/v9/routing"
 	"github.com/primandproper/platform-go/v9/routing/backends/chi"
 
@@ -114,15 +113,14 @@ func TestNewHTTPServer(T *testing.T) {
 		t.Parallel()
 
 		x, err := NewHTTPServer(
+			t.Context(),
 			&Config{
 				SSLCertificateFile:    "",
 				SSLCertificateKeyFile: "",
 				StartupDeadline:       0,
 				Port:                  0,
-				Debug:                 false,
 			},
 			nil,
-			"",
 		)
 
 		test.NotNil(t, x)
@@ -132,7 +130,7 @@ func TestNewHTTPServer(T *testing.T) {
 	T.Run("with nil settings", func(t *testing.T) {
 		t.Parallel()
 
-		x, err := NewHTTPServer(nil, nil, "")
+		x, err := NewHTTPServer(t.Context(), nil, nil)
 
 		test.NotNil(t, x)
 		test.NoError(t, err)
@@ -142,9 +140,10 @@ func TestNewHTTPServer(T *testing.T) {
 		t.Parallel()
 
 		x, err := NewHTTPServer(
+			t.Context(),
 			&Config{Port: 8080},
 			nil,
-			"custom_service",
+			WithServiceName("custom_service"),
 		)
 
 		test.NotNil(t, x)
@@ -155,9 +154,9 @@ func TestNewHTTPServer(T *testing.T) {
 		t.Parallel()
 
 		x, err := NewHTTPServer(
+			t.Context(),
 			&Config{Port: 8080},
 			nil,
-			"",
 		)
 
 		test.NotNil(t, x)
@@ -168,13 +167,13 @@ func TestNewHTTPServer(T *testing.T) {
 		t.Parallel()
 
 		x, err := NewHTTPServer(
+			t.Context(),
 			&Config{
 				SSLCertificateFile:    "/some/cert.pem",
 				SSLCertificateKeyFile: "/some/key.pem",
 				Port:                  8443,
 			},
 			nil,
-			"",
 		)
 
 		test.NotNil(t, x)
@@ -188,7 +187,7 @@ func TestServer_Router(T *testing.T) {
 	T.Run("returns the router", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewHTTPServer(&Config{Port: 0}, nil, "")
+		s, err := NewHTTPServer(t.Context(), &Config{Port: 0}, nil)
 		must.NoError(t, err)
 
 		// Router returns nil when nil was passed in
@@ -202,7 +201,7 @@ func TestServer_Shutdown(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewHTTPServer(&Config{Port: 0}, nil, "")
+		s, err := NewHTTPServer(t.Context(), &Config{Port: 0}, nil)
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -218,7 +217,7 @@ func TestServer_Shutdown(T *testing.T) {
 			forceFlushFunc: func(_ context.Context) error { return errors.New("flush failed") },
 		}
 
-		s, err := NewHTTPServer(&Config{Port: 0}, nil, "", WithTracerProvider(mtp))
+		s, err := NewHTTPServer(t.Context(), &Config{Port: 0}, nil, WithTracerProvider(mtp))
 		must.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -239,7 +238,6 @@ func TestServer_Serve(T *testing.T) {
 		srv := &server{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
-			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     provideStdLibHTTPServer(&Config{}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
 			config:         &Config{},
@@ -247,7 +245,7 @@ func TestServer_Serve(T *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			srv.Serve()
+			_ = srv.Serve(t.Context())
 			close(done)
 		}()
 
@@ -265,7 +263,6 @@ func TestServer_Serve(T *testing.T) {
 		srv := &server{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
-			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     provideStdLibHTTPServer(&Config{}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
 			config: &Config{
@@ -276,7 +273,7 @@ func TestServer_Serve(T *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			srv.Serve()
+			_ = srv.Serve(t.Context())
 			close(done)
 		}()
 
@@ -285,13 +282,12 @@ func TestServer_Serve(T *testing.T) {
 		<-done
 	})
 
-	T.Run("panics on HTTPS with invalid cert files", func(t *testing.T) {
+	T.Run("reports an HTTPS failure with invalid cert files", func(t *testing.T) {
 		t.Parallel()
 
 		srv := &server{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
-			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     provideStdLibHTTPServer(&Config{}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
 			config: &Config{
@@ -300,16 +296,12 @@ func TestServer_Serve(T *testing.T) {
 			},
 		}
 
-		// ListenAndServeTLS fails immediately with invalid cert paths; the failure must
-		// propagate rather than leaving a listenerless zombie process.
-		defer func() {
-			test.NotNil(t, recover())
-		}()
-
-		srv.Serve()
+		// ServeTLS fails immediately with invalid cert paths; the failure must
+		// reach the caller rather than leaving a listenerless zombie process.
+		test.Error(t, srv.Serve(t.Context()))
 	})
 
-	T.Run("panics on HTTP listen failure", func(t *testing.T) {
+	T.Run("reports an HTTP listen failure", func(t *testing.T) {
 		t.Parallel()
 
 		// Occupy a port so ListenAndServe fails with "address already in use".
@@ -324,17 +316,12 @@ func TestServer_Serve(T *testing.T) {
 		srv := &server{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
-			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     httpSrv,
 			tracerProvider: tracingnoop.NewTracerProvider(),
 			config:         &Config{},
 		}
 
-		defer func() {
-			test.NotNil(t, recover())
-		}()
-
-		srv.Serve()
+		test.Error(t, srv.Serve(t.Context()))
 	})
 }
 
@@ -347,13 +334,12 @@ func TestServer_listen(T *testing.T) {
 		srv := &server{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
-			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     provideStdLibHTTPServer(&Config{Port: 0}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
 			config:         &Config{StartupDeadline: time.Second},
 		}
 
-		listener, err := srv.listen()
+		listener, err := srv.listen(t.Context())
 		must.NoError(t, err)
 		must.NotNil(t, listener)
 		test.NoError(t, listener.Close())
@@ -365,13 +351,12 @@ func TestServer_listen(T *testing.T) {
 		srv := &server{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
-			panicker:       panicking.NewProductionPanicker(),
 			httpServer:     provideStdLibHTTPServer(&Config{Port: 0}),
 			tracerProvider: tracingnoop.NewTracerProvider(),
 			config:         &Config{},
 		}
 
-		listener, err := srv.listen()
+		listener, err := srv.listen(t.Context())
 		must.NoError(t, err)
 		must.NotNil(t, listener)
 		test.NoError(t, listener.Close())

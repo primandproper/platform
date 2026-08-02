@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/routing"
@@ -16,9 +18,10 @@ func RegisterHTTPServer(i do.Injector, serviceName string) {
 		cfg := do.MustInvoke[Config](i)
 
 		return NewHTTPServer(
+			context.Background(),
 			&cfg,
 			do.MustInvoke[*routing.Router](i),
-			serviceName,
+			WithServiceName(serviceName),
 			WithLogger(do.MustInvoke[logging.Logger](i)),
 			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
 		)

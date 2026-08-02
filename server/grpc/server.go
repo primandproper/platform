@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"time"
 
 	perrors "github.com/primandproper/platform-go/v9/errors"
@@ -20,12 +19,12 @@ import (
 )
 
 const (
-	serviceName = "grpc_server"
+	defaultServiceName = "grpc_server"
 )
 
 type (
 	Config struct {
-		HTTPSCertificateFile  string `env:"TLS_CERTIFICATE_FILEPATH"     json:"tlsCertificate,omitempty"    yaml:"tlsCertificate,omitempty"`
+		TLSCertificateFile    string `env:"TLS_CERTIFICATE_FILEPATH"     json:"tlsCertificate,omitempty"    yaml:"tlsCertificate,omitempty"`
 		TLSCertificateKeyFile string `env:"TLS_CERTIFICATE_KEY_FILEPATH" json:"tlsCertificateKey,omitempty" yaml:"tlsCertificateKey,omitempty"`
 		Port                  uint16 `env:"PORT"                         json:"port"                        yaml:"port"`
 	}
@@ -62,8 +61,8 @@ func NewGRPCServer(
 		grpc.ChainStreamInterceptor(streamServerInterceptors...),
 	}
 
-	if cfg.TLSCertificateKeyFile != "" && cfg.HTTPSCertificateFile != "" {
-		serverCert, err := tls.LoadX509KeyPair(cfg.HTTPSCertificateFile, cfg.TLSCertificateKeyFile)
+	if cfg.TLSCertificateKeyFile != "" && cfg.TLSCertificateFile != "" {
+		serverCert, err := tls.LoadX509KeyPair(cfg.TLSCertificateFile, cfg.TLSCertificateKeyFile)
 		if err != nil {
 			return nil, err
 		}
@@ -94,40 +93,81 @@ func NewGRPCServer(
 		rf(grpcServer)
 	}
 
-	reflection.Register(grpcServer)
+	if o.reflection {
+		reflection.Register(grpcServer)
+	}
+
+	name := defaultServiceName
+	if o.serviceName != "" {
+		name = o.serviceName
+	}
 
 	return &Server{
-		logger:         logging.NewNamedLogger(logger, serviceName),
+		logger:         logging.NewNamedLogger(logger, name),
 		config:         cfg,
 		grpcServer:     grpcServer,
 		tracerProvider: tp,
 	}, nil
 }
 
-// Shutdown shuts down the server. Call with a context that has sufficient timeout
-// to allow in-flight spans to be flushed to the collector.
-func (s *Server) Shutdown(ctx context.Context) {
-	if err := s.tracerProvider.ForceFlush(ctx); err != nil {
-		s.logger.Error("flushing traces", err)
+// Shutdown stops the server gracefully, then flushes and shuts down the tracer
+// provider — the same order as the HTTP sibling, and for the same reason: spans
+// from RPCs that complete during draining are lost if the flush runs first.
+//
+// In-flight RPCs are given until ctx is done to finish. If ctx expires first the
+// server is stopped hard and the context's error is returned, so a caller can
+// tell a clean drain from a forced one.
+func (s *Server) Shutdown(ctx context.Context) error {
+	stopped := make(chan struct{})
+	go func() {
+		s.grpcServer.GracefulStop()
+		close(stopped)
+	}()
+
+	var err error
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+		// GracefulStop is still blocked on in-flight RPCs; Stop unblocks it by
+		// cancelling them.
+		s.grpcServer.Stop()
+		<-stopped
+		err = ctx.Err()
 	}
-	s.grpcServer.Stop()
+
+	if flushErr := s.tracerProvider.ForceFlush(ctx); flushErr != nil {
+		s.logger.Error("flushing traces", flushErr)
+	}
+
+	if shutdownErr := s.tracerProvider.Shutdown(ctx); shutdownErr != nil {
+		s.logger.Error("shutting down tracer provider", shutdownErr)
+	}
+
+	return err
 }
 
-// Serve serves GRPC traffic.
-func (s *Server) Serve(ctx context.Context) {
+// Serve serves gRPC traffic until Shutdown is called or ctx is done.
+//
+// A graceful stop reports nil; every other failure is returned. It used to
+// return nothing, and the only sentinel it checked was net/http's
+// ErrServerClosed — which gRPC never returns — so a bind failure or a dead
+// server was completely silent.
+func (s *Server) Serve(ctx context.Context) error {
 	var lc net.ListenConfig
 	lis, err := lc.Listen(ctx, "tcp", fmt.Sprintf(":%d", s.config.Port))
 	if err != nil {
-		s.logger.Error("failed to listen", err)
-		return
+		return perrors.Wrap(err, "binding gRPC listener")
 	}
 
 	s.logger.WithValue("port", s.config.Port).Info("Listening for GRPC requests")
-	if err = s.grpcServer.Serve(lis); err != nil {
-		if errors.Is(err, http.ErrServerClosed) {
-			return
-		}
+
+	// grpc.ErrServerStopped is what Stop and GracefulStop produce, and is the
+	// only "this is a normal shutdown" answer this server can get.
+	if err = s.grpcServer.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+		return perrors.Wrap(err, "serving gRPC traffic")
 	}
+
+	return nil
 }
 
 func LoggingInterceptor(logger logging.Logger) grpc.UnaryServerInterceptor {

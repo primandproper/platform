@@ -13,6 +13,7 @@ type Option func(*options)
 type options struct {
 	logger         logging.Logger
 	tracerProvider tracing.TracerProvider
+	serviceName    string
 }
 
 func newOptions(opts []Option) *options {
@@ -35,4 +36,10 @@ func WithLogger(logger logging.Logger) Option {
 // requests.
 func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
+}
+
+// WithServiceName names the server's logger and instrumentation scope. It
+// matches the gRPC sibling's option of the same name.
+func WithServiceName(serviceName string) Option {
+	return func(o *options) { o.serviceName = serviceName }
 }

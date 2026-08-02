@@ -397,6 +397,7 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 		router := testRouter(t)
 
 		_, err := NewHTTPServer(
+			t.Context(),
 			&Config{
 				Port: 8080,
 				AppleAppSiteAssociation: &AppleAppSiteAssociationConfig{
@@ -405,7 +406,7 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 				},
 			},
 			router,
-			t.Name(),
+			WithServiceName(t.Name()),
 		)
 		must.NoError(t, err)
 
@@ -423,7 +424,7 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 
 		router := testRouter(t)
 
-		_, err := NewHTTPServer(&Config{Port: 8080}, router, t.Name())
+		_, err := NewHTTPServer(t.Context(), &Config{Port: 8080}, router, WithServiceName(t.Name()))
 		must.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -434,26 +435,23 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 		test.EqOp(t, http.StatusNotFound, res.Code)
 	})
 
-	T.Run("does not serve the file when partially configured", func(t *testing.T) {
+	// A half-filled Apple config is a mistake, and now that NewHTTPServer
+	// validates, it is caught at construction rather than serving a file Apple
+	// will reject.
+	T.Run("rejects a partially configured apple app site association", func(t *testing.T) {
 		t.Parallel()
 
 		router := testRouter(t)
 
 		_, err := NewHTTPServer(
+			t.Context(),
 			&Config{
 				Port:                    8080,
 				AppleAppSiteAssociation: &AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY"},
 			},
 			router,
-			t.Name(),
+			WithServiceName(t.Name()),
 		)
-		must.NoError(t, err)
-
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
-		res := httptest.NewRecorder()
-
-		router.Handler().ServeHTTP(res, req)
-
-		test.EqOp(t, http.StatusNotFound, res.Code)
+		test.Error(t, err)
 	})
 }

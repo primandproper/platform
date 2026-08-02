@@ -135,7 +135,7 @@ func TestNewGRPCServer(T *testing.T) {
 
 		cfg := &Config{
 			Port:                  0,
-			HTTPSCertificateFile:  "/nonexistent/cert.pem",
+			TLSCertificateFile:    "/nonexistent/cert.pem",
 			TLSCertificateKeyFile: "/nonexistent/key.pem",
 		}
 
@@ -152,7 +152,7 @@ func TestNewGRPCServer(T *testing.T) {
 
 		cfg := &Config{
 			Port:                  0,
-			HTTPSCertificateFile:  certFile,
+			TLSCertificateFile:    certFile,
 			TLSCertificateKeyFile: keyFile,
 		}
 
@@ -239,7 +239,7 @@ func TestServer_Shutdown(T *testing.T) {
 		srv, err := NewGRPCServer(cfg, nil, nil, nil, WithTracerProvider(mtp))
 		must.NoError(t, err)
 
-		srv.Shutdown(context.Background())
+		_ = srv.Shutdown(context.Background())
 
 		test.EqOp(t, 1, mtp.forceFlushCalls)
 	})
@@ -306,7 +306,7 @@ func TestServer_Serve(T *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			srv.Serve(ctx)
+			_ = srv.Serve(ctx)
 			close(done)
 		}()
 
@@ -332,6 +332,6 @@ func TestServer_Serve(T *testing.T) {
 		must.NoError(t, err)
 
 		// Should return immediately because the port is already in use.
-		srv.Serve(t.Context())
+		_ = srv.Serve(t.Context())
 	})
 }
