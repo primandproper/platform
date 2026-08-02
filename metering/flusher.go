@@ -19,7 +19,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 )
 
 const (
@@ -521,7 +521,7 @@ func (f *Flusher) fail(ctx context.Context, op observability.Operation, total *T
 // provider outage synchronizes every replica's retries onto the same instant, and
 // the flush that recovers is the one that arrives as a thundering herd.
 func (f *Flusher) backoff(attempts int) time.Duration {
-	delay := retry.DelayFor(f.cfg.Backoff, uint(max(1, attempts)))
+	delay := retrycfg.DelayFor(f.cfg.Backoff, uint(max(1, attempts)))
 
 	//nolint:gosec // jitter, not cryptography
 	return time.Duration(rand.Int64N(int64(delay)) + 1)

@@ -102,7 +102,7 @@ redelivers on restart. Subscribers must tolerate duplicates, and
 DeliveryIDHeader is the key to deduplicate on — it is stable across every
 attempt and every replay of one delivery.
 
-Failures back off exponentially with full jitter via retry.DelayFor, persisted
+Failures back off exponentially with full jitter via retrycfg.DelayFor, persisted
 as a timestamp so the schedule survives a restart. Past Backoff.MaxAttempts the
 dispatch is marked dead: skipped by every future claim, counted, and left for an
 operator to replay. Without that terminal state one permanently broken

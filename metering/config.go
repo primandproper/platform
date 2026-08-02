@@ -5,7 +5,7 @@ import (
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -173,7 +173,7 @@ func (cfg *EnforcerConfig) ValidateWithContext(ctx context.Context) error {
 // provider.
 type FlusherConfig struct {
 	// Backoff schedules the retry of a total whose post failed.
-	Backoff retry.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
 
 	// LeaseDuration is how long a claimed total stays leased. It must exceed
 	// FlushTimeout — see ValidateWithContext.

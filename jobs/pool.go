@@ -15,6 +15,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/panicking"
 	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -175,7 +176,7 @@ func NewPool(ctx context.Context, cfg *PoolConfig, provider messagequeue.Consume
 	p.logger = p.o11y.Logger().WithValue(keys.TopicKey, p.cfg.Topic)
 
 	if p.policy == nil {
-		p.policy = retry.NewExponentialBackoffPolicy(p.cfg.Retry)
+		p.policy = retrycfg.NewExponentialBackoffPolicy(p.cfg.Retry)
 	}
 
 	if err := p.buildInstruments(); err != nil {

@@ -19,7 +19,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -592,7 +592,7 @@ func topicAttr(topic string) metric.MeasurementOption {
 
 // backoffFor computes the delay before a message's next attempt.
 //
-// The schedule comes from retry.DelayFor, so the relay and anything using a
+// The schedule comes from retrycfg.DelayFor, so the relay and anything using a
 // retry.Policy grow their delays identically from the same Config. What differs
 // is everything around it: the wait is persisted as a timestamp rather than
 // slept through, so it survives a relay restart, and the jitter is full rather
@@ -604,7 +604,7 @@ func (r *Relay) backoffFor(attempts int) time.Duration {
 		attempts = 1
 	}
 
-	delay := float64(retry.DelayFor(r.cfg.Backoff, uint(attempts)))
+	delay := float64(retrycfg.DelayFor(r.cfg.Backoff, uint(attempts)))
 
 	if r.cfg.Backoff.UseJitter {
 		// Full jitter. Not security-sensitive: this only decorrelates retry

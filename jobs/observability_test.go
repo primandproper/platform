@@ -21,7 +21,7 @@ import (
 	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -44,7 +44,7 @@ func newObservedPool(t *testing.T, handler Handler) (*Pool, *observability.Recor
 	pool, err := NewPool(t.Context(), &PoolConfig{
 		Topic:       observedTopic,
 		Concurrency: 1,
-		Retry: retry.Config{
+		Retry: retrycfg.Config{
 			MaxAttempts:  2,
 			InitialDelay: time.Millisecond,
 			MaxDelay:     time.Millisecond,

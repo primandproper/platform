@@ -6,7 +6,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -64,7 +64,7 @@ type RelayConfig struct {
 	ClaimMode ClaimMode `env:"CLAIM_MODE" json:"claimMode" yaml:"claimMode"`
 	// Backoff drives the retry schedule for messages that fail to publish.
 	// MaxAttempts is the quarantine threshold.
-	Backoff retry.Config `envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
 	// BatchSize is how many messages one cycle claims.
 	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
 	// PollInterval is how often the relay looks for work.

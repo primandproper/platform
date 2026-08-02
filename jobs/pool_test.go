@@ -15,6 +15,7 @@ import (
 	lognoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 	retrynoop "github.com/primandproper/platform-go/v9/retry/noop"
 
 	"github.com/shoenig/test"
@@ -27,8 +28,8 @@ var errHandler = errors.New("handler exploded")
 
 // fastRetry keeps the backoff real — attempts are still spaced — while costing
 // nothing in wall time. MaxAttempts is what the tests actually vary.
-func fastRetry(maxAttempts uint) retry.Config {
-	return retry.Config{
+func fastRetry(maxAttempts uint) retrycfg.Config {
+	return retrycfg.Config{
 		MaxAttempts:  maxAttempts,
 		InitialDelay: time.Millisecond,
 		MaxDelay:     2 * time.Millisecond,

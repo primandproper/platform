@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -64,7 +64,7 @@ type PoolConfig struct {
 	// Retry drives per-message retries. MaxAttempts is how many times the
 	// handler runs before the message is dead-lettered, so MaxAttempts of 1
 	// means no retry at all.
-	Retry retry.Config `envPrefix:"RETRY_" json:"retry" yaml:"retry"`
+	Retry retrycfg.Config `envPrefix:"RETRY_" json:"retry" yaml:"retry"`
 	// Concurrency is how many messages the Pool handles at once. It is also the
 	// bound on read-ahead: the Pool holds at most this many messages in memory,
 	// because a consumed message is handed directly to a free worker and the

@@ -21,6 +21,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/panicking"
 	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -811,7 +812,7 @@ func (w *Worker) exhausted(cause error, attempts int, phase string) bool {
 
 // backoffFor computes the delay before a step's next attempt.
 //
-// The schedule comes from retry.DelayFor, so this and anything using a
+// The schedule comes from retrycfg.DelayFor, so this and anything using a
 // retry.Policy grow their delays identically from the same Config. The wait is
 // persisted as a timestamp rather than slept through, so it survives a restart,
 // and the jitter is full rather than equal — several workers share this table,
@@ -824,7 +825,7 @@ func (w *Worker) backoffFor(attempts int, phase string) time.Duration {
 
 	cfg := w.cfg.budgetFor(phase)
 
-	delay := float64(retry.DelayFor(cfg, uint(attempts)))
+	delay := float64(retrycfg.DelayFor(cfg, uint(attempts)))
 
 	if cfg.UseJitter {
 		// Full jitter. Not security-sensitive: this only decorrelates retry

@@ -17,7 +17,7 @@ import (
 	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -244,7 +244,7 @@ func TestRelay_backoffFor_jitter(T *testing.T) {
 		t.Parallel()
 
 		relay, _ := newTestRelay(t, newTestClient(t), newStubClock(), func(cfg *RelayConfig) {
-			cfg.Backoff = retry.Config{
+			cfg.Backoff = retrycfg.Config{
 				MaxAttempts:  10,
 				InitialDelay: time.Second,
 				MaxDelay:     10 * time.Second,
@@ -270,7 +270,7 @@ func TestRelay_backoffFor_jitter(T *testing.T) {
 		// something a message could retry against immediately, spinning on
 		// whatever failure put it there.
 		relay, _ := newTestRelay(t, newTestClient(t), newStubClock(), func(cfg *RelayConfig) {
-			cfg.Backoff = retry.Config{
+			cfg.Backoff = retrycfg.Config{
 				MaxAttempts:  10,
 				InitialDelay: time.Microsecond,
 				MaxDelay:     time.Second,

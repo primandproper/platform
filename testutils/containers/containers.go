@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"github.com/shoenig/test/must"
 	"github.com/testcontainers/testcontainers-go"
@@ -55,11 +55,11 @@ func SkipIfNotRunning(tb testing.TB) {
 	}
 }
 
-// DefaultRetryConfig returns the retry.Config used by StartWithRetry. Callers
+// DefaultRetryConfig returns the retrycfg.Config used by StartWithRetry. Callers
 // that need bespoke retry behavior can start from this and tweak individual
-// fields before calling retry.NewExponentialBackoffPolicy themselves.
-func DefaultRetryConfig() retry.Config {
-	return retry.Config{
+// fields before calling retrycfg.NewExponentialBackoffPolicy themselves.
+func DefaultRetryConfig() retrycfg.Config {
+	return retrycfg.Config{
 		MaxAttempts:  defaultMaxAttempts,
 		InitialDelay: defaultInitialDelay,
 		UseJitter:    false,
@@ -77,7 +77,7 @@ func DefaultRetryConfig() retry.Config {
 // stays decoupled from the testing package.
 func StartWithRetry[C any](ctx context.Context, start func(context.Context) (C, error)) (C, error) {
 	var container C
-	policy := retry.NewExponentialBackoffPolicy(DefaultRetryConfig())
+	policy := retrycfg.NewExponentialBackoffPolicy(DefaultRetryConfig())
 	err := policy.Execute(ctx, func(ctx context.Context) error {
 		var startErr error
 		container, startErr = start(ctx)
@@ -91,8 +91,8 @@ func StartWithRetry[C any](ctx context.Context, start func(context.Context) (C, 
 // at a full second, whereas a server that has already logged its readiness line
 // is usually a few hundred milliseconds away, and the delays here add up to
 // roughly ten seconds of patience for the stragglers.
-func readinessRetryConfig() retry.Config {
-	return retry.Config{
+func readinessRetryConfig() retrycfg.Config {
+	return retrycfg.Config{
 		MaxAttempts:  10,
 		InitialDelay: 100 * time.Millisecond,
 		MaxDelay:     2 * time.Second,
@@ -123,7 +123,7 @@ func PingUntilReady(tb testing.TB, ctx context.Context, ping func(context.Contex
 		tb.Fatal("containers: PingUntilReady requires a non-nil ping")
 	}
 
-	policy := retry.NewExponentialBackoffPolicy(readinessRetryConfig())
+	policy := retrycfg.NewExponentialBackoffPolicy(readinessRetryConfig())
 	must.NoError(tb, policy.Execute(ctx, ping))
 }
 

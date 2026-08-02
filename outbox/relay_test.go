@@ -12,7 +12,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
-	"github.com/primandproper/platform-go/v9/retry"
+	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -83,7 +83,7 @@ func newTestRelay(t *testing.T, client database.Client, c *stubClock, opts ...fu
 
 	cfg := &RelayConfig{
 		ClaimMode: ClaimLease,
-		Backoff: retry.Config{
+		Backoff: retrycfg.Config{
 			MaxAttempts:  3,
 			InitialDelay: time.Second,
 			MaxDelay:     time.Minute,
@@ -571,7 +571,7 @@ func TestRelay_backoffFor(T *testing.T) {
 
 		c := newStubClock()
 		relay, _ := newTestRelay(t, newTestClient(t), c, func(cfg *RelayConfig) {
-			cfg.Backoff = retry.Config{
+			cfg.Backoff = retrycfg.Config{
 				MaxAttempts:  10,
 				InitialDelay: time.Second,
 				MaxDelay:     10 * time.Second,
