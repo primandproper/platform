@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/errors"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/profiling/pprof"
 	"github.com/primandproper/platform-go/v9/observability/profiling/pyroscope"
@@ -89,9 +90,18 @@ func TestConfig_NewProfilingProvider(T *testing.T) {
 		test.NotNil(t, p)
 	})
 
-	T.Run("unknown provider returns noop", func(t *testing.T) {
+	// A typo used to disable profiling in a way indistinguishable from choosing to.
+	T.Run("unknown provider is an error", func(t *testing.T) {
 		t.Parallel()
 		c := &Config{Provider: "unknown"}
+		p, err := c.NewProfilingProvider(t.Context(), logger)
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+		test.Nil(t, p)
+	})
+
+	T.Run("the noop provider returns noop", func(t *testing.T) {
+		t.Parallel()
+		c := &Config{Provider: ProviderNoop}
 		p, err := c.NewProfilingProvider(t.Context(), logger)
 		must.NoError(t, err)
 		test.NotNil(t, p)

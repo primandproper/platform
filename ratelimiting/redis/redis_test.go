@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
@@ -55,6 +56,7 @@ func buildTestRateLimiter(t *testing.T) (*rateLimiter, *mockRedisClient) {
 	must.NoError(t, err)
 
 	return &rateLimiter{
+		o11y:            observability.NewObserver(redisName, nil, nil),
 		client:          client,
 		requestsPerSec:  10,
 		burstSize:       20,
@@ -269,7 +271,7 @@ func Test_rateLimiter_Allow(T *testing.T) {
 		must.NoError(t, err)
 
 		// 0.5 rps with a burst of 3: the old int64(0.5)=0 limit rejected everything.
-		rl := &rateLimiter{client: client, requestsPerSec: 0.5, burstSize: 3, allowedCounter: allowed, rejectedCounter: rejected, errorCounter: errc}
+		rl := &rateLimiter{o11y: observability.NewObserver(redisName, nil, nil), client: client, requestsPerSec: 0.5, burstSize: 3, allowedCounter: allowed, rejectedCounter: rejected, errorCounter: errc}
 
 		cmd := redis.NewCmd(ctx)
 		cmd.SetVal(int64(1))

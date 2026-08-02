@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/logging/otelgrpc"
@@ -23,6 +24,11 @@ const (
 	ProviderSlog = "slog"
 	// ProviderOtelSlog indicates you'd like to use the otel-enabled slog logger.
 	ProviderOtelSlog = "otelslog"
+	// ProviderNoop, and the empty string, select no logging at all. That is the
+	// deliberate opt-out and stays supported; what is no longer supported is a
+	// provider name this package does not recognize, which used to disable
+	// logging silently and looked exactly like the opt-out.
+	ProviderNoop = "noop"
 )
 
 type (
@@ -41,7 +47,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.ServiceName, validation.Required),
 		validation.Field(&cfg.Level, validation.By(validateLevel)),
-		validation.Field(&cfg.Provider, validation.In(ProviderZerolog, ProviderZap, ProviderSlog, ProviderOtelSlog)),
+		validation.Field(&cfg.Provider, validation.In("", ProviderNoop, ProviderZerolog, ProviderZap, ProviderSlog, ProviderOtelSlog)),
 		validation.Field(&cfg.OtelSlog, validation.When(cfg.Provider == ProviderOtelSlog, validation.Required)),
 	)
 }
@@ -75,8 +81,10 @@ func (cfg *Config) NewLogger(ctx context.Context) (logger logging.Logger, err er
 		logger = slog.NewSlogLogger(cfg.Level)
 	case ProviderOtelSlog:
 		logger, err = otelgrpc.NewOtelSlogLogger(ctx, cfg.Level, cfg.ServiceName, cfg.OtelSlog)
-	default:
+	case "", ProviderNoop:
 		logger = loggingnoop.NewLogger()
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "logging provider %q", cfg.Provider)
 	}
 
 	return logger, err

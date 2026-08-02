@@ -28,7 +28,20 @@ const (
 	ProviderPubSub provider = "pubsub"
 	// ProviderKafka is used to refer to Kafka.
 	ProviderKafka provider = "kafka"
+	// ProviderNoop discards published messages and consumes nothing. It must be
+	// selected deliberately — it is never what an unrecognized provider falls
+	// back to.
+	ProviderNoop provider = "noop"
 )
+
+// providers are every provider this package implements, for validation.
+var providers = []any{
+	string(ProviderRedis),
+	string(ProviderSQS),
+	string(ProviderPubSub),
+	string(ProviderKafka),
+	string(ProviderNoop),
+}
 
 var (
 	ErrNilConfig = errors.New("nil config provided")
@@ -83,6 +96,26 @@ func (c *QueuesConfig) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
+var (
+	_ validation.ValidatableWithContext = (*Config)(nil)
+	_ validation.ValidatableWithContext = (*MessageQueueConfig)(nil)
+)
+
+// ValidateWithContext validates a MessageQueueConfig struct.
+func (c *MessageQueueConfig) ValidateWithContext(ctx context.Context) error {
+	return validation.ValidateStructWithContext(ctx, c,
+		validation.Field(&c.Provider, validation.Required, validation.In(providers...)),
+	)
+}
+
+// ValidateWithContext validates a Config struct.
+func (c *Config) ValidateWithContext(ctx context.Context) error {
+	return validation.ValidateStructWithContext(ctx, c,
+		validation.Field(&c.Consumer),
+		validation.Field(&c.Publisher),
+	)
+}
+
 func cleanString(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
@@ -109,9 +142,10 @@ func NewConsumerProvider(ctx context.Context, logger logging.Logger, tracerProvi
 		}
 
 		return pubsub.NewPubSubConsumerProvider(client, pubsub.WithLogger(logger), pubsub.WithTracerProvider(tracerProvider), pubsub.WithMetricsProvider(metricsProvider)), nil
-	default:
-		logger.Info("Using noop consumer provider")
+	case string(ProviderNoop):
 		return noop.NewConsumerProvider(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "messagequeue consumer provider %q", c.Consumer.Provider)
 	}
 }
 
@@ -137,8 +171,9 @@ func NewPublisherProvider(ctx context.Context, logger logging.Logger, tracerProv
 		}
 
 		return pubsub.NewPubSubPublisherProvider(client, c.Publisher.PubSub.ProjectID, pubsub.WithLogger(logger), pubsub.WithTracerProvider(tracerProvider), pubsub.WithMetricsProvider(metricsProvider)), nil
-	default:
-		logger.Info("Using noop publisher provider")
+	case string(ProviderNoop):
 		return noop.NewPublisherProvider(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "messagequeue publisher provider %q", c.Publisher.Provider)
 	}
 }

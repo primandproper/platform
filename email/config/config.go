@@ -2,11 +2,9 @@ package emailcfg
 
 import (
 	"context"
-	"fmt"
-	"html/template"
 	"net/http"
+	"slices"
 	"strings"
-	"time"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
@@ -18,12 +16,12 @@ import (
 	"github.com/primandproper/platform-go/v9/email/resend"
 	"github.com/primandproper/platform-go/v9/email/sendgrid"
 	"github.com/primandproper/platform-go/v9/email/ses"
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/matcornic/hermes/v2"
 )
 
 const (
@@ -39,7 +37,29 @@ const (
 	ProviderPostmark = "postmark"
 	// ProviderSES represents AWS SES.
 	ProviderSES = "ses"
+	// ProviderNoop discards every message. It must be selected deliberately —
+	// an unset or typo'd provider is an error, because outbound mail that
+	// silently goes nowhere is discovered by the people who never received it.
+	ProviderNoop = "noop"
 )
+
+// providers are every provider this package implements. The dispatch switch and
+// ValidateWithContext both read it, so they cannot drift apart.
+var providers = []string{
+	ProviderNoop,
+	ProviderSendgrid,
+	ProviderMailgun,
+	ProviderMailjet,
+	ProviderResend,
+	ProviderPostmark,
+	ProviderSES,
+}
+
+// knownProvider reports whether p names an implementation, ignoring case and
+// surrounding space, exactly as the dispatch switch does.
+func knownProvider(p string) bool {
+	return slices.Contains(providers, strings.ToLower(strings.TrimSpace(p)))
+}
 
 type (
 	// Config is the configuration structure.
@@ -51,31 +71,9 @@ type (
 		Postmark                            *postmark.Config          `env:",init"                                    envPrefix:"POSTMARK_"                      json:"postmark"                            yaml:"postmark"`
 		SES                                 *ses.Config               `env:",init"                                    envPrefix:"SES_"                           json:"ses"                                 yaml:"ses"`
 		Provider                            string                    `env:"PROVIDER"                                json:"provider"                            yaml:"provider"`
-		BaseURL                             template.URL              `env:"BASE_URL"                                json:"baseURL"                             yaml:"baseURL"`
-		OutboundInvitesEmailAddress         string                    `env:"OUTBOUND_INVITES_EMAIL_ADDRESS"          json:"outboundInvitesEmailAddress"         yaml:"outboundInvitesEmailAddress"`
-		PasswordResetCreationEmailAddress   string                    `env:"PASSWORD_RESET_CREATION_EMAIL_ADDRESS"   json:"passwordResetCreationEmailAddress"   yaml:"passwordResetCreationEmailAddress"`
-		PasswordResetRedemptionEmailAddress string                    `env:"PASSWORD_RESET_REDEMPTION_EMAIL_ADDRESS" json:"passwordResetRedemptionEmailAddress" yaml:"passwordResetRedemptionEmailAddress"`
 		CircuitBreaker                      circuitbreakingcfg.Config `env:",init"                                    envPrefix:"CIRCUIT_BREAKING_"              json:"circuitBreakerConfig"                yaml:"circuitBreakerConfig"`
 	}
 )
-
-// BuildHermes builds a Hermes instance for rendering email templates.
-func (cfg *Config) BuildHermes(branding *email.EmailBranding) *hermes.Hermes {
-	var name, logo, copyright string
-	if branding != nil {
-		name = branding.CompanyName
-		logo = branding.LogoURL
-		copyright = fmt.Sprintf("Copyright © %d %s. All rights reserved.", time.Now().Year(), branding.CompanyName)
-	}
-	return &hermes.Hermes{
-		Product: hermes.Product{
-			Name:      name,
-			Link:      string(cfg.BaseURL),
-			Logo:      logo,
-			Copyright: copyright,
-		},
-	}
-}
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
@@ -89,14 +87,13 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(
 		ctx,
 		cfg,
-		validation.Field(&cfg.Provider, validation.In(
-			ProviderSendgrid,
-			ProviderMailgun,
-			ProviderMailjet,
-			ProviderResend,
-			ProviderPostmark,
-			ProviderSES,
-		)),
+		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
+			if !knownProvider(cfg.Provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "email provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
 		validation.Field(&cfg.Sendgrid, validation.When(cfg.Provider == ProviderSendgrid, validation.Required)),
 		validation.Field(&cfg.Mailgun, validation.When(cfg.Provider == ProviderMailgun, validation.Required)),
 		validation.Field(&cfg.Mailjet, validation.When(cfg.Provider == ProviderMailjet, validation.Required)),
@@ -108,6 +105,19 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 // NewEmailer provides an outbound_emailer.
 func (cfg *Config) NewEmailer(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, client *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, metricsProvider metrics.Provider) (email.Emailer, error) {
+	cfg.EnsureDefaults()
+
+	// The provider is checked before the rest of the config so an unrecognized
+	// one reports ErrUnknownProvider rather than whichever sub-config happened
+	// to be missing as a consequence.
+	if !knownProvider(cfg.Provider) {
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "email provider %q", cfg.Provider)
+	}
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating email config")
+	}
+
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case ProviderSendgrid:
 		return sendgrid.NewSendGridEmailer(cfg.Sendgrid, client, circuitBreaker, sendgrid.WithLogger(logger), sendgrid.WithTracerProvider(tracerProvider), sendgrid.WithMetricsProvider(metricsProvider))
@@ -121,8 +131,9 @@ func (cfg *Config) NewEmailer(ctx context.Context, logger logging.Logger, tracer
 		return postmark.NewPostmarkEmailer(cfg.Postmark, client, circuitBreaker, postmark.WithLogger(logger), postmark.WithTracerProvider(tracerProvider), postmark.WithMetricsProvider(metricsProvider))
 	case ProviderSES:
 		return ses.NewSESEmailer(ctx, cfg.SES, client, circuitBreaker, nil, ses.WithLogger(logger), ses.WithTracerProvider(tracerProvider), ses.WithMetricsProvider(metricsProvider))
-	default:
-		logger.Debug("providing noop outbound_emailer")
+	case ProviderNoop:
 		return noop.NewEmailer()
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "email provider %q", cfg.Provider)
 	}
 }

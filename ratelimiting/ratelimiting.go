@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 
 	"golang.org/x/time/rate"
@@ -19,6 +20,7 @@ type RateLimiter interface {
 }
 
 type inMemoryRateLimiter struct {
+	o11y            observability.Observer
 	allowedCounter  metrics.Int64Counter
 	rejectedCounter metrics.Int64Counter
 	limiters        sync.Map
@@ -43,6 +45,7 @@ func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Optio
 	}
 
 	return &inMemoryRateLimiter{
+		o11y:            observability.NewObserver(inMemoryName, o.logger, o.tracerProvider),
 		requestsPerSec:  requestsPerSec,
 		burstSize:       burstSize,
 		allowedCounter:  allowedCounter,
@@ -51,6 +54,9 @@ func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Optio
 }
 
 func (r *inMemoryRateLimiter) Allow(ctx context.Context, key string) (bool, error) {
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
 	limiter := r.getOrCreateLimiter(ctx, key)
 	allowed := limiter.Allow()
 	if allowed {

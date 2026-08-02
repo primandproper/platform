@@ -2,6 +2,7 @@ package distributedlockcfg
 
 import (
 	"context"
+	"strconv"
 	"database/sql"
 	"fmt"
 	"testing"
@@ -97,10 +98,10 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
-	T.Run("empty provider is valid (noop)", func(t *testing.T) {
+	T.Run("empty provider is invalid", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{}
-		test.NoError(t, cfg.ValidateWithContext(t.Context()))
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 }
 
@@ -151,11 +152,11 @@ func TestNewLocker(T *testing.T) {
 		must.NotNil(t, l)
 	})
 
-	T.Run("unknown provider returns noop", func(t *testing.T) {
+	T.Run("the noop provider returns the noop locker", func(t *testing.T) {
 		t.Parallel()
 		l, err := NewLocker(
 			t.Context(),
-			&Config{Provider: "unknown"},
+			&Config{Provider: NoopProvider},
 			loggingnoop.NewLogger(),
 			tracingnoop.NewTracerProvider(),
 			metricsnoop.NewMetricsProvider(),
@@ -165,33 +166,23 @@ func TestNewLocker(T *testing.T) {
 		must.NotNil(t, l)
 	})
 
-	T.Run("empty provider returns noop", func(t *testing.T) {
-		t.Parallel()
-		l, err := NewLocker(
-			t.Context(),
-			&Config{},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
-			nil,
-		)
-		must.NoError(t, err)
-		must.NotNil(t, l)
-	})
-
-	T.Run("provider with whitespace returns noop", func(t *testing.T) {
-		t.Parallel()
-		l, err := NewLocker(
-			t.Context(),
-			&Config{Provider: "   "},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
-			nil,
-		)
-		must.NoError(t, err)
-		must.NotNil(t, l)
-	})
+	// A locker whose Acquire always succeeds has to be asked for by name: an
+	// unset or typo'd provider silently removes mutual exclusion everywhere.
+	for _, provider := range []string{"unknown", "", "   "} {
+		T.Run("rejects provider "+strconv.Quote(provider), func(t *testing.T) {
+			t.Parallel()
+			l, err := NewLocker(
+				t.Context(),
+				&Config{Provider: provider},
+				loggingnoop.NewLogger(),
+				tracingnoop.NewTracerProvider(),
+				metricsnoop.NewMetricsProvider(),
+				nil,
+			)
+			test.Error(t, err)
+			test.Nil(t, l)
+		})
+	}
 
 	T.Run("redis provider", func(t *testing.T) {
 		t.Parallel()
@@ -234,6 +225,7 @@ func TestNewLocker(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
+			Provider: MemoryProvider,
 			CircuitBreaker: circuitbreakingcfg.Config{
 				Name:                   "dlock-breaker",
 				ErrorRate:              50,
@@ -337,22 +329,31 @@ func TestNewScopedLocker(T *testing.T) {
 		test.Error(t, err)
 	})
 
-	for _, provider := range []string{NoopProvider, "unknown", "", "   "} {
-		T.Run("noop fallback for provider "+provider, func(t *testing.T) {
+	T.Run("the noop provider still runs fn", func(t *testing.T) {
+		t.Parallel()
+
+		s, err := newScoped(t, &Config{Provider: NoopProvider}, nil)
+		must.NoError(t, err)
+		must.NotNil(t, s)
+
+		// Selected deliberately, the noop locker still runs fn, so a deployment
+		// with nothing to coordinate with is not silently skipping work.
+		ran := false
+		must.NoError(t, s.WithLock(t.Context(), "chore", func(context.Context) error {
+			ran = true
+			return nil
+		}))
+		test.True(t, ran)
+	})
+
+	// Mutual exclusion vanishing because of a typo is the failure this guards.
+	for _, provider := range []string{"unknown", "", "   "} {
+		T.Run("rejects provider "+strconv.Quote(provider), func(t *testing.T) {
 			t.Parallel()
 
 			s, err := newScoped(t, &Config{Provider: provider}, nil)
-			must.NoError(t, err)
-			must.NotNil(t, s)
-
-			// The fallback still runs fn, so a deployment with nothing to
-			// coordinate with is not silently skipping work.
-			ran := false
-			must.NoError(t, s.WithLock(t.Context(), "chore", func(context.Context) error {
-				ran = true
-				return nil
-			}))
-			test.True(t, ran)
+			test.Error(t, err)
+			test.Nil(t, s)
 		})
 	}
 

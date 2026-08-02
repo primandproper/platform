@@ -2,6 +2,7 @@ package distributedlockcfg
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
@@ -26,9 +27,22 @@ const (
 	PostgresProvider = "postgres"
 	// MemoryProvider selects the in-memory distributedlock.Locker implementation.
 	MemoryProvider = "memory"
-	// NoopProvider selects the no-op distributedlock.Locker implementation.
+	// NoopProvider selects the no-op distributedlock.Locker implementation,
+	// whose Acquire always succeeds. It must be chosen deliberately: an unset or
+	// unrecognized provider is an error, because silently removing mutual
+	// exclusion looks exactly like a system that never contends.
 	NoopProvider = "noop"
 )
+
+// providers are every provider this package implements. The dispatch switches
+// and ValidateWithContext all read it, so they cannot drift apart.
+var providers = []string{RedisProvider, PostgresProvider, MemoryProvider, NoopProvider}
+
+// knownProvider reports whether p names an implementation, ignoring case and
+// surrounding space, exactly as the dispatch switches do.
+func knownProvider(p string) bool {
+	return slices.Contains(providers, strings.TrimSpace(strings.ToLower(p)))
+}
 
 // Config dispatches to a distributedlock provider implementation.
 type Config struct {
@@ -41,12 +55,17 @@ type Config struct {
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
-// ValidateWithContext validates a Config struct. Empty Provider is acceptable and
-// resolves to the noop locker — matching the dispatch convention used elsewhere
-// in platform.
+// ValidateWithContext validates a Config struct. Provider is required: the noop
+// locker is reachable only by naming it.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(RedisProvider, PostgresProvider, MemoryProvider, NoopProvider)),
+		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
+			if !knownProvider(cfg.Provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "distributedlock provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
 		validation.Field(&cfg.Redis, validation.When(cfg.Provider == RedisProvider, validation.Required)),
 		validation.Field(&cfg.Postgres, validation.When(cfg.Provider == PostgresProvider, validation.Required)),
 	)
@@ -54,7 +73,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 // NewLocker constructs a distributedlock.Locker for the configured provider.
 // The db argument is required only when Provider is PostgresProvider; pass nil
-// otherwise. Unknown or empty providers fall back to the noop locker.
+// otherwise. An unknown or empty provider is an error.
 func NewLocker(
 	ctx context.Context,
 	cfg *Config,
@@ -65,6 +84,16 @@ func NewLocker(
 ) (distributedlock.Locker, error) {
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
+	}
+
+	// Checked before the rest of the config so an unrecognized provider reports
+	// ErrUnknownProvider rather than a downstream consequence of it.
+	if !knownProvider(cfg.Provider) {
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "distributedlock provider %q", cfg.Provider)
+	}
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating distributedlock config")
 	}
 
 	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, logger, metricsProvider)
@@ -88,8 +117,10 @@ func NewLocker(
 			memory.WithLogger(logger),
 			memory.WithTracerProvider(tracerProvider),
 			memory.WithMetricsProvider(metricsProvider))
-	default:
+	case NoopProvider:
 		return noop.NewLocker(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "distributedlock provider %q", cfg.Provider)
 	}
 }
 
@@ -97,8 +128,8 @@ func NewLocker(
 // provider. The postgres provider gets the native transaction-scoped
 // implementation (server-side waiting, no TTL); redis and memory wrap their
 // Locker in the generic scoped adapter with its defaults. As with NewLocker,
-// db is required only for PostgresProvider, and unknown or empty providers
-// fall back to the noop implementation.
+// db is required only for PostgresProvider, and an unknown or empty provider
+// is an error.
 func NewScopedLocker(
 	ctx context.Context,
 	cfg *Config,
@@ -109,6 +140,16 @@ func NewScopedLocker(
 ) (distributedlock.ScopedLocker, error) {
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
+	}
+
+	// Checked before the rest of the config so an unrecognized provider reports
+	// ErrUnknownProvider rather than a downstream consequence of it.
+	if !knownProvider(cfg.Provider) {
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "distributedlock provider %q", cfg.Provider)
+	}
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating distributedlock config")
 	}
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
@@ -132,7 +173,9 @@ func NewScopedLocker(
 			distributedlock.WithLogger(logger),
 			distributedlock.WithTracerProvider(tracerProvider),
 			distributedlock.WithMetricsProvider(metricsProvider))
-	default:
+	case NoopProvider:
 		return noop.NewScopedLocker(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "distributedlock provider %q", cfg.Provider)
 	}
 }

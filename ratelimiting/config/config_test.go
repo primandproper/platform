@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/errors"
 	redisrl "github.com/primandproper/platform-go/v9/ratelimiting/redis"
 
 	"github.com/shoenig/test"
@@ -37,40 +38,32 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 	})
 }
 
-func TestConfig_NewRateLimiter(T *testing.T) {
+func TestNewRateLimiter(T *testing.T) {
 	T.Parallel()
 
-	T.Run("nil config returns noop", func(t *testing.T) {
+	T.Run("nil config is an error", func(t *testing.T) {
 		t.Parallel()
 
-		var cfg *Config
-		limiter, err := cfg.NewRateLimiter(nil)
-		must.NoError(t, err)
-		must.NotNil(t, limiter)
-
-		allowed, err := limiter.Allow(context.Background(), "x")
-		must.NoError(t, err)
-		test.True(t, allowed)
+		limiter, err := NewRateLimiter(context.Background(), nil, nil, nil, nil)
+		test.ErrorIs(t, err, errors.ErrNilInputParameter)
+		test.Nil(t, limiter)
 	})
 
-	T.Run("empty provider returns noop", func(t *testing.T) {
+	// The whole point of the change: an unset provider no longer silently
+	// yields a limiter that never limits.
+	T.Run("empty provider is an error", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Provider: ""}
-		limiter, err := cfg.NewRateLimiter(nil)
-		must.NoError(t, err)
-		must.NotNil(t, limiter)
-
-		allowed, err := limiter.Allow(context.Background(), "x")
-		must.NoError(t, err)
-		test.True(t, allowed)
+		limiter, err := NewRateLimiter(context.Background(), &Config{Provider: ""}, nil, nil, nil)
+		must.Error(t, err)
+		test.Nil(t, limiter)
 	})
 
 	T.Run("noop provider returns noop", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderNoop}
-		limiter, err := cfg.NewRateLimiter(nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
 		must.NoError(t, err)
 		must.NotNil(t, limiter)
 
@@ -87,7 +80,7 @@ func TestConfig_NewRateLimiter(T *testing.T) {
 			RequestsPerSec: 1,
 			BurstSize:      1,
 		}
-		limiter, err := cfg.NewRateLimiter(nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
 		must.NoError(t, err)
 		must.NotNil(t, limiter)
 
@@ -109,50 +102,29 @@ func TestConfig_NewRateLimiter(T *testing.T) {
 			RequestsPerSec: 1,
 			BurstSize:      1,
 		}
-		limiter, err := cfg.NewRateLimiter(nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
 		must.NoError(t, err)
 		test.NotNil(t, limiter)
 	})
 
-	T.Run("unknown provider returns error", func(t *testing.T) {
+	T.Run("unknown provider returns ErrUnknownProvider", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: "unknown"}
-		limiter, err := cfg.NewRateLimiter(nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
 		must.Error(t, err)
 		test.Nil(t, limiter)
-		test.StrContains(t, err.Error(), "unknown")
-	})
-}
-
-func TestNewRateLimiterFromConfig(T *testing.T) {
-	T.Parallel()
-
-	T.Run("nil config returns noop", func(t *testing.T) {
-		t.Parallel()
-
-		limiter, err := NewRateLimiter(nil, nil)
-		must.NoError(t, err)
-		must.NotNil(t, limiter)
 	})
 
-	T.Run("noop provider returns noop", func(t *testing.T) {
+	// Validation is wired in now, so a negative rate — which would reject every
+	// request — is caught at construction instead of at the first Allow.
+	T.Run("rejects a negative rate", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Provider: ProviderNoop}
-		limiter, err := NewRateLimiter(cfg, nil)
-		must.NoError(t, err)
-		must.NotNil(t, limiter)
-	})
-
-	T.Run("unknown provider wraps error", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &Config{Provider: "unknown"}
-		limiter, err := NewRateLimiter(cfg, nil)
+		cfg := &Config{Provider: ProviderMemory, RequestsPerSec: -1, BurstSize: 1}
+		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
 		must.Error(t, err)
 		test.Nil(t, limiter)
-		test.StrContains(t, err.Error(), "provide rate limiter")
 	})
 }
 
@@ -164,6 +136,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := context.Background()
 		cfg := &Config{
+			Provider:       ProviderMemory,
 			RequestsPerSec: 1.0,
 			BurstSize:      1,
 		}
@@ -172,11 +145,21 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		must.NoError(t, err)
 	})
 
+	T.Run("missing provider", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{RequestsPerSec: 1.0, BurstSize: 1}
+
+		err := cfg.ValidateWithContext(context.Background())
+		must.Error(t, err)
+	})
+
 	T.Run("invalid RequestsPerSec", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := context.Background()
 		cfg := &Config{
+			Provider:       ProviderMemory,
 			RequestsPerSec: -1,
 			BurstSize:      1,
 		}
@@ -190,6 +173,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := context.Background()
 		cfg := &Config{
+			Provider:       ProviderMemory,
 			RequestsPerSec: 1.0,
 			BurstSize:      -1,
 		}

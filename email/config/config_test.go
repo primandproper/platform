@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v9/email"
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/email/mailgun"
 	"github.com/primandproper/platform-go/v9/email/mailjet"
 	"github.com/primandproper/platform-go/v9/email/postmark"
@@ -32,6 +32,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
+			Provider: ProviderSendgrid,
 			Sendgrid: &sendgrid.Config{APIToken: t.Name()},
 		}
 
@@ -91,41 +92,18 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		must.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
-	T.Run("empty provider is permitted for noop fallback", func(t *testing.T) {
+	T.Run("empty provider is rejected", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ""}
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("the noop provider is a valid choice", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderNoop}
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
-	})
-}
-
-func TestConfig_BuildHermes(T *testing.T) {
-	T.Parallel()
-
-	T.Run("with branding", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &Config{BaseURL: "https://example.com"}
-		h := cfg.BuildHermes(&email.EmailBranding{
-			CompanyName: "Acme",
-			LogoURL:     "https://example.com/logo.png",
-		})
-		must.NotNil(t, h)
-		test.EqOp(t, "Acme", h.Product.Name)
-		test.EqOp(t, "https://example.com/logo.png", h.Product.Logo)
-		test.EqOp(t, "https://example.com", h.Product.Link)
-		test.StrContains(t, h.Product.Copyright, "Acme")
-	})
-
-	T.Run("without branding", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &Config{BaseURL: "https://example.com"}
-		h := cfg.BuildHermes(nil)
-		must.NotNil(t, h)
-		test.EqOp(t, "", h.Product.Name)
-		test.EqOp(t, "", h.Product.Logo)
-		test.EqOp(t, "", h.Product.Copyright)
 	})
 }
 
@@ -186,27 +164,49 @@ func TestConfig_NewEmailer(T *testing.T) {
 		test.NoError(t, err)
 	})
 
-	T.Run("with invalid provider", func(t *testing.T) {
+	// Outbound mail disappearing because PROVIDER was unset is the failure this
+	// guards; noop is still reachable, but only by name.
+	T.Run("with an empty provider", func(t *testing.T) {
 		t.Parallel()
 
 		logger := loggingnoop.NewLogger()
-		cfg := &Config{
-			Provider: "",
-		}
+		cfg := &Config{Provider: ""}
 
 		actual, err := cfg.NewEmailer(t.Context(), logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
-		test.NotNil(t, actual)
+		test.Error(t, err)
+		test.Nil(t, actual)
+	})
+
+	T.Run("with an unknown provider", func(t *testing.T) {
+		t.Parallel()
+
+		logger := loggingnoop.NewLogger()
+		cfg := &Config{Provider: "smtp"}
+
+		actual, err := cfg.NewEmailer(t.Context(), logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+		test.Nil(t, actual)
+	})
+
+	T.Run("with the noop provider", func(t *testing.T) {
+		t.Parallel()
+
+		logger := loggingnoop.NewLogger()
+		cfg := &Config{Provider: ProviderNoop}
+
+		actual, err := cfg.NewEmailer(t.Context(), logger, tracingnoop.NewTracerProvider(), &http.Client{}, cbnoop.NewCircuitBreaker(), nil)
 		test.NoError(t, err)
+		test.NotNil(t, actual)
 	})
 }
 
 func TestNewEmailer(T *testing.T) {
 	T.Parallel()
 
-	T.Run("standard falls back to noop", func(t *testing.T) {
+	T.Run("with the noop provider", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{}
+		cfg := &Config{Provider: ProviderNoop}
 		cfg.CircuitBreaker.Name = t.Name()
 
 		emailer, err := NewEmailer(
@@ -245,7 +245,7 @@ func TestNewEmailer(T *testing.T) {
 	T.Run("circuit breaker init failure", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{}
+		cfg := &Config{Provider: ProviderNoop}
 		cfg.CircuitBreaker.Name = "email-breaker"
 		cfg.CircuitBreaker.ErrorRate = 50
 		cfg.CircuitBreaker.MinimumSampleThreshold = 10

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/profiling"
 	profilingnoop "github.com/primandproper/platform-go/v9/observability/profiling/noop"
@@ -19,6 +20,11 @@ const (
 	ProviderPyroscope = "pyroscope"
 	// ProviderPprof represents Go-native pprof HTTP server.
 	ProviderPprof = "pprof"
+	// ProviderNoop, and the empty string, select no profiling at all. That is the
+	// deliberate opt-out and stays supported; what is no longer supported is a
+	// provider name this package does not recognize, which used to disable
+	// profiling silently and looked exactly like the opt-out.
+	ProviderNoop = "noop"
 )
 
 type (
@@ -51,8 +57,10 @@ func (c *Config) NewProfilingProvider(ctx context.Context, logger logging.Logger
 			c.Pprof = &pprof.Config{Port: pprof.DefaultPort}
 		}
 		return pprof.NewProfilingProvider(ctx, logger, c.Pprof)
-	default:
+	case "", ProviderNoop:
 		return profilingnoop.NewProvider(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "profiling provider %q", c.Provider)
 	}
 }
 
@@ -61,7 +69,7 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // ValidateWithContext validates the config struct.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.In("", ProviderPyroscope, ProviderPprof)),
+		validation.Field(&c.Provider, validation.In("", ProviderNoop, ProviderPyroscope, ProviderPprof)),
 		validation.Field(&c.Pyroscope, validation.When(c.Provider == ProviderPyroscope, validation.Required).Else(validation.Nil)),
 		validation.Field(&c.Pprof, validation.When(c.Provider == ProviderPyroscope || c.Provider == "", validation.Nil)),
 	)

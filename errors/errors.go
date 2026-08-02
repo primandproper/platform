@@ -40,4 +40,15 @@ var (
 	// Its message is deliberately generic: it reaches clients verbatim, and the
 	// specific permission that was missing must not.
 	ErrPermissionDenied = crdberrors.New("permission denied")
+
+	// ErrUnknownProvider indicates a config named a provider the package does
+	// not implement — a typo, or a provider from a newer version of this module.
+	//
+	// It lives here so that every config subpackage reports the same failure the
+	// same way, and so a consumer's startup path can branch on one sentinel
+	// rather than on a dozen package-local ones. Constructors wrap it with the
+	// offending value; they never substitute a noop implementation, because a
+	// misconfigured provider that silently discards its work is a production
+	// incident that looks like a healthy process.
+	ErrUnknownProvider = crdberrors.New("unknown provider")
 )

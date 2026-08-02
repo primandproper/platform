@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/errors"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics/otelgrpc"
 
@@ -43,12 +44,27 @@ func TestConfig_NewMetricsProvider(T *testing.T) {
 		test.NotNil(t, metricsProvider)
 	})
 
-	T.Run("enabled with unknown provider falls back to noop", func(t *testing.T) {
+	// A typo used to disable metrics in a way indistinguishable from choosing to.
+	T.Run("enabled with unknown provider is an error", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
 			Enabled:  true,
 			Provider: "unknown",
+		}
+
+		metricsProvider, err := cfg.NewMetricsProvider(t.Context(), loggingnoop.NewLogger())
+
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+		test.Nil(t, metricsProvider)
+	})
+
+	T.Run("enabled with the noop provider", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Enabled:  true,
+			Provider: ProviderNoop,
 		}
 
 		metricsProvider, err := cfg.NewMetricsProvider(t.Context(), loggingnoop.NewLogger())

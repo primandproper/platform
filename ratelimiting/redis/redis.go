@@ -8,6 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/identifiers"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/ratelimiting"
 
@@ -59,6 +60,7 @@ var _ ratelimiting.RateLimiter = (*rateLimiter)(nil)
 const redisName = "redis_rate_limiter"
 
 type rateLimiter struct {
+	o11y            observability.Observer
 	client          redisClient
 	allowedCounter  metrics.Int64Counter
 	rejectedCounter metrics.Int64Counter
@@ -108,6 +110,7 @@ func NewRedisRateLimiter(cfg Config, requestsPerSec float64, burstSize int, opts
 	}
 
 	return &rateLimiter{
+		o11y:            observability.NewObserver(redisName, o.logger, o.tracerProvider),
 		client:          client,
 		requestsPerSec:  requestsPerSec,
 		burstSize:       burstSize,
@@ -119,6 +122,9 @@ func NewRedisRateLimiter(cfg Config, requestsPerSec float64, burstSize int, opts
 
 // Allow returns true if the key is within the rate limit.
 func (r *rateLimiter) Allow(ctx context.Context, key string) (bool, error) {
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
 	now := time.Now().UnixMilli()
 
 	// Map the token-bucket-style (requestsPerSec, burstSize) config onto a sliding
