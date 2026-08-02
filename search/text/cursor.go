@@ -88,13 +88,13 @@ func DecodeCursor(backend string, c Cursor) (int, error) {
 // EffectiveLimit resolves a requested limit against the default and the
 // backend's own ceiling. It exists so the three backends cannot disagree about
 // what an unset limit means, which is how they ended up capping at 10 and 20.
-func EffectiveLimit(requested, max int) int {
+func EffectiveLimit(requested, ceiling int) int {
 	if requested <= 0 {
 		requested = DefaultSearchLimit
 	}
 
-	if max > 0 && requested > max {
-		return max
+	if ceiling > 0 && requested > ceiling {
+		return ceiling
 	}
 
 	return requested

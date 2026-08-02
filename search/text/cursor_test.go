@@ -107,21 +107,21 @@ func TestEffectiveLimit(T *testing.T) {
 	T.Parallel()
 
 	cases := map[string]struct {
-		requested, max, expected int
+		requested, ceiling, expected int
 	}{
-		"unset takes the shared default":      {requested: 0, max: 200, expected: DefaultSearchLimit},
-		"negative takes the shared default":   {requested: -5, max: 200, expected: DefaultSearchLimit},
-		"a requested limit is honored":        {requested: 10, max: 200, expected: 10},
-		"a limit past the ceiling is clamped": {requested: 5000, max: 200, expected: 200},
-		"no ceiling leaves the request alone": {requested: 5000, max: 0, expected: 5000},
-		"exactly the ceiling is honored":      {requested: 200, max: 200, expected: 200},
+		"unset takes the shared default":      {requested: 0, ceiling: 200, expected: DefaultSearchLimit},
+		"negative takes the shared default":   {requested: -5, ceiling: 200, expected: DefaultSearchLimit},
+		"a requested limit is honored":        {requested: 10, ceiling: 200, expected: 10},
+		"a limit past the ceiling is clamped": {requested: 5000, ceiling: 200, expected: 200},
+		"no ceiling leaves the request alone": {requested: 5000, ceiling: 0, expected: 5000},
+		"exactly the ceiling is honored":      {requested: 200, ceiling: 200, expected: 200},
 	}
 
 	for name, tc := range cases {
 		T.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			test.EqOp(t, tc.expected, EffectiveLimit(tc.requested, tc.max))
+			test.EqOp(t, tc.expected, EffectiveLimit(tc.requested, tc.ceiling))
 		})
 	}
 }

@@ -3,6 +3,7 @@ package retrycfg
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -251,5 +252,80 @@ func TestDelayFor(T *testing.T) {
 		DelayFor(cfg, 5)
 
 		test.EqOp(t, before, cfg)
+	})
+}
+
+func TestExponentialBackoffPolicy_ContextCancellation(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a context canceled before the first attempt returns its error", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		policy := NewExponentialBackoffPolicy(Config{MaxAttempts: 3, InitialDelay: time.Millisecond})
+
+		attempts := 0
+		err := policy.Execute(ctx, func(context.Context) error {
+			attempts++
+
+			return nil
+		})
+
+		// No attempt was made, so there is no operation error to report and the
+		// context's own error is what the caller gets.
+		test.ErrorIs(t, err, context.Canceled)
+		test.EqOp(t, 0, attempts)
+	})
+
+	T.Run("cancellation after a failure reports the failure, not the cancellation", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		t.Cleanup(cancel)
+
+		policy := NewExponentialBackoffPolicy(Config{
+			MaxAttempts:  5,
+			InitialDelay: time.Hour, // long enough that cancellation wins the sleep
+			MaxDelay:     time.Hour,
+			Multiplier:   2,
+		})
+
+		sentinel := errors.New("attempt failed")
+		attempts := 0
+		err := policy.Execute(ctx, func(context.Context) error {
+			attempts++
+			cancel()
+
+			return sentinel
+		})
+
+		// The operation's error is the useful one — "context canceled" would
+		// lose why the work was failing in the first place.
+		test.ErrorIs(t, err, sentinel)
+		test.EqOp(t, 1, attempts)
+	})
+
+	T.Run("exhausting every attempt returns the last error", func(t *testing.T) {
+		t.Parallel()
+
+		policy := NewExponentialBackoffPolicy(Config{
+			MaxAttempts:  3,
+			InitialDelay: time.Nanosecond,
+			MaxDelay:     time.Nanosecond,
+			Multiplier:   1,
+		})
+
+		attempts := 0
+		err := policy.Execute(t.Context(), func(context.Context) error {
+			attempts++
+
+			return fmt.Errorf("failure %d", attempts)
+		})
+
+		must.Error(t, err)
+		test.EqOp(t, 3, attempts)
+		test.StrContains(t, err.Error(), "failure 3")
 	})
 }

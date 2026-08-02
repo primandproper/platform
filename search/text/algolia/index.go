@@ -110,9 +110,9 @@ func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchReque
 		}
 
 		var encodedAsJSON []byte
-		encodedAsJSON, err := json.Marshal(hit)
-		if err != nil {
-			return nil, err
+		encodedAsJSON, marshalErr := json.Marshal(hit)
+		if marshalErr != nil {
+			return nil, marshalErr
 		}
 
 		if unmarshalErr := json.Unmarshal(encodedAsJSON, &x); unmarshalErr != nil {

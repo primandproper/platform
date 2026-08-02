@@ -3,6 +3,7 @@ package sqs
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/messagequeue"
@@ -268,5 +269,124 @@ func Test_provideSQSConsumer(T *testing.T) {
 		test.Error(t, err)
 		test.Nil(t, actual)
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
+	})
+}
+
+func Test_instrumentName(T *testing.T) {
+	T.Parallel()
+
+	cases := map[string]struct{ queueURL, expected string }{
+		"derives the name from the queue, not the URL": {
+			queueURL: "https://sqs.us-east-1.amazonaws.com/123456789/test-queue",
+			expected: "test-queue",
+		},
+		"a bare name is kept": {
+			queueURL: "my-queue",
+			expected: "my-queue",
+		},
+		"dots, dashes and underscores survive": {
+			queueURL: "https://sqs.us-east-1.amazonaws.com/1/orders.fifo_v2-a",
+			expected: "orders.fifo_v2-a",
+		},
+		"characters an instrument name cannot carry are replaced": {
+			queueURL: "https://sqs.us-east-1.amazonaws.com/1/queue name!",
+			expected: "queue_name_",
+		},
+		"an empty queue URL falls back": {
+			queueURL: "",
+			expected: "sqs",
+		},
+		"a trailing slash falls back rather than yielding an empty name": {
+			queueURL: "https://sqs.us-east-1.amazonaws.com/123456789/",
+			expected: "sqs",
+		},
+	}
+
+	for name, tc := range cases {
+		T.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			test.EqOp(t, tc.expected, instrumentName(tc.queueURL))
+		})
+	}
+}
+
+func Test_sqsConsumer_Consume_ReceiveFailure(T *testing.T) {
+	T.Parallel()
+
+	queueURL := "https://sqs.us-east-1.amazonaws.com/123456789/test-queue"
+
+	T.Run("a failing receive reports the error and backs off", func(t *testing.T) {
+		t.Parallel()
+
+		anticipatedErr := errors.New("expired credentials")
+		calls := make(chan struct{}, 8)
+
+		mmr := &mockMessageReceiver{
+			receiveMessageFunc: func(_ context.Context, _ *sqs.ReceiveMessageInput, _ ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error) {
+				select {
+				case calls <- struct{}{}:
+				default:
+				}
+
+				return nil, anticipatedErr
+			},
+		}
+
+		consumer, err := provideSQSConsumer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, mmr,
+			queueURL, func(context.Context, []byte) error { return nil })
+		must.NoError(t, err)
+
+		errs := make(chan error, 4)
+		consumeCtx, stopConsuming := context.WithCancel(t.Context())
+		t.Cleanup(stopConsuming)
+
+		go consumer.Consume(consumeCtx, errs)
+
+		receivedErr := <-errs
+		test.ErrorIs(t, receivedErr, anticipatedErr)
+
+		// Without the backoff this loop spins as fast as the CPU allows. One
+		// retry inside the first backoff window is enough to show it retries at
+		// all; the pacing itself is what the sleep between them provides.
+		<-calls
+		stopConsuming()
+	})
+
+	T.Run("a cancelled context stops the loop without reporting", func(t *testing.T) {
+		t.Parallel()
+
+		started := make(chan struct{})
+		var once sync.Once
+
+		mmr := &mockMessageReceiver{
+			receiveMessageFunc: func(ctx context.Context, _ *sqs.ReceiveMessageInput, _ ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error) {
+				once.Do(func() { close(started) })
+				<-ctx.Done()
+
+				// A receive that fails because the consumer is shutting down is
+				// not a failure worth reporting to the caller.
+				return nil, ctx.Err()
+			},
+		}
+
+		consumer, err := provideSQSConsumer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, mmr,
+			queueURL, func(context.Context, []byte) error { return nil })
+		must.NoError(t, err)
+
+		errs := make(chan error, 4)
+		consumeCtx, stopConsuming := context.WithCancel(t.Context())
+
+		done := make(chan struct{})
+		go func() {
+			consumer.Consume(consumeCtx, errs)
+			close(done)
+		}()
+
+		<-started
+		stopConsuming()
+		<-done
+
+		test.EqOp(t, 0, len(errs))
 	})
 }

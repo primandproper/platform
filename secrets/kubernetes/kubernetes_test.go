@@ -16,7 +16,9 @@ import (
 	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel/metric"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func TestNewKubernetesSecretSource(T *testing.T) {
@@ -271,4 +273,50 @@ func (m *mockSecretGetter) Get(_ context.Context, name string, _ metav1.GetOptio
 		return nil, m.err
 	}
 	return m.secret, nil
+}
+
+func TestKubernetesSecretSource_GetSecret_ErrorMapping(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a missing secret maps to the platform sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		mc := &mockSecretGetter{
+			err: apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "db-creds"),
+		}
+		source, _ := newRecordingSource(t, &Config{Namespace: "default"}, mc)
+
+		got, err := source.GetSecret(t.Context(), "db-creds/password")
+		// Mapped rather than passed through, so a caller can tell "no such
+		// secret" from "could not reach the provider" without knowing which
+		// provider it got.
+		test.ErrorIs(t, err, secrets.ErrSecretNotFound)
+		test.EqOp(t, "", got)
+	})
+
+	T.Run("a missing secret preserves the underlying cause", func(t *testing.T) {
+		t.Parallel()
+
+		underlying := apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "db-creds")
+		mc := &mockSecretGetter{err: underlying}
+		source, _ := newRecordingSource(t, &Config{Namespace: "default"}, mc)
+
+		_, err := source.GetSecret(t.Context(), "db-creds/password")
+		test.ErrorIs(t, err, underlying)
+	})
+
+	T.Run("an unreachable API server is not reported as not-found", func(t *testing.T) {
+		t.Parallel()
+
+		underlying := errors.New("connection refused")
+		mc := &mockSecretGetter{err: underlying}
+		source, _ := newRecordingSource(t, &Config{Namespace: "default"}, mc)
+
+		got, err := source.GetSecret(t.Context(), "db-creds/password")
+		must.Error(t, err)
+		// The distinction the sentinel exists to make: absent is not unreachable.
+		test.False(t, errors.Is(err, secrets.ErrSecretNotFound))
+		test.ErrorIs(t, err, underlying)
+		test.EqOp(t, "", got)
+	})
 }

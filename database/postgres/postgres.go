@@ -172,10 +172,6 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 	return c, nil
 }
 
-// connect opens the pgx pool for one side of the read/write split and derives its
-// database/sql handle from it. The pool is the single authority on connection
-// count and lifetime; the derived handle is capped to the same values so the two
-// layers can never disagree about the real limit.
 // closePools releases whatever was opened, for the failure paths after a
 // successful connect. Read and write may be the same handles when only one
 // connection string is configured, so each is closed once.
@@ -203,6 +199,10 @@ func closePools(cause error, readDB, writeDB *sql.DB, readPool, writePool *pgxpo
 	return cause
 }
 
+// connect opens the pgx pool for one side of the read/write split and derives its
+// database/sql handle from it. The pool is the single authority on connection
+// count and lifetime; the derived handle is capped to the same values so the two
+// layers can never disagree about the real limit.
 func connect(ctx context.Context, connStr string, cfg database.ClientConfig, opts []otelsql.Option) (*pgxpool.Pool, *sql.DB, error) {
 	poolCfg, err := pgxpool.ParseConfig(connStr)
 	if err != nil {

@@ -142,7 +142,7 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 
 			// Back off before retrying. Long polling normally paces this loop, but
 			// a receive that fails returns immediately — so a persistent failure
-			// (expired credentials, a deleted queue, a network partition) span the
+			// (expired credentials, a deleted queue, a network partition) spun the
 			// loop as fast as the CPU and the SQS API allowed, burning a core and
 			// the request quota for as long as it lasted.
 			backoff = min(backoff*2, maxReceiveBackoff)
