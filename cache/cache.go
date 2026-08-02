@@ -65,6 +65,11 @@ type (
 		// providers that wholly own their store (memory) always succeed.
 		Flush(ctx context.Context) error
 		Ping(ctx context.Context) error
+		// Close releases the resources the cache holds — a connection pool, a
+		// background sweep — and is safe to call more than once. It does not
+		// evict anything: entries in a shared backing store outlive the handle
+		// that wrote them. After Close the cache must not be used again.
+		Close() error
 	}
 
 	// WriteConfig is the resolved per-call write configuration. Providers

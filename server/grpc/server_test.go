@@ -30,7 +30,9 @@ var errStub = errors.New("stub error")
 type mockTracerProvider struct {
 	noop.TracerProvider
 	forceFlushFunc  func(ctx context.Context) error
+	shutdownFunc    func(ctx context.Context) error
 	forceFlushCalls int
+	shutdownCalls   int
 }
 
 func (m *mockTracerProvider) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
@@ -43,6 +45,14 @@ func (m *mockTracerProvider) ForceFlush(ctx context.Context) error {
 		return nil
 	}
 	return m.forceFlushFunc(ctx)
+}
+
+func (m *mockTracerProvider) Shutdown(ctx context.Context) error {
+	m.shutdownCalls++
+	if m.shutdownFunc == nil {
+		return nil
+	}
+	return m.shutdownFunc(ctx)
 }
 
 func generateTestTLSCerts(t *testing.T) (certFile, keyFile string) {

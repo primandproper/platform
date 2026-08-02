@@ -45,13 +45,13 @@ func buildZerologger(level logging.Level) zerolog.Logger {
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
 	switch {
-	case logging.LevelsEqual(level, logging.DebugLevel):
+	case level == logging.DebugLevel:
 		logger = logger.With().Logger()
 		lvl = zerolog.DebugLevel
-	case logging.LevelsEqual(level, logging.WarnLevel):
+	case level == logging.WarnLevel:
 		logger = logger.With().Caller().Logger()
 		lvl = zerolog.WarnLevel
-	case logging.LevelsEqual(level, logging.ErrorLevel):
+	case level == logging.ErrorLevel:
 		logger = logger.With().Caller().Logger()
 		lvl = zerolog.ErrorLevel
 	default:

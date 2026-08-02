@@ -27,13 +27,13 @@ func NewZapLogger(lvl logging.Level) logging.Logger {
 
 	var cfg zap.Config
 	switch {
-	case logging.LevelsEqual(lvl, logging.DebugLevel):
+	case lvl == logging.DebugLevel:
 		atomicLevel.SetLevel(zap.DebugLevel)
 		cfg = zap.NewDevelopmentConfig()
-	case logging.LevelsEqual(lvl, logging.WarnLevel):
+	case lvl == logging.WarnLevel:
 		atomicLevel.SetLevel(zap.WarnLevel)
 		cfg = zap.NewProductionConfig()
-	case logging.LevelsEqual(lvl, logging.ErrorLevel):
+	case lvl == logging.ErrorLevel:
 		atomicLevel.SetLevel(zap.ErrorLevel)
 		cfg = zap.NewProductionConfig()
 	default:
@@ -64,11 +64,11 @@ func (l *zapLogger) SetLevel(level logging.Level) {
 	var lvl zapcore.Level
 
 	switch {
-	case logging.LevelsEqual(level, logging.DebugLevel):
+	case level == logging.DebugLevel:
 		lvl = zap.DebugLevel
-	case logging.LevelsEqual(level, logging.WarnLevel):
+	case level == logging.WarnLevel:
 		lvl = zap.WarnLevel
-	case logging.LevelsEqual(level, logging.ErrorLevel):
+	case level == logging.ErrorLevel:
 		lvl = zap.ErrorLevel
 	default:
 		lvl = zap.InfoLevel

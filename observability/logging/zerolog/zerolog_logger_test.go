@@ -45,7 +45,7 @@ func Test_buildZerologger(T *testing.T) {
 	T.Run("with nil level", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, buildZerologger(nil))
+		test.NotNil(t, buildZerologger(""))
 	})
 }
 

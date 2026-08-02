@@ -43,11 +43,11 @@ type options struct {
 // without bound. The rule of thumb: enable it whenever the expiry is long
 // relative to how often a given key is read.
 //
-// The sweep is bound to ctx rather than to a Close method because cache.Cache
-// has no Close, and adding one would touch every provider and every mock. The
-// goroutine exits when ctx is done, so a caller that needs the sweep to stop
-// before process exit passes a cancellable context. A nil ctx or a non-positive
-// interval starts no goroutine at all.
+// The sweep stops on Close, and also when ctx is done — whichever happens
+// first. Passing context.Background() and relying on Close is the ordinary
+// shape; a cancellable ctx is for tying the sweep to something narrower than
+// the cache's own lifetime. A nil ctx or a non-positive interval starts no
+// goroutine at all.
 func WithJanitor(ctx context.Context, interval time.Duration) Option {
 	return func(o *options) {
 		if ctx == nil || interval <= 0 {

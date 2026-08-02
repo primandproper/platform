@@ -67,6 +67,7 @@ type redisClient interface {
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Eval(ctx context.Context, script string, keys []string, args ...any) *redis.Cmd
 	Ping(ctx context.Context) *redis.StatusCmd
+	Close() error
 }
 
 type redisCacheImpl[T any] struct {
@@ -656,4 +657,16 @@ func buildRedisClient(cfg *Config) redisClient {
 	}
 
 	return c
+}
+
+// Close releases the connection pool. It does not evict anything: the entries
+// live in redis and outlive any one client.
+//
+// It is safe to call more than once — go-redis's Close is idempotent.
+func (c *redisCacheImpl[T]) Close() error {
+	if c.client == nil {
+		return nil
+	}
+
+	return c.client.Close()
 }

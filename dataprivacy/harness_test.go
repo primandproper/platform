@@ -333,3 +333,9 @@ func decodeArtifact(t *testing.T, p *packager, stored []byte) *Document {
 
 	return &doc
 }
+
+// Close satisfies uploads.UploadManager.
+func (u *memoryUploader) Close() error { return nil }
+
+// Close satisfies uploads.UploadManager.
+func (u *signingUploader) Close() error { return nil }

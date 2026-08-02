@@ -20,6 +20,9 @@ var _ cache.Cache[any] = &CacheMock[any]{}
 //
 //		// make and configure a mocked cache.Cache
 //		mockedCache := &CacheMock{
+//			CloseFunc: func() error {
+//				panic("mock out the Close method")
+//			},
 //			DeleteFunc: func(ctx context.Context, key string) error {
 //				panic("mock out the Delete method")
 //			},
@@ -54,6 +57,9 @@ var _ cache.Cache[any] = &CacheMock[any]{}
 //
 //	}
 type CacheMock[T any] struct {
+	// CloseFunc mocks the Close method.
+	CloseFunc func() error
+
 	// DeleteFunc mocks the Delete method.
 	DeleteFunc func(ctx context.Context, key string) error
 
@@ -83,6 +89,9 @@ type CacheMock[T any] struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Close holds details about calls to the Close method.
+		Close []struct {
+		}
 		// Delete holds details about calls to the Delete method.
 		Delete []struct {
 			// Ctx is the ctx argument value.
@@ -149,6 +158,7 @@ type CacheMock[T any] struct {
 			Opts []cache.WriteOption
 		}
 	}
+	lockClose          sync.RWMutex
 	lockDelete         sync.RWMutex
 	lockDeleteByPrefix sync.RWMutex
 	lockDeleteMany     sync.RWMutex
@@ -158,6 +168,33 @@ type CacheMock[T any] struct {
 	lockPing           sync.RWMutex
 	lockSet            sync.RWMutex
 	lockSetMany        sync.RWMutex
+}
+
+// Close calls CloseFunc.
+func (mock *CacheMock[T]) Close() error {
+	if mock.CloseFunc == nil {
+		panic("CacheMock.CloseFunc: method is nil but Cache.Close was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockClose.Lock()
+	mock.calls.Close = append(mock.calls.Close, callInfo)
+	mock.lockClose.Unlock()
+	return mock.CloseFunc()
+}
+
+// CloseCalls gets all the calls that were made to Close.
+// Check the length with:
+//
+//	len(mockedCache.CloseCalls())
+func (mock *CacheMock[T]) CloseCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockClose.RLock()
+	calls = mock.calls.Close
+	mock.lockClose.RUnlock()
+	return calls
 }
 
 // Delete calls DeleteFunc.

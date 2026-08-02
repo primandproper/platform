@@ -30,3 +30,8 @@ func (*TracerProvider) Tracer(instrumentationName string, opts ...trace.TracerOp
 func (*TracerProvider) ForceFlush(context.Context) error {
 	return nil
 }
+
+// Shutdown is a no-op.
+func (*TracerProvider) Shutdown(context.Context) error {
+	return nil
+}

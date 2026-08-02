@@ -281,3 +281,6 @@ func inFlight(fingerprint Fingerprint) *Record[payload] {
 		State:       StateInFlight,
 	}
 }
+
+// Close satisfies cache.Cache.
+func (s *countingStore) Close() error { return nil }

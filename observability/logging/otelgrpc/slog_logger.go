@@ -35,19 +35,19 @@ func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName strin
 
 	var level slog.Leveler
 	switch {
-	case logging.LevelsEqual(lvl, logging.DebugLevel):
+	case lvl == logging.DebugLevel:
 		level = slog.LevelDebug
-	case logging.LevelsEqual(lvl, logging.InfoLevel):
+	case lvl == logging.InfoLevel:
 		level = slog.LevelInfo
-	case logging.LevelsEqual(lvl, logging.WarnLevel):
+	case lvl == logging.WarnLevel:
 		level = slog.LevelWarn
-	case logging.LevelsEqual(lvl, logging.ErrorLevel):
+	case lvl == logging.ErrorLevel:
 		level = slog.LevelError
 	}
 
 	logHandlers := []slog.Handler{
 		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			AddSource: logging.LevelsEqual(lvl, logging.DebugLevel),
+			AddSource: lvl == logging.DebugLevel,
 			Level:     level,
 		}),
 	}

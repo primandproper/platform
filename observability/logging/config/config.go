@@ -52,19 +52,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
-// validateLevel accepts a nil/empty Level (the noop path) or one of the known levels.
-// logging.Level is a pointer type, so validation.In (reflect.DeepEqual) can't match a
-// decoded level against the package singletons — compare by value instead.
+// validateLevel accepts the zero Level — which every implementation reads as
+// InfoLevel — or one of the known levels.
 func validateLevel(value any) error {
 	lvl, ok := value.(logging.Level)
-	if !ok || lvl == nil {
+	if !ok || lvl == "" || lvl.Valid() {
 		return nil
-	}
-
-	for _, known := range logging.AllLevels() {
-		if logging.LevelsEqual(lvl, known) {
-			return nil
-		}
 	}
 
 	return validation.NewError("validation_invalid_log_level", "must be a valid log level")

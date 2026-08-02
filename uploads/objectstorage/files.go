@@ -266,3 +266,16 @@ func (u *Uploader) SignedURL(ctx context.Context, path string, opts *uploads.Sig
 	u.circuitBreaker.Succeeded()
 	return signedURL, nil
 }
+
+// Close releases the underlying gocloud bucket, and with it whatever client
+// the provider opened. It does not delete anything.
+//
+// It is safe to call more than once; gocloud's Close reports an error only on
+// the first call that actually closes.
+func (u *Uploader) Close() error {
+	if u.bucket == nil {
+		return nil
+	}
+
+	return u.bucket.Close()
+}
