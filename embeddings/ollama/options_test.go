@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
@@ -87,5 +88,27 @@ func TestWithTracerProvider(T *testing.T) {
 
 		must.NotNil(t, o)
 		test.Nil(t, o.tracerProvider)
+	})
+}
+
+func TestWithMetricsProvider(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the metrics provider", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithMetricsProvider(metricsnoop.NewMetricsProvider())})
+
+		must.NotNil(t, o)
+		test.NotNil(t, o.metricsProvider)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithMetricsProvider(metricsnoop.NewMetricsProvider()), WithMetricsProvider(nil)})
+
+		must.NotNil(t, o)
+		test.Nil(t, o.metricsProvider)
 	})
 }

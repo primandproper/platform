@@ -12,6 +12,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/embeddings"
 	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
@@ -303,9 +304,12 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		e := &embedder{
-			cfg:    &Config{BaseURL: string([]byte{0x7f})},
-			o11y:   observability.NewObserverForTest("test"),
-			client: &http.Client{},
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{BaseURL: string([]byte{0x7f})},
+			o11y:           observability.NewObserverForTest("test"),
+			client:         &http.Client{},
 		}
 
 		result, err := e.GenerateEmbedding(t.Context(), &embeddings.Input{Content: "hello"})
@@ -319,8 +323,11 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		body := `{"embeddings":[[0.1,0.2]]}`
 		e := &embedder{
-			cfg:  &Config{BaseURL: "http://localhost"},
-			o11y: observability.NewObserverForTest("test"),
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{BaseURL: "http://localhost"},
+			o11y:           observability.NewObserverForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return &http.Response{
@@ -341,8 +348,11 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		e := &embedder{
-			cfg:  &Config{BaseURL: "http://localhost"},
-			o11y: observability.NewObserverForTest("test"),
+			requestCounter: metricstest.Int64Counter(t, "requests"),
+			errorCounter:   metricstest.Int64Counter(t, "errors"),
+			latencyHist:    metricstest.Float64Histogram(t, "latency"),
+			cfg:            &Config{BaseURL: "http://localhost"},
+			o11y:           observability.NewObserverForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return &http.Response{

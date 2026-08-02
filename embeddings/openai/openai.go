@@ -14,18 +14,29 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
 )
 
 const (
 	defaultBaseURL = "https://api.openai.com"
 	defaultModel   = "text-embedding-3-small"
-	providerName   = "openai"
+	// name scopes this package's spans, logs, and metrics. It is qualified with
+	// the component because llm/openai instruments the same vendor, and the two
+	// would otherwise share an instrumentation scope.
+	name = "openai_embeddings"
+	// providerName is what the Provider field of a returned Embedding reports:
+	// the vendor rather than the component, since it is stored alongside the
+	// vector and read back to reason about the model.
+	providerName = "openai"
 )
 
 type embedder struct {
-	o11y   observability.Observer
-	client *http.Client
-	cfg    *Config
+	o11y           observability.Observer
+	client         *http.Client
+	cfg            *Config
+	requestCounter metrics.Int64Counter
+	errorCounter   metrics.Int64Counter
+	latencyHist    metrics.Float64Histogram
 }
 
 // NewEmbedder creates a new OpenAI-backed embeddings provider.
@@ -47,10 +58,30 @@ func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (embeddings.E
 	}
 	client := &http.Client{Timeout: timeout}
 
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
+
+	requestCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_requests", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating request counter")
+	}
+
+	errorCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_errors", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating error counter")
+	}
+
+	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating latency histogram")
+	}
+
 	return &embedder{
-		o11y:   observability.NewObserver(providerName, logger, o.tracerProvider),
-		client: client,
-		cfg:    cfg,
+		o11y:           observability.NewObserver(name, logger, o.tracerProvider),
+		client:         client,
+		cfg:            cfg,
+		requestCounter: requestCounter,
+		errorCounter:   errorCounter,
+		latencyHist:    latencyHist,
 	}, nil
 }
 
@@ -77,13 +108,24 @@ type embeddingResponse struct {
 // Requests) is surfaced to the caller as an error carrying the status code; it is not
 // retried or backed off. Callers that want retry/backoff should wrap this call themselves
 // (e.g. with the platform's retry package).
-func (e *embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.Input) ([]*embeddings.Embedding, error) {
+func (e *embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.Input) (_ []*embeddings.Embedding, err error) {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
 	if len(inputs) == 0 {
 		return []*embeddings.Embedding{}, nil
 	}
+
+	// Instrumented here rather than in GenerateEmbedding, which delegates to
+	// this method — counting both would double every single-input call.
+	e.requestCounter.Add(ctx, 1)
+	startTime := time.Now()
+	defer func() {
+		e.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+		if err != nil {
+			e.errorCounter.Add(ctx, 1)
+		}
+	}()
 
 	texts := make([]string, len(inputs))
 	var model string

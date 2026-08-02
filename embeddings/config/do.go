@@ -5,6 +5,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/embeddings"
 	"github.com/primandproper/platform-go/v9/observability/logging"
+	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	"github.com/samber/do/v2"
@@ -17,6 +18,7 @@ func RegisterEmbedder(i do.Injector) {
 		cfg := do.MustInvoke[*Config](i)
 		logger := do.MustInvoke[logging.Logger](i)
 		tracerProvider := do.MustInvoke[tracing.TracerProvider](i)
-		return NewEmbedder(ctx, cfg, logger, tracerProvider)
+		metricsProvider := do.MustInvoke[metrics.Provider](i)
+		return NewEmbedder(ctx, cfg, logger, tracerProvider, metricsProvider)
 	})
 }

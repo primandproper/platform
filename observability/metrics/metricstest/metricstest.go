@@ -27,3 +27,14 @@ func Int64Counter(t *testing.T, name string) metric.Int64Counter {
 
 	return x
 }
+
+// Float64Histogram builds a histogram from the process-global meter provider,
+// failing the test if it cannot.
+func Float64Histogram(t *testing.T, name string) metric.Float64Histogram {
+	t.Helper()
+
+	x, err := otel.Meter("testing").Float64Histogram(name)
+	must.NoError(t, err)
+
+	return x
+}
