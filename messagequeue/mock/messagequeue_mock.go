@@ -332,7 +332,7 @@ var _ messagequeue.Consumer = &ConsumerMock{}
 //
 //		// make and configure a mocked messagequeue.Consumer
 //		mockedConsumer := &ConsumerMock{
-//			ConsumeFunc: func(ctx context.Context, stopChan chan bool, errors chan error)  {
+//			ConsumeFunc: func(ctx context.Context, errs chan<- error)  {
 //				panic("mock out the Consume method")
 //			},
 //		}
@@ -343,7 +343,7 @@ var _ messagequeue.Consumer = &ConsumerMock{}
 //	}
 type ConsumerMock struct {
 	// ConsumeFunc mocks the Consume method.
-	ConsumeFunc func(ctx context.Context, stopChan chan bool, errors chan error)
+	ConsumeFunc func(ctx context.Context, errs chan<- error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -351,33 +351,29 @@ type ConsumerMock struct {
 		Consume []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// StopChan is the stopChan argument value.
-			StopChan chan bool
-			// Errors is the errors argument value.
-			Errors chan error
+			// Errs is the errs argument value.
+			Errs chan<- error
 		}
 	}
 	lockConsume sync.RWMutex
 }
 
 // Consume calls ConsumeFunc.
-func (mock *ConsumerMock) Consume(ctx context.Context, stopChan chan bool, errors chan error) {
+func (mock *ConsumerMock) Consume(ctx context.Context, errs chan<- error) {
 	if mock.ConsumeFunc == nil {
 		panic("ConsumerMock.ConsumeFunc: method is nil but Consumer.Consume was just called")
 	}
 	callInfo := struct {
-		Ctx      context.Context
-		StopChan chan bool
-		Errors   chan error
+		Ctx  context.Context
+		Errs chan<- error
 	}{
-		Ctx:      ctx,
-		StopChan: stopChan,
-		Errors:   errors,
+		Ctx:  ctx,
+		Errs: errs,
 	}
 	mock.lockConsume.Lock()
 	mock.calls.Consume = append(mock.calls.Consume, callInfo)
 	mock.lockConsume.Unlock()
-	mock.ConsumeFunc(ctx, stopChan, errors)
+	mock.ConsumeFunc(ctx, errs)
 }
 
 // ConsumeCalls gets all the calls that were made to Consume.
@@ -385,14 +381,12 @@ func (mock *ConsumerMock) Consume(ctx context.Context, stopChan chan bool, error
 //
 //	len(mockedConsumer.ConsumeCalls())
 func (mock *ConsumerMock) ConsumeCalls() []struct {
-	Ctx      context.Context
-	StopChan chan bool
-	Errors   chan error
+	Ctx  context.Context
+	Errs chan<- error
 } {
 	var calls []struct {
-		Ctx      context.Context
-		StopChan chan bool
-		Errors   chan error
+		Ctx  context.Context
+		Errs chan<- error
 	}
 	mock.lockConsume.RLock()
 	calls = mock.calls.Consume

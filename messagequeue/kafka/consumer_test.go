@@ -69,11 +69,12 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 1)
 
 		cancel()
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 
 		// The reader (group membership + connections) must be closed on exit.
 		test.EqOp(t, 1, reader.closeCalls)
@@ -98,14 +99,14 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			handlerFunc:     func(context.Context, []byte) error { return nil },
 		}
 
-		stopChan := make(chan bool, 1)
 		done := make(chan struct{})
+		consumeCtx, stopConsuming := context.WithCancel(t.Context())
 		go func() {
-			c.Consume(t.Context(), stopChan, nil)
+			c.Consume(consumeCtx, nil)
 			close(done)
 		}()
 
-		stopChan <- true
+		stopConsuming()
 
 		select {
 		case <-done:
@@ -135,14 +136,16 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 1)
 
-		stopChan <- true
-		c.Consume(ctx, stopChan, errs)
+		// Already-cancelled: Consume must return promptly rather than block.
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		stopConsuming()
+
+		c.Consume(consumeCtx, errs)
 	})
 
-	T.Run("with nil stop channel", func(t *testing.T) {
+	T.Run("with a nil error channel", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -165,7 +168,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		errs := make(chan error, 1)
 
 		cancel()
-		c.Consume(ctx, nil, errs)
+		c.Consume(ctx, errs)
 	})
 
 	T.Run("with fetch error and context still alive", func(t *testing.T) {
@@ -195,10 +198,11 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 10)
 
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 
 		select {
 		case receivedErr := <-errs:
@@ -231,9 +235,10 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 
-		c.Consume(ctx, stopChan, nil)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, nil)
 	})
 
 	T.Run("with successful message handling", func(t *testing.T) {
@@ -274,10 +279,11 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 10)
 
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 		test.True(t, handlerCalled)
 		test.EqOp(t, 1, reader.commitCalls)
 
@@ -322,10 +328,11 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 10)
 
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 
 		receivedErr := <-errs
 		test.Error(t, receivedErr)
@@ -369,9 +376,10 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 
-		c.Consume(ctx, stopChan, nil)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, nil)
 	})
 
 	T.Run("does not commit past a failed message", func(t *testing.T) {
@@ -415,7 +423,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		errs := make(chan error, 1)
 
-		c.Consume(ctx, make(chan bool, 1), errs)
+		c.Consume(ctx, errs)
 
 		// The failed message must not have been committed, and the consumer must not
 		// have advanced to (and committed) the following message.
@@ -460,10 +468,11 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 10)
 
-		c.Consume(ctx, stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
+		c.Consume(consumeCtx, errs)
 		test.EqOp(t, 1, reader.commitCalls)
 
 		// The topic and payload length must still have been observed, and the

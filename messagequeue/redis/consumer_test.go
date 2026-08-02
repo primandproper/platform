@@ -63,11 +63,12 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		obs := observability.NewRecordingObserver()
 		actual.o11y = obs
 
-		stopChan := make(chan bool, 1)
 		errorsChan := make(chan error, 1)
 		done := make(chan struct{})
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
 		go func() {
-			consumer.Consume(ctx, stopChan, errorsChan)
+			consumer.Consume(consumeCtx, errorsChan)
 			close(done)
 		}()
 
@@ -75,7 +76,7 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		must.NoError(t, publisher.Publish(ctx, []byte("blah")))
 
 		<-time.After(time.Second)
-		stopChan <- true
+		stopConsuming()
 		// Wait for Consume to return so its observations are visible here without
 		// racing the consume goroutine.
 		<-done
@@ -122,11 +123,12 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		obs := observability.NewRecordingObserver()
 		actual.o11y = obs
 
-		stopChan := make(chan bool, 1)
 		errorsChan := make(chan error, 1)
 		done := make(chan struct{})
+		consumeCtx, stopConsuming := context.WithCancel(ctx)
+		defer stopConsuming()
 		go func() {
-			consumer.Consume(ctx, stopChan, errorsChan)
+			consumer.Consume(consumeCtx, errorsChan)
 			close(done)
 		}()
 
@@ -145,7 +147,8 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		// errorsChan before op.End(), so we must let the goroutine finish before
 		// asserting, both for End and to avoid racing its observations.
 		select {
-		case stopChan <- true:
+		default:
+			stopConsuming()
 		case <-time.After(time.Second):
 		}
 		<-done

@@ -41,7 +41,7 @@ const fetchErrorBackoff = 250 * time.Millisecond
 // sendErr delivers err on errs without wedging: it also selects on ctx so a
 // consumer whose error channel is no longer being drained still unblocks when the
 // context is canceled during shutdown.
-func (c *kafkaConsumer) sendErr(ctx context.Context, errs chan error, err error) {
+func (c *kafkaConsumer) sendErr(ctx context.Context, errs chan<- error, err error) {
 	if errs == nil {
 		return
 	}
@@ -84,25 +84,7 @@ func provideKafkaConsumer(logger logging.Logger, tracerProvider tracing.TracerPr
 }
 
 // Consume reads messages from Kafka and applies the handler to their payloads.
-func (c *kafkaConsumer) Consume(ctx context.Context, stopChan chan bool, errs chan error) {
-	if stopChan == nil {
-		stopChan = make(chan bool, 1)
-	}
-
-	// Cancel the fetch context when stop is signaled so a FetchMessage blocked
-	// waiting for a message returns promptly instead of ignoring stop until the next
-	// message arrives. The watcher also exits on ctx.Done (fired by defer cancel), so
-	// it doesn't leak on the normal shutdown path.
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		select {
-		case <-stopChan:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-
+func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 	// The reader owns network connections and consumer-group membership; close it on
 	// exit so neither leaks.
 	defer func() {

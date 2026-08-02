@@ -49,8 +49,8 @@ type fakeQueue struct {
 	mu      sync.Mutex
 }
 
-// newFakeQueue builds a queue whose consumer runs until its stop channel
-// closes, mirroring what every real implementation in messagequeue does.
+// newFakeQueue builds a queue whose consumer runs until its context is done,
+// mirroring what every real implementation in messagequeue does.
 func newFakeQueue() *fakeQueue {
 	q := &fakeQueue{
 		messages:      make(chan []byte, 64),
@@ -59,16 +59,14 @@ func newFakeQueue() *fakeQueue {
 	}
 
 	consumer := &mockmq.ConsumerMock{
-		ConsumeFunc: func(ctx context.Context, stopChan chan bool, errs chan error) {
+		ConsumeFunc: func(ctx context.Context, errs chan<- error) {
 			defer close(q.stopped)
 
 			for {
 				select {
-				case <-stopChan:
+				case <-ctx.Done():
 					q.flushErrorsAtStop(errs)
 
-					return
-				case <-ctx.Done():
 					return
 				case err := <-q.transportErrs:
 					errs <- err
@@ -149,7 +147,7 @@ func (q *fakeQueue) stageErrorsAtStop(errs ...error) {
 
 // flushErrorsAtStop pushes the staged errors without blocking, so a test that
 // stages more than the channel holds cannot wedge the consumer.
-func (q *fakeQueue) flushErrorsAtStop(errs chan error) {
+func (q *fakeQueue) flushErrorsAtStop(errs chan<- error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 

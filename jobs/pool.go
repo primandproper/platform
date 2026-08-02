@@ -105,7 +105,6 @@ type Pool struct {
 	noMoreWork chan struct{}
 	stop       chan struct{}
 	done       chan struct{}
-	stopChan   chan bool
 
 	receivedCounter    metrics.Int64Counter
 	processedCounter   metrics.Int64Counter
@@ -158,7 +157,6 @@ func NewPool(ctx context.Context, cfg *PoolConfig, provider messagequeue.Consume
 		noMoreWork: make(chan struct{}),
 		stop:       make(chan struct{}),
 		done:       make(chan struct{}),
-		stopChan:   make(chan bool),
 		topicAttr:  metric.WithAttributes(attribute.String(keys.TopicKey, cfg.Topic)),
 	}
 	for _, opt := range opts {
@@ -260,10 +258,17 @@ func (p *Pool) Run() {
 	p.logger.WithValue(concurrencyKey, p.cfg.Concurrency).Info("job pool started")
 
 	errs := make(chan error, p.cfg.Concurrency)
+
+	// The consumer gets its own cancellable context, derived from workerCtx
+	// rather than being workerCtx: stopping the consumer must not cancel the
+	// handlers still running, which is the whole point of the ordering below.
+	consumeCtx, stopConsuming := context.WithCancel(p.workerCtx)
+	defer stopConsuming()
+
 	consumeDone := make(chan struct{})
 	go func() {
 		defer close(consumeDone)
-		p.consumer.Consume(p.workerCtx, p.stopChan, errs)
+		p.consumer.Consume(consumeCtx, errs)
 	}()
 
 	// The consumer reports transport-level failures here; a handler error never
@@ -306,7 +311,7 @@ func (p *Pool) Run() {
 	// sender left, so a worker that sees noMoreWork knows every message has
 	// already been handed out — and the one it may still be holding is finished
 	// before it exits.
-	close(p.stopChan)
+	stopConsuming()
 	<-consumeDone
 	<-drained
 	close(p.noMoreWork)

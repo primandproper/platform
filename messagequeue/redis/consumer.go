@@ -38,7 +38,7 @@ type (
 // sendErr delivers err on errs without wedging: it also selects on ctx so a
 // consumer whose error channel is no longer being drained still unblocks when the
 // context is canceled during shutdown.
-func (r *redisConsumer) sendErr(ctx context.Context, errs chan error, err error) {
+func (r *redisConsumer) sendErr(ctx context.Context, errs chan<- error, err error) {
 	if errs == nil {
 		return
 	}
@@ -87,11 +87,7 @@ func provideRedisConsumer(ctx context.Context, logger logging.Logger, tracerProv
 
 // Consume reads messages and applies the handler to their payloads.
 // Writes errors to the error chan if it isn't nil.
-func (r *redisConsumer) Consume(ctx context.Context, stopChan chan bool, errs chan error) {
-	if stopChan == nil {
-		stopChan = make(chan bool, 1)
-	}
-
+func (r *redisConsumer) Consume(ctx context.Context, errs chan<- error) {
 	// Closing the subscription on exit unsubscribes from the topic and releases the
 	// server-side subscription rather than leaking it.
 	defer func() {
@@ -120,8 +116,6 @@ func (r *redisConsumer) Consume(ctx context.Context, stopChan chan bool, errs ch
 				r.sendErr(msgCtx, errs, err)
 			}
 			op.End()
-		case <-stopChan:
-			return
 		}
 	}
 }

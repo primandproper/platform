@@ -12,7 +12,6 @@ import (
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	stripego "github.com/stripe/stripe-go/v75"
 )
 
 func TestRegisterPaymentManager(T *testing.T) {
@@ -49,7 +48,7 @@ func TestRegisterPaymentManager(T *testing.T) {
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		})
 
-		var handler stripe.EventHandler = func(context.Context, *stripego.Event) error { return nil }
+		var handler stripe.EventHandler = func(context.Context, *stripe.Event) error { return nil }
 		do.ProvideValue(i, handler)
 
 		RegisterPaymentManager(i)

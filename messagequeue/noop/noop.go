@@ -67,4 +67,4 @@ func NewConsumer() messagequeue.Consumer {
 	return &consumer{}
 }
 
-func (n *consumer) Consume(context.Context, chan bool, chan error) {}
+func (n *consumer) Consume(context.Context, chan<- error) {}

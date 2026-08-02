@@ -81,14 +81,14 @@ func Test_sqsConsumer_Consume(T *testing.T) {
 
 		consumer, err := provideSQSConsumer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, mmr, queueURL, handler)
 		must.NoError(t, err)
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 4)
 
-		go consumer.Consume(t.Context(), stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(t.Context())
+		go consumer.Consume(consumeCtx, errs)
 
 		receivedBody := <-handlerDone
 		<-deleteCalled // wait for DeleteMessage before stopping
-		stopChan <- true
+		stopConsuming()
 
 		test.Eq(t, []byte("test-payload"), receivedBody)
 	})
@@ -125,16 +125,16 @@ func Test_sqsConsumer_Consume(T *testing.T) {
 
 		consumer, err := provideSQSConsumer(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, mmr, queueURL, handler)
 		must.NoError(t, err)
-		stopChan := make(chan bool, 1)
 		errs := make(chan error, 4)
 
-		go consumer.Consume(t.Context(), stopChan, errs)
+		consumeCtx, stopConsuming := context.WithCancel(t.Context())
+		go consumer.Consume(consumeCtx, errs)
 
 		receivedErr := <-errs
 		test.Error(t, receivedErr)
 		test.ErrorIs(t, receivedErr, anticipatedErr)
 
-		stopChan <- true
+		stopConsuming()
 
 		test.EqOp(t, 0, mmr.deleteMessageCalls)
 	})

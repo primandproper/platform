@@ -74,7 +74,7 @@ func instrumentName(queueURL string) string {
 // sendErr delivers err on errs without wedging: it also selects on ctx so a
 // consumer whose error channel is no longer being drained still unblocks when the
 // context is canceled during shutdown.
-func (c *sqsConsumer) sendErr(ctx context.Context, errs chan error, err error) {
+func (c *sqsConsumer) sendErr(ctx context.Context, errs chan<- error, err error) {
 	if errs == nil {
 		return
 	}
@@ -124,24 +124,7 @@ func provideSQSConsumer(
 // Consume polls the SQS queue and processes messages until stopChan is signaled.
 // On handler success, the message is deleted from the queue.
 // On handler failure, the message is not deleted (it returns after visibility timeout).
-func (c *sqsConsumer) Consume(ctx context.Context, stopChan chan bool, errs chan error) {
-	if stopChan == nil {
-		stopChan = make(chan bool, 1)
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Also select on ctx.Done so this watcher exits on the normal (external ctx
-	// cancellation) shutdown path instead of blocking forever on <-stopChan.
-	go func() {
-		select {
-		case <-stopChan:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-
+func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 	backoff := initialReceiveBackoff
 
 	for ctx.Err() == nil {

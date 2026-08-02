@@ -146,7 +146,7 @@ func TestPubSubConsumer_Consume_nilErrorChannel(T *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			consumer.Consume(cancelledCtx, make(chan bool, 1), nil)
+			consumer.Consume(cancelledCtx, nil)
 			close(done)
 		}()
 
@@ -282,11 +282,12 @@ func TestPubSub_Container(T *testing.T) {
 
 			messageData := []byte(`{"name":"test"}`)
 
-			stopChan := make(chan bool, 1)
 			errChan := make(chan error, 1)
 			done := make(chan struct{})
+			consumeCtx, stopConsuming := context.WithCancel(ctx)
+			defer stopConsuming()
 			go func() {
-				consumer.Consume(ctx, stopChan, errChan)
+				consumer.Consume(consumeCtx, errChan)
 				close(done)
 			}()
 
@@ -304,7 +305,7 @@ func TestPubSub_Container(T *testing.T) {
 			}
 			test.True(t, called.Load())
 
-			stopChan <- true
+			stopConsuming()
 			// Wait for Consume to return so the background message callback (and its
 			// deferred op.End) has completed before reading the recorded observations.
 			select {
@@ -346,11 +347,12 @@ func TestPubSub_Container(T *testing.T) {
 
 			messageData := []byte(`{"name":"test"}`)
 
-			stopChan := make(chan bool, 1)
 			errChan := make(chan error, 1)
 			done := make(chan struct{})
+			consumeCtx, stopConsuming := context.WithCancel(ctx)
+			defer stopConsuming()
 			go func() {
-				consumer.Consume(ctx, stopChan, errChan)
+				consumer.Consume(consumeCtx, errChan)
 				close(done)
 			}()
 
@@ -369,7 +371,7 @@ func TestPubSub_Container(T *testing.T) {
 				t.Fatal("timed out waiting for handler error")
 			}
 
-			stopChan <- true
+			stopConsuming()
 			// Wait for Consume to return so the background message callback (and its
 			// deferred op.End) has completed before reading the recorded observations.
 			select {
@@ -398,16 +400,17 @@ func TestPubSub_Container(T *testing.T) {
 			consumer, err := provider.NewConsumer(ctx, topicName, handler)
 			must.NoError(t, err)
 
-			stopChan := make(chan bool, 1)
 			errChan := make(chan error, 1)
 
 			done := make(chan struct{})
+			consumeCtx, stopConsuming := context.WithCancel(ctx)
+			defer stopConsuming()
 			go func() {
-				consumer.Consume(ctx, stopChan, errChan)
+				consumer.Consume(consumeCtx, errChan)
 				close(done)
 			}()
 
-			stopChan <- true
+			stopConsuming()
 
 			select {
 			case <-done:
@@ -438,7 +441,7 @@ func TestPubSub_Container(T *testing.T) {
 			// Pass nil stopChan — should create its own internally.
 			done := make(chan struct{})
 			go func() {
-				consumer.Consume(ctx, nil, errChan)
+				consumer.Consume(ctx, errChan)
 				close(done)
 			}()
 
