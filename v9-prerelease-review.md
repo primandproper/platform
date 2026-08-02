@@ -10,13 +10,21 @@ Full-repo review ahead of the first v9 tag, covering all ~50 top-level packages 
 
 ## Resolution status
 
-Everything below is marked ✅ **done**, or ⏳ **outstanding** with the reason. `make format lint test` is green; lint reports 0 issues; the full suite passes.
+Everything below is marked ✅ **done**, or ⏳ **outstanding** with the reason. `make format lint test` is green; lint reports 0 issues; the full suite passes with container tests.
 
-**Outstanding after this pass (3 items, all §2 cosmetic — see the marks inline):**
+**Outstanding after the second pass (3 items):**
 
-- Mock package naming (three-way split). Not a sweep — bare `mock` is the majority *and* the reason the others diverged: a file importing two mock packages must alias one, which is exactly what `mockdatabase`/`mockmetrics` avoid. Converging needs a decision on which convention wins before ~17 packages and every import site move.
-- `IndexSearcher` pagination. Fixing it properly changes the interface *and* needs per-backend cursor semantics (ES `search_after` vs Algolia page offsets) designed, not just plumbed. Too big to fold into this pass; still breaking-if-deferred, so it should be its own change before the tag.
-- `embeddings/config` metricsProvider. Adding the parameter is trivial; forwarding it is not — none of the three embedders has a `WithMetricsProvider` option to receive it. Left out rather than adding an argument that goes nowhere.
+- ⏳ **Stripe's deprecated usage-records API.** Not cosmetic and not deferrable past the tag: `capitalism.UsageReportInput.SubscriptionItemID` is a usage-records concept, and Stripe's replacement (Billing Meter Events) keys on meter name plus customer. Migrating changes an exported struct, so it is breaking-if-deferred like everything else in §2. This was recorded as "a separate change" in the first pass, which understated it.
+- ⏳ **BENCHMARKS.md.** Needs a benchmark run on representative hardware — a machine question, not a code one. Deliberately left stale until after the release is cut.
+- ⏳ **Compile-testing against dinnerdonebetter.** Still the one verification this branch has not had. Everything else is green locally; nothing has been built against the sole consumer.
+
+**Resolved in the second pass:** mock package naming, `IndexSearcher` pagination, `embeddings/config`'s metricsProvider, `secrets/kubectl`'s name, `retry`'s layout, and the CodeCov patch-coverage gaps. See the marks inline.
+
+**Found while resolving, not in the original review:**
+
+- `stripe.NewStripePaymentManager` and `stripe.NewStripeUsageReporter` stutter the same way the four constructors §2 renamed did (`jwt.NewJWTSigner` etc.). Missed by that sweep. ⏳ Outstanding — it belongs with the usage-records change above, which touches the same package.
+- `embeddings/config` was a seam the §1b `ErrUnknownProvider` convergence missed; a typo'd provider still fell through to a silent noop embedder. ✅ Fixed.
+- `go.mod` still required `matcornic/hermes` and 24 transitive dependencies after §2's `BuildHermes` purge removed the code that used them. ✅ Tidied and re-vendored.
 
 ---
 
@@ -93,7 +101,7 @@ These lock in the moment you tag. Grouped by theme, roughly by importance.
 | `UploadManager` has no `Close` | `uploads/uploader.go:11` | gocloud `*blob.Bucket` never released. | ✅ Added. |
 | `logging.Level` is a pointer type | `observability/logging/logging.go:41-48` | `==` compares identity; package ships `LevelsEqual` as a workaround for its own type. | ✅ String-backed value type; `LevelsEqual` deleted. |
 | `outbox.RelayConfig.Dialect` | `outbox/config.go:51-52` | "Must match the database.Client" — the exact mismatch `Client.Dialect()` was just built to make unrepresentable. Derive it from the client. | ✅ Field removed; `NewRelay` and the config subpackage's `NewWriter` read it off the client. The SQLite-has-no-SKIP-LOCKED downgrade moved to where the dialect is known, and narrowly — it no longer rewrites a typo'd claim mode into a valid one. |
-| Stripe SDK leakage | `capitalism/config:48`, `stripe/stripe.go:42` | `stripe.EventHandler = func(ctx, *stripe.Event) error` over stripe-go **v75** (2023) in the exported config API. Any SDK major bump becomes a platform-go breaking change. Wrap the event in a platform-owned type. (Related: usage.go uses Stripe's deprecated usage-records API.) | ✅ Handlers receive a platform-owned `stripe.Event` (ID, type, raw JSON payload). ⏳ The deprecated usage-records API is untouched — a separate change. |
+| Stripe SDK leakage | `capitalism/config:48`, `stripe/stripe.go:42` | `stripe.EventHandler = func(ctx, *stripe.Event) error` over stripe-go **v75** (2023) in the exported config API. Any SDK major bump becomes a platform-go breaking change. Wrap the event in a platform-owned type. (Related: usage.go uses Stripe's deprecated usage-records API.) | ✅ Handlers receive a platform-owned `stripe.Event` (ID, type, raw JSON payload). ⏳ The usage-records API is untouched — and calling it "a separate change" understated it. `capitalism.UsageReportInput.SubscriptionItemID` is a usage-records concept; Billing Meter Events keys on meter name plus customer, so migrating changes an exported struct and is breaking-if-deferred like the rest of this section. Belongs with the `NewStripePaymentManager`/`NewStripeUsageReporter` stutter, which the naming sweep below also missed. |
 | `Embedder` is single-input only | `embeddings/embeddings.go:39-42` | No batch method; every backing API supports arrays. Adding it later breaks implementors. | ✅ `GenerateEmbeddings` on the interface, implemented natively by all three providers (their responses were already array-shaped). |
 | `messagequeue.Consumer.Consume(ctx, chan bool, chan error)` | `messagequeue/consumers.go:10` | Bidirectional bool stop channel; unspecified delivery semantics that actually differ per backend (redis at-most-once, others at-least-once; kafka stops on handler error, others continue). | ✅ `Consume(ctx, errs chan<- error)`. The stop channel was redundant — every implementation converted it to a context cancel immediately. Per-backend delivery semantics are now stated on the interface. |
 | `filtering.MaxResponseSize` is `uint8` | `filtering/query_filter.go:65,77` | Limit is 250, five below the type ceiling; `maxResponseSize: 300` is an unmarshal error, not a clamp. | ✅ `uint16`. |
@@ -104,7 +112,7 @@ These lock in the moment you tag. Grouped by theme, roughly by importance.
 | `ProxySourcesConfig` hardcodes IOS/Web | `analytics/config:38-41` | Adding any source is a breaking struct change; a map isn't. | ✅ A map keyed by source name. |
 | `RespondWithData` | `encoding/server_encoder_decoder.go:176` | Exported method absent from the interface — unreachable by consumers. Add or delete. | ✅ Added to the interface. |
 | `MultiPlatformPushSender` concrete deps | `notifications/mobile/multi_platform_push_sender.go:24-28` | Depends on `*apns.Sender`/`*fcm.Sender`; no interface seam, no mock. | ✅ `APNsSender`/`FCMSender` interfaces — with an explicit typed-nil check, because the config path passes an unset `*apns.Sender` when that platform isn't configured and a bare `== nil` misses it. |
-| pagination absent from `IndexSearcher` | `search/text` | ES silently caps at 10 hits, Algolia at 20 — same interface, different caps; fixing properly changes the interface. | ⏳ **Outstanding.** Needs per-backend cursor semantics designed (ES `search_after` vs Algolia page offsets), not just plumbed. Still breaking-if-deferred — should be its own change before the tag. |
+| pagination absent from `IndexSearcher` | `search/text` | ES silently caps at 10 hits, Algolia at 20 — same interface, different caps; fixing properly changes the interface. | ✅ `Search(ctx, SearchRequest) (*SearchResults[T], error)`, paginated by an opaque `Cursor`. Opaque because the backends do not resume alike — Algolia counts pages, ES counts documents, and ES's eventual `search_after` carries sort values, which is not a position at all. Cursors are tagged with the issuing backend, so crossing them is refused rather than misread. `DefaultSearchLimit` is shared, since "unset means 10 here and 20 there" was the original complaint in miniature. ES stops at `max_result_window` with a named error instead of letting the cluster reject the request. |
 
 ### ✅ Consumer-app (dinnerdonebetter) leakage to purge
 
@@ -137,17 +145,17 @@ Also: `observability.NewObserver(name, logger, tracerProvider)` is positional ou
 
 > ✅ Twelve constructors normalized. `ratelimiting` needed `WithLogger`/`WithTracerProvider` added to the package and its redis backend first, since it had no observability options at all. The `NewObserver` carve-out is documented in CLAUDE.md.
 >
-> ⏳ `embeddings/config` metricsProvider is the one exception: none of the three embedders has a `WithMetricsProvider` option to forward it to, so adding the parameter would mean an argument that goes nowhere. Left out deliberately.
+> ✅ `embeddings/config`'s metricsProvider, deferred in the first pass because there was nowhere to forward it, now has somewhere: all three embedders gained `WithMetricsProvider` and build request, error, and latency instruments the way `llm/openai` does. Instrumentation lives on `GenerateEmbeddings` only, since `GenerateEmbedding` delegates to it and counting both would double every single-input call. Each embedder also gained a `name` const (`<vendor>_embeddings`) distinct from `providerName`: the observer had been scoped to the bare vendor name, which `llm/<vendor>` also uses, so the two would have shared an instrumentation scope once both emitted metrics.
 
 ### Naming to settle now
 
 - Config subpackage names: 29 use `<name>cfg`, 6 use bare `config` (cache, capitalism, cryptography/encryption, eventstream, notifications/mobile, uploads), 1 uses `msgconfig` — ✅ **all 7 renamed** to `<name>cfg`; every config subpackage now matches.
-- Mock package names split three ways: bare `mock` (majority) vs `mockX` (8 pkgs) vs `Xmock` (6 pkgs); `mockpublishers` also contains consumer mocks — ⏳ **outstanding.** The split is load-bearing, not accidental: a file importing two mock packages must alias one, which is exactly what `mockdatabase`/`mockmetrics` exist to avoid. Converging on bare `mock` reintroduces that; converging on `<pkg>mock` moves ~17 packages and every import site. Wants a decision before a sweep.
+- Mock package names split three ways: bare `mock` (majority) vs `mockX` (8 pkgs) vs `Xmock` (6 pkgs); `mockpublishers` also contains consumer mocks — ✅ **all 31 converged on `<pkg>mock`.** The aliasing pressure that caused the split turned out to be the argument for this convention rather than against it: aliasing at the import site had already produced the mess it was meant to avoid, with circuitbreaking's mocks imported as `cbmock`, `mockcircuitbreaking`, and `mockCircuitBreaker` in different files, and messagequeue's as `mockpublishers`, `mockmq`, and `mqmock`. `<pkg>mock` is unique per package, so none of the 106 import sites needs an alias at all. Directories stay `mock/`, so import paths are unchanged. `mockpublishers` becoming `messagequeuemock` settles the consumer-mocks complaint too.
 - `saga/config` `ProvideStore`/`ProvideWorker` — the only `Provide*` constructors in the repo (263 `New*`) — ✅ `NewStore`/`NewWorker`.
 - `cache/redis` config field `QueueAddresses`/`QUEUE_ADDRESSES` — messaging copy-paste in a cache — ✅ `Addresses`/`ADDRESSES`. (`messagequeue/redis` keeps its `QueueAddresses`, where it is correct.)
 - Stutter: `jwt.NewJWTSigner`, `paseto.NewPASETOSigner`, `posthog.NewPostHogEventReporter`, `segment.NewSegmentEventReporter` — ✅ all four are `NewSigner`/`NewEventReporter`. `capitalism`'s `NewCapitalismImplementation`/`NewUsageReporterImplementation` got the same treatment.
-- `secrets/kubectl` uses client-go in-process, never the kubectl binary — ⏳ **outstanding** (rename only; no behavior change, and it touches every consumer's import path).
-- `retry` keeps `Config` in the package root with no `config/` subpackage or `do.go` — the only sibling shaped that way — ⏳ **outstanding.** `retry.Config` is embedded in a dozen other configs (`outbox`, `saga`, `metering`, `dataprivacy`); moving it is a wide change for a layout nit.
+- `secrets/kubectl` uses client-go in-process, never the kubectl binary — ✅ **renamed to `secrets/kubernetes`**, along with the provider value, the `KUBECTL_` env prefix, the config fields, and the instrumentation scope. A package comment now records what the name means so it does not drift back. client-go's own `kubernetes` package is aliased at its one use.
+- `retry` keeps `Config` in the package root with no `config/` subpackage or `do.go` — the only sibling shaped that way — ✅ **moved to `retry/config`.** Moving `Config` alone would have inverted the import edge, since `DelayFor` and the exponential policy both take one: the root would have imported its own config subpackage, which is backwards from every sibling and leaves a `do.go` nothing to register. Everything consuming a `Config` moved with it, so `retrycfg` owns `Config`, `DelayFor`, the policy, provider selection, and `RegisterPolicy`, while the root keeps the `Policy` seam and the retryability vocabulary. `isTerminal` is exported as `IsTerminal` now that the policy asking the question sits across the edge. `Config` gained a `Provider` field so the noop policy can be selected rather than only hand-constructed.
 
 ---
 
@@ -199,5 +207,7 @@ All ✅ done.
 2. ✅ **The breaking-fix batch** (section 2) — landed as several commits in the order suggested: API-shape decisions, then the leakage/dead-config purge, then positional-order + naming. ⏳ **Compile-testing against dinnerdonebetter has not been done** — it is the one verification step this branch is missing, and it should happen before merge.
 3. ✅ **High bugs** (section 3) — all 24, including the five called out as tag-blockers.
 4. ✅ **Docs sweep** (section 4) + PR. ⏳ BENCHMARKS.md regeneration deferred (needs a benchmark run).
+5. ✅ **The second pass** — the six items the first pass left outstanding, minus the two that are genuinely not code (BENCHMARKS.md, the dinnerdonebetter build): mock naming, `IndexSearcher` pagination, `embeddings/config`'s metricsProvider, `secrets/kubernetes`, `retry/config`, and the CodeCov gaps.
+6. ⏳ **Remaining before the tag:** the Stripe usage-records migration and the two stuttering Stripe constructors, then the dinnerdonebetter compile-test.
 
-**Verification:** `make format`, `make lint` (0 issues), `make build`, and the full test suite are green. All moq mocks regenerate byte-identical.
+**Verification:** `make format`, `make lint` (0 issues), `make build`, and the full suite with `RUN_CONTAINER_TESTS=true` are green. All moq mocks regenerate byte-identical. Project coverage is 82.0%; patch coverage on this branch is 85% (was 75%).
