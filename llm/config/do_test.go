@@ -25,7 +25,7 @@ func TestRegisterLLMProvider(T *testing.T) {
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, nil)
-		do.ProvideValue(i, &Config{})
+		do.ProvideValue(i, &Config{Provider: ProviderNoop})
 
 		RegisterLLMProvider(i)
 

@@ -60,7 +60,7 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 		test.Nil(t, reporter)
 	})
 
-	T.Run("with unrecognized provider uses noop", func(t *testing.T) {
+	T.Run("with unrecognized provider reports rather than substituting a noop", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -70,10 +70,11 @@ func TestNewMultiSourceEventReporterFromConfig(T *testing.T) {
 			},
 		}
 
+		// A source whose provider is a typo drops every event it is handed. That is
+		// worth failing startup over, since nothing downstream would notice.
 		reporter, err := NewMultiSourceEventReporterFromConfig(ctx, sources)
-		must.NoError(t, err)
-		must.NotNil(t, reporter)
-		test.MapLen(t, 1, reporter.reporters)
+		test.Error(t, err)
+		test.Nil(t, reporter)
 	})
 
 	T.Run("with multiple posthog sources sharing an API key reuses one reporter", func(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/primandproper/platform-go/v9/featureflags/launchdarkly"
 	"github.com/primandproper/platform-go/v9/featureflags/noop"
 	"github.com/primandproper/platform-go/v9/featureflags/posthog"
+	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -46,6 +47,13 @@ func (cfg *Config) EnsureDefaults() {
 
 // ValidateWithContext validates the config.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
+	// Release the sub-configs env parsing's ",init" allocated and nothing filled in.
+	// Without this they reach their own validation, which requires the credentials
+	// they would need if they were the selected provider — and rejects every config
+	// that named a different one.
+	cfgnorm.ZeroToNil(&c.LaunchDarkly)
+	cfgnorm.ZeroToNil(&c.PostHog)
+
 	return validation.ValidateStructWithContext(ctx, c,
 		validation.Field(&c.Provider, validation.Required, validation.In(ProviderLaunchDarkly, ProviderPostHog, ProviderNoop)),
 		validation.Field(&c.LaunchDarkly, validation.When(c.Provider == ProviderLaunchDarkly, validation.Required)),

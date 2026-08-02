@@ -6,6 +6,7 @@ import (
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
 	textsearch "github.com/primandproper/platform-go/v9/search/text"
 	"github.com/primandproper/platform-go/v9/search/text/algolia"
 	"github.com/primandproper/platform-go/v9/search/text/elasticsearch"
@@ -41,6 +42,13 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // ValidateWithContext validates a Config struct. Provider is canonicalized (trim + lowercase)
 // first so validation matches the same normalization NewIndex dispatches on.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	// Release the sub-configs env parsing's ",init" allocated and nothing filled in.
+	// Without this they reach their own validation, which requires the credentials
+	// they would need if they were the selected provider — and rejects every config
+	// that named a different one.
+	cfgnorm.ZeroToNil(&cfg.Algolia)
+	cfgnorm.ZeroToNil(&cfg.Elasticsearch)
+
 	cfg.Provider = strings.TrimSpace(strings.ToLower(cfg.Provider))
 
 	return validation.ValidateStructWithContext(ctx, cfg,

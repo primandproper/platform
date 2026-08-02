@@ -17,7 +17,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			Enabled:  true,
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		}
@@ -25,15 +24,24 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 
-	T.Run("returns nil when not enabled", func(t *testing.T) {
+	T.Run("the noop provider is valid on its own", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cfg := &Config{
-			Enabled: false,
-		}
+		cfg := &Config{Provider: NoopProvider}
 
 		test.NoError(t, cfg.ValidateWithContext(ctx))
+	})
+
+	T.Run("an unset provider is invalid", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{}
+
+		// Turning payments off has to be asked for by name; an unset provider is a
+		// mistake rather than a way to say "no payments".
+		test.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("with invalid config", func(t *testing.T) {
@@ -41,7 +49,6 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			Enabled:  true,
 			Provider: StripeProvider,
 		}
 
@@ -56,7 +63,6 @@ func TestNewPaymentManager(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Enabled:  true,
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		}
@@ -66,12 +72,10 @@ func TestNewPaymentManager(T *testing.T) {
 		test.NotNil(t, pm)
 	})
 
-	T.Run("disabled returns noop", func(t *testing.T) {
+	T.Run("the noop provider returns the noop manager", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{
-			Enabled: false,
-		}
+		cfg := &Config{Provider: NoopProvider}
 
 		pm, err := NewPaymentManager(t.Context(), cfg, nil)
 		must.NoError(t, err)
@@ -82,7 +86,6 @@ func TestNewPaymentManager(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Enabled:  true,
 			Provider: "unknown",
 		}
 
@@ -99,7 +102,6 @@ func TestNewUsageReporter(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Enabled:  true,
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{APIKey: "sk_test_123", WebhookSecret: t.Name()},
 		}
@@ -115,7 +117,6 @@ func TestNewUsageReporter(T *testing.T) {
 		// There is no inbound path for usage reporting, so a reporter without a
 		// key could do nothing at all.
 		cfg := &Config{
-			Enabled:  true,
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		}
@@ -131,7 +132,7 @@ func TestNewUsageReporter(T *testing.T) {
 		// an error, which is why this yields the noop instead of refusing.
 		reporter, err := NewUsageReporter(
 			t.Context(),
-			&Config{Enabled: false},
+			&Config{Provider: NoopProvider},
 		)
 		must.NoError(t, err)
 		test.NotNil(t, reporter)
@@ -140,7 +141,7 @@ func TestNewUsageReporter(T *testing.T) {
 	T.Run("with unknown provider", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Enabled: true, Provider: "unknown"}
+		cfg := &Config{Provider: "unknown"}
 
 		reporter, err := NewUsageReporter(t.Context(), cfg)
 		test.Nil(t, reporter)

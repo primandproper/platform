@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 
@@ -66,6 +67,13 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // a value like "S3" or " s3 " would fail validation yet dispatch cleanly.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
 	c.Provider = strings.TrimSpace(strings.ToLower(c.Provider))
+
+	// Release the sub-configs env parsing's ",init" allocated and nothing filled
+	// in, so the Nil rules below read "the operator configured this" rather than
+	// "env parsing ran".
+	cfgnorm.ZeroToNil(&c.FilesystemConfig)
+	cfgnorm.ZeroToNil(&c.R2Config)
+	cfgnorm.ZeroToNil(&c.BackblazeB2Config)
 
 	return validation.ValidateStructWithContext(ctx, c,
 		validation.Field(&c.BucketName, validation.Required),
