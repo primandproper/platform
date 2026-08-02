@@ -117,6 +117,14 @@ func buildChiMux(
 // NewBackend constructs a chi-backed routing.Backend with the standard middleware
 // and OpenTelemetry stack installed. Pass it to routing.New.
 func NewBackend(cfg *Config, opts ...Option) routing.Backend {
+	// A nil config is the zero config, not a panic. The config subpackage
+	// dispatches on Provider and hands whichever sub-config happens to be set —
+	// which is nil unless the deployment filled that provider's section in, so
+	// every backend here got one on a perfectly ordinary configuration.
+	if cfg == nil {
+		cfg = &Config{}
+	}
+
 	o := newOptions(opts)
 	o11y := observability.NewObserver("router", logging.EnsureLogger(o.logger), tracing.EnsureTracerProvider(o.tracerProvider))
 

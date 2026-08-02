@@ -195,7 +195,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		})
 	})
 
-	T.Run("with cache hit", func(t *testing.T) {
+	T.Run("rejects a second consumer for the same topic", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -210,10 +210,11 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		test.NoError(t, err)
 		test.NotNil(t, actual)
 
+		// The second caller used to get the first caller's consumer, wired to the
+		// first caller's handler, and their own handler never saw a message.
 		actual2, err := provider.NewConsumer(ctx, topic, nil)
-		test.NoError(t, err)
-		test.NotNil(t, actual2)
-		test.EqOp(t, actual, actual2)
+		test.ErrorIs(t, err, messagequeue.ErrConsumerAlreadyRegistered)
+		test.Nil(t, actual2)
 	})
 
 	T.Run("with empty topic returns error", func(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -190,8 +191,12 @@ func (p *consumerProvider) NewConsumer(_ context.Context, topic string, handlerF
 
 	p.consumerCacheMu.Lock()
 	defer p.consumerCacheMu.Unlock()
-	if cached, ok := p.consumerCache[topic]; ok {
-		return cached, nil
+
+	// Returning the cached consumer would hand this caller someone else's
+	// handler — and, once a handler error has stopped that consumer's read loop,
+	// a consumer that is permanently dead but still cached.
+	if _, ok := p.consumerCache[topic]; ok {
+		return nil, platformerrors.Wrapf(messagequeue.ErrConsumerAlreadyRegistered, "topic %q", topic)
 	}
 
 	c, err := provideKafkaConsumer(p.logger, p.tracerProvider, p.metricsProvider, p.brokers, p.groupID, topic, handlerFunc)

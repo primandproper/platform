@@ -28,4 +28,16 @@ type (
 var (
 	// ErrEmptyTopicName is returned when a topic name is empty.
 	ErrEmptyTopicName = platformerrors.New("empty topic name")
+
+	// ErrConsumerAlreadyRegistered is returned when a second consumer is
+	// requested for a topic a provider already has one for.
+	//
+	// Providers cache consumers by topic, and the cache used to win silently:
+	// the second caller got the first caller's consumer, wired to the first
+	// caller's handler, and their own handler was never invoked for any message.
+	// Nothing failed and nothing logged — the messages simply went somewhere else.
+	//
+	// One consumer per topic per provider is the rule; a caller that wants two
+	// behaviors for one topic multiplexes inside its own handler.
+	ErrConsumerAlreadyRegistered = platformerrors.New("a consumer is already registered for this topic")
 )

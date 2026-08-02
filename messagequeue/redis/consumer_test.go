@@ -191,7 +191,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		test.NotNil(t, actual)
 	})
 
-	T.Run("hitting cache", func(t *testing.T) {
+	T.Run("rejects a second consumer for the same topic", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -215,13 +215,12 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		test.NoError(t, err)
 		must.NotNil(t, first)
 
+		// The second caller used to get the first caller's consumer, wired to the
+		// first caller's handler — so their own handler never saw a message, with
+		// nothing failing and nothing logged.
 		second, err := conPro.NewConsumer(ctx, t.Name(), hf)
-		test.NoError(t, err)
-		must.NotNil(t, second)
-
-		// Second call for the same topic must return the exact same instance
-		// from the cache — no second SUBSCRIBE round-trip.
-		test.True(t, first == second)
+		test.ErrorIs(t, err, messagequeue.ErrConsumerAlreadyRegistered)
+		test.Nil(t, second)
 	})
 
 	T.Run("with empty topic", func(t *testing.T) {

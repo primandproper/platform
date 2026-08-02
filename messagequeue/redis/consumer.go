@@ -6,6 +6,7 @@ import (
 	"io"
 	"sync"
 
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -185,11 +186,12 @@ func (p *consumerProvider) NewConsumer(ctx context.Context, topic string, handle
 	}
 
 	p.consumerCacheMu.RLock()
-	if cachedPub, ok := p.consumerCache[topic]; ok {
-		p.consumerCacheMu.RUnlock()
-		return cachedPub, nil
-	}
+	_, exists := p.consumerCache[topic]
 	p.consumerCacheMu.RUnlock()
+
+	if exists {
+		return nil, platformerrors.Wrapf(messagequeue.ErrConsumerAlreadyRegistered, "topic %q", topic)
+	}
 
 	// Build the consumer outside the cache lock — provideRedisConsumer now
 	// does a network RTT waiting for SUBSCRIBE confirmation, and we don't
@@ -203,11 +205,12 @@ func (p *consumerProvider) NewConsumer(ctx context.Context, topic string, handle
 	defer p.consumerCacheMu.Unlock()
 	// Re-check in case a concurrent caller beat us to it. If so, close the
 	// subscription we just opened so the losing racer's live subscription doesn't leak.
-	if cachedPub, ok := p.consumerCache[topic]; ok {
+	if _, ok := p.consumerCache[topic]; ok {
 		if err = c.subscription.Close(); err != nil {
 			logger.Error("closing redundant redis subscription", err)
 		}
-		return cachedPub, nil
+
+		return nil, platformerrors.Wrapf(messagequeue.ErrConsumerAlreadyRegistered, "topic %q", topic)
 	}
 	p.consumerCache[topic] = c
 

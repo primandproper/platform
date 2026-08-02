@@ -1,11 +1,14 @@
 package sqs
 
 import (
+	"time"
+	"strings"
 	"context"
 	"fmt"
 	"sync"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -37,6 +40,36 @@ type (
 		queueURL        string
 	}
 )
+
+const (
+	// initialReceiveBackoff and maxReceiveBackoff bound the wait between failed
+	// ReceiveMessage calls.
+	initialReceiveBackoff = 100 * time.Millisecond
+	maxReceiveBackoff     = 30 * time.Second
+)
+
+// instrumentName renders a queue URL as an identifier fit for an instrument or
+// an instrumentation scope: the last path segment, with anything outside
+// [A-Za-z0-9_.-] replaced.
+func instrumentName(queueURL string) string {
+	name := queueURL
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+
+	if name == "" {
+		return "sqs"
+	}
+
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
+			return r
+		default:
+			return '_'
+		}
+	}, name)
+}
 
 // sendErr delivers err on errs without wedging: it also selects on ctx so a
 // consumer whose error channel is no longer being drained still unblocks when the
@@ -70,13 +103,17 @@ func provideSQSConsumer(
 ) (*sqsConsumer, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
-	consumedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_consumed", queueURL))
+	// The queue *name*, not the URL: an instrument name is not a free-form
+	// string, and a URL's "https://" contributes a colon and slashes that
+	// OpenTelemetry rejects — so construction failed, but only against a real
+	// metrics provider, which is not what the tests run.
+	consumedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_consumed", instrumentName(queueURL)))
 	if err != nil {
 		return nil, fmt.Errorf("creating consumed counter: %w", err)
 	}
 
 	return &sqsConsumer{
-		o11y:            observability.NewObserver(fmt.Sprintf("%s_consumer", queueURL), logger, tracerProvider),
+		o11y:            observability.NewObserver(fmt.Sprintf("%s_consumer", instrumentName(queueURL)), logger, tracerProvider),
 		receiver:        receiver,
 		queueURL:        queueURL,
 		handlerFunc:     handlerFunc,
@@ -105,6 +142,8 @@ func (c *sqsConsumer) Consume(ctx context.Context, stopChan chan bool, errs chan
 		}
 	}()
 
+	backoff := initialReceiveBackoff
+
 	for ctx.Err() == nil {
 		output, err := c.receiver.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 			QueueUrl:            aws.String(c.queueURL),
@@ -115,10 +154,27 @@ func (c *sqsConsumer) Consume(ctx context.Context, stopChan chan bool, errs chan
 			if ctx.Err() != nil {
 				return
 			}
+
 			c.o11y.Logger().Error("receiving SQS messages", err)
 			c.sendErr(ctx, errs, err)
+
+			// Back off before retrying. Long polling normally paces this loop, but
+			// a receive that fails returns immediately — so a persistent failure
+			// (expired credentials, a deleted queue, a network partition) span the
+			// loop as fast as the CPU and the SQS API allowed, burning a core and
+			// the request quota for as long as it lasted.
+			backoff = min(backoff*2, maxReceiveBackoff)
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+
 			continue
 		}
+
+		backoff = initialReceiveBackoff
 
 		for i := range output.Messages {
 			msg := &output.Messages[i]
@@ -201,8 +257,14 @@ func (p *consumerProvider) NewConsumer(ctx context.Context, topic string, handle
 
 	p.consumerCacheMu.Lock()
 	defer p.consumerCacheMu.Unlock()
-	if cached, ok := p.consumerCache[topic]; ok {
-		return cached, nil
+
+	// Returning the cached consumer would hand this caller someone else's
+	// handler, and their own would never see a message.
+	if _, ok := p.consumerCache[topic]; ok {
+		return nil, op.Error(
+			platformerrors.Wrapf(messagequeue.ErrConsumerAlreadyRegistered, "topic %q", topic),
+			"providing consumer",
+		)
 	}
 
 	c, err := provideSQSConsumer(op.Logger(), p.tracerProvider, p.metricsProvider, p.sqsClient, topic, handlerFunc)

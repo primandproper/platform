@@ -260,19 +260,23 @@ func setScalar(fv reflect.Value, raw string) error {
 		}
 		fv.SetBool(b)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		n, err := strconv.ParseInt(raw, 10, 64)
+		// Parsed at the field's own width, not at 64 and then narrowed by SetInt.
+		// Parsing wide and setting narrow wraps silently: ?count=300 into an int8
+		// bound to 44, and the handler received a plausible number rather than the
+		// 400 the request had earned.
+		n, err := strconv.ParseInt(raw, 10, fv.Type().Bits())
 		if err != nil {
 			return err
 		}
 		fv.SetInt(n)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		n, err := strconv.ParseUint(raw, 10, 64)
+		n, err := strconv.ParseUint(raw, 10, fv.Type().Bits())
 		if err != nil {
 			return err
 		}
 		fv.SetUint(n)
 	case reflect.Float32, reflect.Float64:
-		f, err := strconv.ParseFloat(raw, 64)
+		f, err := strconv.ParseFloat(raw, fv.Type().Bits())
 		if err != nil {
 			return err
 		}
