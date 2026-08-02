@@ -4,8 +4,7 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking/partitioned"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -13,11 +12,15 @@ import (
 // RegisterKeyedCircuitBreaker registers a KeyedCircuitBreaker with the injector.
 func RegisterKeyedCircuitBreaker(i do.Injector) {
 	do.Provide[partitioned.KeyedCircuitBreaker](i, func(i do.Injector) (partitioned.KeyedCircuitBreaker, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewKeyedCircuitBreaker(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[metrics.Provider](i),
+			WithPillars(pillars),
 		)
 	})
 }

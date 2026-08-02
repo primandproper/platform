@@ -1,8 +1,7 @@
 package encoding
 
 import (
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -13,10 +12,15 @@ func RegisterServerEncoderDecoder(i do.Injector) {
 		return NewContentType(do.MustInvoke[Config](i))
 	})
 	do.Provide[ServerEncoderDecoder](i, func(i do.Injector) (ServerEncoderDecoder, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewServerEncoderDecoder(
 			do.MustInvoke[ContentType](i),
-			WithLogger(do.MustInvoke[logging.Logger](i)),
-			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			WithLogger(pillars.Logger),
+			WithTracerProvider(pillars.TracerProvider),
 		), nil
 	})
 }

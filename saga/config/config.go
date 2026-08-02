@@ -25,9 +25,6 @@ import (
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/idempotency"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/saga"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -82,11 +79,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewStore(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	client database.Client,
+	opts ...Option,
 ) (saga.Store, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.New("nil saga config provided")
 	}
@@ -113,15 +111,16 @@ func NewStore(
 func NewWorker(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store saga.Store,
 	registry *saga.Registry,
 	locker distributedlock.ScopedLocker,
 	manager *idempotency.Manager[saga.StepResult],
 	publisher saga.EventPublisher,
+	opts ...Option,
 ) (*saga.Worker, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.New("nil saga config provided")
 	}

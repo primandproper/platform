@@ -7,11 +7,9 @@ import (
 
 	"github.com/primandproper/platform-go/v9/llm/anthropic"
 	"github.com/primandproper/platform-go/v9/llm/openai"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -116,7 +114,7 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 		ctx := t.Context()
 		cfg := &Config{Provider: ""}
 
-		provider, err := cfg.NewLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		provider, err := cfg.NewLLMProvider(ctx, nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -127,7 +125,7 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 		ctx := t.Context()
 		cfg := &Config{Provider: "unknown"}
 
-		provider, err := cfg.NewLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		provider, err := cfg.NewLLMProvider(ctx, nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -143,7 +141,7 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := cfg.NewLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		provider, err := cfg.NewLLMProvider(ctx, nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -159,7 +157,7 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := cfg.NewLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		provider, err := cfg.NewLLMProvider(ctx, nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
@@ -181,7 +179,7 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := cfg.NewLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp)
+		provider, err := cfg.NewLLMProvider(ctx, WithMetricsProvider(mp))
 		test.Nil(t, provider)
 		test.Error(t, err)
 
@@ -205,7 +203,7 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 			},
 		}
 
-		provider, err := cfg.NewLLMProvider(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp)
+		provider, err := cfg.NewLLMProvider(ctx, WithMetricsProvider(mp))
 		test.Nil(t, provider)
 		test.Error(t, err)
 
@@ -221,7 +219,7 @@ func TestNewLLMProvider(T *testing.T) {
 
 		cfg := &Config{}
 
-		provider, err := NewLLMProvider(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		provider, err := NewLLMProvider(t.Context(), cfg, nil)
 		must.NoError(t, err)
 		test.NotNil(t, provider)
 	})

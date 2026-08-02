@@ -13,33 +13,8 @@ import (
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	circuit "github.com/rubyist/circuitbreaker"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
-
-// Option customizes how a CircuitBreaker is provided.
-type Option func(*provideOptions)
-
-type provideOptions struct {
-	metricAttributes []attribute.KeyValue
-}
-
-func (o *provideOptions) addOptions() []metric.AddOption {
-	if len(o.metricAttributes) == 0 {
-		return nil
-	}
-
-	return []metric.AddOption{metric.WithAttributes(o.metricAttributes...)}
-}
-
-// WithMetricAttributes attaches a fixed set of attributes to every metric the
-// circuit breaker emits. It is used to distinguish breakers that share counter
-// names (for example, tagging a per-key breaker with its partition).
-func WithMetricAttributes(attrs ...attribute.KeyValue) Option {
-	return func(o *provideOptions) {
-		o.metricAttributes = append(o.metricAttributes, attrs...)
-	}
-}
 
 type Config struct {
 	Name                   string  `env:"NAME"                     json:"name"                                     yaml:"name"`
@@ -100,15 +75,12 @@ func (b *baseImplementation) CannotProceed() bool {
 }
 
 // NewCircuitBreaker provides a CircuitBreaker.
-func (cfg *Config) NewCircuitBreaker(ctx context.Context, logger logging.Logger, metricsProvider metrics.Provider, opts ...Option) (circuitbreaking.CircuitBreaker, error) {
+func (cfg *Config) NewCircuitBreaker(ctx context.Context, opts ...Option) (circuitbreaking.CircuitBreaker, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
 
-	options := &provideOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
+	options := newOptions(opts)
 
 	// Apply defaults before validating: otherwise an unset NAME (the common case)
 	// fails the Required check and silently degrades to a noop breaker — protection
@@ -116,13 +88,13 @@ func (cfg *Config) NewCircuitBreaker(ctx context.Context, logger logging.Logger,
 	// take effect and validation pass.
 	cfg.EnsureDefaults()
 
-	logger = logging.EnsureLogger(logger).WithValue("circuit_breaker", cfg.Name)
+	logger := logging.EnsureLogger(options.logger).WithValue("circuit_breaker", cfg.Name)
 
 	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, errors.Wrap(err, "validating circuit breaker config")
 	}
 
-	metricsProvider = metrics.EnsureMetricsProvider(metricsProvider)
+	metricsProvider := metrics.EnsureMetricsProvider(options.metricsProvider)
 
 	brokenCounter, err := metricsProvider.NewInt64Counter(fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Name))
 	if err != nil {
@@ -159,8 +131,8 @@ func (cfg *Config) NewCircuitBreaker(ctx context.Context, logger logging.Logger,
 }
 
 // NewCircuitBreaker provides a CircuitBreaker from config.
-func NewCircuitBreaker(ctx context.Context, cfg *Config, logger logging.Logger, metricsProvider metrics.Provider, opts ...Option) (circuitbreaking.CircuitBreaker, error) {
-	return cfg.NewCircuitBreaker(ctx, logger, metricsProvider, opts...)
+func NewCircuitBreaker(ctx context.Context, cfg *Config, opts ...Option) (circuitbreaking.CircuitBreaker, error) {
+	return cfg.NewCircuitBreaker(ctx, opts...)
 }
 
 func handleCircuitBreakerEvents(

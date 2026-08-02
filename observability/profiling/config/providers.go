@@ -3,11 +3,10 @@ package profilingcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/profiling"
 )
 
-// NewProfilingProvider provides a profiling provider from config.
-func NewProfilingProvider(ctx context.Context, logger logging.Logger, c *Config) (profiling.Provider, error) {
-	return c.NewProfilingProvider(ctx, logger)
+// NewProfilingProvider provides a profiling.Provider from a config.
+func NewProfilingProvider(ctx context.Context, c *Config, opts ...Option) (profiling.Provider, error) {
+	return c.NewProfilingProvider(ctx, opts...)
 }

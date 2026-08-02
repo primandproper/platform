@@ -8,9 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v9/llm/anthropic"
 	llmnoop "github.com/primandproper/platform-go/v9/llm/noop"
 	"github.com/primandproper/platform-go/v9/llm/openai"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -41,7 +38,10 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewLLMProvider provides an LLM provider based on config.
-func (c *Config) NewLLMProvider(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (llm.Provider, error) {
+func (c *Config) NewLLMProvider(_ context.Context, opts ...Option) (llm.Provider, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
 	case ProviderOpenAI:
 		return openai.NewProvider(c.OpenAI, openai.WithLogger(logger), openai.WithTracerProvider(tracerProvider), openai.WithMetricsProvider(metricsProvider))

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/errors"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics/otelgrpc"
 
 	"github.com/shoenig/test"
@@ -18,7 +17,7 @@ func TestConfig_NewMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{}
-		metricsProvider, err := cfg.NewMetricsProvider(t.Context(), loggingnoop.NewLogger())
+		metricsProvider, err := cfg.NewMetricsProvider(t.Context())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)
@@ -38,7 +37,7 @@ func TestConfig_NewMetricsProvider(T *testing.T) {
 			},
 		}
 
-		metricsProvider, err := cfg.NewMetricsProvider(t.Context(), loggingnoop.NewLogger())
+		metricsProvider, err := cfg.NewMetricsProvider(t.Context())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)
@@ -53,7 +52,7 @@ func TestConfig_NewMetricsProvider(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		metricsProvider, err := cfg.NewMetricsProvider(t.Context(), loggingnoop.NewLogger())
+		metricsProvider, err := cfg.NewMetricsProvider(t.Context())
 
 		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 		test.Nil(t, metricsProvider)
@@ -67,7 +66,7 @@ func TestConfig_NewMetricsProvider(T *testing.T) {
 			Provider: ProviderNoop,
 		}
 
-		metricsProvider, err := cfg.NewMetricsProvider(t.Context(), loggingnoop.NewLogger())
+		metricsProvider, err := cfg.NewMetricsProvider(t.Context())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)
@@ -80,7 +79,7 @@ func TestConfig_NewMetricsProvider(T *testing.T) {
 			Enabled: false,
 		}
 
-		metricsProvider, err := cfg.NewMetricsProvider(t.Context(), loggingnoop.NewLogger())
+		metricsProvider, err := cfg.NewMetricsProvider(t.Context())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)
@@ -146,7 +145,7 @@ func TestNewMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{}
-		metricsProvider, err := NewMetricsProvider(t.Context(), cfg, loggingnoop.NewLogger())
+		metricsProvider, err := NewMetricsProvider(t.Context(), cfg)
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)

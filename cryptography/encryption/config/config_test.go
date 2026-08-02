@@ -57,7 +57,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("aes provider", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: ProviderAES}, logger, tracerProvider, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: ProviderAES}, key, WithLogger(logger), WithTracerProvider(tracerProvider))
 		test.NoError(t, err)
 		test.NotNil(t, encDec)
 	})
@@ -65,7 +65,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("salsa20 provider", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: ProviderSalsa20}, logger, tracerProvider, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: ProviderSalsa20}, key, WithLogger(logger), WithTracerProvider(tracerProvider))
 		test.NoError(t, err)
 		test.NotNil(t, encDec)
 	})
@@ -73,7 +73,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("empty provider errors", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{}, logger, tracerProvider, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{}, key, WithLogger(logger), WithTracerProvider(tracerProvider))
 		test.Error(t, err)
 		test.Nil(t, encDec)
 	})
@@ -81,7 +81,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("unknown provider errors", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: "invalid"}, logger, tracerProvider, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), &Config{Provider: "invalid"}, key, WithLogger(logger), WithTracerProvider(tracerProvider))
 		test.Error(t, err)
 		test.Nil(t, encDec)
 	})
@@ -89,7 +89,7 @@ func TestNewEncryptorDecryptor(T *testing.T) {
 	T.Run("nil config errors", func(t *testing.T) {
 		t.Parallel()
 
-		encDec, err := NewEncryptorDecryptor(t.Context(), nil, logger, tracerProvider, key)
+		encDec, err := NewEncryptorDecryptor(t.Context(), nil, key, WithLogger(logger), WithTracerProvider(tracerProvider))
 		test.Error(t, err)
 		test.Nil(t, encDec)
 	})

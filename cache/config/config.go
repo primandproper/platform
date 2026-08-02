@@ -10,9 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v9/cache/redis"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -55,25 +52,29 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewCache provides a Cache.
-func NewCache[T any](ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (cache.Cache[T], error) {
+func NewCache[T any](ctx context.Context, cfg *Config, opts ...Option) (cache.Cache[T], error) {
+	o := newOptions(opts)
+
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderMemory:
 		// The janitor is bound to the caller's context because cache.Cache has
 		// no Close: the sweep stops when whatever scope owns this cache does.
 		return memory.NewInMemoryCache[T](cfg.Expiry,
-			memory.WithLogger(logger),
-			memory.WithTracerProvider(tracerProvider),
-			memory.WithMetricsProvider(metricsProvider),
+			memory.WithLogger(o.logger),
+			memory.WithTracerProvider(o.tracerProvider),
+			memory.WithMetricsProvider(o.metricsProvider),
 			memory.WithJanitor(ctx, cfg.JanitorInterval))
 	case ProviderRedis:
-		cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, logger, metricsProvider)
+		cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx,
+			circuitbreakingcfg.WithLogger(o.logger),
+			circuitbreakingcfg.WithMetricsProvider(o.metricsProvider))
 		if err != nil {
 			return nil, errors.Wrap(err, "initializing cache circuit breaker")
 		}
 		return redis.NewRedisCache[T](cfg.Redis, cfg.Expiry, cb,
-			redis.WithLogger(logger),
-			redis.WithTracerProvider(tracerProvider),
-			redis.WithMetricsProvider(metricsProvider))
+			redis.WithLogger(o.logger),
+			redis.WithTracerProvider(o.tracerProvider),
+			redis.WithMetricsProvider(o.metricsProvider))
 	default:
 		return nil, errors.Newf("invalid cache provider: %q", cfg.Provider)
 	}

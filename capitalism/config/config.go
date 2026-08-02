@@ -8,8 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v9/capitalism/noop"
 	"github.com/primandproper/platform-go/v9/capitalism/stripe"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -45,7 +43,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewPaymentManager provides a capitalism.PaymentManager implementation based on the
 // config. stripeEventHandler is optional (may be nil) and, for the Stripe provider, is invoked with
 // each verified webhook event.
-func NewPaymentManager(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, stripeEventHandler stripe.EventHandler) (capitalism.PaymentManager, error) {
+func NewPaymentManager(_ context.Context, cfg *Config, stripeEventHandler stripe.EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
+	o := newOptions(opts)
+	logger, tracerProvider := o.logger, o.tracerProvider
+
 	if !cfg.Enabled {
 		return noop.NewPaymentManager(), nil
 	}
@@ -63,7 +64,10 @@ func NewPaymentManager(ctx context.Context, cfg *Config, logger logging.Logger, 
 // A disabled config yields the noop reporter rather than an error, which is what
 // makes "meter everything, bill nothing" a supported deployment: metering keeps
 // counting durably and enforcing quotas, and nothing reaches a provider.
-func NewUsageReporter(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (capitalism.UsageReporter, error) {
+func NewUsageReporter(_ context.Context, cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
+	o := newOptions(opts)
+	logger, tracerProvider := o.logger, o.tracerProvider
+
 	if !cfg.Enabled {
 		return noop.NewUsageReporter(), nil
 	}

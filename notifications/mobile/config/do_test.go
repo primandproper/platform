@@ -44,8 +44,6 @@ func TestNewPushSender(T *testing.T) {
 		sender, err := NewPushSender(
 			t.Context(),
 			Config{Provider: ProviderNoop},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
 			nil,
 		)
 		must.NoError(t, err)

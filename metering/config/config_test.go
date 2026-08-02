@@ -163,14 +163,23 @@ func TestConstructors(T *testing.T) {
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metrics.EnsureMetricsProvider(nil)
 
-		store, err := NewStore(t.Context(), cfg, logger, tracerProvider, metricsProvider, client)
+		store, err := NewStore(t.Context(), cfg, client, WithLogger(logger), WithTracerProvider(tracerProvider), WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 		must.NotNil(t, store)
 
-		recorder, err := NewRecorder(t.Context(), cfg, logger, tracerProvider, metricsProvider,
-			store, registry, metering.NewCalendarPeriodResolver(nil), &analyticsmock.EventReporterMock{
+		recorder, err := NewRecorder(
+			t.Context(),
+			cfg,
+			store,
+			registry,
+			metering.NewCalendarPeriodResolver(nil),
+			&analyticsmock.EventReporterMock{
 				EventOccurredFunc: func(context.Context, string, string, map[string]any) error { return nil },
-			})
+			},
+			WithLogger(logger),
+			WithTracerProvider(tracerProvider),
+			WithMetricsProvider(metricsProvider),
+		)
 		must.NoError(t, err)
 		must.NotNil(t, recorder)
 
@@ -179,17 +188,34 @@ func TestConstructors(T *testing.T) {
 			SetFunc: func(context.Context, string, *metering.CachedTotal, ...cache.WriteOption) error { return nil },
 		}
 
-		enforcer, err := NewEnforcer(t.Context(), cfg, logger, tracerProvider, metricsProvider,
-			store, registry, metering.NewCalendarPeriodResolver(nil),
-			metering.NewRegistryQuotaSource(registry), totals)
+		enforcer, err := NewEnforcer(
+			t.Context(),
+			cfg,
+			store,
+			registry,
+			metering.NewCalendarPeriodResolver(nil),
+			metering.NewRegistryQuotaSource(registry),
+			totals,
+			WithLogger(logger),
+			WithTracerProvider(tracerProvider),
+			WithMetricsProvider(metricsProvider),
+		)
 		must.NoError(t, err)
 		must.NotNil(t, enforcer)
 
-		flusher, err := NewFlusher(t.Context(), cfg, logger, tracerProvider, metricsProvider,
-			store, metering.ProviderMapperFunc(
+		flusher, err := NewFlusher(
+			t.Context(),
+			cfg,
+			store,
+			metering.ProviderMapperFunc(
 				func(context.Context, string, string) (metering.ProviderRef, error) {
 					return metering.ProviderRef{CustomerID: "cus_123", MeterName: "api_requests"}, nil
-				}), capitalismnoop.NewUsageReporter())
+				}),
+			capitalismnoop.NewUsageReporter(),
+			WithLogger(logger),
+			WithTracerProvider(tracerProvider),
+			WithMetricsProvider(metricsProvider),
+		)
 		must.NoError(t, err)
 		must.NotNil(t, flusher)
 
@@ -215,19 +241,24 @@ func TestConstructors(T *testing.T) {
 		cfg := newValidConfig()
 		registry := newRegistry(t)
 
-		store, err := NewStore(t.Context(), cfg, nil, nil, nil, client)
+		store, err := NewStore(t.Context(), cfg, client)
 		must.NoError(t, err)
 
-		_, err = NewRecorder(t.Context(), cfg, nil, nil, nil, store, registry, nil, nil)
+		_, err = NewRecorder(t.Context(), cfg, store, registry, nil, nil)
 		must.NoError(t, err)
 
-		_, err = NewEnforcer(t.Context(), cfg, nil, nil, nil, store, registry, nil, nil, nil)
+		_, err = NewEnforcer(t.Context(), cfg, store, registry, nil, nil, nil)
 		must.NoError(t, err)
 
-		_, err = NewFlusher(t.Context(), cfg, nil, nil, nil, store,
+		_, err = NewFlusher(
+			t.Context(),
+			cfg,
+			store,
 			metering.ProviderMapperFunc(func(context.Context, string, string) (metering.ProviderRef, error) {
 				return metering.ProviderRef{}, nil
-			}), capitalismnoop.NewUsageReporter())
+			}),
+			capitalismnoop.NewUsageReporter(),
+		)
 		must.NoError(t, err)
 	})
 
@@ -241,16 +272,16 @@ func TestConstructors(T *testing.T) {
 			return metering.ProviderRef{}, nil
 		})
 
-		_, err := NewStore(t.Context(), nil, nil, nil, nil, client)
+		_, err := NewStore(t.Context(), nil, client)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 
-		_, err = NewRecorder(t.Context(), nil, nil, nil, nil, nil, registry, nil, nil)
+		_, err = NewRecorder(t.Context(), nil, nil, registry, nil, nil)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 
-		_, err = NewEnforcer(t.Context(), nil, nil, nil, nil, nil, registry, nil, nil, nil)
+		_, err = NewEnforcer(t.Context(), nil, nil, registry, nil, nil, nil)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 
-		_, err = NewFlusher(t.Context(), nil, nil, nil, nil, nil, mapper, capitalismnoop.NewUsageReporter())
+		_, err = NewFlusher(t.Context(), nil, nil, mapper, capitalismnoop.NewUsageReporter())
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 	})
 
@@ -267,19 +298,19 @@ func TestConstructors(T *testing.T) {
 
 		// ozzo collects field errors into a map, which does not forward
 		// errors.Is to the causes underneath — so these assert on the rendering.
-		_, err := NewStore(t.Context(), bad, nil, nil, nil, client)
+		_, err := NewStore(t.Context(), bad, client)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "must exceed flush timeout")
 
-		_, err = NewRecorder(t.Context(), bad, nil, nil, nil, nil, registry, nil, nil)
+		_, err = NewRecorder(t.Context(), bad, nil, registry, nil, nil)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "must exceed flush timeout")
 
-		_, err = NewEnforcer(t.Context(), bad, nil, nil, nil, nil, registry, nil, nil, nil)
+		_, err = NewEnforcer(t.Context(), bad, nil, registry, nil, nil, nil)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "must exceed flush timeout")
 
-		_, err = NewFlusher(t.Context(), bad, nil, nil, nil, nil, mapper, capitalismnoop.NewUsageReporter())
+		_, err = NewFlusher(t.Context(), bad, nil, mapper, capitalismnoop.NewUsageReporter())
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "must exceed flush timeout")
 	})
@@ -289,19 +320,24 @@ func TestConstructors(T *testing.T) {
 
 		cfg := newValidConfig()
 
-		store, err := NewStore(t.Context(), cfg, nil, nil, nil, newClient(t))
+		store, err := NewStore(t.Context(), cfg, newClient(t))
 		must.NoError(t, err)
 
-		_, err = NewRecorder(t.Context(), cfg, nil, nil, nil, nil, newRegistry(t), nil, nil)
+		_, err = NewRecorder(t.Context(), cfg, nil, newRegistry(t), nil, nil)
 		test.ErrorIs(t, err, metering.ErrNilStore)
 
-		_, err = NewFlusher(t.Context(), cfg, nil, nil, nil, store, nil, capitalismnoop.NewUsageReporter())
+		_, err = NewFlusher(t.Context(), cfg, store, nil, capitalismnoop.NewUsageReporter())
 		test.ErrorIs(t, err, metering.ErrNilProviderMapper)
 
-		_, err = NewFlusher(t.Context(), cfg, nil, nil, nil, store,
+		_, err = NewFlusher(
+			t.Context(),
+			cfg,
+			store,
 			metering.ProviderMapperFunc(func(context.Context, string, string) (metering.ProviderRef, error) {
 				return metering.ProviderRef{}, nil
-			}), nil)
+			}),
+			nil,
+		)
 		test.ErrorIs(t, err, metering.ErrNilUsageReporter)
 	})
 
@@ -319,7 +355,7 @@ func TestConstructors(T *testing.T) {
 			must.NoError(t, execErr)
 		}
 
-		store, err := NewStore(t.Context(), cfg, nil, nil, nil, client)
+		store, err := NewStore(t.Context(), cfg, client)
 		must.NoError(t, err)
 
 		// Reaching the custom tables at all is the assertion: a mismatch would

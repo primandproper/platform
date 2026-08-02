@@ -40,8 +40,10 @@ type (
 )
 
 // NewTracerProvider provides a TracerProvider.
-func (c *Config) NewTracerProvider(ctx context.Context, l logging.Logger) (tracing.TracerProvider, error) {
-	logger := l.WithValue("tracing_provider", c.Provider)
+func (c *Config) NewTracerProvider(ctx context.Context, opts ...Option) (tracing.TracerProvider, error) {
+	// EnsureLogger, not the raw option: the logger is optional now, and every
+	// branch below logs what it configured.
+	logger := logging.EnsureLogger(newOptions(opts).logger).WithValue("tracing_provider", c.Provider)
 
 	p := strings.TrimSpace(strings.ToLower(c.Provider))
 
@@ -71,8 +73,8 @@ func (c *Config) NewTracerProvider(ctx context.Context, l logging.Logger) (traci
 }
 
 // NewTracer provides an instrumentation handler.
-func (c *Config) NewTracer(ctx context.Context, l logging.Logger, name string) (tracing.Tracer, error) {
-	tp, err := c.NewTracerProvider(ctx, l)
+func (c *Config) NewTracer(ctx context.Context, name string, opts ...Option) (tracing.Tracer, error) {
+	tp, err := c.NewTracerProvider(ctx, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "configuring tracing provider")
 	}

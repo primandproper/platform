@@ -5,9 +5,6 @@ import (
 
 	"github.com/primandproper/platform-go/v9/encoding"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/routing"
 	"github.com/primandproper/platform-go/v9/routing/backends/chi"
 	"github.com/primandproper/platform-go/v9/routing/backends/gin"
@@ -54,7 +51,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 // NewBackend provides a routing.Backend from a routing config, selecting the
 // underlying router library by provider.
-func NewBackend(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider) (routing.Backend, error) {
+func NewBackend(_ context.Context, cfg *Config, opts ...Option) (routing.Backend, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	switch cfg.Provider {
 	case ProviderChi:
 		return chi.NewBackend(cfg.Chi, chi.WithLogger(logger), chi.WithTracerProvider(tracerProvider), chi.WithMetricsProvider(metricProvider)), nil
@@ -74,18 +74,17 @@ func NewBackend(ctx context.Context, cfg *Config, logger logging.Logger, tracerP
 func NewRouter(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricProvider metrics.Provider,
 	enc encoding.ServerEncoderDecoder,
-	opts ...routing.RouterOption,
+	opts ...Option,
 ) (*routing.Router, error) {
-	backend, err := NewBackend(ctx, cfg, logger, tracerProvider, metricProvider)
+	o := newOptions(opts)
+
+	backend, err := NewBackend(ctx, cfg, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	routerOpts := append([]routing.RouterOption{routing.WithLogger(logger), routing.WithTracerProvider(tracerProvider)}, opts...)
+	routerOpts := append([]routing.RouterOption{routing.WithLogger(o.logger), routing.WithTracerProvider(o.tracerProvider)}, o.router...)
 
 	return routing.New(backend, enc, routerOpts...), nil
 }

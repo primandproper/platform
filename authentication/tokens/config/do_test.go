@@ -28,7 +28,7 @@ func TestNewTokenIssuer(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
 		}
 
-		issuer, err := NewTokenIssuer(cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		issuer, err := NewTokenIssuer(cfg)
 		must.NoError(t, err)
 		test.NotNil(t, issuer)
 	})

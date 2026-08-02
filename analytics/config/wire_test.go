@@ -5,8 +5,6 @@ import (
 
 	"github.com/primandproper/platform-go/v9/analytics/segment"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test/must"
 )
@@ -21,7 +19,7 @@ func TestNewCollector(T *testing.T) {
 		cfg := &Config{}
 		logger := loggingnoop.NewLogger()
 
-		actual, err := NewEventReporter(ctx, cfg, logger, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		actual, err := NewEventReporter(ctx, cfg, WithLogger(logger))
 		must.NoError(t, err)
 		must.NotNil(t, actual)
 	})
@@ -40,7 +38,7 @@ func TestNewCollector(T *testing.T) {
 		}
 		logger := loggingnoop.NewLogger()
 
-		actual, err := NewEventReporter(ctx, cfg, logger, tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		actual, err := NewEventReporter(ctx, cfg, WithLogger(logger))
 		must.NoError(t, err)
 		must.NotNil(t, actual)
 	})

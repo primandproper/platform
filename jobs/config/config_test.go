@@ -10,9 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v9/jobs"
 	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
 	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -78,7 +75,7 @@ func TestNewPool(T *testing.T) {
 	T.Run("builds a pool on the noop consumer", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := NewPool(t.Context(), poolConfig(), loggingnoop.NewLogger(), nil, nil, handler)
+		p, err := NewPool(t.Context(), poolConfig(), handler)
 		must.NoError(t, err)
 		must.NotNil(t, p)
 	})
@@ -86,21 +83,21 @@ func TestNewPool(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewPool(t.Context(), nil, loggingnoop.NewLogger(), nil, nil, handler)
+		_, err := NewPool(t.Context(), nil, handler)
 		test.Error(t, err)
 	})
 
 	T.Run("rejects a nil handler", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewPool(t.Context(), poolConfig(), loggingnoop.NewLogger(), nil, nil, nil)
+		_, err := NewPool(t.Context(), poolConfig(), nil)
 		test.Error(t, err)
 	})
 
 	T.Run("rejects a config that fails validation", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewPool(t.Context(), &PoolConfig{}, loggingnoop.NewLogger(), nil, nil, handler)
+		_, err := NewPool(t.Context(), &PoolConfig{}, handler)
 		test.Error(t, err)
 	})
 
@@ -117,7 +114,7 @@ func TestNewPool(T *testing.T) {
 			},
 		}
 
-		p, err := NewPool(t.Context(), cfg, loggingnoop.NewLogger(), nil, nil, handler)
+		p, err := NewPool(t.Context(), cfg, handler)
 		test.Nil(t, p)
 		test.Error(t, err)
 	})
@@ -128,9 +125,6 @@ func TestNewPool(T *testing.T) {
 		p, err := NewPool(
 			t.Context(),
 			poolConfig(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			handler,
 		)
 		must.NoError(t, err)
@@ -191,7 +185,7 @@ func TestNewScheduler(T *testing.T) {
 	T.Run("builds a scheduler on memory locks", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := NewScheduler(t.Context(), schedulerConfig(), loggingnoop.NewLogger(), nil, nil, nil)
+		s, err := NewScheduler(t.Context(), schedulerConfig(), nil)
 		must.NoError(t, err)
 		must.NotNil(t, s)
 	})
@@ -199,7 +193,7 @@ func TestNewScheduler(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewScheduler(t.Context(), nil, loggingnoop.NewLogger(), nil, nil, nil)
+		_, err := NewScheduler(t.Context(), nil, nil)
 		test.Error(t, err)
 	})
 
@@ -209,7 +203,7 @@ func TestNewScheduler(T *testing.T) {
 		cfg := schedulerConfig()
 		cfg.Lock = distributedlockcfg.Config{Provider: "not-a-provider"}
 
-		_, err := NewScheduler(t.Context(), cfg, loggingnoop.NewLogger(), nil, nil, nil)
+		_, err := NewScheduler(t.Context(), cfg, nil)
 		test.Error(t, err)
 	})
 
@@ -224,7 +218,7 @@ func TestNewScheduler(T *testing.T) {
 			Postgres: &pglock.Config{},
 		}
 
-		s, err := NewScheduler(t.Context(), cfg, loggingnoop.NewLogger(), nil, nil, nil)
+		s, err := NewScheduler(t.Context(), cfg, nil)
 		test.Nil(t, s)
 		test.Error(t, err)
 	})
@@ -235,9 +229,6 @@ func TestNewScheduler(T *testing.T) {
 		s, err := NewScheduler(
 			t.Context(),
 			schedulerConfig(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)

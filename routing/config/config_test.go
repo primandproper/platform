@@ -4,9 +4,6 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/encoding"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/routing/backends/chi"
 	"github.com/primandproper/platform-go/v9/routing/backends/gin"
 	"github.com/primandproper/platform-go/v9/routing/backends/httprouter"
@@ -61,7 +58,7 @@ func TestNewBackend(T *testing.T) {
 		T.Run("with "+tc.name+" provider", func(t *testing.T) {
 			t.Parallel()
 
-			backend, err := NewBackend(t.Context(), tc.cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+			backend, err := NewBackend(t.Context(), tc.cfg)
 			must.NoError(t, err)
 			test.NotNil(t, backend)
 		})
@@ -74,7 +71,7 @@ func TestNewBackend(T *testing.T) {
 			Provider: "bogus",
 		}
 
-		backend, err := NewBackend(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		backend, err := NewBackend(t.Context(), cfg)
 		test.Nil(t, backend)
 		test.Error(t, err)
 	})
@@ -91,7 +88,7 @@ func TestNewRouter(T *testing.T) {
 			Chi:      &chi.Config{ServiceName: t.Name()},
 		}
 
-		router, err := NewRouter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), testEncoder())
+		router, err := NewRouter(t.Context(), cfg, testEncoder())
 		must.NoError(t, err)
 		test.NotNil(t, router)
 	})
@@ -103,7 +100,7 @@ func TestNewRouter(T *testing.T) {
 			Provider: "bogus",
 		}
 
-		router, err := NewRouter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), testEncoder())
+		router, err := NewRouter(t.Context(), cfg, testEncoder())
 		test.Nil(t, router)
 		test.Error(t, err)
 	})

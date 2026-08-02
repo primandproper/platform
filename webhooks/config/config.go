@@ -23,7 +23,6 @@ import (
 	"github.com/primandproper/platform-go/v9/httpclient"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/webhooks"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -114,13 +113,13 @@ func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...
 func NewDispatcher(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store webhooks.Store,
 	catalog webhooks.Catalog,
-	opts ...webhooks.DispatcherOption,
+	opts ...Option,
 ) (webhooks.Dispatcher, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -142,7 +141,7 @@ func NewDispatcher(
 		base = append(base, webhooks.WithDispatcherMetricsProvider(metricsProvider))
 	}
 
-	return webhooks.NewDispatcher(store, append(base, opts...)...)
+	return webhooks.NewDispatcher(store, append(base, o.dispatcher...)...)
 }
 
 // NewWorker builds a Worker from configuration, including the shared HTTP
@@ -153,12 +152,12 @@ func NewDispatcher(
 func NewWorker(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store webhooks.Store,
-	opts ...webhooks.WorkerOption,
+	opts ...Option,
 ) (*webhooks.Worker, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -192,7 +191,7 @@ func NewWorker(
 		base = append(base, webhooks.WithWorkerMetricsProvider(metricsProvider))
 	}
 
-	return webhooks.NewWorker(ctx, &cfg.Worker, store, append(base, opts...)...)
+	return webhooks.NewWorker(ctx, &cfg.Worker, store, append(base, o.worker...)...)
 }
 
 // breakerFactory builds one circuit breaker per endpoint.
@@ -212,7 +211,9 @@ func breakerFactory(
 		breakerCfg := cfg.CircuitBreaker
 
 		return circuitbreakingcfg.NewCircuitBreaker(
-			ctx, &breakerCfg, logger, metricsProvider,
+			ctx, &breakerCfg,
+			circuitbreakingcfg.WithLogger(logger),
+			circuitbreakingcfg.WithMetricsProvider(metricsProvider),
 			circuitbreakingcfg.WithMetricAttributes(attribute.String(webhooks.EndpointAttributeKey, endpointID)),
 		)
 	}

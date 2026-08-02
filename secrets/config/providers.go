@@ -4,21 +4,22 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/secrets"
 	"github.com/primandproper/platform-go/v9/secrets/env"
 )
 
 // NewSecretSource provides a SecretSource from config.
-func NewSecretSource(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
+func NewSecretSource(ctx context.Context, cfg *Config, opts ...Option) (secrets.SecretSource, error) {
 	if cfg == nil {
-		return env.NewSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
+		o := newOptions(opts)
+
+		return env.NewSecretSource(env.WithLogger(o.logger), env.WithTracerProvider(o.tracerProvider), env.WithMetricsProvider(o.metricsProvider))
 	}
-	source, err := cfg.NewSecretSource(ctx, logger, tracerProvider, metricsProvider)
+
+	source, err := cfg.NewSecretSource(ctx, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "provide secret source")
 	}
+
 	return source, nil
 }

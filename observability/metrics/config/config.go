@@ -36,7 +36,11 @@ type (
 )
 
 // NewMetricsProvider provides a metrics provider.
-func (c *Config) NewMetricsProvider(ctx context.Context, logger logging.Logger) (metrics.Provider, error) {
+func (c *Config) NewMetricsProvider(ctx context.Context, opts ...Option) (metrics.Provider, error) {
+	// EnsureLogger, not the raw option: the logger is optional now, and the
+	// otelgrpc provider logs what it set up.
+	logger := logging.EnsureLogger(newOptions(opts).logger)
+
 	if !c.Enabled {
 		return metricsnoop.NewMetricsProvider(), nil
 	}

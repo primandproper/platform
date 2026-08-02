@@ -25,9 +25,6 @@ import (
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/metering"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -106,12 +103,12 @@ func (cfg *Config) prepare(ctx context.Context) error {
 func NewStore(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	client database.Client,
-	opts ...metering.SQLStoreOption,
+	opts ...Option,
 ) (metering.Store, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
 	}
@@ -128,7 +125,7 @@ func NewStore(
 		base = append(base, metering.WithStoreMetricsProvider(metricsProvider))
 	}
 
-	return metering.NewSQLStore(client, append(base, opts...)...)
+	return metering.NewSQLStore(client, append(base, o.store...)...)
 }
 
 // NewRecorder builds the ingest path.
@@ -139,15 +136,15 @@ func NewStore(
 func NewRecorder(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store metering.Store,
 	registry *metering.Registry,
 	resolver metering.PeriodResolver,
 	reporter analytics.EventReporter,
-	opts ...metering.RecorderOption,
+	opts ...Option,
 ) (*metering.DurableRecorder, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
 	}
@@ -169,7 +166,7 @@ func NewRecorder(
 		base = append(base, metering.WithRecorderMetricsProvider(metricsProvider))
 	}
 
-	return metering.NewDurableRecorder(ctx, &cfg.Recorder, store, registry, append(base, opts...)...)
+	return metering.NewDurableRecorder(ctx, &cfg.Recorder, store, registry, append(base, o.recorder...)...)
 }
 
 // NewEnforcer builds the read path.
@@ -186,16 +183,16 @@ func NewRecorder(
 func NewEnforcer(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store metering.Store,
 	registry *metering.Registry,
 	resolver metering.PeriodResolver,
 	quotas metering.QuotaSource,
 	totals cache.Cache[metering.CachedTotal],
-	opts ...metering.EnforcerOption,
+	opts ...Option,
 ) (*metering.QuotaEnforcer, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
 	}
@@ -220,7 +217,7 @@ func NewEnforcer(
 		base = append(base, metering.WithEnforcerMetricsProvider(metricsProvider))
 	}
 
-	return metering.NewQuotaEnforcer(ctx, &cfg.Enforcer, store, registry, append(base, opts...)...)
+	return metering.NewQuotaEnforcer(ctx, &cfg.Enforcer, store, registry, append(base, o.enforcer...)...)
 }
 
 // NewFlusher builds the provider push. Register its Job with a jobs.Scheduler;
@@ -233,14 +230,14 @@ func NewEnforcer(
 func NewFlusher(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store metering.Store,
 	mapper metering.ProviderMapper,
 	reporter capitalism.UsageReporter,
-	opts ...metering.FlusherOption,
+	opts ...Option,
 ) (*metering.Flusher, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
 	}
@@ -256,5 +253,5 @@ func NewFlusher(
 		base = append(base, metering.WithFlusherMetricsProvider(metricsProvider))
 	}
 
-	return metering.NewFlusher(ctx, &cfg.Flusher, store, mapper, reporter, append(base, opts...)...)
+	return metering.NewFlusher(ctx, &cfg.Flusher, store, mapper, reporter, append(base, o.flusher...)...)
 }

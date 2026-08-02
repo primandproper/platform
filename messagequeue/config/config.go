@@ -11,9 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
 	"github.com/primandproper/platform-go/v9/messagequeue/redis"
 	"github.com/primandproper/platform-go/v9/messagequeue/sqs"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	ps "cloud.google.com/go/pubsub/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -95,7 +92,10 @@ func cleanString(s string) string {
 }
 
 // NewConsumerProvider provides a ConsumerProvider.
-func NewConsumerProvider(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, c *Config) (messagequeue.ConsumerProvider, error) {
+func NewConsumerProvider(ctx context.Context, c *Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if c == nil {
 		return nil, ErrNilConfig
 	}
@@ -124,7 +124,10 @@ func NewConsumerProvider(ctx context.Context, logger logging.Logger, tracerProvi
 }
 
 // NewPublisherProvider provides a PublisherProvider.
-func NewPublisherProvider(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, c *Config) (messagequeue.PublisherProvider, error) {
+func NewPublisherProvider(ctx context.Context, c *Config, opts ...Option) (messagequeue.PublisherProvider, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if c == nil {
 		return nil, ErrNilConfig
 	}

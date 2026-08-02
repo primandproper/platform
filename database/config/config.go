@@ -15,9 +15,7 @@ import (
 	"github.com/primandproper/platform-go/v9/database/postgres"
 	"github.com/primandproper/platform-go/v9/database/sqlite"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	"github.com/XSAM/otelsql"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -348,11 +346,12 @@ func (x *ConnectionDetails) LoadFromURL(u string) error {
 func NewDatabase(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	migrator database.Migrator,
+	opts ...Option,
 ) (client database.Client, err error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	var dbMetricsProvider metrics.Provider
 	if cfg.EnableDatabaseMetrics && metricsProvider != nil {
 		dbMetricsProvider = metricsProvider

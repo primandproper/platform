@@ -6,9 +6,6 @@ import (
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	textsearch "github.com/primandproper/platform-go/v9/search/text"
 	"github.com/primandproper/platform-go/v9/search/text/algolia"
 	"github.com/primandproper/platform-go/v9/search/text/elasticsearch"
@@ -57,11 +54,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewIndex[T any](
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	indexName string,
+	opts ...Option,
 ) (textsearch.Index[T], error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -71,7 +69,7 @@ func NewIndex[T any](
 		return nil, errors.Wrap(err, "validating text search config")
 	}
 
-	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, logger, metricsProvider)
+	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize text search circuit breaker")
 	}

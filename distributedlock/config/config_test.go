@@ -14,11 +14,8 @@ import (
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	pglock "github.com/primandproper/platform-go/v9/distributedlock/postgres"
 	redislock "github.com/primandproper/platform-go/v9/distributedlock/redis"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -113,9 +110,6 @@ func TestNewLocker(T *testing.T) {
 		_, err := NewLocker(
 			t.Context(),
 			nil,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		test.ErrorIs(t, err, distributedlock.ErrNilConfig)
@@ -126,9 +120,6 @@ func TestNewLocker(T *testing.T) {
 		l, err := NewLocker(
 			t.Context(),
 			&Config{Provider: MemoryProvider},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -143,9 +134,6 @@ func TestNewLocker(T *testing.T) {
 		l, err := NewLocker(
 			t.Context(),
 			&Config{Provider: NoopProvider},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -157,9 +145,6 @@ func TestNewLocker(T *testing.T) {
 		l, err := NewLocker(
 			t.Context(),
 			&Config{Provider: NoopProvider},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -174,9 +159,6 @@ func TestNewLocker(T *testing.T) {
 			l, err := NewLocker(
 				t.Context(),
 				&Config{Provider: provider},
-				loggingnoop.NewLogger(),
-				tracingnoop.NewTracerProvider(),
-				metricsnoop.NewMetricsProvider(),
 				nil,
 			)
 			test.Error(t, err)
@@ -195,9 +177,6 @@ func TestNewLocker(T *testing.T) {
 					KeyPrefix: "lock:",
 				},
 			},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 		)
 		must.NoError(t, err)
@@ -212,9 +191,6 @@ func TestNewLocker(T *testing.T) {
 				Provider: PostgresProvider,
 				Postgres: &pglock.Config{},
 			},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			&stubDBClient{},
 		)
 		must.NoError(t, err)
@@ -243,10 +219,8 @@ func TestNewLocker(T *testing.T) {
 		l, err := NewLocker(
 			t.Context(),
 			cfg,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			mp,
 			nil,
+			WithMetricsProvider(mp),
 		)
 		must.Error(t, err)
 		test.Nil(t, l)
@@ -262,7 +236,7 @@ func TestNewScopedLocker(T *testing.T) {
 	newScoped := func(t *testing.T, cfg *Config, db database.Client) (distributedlock.ScopedLocker, error) {
 		t.Helper()
 
-		return NewScopedLocker(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), db)
+		return NewScopedLocker(t.Context(), cfg, db)
 	}
 
 	T.Run("nil config", func(t *testing.T) {
@@ -377,7 +351,7 @@ func TestNewScopedLocker(T *testing.T) {
 			},
 		}
 
-		s, err := NewScopedLocker(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp, &stubDBClient{})
+		s, err := NewScopedLocker(t.Context(), cfg, &stubDBClient{}, WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, s)
 		test.StrContains(t, err.Error(), "distributedlock circuit breaker")

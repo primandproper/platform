@@ -179,7 +179,7 @@ func TestNewDispatcher(T *testing.T) {
 		store, err := NewStore(t.Context(), cfg, client)
 		must.NoError(t, err)
 
-		dispatcher, err := NewDispatcher(t.Context(), cfg, nil, nil, nil, store, testCatalog)
+		dispatcher, err := NewDispatcher(t.Context(), cfg, store, testCatalog)
 		must.NoError(t, err)
 		must.NotNil(t, dispatcher)
 
@@ -199,14 +199,14 @@ func TestNewDispatcher(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewDispatcher(t.Context(), nil, nil, nil, nil, nil, testCatalog)
+		_, err := NewDispatcher(t.Context(), nil, nil, testCatalog)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 	})
 
 	T.Run("nil store", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewDispatcher(t.Context(), validConfig(), nil, nil, nil, nil, testCatalog)
+		_, err := NewDispatcher(t.Context(), validConfig(), nil, testCatalog)
 		test.ErrorIs(t, err, webhooks.ErrNilStore)
 	})
 }
@@ -222,7 +222,7 @@ func TestNewWorker(T *testing.T) {
 		store, err := NewStore(t.Context(), cfg, newTestClient(t))
 		must.NoError(t, err)
 
-		worker, err := NewWorker(t.Context(), cfg, nil, nil, nil, store)
+		worker, err := NewWorker(t.Context(), cfg, store)
 		must.NoError(t, err)
 		must.NotNil(t, worker)
 
@@ -232,14 +232,14 @@ func TestNewWorker(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewWorker(t.Context(), nil, nil, nil, nil, nil)
+		_, err := NewWorker(t.Context(), nil, nil)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 	})
 
 	T.Run("nil store", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewWorker(t.Context(), validConfig(), nil, nil, nil, nil)
+		_, err := NewWorker(t.Context(), validConfig(), nil)
 		test.ErrorIs(t, err, webhooks.ErrNilStore)
 	})
 
@@ -253,7 +253,7 @@ func TestNewWorker(T *testing.T) {
 		store, err := NewStore(t.Context(), validConfig(), newTestClient(t))
 		must.NoError(t, err)
 
-		_, err = NewWorker(t.Context(), cfg, nil, nil, nil, store)
+		_, err = NewWorker(t.Context(), cfg, store)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), webhooks.ErrLeaseTooShort.Error())
 	})
@@ -318,7 +318,7 @@ func TestBreakerFactory(T *testing.T) {
 		store, err := NewStore(t.Context(), cfg, newTestClient(t))
 		must.NoError(t, err)
 
-		worker, err := NewWorker(t.Context(), cfg, nil, nil, nil, store)
+		worker, err := NewWorker(t.Context(), cfg, store)
 		must.NoError(t, err)
 		t.Cleanup(func() { _ = worker.Close(t.Context()) })
 

@@ -131,7 +131,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 		t.Parallel()
 
 		cfg := Config{Provider: ""}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 		test.Nil(t, sender)
 	})
@@ -140,7 +140,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 		t.Parallel()
 
 		cfg := Config{Provider: ProviderNoop}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 		test.NoError(t, sender.SendPush(ctx, "android", "token", mobile.PushMessage{Title: "title", Body: "body"}))
@@ -155,7 +155,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 			APNs:     nil,
 			FCM:      &FCMConfig{CredentialsPath: credsPath},
 		}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 		// iOS is not configured, so it should report as unsupported.
@@ -173,7 +173,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 			APNs:     &APNsConfig{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
 			FCM:      nil,
 		}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 		// Android not configured, should return ErrPlatformNotSupported
@@ -190,7 +190,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 			APNs:     &APNsConfig{AuthKeyPath: filepath.Join(t.TempDir(), "nonexistent.p8"), KeyID: "x", TeamID: "x", BundleID: "x"},
 			FCM:      &FCMConfig{},
 		}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		test.Error(t, err)
 		test.Nil(t, sender)
 	})
@@ -204,7 +204,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 			APNs:     &APNsConfig{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
 			FCM:      &FCMConfig{CredentialsPath: filepath.Join(t.TempDir(), "nonexistent.json")},
 		}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		test.Error(t, err)
 		test.Nil(t, sender)
 	})
@@ -217,7 +217,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 			APNs:     nil,
 			FCM:      nil,
 		}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		test.Error(t, err)
 		test.Nil(t, sender)
 	})
@@ -226,7 +226,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 		t.Parallel()
 
 		cfg := Config{Provider: "unknown"}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 		test.Nil(t, sender)
 	})
@@ -240,7 +240,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 			APNs:     nil,
 			FCM:      &FCMConfig{CredentialsPath: credsPath},
 		}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 	})
@@ -255,7 +255,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 			APNs:     &APNsConfig{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
 			FCM:      &FCMConfig{CredentialsPath: credsPath},
 		}
-		sender, err := cfg.NewPushSender(ctx, logger, tracer, nil)
+		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 	})

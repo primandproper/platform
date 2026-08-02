@@ -4,9 +4,7 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/encoding"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/routing"
 
 	"github.com/samber/do/v2"
@@ -17,21 +15,29 @@ import (
 // Router (with its encoder) on top.
 func RegisterRouter(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (routing.Backend, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewBackend(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[metrics.Provider](i),
+			WithPillars(pillars),
 		)
 	})
 
 	do.Provide(i, func(i do.Injector) (*routing.Router, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return routing.New(
 			do.MustInvoke[routing.Backend](i),
 			do.MustInvoke[encoding.ServerEncoderDecoder](i),
-			routing.WithLogger(do.MustInvoke[logging.Logger](i)),
-			routing.WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			routing.WithLogger(pillars.Logger),
+			routing.WithTracerProvider(pillars.TracerProvider),
 		), nil
 	})
 }

@@ -17,9 +17,6 @@ import (
 	"github.com/primandproper/platform-go/v9/email/sendgrid"
 	"github.com/primandproper/platform-go/v9/email/ses"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -104,7 +101,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewEmailer provides an outbound_emailer.
-func (cfg *Config) NewEmailer(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, client *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, metricsProvider metrics.Provider) (email.Emailer, error) {
+func (cfg *Config) NewEmailer(ctx context.Context, client *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (email.Emailer, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	cfg.EnsureDefaults()
 
 	// The provider is checked before the rest of the config so an unrecognized

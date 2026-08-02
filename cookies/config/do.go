@@ -2,7 +2,7 @@ package cookiescfg
 
 import (
 	"github.com/primandproper/platform-go/v9/cookies"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -10,9 +10,14 @@ import (
 // RegisterCookieManager registers a cookies.Manager with the injector.
 func RegisterCookieManager(i do.Injector) {
 	do.Provide[cookies.Manager](i, func(i do.Injector) (cookies.Manager, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return cookies.NewCookieManager(
 			do.MustInvoke[*cookies.Config](i),
-			cookies.WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			cookies.WithTracerProvider(pillars.TracerProvider),
 		)
 	})
 }

@@ -7,11 +7,8 @@ import (
 	"github.com/primandproper/platform-go/v9/analytics/posthog"
 	"github.com/primandproper/platform-go/v9/analytics/segment"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -108,7 +105,7 @@ func TestConfig_NewCollector(T *testing.T) {
 				},
 			}
 
-			_, err := cfg.NewCollector(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+			_, err := cfg.NewCollector(ctx)
 			must.NoError(t, err)
 		}
 	})
@@ -127,7 +124,7 @@ func TestConfig_NewCollector(T *testing.T) {
 				},
 			}
 
-			_, err := cfg.NewCollector(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+			_, err := cfg.NewCollector(ctx)
 			must.Error(t, err)
 		}
 	})
@@ -142,7 +139,7 @@ func TestConfig_NewCollector(T *testing.T) {
 			},
 		}
 
-		reporter, err := cfg.NewCollector(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := cfg.NewCollector(ctx)
 		test.Nil(t, reporter)
 		test.Error(t, err)
 	})
@@ -157,7 +154,7 @@ func TestConfig_NewCollector(T *testing.T) {
 			},
 		}
 
-		reporter, err := cfg.NewCollector(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := cfg.NewCollector(ctx)
 		test.Nil(t, reporter)
 		test.Error(t, err)
 	})
@@ -172,7 +169,7 @@ func TestConfig_NewCollector(T *testing.T) {
 			},
 		}
 
-		reporter, err := cfg.NewCollector(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		reporter, err := cfg.NewCollector(ctx)
 		test.NotNil(t, reporter)
 		test.NoError(t, err)
 	})
@@ -200,7 +197,7 @@ func TestConfig_NewCollector(T *testing.T) {
 			},
 		}
 
-		reporter, err := cfg.NewCollector(ctx, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), mp)
+		reporter, err := cfg.NewCollector(ctx, WithMetricsProvider(mp))
 		test.Nil(t, reporter)
 		test.Error(t, err)
 

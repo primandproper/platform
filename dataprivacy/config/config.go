@@ -23,9 +23,6 @@ import (
 	"github.com/primandproper/platform-go/v9/dataprivacy"
 	"github.com/primandproper/platform-go/v9/dataprivacy/auditerasure"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/uploads"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -160,12 +157,12 @@ func (cfg *Config) prepare(ctx context.Context) error {
 func NewStore(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	client database.Client,
-	opts ...dataprivacy.SQLStoreOption,
+	opts ...Option,
 ) (dataprivacy.Store, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
 	}
@@ -182,7 +179,7 @@ func NewStore(
 		base = append(base, dataprivacy.WithStoreMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewSQLStore(client, append(base, opts...)...)
+	return dataprivacy.NewSQLStore(client, append(base, o.store...)...)
 }
 
 // NewService builds the Service applications submit through.
@@ -192,12 +189,12 @@ func NewStore(
 func NewService(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store dataprivacy.Store,
-	opts ...dataprivacy.ServiceOption,
+	opts ...Option,
 ) (dataprivacy.Service, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
 	}
@@ -213,7 +210,7 @@ func NewService(
 		base = append(base, dataprivacy.WithServiceMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewService(ctx, &cfg.Service, store, append(base, opts...)...)
+	return dataprivacy.NewService(ctx, &cfg.Service, store, append(base, o.service...)...)
 }
 
 // NewWorker builds the Worker that fulfills requests.
@@ -231,15 +228,15 @@ func NewService(
 func NewWorker(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store dataprivacy.Store,
 	registry *dataprivacy.Registry,
 	uploader uploads.UploadManager,
 	encrypted bool,
-	opts ...dataprivacy.WorkerOption,
+	opts ...Option,
 ) (*dataprivacy.Worker, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
 	}
@@ -267,7 +264,7 @@ func NewWorker(
 		base = append(base, dataprivacy.WithWorkerMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewWorker(ctx, &cfg.Worker, store, registry, append(base, opts...)...)
+	return dataprivacy.NewWorker(ctx, &cfg.Worker, store, registry, append(base, o.worker...)...)
 }
 
 // NewSweeper builds the Sweeper. Register its Job with a jobs.Scheduler; see
@@ -275,13 +272,13 @@ func NewWorker(
 func NewSweeper(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	store dataprivacy.Store,
 	uploader uploads.UploadManager,
-	opts ...dataprivacy.SweeperOption,
+	opts ...Option,
 ) (*dataprivacy.Sweeper, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
 	}
@@ -297,7 +294,7 @@ func NewSweeper(
 		base = append(base, dataprivacy.WithSweeperMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewSweeper(ctx, &cfg.Sweeper, store, append(base, opts...)...)
+	return dataprivacy.NewSweeper(ctx, &cfg.Sweeper, store, append(base, o.sweeper...)...)
 }
 
 // RegisterAuditEraser registers the audit log's eraser into registry unless

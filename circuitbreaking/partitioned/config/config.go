@@ -8,7 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v9/circuitbreaking/partitioned"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"go.opentelemetry.io/otel/attribute"
@@ -45,7 +44,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewKeyedCircuitBreaker provides a KeyedCircuitBreaker.
-func (cfg *Config) NewKeyedCircuitBreaker(ctx context.Context, logger logging.Logger, metricsProvider metrics.Provider) (partitioned.KeyedCircuitBreaker, error) {
+func (cfg *Config) NewKeyedCircuitBreaker(ctx context.Context, opts ...Option) (partitioned.KeyedCircuitBreaker, error) {
+	o := newOptions(opts)
+	logger, metricsProvider := o.logger, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -61,14 +63,14 @@ func (cfg *Config) NewKeyedCircuitBreaker(ctx context.Context, logger logging.Lo
 		return nil, errors.Wrap(err, "validating keyed circuit breaker config")
 	}
 
-	global, err := cfg.Base.NewCircuitBreaker(ctx, logger, metricsProvider, circuitbreakingcfg.WithMetricAttributes(attribute.String(partitionAttributeKey, globalPartition)))
+	global, err := cfg.Base.NewCircuitBreaker(ctx, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider), circuitbreakingcfg.WithMetricAttributes(attribute.String(partitionAttributeKey, globalPartition)))
 	if err != nil {
 		return nil, errors.Wrap(err, "providing global circuit breaker")
 	}
 
 	breakers := make(map[string]circuitbreaking.CircuitBreaker, len(cfg.Keys))
 	for _, key := range cfg.Keys {
-		cb, cbErr := cfg.Base.NewCircuitBreaker(ctx, logger, metricsProvider, circuitbreakingcfg.WithMetricAttributes(attribute.String(partitionAttributeKey, key)))
+		cb, cbErr := cfg.Base.NewCircuitBreaker(ctx, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider), circuitbreakingcfg.WithMetricAttributes(attribute.String(partitionAttributeKey, key)))
 		if cbErr != nil {
 			return nil, errors.Wrapf(cbErr, "providing circuit breaker for key %q", key)
 		}
@@ -80,6 +82,6 @@ func (cfg *Config) NewKeyedCircuitBreaker(ctx context.Context, logger logging.Lo
 }
 
 // NewKeyedCircuitBreaker provides a KeyedCircuitBreaker from config.
-func NewKeyedCircuitBreaker(ctx context.Context, cfg *Config, logger logging.Logger, metricsProvider metrics.Provider) (partitioned.KeyedCircuitBreaker, error) {
-	return cfg.NewKeyedCircuitBreaker(ctx, logger, metricsProvider)
+func NewKeyedCircuitBreaker(ctx context.Context, cfg *Config, opts ...Option) (partitioned.KeyedCircuitBreaker, error) {
+	return cfg.NewKeyedCircuitBreaker(ctx, opts...)
 }

@@ -18,9 +18,6 @@ import (
 	"github.com/primandproper/platform-go/v9/dataprivacy"
 	"github.com/primandproper/platform-go/v9/dataprivacy/auditerasure"
 	"github.com/primandproper/platform-go/v9/dataprivacy/migrations"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/uploads/noop"
 
 	"github.com/shoenig/test"
@@ -145,16 +142,16 @@ func TestConstructors(T *testing.T) {
 	T.Run("refuse a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewStore(t.Context(), nil, nil, nil, nil, nil)
+		_, err := NewStore(t.Context(), nil, nil)
 		test.Error(t, err)
 
-		_, err = NewService(t.Context(), nil, nil, nil, nil, nil)
+		_, err = NewService(t.Context(), nil, nil)
 		test.Error(t, err)
 
-		_, err = NewWorker(t.Context(), nil, nil, nil, nil, nil, nil, nil, false)
+		_, err = NewWorker(t.Context(), nil, nil, nil, nil, false)
 		test.Error(t, err)
 
-		_, err = NewSweeper(t.Context(), nil, nil, nil, nil, nil, nil)
+		_, err = NewSweeper(t.Context(), nil, nil, nil)
 		test.Error(t, err)
 	})
 
@@ -164,13 +161,19 @@ func TestConstructors(T *testing.T) {
 		env := newConfigEnv(t)
 		cfg := &Config{Dialect: dialect.SQLite, TablePrefix: env.prefix}
 
-		store, err := NewStore(t.Context(), cfg,
-			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil), env.client)
+		store, err := NewStore(
+			t.Context(),
+			cfg,
+			env.client,
+		)
 		must.NoError(t, err)
 		must.NotNil(t, store)
 
-		svc, err := NewService(t.Context(), cfg,
-			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil), store)
+		svc, err := NewService(
+			t.Context(),
+			cfg,
+			store,
+		)
 		must.NoError(t, err)
 		must.NotNil(t, svc)
 
@@ -181,15 +184,23 @@ func TestConstructors(T *testing.T) {
 			},
 		)))
 
-		worker, err := NewWorker(t.Context(), cfg,
-			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil),
-			store, registry, nil, false)
+		worker, err := NewWorker(
+			t.Context(),
+			cfg,
+			store,
+			registry,
+			nil,
+			false,
+		)
 		must.NoError(t, err)
 		must.NotNil(t, worker)
 
-		sweeper, err := NewSweeper(t.Context(), cfg,
-			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil),
-			store, nil)
+		sweeper, err := NewSweeper(
+			t.Context(),
+			cfg,
+			store,
+			nil,
+		)
 		must.NoError(t, err)
 		must.NotNil(t, sweeper)
 
@@ -209,16 +220,16 @@ func TestConstructors(T *testing.T) {
 		env := newConfigEnv(t)
 		cfg := &Config{Dialect: dialect.Dialect("oracle"), TablePrefix: env.prefix}
 
-		_, err := NewStore(t.Context(), cfg, nil, nil, nil, env.client)
+		_, err := NewStore(t.Context(), cfg, env.client)
 		test.Error(t, err)
 
-		_, err = NewService(t.Context(), cfg, nil, nil, nil, nil)
+		_, err = NewService(t.Context(), cfg, nil)
 		test.Error(t, err)
 
-		_, err = NewWorker(t.Context(), cfg, nil, nil, nil, nil, dataprivacy.NewRegistry(), nil, false)
+		_, err = NewWorker(t.Context(), cfg, nil, dataprivacy.NewRegistry(), nil, false)
 		test.Error(t, err)
 
-		_, err = NewSweeper(t.Context(), cfg, nil, nil, nil, nil, nil)
+		_, err = NewSweeper(t.Context(), cfg, nil, nil)
 		test.Error(t, err)
 	})
 
@@ -228,8 +239,11 @@ func TestConstructors(T *testing.T) {
 		env := newConfigEnv(t)
 		cfg := &Config{Dialect: dialect.SQLite, TablePrefix: env.prefix}
 
-		store, err := NewStore(t.Context(), cfg,
-			loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metrics.EnsureMetricsProvider(nil), env.client)
+		store, err := NewStore(
+			t.Context(),
+			cfg,
+			env.client,
+		)
 		must.NoError(t, err)
 
 		registry := dataprivacy.NewRegistry()
@@ -241,7 +255,7 @@ func TestConstructors(T *testing.T) {
 
 		// Supplying the uploader is what satisfies the export worker's storage
 		// requirement and wires the signer in one step.
-		worker, err := NewWorker(t.Context(), cfg, nil, nil, nil, store, registry, noop.NewUploadManager(), false)
+		worker, err := NewWorker(t.Context(), cfg, store, registry, noop.NewUploadManager(), false)
 		must.NoError(t, err)
 		test.NotNil(t, worker)
 	})

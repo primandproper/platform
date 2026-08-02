@@ -11,9 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v9/notifications/async/pusher"
 	asyncsse "github.com/primandproper/platform-go/v9/notifications/async/sse"
 	asyncws "github.com/primandproper/platform-go/v9/notifications/async/websocket"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -55,7 +52,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewAsyncNotifier provides an AsyncNotifier based on configuration.
-func (cfg *Config) NewAsyncNotifier(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (async.AsyncNotifier, error) {
+func (cfg *Config) NewAsyncNotifier(opts ...Option) (async.AsyncNotifier, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderPusher:
 		return pusher.NewNotifier(cfg.Pusher, pusher.WithLogger(logger), pusher.WithTracerProvider(tracerProvider), pusher.WithMetricsProvider(metricsProvider))
