@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v9/analytics/posthog"
 	"github.com/primandproper/platform-go/v9/analytics/segment"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
@@ -169,9 +170,11 @@ func TestConfig_NewCollector(T *testing.T) {
 			},
 		}
 
+		// A typo'd provider is reported rather than quietly becoming a noop that
+		// drops every event while looking configured.
 		reporter, err := cfg.NewCollector(ctx)
-		test.NotNil(t, reporter)
-		test.NoError(t, err)
+		test.Nil(t, reporter)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 
 	T.Run("with circuit breaker error", func(t *testing.T) {

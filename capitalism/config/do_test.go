@@ -25,7 +25,6 @@ func TestRegisterPaymentManager(T *testing.T) {
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{
-			Enabled:  true,
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		})
@@ -45,7 +44,6 @@ func TestRegisterPaymentManager(T *testing.T) {
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{
-			Enabled:  true,
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		})
@@ -72,7 +70,6 @@ func TestRegisterUsageReporter(T *testing.T) {
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{
-			Enabled:  true,
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{APIKey: "sk_test_123", WebhookSecret: t.Name()},
 		})
@@ -93,7 +90,7 @@ func TestRegisterUsageReporter(T *testing.T) {
 		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
-		do.ProvideValue(i, &Config{Enabled: false})
+		do.ProvideValue(i, &Config{Provider: NoopProvider})
 
 		RegisterUsageReporter(i)
 

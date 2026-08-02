@@ -28,6 +28,7 @@ import (
 	"github.com/primandproper/platform-go/v9/cache"
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
@@ -75,6 +76,11 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // ValidateWithContext validates a Config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	provider := normalize(cfg.Provider)
+
+	// Release the sub-configs env parsing's ",init" allocated and nothing filled
+	// in, so the Nil rules below read "the operator configured this" rather than
+	// "env parsing ran".
+	cfgnorm.ZeroToNil(&cfg.Database)
 
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.By(func(any) error {

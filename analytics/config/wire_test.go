@@ -16,7 +16,7 @@ func TestNewCollector(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cfg := &Config{}
+		cfg := &Config{SourceConfig: SourceConfig{Provider: ProviderNoop}}
 		logger := loggingnoop.NewLogger()
 
 		actual, err := NewEventReporter(ctx, cfg, WithLogger(logger))

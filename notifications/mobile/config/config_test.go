@@ -83,11 +83,11 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
-	T.Run("with apns_fcm provider and nil APNs but FCM present", func(t *testing.T) {
+	T.Run("with fcm provider and an empty FCM block, which asks for ADC", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Provider: ProviderAPNsFCM,
+			Provider: ProviderFCM,
 			APNs:     nil,
 			FCM:      &FCMConfig{},
 		}
@@ -146,12 +146,12 @@ func TestConfig_NewPushSender(T *testing.T) {
 		test.NoError(t, sender.SendPush(ctx, "android", "token", mobile.PushMessage{Title: "title", Body: "body"}))
 	})
 
-	T.Run("with apns_fcm provider and nil APNs returns FCM-only sender", func(t *testing.T) {
+	T.Run("with fcm provider returns an FCM-only sender", func(t *testing.T) {
 		t.Parallel()
 
 		credsPath := createTestFCMCredsFile(t)
 		cfg := Config{
-			Provider: ProviderAPNsFCM,
+			Provider: ProviderFCM,
 			APNs:     nil,
 			FCM:      &FCMConfig{CredentialsPath: credsPath},
 		}
@@ -164,12 +164,12 @@ func TestConfig_NewPushSender(T *testing.T) {
 		test.ErrorIs(t, err, mobile.ErrPlatformNotSupported)
 	})
 
-	T.Run("with apns_fcm provider and nil FCM returns iOS-only sender", func(t *testing.T) {
+	T.Run("with apns provider returns an iOS-only sender", func(t *testing.T) {
 		t.Parallel()
 
 		p8Path := createTestP8File(t)
 		cfg := Config{
-			Provider: ProviderAPNsFCM,
+			Provider: ProviderAPNs,
 			APNs:     &APNsConfig{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
 			FCM:      nil,
 		}
@@ -231,12 +231,12 @@ func TestConfig_NewPushSender(T *testing.T) {
 		test.Nil(t, sender)
 	})
 
-	T.Run("with apns_fcm provider and valid FCM creds returns multi-platform sender", func(t *testing.T) {
+	T.Run("with fcm provider and valid FCM creds returns a sender", func(t *testing.T) {
 		t.Parallel()
 
 		credsPath := createTestFCMCredsFile(t)
 		cfg := Config{
-			Provider: ProviderAPNsFCM,
+			Provider: ProviderFCM,
 			APNs:     nil,
 			FCM:      &FCMConfig{CredentialsPath: credsPath},
 		}

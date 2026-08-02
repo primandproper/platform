@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v9/notifications/mobile"
 	"github.com/primandproper/platform-go/v9/notifications/mobile/apns"
 	"github.com/primandproper/platform-go/v9/notifications/mobile/fcm"
@@ -14,7 +15,11 @@ import (
 )
 
 const (
-	// ProviderAPNsFCM represents the real APNs + FCM implementation.
+	// ProviderAPNs sends to iOS only.
+	ProviderAPNs = "apns"
+	// ProviderFCM sends to Android only.
+	ProviderFCM = "fcm"
+	// ProviderAPNsFCM sends to both iOS and Android.
 	ProviderAPNsFCM = "apns_fcm"
 	// ProviderNoop represents the no-op implementation, which reports every
 	// SendPush as a success. It must be selected deliberately — an unset or
@@ -34,6 +39,10 @@ type (
 	}
 
 	// FCMConfig configures FCM for Android push notifications.
+	//
+	// An entirely empty FCMConfig is a valid one: it asks for Application Default
+	// Credentials, which is the normal way to run on GCP. Selecting FCM is what
+	// turns Android push on, not the presence of anything in here.
 	FCMConfig struct {
 		// CredentialsPath is the path to the Firebase service account JSON file.
 		// If empty, Application Default Credentials (ADC) are used.
@@ -50,28 +59,49 @@ type (
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
+var _ validation.ValidatableWithContext = (*APNsConfig)(nil)
+
+// ValidateWithContext validates the APNsConfig. APNs has no ambient-credential
+// equivalent of FCM's ADC, so every one of these has to be supplied.
+func (cfg *APNsConfig) ValidateWithContext(ctx context.Context) error {
+	return validation.ValidateStructWithContext(ctx, cfg,
+		validation.Field(&cfg.AuthKeyPath, validation.Required),
+		validation.Field(&cfg.KeyID, validation.Required),
+		validation.Field(&cfg.TeamID, validation.Required),
+		validation.Field(&cfg.BundleID, validation.Required),
+	)
+}
+
 // ValidateWithContext validates the Config.
+//
+// The provider is the gate: it names which platforms are on, and each named one
+// must be usable. Presence of a sub-config decides nothing, which is what lets an
+// empty FCM block mean "use Application Default Credentials" rather than
+// "Android is off".
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+
+	// Release an APNs block env parsing's ",init" allocated and nothing filled in,
+	// so a deployment that selected FCM alone is not asked for iOS credentials by
+	// the APNsConfig validation below.
+	cfgnorm.ZeroToNil(&cfg.APNs)
+
 	return validation.ValidateStructWithContext(
 		ctx,
 		cfg,
-		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderAPNsFCM, ProviderNoop)),
+		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderAPNs, ProviderFCM, ProviderAPNsFCM, ProviderNoop)),
 		validation.Field(&cfg.APNs, validation.When(
-			provider == ProviderAPNsFCM && cfg.FCM == nil,
-			validation.Required,
-		)),
-		validation.Field(&cfg.FCM, validation.When(
-			provider == ProviderAPNsFCM && cfg.APNs == nil,
+			provider == ProviderAPNs || provider == ProviderAPNsFCM,
 			validation.Required,
 		)),
 	)
 }
 
 // NewPushSender returns a PushNotificationSender based on config.
-// When provider is "apns_fcm", each configured platform must initialize
-// successfully; a failed init surfaces as an error rather than silently
-// degrading to a noop that would report every SendPush as a success.
+//
+// The provider names the platforms, and each one it names must initialize
+// successfully; a failed init surfaces as an error rather than silently degrading
+// to a noop that would report every SendPush as a success.
 func (cfg *Config) NewPushSender(
 	ctx context.Context,
 	opts ...Option,
@@ -79,10 +109,16 @@ func (cfg *Config) NewPushSender(
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
-	case ProviderAPNsFCM:
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+
+	switch provider {
+	case ProviderAPNs, ProviderFCM, ProviderAPNsFCM:
 		var apnsSender *apns.Sender
-		if cfg.APNs != nil {
+		if provider == ProviderAPNs || provider == ProviderAPNsFCM {
+			if cfg.APNs == nil {
+				return nil, errors.Newf("push notification provider %q selected with no APNs config", provider)
+			}
+
 			apnsCfg := &apns.Config{
 				AuthKeyPath: cfg.APNs.AuthKeyPath,
 				KeyID:       cfg.APNs.KeyID,
@@ -98,8 +134,14 @@ func (cfg *Config) NewPushSender(
 		}
 
 		var fcmSender *fcm.Sender
-		if cfg.FCM != nil {
-			fcmCfg := &fcm.Config{CredentialsPath: cfg.FCM.CredentialsPath}
+		if provider == ProviderFCM || provider == ProviderAPNsFCM {
+			// A nil or empty FCM block asks for Application Default Credentials,
+			// so there is nothing to require here.
+			fcmCfg := &fcm.Config{}
+			if cfg.FCM != nil {
+				fcmCfg.CredentialsPath = cfg.FCM.CredentialsPath
+			}
+
 			s, err := fcm.NewSender(ctx, fcmCfg, fcm.WithTracerProvider(tracerProvider), fcm.WithLogger(logger), fcm.WithMetricsProvider(metricsProvider))
 			if err != nil {
 				return nil, errors.Wrap(err, "initializing FCM sender")
@@ -107,9 +149,6 @@ func (cfg *Config) NewPushSender(
 			fcmSender = s
 		}
 
-		if apnsSender == nil && fcmSender == nil {
-			return nil, errors.New("apns_fcm provider selected but neither APNs nor FCM is configured")
-		}
 		return mobile.NewMultiPlatformPushSender(apnsSender, fcmSender, mobile.WithLogger(logger), mobile.WithTracerProvider(tracerProvider)), nil
 	case ProviderNoop:
 		return noop.NewPushNotificationSender(), nil

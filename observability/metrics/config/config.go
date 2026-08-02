@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
@@ -59,6 +60,11 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates the config struct.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
+	// Release the sub-configs env parsing's ",init" allocated and nothing filled
+	// in, so the Nil rules below read "the operator configured this" rather than
+	// "env parsing ran".
+	cfgnorm.ZeroToNil(&c.Otel)
+
 	return validation.ValidateStructWithContext(ctx, c,
 		validation.Field(&c.Provider, validation.When(c.Enabled, validation.In("", ProviderNoop, ProviderOtel))),
 		validation.Field(&c.Otel, validation.When(c.Enabled && c.Provider == ProviderOtel, validation.Required).Else(validation.Nil)),

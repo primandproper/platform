@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/llm/anthropic"
 	"github.com/primandproper/platform-go/v9/llm/openai"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
@@ -47,13 +48,24 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 
-	T.Run("empty provider is valid", func(t *testing.T) {
+	T.Run("noop provider is valid", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{Provider: ProviderNoop}
+
+		test.NoError(t, cfg.ValidateWithContext(ctx))
+	})
+
+	T.Run("empty provider is invalid", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		cfg := &Config{}
 
-		test.NoError(t, cfg.ValidateWithContext(ctx))
+		// Turning the LLM off has to be asked for by name; leaving the provider
+		// unset is a mistake, not a way to say "no LLM".
+		test.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("unknown provider is invalid", func(t *testing.T) {
@@ -112,22 +124,33 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cfg := &Config{Provider: ""}
+		cfg := &Config{Provider: ProviderNoop}
 
 		provider, err := cfg.NewLLMProvider(ctx, nil)
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 	})
 
-	T.Run("unknown provider falls back to noop", func(t *testing.T) {
+	T.Run("unknown provider is reported rather than becoming a noop", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		cfg := &Config{Provider: "unknown"}
 
 		provider, err := cfg.NewLLMProvider(ctx, nil)
-		must.NoError(t, err)
-		must.NotNil(t, provider)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
+		test.Nil(t, provider)
+	})
+
+	T.Run("empty provider is reported rather than becoming a noop", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{}
+
+		provider, err := cfg.NewLLMProvider(ctx, nil)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
+		test.Nil(t, provider)
 	})
 
 	T.Run("openai provider", func(t *testing.T) {
@@ -217,7 +240,7 @@ func TestNewLLMProvider(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{}
+		cfg := &Config{Provider: ProviderNoop}
 
 		provider, err := NewLLMProvider(t.Context(), cfg, nil)
 		must.NoError(t, err)

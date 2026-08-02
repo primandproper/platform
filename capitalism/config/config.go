@@ -15,6 +15,15 @@ import (
 const (
 	// StripeProvider is the key that indicates Stripe should be used for payments.
 	StripeProvider = "stripe"
+	// NoopProvider charges nothing and reports no usage. It must be selected
+	// deliberately — an unset or typo'd provider is an error, because a payment
+	// manager that silently accepts every call without charging anyone looks like
+	// a working deployment right up until someone reconciles the books.
+	//
+	// It is also what makes "meter everything, bill nothing" a supported
+	// deployment: metering keeps counting durably and enforcing quotas, and
+	// nothing reaches a provider.
+	NoopProvider = "noop"
 )
 
 type (
@@ -22,20 +31,15 @@ type (
 	Config struct {
 		Stripe   *stripe.Config `env:",init"    envPrefix:"STRIPE_" json:"stripe"   yaml:"stripe"`
 		Provider string         `env:"PROVIDER" json:"provider"     yaml:"provider"`
-		Enabled  bool           `env:"ENABLED"  json:"enabled"      yaml:"enabled"`
 	}
 )
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
-// ValidateWithContext validates a StripeConfig struct.
+// ValidateWithContext validates a Config struct.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
-	if !cfg.Enabled {
-		return nil
-	}
-
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(StripeProvider)),
+		validation.Field(&cfg.Provider, validation.Required, validation.In(StripeProvider, NoopProvider)),
 		validation.Field(&cfg.Stripe, validation.When(cfg.Provider == StripeProvider, validation.Required)),
 	)
 }
@@ -47,35 +51,27 @@ func NewPaymentManager(_ context.Context, cfg *Config, stripeEventHandler stripe
 	o := newOptions(opts)
 	logger, tracerProvider := o.logger, o.tracerProvider
 
-	if !cfg.Enabled {
-		return noop.NewPaymentManager(), nil
-	}
-
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case StripeProvider:
 		return stripe.NewPaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+	case NoopProvider:
+		return noop.NewPaymentManager(), nil
 	default:
-		return nil, errors.Newf("unknown provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "payments provider %q", cfg.Provider)
 	}
 }
 
 // NewUsageReporter provides a capitalism.UsageReporter based on the config.
-//
-// A disabled config yields the noop reporter rather than an error, which is what
-// makes "meter everything, bill nothing" a supported deployment: metering keeps
-// counting durably and enforcing quotas, and nothing reaches a provider.
 func NewUsageReporter(_ context.Context, cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
 	o := newOptions(opts)
 	logger, tracerProvider := o.logger, o.tracerProvider
 
-	if !cfg.Enabled {
-		return noop.NewUsageReporter(), nil
-	}
-
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case StripeProvider:
 		return stripe.NewUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+	case NoopProvider:
+		return noop.NewUsageReporter(), nil
 	default:
-		return nil, errors.Newf("unknown provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "payments provider %q", cfg.Provider)
 	}
 }

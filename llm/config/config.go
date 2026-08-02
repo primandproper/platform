@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/llm"
 	"github.com/primandproper/platform-go/v9/llm/anthropic"
 	llmnoop "github.com/primandproper/platform-go/v9/llm/noop"
@@ -17,6 +18,11 @@ const (
 	ProviderOpenAI = "openai"
 	// ProviderAnthropic is the Anthropic provider.
 	ProviderAnthropic = "anthropic"
+	// ProviderNoop answers every request from a canned response and calls nothing.
+	// It must be selected deliberately — an unset or typo'd provider is an error,
+	// because an LLM that silently stops calling anything looks like a working
+	// deployment whose answers have quietly become useless.
+	ProviderNoop = "noop"
 )
 
 // Config is the configuration for the LLM provider.
@@ -31,7 +37,7 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // ValidateWithContext validates the config.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.In(ProviderOpenAI, ProviderAnthropic, "")),
+		validation.Field(&c.Provider, validation.Required, validation.In(ProviderOpenAI, ProviderAnthropic, ProviderNoop)),
 		validation.Field(&c.OpenAI, validation.When(c.Provider == ProviderOpenAI, validation.Required)),
 		validation.Field(&c.Anthropic, validation.When(c.Provider == ProviderAnthropic, validation.Required)),
 	)
@@ -47,7 +53,9 @@ func (c *Config) NewLLMProvider(_ context.Context, opts ...Option) (llm.Provider
 		return openai.NewProvider(c.OpenAI, openai.WithLogger(logger), openai.WithTracerProvider(tracerProvider), openai.WithMetricsProvider(metricsProvider))
 	case ProviderAnthropic:
 		return anthropic.NewProvider(c.Anthropic, anthropic.WithLogger(logger), anthropic.WithTracerProvider(tracerProvider), anthropic.WithMetricsProvider(metricsProvider))
-	default:
+	case ProviderNoop:
 		return llmnoop.NewProvider(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "llm provider %q", c.Provider)
 	}
 }

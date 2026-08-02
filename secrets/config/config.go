@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v9/secrets"
 	"github.com/primandproper/platform-go/v9/secrets/env"
 	"github.com/primandproper/platform-go/v9/secrets/gcp"
@@ -54,6 +55,13 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates the config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	// Release the sub-configs env parsing's ",init" allocated and nothing filled
+	// in, so the Nil rules below read "the operator configured this" rather than
+	// "env parsing ran".
+	cfgnorm.ZeroToNil(&cfg.GCP)
+	cfgnorm.ZeroToNil(&cfg.SSM)
+	cfgnorm.ZeroToNil(&cfg.Kubernetes)
+
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.By(func(any) error {
 			// Checked normalized, matching dispatch: validating the raw string

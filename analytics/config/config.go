@@ -10,7 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v9/analytics/segment"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	posthogsdk "github.com/posthog/posthog-go"
@@ -21,6 +20,11 @@ const (
 	ProviderSegment = "segment"
 	// ProviderPostHog represents PostHog.
 	ProviderPostHog = "posthog"
+	// ProviderNoop discards every event. It must be selected deliberately — an
+	// unset or typo'd provider is an error, because analytics that silently stop
+	// being recorded are only noticed when someone asks a question of the data
+	// months later.
+	ProviderNoop = "noop"
 )
 
 type (
@@ -87,7 +91,7 @@ func (p ProxySourcesConfig) ToMap() map[string]*SourceConfig {
 // pass validation and silently degrade to a noop at runtime.
 func (cfg *SourceConfig) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderSegment, ProviderPostHog)),
+		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderSegment, ProviderPostHog, ProviderNoop)),
 		validation.Field(&cfg.Segment, validation.When(cfg.Provider == ProviderSegment, validation.Required)),
 		validation.Field(&cfg.Posthog, validation.When(cfg.Provider == ProviderPostHog, validation.Required)),
 	)
@@ -95,11 +99,11 @@ func (cfg *SourceConfig) ValidateWithContext(ctx context.Context) error {
 
 // ValidateWithContext validates a Config struct.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
-	if err := validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderSegment, ProviderPostHog)),
-		validation.Field(&cfg.Segment, validation.When(cfg.Provider == ProviderSegment, validation.Required)),
-		validation.Field(&cfg.Posthog, validation.When(cfg.Provider == ProviderPostHog, validation.Required)),
-	); err != nil {
+	// The root source goes through the same rules as every proxy source rather than
+	// a restatement of them, which is what let the two drift: this one accepted an
+	// empty provider and fell through to a noop, while the proxy sources required
+	// one to be named.
+	if err := cfg.SourceConfig.ValidateWithContext(ctx); err != nil {
 		return err
 	}
 
@@ -142,8 +146,9 @@ func (cfg *SourceConfig) NewCollector(
 			modifiers = append(modifiers, func(c *posthogsdk.Config) { c.Endpoint = endpoint })
 		}
 		return posthog.NewEventReporter(cfg.Posthog.APIKey, cb, posthog.WithLogger(logger), posthog.WithTracerProvider(tracerProvider), posthog.WithMetricsProvider(metricsProvider), posthog.WithConfigModifiers(modifiers...))
-	default:
-		logging.EnsureLogger(logger).WithValue("provider", cfg.Provider).Info("no analytics provider configured or unrecognized provider, using noop")
+	case ProviderNoop:
 		return noop.NewEventReporter(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "analytics provider %q", cfg.Provider)
 	}
 }
