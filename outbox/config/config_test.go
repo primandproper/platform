@@ -8,9 +8,6 @@ import (
 	databasemock "github.com/primandproper/platform-go/v9/database/mock"
 	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
 	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/outbox"
 
 	"github.com/shoenig/test"
@@ -89,7 +86,7 @@ func TestNewWriter(T *testing.T) {
 	T.Run("builds a writer from the relay section", func(t *testing.T) {
 		t.Parallel()
 
-		w, err := NewWriter(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, sqliteClient())
+		w, err := NewWriter(t.Context(), sqliteConfig(), sqliteClient())
 		must.NoError(t, err)
 		must.NotNil(t, w)
 	})
@@ -97,7 +94,7 @@ func TestNewWriter(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewWriter(t.Context(), nil, nil, nil, nil, sqliteClient())
+		_, err := NewWriter(t.Context(), nil, sqliteClient())
 		test.Error(t, err)
 	})
 
@@ -106,7 +103,7 @@ func TestNewWriter(T *testing.T) {
 	T.Run("rejects a nil client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewWriter(t.Context(), sqliteConfig(), nil, nil, nil, nil)
+		_, err := NewWriter(t.Context(), sqliteConfig(), nil)
 		test.ErrorIs(t, err, outbox.ErrNilDatabaseClient)
 	})
 
@@ -116,9 +113,6 @@ func TestNewWriter(T *testing.T) {
 		w, err := NewWriter(
 			t.Context(),
 			sqliteConfig(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			sqliteClient(),
 		)
 		must.NoError(t, err)
@@ -131,11 +125,8 @@ func TestNewWriter(T *testing.T) {
 		w, err := NewWriter(
 			t.Context(),
 			sqliteConfig(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			sqliteClient(),
-			outbox.WithWriterTablePrefix("override_table"),
+			WithWriterOptions(outbox.WithWriterTablePrefix("override_table")),
 		)
 		must.NoError(t, err)
 		must.NotNil(t, w)
@@ -148,7 +139,7 @@ func TestNewRelay(T *testing.T) {
 	T.Run("builds a relay with a noop publisher", func(t *testing.T) {
 		t.Parallel()
 
-		r, err := NewRelay(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, sqliteClient())
+		r, err := NewRelay(t.Context(), sqliteConfig(), sqliteClient())
 		must.NoError(t, err)
 		must.NotNil(t, r)
 	})
@@ -156,21 +147,21 @@ func TestNewRelay(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewRelay(t.Context(), nil, loggingnoop.NewLogger(), nil, nil, sqliteClient())
+		_, err := NewRelay(t.Context(), nil, sqliteClient())
 		test.Error(t, err)
 	})
 
 	T.Run("rejects a nil database client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewRelay(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, nil)
+		_, err := NewRelay(t.Context(), sqliteConfig(), nil)
 		test.Error(t, err)
 	})
 
 	T.Run("rejects a nil client", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewRelay(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, nil)
+		_, err := NewRelay(t.Context(), sqliteConfig(), nil)
 		test.Error(t, err)
 	})
 
@@ -187,7 +178,7 @@ func TestNewRelay(T *testing.T) {
 			},
 		}
 
-		r, err := NewRelay(t.Context(), cfg, loggingnoop.NewLogger(), nil, nil, sqliteClient())
+		r, err := NewRelay(t.Context(), cfg, sqliteClient())
 		test.Nil(t, r)
 		test.Error(t, err)
 	})
@@ -198,9 +189,6 @@ func TestNewRelay(T *testing.T) {
 		r, err := NewRelay(
 			t.Context(),
 			sqliteConfig(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			sqliteClient(),
 		)
 		must.NoError(t, err)

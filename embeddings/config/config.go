@@ -7,9 +7,6 @@ import (
 	"github.com/primandproper/platform-go/v9/embeddings/cohere"
 	"github.com/primandproper/platform-go/v9/embeddings/ollama"
 	"github.com/primandproper/platform-go/v9/embeddings/openai"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -50,9 +47,7 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 // NewEmbedder provides an Embedder based on config.
 func (c *Config) NewEmbedder(
 	ctx context.Context,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
+	opts ...Option,
 ) (embeddings.Embedder, error) {
-	return NewEmbedder(ctx, c, logger, tracerProvider, metricsProvider)
+	return NewEmbedder(ctx, c, opts...)
 }

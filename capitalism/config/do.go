@@ -5,8 +5,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/capitalism"
 	"github.com/primandproper/platform-go/v9/capitalism/stripe"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -16,18 +15,22 @@ import (
 // the Stripe manager so consumers can act on verified webhook events.
 func RegisterPaymentManager(i do.Injector) {
 	do.Provide[capitalism.PaymentManager](i, func(i do.Injector) (capitalism.PaymentManager, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		// The event handler is optional; a resolution error means none was registered.
 		var stripeEventHandler stripe.EventHandler
-		if h, err := do.Invoke[stripe.EventHandler](i); err == nil {
+		if h, handlerErr := do.Invoke[stripe.EventHandler](i); handlerErr == nil {
 			stripeEventHandler = h
 		}
 
 		return NewPaymentManager(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
 			stripeEventHandler,
+			WithPillars(pillars),
 		)
 	})
 }
@@ -39,11 +42,15 @@ func RegisterPaymentManager(i do.Injector) {
 // usage. A deployment registers whichever of the two it actually runs.
 func RegisterUsageReporter(i do.Injector) {
 	do.Provide[capitalism.UsageReporter](i, func(i do.Injector) (capitalism.UsageReporter, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewUsageReporter(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
+			WithPillars(pillars),
 		)
 	})
 }

@@ -9,8 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v9/cryptography/encryption/aes"
 	"github.com/primandproper/platform-go/v9/cryptography/encryption/salsa20"
 	perrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -61,10 +59,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewEncryptorDecryptor(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
 	key []byte,
+	opts ...Option,
 ) (encryption.EncryptorDecryptor, error) {
+	o := newOptions(opts)
+	logger, tracerProvider := o.logger, o.tracerProvider
+
 	if cfg == nil {
 		return nil, perrors.ErrNilInputProvided
 	}

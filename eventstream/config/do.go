@@ -4,8 +4,7 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/eventstream"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -13,11 +12,15 @@ import (
 // RegisterEventStreamUpgrader registers an eventstream.EventStreamUpgrader with the injector.
 func RegisterEventStreamUpgrader(i do.Injector) {
 	do.Provide[eventstream.EventStreamUpgrader](i, func(i do.Injector) (eventstream.EventStreamUpgrader, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewEventStreamUpgrader(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
+			WithPillars(pillars),
 		)
 	})
 }
@@ -25,11 +28,15 @@ func RegisterEventStreamUpgrader(i do.Injector) {
 // RegisterBidirectionalEventStreamUpgrader registers an eventstream.BidirectionalEventStreamUpgrader with the injector.
 func RegisterBidirectionalEventStreamUpgrader(i do.Injector) {
 	do.Provide[eventstream.BidirectionalEventStreamUpgrader](i, func(i do.Injector) (eventstream.BidirectionalEventStreamUpgrader, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewBidirectionalEventStreamUpgrader(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
+			WithPillars(pillars),
 		)
 	})
 }

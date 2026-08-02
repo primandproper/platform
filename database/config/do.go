@@ -4,9 +4,7 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -25,15 +23,20 @@ func RegisterClientConfig(i do.Injector) {
 func RegisterDatabase(i do.Injector) {
 	RegisterClientConfig(i)
 	do.Provide[database.Client](i, func(i do.Injector) (database.Client, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		cfg := do.MustInvoke[*Config](i)
 
 		// Only require a Migrator when migrations are actually enabled, so a service
 		// that doesn't run migrations can build without registering one.
 		var migrator database.Migrator
 		if cfg.RunMigrations {
-			m, err := do.Invoke[database.Migrator](i)
-			if err != nil {
-				return nil, err
+			m, migratorErr := do.Invoke[database.Migrator](i)
+			if migratorErr != nil {
+				return nil, migratorErr
 			}
 			migrator = m
 		}
@@ -41,10 +44,8 @@ func RegisterDatabase(i do.Injector) {
 		return NewDatabase(
 			do.MustInvoke[context.Context](i),
 			cfg,
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[metrics.Provider](i),
 			migrator,
+			WithPillars(pillars),
 		)
 	})
 }

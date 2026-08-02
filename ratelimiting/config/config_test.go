@@ -44,7 +44,7 @@ func TestNewRateLimiter(T *testing.T) {
 	T.Run("nil config is an error", func(t *testing.T) {
 		t.Parallel()
 
-		limiter, err := NewRateLimiter(context.Background(), nil, nil, nil, nil)
+		limiter, err := NewRateLimiter(context.Background(), nil)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 		test.Nil(t, limiter)
 	})
@@ -54,7 +54,7 @@ func TestNewRateLimiter(T *testing.T) {
 	T.Run("empty provider is an error", func(t *testing.T) {
 		t.Parallel()
 
-		limiter, err := NewRateLimiter(context.Background(), &Config{Provider: ""}, nil, nil, nil)
+		limiter, err := NewRateLimiter(context.Background(), &Config{Provider: ""})
 		must.Error(t, err)
 		test.Nil(t, limiter)
 	})
@@ -63,7 +63,7 @@ func TestNewRateLimiter(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderNoop}
-		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, limiter)
 
@@ -80,7 +80,7 @@ func TestNewRateLimiter(T *testing.T) {
 			RequestsPerSec: 1,
 			BurstSize:      1,
 		}
-		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, limiter)
 
@@ -102,7 +102,7 @@ func TestNewRateLimiter(T *testing.T) {
 			RequestsPerSec: 1,
 			BurstSize:      1,
 		}
-		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg)
 		must.NoError(t, err)
 		test.NotNil(t, limiter)
 	})
@@ -111,7 +111,7 @@ func TestNewRateLimiter(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: "unknown"}
-		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg)
 		must.Error(t, err)
 		test.Nil(t, limiter)
 	})
@@ -122,7 +122,7 @@ func TestNewRateLimiter(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderMemory, RequestsPerSec: -1, BurstSize: 1}
-		limiter, err := NewRateLimiter(context.Background(), cfg, nil, nil, nil)
+		limiter, err := NewRateLimiter(context.Background(), cfg)
 		must.Error(t, err)
 		test.Nil(t, limiter)
 	})

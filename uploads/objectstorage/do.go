@@ -3,9 +3,7 @@ package objectstorage
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/uploads"
 
 	"github.com/samber/do/v2"
@@ -15,12 +13,17 @@ import (
 // Prerequisite: *Config must be registered (e.g. via uploadscfg.RegisterStorageConfig).
 func RegisterUploadManager(i do.Injector) {
 	do.Provide[*Uploader](i, func(i do.Injector) (*Uploader, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewUploadManager(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			WithLogger(do.MustInvoke[logging.Logger](i)),
-			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
-			WithMetricsProvider(do.MustInvoke[metrics.Provider](i)),
+			WithLogger(pillars.Logger),
+			WithTracerProvider(pillars.TracerProvider),
+			WithMetricsProvider(pillars.MetricsProvider),
 		)
 	})
 	do.Provide[uploads.UploadManager](i, func(i do.Injector) (uploads.UploadManager, error) {

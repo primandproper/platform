@@ -39,7 +39,11 @@ type (
 )
 
 // NewProfilingProvider provides a profiling provider based on config.
-func (c *Config) NewProfilingProvider(ctx context.Context, logger logging.Logger) (profiling.Provider, error) {
+func (c *Config) NewProfilingProvider(ctx context.Context, opts ...Option) (profiling.Provider, error) {
+	// EnsureLogger, not the raw option: the logger is optional now, and both
+	// real providers log what they started.
+	logger := logging.EnsureLogger(newOptions(opts).logger)
+
 	p := strings.TrimSpace(strings.ToLower(c.Provider))
 
 	switch p {

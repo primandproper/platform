@@ -16,9 +16,6 @@ import (
 	"github.com/primandproper/platform-go/v9/audit"
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -66,35 +63,35 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // prefix come from the Sweeper section — see Config.Sweeper for why.
 //
 // Explicit options run after the config-derived ones, so a caller can still
-// override anything, and can register redactions beyond those in the file.
+// override anything, and can register redactions beyond those in the file — see
+// WithRecorderOptions.
 func NewRecorder(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
-	opts ...audit.RecorderOption,
+	opts ...Option,
 ) (audit.Recorder, error) {
 	if err := prepare(ctx, cfg); err != nil {
 		return nil, err
 	}
 
+	o := newOptions(opts)
+
 	base := []audit.RecorderOption{audit.WithRecorderTablePrefix(cfg.Sweeper.TablePrefix)}
-	if logger != nil {
-		base = append(base, audit.WithRecorderLogger(logger))
+	if o.logger != nil {
+		base = append(base, audit.WithRecorderLogger(o.logger))
 	}
-	if tracerProvider != nil {
-		base = append(base, audit.WithRecorderTracerProvider(tracerProvider))
+	if o.tracerProvider != nil {
+		base = append(base, audit.WithRecorderTracerProvider(o.tracerProvider))
 	}
-	if metricsProvider != nil {
-		base = append(base, audit.WithRecorderMetricsProvider(metricsProvider))
+	if o.metricsProvider != nil {
+		base = append(base, audit.WithRecorderMetricsProvider(o.metricsProvider))
 	}
 
 	for resourceType := range cfg.Redactions {
 		base = append(base, audit.WithRedaction(resourceType, cfg.Redactions[resourceType]))
 	}
 
-	return audit.NewRecorder(cfg.Sweeper.Dialect, append(base, opts...)...)
+	return audit.NewRecorder(cfg.Sweeper.Dialect, append(base, o.recorder...)...)
 }
 
 // NewReader builds a Reader from configuration. client must be the database
@@ -102,64 +99,62 @@ func NewRecorder(
 // against.
 //
 // Explicit options run after the config-derived ones, so a caller can still
-// override anything.
+// override anything — see WithReaderOptions.
 func NewReader(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	client database.Client,
-	opts ...audit.ReaderOption,
+	opts ...Option,
 ) (audit.Reader, error) {
 	if err := prepare(ctx, cfg); err != nil {
 		return nil, err
 	}
 
+	o := newOptions(opts)
+
 	base := []audit.ReaderOption{audit.WithReaderTablePrefix(cfg.Sweeper.TablePrefix)}
-	if logger != nil {
-		base = append(base, audit.WithReaderLogger(logger))
+	if o.logger != nil {
+		base = append(base, audit.WithReaderLogger(o.logger))
 	}
-	if tracerProvider != nil {
-		base = append(base, audit.WithReaderTracerProvider(tracerProvider))
+	if o.tracerProvider != nil {
+		base = append(base, audit.WithReaderTracerProvider(o.tracerProvider))
 	}
-	if metricsProvider != nil {
-		base = append(base, audit.WithReaderMetricsProvider(metricsProvider))
+	if o.metricsProvider != nil {
+		base = append(base, audit.WithReaderMetricsProvider(o.metricsProvider))
 	}
 
-	return audit.NewReader(client, append(base, opts...)...)
+	return audit.NewReader(client, append(base, o.reader...)...)
 }
 
 // NewSweeper builds a Sweeper from configuration. It does not start it; call
 // Run.
 //
 // Explicit options run after the config-derived ones, so a caller can still
-// override anything.
+// override anything — see WithSweeperOptions.
 func NewSweeper(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	client database.Client,
-	opts ...audit.SweeperOption,
+	opts ...Option,
 ) (*audit.Sweeper, error) {
 	if err := prepare(ctx, cfg); err != nil {
 		return nil, err
 	}
 
+	o := newOptions(opts)
+
 	var base []audit.SweeperOption
-	if logger != nil {
-		base = append(base, audit.WithSweeperLogger(logger))
+	if o.logger != nil {
+		base = append(base, audit.WithSweeperLogger(o.logger))
 	}
-	if tracerProvider != nil {
-		base = append(base, audit.WithSweeperTracerProvider(tracerProvider))
+	if o.tracerProvider != nil {
+		base = append(base, audit.WithSweeperTracerProvider(o.tracerProvider))
 	}
-	if metricsProvider != nil {
-		base = append(base, audit.WithSweeperMetricsProvider(metricsProvider))
+	if o.metricsProvider != nil {
+		base = append(base, audit.WithSweeperMetricsProvider(o.metricsProvider))
 	}
 
-	return audit.NewSweeper(ctx, &cfg.Sweeper, client, append(base, opts...)...)
+	return audit.NewSweeper(ctx, &cfg.Sweeper, client, append(base, o.sweeper...)...)
 }
 
 // prepare defaults and validates a config, shared by all three constructors so

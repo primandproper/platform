@@ -28,6 +28,7 @@ import (
 	"github.com/primandproper/platform-go/v9/cache"
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
@@ -101,8 +102,13 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // what it would otherwise be given.
 type Option func(*options)
 
-// options collects the passthrough options for each backend.
+// options collects the passthrough options for each backend, plus the
+// observability the resolver is built with.
 type options struct {
+	logger          logging.Logger
+	tracerProvider  tracing.TracerProvider
+	metricsProvider metrics.Provider
+
 	static   []static.Option
 	database []authzdb.Option
 	cached   []cached.Option
@@ -138,6 +144,33 @@ func WithCachedOptions(opts ...cached.Option) Option {
 	return func(o *options) { o.cached = append(o.cached, opts...) }
 }
 
+// WithLogger attaches a logger. An absent logger logs nowhere.
+func WithLogger(logger logging.Logger) Option {
+	return func(o *options) { o.logger = logger }
+}
+
+// WithTracerProvider attaches a tracer provider, enabling spans on policy
+// resolution. An absent tracer provider traces nowhere.
+func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+	return func(o *options) { o.tracerProvider = tracerProvider }
+}
+
+// WithMetricsProvider attaches a metrics provider. An absent provider records
+// nothing.
+func WithMetricsProvider(metricsProvider metrics.Provider) Option {
+	return func(o *options) { o.metricsProvider = metricsProvider }
+}
+
+// WithPillars attaches a logger, tracer provider, and metrics provider in one
+// go, for the common case where a caller has already built them together. A nil
+// Pillars attaches nothing.
+//
+// It is applied in order with the individual options, so a caller can hand over
+// its pillars and then override one of them.
+func WithPillars(p *observability.Pillars) Option {
+	return func(o *options) { o.logger, o.tracerProvider, o.metricsProvider = p.Deps() }
+}
+
 // NewPolicyResolver builds the configured resolver.
 //
 // db is used only by the database provider and may be nil otherwise. c is
@@ -152,9 +185,6 @@ func WithCachedOptions(opts ...cached.Option) Option {
 func NewPolicyResolver(
 	_ context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	db database.SQLQueryExecutor,
 	c cache.Cache[authorization.PermissionSet],
 	opts ...Option,
@@ -164,6 +194,7 @@ func NewPolicyResolver(
 	}
 
 	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
 	var (
 		resolver authorization.PolicyResolver

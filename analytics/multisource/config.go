@@ -54,7 +54,10 @@ func NewMultiSourceEventReporterFromConfig(
 		// A source that fails to construct is fatal rather than quietly noop'd:
 		// the substitution lasted the whole process lifetime, so every event for
 		// that source was dropped until someone redeployed.
-		r, err := sourceCfg.NewCollector(ctx, log, o.tracerProvider, o.metricsProvider)
+		r, err := sourceCfg.NewCollector(ctx,
+			analyticscfg.WithLogger(log),
+			analyticscfg.WithTracerProvider(o.tracerProvider),
+			analyticscfg.WithMetricsProvider(o.metricsProvider))
 		if err != nil {
 			return nil, errors.Wrapf(err, "creating reporter for proxy source %q", source)
 		}

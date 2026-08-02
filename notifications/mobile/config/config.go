@@ -9,9 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v9/notifications/mobile/apns"
 	"github.com/primandproper/platform-go/v9/notifications/mobile/fcm"
 	"github.com/primandproper/platform-go/v9/notifications/mobile/noop"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -77,10 +74,11 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // degrading to a noop that would report every SendPush as a success.
 func (cfg *Config) NewPushSender(
 	ctx context.Context,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
+	opts ...Option,
 ) (mobile.PushNotificationSender, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case ProviderAPNsFCM:
 		var apnsSender *apns.Sender

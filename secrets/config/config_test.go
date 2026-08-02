@@ -121,7 +121,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		t.Parallel()
 
 		var cfg *Config
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -139,7 +139,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ""}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -157,7 +157,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderEnv}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -175,7 +175,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderNoop}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -192,7 +192,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 			GCP:       &gcp.Config{ProjectID: "test-project"},
 			GCPClient: &mockGCPClient{value: "gcp-secret-value"},
 		}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -209,7 +209,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 			SSM:       &ssm.Config{Region: "us-east-1"},
 			SSMClient: &mockSSMClient{value: "ssm-param-value"},
 		}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -232,7 +232,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 				},
 			},
 		}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -245,7 +245,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: "vault"}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "unknown")
@@ -255,7 +255,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderGCP}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "gcp")
@@ -265,7 +265,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderSSM}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "ssm")
@@ -275,7 +275,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderKubernetes}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
+		source, err := cfg.NewSecretSource(context.Background())
 		must.Error(t, err)
 		test.Nil(t, source)
 		test.StrContains(t, err.Error(), "kubernetes")
@@ -291,7 +291,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		}
 
 		var cfg *Config
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, mp)
+		source, err := cfg.NewSecretSource(context.Background(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -308,7 +308,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{Provider: ProviderEnv}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, mp)
+		source, err := cfg.NewSecretSource(context.Background(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -329,7 +329,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 			GCP:       &gcp.Config{ProjectID: "test-project"},
 			GCPClient: &mockGCPClient{value: "x"},
 		}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, mp)
+		source, err := cfg.NewSecretSource(context.Background(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -350,7 +350,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 			SSM:       &ssm.Config{Region: "us-east-1"},
 			SSMClient: &mockSSMClient{value: "x"},
 		}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, mp)
+		source, err := cfg.NewSecretSource(context.Background(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 
@@ -371,7 +371,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 			Kubernetes:       &kubernetes.Config{Namespace: "default"},
 			KubernetesClient: &mockKubernetesClient{secret: &corev1.Secret{}},
 		}
-		source, err := cfg.NewSecretSource(context.Background(), nil, nil, mp)
+		source, err := cfg.NewSecretSource(context.Background(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		test.Nil(t, source)
 

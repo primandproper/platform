@@ -11,8 +11,6 @@ import (
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	posthogsdk "github.com/posthog/posthog-go"
@@ -118,11 +116,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewCollector provides a collector.
 func (cfg *SourceConfig) NewCollector(
 	ctx context.Context,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
+	opts ...Option,
 ) (analytics.EventReporter, error) {
-	cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, logger, metricsProvider)
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
+	cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "could not create analytics circuit breaker")
 	}

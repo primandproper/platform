@@ -7,9 +7,6 @@ import (
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	vectorsearch "github.com/primandproper/platform-go/v9/search/vector"
 	"github.com/primandproper/platform-go/v9/search/vector/noop"
 	"github.com/primandproper/platform-go/v9/search/vector/pgvector"
@@ -59,13 +56,14 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // naming it, matching the search/text dispatch convention.
 func NewIndex[T any](
 	ctx context.Context,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	cfg *Config,
 	db database.Client,
 	indexName string,
+	opts ...Option,
 ) (vectorsearch.Index[T], error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, vectorsearch.ErrNilConfig
 	}
@@ -74,7 +72,7 @@ func NewIndex[T any](
 		return nil, errors.Wrap(err, "validating vector search config")
 	}
 
-	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, logger, metricsProvider)
+	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing vector search circuit breaker")
 	}

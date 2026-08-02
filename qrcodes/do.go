@@ -1,8 +1,7 @@
 package qrcodes
 
 import (
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -10,10 +9,15 @@ import (
 // RegisterBuilder registers a Builder with the injector.
 func RegisterBuilder(i do.Injector) {
 	do.Provide[Builder](i, func(i do.Injector) (Builder, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewBuilder(
 			do.MustInvoke[Issuer](i),
-			WithLogger(do.MustInvoke[logging.Logger](i)),
-			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			WithLogger(pillars.Logger),
+			WithTracerProvider(pillars.TracerProvider),
 		), nil
 	})
 }

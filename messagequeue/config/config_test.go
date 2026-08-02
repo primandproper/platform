@@ -7,8 +7,6 @@ import (
 	"github.com/primandproper/platform-go/v9/messagequeue/kafka"
 	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
 	"github.com/primandproper/platform-go/v9/messagequeue/sqs"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -30,7 +28,7 @@ func TestNewConsumerProvider(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil)
+		p, err := NewConsumerProvider(t.Context(), nil)
 		test.Nil(t, p)
 		test.ErrorIs(t, err, ErrNilConfig)
 	})
@@ -44,7 +42,7 @@ func TestNewConsumerProvider(T *testing.T) {
 			},
 		}
 
-		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewConsumerProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -59,7 +57,7 @@ func TestNewConsumerProvider(T *testing.T) {
 			},
 		}
 
-		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewConsumerProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -74,7 +72,7 @@ func TestNewConsumerProvider(T *testing.T) {
 			},
 		}
 
-		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewConsumerProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -89,7 +87,7 @@ func TestNewConsumerProvider(T *testing.T) {
 			},
 		}
 
-		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewConsumerProvider(t.Context(), cfg)
 		test.Nil(t, p)
 		test.Error(t, err)
 	})
@@ -98,7 +96,7 @@ func TestNewConsumerProvider(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Consumer: MessageQueueConfig{Provider: ProviderNoop}}
-		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewConsumerProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -108,7 +106,7 @@ func TestNewConsumerProvider(T *testing.T) {
 	T.Run("with unknown provider returns ErrUnknownProvider", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, &Config{})
+		p, err := NewConsumerProvider(t.Context(), &Config{})
 		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 		test.Nil(t, p)
 	})
@@ -126,7 +124,7 @@ func TestNewConsumerProvider_PubSubEmulator(t *testing.T) {
 		},
 	}
 
-	p, err := NewConsumerProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+	p, err := NewConsumerProvider(t.Context(), cfg)
 	must.NoError(t, err)
 	test.NotNil(t, p)
 }
@@ -137,7 +135,7 @@ func TestNewPublisherProvider(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, nil)
+		p, err := NewPublisherProvider(t.Context(), nil)
 		test.Nil(t, p)
 		test.ErrorIs(t, err, ErrNilConfig)
 	})
@@ -151,7 +149,7 @@ func TestNewPublisherProvider(T *testing.T) {
 			},
 		}
 
-		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewPublisherProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -166,7 +164,7 @@ func TestNewPublisherProvider(T *testing.T) {
 			},
 		}
 
-		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewPublisherProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -181,7 +179,7 @@ func TestNewPublisherProvider(T *testing.T) {
 			},
 		}
 
-		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewPublisherProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -196,7 +194,7 @@ func TestNewPublisherProvider(T *testing.T) {
 			},
 		}
 
-		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewPublisherProvider(t.Context(), cfg)
 		test.Nil(t, p)
 		test.Error(t, err)
 	})
@@ -205,7 +203,7 @@ func TestNewPublisherProvider(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Publisher: MessageQueueConfig{Provider: ProviderNoop}}
-		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+		p, err := NewPublisherProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
 	})
@@ -215,7 +213,7 @@ func TestNewPublisherProvider(T *testing.T) {
 	T.Run("with unknown provider returns ErrUnknownProvider", func(t *testing.T) {
 		t.Parallel()
 
-		p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, &Config{})
+		p, err := NewPublisherProvider(t.Context(), &Config{})
 		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 		test.Nil(t, p)
 	})
@@ -233,7 +231,7 @@ func TestNewPublisherProvider_PubSubEmulator(t *testing.T) {
 		},
 	}
 
-	p, err := NewPublisherProvider(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, cfg)
+	p, err := NewPublisherProvider(t.Context(), cfg)
 	must.NoError(t, err)
 	test.NotNil(t, p)
 }

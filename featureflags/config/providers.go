@@ -4,19 +4,21 @@ import (
 	"context"
 	"net/http"
 
+	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/featureflags"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 // NewFeatureFlagManager provides a FeatureFlagManager from config.
-func NewFeatureFlagManager(ctx context.Context, c *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, httpClient *http.Client) (featureflags.FeatureFlagManager, error) {
-	circuitBreaker, err := c.CircuitBreaker.NewCircuitBreaker(ctx, logger, metricsProvider)
+func NewFeatureFlagManager(ctx context.Context, c *Config, httpClient *http.Client, opts ...Option) (featureflags.FeatureFlagManager, error) {
+	o := newOptions(opts)
+
+	circuitBreaker, err := c.CircuitBreaker.NewCircuitBreaker(ctx,
+		circuitbreakingcfg.WithLogger(o.logger),
+		circuitbreakingcfg.WithMetricsProvider(o.metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize feature flag circuit breaker")
 	}
 
-	return c.NewFeatureFlagManager(ctx, logger, tracerProvider, metricsProvider, httpClient, circuitBreaker)
+	return c.NewFeatureFlagManager(ctx, httpClient, circuitBreaker, opts...)
 }

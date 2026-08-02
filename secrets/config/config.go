@@ -6,9 +6,6 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/secrets"
 	"github.com/primandproper/platform-go/v9/secrets/env"
 	"github.com/primandproper/platform-go/v9/secrets/gcp"
@@ -74,7 +71,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewSecretSource returns a SecretSource from config.
-func (cfg *Config) NewSecretSource(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
+func (cfg *Config) NewSecretSource(ctx context.Context, opts ...Option) (secrets.SecretSource, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return env.NewSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 	}

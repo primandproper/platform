@@ -17,9 +17,6 @@ import (
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/jobs"
 	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -65,12 +62,12 @@ func (cfg *PoolConfig) ValidateWithContext(ctx context.Context) error {
 func NewPool(
 	ctx context.Context,
 	cfg *PoolConfig,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	handler jobs.Handler,
-	opts ...jobs.PoolOption,
+	opts ...Option,
 ) (*jobs.Pool, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -81,7 +78,10 @@ func NewPool(
 		return nil, errors.Wrap(err, "validating jobs pool config")
 	}
 
-	provider, err := messagequeuecfg.NewConsumerProvider(ctx, logger, tracerProvider, metricsProvider, &cfg.Queue)
+	provider, err := messagequeuecfg.NewConsumerProvider(ctx, &cfg.Queue,
+		messagequeuecfg.WithLogger(logger),
+		messagequeuecfg.WithTracerProvider(tracerProvider),
+		messagequeuecfg.WithMetricsProvider(metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "building jobs consumer provider")
 	}
@@ -97,7 +97,7 @@ func NewPool(
 		base = append(base, jobs.WithPoolMetricsProvider(metricsProvider))
 	}
 
-	return jobs.NewPool(ctx, &cfg.Pool, provider, handler, append(base, opts...)...)
+	return jobs.NewPool(ctx, &cfg.Pool, provider, handler, append(base, o.pool...)...)
 }
 
 // SchedulerConfig assembles a jobs.Scheduler from environment configuration.
@@ -147,12 +147,12 @@ func (cfg *SchedulerConfig) ValidateWithContext(ctx context.Context) error {
 func NewScheduler(
 	ctx context.Context,
 	cfg *SchedulerConfig,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	db database.Client,
-	opts ...jobs.SchedulerOption,
+	opts ...Option,
 ) (*jobs.Scheduler, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -163,7 +163,10 @@ func NewScheduler(
 		return nil, errors.Wrap(err, "validating jobs scheduler config")
 	}
 
-	locker, err := distributedlockcfg.NewLocker(ctx, &cfg.Lock, logger, tracerProvider, metricsProvider, db)
+	locker, err := distributedlockcfg.NewLocker(ctx, &cfg.Lock, db,
+		distributedlockcfg.WithLogger(logger),
+		distributedlockcfg.WithTracerProvider(tracerProvider),
+		distributedlockcfg.WithMetricsProvider(metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "building jobs scheduler locker")
 	}
@@ -179,5 +182,5 @@ func NewScheduler(
 		base = append(base, jobs.WithSchedulerMetricsProvider(metricsProvider))
 	}
 
-	return jobs.NewScheduler(ctx, &cfg.Scheduler, locker, append(base, opts...)...)
+	return jobs.NewScheduler(ctx, &cfg.Scheduler, locker, append(base, o.scheduler...)...)
 }

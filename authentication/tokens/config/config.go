@@ -9,8 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v9/authentication/tokens"
 	"github.com/primandproper/platform-go/v9/authentication/tokens/jwt"
 	"github.com/primandproper/platform-go/v9/authentication/tokens/paseto"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -47,7 +45,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewTokenIssuer provides a token issuer.
-func (cfg *Config) NewTokenIssuer(logger logging.Logger, tracerProvider tracing.TracerProvider) (tokens.Issuer, error) {
+func (cfg *Config) NewTokenIssuer(opts ...Option) (tokens.Issuer, error) {
+	o := newOptions(opts)
+	logger, tracerProvider := o.logger, o.tracerProvider
+
 	decryptedSigningKey, err := base64.URLEncoding.DecodeString(cfg.Base64EncodedSigningKey)
 	if err != nil {
 		return nil, fmt.Errorf("decoding json web token signing key: %w", err)

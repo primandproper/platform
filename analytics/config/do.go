@@ -4,9 +4,7 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/analytics"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -14,12 +12,15 @@ import (
 // RegisterEventReporter registers an analytics.EventReporter with the injector.
 func RegisterEventReporter(i do.Injector) {
 	do.Provide[analytics.EventReporter](i, func(i do.Injector) (analytics.EventReporter, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewEventReporter(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[metrics.Provider](i),
+			WithPillars(pillars),
 		)
 	})
 }

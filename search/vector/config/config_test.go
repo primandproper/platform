@@ -11,11 +11,8 @@ import (
 	"time"
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	vectorsearch "github.com/primandproper/platform-go/v9/search/vector"
 	"github.com/primandproper/platform-go/v9/search/vector/pgvector"
 	"github.com/primandproper/platform-go/v9/search/vector/qdrant"
@@ -108,9 +105,6 @@ func TestConfig_NewIndex(T *testing.T) {
 
 		idx, err := NewIndex[testStruct](
 			t.Context(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 			nil,
 			"idx",
@@ -124,9 +118,6 @@ func TestConfig_NewIndex(T *testing.T) {
 
 		idx, err := NewIndex[testStruct](
 			t.Context(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			&Config{Provider: "unknown"},
 			nil,
 			"idx",
@@ -140,9 +131,6 @@ func TestConfig_NewIndex(T *testing.T) {
 
 		idx, err := NewIndex[testStruct](
 			t.Context(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			&Config{Provider: ProviderNoop},
 			nil,
 			"idx",
@@ -158,9 +146,6 @@ func TestConfig_NewIndex(T *testing.T) {
 
 			idx, err := NewIndex[testStruct](
 				t.Context(),
-				loggingnoop.NewLogger(),
-				tracingnoop.NewTracerProvider(),
-				metricsnoop.NewMetricsProvider(),
 				&Config{Provider: provider},
 				nil,
 				"idx",
@@ -183,9 +168,6 @@ func TestConfig_NewIndex(T *testing.T) {
 
 		idx, err := NewIndex[testStruct](
 			t.Context(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			cfg,
 			nil,
 			"idx",
@@ -223,9 +205,6 @@ func TestConfig_NewIndex(T *testing.T) {
 
 		idx, err := NewIndex[testStruct](
 			t.Context(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			cfg,
 			nil,
 			"stub",
@@ -256,12 +235,10 @@ func TestConfig_NewIndex(T *testing.T) {
 
 		idx, err := NewIndex[testStruct](
 			ctx,
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			mp,
 			cfg,
 			nil,
 			"idx",
+			WithMetricsProvider(mp),
 		)
 		test.Error(t, err)
 		test.Nil(t, idx)

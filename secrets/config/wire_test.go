@@ -15,7 +15,7 @@ func TestNewSecretSourceFromConfig(T *testing.T) {
 		t.Parallel()
 
 		var cfg *Config
-		source, err := NewSecretSource(context.Background(), cfg, nil, nil, nil)
+		source, err := NewSecretSource(context.Background(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -33,7 +33,7 @@ func TestNewSecretSourceFromConfig(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ""}
-		source, err := NewSecretSource(context.Background(), cfg, nil, nil, nil)
+		source, err := NewSecretSource(context.Background(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -51,7 +51,7 @@ func TestNewSecretSourceFromConfig(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderNoop}
-		source, err := NewSecretSource(context.Background(), cfg, nil, nil, nil)
+		source, err := NewSecretSource(context.Background(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -64,7 +64,7 @@ func TestNewSecretSourceFromConfig(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderEnv}
-		source, err := NewSecretSource(context.Background(), cfg, nil, nil, nil)
+		source, err := NewSecretSource(context.Background(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, source)
 
@@ -82,7 +82,7 @@ func TestNewSecretSourceFromConfig(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: "vault"}
-		source, err := NewSecretSource(context.Background(), cfg, nil, nil, nil)
+		source, err := NewSecretSource(context.Background(), cfg)
 		must.Error(t, err)
 		must.Nil(t, source)
 		must.StrContains(t, err.Error(), "provide secret source")

@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/capitalism/stripe"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -63,7 +61,7 @@ func TestNewPaymentManager(T *testing.T) {
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		}
 
-		pm, err := NewPaymentManager(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		pm, err := NewPaymentManager(t.Context(), cfg, nil)
 		must.NoError(t, err)
 		test.NotNil(t, pm)
 	})
@@ -75,7 +73,7 @@ func TestNewPaymentManager(T *testing.T) {
 			Enabled: false,
 		}
 
-		pm, err := NewPaymentManager(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		pm, err := NewPaymentManager(t.Context(), cfg, nil)
 		must.NoError(t, err)
 		test.NotNil(t, pm)
 	})
@@ -88,7 +86,7 @@ func TestNewPaymentManager(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		pm, err := NewPaymentManager(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil)
+		pm, err := NewPaymentManager(t.Context(), cfg, nil)
 		test.Nil(t, pm)
 		test.Error(t, err)
 	})
@@ -106,7 +104,7 @@ func TestNewUsageReporter(T *testing.T) {
 			Stripe:   &stripe.Config{APIKey: "sk_test_123", WebhookSecret: t.Name()},
 		}
 
-		reporter, err := NewUsageReporter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		reporter, err := NewUsageReporter(t.Context(), cfg)
 		must.NoError(t, err)
 		test.NotNil(t, reporter)
 	})
@@ -122,7 +120,7 @@ func TestNewUsageReporter(T *testing.T) {
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		}
 
-		_, err := NewUsageReporter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		_, err := NewUsageReporter(t.Context(), cfg)
 		test.Error(t, err)
 	})
 
@@ -132,7 +130,9 @@ func TestNewUsageReporter(T *testing.T) {
 		// "Meter everything, bill nothing" is a supported deployment rather than
 		// an error, which is why this yields the noop instead of refusing.
 		reporter, err := NewUsageReporter(
-			t.Context(), &Config{Enabled: false}, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+			t.Context(),
+			&Config{Enabled: false},
+		)
 		must.NoError(t, err)
 		test.NotNil(t, reporter)
 	})
@@ -142,7 +142,7 @@ func TestNewUsageReporter(T *testing.T) {
 
 		cfg := &Config{Enabled: true, Provider: "unknown"}
 
-		reporter, err := NewUsageReporter(t.Context(), cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
+		reporter, err := NewUsageReporter(t.Context(), cfg)
 		test.Nil(t, reporter)
 		test.Error(t, err)
 	})

@@ -10,9 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v9/embeddings/ollama"
 	"github.com/primandproper/platform-go/v9/embeddings/openai"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
 
 // NewEmbedder provides an Embedder from config.
@@ -25,10 +22,11 @@ import (
 func NewEmbedder(
 	ctx context.Context,
 	c *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
+	opts ...Option,
 ) (embeddings.Embedder, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if c == nil {
 		return nil, errors.ErrNilInputParameter
 	}

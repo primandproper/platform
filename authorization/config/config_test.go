@@ -10,9 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v9/cache"
 	"github.com/primandproper/platform-go/v9/cache/memory"
 	"github.com/primandproper/platform-go/v9/database/dialect"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -29,9 +26,6 @@ func build(t *testing.T, cfg *Config) (authorization.PolicyResolver, error) {
 	return NewPolicyResolver(
 		t.Context(),
 		cfg,
-		loggingnoop.NewLogger(),
-		tracingnoop.NewTracerProvider(),
-		metricsnoop.NewMetricsProvider(),
 		nil,
 		nil,
 	)
@@ -177,9 +171,6 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 			&Config{Roles: []authorization.Role{
 				{Name: "member", Permissions: []authorization.Permission{permRead}},
 			}},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 			newCache(t),
 		)
@@ -199,9 +190,6 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 		resolver, err := NewPolicyResolver(
 			t.Context(),
 			&Config{CacheTTL: 90 * time.Second},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 			newCache(t),
 		)
@@ -231,9 +219,6 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 			&Config{Roles: []authorization.Role{
 				{Name: "member", Permissions: []authorization.Permission{permRead}},
 			}},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
 			nil,
 			newCache(t),
 		)

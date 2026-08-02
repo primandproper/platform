@@ -4,9 +4,7 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/llm"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v9/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -14,12 +12,15 @@ import (
 // RegisterLLMProvider registers an llm.Provider with the injector.
 func RegisterLLMProvider(i do.Injector) {
 	do.Provide[llm.Provider](i, func(i do.Injector) (llm.Provider, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewLLMProvider(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			do.MustInvoke[logging.Logger](i),
-			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[metrics.Provider](i),
+			WithPillars(pillars),
 		)
 	})
 }

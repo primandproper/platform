@@ -12,9 +12,6 @@ import (
 	"github.com/primandproper/platform-go/v9/featureflags/launchdarkly"
 	"github.com/primandproper/platform-go/v9/featureflags/noop"
 	"github.com/primandproper/platform-go/v9/featureflags/posthog"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -56,7 +53,10 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
-func (c *Config) NewFeatureFlagManager(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker) (featureflags.FeatureFlagManager, error) {
+func (c *Config) NewFeatureFlagManager(ctx context.Context, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (featureflags.FeatureFlagManager, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	c.EnsureDefaults()
 
 	if err := c.ValidateWithContext(ctx); err != nil {

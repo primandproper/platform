@@ -6,10 +6,8 @@ import (
 	"testing"
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
 	"github.com/shoenig/test"
 	"go.opentelemetry.io/otel/metric"
@@ -93,7 +91,7 @@ func TestNewKeyedCircuitBreakerFromConfig(T *testing.T) {
 
 		ctx := t.Context()
 
-		cb, err := NewKeyedCircuitBreaker(ctx, cfg, loggingnoop.NewLogger(), metricsnoop.NewMetricsProvider())
+		cb, err := NewKeyedCircuitBreaker(ctx, cfg)
 		test.NotNil(t, cb)
 		test.NoError(t, err)
 
@@ -118,7 +116,7 @@ func TestNewKeyedCircuitBreakerFromConfig(T *testing.T) {
 			},
 		}
 
-		cb, err := NewKeyedCircuitBreaker(ctx, cfg, loggingnoop.NewLogger(), mp)
+		cb, err := NewKeyedCircuitBreaker(ctx, cfg, WithMetricsProvider(mp))
 		test.Nil(t, cb)
 		test.Error(t, err)
 	})
@@ -146,7 +144,7 @@ func TestNewKeyedCircuitBreakerFromConfig(T *testing.T) {
 			},
 		}
 
-		cb, err := NewKeyedCircuitBreaker(ctx, cfg, loggingnoop.NewLogger(), mp)
+		cb, err := NewKeyedCircuitBreaker(ctx, cfg, WithMetricsProvider(mp))
 		test.Nil(t, cb)
 		test.Error(t, err)
 	})
@@ -158,7 +156,7 @@ func TestConfig_NewKeyedCircuitBreaker(T *testing.T) {
 		ctx := t.Context()
 
 		var cfg *Config
-		cb, err := cfg.NewKeyedCircuitBreaker(ctx, loggingnoop.NewLogger(), metricsnoop.NewMetricsProvider())
+		cb, err := cfg.NewKeyedCircuitBreaker(ctx)
 		test.Nil(t, cb)
 		test.Error(t, err)
 	})
@@ -173,7 +171,7 @@ func TestConfig_NewKeyedCircuitBreaker(T *testing.T) {
 			},
 		}
 
-		cb, err := cfg.NewKeyedCircuitBreaker(ctx, loggingnoop.NewLogger(), metricsnoop.NewMetricsProvider())
+		cb, err := cfg.NewKeyedCircuitBreaker(ctx)
 		test.Error(t, err)
 		test.Nil(t, cb)
 	})
@@ -186,7 +184,7 @@ func TestConfig_NewKeyedCircuitBreaker(T *testing.T) {
 
 		cfg := &Config{Keys: []string{"a"}}
 
-		cb, err := cfg.NewKeyedCircuitBreaker(ctx, loggingnoop.NewLogger(), metricsnoop.NewMetricsProvider())
+		cb, err := cfg.NewKeyedCircuitBreaker(ctx)
 		test.NoError(t, err)
 		test.NotNil(t, cb)
 	})

@@ -13,9 +13,6 @@ import (
 	pglock "github.com/primandproper/platform-go/v9/distributedlock/postgres"
 	redislock "github.com/primandproper/platform-go/v9/distributedlock/redis"
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -77,11 +74,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewLocker(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	db database.Client,
+	opts ...Option,
 ) (distributedlock.Locker, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
 	}
@@ -96,7 +94,7 @@ func NewLocker(
 		return nil, errors.Wrap(err, "validating distributedlock config")
 	}
 
-	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, logger, metricsProvider)
+	circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing distributedlock circuit breaker")
 	}
@@ -133,11 +131,12 @@ func NewLocker(
 func NewScopedLocker(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	db database.Client,
+	opts ...Option,
 ) (distributedlock.ScopedLocker, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
 	}
@@ -154,7 +153,7 @@ func NewScopedLocker(
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case PostgresProvider:
-		circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, logger, metricsProvider)
+		circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider))
 		if err != nil {
 			return nil, errors.Wrap(err, "initializing distributedlock circuit breaker")
 		}
@@ -164,7 +163,10 @@ func NewScopedLocker(
 			pglock.WithTracerProvider(tracerProvider),
 			pglock.WithMetricsProvider(metricsProvider))
 	case RedisProvider, MemoryProvider:
-		locker, err := NewLocker(ctx, cfg, logger, tracerProvider, metricsProvider, db)
+		locker, err := NewLocker(ctx, cfg, db,
+			WithLogger(logger),
+			WithTracerProvider(tracerProvider),
+			WithMetricsProvider(metricsProvider))
 		if err != nil {
 			return nil, err
 		}

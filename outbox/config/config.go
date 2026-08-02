@@ -16,9 +16,6 @@ import (
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/errors"
 	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/outbox"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -69,12 +66,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewWriter(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	client database.Client,
-	opts ...outbox.WriterOption,
+	opts ...Option,
 ) (*outbox.Writer, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -100,7 +97,7 @@ func NewWriter(
 		base = append(base, outbox.WithWriterMetricsProvider(metricsProvider))
 	}
 
-	return outbox.NewWriter(client.Dialect(), append(base, opts...)...)
+	return outbox.NewWriter(client.Dialect(), append(base, o.writer...)...)
 }
 
 // NewRelay builds a Relay from configuration, including the publisher provider
@@ -112,12 +109,12 @@ func NewWriter(
 func NewRelay(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	client database.Client,
-	opts ...outbox.RelayOption,
+	opts ...Option,
 ) (*outbox.Relay, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -128,7 +125,10 @@ func NewRelay(
 		return nil, errors.Wrap(err, "validating outbox config")
 	}
 
-	provider, err := messagequeuecfg.NewPublisherProvider(ctx, logger, tracerProvider, metricsProvider, &cfg.Queue)
+	provider, err := messagequeuecfg.NewPublisherProvider(ctx, &cfg.Queue,
+		messagequeuecfg.WithLogger(logger),
+		messagequeuecfg.WithTracerProvider(tracerProvider),
+		messagequeuecfg.WithMetricsProvider(metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "building outbox publisher provider")
 	}
@@ -144,5 +144,5 @@ func NewRelay(
 		base = append(base, outbox.WithRelayMetricsProvider(metricsProvider))
 	}
 
-	return outbox.NewRelay(ctx, &cfg.Relay, client, provider, append(base, opts...)...)
+	return outbox.NewRelay(ctx, &cfg.Relay, client, provider, append(base, o.relay...)...)
 }

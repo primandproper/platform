@@ -6,9 +6,6 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 	"github.com/primandproper/platform-go/v9/ratelimiting"
 	"github.com/primandproper/platform-go/v9/ratelimiting/noop"
 	redisrl "github.com/primandproper/platform-go/v9/ratelimiting/redis"
@@ -78,10 +75,11 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewRateLimiter(
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
+	opts ...Option,
 ) (ratelimiting.RateLimiter, error) {
+	o := newOptions(opts)
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}

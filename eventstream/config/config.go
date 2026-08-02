@@ -8,8 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v9/eventstream"
 	"github.com/primandproper/platform-go/v9/eventstream/sse"
 	"github.com/primandproper/platform-go/v9/eventstream/websocket"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -40,7 +38,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewEventStreamUpgrader provides an EventStreamUpgrader based on configuration.
-func NewEventStreamUpgrader(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (eventstream.EventStreamUpgrader, error) {
+func NewEventStreamUpgrader(_ context.Context, cfg *Config, opts ...Option) (eventstream.EventStreamUpgrader, error) {
+	o := newOptions(opts)
+	logger, tracerProvider := o.logger, o.tracerProvider
+
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderSSE:
 		return sse.NewUpgrader(sse.WithTracerProvider(tracerProvider)), nil
@@ -52,7 +53,10 @@ func NewEventStreamUpgrader(ctx context.Context, cfg *Config, logger logging.Log
 }
 
 // NewBidirectionalEventStreamUpgrader provides a BidirectionalEventStreamUpgrader based on configuration.
-func NewBidirectionalEventStreamUpgrader(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (eventstream.BidirectionalEventStreamUpgrader, error) {
+func NewBidirectionalEventStreamUpgrader(_ context.Context, cfg *Config, opts ...Option) (eventstream.BidirectionalEventStreamUpgrader, error) {
+	o := newOptions(opts)
+	logger, tracerProvider := o.logger, o.tracerProvider
+
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderSSE:
 		return nil, errors.New("SSE does not support bidirectional event streams")

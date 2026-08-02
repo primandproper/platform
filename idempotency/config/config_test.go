@@ -100,7 +100,7 @@ func TestNewManager(T *testing.T) {
 	T.Run("builds a working manager", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := NewManager[payload](t.Context(), memoryConfig(), nil, nil, nil, nil)
+		m, err := NewManager[payload](t.Context(), memoryConfig(), nil)
 		must.NoError(t, err)
 		must.NotNil(t, m)
 
@@ -125,7 +125,7 @@ func TestNewManager(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewManager[payload](t.Context(), nil, nil, nil, nil, nil)
+		_, err := NewManager[payload](t.Context(), nil, nil)
 		test.Error(t, err)
 	})
 
@@ -135,7 +135,7 @@ func TestNewManager(T *testing.T) {
 		cfg := memoryConfig()
 		cfg.Cache.Provider = "cassandra"
 
-		_, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil)
+		_, err := NewManager[payload](t.Context(), cfg, nil)
 		test.Error(t, err)
 	})
 
@@ -145,8 +145,12 @@ func TestNewManager(T *testing.T) {
 		cfg := memoryConfig()
 		cfg.TTL = time.Hour
 
-		m, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil,
-			idempotency.WithTTL(2*time.Hour))
+		m, err := NewManager[payload](
+			t.Context(),
+			cfg,
+			nil,
+			WithManagerOptions(idempotency.WithTTL(2*time.Hour)),
+		)
 		must.NoError(t, err)
 		must.NotNil(t, m)
 	})
@@ -167,7 +171,7 @@ func TestNewManager_BuildFailures(T *testing.T) {
 		cfg := memoryConfig()
 		cfg.Cache.Provider = ""
 
-		_, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil)
+		_, err := NewManager[payload](t.Context(), cfg, nil)
 		test.Error(t, err)
 	})
 
@@ -183,7 +187,7 @@ func TestNewManager_BuildFailures(T *testing.T) {
 			Postgres: &pglock.Config{},
 		}
 
-		_, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil)
+		_, err := NewManager[payload](t.Context(), cfg, nil)
 		test.ErrorIs(t, err, distributedlock.ErrNilDatabaseClient)
 	})
 
@@ -193,7 +197,7 @@ func TestNewManager_BuildFailures(T *testing.T) {
 		cfg := memoryConfig()
 		cfg.FailOpen = true
 
-		m, err := NewManager[payload](t.Context(), cfg, nil, nil, nil, nil)
+		m, err := NewManager[payload](t.Context(), cfg, nil)
 		must.NoError(t, err)
 		must.NotNil(t, m)
 	})

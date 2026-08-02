@@ -111,7 +111,7 @@ func TestConfig_NewEmbedder_Empty(T *testing.T) {
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metricsnoop.NewMetricsProvider()
 
-		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracerProvider, metricsProvider)
+		embedder, err := cfg.NewEmbedder(t.Context(), WithLogger(logger), WithTracerProvider(tracerProvider), WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 		must.NotNil(t, embedder, must.Sprintf("expected non-nil embedder (noop)"))
 	})
@@ -133,7 +133,7 @@ func TestConfig_NewEmbedder_OpenAI(T *testing.T) {
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metricsnoop.NewMetricsProvider()
 
-		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracerProvider, metricsProvider)
+		embedder, err := cfg.NewEmbedder(t.Context(), WithLogger(logger), WithTracerProvider(tracerProvider), WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 		must.NotNil(t, embedder)
 	})
@@ -153,7 +153,7 @@ func TestConfig_NewEmbedder_Ollama(T *testing.T) {
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metricsnoop.NewMetricsProvider()
 
-		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracerProvider, metricsProvider)
+		embedder, err := cfg.NewEmbedder(t.Context(), WithLogger(logger), WithTracerProvider(tracerProvider), WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 		must.NotNil(t, embedder)
 	})
@@ -175,7 +175,7 @@ func TestConfig_NewEmbedder_Cohere(T *testing.T) {
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metricsnoop.NewMetricsProvider()
 
-		embedder, err := cfg.NewEmbedder(t.Context(), logger, tracerProvider, metricsProvider)
+		embedder, err := cfg.NewEmbedder(t.Context(), WithLogger(logger), WithTracerProvider(tracerProvider), WithMetricsProvider(metricsProvider))
 		must.NoError(t, err)
 		must.NotNil(t, embedder)
 	})
@@ -189,7 +189,7 @@ func TestConfig_NewEmbedder_Noop(T *testing.T) {
 
 		cfg := &Config{Provider: ProviderNoop}
 
-		embedder, err := cfg.NewEmbedder(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		embedder, err := cfg.NewEmbedder(t.Context())
 		must.NoError(t, err)
 		must.NotNil(t, embedder)
 	})
@@ -203,7 +203,7 @@ func TestConfig_NewEmbedder_UnknownProvider(T *testing.T) {
 
 		cfg := &Config{Provider: "openai-but-misspelled"}
 
-		embedder, err := cfg.NewEmbedder(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		embedder, err := cfg.NewEmbedder(t.Context())
 		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 		test.Nil(t, embedder)
 	})
@@ -211,7 +211,7 @@ func TestConfig_NewEmbedder_UnknownProvider(T *testing.T) {
 	T.Run("nil config is an error, not a nil-pointer dereference", func(t *testing.T) {
 		t.Parallel()
 
-		embedder, err := NewEmbedder(t.Context(), nil, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider())
+		embedder, err := NewEmbedder(t.Context(), nil)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 		test.Nil(t, embedder)
 	})

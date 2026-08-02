@@ -9,9 +9,6 @@ import (
 	distributedlockcfg "github.com/primandproper/platform-go/v9/distributedlock/config"
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/idempotency"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -100,12 +97,11 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 func NewManager[T any](
 	ctx context.Context,
 	cfg *Config,
-	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
-	metricsProvider metrics.Provider,
 	db database.Client,
-	opts ...idempotency.Option,
+	opts ...Option,
 ) (*idempotency.Manager[T], error) {
+	o := newOptions(opts)
+
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -116,12 +112,18 @@ func NewManager[T any](
 		return nil, errors.Wrap(err, "validating idempotency config")
 	}
 
-	store, err := cachecfg.NewCache[idempotency.Record[T]](ctx, &cfg.Cache, logger, tracerProvider, metricsProvider)
+	store, err := cachecfg.NewCache[idempotency.Record[T]](ctx, &cfg.Cache,
+		cachecfg.WithLogger(o.logger),
+		cachecfg.WithTracerProvider(o.tracerProvider),
+		cachecfg.WithMetricsProvider(o.metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "building idempotency record store")
 	}
 
-	locker, err := distributedlockcfg.NewScopedLocker(ctx, &cfg.Lock, logger, tracerProvider, metricsProvider, db)
+	locker, err := distributedlockcfg.NewScopedLocker(ctx, &cfg.Lock, db,
+		distributedlockcfg.WithLogger(o.logger),
+		distributedlockcfg.WithTracerProvider(o.tracerProvider),
+		distributedlockcfg.WithMetricsProvider(o.metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "building idempotency locker")
 	}
@@ -138,8 +140,8 @@ func NewManager[T any](
 		idempotency.WithMaxKeyLength(cfg.MaxKeyLength),
 		idempotency.WithKeyPrefix(cfg.KeyPrefix),
 		idempotency.WithStoreFailurePolicy(policy),
-		idempotency.WithLogger(logger),
-		idempotency.WithTracerProvider(tracerProvider),
-		idempotency.WithMetricsProvider(metricsProvider),
-	}, opts...)...)
+		idempotency.WithLogger(o.logger),
+		idempotency.WithTracerProvider(o.tracerProvider),
+		idempotency.WithMetricsProvider(o.metricsProvider),
+	}, o.manager...)...)
 }

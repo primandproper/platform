@@ -54,6 +54,25 @@ type Pillars struct {
 	Profiler        profiling.Provider
 }
 
+// Deps returns the three pillars a component can be instrumented with, in the
+// order every config subpackage's WithPillars option assigns them.
+//
+// It is nil-safe, which is the point: a caller that has no Pillars passes nil
+// and gets three nil dependencies, each of which every constructor already
+// resolves to its noop. That keeps the WithPillars option in ~25 config
+// subpackages a single assignment instead of a nil check repeated per package.
+//
+// The profiler is deliberately absent. Nothing is instrumented with it — it is
+// a process-wide agent that Pillars owns for shutdown, not a dependency a
+// component takes.
+func (p *Pillars) Deps() (logging.Logger, tracing.TracerProvider, metrics.Provider) {
+	if p == nil {
+		return nil, nil, nil
+	}
+
+	return p.Logger, p.TracerProvider, p.MetricsProvider
+}
+
 // NewPillars creates and returns all four observability pillars.
 func (cfg *Config) NewPillars(ctx context.Context) (*Pillars, error) {
 	logger, err := cfg.Logging.NewLogger(ctx)
@@ -61,17 +80,17 @@ func (cfg *Config) NewPillars(ctx context.Context) (*Pillars, error) {
 		return nil, errors.Wrap(err, "setting up logger")
 	}
 
-	tracerProvider, err := cfg.Tracing.NewTracerProvider(ctx, logger)
+	tracerProvider, err := cfg.Tracing.NewTracerProvider(ctx, tracingcfg.WithLogger(logger))
 	if err != nil {
 		return nil, errors.Wrap(err, "setting up tracer provider")
 	}
 
-	metricsProvider, err := cfg.Metrics.NewMetricsProvider(ctx, logger)
+	metricsProvider, err := cfg.Metrics.NewMetricsProvider(ctx, metricscfg.WithLogger(logger))
 	if err != nil {
 		return nil, errors.Wrap(err, "setting up metrics provider")
 	}
 
-	profiler, err := cfg.Profiling.NewProfilingProvider(ctx, logger)
+	profiler, err := cfg.Profiling.NewProfilingProvider(ctx, profilingcfg.WithLogger(logger))
 	if err != nil {
 		return nil, errors.Wrap(err, "setting up profiling provider")
 	}
