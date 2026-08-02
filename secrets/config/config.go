@@ -2,6 +2,7 @@ package secretscfg
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/errors"
@@ -43,15 +44,32 @@ type Config struct {
 	Provider      string                    `env:"PROVIDER" json:"provider"      yaml:"provider"`
 }
 
+// providers are every provider this package implements, plus the empty string,
+// which selects the env source. Validation and NewSecretSource both read it.
+var providers = []string{"", ProviderEnv, ProviderNoop, ProviderGCP, ProviderSSM, ProviderKubectl}
+
+// normalizeProvider canonicalizes a provider name the way NewSecretSource does.
+func normalizeProvider(provider string) string {
+	return strings.TrimSpace(strings.ToLower(provider))
+}
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates the config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderEnv, ProviderNoop, ProviderGCP, ProviderSSM, ProviderKubectl, "")),
-		validation.Field(&cfg.GCP, validation.When(cfg.Provider == ProviderGCP, validation.Required), validation.When(cfg.Provider != ProviderGCP, validation.Nil)),
-		validation.Field(&cfg.SSM, validation.When(cfg.Provider == ProviderSSM, validation.Required), validation.When(cfg.Provider != ProviderSSM, validation.Nil)),
-		validation.Field(&cfg.Kubectl, validation.When(cfg.Provider == ProviderKubectl, validation.Required), validation.When(cfg.Provider != ProviderKubectl, validation.Nil)),
+		validation.Field(&cfg.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "GCP" and " gcp " while NewSecretSource accepted both.
+			if !slices.Contains(providers, normalizeProvider(cfg.Provider)) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "secrets provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&cfg.GCP, validation.When(normalizeProvider(cfg.Provider) == ProviderGCP, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderGCP, validation.Nil)),
+		validation.Field(&cfg.SSM, validation.When(normalizeProvider(cfg.Provider) == ProviderSSM, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderSSM, validation.Nil)),
+		validation.Field(&cfg.Kubectl, validation.When(normalizeProvider(cfg.Provider) == ProviderKubectl, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderKubectl, validation.Nil)),
 	)
 }
 
@@ -61,7 +79,7 @@ func (cfg *Config) NewSecretSource(ctx context.Context, logger logging.Logger, t
 		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 	}
 
-	provider := strings.TrimSpace(strings.ToLower(cfg.Provider))
+	provider := normalizeProvider(cfg.Provider)
 	switch provider {
 	case "", ProviderEnv:
 		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))

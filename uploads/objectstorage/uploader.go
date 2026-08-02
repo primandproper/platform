@@ -69,7 +69,7 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 
 	return validation.ValidateStructWithContext(ctx, c,
 		validation.Field(&c.BucketName, validation.Required),
-		validation.Field(&c.Provider, validation.In(S3Provider, FilesystemProvider, MemoryProvider, GCPCloudStorageProvider, R2Provider, BackblazeB2Provider)),
+		validation.Field(&c.Provider, validation.Required, validation.In(S3Provider, FilesystemProvider, MemoryProvider, GCPCloudStorageProvider, R2Provider, BackblazeB2Provider)),
 		validation.Field(&c.FilesystemConfig, validation.When(c.Provider == FilesystemProvider, validation.Required).Else(validation.Nil)),
 		validation.Field(&c.R2Config, validation.When(c.Provider == R2Provider, validation.Required).Else(validation.Nil)),
 		validation.Field(&c.BackblazeB2Config, validation.When(c.Provider == BackblazeB2Provider, validation.Required).Else(validation.Nil)),

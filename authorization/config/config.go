@@ -17,6 +17,7 @@ package authorizationcfg
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -64,6 +65,10 @@ type Config struct {
 	CacheTTL time.Duration `env:"CACHE_TTL" json:"cacheTTL" yaml:"cacheTTL"`
 }
 
+// providers are every provider this package implements, plus the empty string,
+// which selects the static resolver. Validation and dispatch both read it.
+var providers = []string{"", ProviderStatic, ProviderDatabase}
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config.
@@ -71,7 +76,15 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	provider := normalize(cfg.Provider)
 
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderStatic, ProviderDatabase, "")),
+		validation.Field(&cfg.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "Static" and " static " while the factory accepted both.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "authorization provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
 		validation.Field(&cfg.Database,
 			validation.When(provider == ProviderDatabase, validation.Required),
 			validation.When(provider != ProviderDatabase, validation.Nil),

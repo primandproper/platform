@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/analytics"
+	"github.com/primandproper/platform-go/v9/errors"
 	analyticscfg "github.com/primandproper/platform-go/v9/analytics/config"
-	"github.com/primandproper/platform-go/v9/analytics/noop"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 )
 
@@ -51,16 +51,16 @@ func NewMultiSourceEventReporterFromConfig(
 			}
 		}
 
+		// A source that fails to construct is fatal rather than quietly noop'd:
+		// the substitution lasted the whole process lifetime, so every event for
+		// that source was dropped until someone redeployed.
 		r, err := sourceCfg.NewCollector(ctx, log, o.tracerProvider, o.metricsProvider)
 		if err != nil {
-			log.WithValue("source", source).WithValue("reason", err.Error()).Error("failed to create reporter for proxy source, using noop", err)
-			reporters[source] = noop.NewEventReporter()
-			continue
+			return nil, errors.Wrapf(err, "creating reporter for proxy source %q", source)
 		}
+
 		if r == nil {
-			log.WithValue("source", source).WithValue("provider", sourceCfg.Provider).Info("NewCollector returned nil reporter, using noop")
-			reporters[source] = noop.NewEventReporter()
-			continue
+			return nil, errors.Newf("reporter for proxy source %q built nothing for provider %q", source, sourceCfg.Provider)
 		}
 
 		if postHogKey != "" {

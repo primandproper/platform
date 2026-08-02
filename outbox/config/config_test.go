@@ -21,6 +21,7 @@ import (
 func sqliteConfig() *Config {
 	return &Config{
 		Relay: outbox.RelayConfig{Dialect: dialect.SQLite},
+		Queue: msgconfig.Config{Publisher: msgconfig.MessageQueueConfig{Provider: msgconfig.ProviderNoop}},
 	}
 }
 
@@ -130,7 +131,7 @@ func TestNewWriter(T *testing.T) {
 func TestNewRelay(T *testing.T) {
 	T.Parallel()
 
-	T.Run("builds a relay with a noop publisher by default", func(t *testing.T) {
+	T.Run("builds a relay with a noop publisher", func(t *testing.T) {
 		t.Parallel()
 
 		r, err := NewRelay(t.Context(), sqliteConfig(), loggingnoop.NewLogger(), nil, nil, &databasemock.ClientMock{})

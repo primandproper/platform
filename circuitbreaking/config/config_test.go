@@ -217,6 +217,8 @@ func TestConfig_NewCircuitBreaker(T *testing.T) {
 		test.Error(t, err)
 	})
 
+	// An invalid config used to yield a noop breaker and a nil error: protection
+	// that reads as wired and never trips.
 	T.Run("with invalid config", func(t *testing.T) {
 		ctx := t.Context()
 
@@ -226,8 +228,8 @@ func TestConfig_NewCircuitBreaker(T *testing.T) {
 		}
 
 		cb, err := cfg.NewCircuitBreaker(ctx, loggingnoop.NewLogger(), metricsnoop.NewMetricsProvider())
-		test.NotNil(t, cb)
-		test.NoError(t, err)
+		test.Error(t, err)
+		test.Nil(t, cb)
 	})
 
 	T.Run("with only an unset name still provides a real breaker", func(t *testing.T) {

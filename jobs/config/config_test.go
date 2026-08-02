@@ -21,7 +21,8 @@ import (
 // poolConfig is a valid in-process configuration: a topic on the noop consumer.
 func poolConfig() *PoolConfig {
 	return &PoolConfig{
-		Pool: jobs.PoolConfig{Topic: "background_work"},
+		Pool:  jobs.PoolConfig{Topic: "background_work"},
+		Queue: msgconfig.Config{Consumer: msgconfig.MessageQueueConfig{Provider: msgconfig.ProviderNoop}},
 	}
 }
 
@@ -74,7 +75,7 @@ func TestNewPool(T *testing.T) {
 
 	handler := func(context.Context, []byte) error { return nil }
 
-	T.Run("builds a pool on the noop consumer by default", func(t *testing.T) {
+	T.Run("builds a pool on the noop consumer", func(t *testing.T) {
 		t.Parallel()
 
 		p, err := NewPool(t.Context(), poolConfig(), loggingnoop.NewLogger(), nil, nil, handler)

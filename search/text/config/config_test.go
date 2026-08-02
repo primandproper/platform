@@ -1,6 +1,7 @@
 package textsearchcfg
 
 import (
+	"strconv"
 	"context"
 	"errors"
 	"testing"
@@ -91,8 +92,10 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Provider: "",
 		}
 
-		// Empty provider should be valid (it will default to noop)
-		test.NoError(t, cfg.ValidateWithContext(ctx))
+		// The noop index is reachable by name; an unset provider is not, because
+		// an index that accepts every write and returns no hits reads as an
+		// empty corpus.
+		test.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("provider with extra whitespace", func(t *testing.T) {
@@ -150,8 +153,7 @@ func TestConfig_ZeroValue(T *testing.T) {
 		ctx := t.Context()
 		cfg := &Config{}
 
-		// Zero value should be valid (it will default to noop)
-		test.NoError(t, cfg.ValidateWithContext(ctx))
+		test.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("zero value fields", func(t *testing.T) {
@@ -245,16 +247,16 @@ func TestConfig_NewIndex(T *testing.T) {
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metricsnoop.NewMetricsProvider()
 		index, err := NewIndex[testStruct](ctx, logger, tracerProvider, metricsProvider, cfg, "test-index")
-		test.NoError(t, err)
-		test.NotNil(t, index)
+		test.Error(t, err)
+		test.Nil(t, index)
 	})
 
-	T.Run("empty provider returns noop", func(t *testing.T) {
+	T.Run("the noop provider returns the noop index", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		cfg := &Config{
-			Provider: "",
+			Provider: ProviderNoop,
 		}
 
 		logger := loggingnoop.NewLogger()
@@ -265,28 +267,28 @@ func TestConfig_NewIndex(T *testing.T) {
 		test.NotNil(t, index)
 	})
 
-	T.Run("provider with whitespace returns noop", func(t *testing.T) {
-		t.Parallel()
+	for _, provider := range []string{"", "   "} {
+		T.Run("rejects provider "+strconv.Quote(provider), func(t *testing.T) {
+			t.Parallel()
 
-		ctx := t.Context()
-		cfg := &Config{
-			Provider: "   ",
-		}
+			ctx := t.Context()
+			cfg := &Config{Provider: provider}
 
-		logger := loggingnoop.NewLogger()
-		tracerProvider := tracingnoop.NewTracerProvider()
-		metricsProvider := metricsnoop.NewMetricsProvider()
-		index, err := NewIndex[testStruct](ctx, logger, tracerProvider, metricsProvider, cfg, "test-index")
-		test.NoError(t, err)
-		test.NotNil(t, index)
-	})
+			logger := loggingnoop.NewLogger()
+			tracerProvider := tracingnoop.NewTracerProvider()
+			metricsProvider := metricsnoop.NewMetricsProvider()
+			index, err := NewIndex[testStruct](ctx, logger, tracerProvider, metricsProvider, cfg, "test-index")
+			test.Error(t, err)
+			test.Nil(t, index)
+		})
+	}
 
 	T.Run("circuit breaker init failure", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		cfg := &Config{
-			Provider: "",
+			Provider: ProviderNoop,
 			CircuitBreaker: circuitbreakingcfg.Config{
 				Name:                   "test-breaker",
 				ErrorRate:              50,

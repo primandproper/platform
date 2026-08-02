@@ -1,6 +1,7 @@
 package vectorsearchcfg
 
 import (
+	"strconv"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -82,10 +83,19 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
-	T.Run("empty provider is valid (defaults to noop)", func(t *testing.T) {
+	// The noop index is reachable by name; an unset provider is not, because an
+	// index that accepts every write and returns no hits reads as an empty corpus.
+	T.Run("empty provider is invalid", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{}
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("the noop provider is a valid choice", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderNoop}
 		test.NoError(t, cfg.ValidateWithContext(t.Context()))
 	})
 }
@@ -121,42 +131,44 @@ func TestConfig_NewIndex(T *testing.T) {
 			nil,
 			"idx",
 		)
+		test.Error(t, err)
+		test.Nil(t, idx)
+	})
+
+	T.Run("the noop provider returns the noop index", func(t *testing.T) {
+		t.Parallel()
+
+		idx, err := NewIndex[testStruct](
+			t.Context(),
+			loggingnoop.NewLogger(),
+			tracingnoop.NewTracerProvider(),
+			metricsnoop.NewMetricsProvider(),
+			&Config{Provider: ProviderNoop},
+			nil,
+			"idx",
+		)
 		must.NoError(t, err)
 		must.NotNil(t, idx)
 		test.NoError(t, idx.Wipe(t.Context()))
 	})
 
-	T.Run("empty provider returns noop", func(t *testing.T) {
-		t.Parallel()
+	for _, provider := range []string{"", "   "} {
+		T.Run("rejects provider "+strconv.Quote(provider), func(t *testing.T) {
+			t.Parallel()
 
-		idx, err := NewIndex[testStruct](
-			t.Context(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
-			&Config{},
-			nil,
-			"idx",
-		)
-		must.NoError(t, err)
-		must.NotNil(t, idx)
-	})
-
-	T.Run("provider with whitespace returns noop", func(t *testing.T) {
-		t.Parallel()
-
-		idx, err := NewIndex[testStruct](
-			t.Context(),
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
-			metricsnoop.NewMetricsProvider(),
-			&Config{Provider: "   "},
-			nil,
-			"idx",
-		)
-		must.NoError(t, err)
-		must.NotNil(t, idx)
-	})
+			idx, err := NewIndex[testStruct](
+				t.Context(),
+				loggingnoop.NewLogger(),
+				tracingnoop.NewTracerProvider(),
+				metricsnoop.NewMetricsProvider(),
+				&Config{Provider: provider},
+				nil,
+				"idx",
+			)
+			test.Error(t, err)
+			test.Nil(t, idx)
+		})
+	}
 
 	T.Run("pgvector provider with nil db returns error", func(t *testing.T) {
 		t.Parallel()
@@ -227,7 +239,7 @@ func TestConfig_NewIndex(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			Provider: "",
+			Provider: ProviderNoop,
 			CircuitBreaker: circuitbreakingcfg.Config{
 				Name:                   "test-breaker",
 				ErrorRate:              50,

@@ -174,7 +174,20 @@ func TestConfig_NewKeyedCircuitBreaker(T *testing.T) {
 		}
 
 		cb, err := cfg.NewKeyedCircuitBreaker(ctx, loggingnoop.NewLogger(), metricsnoop.NewMetricsProvider())
-		test.NotNil(t, cb)
+		test.Error(t, err)
+		test.Nil(t, cb)
+	})
+
+	// The ordering bug the base package already fixed: validating before
+	// EnsureDefaults turned an unset Base.Name — the common case — into a noop
+	// keyed breaker with a nil error.
+	T.Run("an unset base name still provides a real keyed breaker", func(t *testing.T) {
+		ctx := t.Context()
+
+		cfg := &Config{Keys: []string{"a"}}
+
+		cb, err := cfg.NewKeyedCircuitBreaker(ctx, loggingnoop.NewLogger(), metricsnoop.NewMetricsProvider())
 		test.NoError(t, err)
+		test.NotNil(t, cb)
 	})
 }

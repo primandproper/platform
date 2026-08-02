@@ -19,7 +19,10 @@ import (
 const (
 	// ProviderAPNsFCM represents the real APNs + FCM implementation.
 	ProviderAPNsFCM = "apns_fcm"
-	// ProviderNoop represents the no-op implementation.
+	// ProviderNoop represents the no-op implementation, which reports every
+	// SendPush as a success. It must be selected deliberately — an unset or
+	// typo'd provider is an error, because a push sender that silently succeeds
+	// without sending anything is only noticed by the users who got no push.
 	ProviderNoop = "noop"
 )
 
@@ -56,6 +59,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(
 		ctx,
 		cfg,
+		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderAPNsFCM, ProviderNoop)),
 		validation.Field(&cfg.APNs, validation.When(
 			provider == ProviderAPNsFCM && cfg.FCM == nil,
 			validation.Required,
@@ -109,8 +113,9 @@ func (cfg *Config) NewPushSender(
 			return nil, errors.New("apns_fcm provider selected but neither APNs nor FCM is configured")
 		}
 		return mobile.NewMultiPlatformPushSender(apnsSender, fcmSender, mobile.WithLogger(logger), mobile.WithTracerProvider(tracerProvider)), nil
-	default:
-		logger.Debug("push notifications: using noop sender")
+	case ProviderNoop:
 		return noop.NewPushNotificationSender(), nil
+	default:
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "push notification provider %q", cfg.Provider)
 	}
 }

@@ -48,7 +48,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Provider: "",
 		}
 
-		test.NoError(t, cfg.ValidateWithContext(ctx))
+		test.Error(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("with invalid provider", func(t *testing.T) {
@@ -150,24 +150,36 @@ func TestConfig_NewFeatureFlagManager(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Provider: "",
+			Provider: ProviderNoop,
 		}
 
-		ffm, err := cfg.NewFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.NewFeatureFlagManager(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, ffm)
 	})
 
-	T.Run("with unknown provider returns noop", func(t *testing.T) {
+	// A manager that answers "off" for everything looks like a quiet rollout, so
+	// it has to be asked for by name.
+	T.Run("with an empty provider", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ""}
+
+		ffm, err := cfg.NewFeatureFlagManager(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		test.Error(t, err)
+		test.Nil(t, ffm)
+	})
+
+	T.Run("with unknown provider is an error", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
 			Provider: "something_unknown",
 		}
 
-		ffm, err := cfg.NewFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
-		must.NoError(t, err)
-		must.NotNil(t, ffm)
+		ffm, err := cfg.NewFeatureFlagManager(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		test.Error(t, err)
+		test.Nil(t, ffm)
 	})
 
 	T.Run("with launchdarkly provider but nil config", func(t *testing.T) {
@@ -177,7 +189,7 @@ func TestConfig_NewFeatureFlagManager(T *testing.T) {
 			Provider: ProviderLaunchDarkly,
 		}
 
-		ffm, err := cfg.NewFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.NewFeatureFlagManager(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, ffm)
 	})
@@ -189,7 +201,7 @@ func TestConfig_NewFeatureFlagManager(T *testing.T) {
 			Provider: ProviderPostHog,
 		}
 
-		ffm, err := cfg.NewFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.NewFeatureFlagManager(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, ffm)
 	})
@@ -202,7 +214,7 @@ func TestConfig_NewFeatureFlagManager(T *testing.T) {
 		}
 
 		// Will fail because LaunchDarkly config is nil, but proves the normalization works
-		ffm, err := cfg.NewFeatureFlagManager(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
+		ffm, err := cfg.NewFeatureFlagManager(t.Context(), loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), nil, http.DefaultClient, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, ffm)
 	})
@@ -216,7 +228,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 	T.Run("with noop provider", func(t *testing.T) {
 		ctx := t.Context()
 		cfg := &Config{
-			Provider: "",
+			Provider: ProviderNoop,
 		}
 
 		ffm, err := NewFeatureFlagManager(ctx, cfg, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider(), http.DefaultClient)

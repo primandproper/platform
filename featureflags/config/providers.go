@@ -18,5 +18,5 @@ func NewFeatureFlagManager(ctx context.Context, c *Config, logger logging.Logger
 		return nil, errors.Wrap(err, "failed to initialize feature flag circuit breaker")
 	}
 
-	return c.NewFeatureFlagManager(logger, tracerProvider, metricsProvider, httpClient, circuitBreaker)
+	return c.NewFeatureFlagManager(ctx, logger, tracerProvider, metricsProvider, httpClient, circuitBreaker)
 }

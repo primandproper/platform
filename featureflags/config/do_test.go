@@ -26,7 +26,7 @@ func TestRegisterFeatureFlagManager(T *testing.T) {
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, metricsnoop.NewMetricsProvider())
 		do.ProvideValue(i, http.DefaultClient)
-		do.ProvideValue(i, &Config{})
+		do.ProvideValue(i, &Config{Provider: ProviderNoop})
 
 		RegisterFeatureFlagManager(i)
 

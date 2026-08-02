@@ -42,9 +42,13 @@ type Config struct {
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a router config struct.
+//
+// Provider is Required as well as constrained: ozzo's In skips empty values, so
+// without it an unset provider validated cleanly and then matched no dispatch
+// case.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderChi, ProviderStdlib, ProviderHTTPRouter, ProviderGin)),
+		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderChi, ProviderStdlib, ProviderHTTPRouter, ProviderGin)),
 	)
 }
 
