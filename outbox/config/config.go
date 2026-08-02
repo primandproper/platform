@@ -32,12 +32,12 @@ type Config struct {
 	// to. An empty provider selects the noop publisher, which is right for
 	// tests and wrong for production: messages would be claimed, "published"
 	// nowhere, and marked done.
-	Queue msgconfig.Config `env:"init" envPrefix:"QUEUE_" json:"queue" yaml:"queue"`
+	Queue msgconfig.Config `env:",init" envPrefix:"QUEUE_" json:"queue" yaml:"queue"`
 
 	// Relay carries the outbox's own knobs. Its Dialect and TableName also
 	// drive the Writer, so the writing and claiming halves cannot disagree
 	// about which table the outbox lives in.
-	Relay outbox.RelayConfig `env:"init" json:"relay" yaml:"relay"`
+	Relay outbox.RelayConfig `env:",init" json:"relay" yaml:"relay"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

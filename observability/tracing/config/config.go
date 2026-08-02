@@ -26,8 +26,8 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		CloudTrace                *cloudtrace.Config `env:"init"                        envPrefix:"CLOUDTRACE_"                    json:"cloudTrace,omitempty"                yaml:"cloudTrace,omitempty"`
-		Otel                      *oteltrace.Config  `env:"init"                        envPrefix:"OTELGRPC_"                      json:"otelgrpc,omitempty"                  yaml:"otelgrpc,omitempty"`
+		CloudTrace                *cloudtrace.Config `env:",init"                        envPrefix:"CLOUDTRACE_"                    json:"cloudTrace,omitempty"                yaml:"cloudTrace,omitempty"`
+		Otel                      *oteltrace.Config  `env:",init"                        envPrefix:"OTELGRPC_"                      json:"otelgrpc,omitempty"                  yaml:"otelgrpc,omitempty"`
 		ServiceName               string             `env:"SERVICE_NAME"                json:"service_name,omitempty"              yaml:"service_name,omitempty"`
 		Provider                  string             `env:"PROVIDER"                    json:"provider,omitempty"                  yaml:"provider,omitempty"`
 		SpanCollectionProbability float64            `env:"SPAN_COLLECTION_PROBABILITY" json:"spanCollectionProbability,omitempty" yaml:"spanCollectionProbability,omitempty"`

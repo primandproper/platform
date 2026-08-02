@@ -52,7 +52,7 @@ const (
 type Config struct {
 	// Database configures the database provider. Required when Provider is
 	// "database", and must be absent otherwise.
-	Database *authzdb.Config `env:"init" envPrefix:"DATABASE_" json:"database,omitempty" yaml:"database,omitempty"`
+	Database *authzdb.Config `env:",init" envPrefix:"DATABASE_" json:"database,omitempty" yaml:"database,omitempty"`
 	// Provider selects the implementation. Empty means ProviderStatic.
 	Provider string `env:"PROVIDER" json:"provider" yaml:"provider"`
 	// Roles is the policy for the static provider. It is loadable from JSON or

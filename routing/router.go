@@ -226,7 +226,7 @@ func (r *Router) Err() error {
 // encoderFor returns the encoder for a route: the default, or a content-type
 // specific encoder built (and cached) on demand.
 func (r *Router) encoderFor(contentType encoding.ContentType) encoding.ServerEncoderDecoder {
-	if contentType == nil {
+	if contentType == "" {
 		return r.enc
 	}
 

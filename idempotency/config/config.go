@@ -25,13 +25,13 @@ type Config struct {
 	// Lock configures the locker guarding the claim. It has no safe default —
 	// the noop provider acquires unconditionally, which leaves replay working
 	// while quietly removing mutual exclusion.
-	Lock distributedlockcfg.Config `env:"init" envPrefix:"LOCK_" json:"lock" yaml:"lock"`
+	Lock distributedlockcfg.Config `env:",init" envPrefix:"LOCK_" json:"lock" yaml:"lock"`
 
 	// Cache configures the record store. Use the redis provider in
 	// production: the memory provider is per-process, so replicas would not
 	// see each other's records, and it holds a long TTL entirely in this
 	// process's heap.
-	Cache cachecfg.Config `env:"init" envPrefix:"CACHE_" json:"cache" yaml:"cache"`
+	Cache cachecfg.Config `env:",init" envPrefix:"CACHE_" json:"cache" yaml:"cache"`
 	// TTL is how long a completed record stays replayable.
 	TTL time.Duration `env:"TTL" json:"ttl" yaml:"ttl"`
 	// InFlightTTL bounds how long a claim survives without completing. It is a

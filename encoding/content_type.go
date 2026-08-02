@@ -3,86 +3,96 @@ package encoding
 import (
 	"mime"
 	"strings"
+
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
-var (
-	// ContentTypeJSON is to indicate we want JSON for some reason.
-	ContentTypeJSON ContentType = buildContentType(contentTypeJSON)
-	// ContentTypeXML is to indicate we want XML for some reason.
-	ContentTypeXML ContentType = buildContentType(contentTypeXML)
-	// ContentTypeTOML is to indicate we want TOML for some reason.
-	ContentTypeTOML ContentType = buildContentType(contentTypeTOML)
-	// ContentTypeYAML is to indicate we want YAML for some reason.
-	ContentTypeYAML ContentType = buildContentType(contentTypeYAML)
-	// ContentTypeEmoji is to indicate we want Emoji for some reason.
-	ContentTypeEmoji ContentType = buildContentType(contentTypeEmoji)
+// ContentType is a media type this package can encode and decode.
+//
+// It is a string-backed value type: comparable with ==, usable as a map key,
+// printable, and with no pointer identity to get wrong. The zero value is the
+// empty ContentType, which no constructor in this package returns — an unknown
+// media type is reported as ErrUnsupportedContentType rather than silently
+// standing in for JSON.
+type ContentType string
+
+const (
+	// ContentTypeJSON selects JSON encoding.
+	ContentTypeJSON ContentType = contentTypeJSON
+	// ContentTypeXML selects XML encoding.
+	ContentTypeXML ContentType = contentTypeXML
+	// ContentTypeTOML selects TOML encoding.
+	ContentTypeTOML ContentType = contentTypeTOML
+	// ContentTypeYAML selects YAML encoding.
+	ContentTypeYAML ContentType = contentTypeYAML
+	// ContentTypeEmoji selects Ecoji-over-gob encoding.
+	ContentTypeEmoji ContentType = contentTypeEmoji
 )
 
-type (
-	// ContentType is the publicly accessible version of contentType.
-	ContentType *contentType
+// ErrUnsupportedContentType is returned when a media type does not name one of
+// the encodings this package implements.
+var ErrUnsupportedContentType = platformerrors.New("unsupported content type")
 
-	contentType *string
-)
+// ContentTypes are every content type this package supports, in no significant
+// order.
+var ContentTypes = []ContentType{
+	ContentTypeJSON,
+	ContentTypeXML,
+	ContentTypeTOML,
+	ContentTypeYAML,
+	ContentTypeEmoji,
+}
 
-var (
-	ContentTypes = []ContentType{
-		ContentTypeJSON,
-		ContentTypeXML,
-		ContentTypeTOML,
-		ContentTypeYAML,
-		ContentTypeEmoji,
+// String returns the media type as it appears in a Content-Type header.
+func (c ContentType) String() string {
+	return string(c)
+}
+
+// Valid reports whether c is one of the content types this package implements.
+func (c ContentType) Valid() bool {
+	switch c {
+	case ContentTypeJSON, ContentTypeXML, ContentTypeTOML, ContentTypeYAML, ContentTypeEmoji:
+		return true
+	default:
+		return false
 	}
-)
+}
 
 func (e *clientEncoder) ContentType() string {
-	return ContentTypeToString(e.contentType)
+	return e.contentType.String()
 }
 
-func buildContentType(s string) *contentType {
-	ct := contentType(&s)
-
-	return &ct
-}
-
-// ContentTypeToString allows a content type to be converted to a string.
-func ContentTypeToString(c ContentType) string {
-	switch c {
-	case ContentTypeJSON:
-		return contentTypeJSON
-	case ContentTypeXML:
-		return contentTypeXML
-	case ContentTypeTOML:
-		return contentTypeTOML
-	case ContentTypeYAML:
-		return contentTypeYAML
-	case ContentTypeEmoji:
-		return contentTypeEmoji
-	default:
-		return ""
-	}
-}
-
-func contentTypeFromString(val string) ContentType {
-	// parse off any parameters (e.g. "application/xml; charset=utf-8") so we match on the
-	// base media type; fall back to the raw value if it has no parameters to parse.
+// ParseContentType resolves a media type — with or without parameters, in any
+// case — to the ContentType that names it.
+//
+// It returns ErrUnsupportedContentType for anything it does not implement,
+// including the empty string. Callers that want a default must say so; this
+// package will not choose one for them.
+func ParseContentType(val string) (ContentType, error) {
 	base := strings.ToLower(strings.TrimSpace(val))
 	if mediaType, _, err := mime.ParseMediaType(val); err == nil {
 		base = mediaType
 	}
 
-	switch base {
-	case contentTypeJSON:
-		return ContentTypeJSON
-	case contentTypeXML:
-		return ContentTypeXML
-	case contentTypeTOML:
-		return ContentTypeTOML
-	case contentTypeYAML:
-		return ContentTypeYAML
-	case contentTypeEmoji:
-		return ContentTypeEmoji
-	default:
+	if ct := ContentType(base); ct.Valid() {
+		return ct, nil
+	}
+
+	return "", platformerrors.Wrapf(ErrUnsupportedContentType, "parsing content type %q", val)
+}
+
+// contentTypeFromRequestHeader resolves a request's Content-Type header,
+// falling back to JSON.
+//
+// The fallback is deliberate and is scoped to inbound HTTP only: a request may
+// legitimately omit the header, and a server that refused every unlabeled body
+// would reject clients the rest of the ecosystem accepts. Configuration goes
+// through ParseContentType instead, where an unrecognized value is an error.
+func contentTypeFromRequestHeader(val string) ContentType {
+	ct, err := ParseContentType(val)
+	if err != nil {
 		return defaultContentType
 	}
+
+	return ct
 }

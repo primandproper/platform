@@ -38,7 +38,7 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		Encryption               encryptioncfg.Config `env:"init"                        envPrefix:"ENCRYPTION_"         json:"encryption"               yaml:"encryption"`
+		Encryption               encryptioncfg.Config `env:",init"                        envPrefix:"ENCRYPTION_"         json:"encryption"               yaml:"encryption"`
 		OAuth2TokenEncryptionKey string               `env:"OAUTH2_TOKEN_ENCRYPTION_KEY" json:"oauth2TokenEncryptionKey" yaml:"oauth2TokenEncryptionKey"`
 		Provider                 string               `env:"PROVIDER"                    envDefault:"postgres"           json:"provider"                 yaml:"provider"`
 		ReadConnection           ConnectionDetails    `envPrefix:"READ_CONNECTION_"      json:"readConnection"           yaml:"readConnection"`

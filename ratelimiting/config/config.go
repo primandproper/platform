@@ -25,7 +25,7 @@ const (
 // Config configures rate limiting.
 type Config struct {
 	Provider       string         `env:"PROVIDER"         json:"provider"          yaml:"provider"`
-	Redis          redisrl.Config `env:"init"             envPrefix:"REDIS_"       json:"redis"             yaml:"redis"`
+	Redis          redisrl.Config `env:",init"             envPrefix:"REDIS_"       json:"redis"             yaml:"redis"`
 	RequestsPerSec float64        `env:"REQUESTS_PER_SEC" json:"requestsPerSecond" yaml:"requestsPerSecond"`
 	BurstSize      int            `env:"BURST_SIZE"       json:"burstSize"         yaml:"burstSize"`
 }

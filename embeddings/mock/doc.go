@@ -1,7 +1,5 @@
-// Package mock provides mock implementations of the embeddings package's
-// interfaces. Both the hand-written testify-based Embedder and the moq-generated
-// EmbedderMock live here during the testify → moq migration. New test code
-// should prefer EmbedderMock.
+// Package mock provides moq-generated mock implementations of the embeddings
+// package's interfaces.
 package mock
 
 // Regenerate the moq mocks via `go generate ./embeddings/mock/`.

@@ -1,7 +1,5 @@
-// Package mock provides mock implementations of the distributedlock package's
-// interfaces. Both the hand-written testify-based Locker/Lock types and the
-// moq-generated LockerMock/LockMock types live here during the testify → moq
-// migration. New test code should prefer the moq-generated types.
+// Package mock provides moq-generated mock implementations of the
+// distributedlock package's interfaces.
 package mock
 
 // Regenerate the moq mocks via `go generate ./distributedlock/mock/`.

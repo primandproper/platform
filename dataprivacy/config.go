@@ -158,7 +158,7 @@ type WorkerConfig struct {
 
 	// Backoff schedules the retry of a request that failed for a reason worth
 	// retrying.
-	Backoff retry.Config `env:"init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retry.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
 
 	// PollInterval is how often the Worker looks for pending requests.
 	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval" yaml:"pollInterval"`

@@ -1,8 +1,6 @@
 /*
-Package encryptionmock provides mock implementations of the encryption package's
-interfaces. Both the hand-written testify-based MockImpl and the moq-generated
-EncryptorDecryptorMock live here during the testify → moq migration. New test
-code should prefer EncryptorDecryptorMock.
+Package encryptionmock provides moq-generated mock implementations of the
+encryption package's interfaces.
 */
 package encryptionmock
 

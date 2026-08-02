@@ -1,7 +1,5 @@
-// Package mockpanicking provides mock implementations of the panicking package's
-// interfaces. Both the hand-written testify-based Panicker and the moq-generated
-// PanickerMock live here during the testify → moq migration. New test code
-// should prefer PanickerMock.
+// Package mockpanicking provides moq-generated mock implementations of the
+// panicking package's interfaces.
 package mockpanicking
 
 // Regenerate the moq mocks via `go generate ./panicking/mock/`.

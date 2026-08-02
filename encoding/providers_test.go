@@ -12,6 +12,15 @@ func TestNewContentType(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, ContentTypeJSON, NewContentType(Config{ContentType: "application/json"}))
+		ct, err := NewContentType(Config{ContentType: "application/json"})
+		test.NoError(t, err)
+		test.EqOp(t, ContentTypeJSON, ct)
+	})
+
+	T.Run("rejects an unknown content type instead of defaulting to JSON", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewContentType(Config{ContentType: "application/protobuf"})
+		test.ErrorIs(t, err, ErrUnsupportedContentType)
 	})
 }

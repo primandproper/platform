@@ -133,7 +133,7 @@ func Test_clientEncoder_Encode(T *testing.T) {
 	T.Parallel()
 
 	for _, ct := range ContentTypes {
-		T.Run(ContentTypeToString(ct), func(t *testing.T) {
+		T.Run(ct.String(), func(t *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
@@ -146,7 +146,7 @@ func Test_clientEncoder_Encode(T *testing.T) {
 	}
 
 	for _, ct := range ContentTypes {
-		T.Run(fmt.Sprintf("%s handles io.Writer errors", ContentTypeToString(ct)), func(t *testing.T) {
+		T.Run(fmt.Sprintf("%s handles io.Writer errors", ct.String()), func(t *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
@@ -187,7 +187,7 @@ func Test_clientEncoder_EncodeReader(T *testing.T) {
 	T.Parallel()
 
 	for _, ct := range ContentTypes {
-		T.Run(ContentTypeToString(ct), func(t *testing.T) {
+		T.Run(ct.String(), func(t *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()

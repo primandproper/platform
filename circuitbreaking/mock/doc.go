@@ -1,7 +1,5 @@
-// Package mock provides mock implementations of the circuitbreaking package's
-// interfaces. Both the hand-written testify-based MockCircuitBreaker and the
-// moq-generated CircuitBreakerMock live here during the testify → moq
-// migration. New test code should prefer CircuitBreakerMock.
+// Package mock provides moq-generated mock implementations of the
+// circuitbreaking package's interfaces.
 package mock
 
 // Regenerate the moq mocks via `go generate ./circuitbreaking/mock/`.

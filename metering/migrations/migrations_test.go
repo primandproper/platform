@@ -190,7 +190,7 @@ func TestValidatePrefix(T *testing.T) {
 
 		// A prefix ending in a character that is fine mid-identifier could still
 		// produce a table name that is not one.
-		test.SliceLen(t, 2, TableSuffixes)
+		test.SliceLen(t, 2, schema.Identifiers("a"))
 		test.ErrorIs(t, ValidatePrefix("a b"), dialect.ErrInvalidIdentifier)
 	})
 }

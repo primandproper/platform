@@ -44,16 +44,16 @@ type Config struct {
 	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
 
 	// AuditErasure configures the audit log's own eraser.
-	AuditErasure AuditErasureConfig `env:"init" envPrefix:"AUDIT_ERASURE_" json:"auditErasure" yaml:"auditErasure"`
+	AuditErasure AuditErasureConfig `env:",init" envPrefix:"AUDIT_ERASURE_" json:"auditErasure" yaml:"auditErasure"`
 
 	// Worker carries the fulfillment loop's knobs.
-	Worker dataprivacy.WorkerConfig `env:"init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
+	Worker dataprivacy.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
 
 	// Service carries the request state machine's timings.
-	Service dataprivacy.ServiceConfig `env:"init" envPrefix:"SERVICE_" json:"service" yaml:"service"`
+	Service dataprivacy.ServiceConfig `env:",init" envPrefix:"SERVICE_" json:"service" yaml:"service"`
 
 	// Sweeper carries the expiry and retention knobs.
-	Sweeper dataprivacy.SweeperConfig `env:"init" envPrefix:"SWEEPER_" json:"sweeper" yaml:"sweeper"`
+	Sweeper dataprivacy.SweeperConfig `env:",init" envPrefix:"SWEEPER_" json:"sweeper" yaml:"sweeper"`
 }
 
 // AuditErasureConfig configures whether, and how, an erasure touches the audit

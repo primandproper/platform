@@ -36,10 +36,10 @@ type Config struct {
 	GCPClient     gcp.SecretVersionAccessor `json:"-"       yaml:"-"`
 	SSMClient     ssm.GetParameterAPI       `json:"-"       yaml:"-"`
 	KubectlClient kubectl.SecretGetter      `json:"-"       yaml:"-"`
-	Env           *env.Config               `env:"init"     envPrefix:"ENV_"     json:"env,omitempty"     yaml:"env,omitempty"`
-	GCP           *gcp.Config               `env:"init"     envPrefix:"GCP_"     json:"gcp,omitempty"     yaml:"gcp,omitempty"`
-	SSM           *ssm.Config               `env:"init"     envPrefix:"SSM_"     json:"ssm,omitempty"     yaml:"ssm,omitempty"`
-	Kubectl       *kubectl.Config           `env:"init"     envPrefix:"KUBECTL_" json:"kubectl,omitempty" yaml:"kubectl,omitempty"`
+	Env           *env.Config               `env:",init"     envPrefix:"ENV_"     json:"env,omitempty"     yaml:"env,omitempty"`
+	GCP           *gcp.Config               `env:",init"     envPrefix:"GCP_"     json:"gcp,omitempty"     yaml:"gcp,omitempty"`
+	SSM           *ssm.Config               `env:",init"     envPrefix:"SSM_"     json:"ssm,omitempty"     yaml:"ssm,omitempty"`
+	Kubectl       *kubectl.Config           `env:",init"     envPrefix:"KUBECTL_" json:"kubectl,omitempty" yaml:"kubectl,omitempty"`
 	Provider      string                    `env:"PROVIDER" json:"provider"      yaml:"provider"`
 }
 

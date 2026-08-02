@@ -46,7 +46,7 @@ type Config struct {
 	EventTopic string `env:"EVENT_TOPIC" json:"eventTopic" yaml:"eventTopic"`
 
 	// Worker carries the advance loop's knobs.
-	Worker saga.WorkerConfig `env:"init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
+	Worker saga.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

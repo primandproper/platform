@@ -85,11 +85,11 @@ type WorkerConfig struct {
 
 	// Backoff schedules the retry of a step that failed, and its MaxAttempts is
 	// the forward budget: a Do that fails this many times begins compensation.
-	Backoff retry.Config `env:"init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retry.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
 
 	// CompensationBackoff schedules the retry of a compensation. Its
 	// MaxAttempts is the budget past which the instance is marked stuck.
-	CompensationBackoff retry.Config `env:"init" envPrefix:"COMPENSATION_BACKOFF_" json:"compensationBackoff" yaml:"compensationBackoff"`
+	CompensationBackoff retry.Config `env:",init" envPrefix:"COMPENSATION_BACKOFF_" json:"compensationBackoff" yaml:"compensationBackoff"`
 
 	// PollInterval is how often the Worker looks for instances to advance.
 	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval" yaml:"pollInterval"`

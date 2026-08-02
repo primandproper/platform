@@ -169,7 +169,7 @@ func (cfg *EnforcerConfig) ValidateWithContext(ctx context.Context) error {
 // provider.
 type FlusherConfig struct {
 	// Backoff schedules the retry of a total whose post failed.
-	Backoff retry.Config `env:"init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retry.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
 
 	// FlushInterval is how often the Flusher runs. Ignored when the Flusher is
 	// driven by the jobs scheduler, which owns its own cadence.

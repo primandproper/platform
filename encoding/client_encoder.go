@@ -54,7 +54,7 @@ type (
 	// clientEncoder is our concrete implementation of ClientEncoder.
 	clientEncoder struct {
 		o11y        observability.Observer
-		contentType *contentType
+		contentType ContentType
 	}
 )
 
@@ -190,7 +190,7 @@ func (e *clientEncoder) EncodeReader(ctx context.Context, data any) (io.Reader, 
 }
 
 // NewClientEncoder provides a ClientEncoder.
-func NewClientEncoder(encoding *contentType, opts ...Option) ClientEncoder {
+func NewClientEncoder(encoding ContentType, opts ...Option) ClientEncoder {
 	cfg := newOptions(opts)
 
 	return &clientEncoder{
