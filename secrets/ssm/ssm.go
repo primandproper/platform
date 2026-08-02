@@ -35,9 +35,9 @@ type ssmSecretSource struct {
 	prefix        string
 }
 
-// NewSSMSecretSource creates a SecretSource backed by AWS SSM Parameter Store.
+// NewSecretSource creates a SecretSource backed by AWS SSM Parameter Store.
 // If client is nil, a new client is created using the default credential chain.
-func NewSSMSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, opts ...Option) (secrets.SecretSource, error) {
+func NewSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, opts ...Option) (secrets.SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("ssm secret source: config is required")
 	}

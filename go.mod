@@ -73,7 +73,7 @@ require (
 	github.com/sendgrid/sendgrid-go v3.16.1+incompatible
 	github.com/shoenig/test v1.12.2
 	github.com/sideshow/apns2 v0.25.0
-	github.com/stripe/stripe-go/v75 v75.11.0
+	github.com/stripe/stripe-go/v81 v81.4.0
 	github.com/swaggest/openapi-go v0.2.61
 	github.com/testcontainers/testcontainers-go v0.41.0
 	github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.41.0

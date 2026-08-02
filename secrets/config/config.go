@@ -76,30 +76,30 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewSecretSource returns a SecretSource from config.
 func (cfg *Config) NewSecretSource(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider) (secrets.SecretSource, error) {
 	if cfg == nil {
-		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
+		return env.NewSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 	}
 
 	provider := normalizeProvider(cfg.Provider)
 	switch provider {
 	case "", ProviderEnv:
-		return env.NewEnvSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
+		return env.NewSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 	case ProviderNoop:
 		return noop.NewSecretSource(), nil
 	case ProviderGCP:
 		if cfg.GCP == nil {
 			return nil, errors.New("gcp provider requires gcp config")
 		}
-		return gcp.NewGCPSecretSource(ctx, cfg.GCP, cfg.GCPClient, gcp.WithLogger(logger), gcp.WithTracerProvider(tracerProvider), gcp.WithMetricsProvider(metricsProvider))
+		return gcp.NewSecretSource(ctx, cfg.GCP, cfg.GCPClient, gcp.WithLogger(logger), gcp.WithTracerProvider(tracerProvider), gcp.WithMetricsProvider(metricsProvider))
 	case ProviderSSM:
 		if cfg.SSM == nil {
 			return nil, errors.New("ssm provider requires ssm config")
 		}
-		return ssm.NewSSMSecretSource(ctx, cfg.SSM, cfg.SSMClient, ssm.WithLogger(logger), ssm.WithTracerProvider(tracerProvider), ssm.WithMetricsProvider(metricsProvider))
+		return ssm.NewSecretSource(ctx, cfg.SSM, cfg.SSMClient, ssm.WithLogger(logger), ssm.WithTracerProvider(tracerProvider), ssm.WithMetricsProvider(metricsProvider))
 	case ProviderKubernetes:
 		if cfg.Kubernetes == nil {
 			return nil, errors.New("kubernetes provider requires kubernetes config")
 		}
-		return kubernetes.NewKubernetesSecretSource(ctx, cfg.Kubernetes, cfg.KubernetesClient, kubernetes.WithLogger(logger), kubernetes.WithTracerProvider(tracerProvider), kubernetes.WithMetricsProvider(metricsProvider))
+		return kubernetes.NewSecretSource(ctx, cfg.Kubernetes, cfg.KubernetesClient, kubernetes.WithLogger(logger), kubernetes.WithTracerProvider(tracerProvider), kubernetes.WithMetricsProvider(metricsProvider))
 	default:
 		return nil, errors.Newf("unknown secret source provider: %q", cfg.Provider)
 	}

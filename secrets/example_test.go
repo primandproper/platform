@@ -12,7 +12,7 @@ func Example_envSecretSource() {
 	os.Setenv("EXAMPLE_SECRET", "s3cret")
 	defer os.Unsetenv("EXAMPLE_SECRET")
 
-	source, err := env.NewEnvSecretSource()
+	source, err := env.NewSecretSource()
 	if err != nil {
 		panic(err)
 	}

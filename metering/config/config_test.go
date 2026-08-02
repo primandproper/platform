@@ -188,7 +188,7 @@ func TestConstructors(T *testing.T) {
 		flusher, err := NewFlusher(t.Context(), cfg, logger, tracerProvider, metricsProvider,
 			store, metering.ProviderMapperFunc(
 				func(context.Context, string, string) (metering.ProviderRef, error) {
-					return metering.ProviderRef{SubscriptionItemID: "si_123"}, nil
+					return metering.ProviderRef{CustomerID: "cus_123", MeterName: "api_requests"}, nil
 				}), capitalismnoop.NewUsageReporter())
 		must.NoError(t, err)
 		must.NotNil(t, flusher)

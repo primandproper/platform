@@ -65,8 +65,8 @@ const (
 	// flusher gives up on it and leaves it for a human.
 	//
 	// A total that has failed this many times is not failing transiently — it is
-	// a subscription item that was deleted, or a plan that no longer has a metered
-	// price. Retrying it forever costs a provider API call every interval and
+	// a customer that was deleted, or a meter that no longer exists at the
+	// provider. Retrying it forever costs a provider API call every interval and
 	// buries the totals that would succeed.
 	DefaultMaxFlushAttempts = 10
 

@@ -16,8 +16,8 @@ import (
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"github.com/stripe/stripe-go/v75"
-	"github.com/stripe/stripe-go/v75/client"
+	"github.com/stripe/stripe-go/v81"
+	"github.com/stripe/stripe-go/v81/client"
 )
 
 // newTestUsageReporter builds a stripeUsageReporter whose Stripe client talks to
@@ -59,13 +59,13 @@ func newTestUsageReporter(t *testing.T, status int, body string) (*stripeUsageRe
 	}, &captured
 }
 
-func TestNewStripeUsageReporter(T *testing.T) {
+func TestNewUsageReporter(T *testing.T) {
 	T.Parallel()
 
 	T.Run("builds with an API key", func(t *testing.T) {
 		t.Parallel()
 
-		reporter, err := NewStripeUsageReporter(&Config{APIKey: "sk_test_123"},
+		reporter, err := NewUsageReporter(&Config{APIKey: "sk_test_123"},
 			WithLogger(loggingnoop.NewLogger()), WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.NoError(t, err)
 		must.NotNil(t, reporter)
@@ -74,7 +74,7 @@ func TestNewStripeUsageReporter(T *testing.T) {
 	T.Run("refuses a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewStripeUsageReporter(nil)
+		_, err := NewUsageReporter(nil)
 
 		test.ErrorIs(t, err, ErrNilConfig)
 	})
@@ -85,7 +85,7 @@ func TestNewStripeUsageReporter(T *testing.T) {
 		// Unlike the payment manager there is no inbound path here, so a reporter
 		// without a key could do nothing at all and would fail on its first flush
 		// rather than at startup.
-		_, err := NewStripeUsageReporter(&Config{WebhookSecret: "whsec_123"})
+		_, err := NewUsageReporter(&Config{WebhookSecret: "whsec_123"})
 
 		test.ErrorIs(t, err, ErrAPIKeyNotConfigured)
 	})
@@ -94,55 +94,57 @@ func TestNewStripeUsageReporter(T *testing.T) {
 func TestStripeUsageReporter_ReportUsage(T *testing.T) {
 	T.Parallel()
 
-	const body = `{"id":"mbur_123","object":"usage_record","quantity":42,"subscription_item":"si_123"}`
+	const body = `{"object":"billing.meter_event","event_name":"api_requests","identifier":"mtr_abc","timestamp":1788220799}`
 
-	T.Run("posts an increment under the caller's idempotency key", func(t *testing.T) {
+	T.Run("posts a meter event under the caller's idempotency key", func(t *testing.T) {
 		t.Parallel()
 
 		reporter, captured := newTestUsageReporter(t, http.StatusOK, body)
 
 		must.NoError(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
-			SubscriptionItemID: "si_123",
-			Quantity:           42,
-			IdempotencyKey:     "mtr_abc",
-			Metadata:           map[string]string{"metering_meter": "api_requests"},
+			CustomerID:     "cus_123",
+			MeterName:      "api_requests",
+			Quantity:       42,
+			IdempotencyKey: "mtr_abc",
+			Metadata:       map[string]string{"metering_meter": "api_requests"},
 		}))
 
 		must.SliceLen(t, 1, *captured)
 
 		req := (*captured)[0]
 		test.EqOp(t, http.MethodPost, req.method)
-		test.EqOp(t, "/v1/subscription_items/si_123/usage_records", req.path)
-		test.EqOp(t, "42", req.form.Get("quantity"))
-		// Always increment. The other action, set, overwrites usage at a
-		// timestamp — which sounds appealing for a flush that knows the running
-		// total, and leaves two flushes for one period standing beside each other
-		// rather than replacing one another.
-		test.EqOp(t, stripe.UsageRecordActionIncrement, req.form.Get("action"))
+		test.EqOp(t, "/v1/billing/meter_events", req.path)
+		test.EqOp(t, "api_requests", req.form.Get("event_name"))
+		test.EqOp(t, "cus_123", req.form.Get("payload[stripe_customer_id]"))
+		test.EqOp(t, "42", req.form.Get("payload[value]"))
+		// Metadata rides along in the payload, which is the only place a meter
+		// event has to carry it.
+		test.EqOp(t, "api_requests", req.form.Get("payload[metering_meter]"))
+		// Both dedup mechanisms, from the one key. The header replays an identical
+		// retry; the identifier covers a retry the flush loop reassembles, over a
+		// window of at least 24 hours.
+		test.EqOp(t, "mtr_abc", req.form.Get("identifier"))
 		test.EqOp(t, "mtr_abc", req.idempotencyKey)
-		// Metadata is dropped rather than forwarded: Stripe's usage record object
-		// carries none, and the SDK refuses the request rather than ignoring the
-		// field. See the comment in ReportUsage.
-		test.EqOp(t, "", req.form.Get("metadata[metering_meter]"))
 	})
 
-	T.Run("stamps now for a zero event time", func(t *testing.T) {
+	T.Run("leaves the timestamp to Stripe for a zero event time", func(t *testing.T) {
 		t.Parallel()
 
 		reporter, captured := newTestUsageReporter(t, http.StatusOK, body)
 
 		must.NoError(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
-			SubscriptionItemID: "si_123",
-			Quantity:           1,
-			IdempotencyKey:     "mtr_abc",
+			CustomerID:     "cus_123",
+			MeterName:      "api_requests",
+			Quantity:       1,
+			IdempotencyKey: "mtr_abc",
 		}))
 
 		must.SliceLen(t, 1, *captured)
 
-		// "now" rather than a locally computed timestamp: Stripe rejects a usage
-		// record dated in the future, and a worker whose clock runs a few seconds
-		// fast would otherwise have every flush refused.
-		test.EqOp(t, "now", (*captured)[0].form.Get("timestamp"))
+		// Unset rather than a locally computed "now": Stripe refuses an event
+		// dated more than five minutes ahead, and a worker whose clock runs fast
+		// would otherwise have every flush refused.
+		test.EqOp(t, "", (*captured)[0].form.Get("timestamp"))
 	})
 
 	T.Run("stamps an explicit event time", func(t *testing.T) {
@@ -153,10 +155,11 @@ func TestStripeUsageReporter_ReportUsage(T *testing.T) {
 		occurredAt := time.Date(2026, time.August, 31, 23, 59, 59, 0, time.UTC)
 
 		must.NoError(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
-			SubscriptionItemID: "si_123",
-			Quantity:           1,
-			IdempotencyKey:     "mtr_abc",
-			OccurredAt:         occurredAt,
+			CustomerID:     "cus_123",
+			MeterName:      "api_requests",
+			Quantity:       1,
+			IdempotencyKey: "mtr_abc",
+			OccurredAt:     occurredAt,
 		}))
 
 		must.SliceLen(t, 1, *captured)
@@ -172,16 +175,30 @@ func TestStripeUsageReporter_ReportUsage(T *testing.T) {
 		test.SliceEmpty(t, *captured)
 	})
 
-	T.Run("refuses an empty subscription item", func(t *testing.T) {
+	T.Run("refuses an empty customer", func(t *testing.T) {
 		t.Parallel()
 
 		reporter, captured := newTestUsageReporter(t, http.StatusOK, body)
 
-		// Stripe puts the subscription item in the request path, so an empty one
-		// would be a request to a different endpoint entirely.
+		// Meter events key on a customer, so an empty one is usage belonging to
+		// nobody.
 		test.ErrorIs(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
-			Quantity: 1, IdempotencyKey: "mtr_abc",
-		}), ErrEmptySubscriptionItem)
+			MeterName: "api_requests", Quantity: 1, IdempotencyKey: "mtr_abc",
+		}), ErrEmptyCustomerID)
+
+		test.SliceEmpty(t, *captured)
+	})
+
+	T.Run("refuses an empty meter name", func(t *testing.T) {
+		t.Parallel()
+
+		reporter, captured := newTestUsageReporter(t, http.StatusOK, body)
+
+		// The name is what ties an event to a billing meter; whether it names one
+		// that exists is Stripe's to decide, but an absent name is catchable here.
+		test.ErrorIs(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
+			CustomerID: "cus_123", Quantity: 1, IdempotencyKey: "mtr_abc",
+		}), ErrEmptyMeterName)
 
 		test.SliceEmpty(t, *captured)
 	})
@@ -195,20 +212,45 @@ func TestStripeUsageReporter_ReportUsage(T *testing.T) {
 		// retry, and generating one here would make every attempt distinct, which
 		// is precisely the wrong answer.
 		test.ErrorIs(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
-			SubscriptionItemID: "si_123", Quantity: 1,
+			CustomerID: "cus_123", MeterName: "api_requests", Quantity: 1,
 		}), ErrEmptyUsageIdempotencyKey)
 
 		test.SliceEmpty(t, *captured)
+	})
+
+	T.Run("refuses metadata on a reserved payload key", func(t *testing.T) {
+		t.Parallel()
+
+		for _, key := range []string{"stripe_customer_id", "value"} {
+			t.Run(key, func(t *testing.T) {
+				t.Parallel()
+
+				reporter, captured := newTestUsageReporter(t, http.StatusOK, body)
+
+				// Honoring it would bill a different customer, or a different
+				// amount; dropping it would lose an annotation the caller thought
+				// it stored. Neither is this adapter's call to make.
+				test.ErrorIs(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
+					CustomerID:     "cus_123",
+					MeterName:      "api_requests",
+					Quantity:       1,
+					IdempotencyKey: "mtr_abc",
+					Metadata:       map[string]string{key: "cus_evil"},
+				}), ErrReservedPayloadKey)
+
+				test.SliceEmpty(t, *captured)
+			})
+		}
 	})
 
 	T.Run("propagates a provider error", func(t *testing.T) {
 		t.Parallel()
 
 		reporter, _ := newTestUsageReporter(t, http.StatusBadRequest,
-			`{"error":{"message":"no such subscription item","type":"invalid_request_error"}}`)
+			`{"error":{"message":"no such meter","type":"invalid_request_error"}}`)
 
 		test.Error(t, reporter.ReportUsage(t.Context(), &capitalism.UsageReportInput{
-			SubscriptionItemID: "si_123", Quantity: 1, IdempotencyKey: "mtr_abc",
+			CustomerID: "cus_123", MeterName: "api_requests", Quantity: 1, IdempotencyKey: "mtr_abc",
 		}))
 	})
 }

@@ -40,9 +40,9 @@ type gcpSecretSource struct {
 	projectID     string
 }
 
-// NewGCPSecretSource creates a SecretSource backed by GCP Secret Manager.
+// NewSecretSource creates a SecretSource backed by GCP Secret Manager.
 // If client is nil, a new client is created using Application Default Credentials.
-func NewGCPSecretSource(ctx context.Context, cfg *Config, client SecretVersionAccessor, opts ...Option) (secrets.SecretSource, error) {
+func NewSecretSource(ctx context.Context, cfg *Config, client SecretVersionAccessor, opts ...Option) (secrets.SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("gcp secret source: config is required")
 	}

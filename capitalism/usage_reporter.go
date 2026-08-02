@@ -28,27 +28,40 @@ type (
 
 	// UsageReportInput describes one usage record to post.
 	UsageReportInput struct {
-		// OccurredAt is when the usage happened. Providers generally require it
-		// to fall inside the subscription's current billing period and refuse a
-		// timestamp in the future; a zero value means "now", which is what a
-		// flush of freshly-accumulated usage means anyway.
+		// OccurredAt is when the usage happened. Providers bound how far back a
+		// report may be dated and refuse a timestamp meaningfully in the future;
+		// a zero value means "now", which is what a flush of freshly-accumulated
+		// usage means anyway.
 		OccurredAt time.Time
 
 		// Metadata is provider-side annotation. It is not used for pricing, and
-		// not every provider accepts it — Stripe's usage record object carries
-		// none, so the adapter in capitalism/stripe drops it rather than failing
-		// the post. Treat it as best-effort context for the providers and custom
-		// reporters that can store it, never as somewhere to put a fact only this
-		// field would record.
+		// not every provider accepts it. Treat it as best-effort context for the
+		// providers and custom reporters that can store it, never as somewhere to
+		// put a fact only this field would record.
+		//
+		// A provider whose usage payload is a flat key/value map — Stripe's is —
+		// reserves some of that namespace for the fields that decide who is
+		// billed and how much. Adapters refuse a metadata key that collides with
+		// one of those rather than letting annotation rewrite the charge.
 		Metadata map[string]string
 
-		// SubscriptionItemID is the provider-side handle usage posts against —
-		// for Stripe, the subscription item carrying the metered price.
+		// CustomerID is the provider-side customer the usage is billed to — for
+		// Stripe, the `cus_…` the meter's customer mapping resolves against.
 		//
 		// It is a provider handle rather than an application's own subject ID
 		// because only the application knows the mapping, and a library that
 		// guessed it would post one customer's usage onto another's invoice.
-		SubscriptionItemID string
+		CustomerID string
+
+		// MeterName is the provider-side meter the usage counts against — for
+		// Stripe, the `event_name` of the billing meter.
+		//
+		// It is deliberately not assumed to equal the application's own name for
+		// the same meter. The provider's meters are configured in the provider's
+		// dashboard by whoever owns pricing, and the two names drift apart the
+		// first time a plan is renamed; the application supplies the pair
+		// together so the mapping stays in one place.
+		MeterName string
 
 		// IdempotencyKey makes the post safely retryable. It is required rather
 		// than optional, unlike the create inputs in this package: those are

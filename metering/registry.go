@@ -159,18 +159,27 @@ func (s *registryQuotaSource) QuotaFor(_ context.Context, _, meter string) (Quot
 // ProviderRef locates the provider-side object a subject's usage on a meter is
 // reported against.
 type ProviderRef struct {
-	// SubscriptionItemID is the provider handle usage posts to — for Stripe, the
-	// subscription item carrying the metered price for this meter.
-	SubscriptionItemID string
+	// CustomerID is the provider-side customer the usage is billed to — for
+	// Stripe, the `cus_…` the meter's customer mapping resolves against.
+	CustomerID string
+
+	// MeterName is the provider-side meter the usage counts against — for Stripe,
+	// the `event_name` of the billing meter.
+	//
+	// It is supplied rather than taken to be this package's own meter name. The
+	// provider's meters are configured wherever pricing is owned, and the two
+	// names drift apart the first time a plan is renamed. A mapper that wants
+	// them to agree can return the meter it was passed.
+	MeterName string
 }
 
-// ProviderMapper maps a subject and meter onto the provider-side handle usage is
+// ProviderMapper maps a subject and meter onto the provider-side handles usage is
 // posted against.
 //
 // The mapping is application knowledge and cannot be anything else: it is the
-// join between an internal account ID and a Stripe subscription item, and it
-// changes whenever somebody upgrades a plan. A library that guessed it would post
-// one customer's usage onto another's invoice, which is the single most expensive
+// join between an internal account ID and a Stripe customer, and it changes
+// whenever somebody upgrades a plan. A library that guessed it would post one
+// customer's usage onto another's invoice, which is the single most expensive
 // mistake available in this package.
 //
 // Returning an error wrapping ErrNoProviderRef means this subject does not bill

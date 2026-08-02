@@ -661,9 +661,8 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		must.NoError(t, store.ReleaseFlush(t.Context(), claimed[0], "boom", baseTime))
 
-		// Not retried forever: a subscription item that was deleted would
-		// otherwise cost a provider call every interval and bury the totals that
-		// would succeed.
+		// Not retried forever: a customer that was deleted would otherwise cost a
+		// provider call every interval and bury the totals that would succeed.
 		again, err := store.ClaimFlushable(t.Context(), baseTime, 10, 1, baseTime.Add(time.Minute))
 		must.NoError(t, err)
 		test.SliceEmpty(t, again)

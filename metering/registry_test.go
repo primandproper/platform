@@ -218,7 +218,7 @@ func TestFuncAdapters(T *testing.T) {
 		mapper := ProviderMapperFunc(func(_ context.Context, subject, meter string) (ProviderRef, error) {
 			sawSubject, sawMeter = subject, meter
 
-			return ProviderRef{SubscriptionItemID: "si_123"}, nil
+			return ProviderRef{CustomerID: "cus_123", MeterName: "api_requests"}, nil
 		})
 
 		ref, err := mapper.ProviderRefFor(t.Context(), testSubject, testMeter)
@@ -226,7 +226,8 @@ func TestFuncAdapters(T *testing.T) {
 
 		test.EqOp(t, testSubject, sawSubject)
 		test.EqOp(t, testMeter, sawMeter)
-		test.EqOp(t, "si_123", ref.SubscriptionItemID)
+		test.EqOp(t, "cus_123", ref.CustomerID)
+		test.EqOp(t, "api_requests", ref.MeterName)
 	})
 
 	T.Run("PeriodResolverFunc", func(t *testing.T) {

@@ -41,9 +41,9 @@ type kubernetesSecretSource struct {
 	client        SecretGetter
 }
 
-// NewKubernetesSecretSource creates a SecretSource backed by Kubernetes secrets.
+// NewSecretSource creates a SecretSource backed by Kubernetes secrets.
 // If client is nil, a new client is created using the kubeconfig path or in-cluster config.
-func NewKubernetesSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts ...Option) (secrets.SecretSource, error) {
+func NewSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts ...Option) (secrets.SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("kubernetes secret source: config is required")
 	}
