@@ -1,4 +1,11 @@
-package kubectl
+/*
+Package kubernetes sources secrets from the Kubernetes Secrets API.
+
+It talks to the API server in-process through client-go. It does not shell out
+to the kubectl binary, and does not require one to be installed — which is what
+the package was called until v9, and why it was renamed.
+*/
+package kubernetes
 
 import (
 	"context"
@@ -14,19 +21,19 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
+	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const name = "kubectl_secret_source"
+const name = "kubernetes_secret_source"
 
 // SecretGetter abstracts the Kubernetes Secrets API for testability.
 type SecretGetter interface {
 	Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Secret, error)
 }
 
-type kubectlSecretSource struct {
+type kubernetesSecretSource struct {
 	o11y          observability.Observer
 	lookupCounter metrics.Int64Counter
 	errorCounter  metrics.Int64Counter
@@ -34,14 +41,14 @@ type kubectlSecretSource struct {
 	client        SecretGetter
 }
 
-// NewKubectlSecretSource creates a SecretSource backed by Kubernetes secrets.
+// NewKubernetesSecretSource creates a SecretSource backed by Kubernetes secrets.
 // If client is nil, a new client is created using the kubeconfig path or in-cluster config.
-func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts ...Option) (secrets.SecretSource, error) {
+func NewKubernetesSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts ...Option) (secrets.SecretSource, error) {
 	if cfg == nil {
-		return nil, errors.New("kubectl secret source: config is required")
+		return nil, errors.New("kubernetes secret source: config is required")
 	}
 	if err := cfg.ValidateWithContext(ctx); err != nil {
-		return nil, errors.Wrap(err, "kubectl secret source")
+		return nil, errors.Wrap(err, "kubernetes secret source")
 	}
 
 	o := newOptions(opts)
@@ -63,7 +70,7 @@ func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGette
 	}
 
 	if client != nil {
-		return &kubectlSecretSource{
+		return &kubernetesSecretSource{
 			o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 			lookupCounter: lookupCounter,
 			errorCounter:  errorCounter,
@@ -79,15 +86,15 @@ func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGette
 		restCfg, err = rest.InClusterConfig()
 	}
 	if err != nil {
-		return nil, errors.Wrap(err, "kubectl secret source: building kubernetes config")
+		return nil, errors.Wrap(err, "kubernetes secret source: building kubernetes config")
 	}
 
-	clientset, err := kubernetes.NewForConfig(restCfg)
+	clientset, err := k8sclient.NewForConfig(restCfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "kubectl secret source: creating kubernetes client")
+		return nil, errors.Wrap(err, "kubernetes secret source: creating kubernetes client")
 	}
 
-	return &kubectlSecretSource{
+	return &kubernetesSecretSource{
 		o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 		lookupCounter: lookupCounter,
 		errorCounter:  errorCounter,
@@ -96,7 +103,7 @@ func NewKubectlSecretSource(ctx context.Context, cfg *Config, client SecretGette
 	}, nil
 }
 
-func (k *kubectlSecretSource) GetSecret(ctx context.Context, name string) (string, error) {
+func (k *kubernetesSecretSource) GetSecret(ctx context.Context, name string) (string, error) {
 	ctx, op := k.o11y.Begin(ctx)
 	defer op.End()
 
@@ -147,7 +154,7 @@ func (k *kubectlSecretSource) GetSecret(ctx context.Context, name string) (strin
 	return string(data), nil
 }
 
-func (k *kubectlSecretSource) Close() error {
+func (k *kubernetesSecretSource) Close() error {
 	return nil
 }
 
@@ -160,5 +167,5 @@ func resolveName(input string) (secretName, key string, err error) {
 	return before, after, nil
 }
 
-// Ensure kubectlSecretSource implements secrets.SecretSource.
-var _ secrets.SecretSource = (*kubectlSecretSource)(nil)
+// Ensure kubernetesSecretSource implements secrets.SecretSource.
+var _ secrets.SecretSource = (*kubernetesSecretSource)(nil)

@@ -51,7 +51,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `cache`    | Generic key/value cache (`Cache[T]`) | redis, memory                         |
 | `uploads`  | Blob/object storage & image handling | objectstorage (S3-compatible), images |
 | `files`    | Filesystem & streaming helpers       | —                                     |
-| `secrets`  | Secret sourcing                      | env, gcp, ssm, kubectl                |
+| `secrets`  | Secret sourcing                      | env, gcp, ssm, kubernetes                |
 
 ### Messaging & events
 | Package         | Purpose                    | Implementations                                   |

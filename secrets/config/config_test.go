@@ -10,7 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	"github.com/primandproper/platform-go/v9/secrets/gcp"
-	"github.com/primandproper/platform-go/v9/secrets/kubectl"
+	"github.com/primandproper/platform-go/v9/secrets/kubernetes"
 	"github.com/primandproper/platform-go/v9/secrets/ssm"
 
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -48,11 +48,11 @@ func (m *mockSSMClient) GetParameter(ctx context.Context, params *awsssm.GetPara
 	}, nil
 }
 
-type mockKubectlClient struct {
+type mockKubernetesClient struct {
 	secret *corev1.Secret
 }
 
-func (m *mockKubectlClient) Get(_ context.Context, _ string, _ metav1.GetOptions) (*corev1.Secret, error) {
+func (m *mockKubernetesClient) Get(_ context.Context, _ string, _ metav1.GetOptions) (*corev1.Secret, error) {
 	return m.secret, nil
 }
 
@@ -95,15 +95,15 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		must.Error(t, cfg.ValidateWithContext(context.Background()))
 	})
 
-	T.Run("valid kubectl provider", func(t *testing.T) {
+	T.Run("valid kubernetes provider", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{Provider: ProviderKubectl, Kubectl: &kubectl.Config{Namespace: "default"}}
+		cfg := &Config{Provider: ProviderKubernetes, Kubernetes: &kubernetes.Config{Namespace: "default"}}
 		must.NoError(t, cfg.ValidateWithContext(context.Background()))
 	})
 
-	T.Run("invalid kubectl provider missing config", func(t *testing.T) {
+	T.Run("invalid kubernetes provider missing config", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{Provider: ProviderKubectl}
+		cfg := &Config{Provider: ProviderKubernetes}
 		must.Error(t, cfg.ValidateWithContext(context.Background()))
 	})
 
@@ -218,13 +218,13 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		test.EqOp(t, "ssm-param-value", got)
 	})
 
-	T.Run("kubectl provider with mock client", func(t *testing.T) {
+	T.Run("kubernetes provider with mock client", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			Provider: ProviderKubectl,
-			Kubectl:  &kubectl.Config{Namespace: "default"},
-			KubectlClient: &mockKubectlClient{
+			Provider:   ProviderKubernetes,
+			Kubernetes: &kubernetes.Config{Namespace: "default"},
+			KubernetesClient: &mockKubernetesClient{
 				secret: &corev1.Secret{
 					Data: map[string][]byte{
 						"password": []byte("k8s-secret-value"),
@@ -271,14 +271,14 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		test.StrContains(t, err.Error(), "ssm")
 	})
 
-	T.Run("kubectl provider with nil kubectl config returns error", func(t *testing.T) {
+	T.Run("kubernetes provider with nil kubernetes config returns error", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Provider: ProviderKubectl}
+		cfg := &Config{Provider: ProviderKubernetes}
 		source, err := cfg.NewSecretSource(context.Background(), nil, nil, nil)
 		must.Error(t, err)
 		test.Nil(t, source)
-		test.StrContains(t, err.Error(), "kubectl")
+		test.StrContains(t, err.Error(), "kubernetes")
 	})
 
 	T.Run("nil config with metrics error", func(t *testing.T) {
@@ -357,7 +357,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})
 
-	T.Run("kubectl provider with metrics error", func(t *testing.T) {
+	T.Run("kubernetes provider with metrics error", func(t *testing.T) {
 		t.Parallel()
 
 		mp := &metricsmock.ProviderMock{
@@ -367,9 +367,9 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		}
 
 		cfg := &Config{
-			Provider:      ProviderKubectl,
-			Kubectl:       &kubectl.Config{Namespace: "default"},
-			KubectlClient: &mockKubectlClient{secret: &corev1.Secret{}},
+			Provider:         ProviderKubernetes,
+			Kubernetes:       &kubernetes.Config{Namespace: "default"},
+			KubernetesClient: &mockKubernetesClient{secret: &corev1.Secret{}},
 		}
 		source, err := cfg.NewSecretSource(context.Background(), nil, nil, mp)
 		must.Error(t, err)
