@@ -212,7 +212,7 @@ func TestSQLStore_CursorPagination(T *testing.T) {
 		}
 
 		filter := filtering.DefaultQueryFilter()
-		filter.MaxResponseSize = new(uint8(2))
+		filter.MaxResponseSize = new(uint16(2))
 
 		var seen []string
 
@@ -251,7 +251,7 @@ func TestSQLStore_CursorPagination(T *testing.T) {
 
 		filter := filtering.DefaultQueryFilter()
 		filter.SortBy = filtering.SortDescending
-		filter.MaxResponseSize = new(uint8(2))
+		filter.MaxResponseSize = new(uint16(2))
 
 		first, err := store.List(t.Context(), testSubject, filter)
 		must.NoError(t, err)

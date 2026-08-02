@@ -18,8 +18,6 @@ type Capabilities struct {
 	Tools bool
 	// Images reports whether PartImage is honored.
 	Images bool
-	// PDFs reports whether documents can be attached.
-	PDFs bool
 	// Reasoning reports whether CompletionRequest.ReasoningEffort is honored
 	// and PartThinking parts come back.
 	Reasoning bool

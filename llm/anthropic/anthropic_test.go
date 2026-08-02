@@ -272,7 +272,6 @@ func TestAnthropicProvider_Capabilities(T *testing.T) {
 			Streaming:        true,
 			Tools:            true,
 			Images:           true,
-			PDFs:             true,
 			Reasoning:        true,
 			StructuredOutput: true,
 		}, provider.Capabilities())

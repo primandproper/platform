@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
+	databasemock "github.com/primandproper/platform-go/v9/database/mock"
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	mqmock "github.com/primandproper/platform-go/v9/messagequeue/mock"
@@ -67,7 +68,7 @@ func TestRelayOptions(T *testing.T) {
 
 		r, err := NewRelay(
 			t.Context(),
-			&RelayConfig{Dialect: dialect.SQLite, ClaimMode: ClaimLease},
+			&RelayConfig{ClaimMode: ClaimLease},
 			newTestClient(t),
 			&mqmock.PublisherProviderMock{},
 			opts...,
@@ -87,7 +88,7 @@ func TestRelayConfig_ValidateWithContext(T *testing.T) {
 	// validConfig is what EnsureDefaults produces for a supported dialect; each
 	// case below breaks exactly one field so the failure is unambiguous.
 	validConfig := func() *RelayConfig {
-		cfg := &RelayConfig{Dialect: dialect.SQLite, ClaimMode: ClaimLease}
+		cfg := &RelayConfig{ClaimMode: ClaimLease}
 		cfg.EnsureDefaults()
 
 		return cfg
@@ -99,13 +100,19 @@ func TestRelayConfig_ValidateWithContext(T *testing.T) {
 		test.NoError(t, validConfig().ValidateWithContext(t.Context()))
 	})
 
-	T.Run("rejects an unsupported dialect", func(t *testing.T) {
+	// The dialect is no longer the config's to state — it comes off the
+	// database.Client — so an unsupported one is caught by NewRelay.
+	T.Run("NewRelay rejects a client on an unsupported dialect", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := validConfig()
-		cfg.Dialect = "cassandra"
-
-		err := cfg.ValidateWithContext(t.Context())
+		_, err := NewRelay(
+			t.Context(),
+			validConfig(),
+			&databasemock.ClientMock{
+				DialectFunc: func() dialect.Dialect { return "cassandra" },
+			},
+			&mqmock.PublisherProviderMock{},
+		)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "cassandra")
 	})
@@ -121,27 +128,36 @@ func TestRelayConfig_ValidateWithContext(T *testing.T) {
 		test.StrContains(t, err.Error(), "telepathy")
 	})
 
-	T.Run("rejects SKIP LOCKED on a dialect that cannot do it", func(t *testing.T) {
+	// SKIP LOCKED against a dialect that lacks it is no longer representable:
+	// NewRelay narrows the claim mode once it knows the client's dialect.
+	T.Run("NewRelay downgrades SKIP LOCKED on a dialect that cannot do it", func(t *testing.T) {
 		t.Parallel()
 
-		// Set after EnsureDefaults, which would otherwise downgrade it to
-		// ClaimLease and hide the mismatch this guards against.
 		cfg := validConfig()
 		cfg.ClaimMode = ClaimSkipLocked
 
-		must.False(t, cfg.Dialect.SupportsSkipLocked())
+		must.False(t, dialect.SQLite.SupportsSkipLocked())
 
-		err := cfg.ValidateWithContext(t.Context())
-		must.Error(t, err)
-		test.StrContains(t, err.Error(), "cannot skip locked rows")
+		r, err := NewRelay(
+			t.Context(),
+			cfg,
+			newTestClient(t),
+			&mqmock.PublisherProviderMock{},
+		)
+		must.NoError(t, err)
+		test.EqOp(t, ClaimLease, r.cfg.ClaimMode)
 	})
 
 	T.Run("NewRelay surfaces a config that fails validation", func(t *testing.T) {
 		t.Parallel()
 
+		cfg := &RelayConfig{}
+		cfg.EnsureDefaults()
+		cfg.ClaimMode = "telepathy"
+
 		_, err := NewRelay(
 			t.Context(),
-			&RelayConfig{Dialect: "cassandra"},
+			cfg,
 			newTestClient(t),
 			&mqmock.PublisherProviderMock{},
 		)
@@ -208,7 +224,7 @@ func TestNewRelay_instrumentFailures(T *testing.T) {
 
 			r, err := NewRelay(
 				t.Context(),
-				&RelayConfig{Dialect: dialect.SQLite, ClaimMode: ClaimLease},
+				&RelayConfig{ClaimMode: ClaimLease},
 				newTestClient(t),
 				&mqmock.PublisherProviderMock{},
 				WithRelayMetricsProvider(failingMetricsProvider(fmt.Sprintf("%s_%s", serviceName, tc.instrument))),
@@ -296,7 +312,7 @@ func newRelayWithProvider(t *testing.T, client database.Client, provider message
 
 	r, err := NewRelay(
 		t.Context(),
-		&RelayConfig{Dialect: dialect.SQLite, ClaimMode: ClaimLease},
+		&RelayConfig{ClaimMode: ClaimLease},
 		client,
 		provider,
 	)

@@ -256,7 +256,6 @@ func TestOpenAIProvider_Capabilities(T *testing.T) {
 			Streaming:        true,
 			Tools:            true,
 			Images:           true,
-			PDFs:             false,
 			Reasoning:        true,
 			StructuredOutput: true,
 		}, provider.Capabilities())

@@ -60,15 +60,15 @@ func TestMultiSourceEventReporter_Close(T *testing.T) {
 	T.Run("closes every underlying reporter", func(t *testing.T) {
 		t.Parallel()
 
-		ios := &analyticsmock.EventReporterMock{CloseFunc: func() {}}
-		web := &analyticsmock.EventReporterMock{CloseFunc: func() {}}
+		ios := &analyticsmock.EventReporterMock{CloseFunc: func(context.Context) error { return nil }}
+		web := &analyticsmock.EventReporterMock{CloseFunc: func(context.Context) error { return nil }}
 
 		m := NewMultiSourceEventReporter(map[string]analytics.EventReporter{
 			"ios": ios,
 			"web": web,
 		})
 
-		m.Close()
+		_ = m.Close(t.Context())
 
 		test.SliceLen(t, 1, ios.CloseCalls())
 		test.SliceLen(t, 1, web.CloseCalls())
@@ -77,14 +77,14 @@ func TestMultiSourceEventReporter_Close(T *testing.T) {
 	T.Run("closes a shared reporter exactly once", func(t *testing.T) {
 		t.Parallel()
 
-		shared := &analyticsmock.EventReporterMock{CloseFunc: func() {}}
+		shared := &analyticsmock.EventReporterMock{CloseFunc: func(context.Context) error { return nil }}
 
 		m := NewMultiSourceEventReporter(map[string]analytics.EventReporter{
 			"ios": shared,
 			"web": shared,
 		})
 
-		m.Close()
+		_ = m.Close(t.Context())
 
 		test.SliceLen(t, 1, shared.CloseCalls())
 	})
@@ -92,13 +92,13 @@ func TestMultiSourceEventReporter_Close(T *testing.T) {
 	T.Run("Shutdown delegates to Close", func(t *testing.T) {
 		t.Parallel()
 
-		ios := &analyticsmock.EventReporterMock{CloseFunc: func() {}}
+		ios := &analyticsmock.EventReporterMock{CloseFunc: func(context.Context) error { return nil }}
 
 		m := NewMultiSourceEventReporter(map[string]analytics.EventReporter{
 			"ios": ios,
 		})
 
-		m.Shutdown()
+		_ = m.Shutdown(t.Context())
 
 		test.SliceLen(t, 1, ios.CloseCalls())
 	})

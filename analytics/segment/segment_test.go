@@ -138,7 +138,7 @@ func TestSegmentEventReporter_Close(T *testing.T) {
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 
-		collector.Close()
+		_ = collector.Close(t.Context())
 	})
 }
 

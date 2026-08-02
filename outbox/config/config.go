@@ -60,8 +60,9 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
-// NewWriter builds a Writer from configuration. The dialect and table come from
-// the Relay section — see Config.Relay for why.
+// NewWriter builds a Writer from configuration. The table comes from the Relay
+// section; the dialect comes from client, which must be the database holding
+// the outbox table — the same one the Writer's transactions run against.
 //
 // Explicit options run after the config-derived ones, so a caller can still
 // override anything.
@@ -71,10 +72,15 @@ func NewWriter(
 	logger logging.Logger,
 	tracerProvider tracing.TracerProvider,
 	metricsProvider metrics.Provider,
+	client database.Client,
 	opts ...outbox.WriterOption,
 ) (*outbox.Writer, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
+	}
+
+	if client == nil {
+		return nil, outbox.ErrNilDatabaseClient
 	}
 
 	cfg.EnsureDefaults()
@@ -94,7 +100,7 @@ func NewWriter(
 		base = append(base, outbox.WithWriterMetricsProvider(metricsProvider))
 	}
 
-	return outbox.NewWriter(cfg.Relay.Dialect, append(base, opts...)...)
+	return outbox.NewWriter(client.Dialect(), append(base, opts...)...)
 }
 
 // NewRelay builds a Relay from configuration, including the publisher provider

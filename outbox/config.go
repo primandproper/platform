@@ -47,9 +47,13 @@ func (m ClaimMode) Valid() bool {
 }
 
 // RelayConfig configures a Relay.
+//
+// There is deliberately no Dialect field. The SQL a relay emits has to match
+// the database it runs against, and a config that names the dialect separately
+// makes the mismatch representable — so NewRelay reads it from the
+// database.Client instead, which is the one thing that cannot be wrong about
+// its own dialect.
 type RelayConfig struct {
-	// Dialect selects the SQL emitted; it must match the database.Client.
-	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
 	// TablePrefix is the namespace the outbox table carries. Empty renders
 	// outbox_messages; "ddb" renders ddb_outbox_messages.
 	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
@@ -77,15 +81,15 @@ type RelayConfig struct {
 
 var _ validation.ValidatableWithContext = (*RelayConfig)(nil)
 
-// EnsureDefaults fills unset knobs with the package defaults. SQLite is forced
-// to ClaimLease because it has no SKIP LOCKED.
+// EnsureDefaults fills unset knobs with the package defaults.
+//
+// The claim mode defaults to SKIP LOCKED here and is narrowed later by
+// resolveForDialect, once NewRelay has read the dialect off the client: a
+// dialect without SKIP LOCKED is forced to ClaimLease.
 func (cfg *RelayConfig) EnsureDefaults() {
 	cfg.table = tableFor(cfg.TablePrefix)
 	if cfg.ClaimMode == "" {
 		cfg.ClaimMode = ClaimSkipLocked
-	}
-	if !cfg.Dialect.SupportsSkipLocked() {
-		cfg.ClaimMode = ClaimLease
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = DefaultBatchSize
@@ -112,19 +116,9 @@ func (cfg *RelayConfig) EnsureDefaults() {
 // ValidateWithContext validates a RelayConfig.
 func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Dialect, validation.Required, validation.By(func(any) error {
-			if !cfg.Dialect.Valid() {
-				return platformerrors.Wrapf(dialect.ErrUnsupported, "outbox dialect %q", cfg.Dialect)
-			}
-
-			return nil
-		})),
 		validation.Field(&cfg.ClaimMode, validation.Required, validation.By(func(any) error {
 			if !cfg.ClaimMode.Valid() {
 				return platformerrors.Wrapf(ErrInvalidClaimMode, "claim mode %q", cfg.ClaimMode)
-			}
-			if cfg.ClaimMode == ClaimSkipLocked && !cfg.Dialect.SupportsSkipLocked() {
-				return platformerrors.Wrapf(ErrInvalidClaimMode, "dialect %q cannot skip locked rows", cfg.Dialect)
 			}
 
 			return nil
@@ -136,4 +130,23 @@ func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.ReapInterval, validation.Required, validation.Min(time.Second)),
 		validation.Field(&cfg.ReapBatchSize, validation.Required, validation.Min(1)),
 	)
+}
+
+// resolveForDialect narrows the claim mode to what d can actually do, and
+// reports a dialect this package cannot emit SQL for.
+//
+// It is separate from EnsureDefaults because the dialect is not the config's to
+// know: NewRelay reads it from the database.Client and applies it here.
+func (cfg *RelayConfig) resolveForDialect(d dialect.Dialect) error {
+	if !d.Valid() {
+		return platformerrors.Wrapf(dialect.ErrUnsupported, "outbox dialect %q", d)
+	}
+
+	// Only the SKIP LOCKED mode is downgraded. Rewriting any other value would
+	// also rewrite a typo, hiding it from the validation that runs next.
+	if cfg.ClaimMode == ClaimSkipLocked && !d.SupportsSkipLocked() {
+		cfg.ClaimMode = ClaimLease
+	}
+
+	return nil
 }

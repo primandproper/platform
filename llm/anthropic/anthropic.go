@@ -96,8 +96,6 @@ func (*anthropicProvider) Name() string {
 
 // Capabilities implements llm.Provider.
 //
-// PDFs is true because Anthropic accepts document blocks, but note that nothing
-// in the platform's surface reaches them yet: llm.Part has no document kind, so
 // the capability describes the provider rather than what a caller can currently
 // ask for.
 func (*anthropicProvider) Capabilities() llm.Capabilities {
@@ -105,7 +103,6 @@ func (*anthropicProvider) Capabilities() llm.Capabilities {
 		Streaming:        true,
 		Tools:            true,
 		Images:           true,
-		PDFs:             true,
 		Reasoning:        true,
 		StructuredOutput: true,
 	}

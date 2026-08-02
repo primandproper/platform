@@ -23,7 +23,7 @@ var _ analytics.EventReporter = &EventReporterMock{}
 //			AddUserFunc: func(ctx context.Context, userID string, properties map[string]any) error {
 //				panic("mock out the AddUser method")
 //			},
-//			CloseFunc: func()  {
+//			CloseFunc: func(ctx context.Context) error {
 //				panic("mock out the Close method")
 //			},
 //			EventOccurredFunc: func(ctx context.Context, event string, userID string, properties map[string]any) error {
@@ -43,7 +43,7 @@ type EventReporterMock struct {
 	AddUserFunc func(ctx context.Context, userID string, properties map[string]any) error
 
 	// CloseFunc mocks the Close method.
-	CloseFunc func()
+	CloseFunc func(ctx context.Context) error
 
 	// EventOccurredFunc mocks the EventOccurred method.
 	EventOccurredFunc func(ctx context.Context, event string, userID string, properties map[string]any) error
@@ -64,6 +64,8 @@ type EventReporterMock struct {
 		}
 		// Close holds details about calls to the Close method.
 		Close []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 		}
 		// EventOccurred holds details about calls to the EventOccurred method.
 		EventOccurred []struct {
@@ -135,16 +137,19 @@ func (mock *EventReporterMock) AddUserCalls() []struct {
 }
 
 // Close calls CloseFunc.
-func (mock *EventReporterMock) Close() {
+func (mock *EventReporterMock) Close(ctx context.Context) error {
 	if mock.CloseFunc == nil {
 		panic("EventReporterMock.CloseFunc: method is nil but EventReporter.Close was just called")
 	}
 	callInfo := struct {
-	}{}
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
 	mock.lockClose.Lock()
 	mock.calls.Close = append(mock.calls.Close, callInfo)
 	mock.lockClose.Unlock()
-	mock.CloseFunc()
+	return mock.CloseFunc(ctx)
 }
 
 // CloseCalls gets all the calls that were made to Close.
@@ -152,8 +157,10 @@ func (mock *EventReporterMock) Close() {
 //
 //	len(mockedEventReporter.CloseCalls())
 func (mock *EventReporterMock) CloseCalls() []struct {
+	Ctx context.Context
 } {
 	var calls []struct {
+		Ctx context.Context
 	}
 	mock.lockClose.RLock()
 	calls = mock.calls.Close

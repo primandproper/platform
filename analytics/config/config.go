@@ -34,11 +34,17 @@ type (
 		CircuitBreaker circuitbreakingcfg.Config `envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreaker" yaml:"circuitBreaker"`
 	}
 
-	// ProxySourcesConfig holds per-source analytics config for the analytics proxy gRPC service. Sources are codified: ios and web.
-	ProxySourcesConfig struct {
-		IOS *SourceConfig `env:",init" envPrefix:"IOS_" json:"ios" yaml:"ios"`
-		Web *SourceConfig `env:",init" envPrefix:"WEB_" json:"web" yaml:"web"`
-	}
+	// ProxySourcesConfig holds per-source analytics config for the analytics
+	// proxy gRPC service, keyed by source name.
+	//
+	// It is a map rather than a struct with a field per source: the set of
+	// sources belongs to the application, not to this module, and every source
+	// an application adds would otherwise be a breaking change to an exported
+	// struct here. Source names are free-form; "ios" and "web" are conventional,
+	// not special.
+	//
+	// Environment parsing populates it from PROXY_SOURCES_<NAME>_* keys.
+	ProxySourcesConfig map[string]*SourceConfig
 
 	// Config is the configuration structure.
 	Config struct {
@@ -57,23 +63,24 @@ func (cfg *SourceConfig) EnsureDefaults() {
 // EnsureDefaults sets sensible defaults for zero-valued fields.
 func (cfg *Config) EnsureDefaults() {
 	cfg.SourceConfig.EnsureDefaults()
-	if cfg.ProxySources.IOS != nil {
-		cfg.ProxySources.IOS.EnsureDefaults()
-	}
-	if cfg.ProxySources.Web != nil {
-		cfg.ProxySources.Web.EnsureDefaults()
+
+	for _, src := range cfg.ProxySources {
+		if src != nil {
+			src.EnsureDefaults()
+		}
 	}
 }
 
-// ToMap returns a map of source name to config for use by the multisource reporter. Skips nil entries.
+// ToMap returns the configured sources keyed by name, skipping nil entries. It
+// is what the multisource reporter consumes.
 func (p ProxySourcesConfig) ToMap() map[string]*SourceConfig {
-	m := make(map[string]*SourceConfig)
-	if p.IOS != nil {
-		m["ios"] = p.IOS
+	m := make(map[string]*SourceConfig, len(p))
+	for name, src := range p {
+		if src != nil {
+			m[name] = src
+		}
 	}
-	if p.Web != nil {
-		m["web"] = p.Web
-	}
+
 	return m
 }
 

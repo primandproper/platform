@@ -669,7 +669,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		}
 
 		filter := filtering.DefaultQueryFilter()
-		filter.MaxResponseSize = new(uint8(2))
+		filter.MaxResponseSize = new(uint16(2))
 
 		first, err := store.ListEndpoints(ctxFor(t), filter)
 		must.NoError(t, err)
@@ -705,7 +705,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		}
 
 		filter := filtering.DefaultQueryFilter()
-		filter.MaxResponseSize = new(uint8(2))
+		filter.MaxResponseSize = new(uint16(2))
 
 		first, err := store.ListAttempts(ctxFor(t), delivery.ID, filter)
 		must.NoError(t, err)

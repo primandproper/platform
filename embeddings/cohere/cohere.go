@@ -67,37 +67,58 @@ type embeddingResponse struct {
 	} `json:"embeddings"`
 }
 
-// GenerateEmbedding implements embeddings.Embedder.
+// GenerateEmbeddings implements embeddings.Embedder.
+//
+// Every input in a call must resolve to the same model, because Cohere embeds
+// one batch against one model; a batch spanning two models is rejected rather
+// than silently split, which would make the round-trip count depend on the
+// caller's ordering.
 //
 // Rate limiting: this method does not retry. A non-200 response (including 429 Too Many
 // Requests) is surfaced to the caller as an error carrying the status code; it is not
 // retried or backed off. Callers that want retry/backoff should wrap this call themselves
 // (e.g. with the platform's retry package).
-func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Input) (*embeddings.Embedding, error) {
+func (e *embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.Input) ([]*embeddings.Embedding, error) {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	if input == nil {
-		return nil, embeddings.ErrNilInput
+	if len(inputs) == 0 {
+		return []*embeddings.Embedding{}, nil
 	}
 
-	model := input.Model
-	if model == "" {
-		model = e.cfg.DefaultModel
+	texts := make([]string, len(inputs))
+	var model string
+	for i, input := range inputs {
+		if input == nil {
+			return nil, embeddings.ErrNilInput
+		}
+
+		texts[i] = input.Content
+
+		m := input.Model
+		if m == "" {
+			m = e.cfg.DefaultModel
+		}
+		if m == "" {
+			m = defaultModel
+		}
+
+		if i == 0 {
+			model = m
+		} else if m != model {
+			return nil, op.Error(errors.Newf("batch spans models %q and %q", model, m), "mixed models in one batch")
+		}
 	}
-	if model == "" {
-		model = defaultModel
-	}
+
+	op.Set("embedding.model", model).Set(keys.LengthKey, len(inputs))
 
 	baseURL := e.cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 
-	op.Set("embedding.model", model).Set(keys.LengthKey, len(input.Content))
-
 	reqBody := embeddingRequest{
-		Texts:          []string{input.Content},
+		Texts:          texts,
 		Model:          model,
 		InputType:      "search_document",
 		EmbeddingTypes: []string{"float"},
@@ -140,24 +161,45 @@ func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Inpu
 		return nil, op.Error(err, "decoding cohere embedding response")
 	}
 
-	if len(embResp.Embeddings.Float) == 0 {
-		err = errors.New("cohere embedding response contained no data")
-		return nil, op.Error(err, "empty response")
+	if len(embResp.Embeddings.Float) != len(inputs) {
+		return nil, op.Error(
+			errors.Newf("cohere returned %d embeddings for %d inputs", len(embResp.Embeddings.Float), len(inputs)),
+			"mismatched response length",
+		)
 	}
 
-	vector := toFloat32(embResp.Embeddings.Float[0])
+	now := time.Now()
+	out := make([]*embeddings.Embedding, len(inputs))
+	for i, raw := range embResp.Embeddings.Float {
+		vector := toFloat32(raw)
+		out[i] = &embeddings.Embedding{
+			Vector:      vector,
+			SourceText:  texts[i],
+			Model:       model,
+			Provider:    providerName,
+			Dimensions:  len(vector),
+			GeneratedAt: now,
+		}
+	}
 
-	op.Set("embedding.dimensions", len(vector))
+	op.Set("embedding.dimensions", out[0].Dimensions)
 
-	return &embeddings.Embedding{
-		Vector:      vector,
-		SourceText:  input.Content,
-		Model:       model,
-		Provider:    providerName,
-		Dimensions:  len(vector),
-		GeneratedAt: time.Now(),
-	}, nil
+	return out, nil
 }
+
+// GenerateEmbedding implements embeddings.Embedder by embedding one input.
+//
+// It is a thin wrapper over GenerateEmbeddings: Cohere's API takes an array,
+// so one input is simply a batch of one.
+func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Input) (*embeddings.Embedding, error) {
+	out, err := e.GenerateEmbeddings(ctx, []*embeddings.Input{input})
+	if err != nil {
+		return nil, err
+	}
+
+	return out[0], nil
+}
+
 
 func toFloat32(f64 []float64) []float32 {
 	out := make([]float32, len(f64))

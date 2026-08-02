@@ -82,7 +82,6 @@ func newTestRelay(t *testing.T, client database.Client, c *stubClock, opts ...fu
 	}
 
 	cfg := &RelayConfig{
-		Dialect:   dialect.SQLite,
 		ClaimMode: ClaimLease,
 		Backoff: retry.Config{
 			MaxAttempts:  3,
@@ -526,7 +525,7 @@ func TestNewRelay(T *testing.T) {
 	T.Run("rejects missing dependencies", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &RelayConfig{Dialect: dialect.SQLite}
+		cfg := &RelayConfig{}
 
 		_, err := NewRelay(t.Context(), nil, nil, nil)
 		test.Error(t, err)
@@ -543,22 +542,24 @@ func TestNewRelay(T *testing.T) {
 
 		_, err := NewRelay(
 			t.Context(),
-			&RelayConfig{Dialect: dialect.SQLite, TablePrefix: "outbox; DROP TABLE users"},
+			&RelayConfig{TablePrefix: "outbox; DROP TABLE users"},
 			newTestClient(t),
 			&mqmock.PublisherProviderMock{},
 		)
 		test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 	})
 
-	T.Run("rejects SKIP LOCKED on a dialect that cannot do it", func(t *testing.T) {
+	T.Run("downgrades SKIP LOCKED on a dialect that cannot do it", func(t *testing.T) {
 		t.Parallel()
 
-		// EnsureDefaults downgrades SQLite to ClaimLease rather than failing,
-		// since SKIP LOCKED is the default mode.
-		cfg := &RelayConfig{Dialect: dialect.SQLite, ClaimMode: ClaimSkipLocked}
-		cfg.EnsureDefaults()
+		// The downgrade happens once the dialect is known, which is when
+		// NewRelay reads it off the client — SQLite has no SKIP LOCKED.
+		cfg := &RelayConfig{ClaimMode: ClaimSkipLocked}
 
-		test.EqOp(t, ClaimLease, cfg.ClaimMode)
+		r, err := NewRelay(t.Context(), cfg, newTestClient(t), &mqmock.PublisherProviderMock{})
+		must.NoError(t, err)
+
+		test.EqOp(t, ClaimLease, r.cfg.ClaimMode)
 	})
 }
 
