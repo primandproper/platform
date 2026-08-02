@@ -145,13 +145,16 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 	}
 
 	if o.metricsProvider != nil {
+		// Both pools are open by this point, so every failure path below has to
+		// close them; returning early here leaked a fully-connected pool pair —
+		// the connect paths above already guard against exactly this.
 		if _, err = otelsql.RegisterDBStatsMetrics(readDB, otelsql.WithAttributes(semconv.DBSystemPostgreSQL)); err != nil {
-			return nil, errors.Wrap(err, "registering readDB stats metrics")
+			return nil, closePools(errors.Wrap(err, "registering readDB stats metrics"), readDB, writeDB, readPool, writePool)
 		}
 
 		if readDB != writeDB {
 			if _, err = otelsql.RegisterDBStatsMetrics(writeDB, otelsql.WithAttributes(semconv.DBSystemPostgreSQL)); err != nil {
-				return nil, errors.Wrap(err, "registering writeDB stats metrics")
+				return nil, closePools(errors.Wrap(err, "registering writeDB stats metrics"), readDB, writeDB, readPool, writePool)
 			}
 		}
 	}
@@ -173,6 +176,33 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 // database/sql handle from it. The pool is the single authority on connection
 // count and lifetime; the derived handle is capped to the same values so the two
 // layers can never disagree about the real limit.
+// closePools releases whatever was opened, for the failure paths after a
+// successful connect. Read and write may be the same handles when only one
+// connection string is configured, so each is closed once.
+func closePools(cause error, readDB, writeDB *sql.DB, readPool, writePool *pgxpool.Pool) error {
+	if readDB != nil {
+		if closeErr := readDB.Close(); closeErr != nil {
+			cause = errors.Join(cause, errors.Wrap(closeErr, "closing read database"))
+		}
+	}
+
+	if writeDB != nil && writeDB != readDB {
+		if closeErr := writeDB.Close(); closeErr != nil {
+			cause = errors.Join(cause, errors.Wrap(closeErr, "closing write database"))
+		}
+	}
+
+	if readPool != nil {
+		readPool.Close()
+	}
+
+	if writePool != nil && writePool != readPool {
+		writePool.Close()
+	}
+
+	return cause
+}
+
 func connect(ctx context.Context, connStr string, cfg database.ClientConfig, opts []otelsql.Option) (*pgxpool.Pool, *sql.DB, error) {
 	poolCfg, err := pgxpool.ParseConfig(connStr)
 	if err != nil {

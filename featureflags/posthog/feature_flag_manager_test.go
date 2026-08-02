@@ -17,6 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -222,7 +223,7 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, serviceName+"_evaluations", counterName)
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -243,9 +244,9 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case serviceName + "_evaluations":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case serviceName + "_errors":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+					return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -267,7 +268,7 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), nil
+				return metricstest.Int64Counter(t, "x"), nil
 			},
 			NewFloat64HistogramFunc: func(histName string, _ ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 				test.EqOp(t, serviceName+"_latency_ms", histName)

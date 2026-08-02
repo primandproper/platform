@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	"github.com/primandproper/platform-go/v9/secrets/gcp"
 	"github.com/primandproper/platform-go/v9/secrets/kubectl"
@@ -285,7 +286,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -302,7 +303,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -319,7 +320,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -340,7 +341,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -361,7 +362,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 

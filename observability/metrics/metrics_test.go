@@ -118,16 +118,6 @@ func TestNoopProvider(T *testing.T) {
 	})
 }
 
-func TestInt64CounterForTest(T *testing.T) {
-	T.Parallel()
-
-	T.Run("returns a counter", func(t *testing.T) {
-		t.Parallel()
-		c := Int64CounterForTest(t, "test_counter")
-		test.NotNil(t, c)
-	})
-}
-
 func TestImplWrappers(T *testing.T) {
 	T.Parallel()
 

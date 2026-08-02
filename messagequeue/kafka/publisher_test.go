@@ -13,6 +13,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
@@ -335,7 +336,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 			},
 		}
 
@@ -362,9 +363,9 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 		mp := &mockmetrics.ProviderMock{}
 		mp.NewInt64CounterFunc = func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			if len(mp.NewInt64CounterCalls()) >= 2 {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 			}
-			return metrics.Int64CounterForTest(t, "x"), nil
+			return metricstest.Int64Counter(t, "x"), nil
 		}
 
 		cfg := Config{
@@ -389,7 +390,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), nil
+				return metricstest.Int64Counter(t, "x"), nil
 			},
 			NewFloat64HistogramFunc: func(_ string, _ ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 				return &metrics.Float64HistogramImpl{}, errors.New("histogram error")

@@ -183,22 +183,22 @@ func (m *Manager[T]) Do(
 		return m.replay(ctx, op, existing, fingerprint)
 	}
 
-	value, err := m.invoke(ctx, op, storeKey, claimID, fn)
+	value, err := m.invoke(ctx, op, key, storeKey, claimID, fn)
 	if err != nil {
-		m.release(ctx, op, storeKey, claimID)
+		m.release(ctx, op, key, storeKey, claimID)
 
 		return nil, err
 	}
 
 	if !m.recordable(value) {
 		op.Set(recordedKey, false)
-		m.release(ctx, op, storeKey, claimID)
+		m.release(ctx, op, key, storeKey, claimID)
 		m.count(ctx, outcomeExecuted)
 
 		return &Result[T]{Value: value}, nil
 	}
 
-	m.commit(ctx, op, storeKey, claimID, fingerprint, value, ttl)
+	m.commit(ctx, op, key, storeKey, claimID, fingerprint, value, ttl)
 	m.count(ctx, outcomeExecuted)
 
 	return &Result[T]{Value: value}, nil
@@ -299,13 +299,14 @@ func (m *Manager[T]) claim(
 func (m *Manager[T]) invoke(
 	ctx context.Context,
 	op observability.Operation,
+	key Key,
 	storeKey, claimID string,
 	fn func(ctx context.Context) (*T, error),
 ) (value *T, err error) {
 	returned := false
 	defer func() {
 		if !returned {
-			m.release(ctx, op, storeKey, claimID)
+			m.release(ctx, op, key, storeKey, claimID)
 		}
 	}()
 
@@ -324,30 +325,40 @@ func (m *Manager[T]) invoke(
 func (m *Manager[T]) commit(
 	ctx context.Context,
 	op observability.Operation,
+	key Key,
 	storeKey, claimID string,
 	fingerprint Fingerprint,
 	value *T,
 	ttl time.Duration,
 ) {
-	if !m.stillOurs(ctx, op, storeKey, claimID, "completing") {
-		return
-	}
+	// Under the same lock the claim was taken with. "Only its owner may complete
+	// a claim" is a read followed by a write, and unlocked those two steps race
+	// the expiry of our own InFlightTTL: the check can pass, the claim can lapse
+	// and be retaken by another caller, and the write then lands on top of the
+	// new owner's record — handing them our result for work they are still doing.
+	if lockErr := m.locker.WithLock(ctx, m.lockKey(key), func(ctx context.Context) error {
+		if !m.stillOurs(ctx, op, storeKey, claimID, "completing") {
+			return nil
+		}
 
-	if err := m.store.Set(ctx, storeKey, &Record[T]{
-		CreatedAt:   m.clock.Now().UTC(),
-		Value:       value,
-		Fingerprint: fingerprint,
-		ClaimID:     claimID,
-		Version:     recordVersion,
-		State:       StateCompleted,
-	}, cache.WithExpiry(ttl)); err != nil {
+		if err := m.store.Set(ctx, storeKey, &Record[T]{
+			CreatedAt:   m.clock.Now().UTC(),
+			Value:       value,
+			Fingerprint: fingerprint,
+			ClaimID:     claimID,
+			Version:     recordVersion,
+			State:       StateCompleted,
+		}, cache.WithExpiry(ttl)); err != nil {
+			return err
+		}
+
+		op.Set(recordedKey, true)
+
+		return nil
+	}); lockErr != nil {
 		m.recordFailureCounter.Add(ctx, 1)
-		op.Acknowledge(err, "recording idempotency result")
-
-		return
+		op.Acknowledge(lockErr, "recording idempotency result")
 	}
-
-	op.Set(recordedKey, true)
 }
 
 // release drops our claim so the next attempt can run the work again.
@@ -355,13 +366,18 @@ func (m *Manager[T]) commit(
 // Best-effort by design: if it fails, the claim simply expires on its own
 // InFlightTTL and callers see ErrInFlight until then. Surfacing the failure
 // would replace a delay with an error for work that already completed.
-func (m *Manager[T]) release(ctx context.Context, op observability.Operation, storeKey, claimID string) {
-	if !m.stillOurs(ctx, op, storeKey, claimID, "releasing") {
-		return
-	}
+func (m *Manager[T]) release(ctx context.Context, op observability.Operation, key Key, storeKey, claimID string) {
+	// Under the same lock as commit, and for the same reason: an unlocked
+	// check-then-delete can delete a claim that stopped being ours between the
+	// two steps, which lets a second caller's in-flight work be re-entered.
+	if lockErr := m.locker.WithLock(ctx, m.lockKey(key), func(ctx context.Context) error {
+		if !m.stillOurs(ctx, op, storeKey, claimID, "releasing") {
+			return nil
+		}
 
-	if err := m.store.Delete(ctx, storeKey); err != nil {
-		op.Acknowledge(err, "releasing idempotency claim")
+		return m.store.Delete(ctx, storeKey)
+	}); lockErr != nil {
+		op.Acknowledge(lockErr, "releasing idempotency claim")
 	}
 }
 

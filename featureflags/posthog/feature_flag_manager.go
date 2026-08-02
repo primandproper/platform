@@ -1,6 +1,7 @@
 package posthog
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"time"
@@ -31,6 +32,7 @@ var (
 type (
 	// featureFlagManager implements the feature flag interface using OpenFeature.
 	featureFlagManager struct {
+		domain         string
 		o11y           observability.Observer
 		posthogClient  posthog.Client
 		ofClient       *openfeature.Client
@@ -113,6 +115,7 @@ func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBr
 	ofClient := openfeature.NewClient(domain)
 
 	ffm := &featureFlagManager{
+		domain:         domain,
 		posthogClient:  client,
 		ofClient:       ofClient,
 		circuitBreaker: circuitBreaker,
@@ -275,7 +278,25 @@ func (f *featureFlagManager) GetObjectValue(ctx context.Context, feature string,
 	return result, nil
 }
 
-// Close closes the PostHog client.
+// Close closes the PostHog client and detaches it from OpenFeature's
+// process-global provider registry.
+//
+// Each construction registers a uniquely-named provider in that registry, which
+// has no removal API — so without the swap below, every reload cycle left
+// another registration holding a reference to a client that had just been
+// closed, and the process accumulated them until it exited. Replacing the
+// registration with the no-op provider releases the client; the (small,
+// clientless) map entry itself is not removable and is left behind.
 func (f *featureFlagManager) Close() error {
-	return f.posthogClient.Close()
+	var errs []error
+
+	if err := openfeature.SetNamedProvider(f.domain, openfeature.NoopProvider{}); err != nil {
+		errs = append(errs, platformerrors.Wrap(err, "detaching OpenFeature provider"))
+	}
+
+	if err := f.posthogClient.Close(); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
 }

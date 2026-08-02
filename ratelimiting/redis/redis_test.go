@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
@@ -153,7 +154,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, redisName+"_allowed", counterName)
-				return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 			},
 		}
 
@@ -175,9 +176,9 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case redisName + "_allowed":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case redisName + "_rejected":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+					return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -202,9 +203,9 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case redisName + "_allowed", redisName + "_rejected":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case redisName + "_errors":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+					return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil

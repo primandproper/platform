@@ -79,7 +79,9 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 	if writeConnStr != "" {
 		writeDB, err = connect(writeConnStr, cfg, otelsqlOpts)
 		if err != nil {
-			return nil, errors.Wrap(err, "connecting to write mysql database")
+			// Don't leak the read side when the write side fails to construct —
+			// the same fix postgres already carries.
+			return nil, closePools(errors.Wrap(err, "connecting to write mysql database"), readDB, nil)
 		}
 	}
 
@@ -95,13 +97,15 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 	}
 
 	if o.metricsProvider != nil {
+		// Both pools are open by this point, so every failure path below has to
+		// close them; returning early here leaked a fully-connected pool pair.
 		if _, err = otelsql.RegisterDBStatsMetrics(readDB, otelsql.WithAttributes(semconv.DBSystemMySQL)); err != nil {
-			return nil, errors.Wrap(err, "registering readDB stats metrics")
+			return nil, closePools(errors.Wrap(err, "registering readDB stats metrics"), readDB, writeDB)
 		}
 
 		if readDB != writeDB {
 			if _, err = otelsql.RegisterDBStatsMetrics(writeDB, otelsql.WithAttributes(semconv.DBSystemMySQL)); err != nil {
-				return nil, errors.Wrap(err, "registering writeDB stats metrics")
+				return nil, closePools(errors.Wrap(err, "registering writeDB stats metrics"), readDB, writeDB)
 			}
 		}
 	}
@@ -115,6 +119,25 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 	}
 
 	return c, nil
+}
+
+// closePools releases whatever was opened, for the failure paths after a
+// successful connect. Read and write may be the same handle when only one
+// connection string is configured, so it is closed once.
+func closePools(cause error, readDB, writeDB *sql.DB) error {
+	if readDB != nil {
+		if closeErr := readDB.Close(); closeErr != nil {
+			cause = errors.Join(cause, errors.Wrap(closeErr, "closing read database"))
+		}
+	}
+
+	if writeDB != nil && writeDB != readDB {
+		if closeErr := writeDB.Close(); closeErr != nil {
+			cause = errors.Join(cause, errors.Wrap(closeErr, "closing write database"))
+		}
+	}
+
+	return cause
 }
 
 func connect(connStr string, cfg database.ClientConfig, opts []otelsql.Option) (*sql.DB, error) {

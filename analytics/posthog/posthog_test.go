@@ -11,6 +11,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
@@ -65,7 +66,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, name+"_events", counterName)
-				return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
 		}
 
@@ -83,9 +84,9 @@ func TestNewPostHogEventReporter(T *testing.T) {
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case name + "_events":
-					return metrics.Int64CounterForTest(t, "x"), nil
+					return metricstest.Int64Counter(t, "x"), nil
 				case name + "_errors":
-					return metrics.Int64CounterForTest(t, "x"), errors.New("arbitrary")
+					return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -109,7 +110,7 @@ func TestBreakerCallback(T *testing.T) {
 		cb := &mockCircuitBreaker.CircuitBreakerMock{SucceededFunc: func() {}}
 		cbk := &breakerCallback{
 			circuitBreaker: cb,
-			errorCounter:   metrics.Int64CounterForTest(t, name+"_errors"),
+			errorCounter:   metricstest.Int64Counter(t, name+"_errors"),
 			logger:         loggingnoop.NewLogger(),
 		}
 
@@ -122,7 +123,7 @@ func TestBreakerCallback(T *testing.T) {
 		t.Parallel()
 
 		cbk := &breakerCallback{
-			errorCounter: metrics.Int64CounterForTest(t, name+"_errors"),
+			errorCounter: metricstest.Int64Counter(t, name+"_errors"),
 			logger:       loggingnoop.NewLogger(),
 		}
 
@@ -135,7 +136,7 @@ func TestBreakerCallback(T *testing.T) {
 		cb := &mockCircuitBreaker.CircuitBreakerMock{FailedFunc: func() {}}
 		cbk := &breakerCallback{
 			circuitBreaker: cb,
-			errorCounter:   metrics.Int64CounterForTest(t, name+"_errors"),
+			errorCounter:   metricstest.Int64Counter(t, name+"_errors"),
 			logger:         loggingnoop.NewLogger(),
 		}
 
@@ -148,7 +149,7 @@ func TestBreakerCallback(T *testing.T) {
 		t.Parallel()
 
 		cbk := &breakerCallback{
-			errorCounter: metrics.Int64CounterForTest(t, name+"_errors"),
+			errorCounter: metricstest.Int64Counter(t, name+"_errors"),
 			logger:       loggingnoop.NewLogger(),
 		}
 

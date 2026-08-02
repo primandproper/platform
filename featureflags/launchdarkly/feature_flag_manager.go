@@ -1,6 +1,7 @@
 package launchdarkly
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"net/http"
@@ -34,6 +35,7 @@ var (
 type (
 	// featureFlagManager implements the feature flag interface using OpenFeature.
 	featureFlagManager struct {
+		domain         string
 		ldClient       *ld.LDClient
 		ofClient       *openfeature.Client
 		circuitBreaker circuitbreaking.CircuitBreaker
@@ -121,6 +123,7 @@ func NewFeatureFlagManager(cfg *Config, httpClient *http.Client, circuitBreaker 
 
 	ffm := &featureFlagManager{
 		o11y:           o11y,
+		domain:         domain,
 		circuitBreaker: circuitBreaker,
 		ldClient:       client,
 		ofClient:       ofClient,
@@ -282,7 +285,25 @@ func (f *featureFlagManager) GetObjectValue(ctx context.Context, feature string,
 	return result, nil
 }
 
-// Close closes the LaunchDarkly client.
+// Close closes the LaunchDarkly client and detaches it from OpenFeature's
+// process-global provider registry.
+//
+// Each construction registers a uniquely-named provider in that registry, which
+// has no removal API — so without the swap below, every reload cycle left
+// another registration holding a reference to a client that had just been
+// closed, and the process accumulated them until it exited. Replacing the
+// registration with the no-op provider releases the client; the (small,
+// clientless) map entry itself is not removable and is left behind.
 func (f *featureFlagManager) Close() error {
-	return f.ldClient.Close()
+	var errs []error
+
+	if err := openfeature.SetNamedProvider(f.domain, openfeature.NoopProvider{}); err != nil {
+		errs = append(errs, platformerrors.Wrap(err, "detaching OpenFeature provider"))
+	}
+
+	if err := f.ldClient.Close(); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
 }

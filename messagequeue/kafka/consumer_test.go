@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/segmentio/kafka-go"
@@ -264,7 +265,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            obs,
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(_ context.Context, data []byte) error {
 				handlerCalled = true
 				test.Eq(t, []byte("test-message"), data)
@@ -314,7 +315,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            obs,
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return handlerErr
@@ -361,7 +362,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return errors.New("handler failed")
@@ -405,7 +406,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
 				handlerCalls++
 				return handlerErr
@@ -452,7 +453,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		c := &kafkaConsumer{
 			reader:          reader,
 			o11y:            obs,
-			consumedCounter: metrics.Int64CounterForTest(t, t.Name()),
+			consumedCounter: metricstest.Int64Counter(t, t.Name()),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return nil
@@ -541,7 +542,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), errors.New("counter error")
+				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 			},
 		}
 

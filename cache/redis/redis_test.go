@@ -13,6 +13,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
 	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
@@ -116,7 +117,7 @@ func buildContainerBackedRedisConfig(t *testing.T) *Config {
 func TestNewRedisCache(T *testing.T) {
 	T.Parallel()
 
-	okCounter := func() metrics.Int64Counter { return metrics.Int64CounterForTest(T, "x") }
+	okCounter := func() metrics.Int64Counter { return metricstest.Int64Counter(T, "x") }
 
 	T.Run("with no addresses", func(t *testing.T) {
 		t.Parallel()
@@ -250,7 +251,7 @@ func TestNewRedisCache(T *testing.T) {
 
 		mp := &mockmetrics.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return metrics.Int64CounterForTest(t, "x"), nil
+				return metricstest.Int64Counter(t, "x"), nil
 			},
 			NewFloat64HistogramFunc: func(metricName string, _ ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 				test.EqOp(t, name+"_cache_latency_ms", metricName)
