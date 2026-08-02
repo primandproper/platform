@@ -12,7 +12,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -151,7 +151,7 @@ func (discardHistogram) Record(context.Context, float64, ...metric.RecordOption)
 // countingProvider is a metrics.Provider whose counters tally the increments
 // they are handed, keyed by instrument name.
 type countingProvider struct {
-	*mockmetrics.ProviderMock
+	*metricsmock.ProviderMock
 
 	totals map[string]int64
 	mu     sync.Mutex
@@ -159,9 +159,9 @@ type countingProvider struct {
 
 func newCountingProvider() *countingProvider {
 	p := &countingProvider{totals: map[string]int64{}}
-	p.ProviderMock = &mockmetrics.ProviderMock{
+	p.ProviderMock = &metricsmock.ProviderMock{
 		NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-			return &mockmetrics.Int64CounterMock{
+			return &metricsmock.Int64CounterMock{
 				AddFunc: func(_ context.Context, incr int64, _ ...metric.AddOption) {
 					p.mu.Lock()
 					defer p.mu.Unlock()
@@ -275,13 +275,13 @@ func TestNewRecorder(T *testing.T) {
 			t.Run(failing, func(t *testing.T) {
 				t.Parallel()
 
-				mp := &mockmetrics.ProviderMock{
+				mp := &metricsmock.ProviderMock{
 					NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 						if name == failing {
 							return nil, platformerrors.New("instrument unavailable")
 						}
 
-						return &mockmetrics.Int64CounterMock{}, nil
+						return &metricsmock.Int64CounterMock{}, nil
 					},
 				}
 
@@ -294,9 +294,9 @@ func TestNewRecorder(T *testing.T) {
 		t.Run("eventcapture_flush_latency_ms", func(t *testing.T) {
 			t.Parallel()
 
-			mp := &mockmetrics.ProviderMock{
+			mp := &metricsmock.ProviderMock{
 				NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-					return &mockmetrics.Int64CounterMock{}, nil
+					return &metricsmock.Int64CounterMock{}, nil
 				},
 				NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 					return nil, platformerrors.New("instrument unavailable")

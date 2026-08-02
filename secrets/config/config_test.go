@@ -8,7 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	"github.com/primandproper/platform-go/v9/secrets/gcp"
 	"github.com/primandproper/platform-go/v9/secrets/kubectl"
 	"github.com/primandproper/platform-go/v9/secrets/ssm"
@@ -284,7 +284,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 	T.Run("nil config with metrics error", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
@@ -301,7 +301,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 	T.Run("env provider with metrics error", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
@@ -318,7 +318,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 	T.Run("gcp provider with metrics error", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
@@ -339,7 +339,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 	T.Run("ssm provider with metrics error", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
@@ -360,7 +360,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 	T.Run("kubectl provider with metrics error", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -112,7 +112,7 @@ func TestIndexManager_Index(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -159,7 +159,7 @@ func TestIndexManager_Index(T *testing.T) {
 			_, _ = w.Write([]byte(`{"createdAt":"2021-01-01T00:00:00Z","objectID":"123","taskID":123}`))
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -185,7 +185,7 @@ func TestIndexManager_Index(T *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -204,7 +204,7 @@ func TestIndexManager_Search(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -220,7 +220,7 @@ func TestIndexManager_Search(T *testing.T) {
 	T.Run("with empty query", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 		}
 
@@ -236,7 +236,7 @@ func TestIndexManager_Search(T *testing.T) {
 	T.Run("with valid query but invalid credentials", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -258,7 +258,7 @@ func TestIndexManager_Search(T *testing.T) {
 			_, _ = w.Write([]byte(`{"hits":[{"objectID":"123"}],"nbHits":1,"page":0,"nbPages":1,"hitsPerPage":20,"processingTimeMS":1}`))
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -285,7 +285,7 @@ func TestIndexManager_Search(T *testing.T) {
 			_, _ = w.Write([]byte(`{"hits":[],"nbHits":0,"page":0,"nbPages":0,"hitsPerPage":20,"processingTimeMS":1}`))
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -308,7 +308,7 @@ func TestIndexManager_Search(T *testing.T) {
 			_, _ = w.Write([]byte(`{"hits":[{"objectID":"abc","name":"first"},{"objectID":"def","name":"second"},{"objectID":"ghi","name":"third"}],"nbHits":3,"page":0,"nbPages":1,"hitsPerPage":20,"processingTimeMS":1}`))
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -336,7 +336,7 @@ func TestIndexManager_Search(T *testing.T) {
 			_, _ = w.Write([]byte(`{"hits":[{"objectID":"123","name":["not","a","string"]}],"nbHits":1,"page":0,"nbPages":1,"hitsPerPage":20,"processingTimeMS":1}`))
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 		}
 
@@ -361,7 +361,7 @@ func TestIndexManager_Search(T *testing.T) {
 			_, _ = w.Write([]byte(`{"hits":[{"name":"example"}],"nbHits":1,"page":0,"nbPages":1,"hitsPerPage":20,"processingTimeMS":1}`))
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -383,7 +383,7 @@ func TestIndexManager_Delete(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -398,7 +398,7 @@ func TestIndexManager_Delete(T *testing.T) {
 	T.Run("with invalid credentials", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -419,7 +419,7 @@ func TestIndexManager_Delete(T *testing.T) {
 			_, _ = w.Write([]byte(`{"deletedAt":"2021-01-01T00:00:00Z","taskID":123}`))
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -439,7 +439,7 @@ func TestIndexManager_Wipe(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -454,7 +454,7 @@ func TestIndexManager_Wipe(T *testing.T) {
 	T.Run("with invalid credentials", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -475,7 +475,7 @@ func TestIndexManager_Wipe(T *testing.T) {
 			_, _ = w.Write([]byte(`{"updatedAt":"2021-01-01T00:00:00Z","taskID":123}`))
 		})
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}

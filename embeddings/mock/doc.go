@@ -1,7 +1,7 @@
-// Package mock provides moq-generated mock implementations of the embeddings
+// Package embeddingsmock provides moq-generated mock implementations of the embeddings
 // package's interfaces.
-package mock
+package embeddingsmock
 
 // Regenerate the moq mocks via `go generate ./embeddings/mock/`.
 
-//go:generate go tool github.com/matryer/moq -out embedder_mock.go -pkg mock -rm -fmt goimports .. Embedder:EmbedderMock
+//go:generate go tool github.com/matryer/moq -out embedder_mock.go -pkg embeddingsmock -rm -fmt goimports .. Embedder:EmbedderMock

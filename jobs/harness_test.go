@@ -10,11 +10,11 @@ import (
 	"github.com/primandproper/platform-go/v9/clock"
 	clockmock "github.com/primandproper/platform-go/v9/clock/mock"
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	mockmq "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	lognoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
 	"github.com/shoenig/test/must"
@@ -58,7 +58,7 @@ func newFakeQueue() *fakeQueue {
 		stopped:       make(chan struct{}),
 	}
 
-	consumer := &mockmq.ConsumerMock{
+	consumer := &messagequeuemock.ConsumerMock{
 		ConsumeFunc: func(ctx context.Context, errs chan<- error) {
 			defer close(q.stopped)
 
@@ -84,7 +84,7 @@ func newFakeQueue() *fakeQueue {
 		},
 	}
 
-	q.provider = &mockmq.ConsumerProviderMock{
+	q.provider = &messagequeuemock.ConsumerProviderMock{
 		CloseFunc: func() {},
 		NewConsumerFunc: func(_ context.Context, _ string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
 			q.mu.Lock()
@@ -190,11 +190,11 @@ func (c *counterSpy) count(name string) int64 {
 func (c *counterSpy) provider() metrics.Provider {
 	fallback := metricsnoop.NewMetricsProvider()
 
-	return &mockmetrics.ProviderMock{
+	return &metricsmock.ProviderMock{
 		NewFloat64HistogramFunc:   fallback.NewFloat64Histogram,
 		NewInt64UpDownCounterFunc: fallback.NewInt64UpDownCounter,
 		NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-			return &mockmetrics.Int64CounterMock{
+			return &metricsmock.Int64CounterMock{
 				AddFunc: func(context.Context, int64, ...metric.AddOption) { c.add(name, 1) },
 			}, nil
 		},
@@ -213,7 +213,7 @@ var errInstrument = errors.New("meter is misconfigured")
 func failingInstruments(failOn string) metrics.Provider {
 	fallback := metricsnoop.NewMetricsProvider()
 
-	return &mockmetrics.ProviderMock{
+	return &metricsmock.ProviderMock{
 		NewInt64CounterFunc: func(name string, options ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			if name == failOn {
 				return nil, errInstrument

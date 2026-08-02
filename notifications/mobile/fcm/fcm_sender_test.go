@@ -11,7 +11,7 @@ import (
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	firebase "firebase.google.com/go/v4"
 	"github.com/shoenig/test"
@@ -132,7 +132,7 @@ func TestNewSender(T *testing.T) {
 		path := filepath.Join(dir, "creds.json")
 		must.NoError(t, os.WriteFile(path, []byte(fakeServiceAccountJSON), 0o600))
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, o11yName+"_sends", counterName)
 				return (*metrics.Int64CounterImpl)(nil), errors.New("counter error")
@@ -155,7 +155,7 @@ func TestNewSender(T *testing.T) {
 		path := filepath.Join(dir, "creds.json")
 		must.NoError(t, os.WriteFile(path, []byte(fakeServiceAccountJSON), 0o600))
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case o11yName + "_sends":

@@ -11,7 +11,7 @@ import (
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	mqmock "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	"github.com/primandproper/platform-go/v9/retry"
 
 	"github.com/shoenig/test"
@@ -69,12 +69,12 @@ func newTestRelay(t *testing.T, client database.Client, c *stubClock, opts ...fu
 
 	rec := &recordingPublisher{}
 
-	publisher := &mqmock.PublisherMock{
+	publisher := &messagequeuemock.PublisherMock{
 		PublishFunc: rec.Publish,
 		StopFunc:    func() {},
 	}
 
-	provider := &mqmock.PublisherProviderMock{
+	provider := &messagequeuemock.PublisherProviderMock{
 		NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 			return publisher, nil
 		},
@@ -530,7 +530,7 @@ func TestNewRelay(T *testing.T) {
 		_, err := NewRelay(t.Context(), nil, nil, nil)
 		test.Error(t, err)
 
-		_, err = NewRelay(t.Context(), cfg, nil, &mqmock.PublisherProviderMock{})
+		_, err = NewRelay(t.Context(), cfg, nil, &messagequeuemock.PublisherProviderMock{})
 		test.ErrorIs(t, err, ErrNilDatabaseClient)
 
 		_, err = NewRelay(t.Context(), cfg, newTestClient(t), nil)
@@ -544,7 +544,7 @@ func TestNewRelay(T *testing.T) {
 			t.Context(),
 			&RelayConfig{TablePrefix: "outbox; DROP TABLE users"},
 			newTestClient(t),
-			&mqmock.PublisherProviderMock{},
+			&messagequeuemock.PublisherProviderMock{},
 		)
 		test.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 	})
@@ -556,7 +556,7 @@ func TestNewRelay(T *testing.T) {
 		// NewRelay reads it off the client — SQLite has no SKIP LOCKED.
 		cfg := &RelayConfig{ClaimMode: ClaimSkipLocked}
 
-		r, err := NewRelay(t.Context(), cfg, newTestClient(t), &mqmock.PublisherProviderMock{})
+		r, err := NewRelay(t.Context(), cfg, newTestClient(t), &messagequeuemock.PublisherProviderMock{})
 		must.NoError(t, err)
 
 		test.EqOp(t, ClaimLease, r.cfg.ClaimMode)

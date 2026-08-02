@@ -5,7 +5,7 @@ import (
 
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -25,11 +25,11 @@ var errInstrument = platformerrors.New("instrument unavailable")
 // saga_instances_stuck would run indefinitely with the one counter anybody
 // alerts on silently absent. These tests assert that each of those checks is
 // actually wired, one instrument at a time.
-func failingInstrumentProvider(failing string) *mockmetrics.ProviderMock {
+func failingInstrumentProvider(failing string) *metricsmock.ProviderMock {
 	// Delegated to rather than reimplemented, so only the failure is a double.
 	noop := metrics.EnsureMetricsProvider(nil)
 
-	return &mockmetrics.ProviderMock{
+	return &metricsmock.ProviderMock{
 		NewInt64CounterFunc: func(name string, opts ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			if name == failing {
 				return nil, errInstrument

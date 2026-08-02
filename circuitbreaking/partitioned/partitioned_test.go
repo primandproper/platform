@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	cbmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 
 	"github.com/shoenig/test"
 )
@@ -15,14 +15,14 @@ func TestNewKeyedCircuitBreaker(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		x := NewKeyedCircuitBreaker(&cbmock.CircuitBreakerMock{}, nil)
+		x := NewKeyedCircuitBreaker(&circuitbreakingmock.CircuitBreakerMock{}, nil)
 		test.NotNil(t, x)
 	})
 
 	T.Run("with nil breakers falls back to global for every key", func(t *testing.T) {
 		t.Parallel()
 
-		global := &cbmock.CircuitBreakerMock{}
+		global := &circuitbreakingmock.CircuitBreakerMock{}
 		x := NewKeyedCircuitBreaker(global, nil)
 
 		test.True(t, x.For("anything") == global)
@@ -35,8 +35,8 @@ func TestKeyedBreaker_For(T *testing.T) {
 	T.Run("returns dedicated breaker for a registered key", func(t *testing.T) {
 		t.Parallel()
 
-		dedicated := &cbmock.CircuitBreakerMock{}
-		global := &cbmock.CircuitBreakerMock{}
+		dedicated := &circuitbreakingmock.CircuitBreakerMock{}
+		global := &circuitbreakingmock.CircuitBreakerMock{}
 
 		x := NewKeyedCircuitBreaker(global, map[string]circuitbreaking.CircuitBreaker{"123": dedicated})
 
@@ -46,8 +46,8 @@ func TestKeyedBreaker_For(T *testing.T) {
 	T.Run("falls back to global for an unregistered key", func(t *testing.T) {
 		t.Parallel()
 
-		dedicated := &cbmock.CircuitBreakerMock{}
-		global := &cbmock.CircuitBreakerMock{}
+		dedicated := &circuitbreakingmock.CircuitBreakerMock{}
+		global := &circuitbreakingmock.CircuitBreakerMock{}
 
 		x := NewKeyedCircuitBreaker(global, map[string]circuitbreaking.CircuitBreaker{"123": dedicated})
 
@@ -59,10 +59,10 @@ func TestKeyedBreaker_For(T *testing.T) {
 	T.Run("breaks one key in isolation", func(t *testing.T) {
 		t.Parallel()
 
-		broken := &cbmock.CircuitBreakerMock{
+		broken := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
-		global := &cbmock.CircuitBreakerMock{
+		global := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 		}
 

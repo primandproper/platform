@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	cbmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	"github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
@@ -146,7 +146,7 @@ func TestUploader_Open(T *testing.T) {
 
 		ctx := t.Context()
 
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -168,7 +168,7 @@ func TestUploader_Open(T *testing.T) {
 		b := memblob.OpenBucket(&memblob.Options{})
 		must.NoError(t, b.WriteAll(ctx, exampleFilename, expectedContent, nil))
 
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -205,7 +205,7 @@ func TestUploader_Save(T *testing.T) {
 
 		ctx := t.Context()
 
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -220,7 +220,7 @@ func TestUploader_Save(T *testing.T) {
 
 		ctx := t.Context()
 
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -295,7 +295,7 @@ func TestUploader_Delete(T *testing.T) {
 
 		ctx := t.Context()
 
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -338,7 +338,7 @@ func TestUploader_Exists(T *testing.T) {
 
 		ctx := t.Context()
 
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -418,7 +418,7 @@ func TestUploader_OpenRange(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &cbmock.CircuitBreakerMock{CannotProceedFunc: func() bool { return true }}
+		cb := &circuitbreakingmock.CircuitBreakerMock{CannotProceedFunc: func() bool { return true }}
 		u := newTestUploader(t, memblob.OpenBucket(&memblob.Options{}), observability.NewObserverForTest(t.Name()), cb)
 
 		r, err := u.OpenRange(ctx, "anything.txt", 0, -1)
@@ -465,7 +465,7 @@ func TestUploader_Attributes(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &cbmock.CircuitBreakerMock{CannotProceedFunc: func() bool { return true }}
+		cb := &circuitbreakingmock.CircuitBreakerMock{CannotProceedFunc: func() bool { return true }}
 		u := newTestUploader(t, memblob.OpenBucket(&memblob.Options{}), observability.NewObserverForTest(t.Name()), cb)
 
 		attrs, err := u.Attributes(ctx, "anything.txt")
@@ -539,7 +539,7 @@ func TestUploader_List(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &cbmock.CircuitBreakerMock{CannotProceedFunc: func() bool { return true }}
+		cb := &circuitbreakingmock.CircuitBreakerMock{CannotProceedFunc: func() bool { return true }}
 		u := newTestUploader(t, memblob.OpenBucket(&memblob.Options{}), observability.NewObserverForTest(t.Name()), cb)
 
 		var gotErr error
@@ -570,7 +570,7 @@ func TestUploader_SignedURL(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &cbmock.CircuitBreakerMock{CannotProceedFunc: func() bool { return true }}
+		cb := &circuitbreakingmock.CircuitBreakerMock{CannotProceedFunc: func() bool { return true }}
 		u := newTestUploader(t, memblob.OpenBucket(&memblob.Options{}), observability.NewObserverForTest(t.Name()), cb)
 
 		signedURL, err := u.SignedURL(ctx, "greeting.txt", &uploads.SignedURLOptions{Expiry: 0})
@@ -604,7 +604,7 @@ func TestUploader_Save_copyError(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -623,7 +623,7 @@ func TestUploader_Save_copyError(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -650,7 +650,7 @@ func TestUploader_Exists_error(T *testing.T) {
 		b := memblob.OpenBucket(&memblob.Options{})
 		must.NoError(t, b.Close())
 
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}

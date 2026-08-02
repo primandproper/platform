@@ -10,7 +10,7 @@ import (
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
@@ -175,7 +175,7 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 			},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},
@@ -199,7 +199,7 @@ func TestConfig_NewLLMProvider(T *testing.T) {
 			},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
 			},

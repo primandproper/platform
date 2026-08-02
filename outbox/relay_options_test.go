@@ -11,10 +11,10 @@ import (
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	databasemock "github.com/primandproper/platform-go/v9/database/mock"
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	mqmock "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/retry"
@@ -70,7 +70,7 @@ func TestRelayOptions(T *testing.T) {
 			t.Context(),
 			&RelayConfig{ClaimMode: ClaimLease},
 			newTestClient(t),
-			&mqmock.PublisherProviderMock{},
+			&messagequeuemock.PublisherProviderMock{},
 			opts...,
 		)
 		must.NoError(t, err)
@@ -111,7 +111,7 @@ func TestRelayConfig_ValidateWithContext(T *testing.T) {
 			&databasemock.ClientMock{
 				DialectFunc: func() dialect.Dialect { return "cassandra" },
 			},
-			&mqmock.PublisherProviderMock{},
+			&messagequeuemock.PublisherProviderMock{},
 		)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "cassandra")
@@ -142,7 +142,7 @@ func TestRelayConfig_ValidateWithContext(T *testing.T) {
 			t.Context(),
 			cfg,
 			newTestClient(t),
-			&mqmock.PublisherProviderMock{},
+			&messagequeuemock.PublisherProviderMock{},
 		)
 		must.NoError(t, err)
 		test.EqOp(t, ClaimLease, r.cfg.ClaimMode)
@@ -159,7 +159,7 @@ func TestRelayConfig_ValidateWithContext(T *testing.T) {
 			t.Context(),
 			cfg,
 			newTestClient(t),
-			&mqmock.PublisherProviderMock{},
+			&messagequeuemock.PublisherProviderMock{},
 		)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "validating outbox relay config")
@@ -173,7 +173,7 @@ func failingMetricsProvider(failOn string) metrics.Provider {
 	base := metricsnoop.NewMetricsProvider()
 	boom := errors.New("instrument unavailable")
 
-	return &mockmetrics.ProviderMock{
+	return &metricsmock.ProviderMock{
 		NewInt64CounterFunc: func(name string, opts ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			if name == failOn {
 				return nil, boom
@@ -226,7 +226,7 @@ func TestNewRelay_instrumentFailures(T *testing.T) {
 				t.Context(),
 				&RelayConfig{ClaimMode: ClaimLease},
 				newTestClient(t),
-				&mqmock.PublisherProviderMock{},
+				&messagequeuemock.PublisherProviderMock{},
 				WithRelayMetricsProvider(failingMetricsProvider(fmt.Sprintf("%s_%s", serviceName, tc.instrument))),
 			)
 
@@ -329,11 +329,11 @@ func TestRelay_publisherFor(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		provider := &mqmock.PublisherProviderMock{
+		provider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(context.Context, string) (messagequeue.Publisher, error) {
 				calls++
 
-				return &mqmock.PublisherMock{StopFunc: func() {}}, nil
+				return &messagequeuemock.PublisherMock{StopFunc: func() {}}, nil
 			},
 			CloseFunc: func() {},
 		}
@@ -353,7 +353,7 @@ func TestRelay_publisherFor(T *testing.T) {
 	T.Run("surfaces a provider that cannot build a publisher", func(t *testing.T) {
 		t.Parallel()
 
-		provider := &mqmock.PublisherProviderMock{
+		provider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(context.Context, string) (messagequeue.Publisher, error) {
 				return nil, errors.New("broker unreachable")
 			},
@@ -372,7 +372,7 @@ func TestRelay_publisherFor(T *testing.T) {
 		t.Parallel()
 
 		client := newTestClient(t)
-		provider := &mqmock.PublisherProviderMock{
+		provider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(context.Context, string) (messagequeue.Publisher, error) {
 				return nil, errors.New("broker unreachable")
 			},

@@ -16,7 +16,7 @@ import (
 	redislock "github.com/primandproper/platform-go/v9/distributedlock/redis"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -233,10 +233,10 @@ func TestNewLocker(T *testing.T) {
 			},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "dlock-breaker_circuit_breaker_tripped", counterName)
-				return &mockmetrics.Int64CounterMock{}, fmt.Errorf("counter init failure")
+				return &metricsmock.Int64CounterMock{}, fmt.Errorf("counter init failure")
 			},
 		}
 
@@ -370,10 +370,10 @@ func TestNewScopedLocker(T *testing.T) {
 			},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "dlock-scoped-breaker_circuit_breaker_tripped", counterName)
-				return &mockmetrics.Int64CounterMock{}, fmt.Errorf("counter init failure")
+				return &metricsmock.Int64CounterMock{}, fmt.Errorf("counter init failure")
 			},
 		}
 

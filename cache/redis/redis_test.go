@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/cache"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/testutils/containers/redistest"
@@ -40,7 +40,7 @@ func gobEncodeExample(t *testing.T, e *example) string {
 	return buf.String()
 }
 
-func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *mockcircuitbreaking.CircuitBreakerMock, *observability.RecordingObserver) {
+func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *circuitbreakingmock.CircuitBreakerMock, *observability.RecordingObserver) {
 	t.Helper()
 
 	mp := metricsnoop.NewMetricsProvider()
@@ -64,7 +64,7 @@ func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *m
 	must.NoError(t, err)
 
 	client := &redisClientMock{}
-	cb := &mockcircuitbreaking.CircuitBreakerMock{}
+	cb := &circuitbreakingmock.CircuitBreakerMock{}
 	obs := observability.NewRecordingObserver()
 
 	return &redisCacheImpl[example]{
@@ -92,9 +92,9 @@ type counterResult struct {
 // newCounterProviderMock returns a metrics.Provider mock whose NewInt64Counter
 // implementation looks up the result keyed on the counter name. Unknown names
 // fail the test.
-func newCounterProviderMock(t *testing.T, results map[string]counterResult) *mockmetrics.ProviderMock {
+func newCounterProviderMock(t *testing.T, results map[string]counterResult) *metricsmock.ProviderMock {
 	t.Helper()
-	return &mockmetrics.ProviderMock{
+	return &metricsmock.ProviderMock{
 		NewInt64CounterFunc: func(metricName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			res, ok := results[metricName]
 			if !ok {
@@ -249,7 +249,7 @@ func TestNewRedisCache(T *testing.T) {
 		h, histErr := noopMP.NewFloat64Histogram("test")
 		must.NoError(t, histErr)
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), nil
 			},
@@ -1498,7 +1498,7 @@ func TestWithScanPageSize(T *testing.T) {
 	// scanCount drives a one-page prefix deletion and reports the COUNT the
 	// cache actually handed to SCAN, so these assert the option reaches the
 	// wire rather than just landing in a struct field.
-	scanCount := func(t *testing.T, impl *redisCacheImpl[example], client *redisClientMock, cb *mockcircuitbreaking.CircuitBreakerMock) int64 {
+	scanCount := func(t *testing.T, impl *redisCacheImpl[example], client *redisClientMock, cb *circuitbreakingmock.CircuitBreakerMock) int64 {
 		t.Helper()
 
 		ctx := t.Context()

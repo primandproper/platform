@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	mockCircuitBreaker "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/identifiers"
 	"github.com/primandproper/platform-go/v9/observability"
@@ -12,7 +12,7 @@ import (
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -63,7 +63,7 @@ func TestNewEventReporter(T *testing.T) {
 	T.Run("with error creating event counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, name+"_events", counterName)
 				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
@@ -80,7 +80,7 @@ func TestNewEventReporter(T *testing.T) {
 	T.Run("with error creating error counter", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case name + "_events":
@@ -107,7 +107,7 @@ func TestBreakerCallback(T *testing.T) {
 	T.Run("Success drives the circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockCircuitBreaker.CircuitBreakerMock{SucceededFunc: func() {}}
+		cb := &circuitbreakingmock.CircuitBreakerMock{SucceededFunc: func() {}}
 		cbk := &breakerCallback{
 			circuitBreaker: cb,
 			errorCounter:   metricstest.Int64Counter(t, name+"_errors"),
@@ -133,7 +133,7 @@ func TestBreakerCallback(T *testing.T) {
 	T.Run("Failure records the error and trips the circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockCircuitBreaker.CircuitBreakerMock{FailedFunc: func() {}}
+		cb := &circuitbreakingmock.CircuitBreakerMock{FailedFunc: func() {}}
 		cbk := &breakerCallback{
 			circuitBreaker: cb,
 			errorCounter:   metricstest.Int64Counter(t, name+"_errors"),

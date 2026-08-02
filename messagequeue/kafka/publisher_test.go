@@ -8,13 +8,13 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/encoding"
-	mockencoding "github.com/primandproper/platform-go/v9/encoding/mock"
+	encodingmock "github.com/primandproper/platform-go/v9/encoding/mock"
 	"github.com/primandproper/platform-go/v9/messagequeue"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
 	"github.com/segmentio/kafka-go"
@@ -178,7 +178,7 @@ func Test_kafkaPublisher_Publish(T *testing.T) {
 		ctx := t.Context()
 		pub, _, _ := buildTestPublisher(t)
 
-		enc := &mockencoding.ClientEncoderMock{
+		enc := &encodingmock.ClientEncoderMock{
 			EncodeFunc: func(_ context.Context, _ io.Writer, _ any) error {
 				return errors.New("encode failed")
 			},
@@ -334,7 +334,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 
 		ctx := t.Context()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
 			},
@@ -360,7 +360,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 
 		ctx := t.Context()
 
-		mp := &mockmetrics.ProviderMock{}
+		mp := &metricsmock.ProviderMock{}
 		mp.NewInt64CounterFunc = func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			if len(mp.NewInt64CounterCalls()) >= 2 {
 				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
@@ -388,7 +388,7 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 
 		ctx := t.Context()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricstest.Int64Counter(t, "x"), nil
 			},

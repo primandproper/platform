@@ -11,7 +11,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/jobs"
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	mockmq "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	lognoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/retry"
@@ -142,7 +142,7 @@ func TestNewPool(T *testing.T) {
 		t.Parallel()
 
 		expected := errors.New("no broker")
-		provider := &mockmq.ConsumerProviderMock{
+		provider := &messagequeuemock.ConsumerProviderMock{
 			NewConsumerFunc: func(context.Context, string, messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
 				return nil, expected
 			},
@@ -188,7 +188,7 @@ func TestNewPool(T *testing.T) {
 
 				// The constructor failed before subscribing, so nothing was left
 				// consuming a topic the caller believes it never attached to.
-				test.SliceEmpty(t, q.provider.(*mockmq.ConsumerProviderMock).NewConsumerCalls())
+				test.SliceEmpty(t, q.provider.(*messagequeuemock.ConsumerProviderMock).NewConsumerCalls())
 			})
 		}
 	})
@@ -748,9 +748,9 @@ func TestNewTopicDeadLetter(T *testing.T) {
 		t.Parallel()
 
 		published := make(chan any, 1)
-		provider := &mockmq.PublisherProviderMock{
+		provider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(context.Context, string) (messagequeue.Publisher, error) {
-				return &mockmq.PublisherMock{
+				return &messagequeuemock.PublisherMock{
 					PublishFunc: func(_ context.Context, data any) error {
 						published <- data
 
@@ -783,7 +783,7 @@ func TestNewTopicDeadLetter(T *testing.T) {
 	T.Run("with empty topic", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := jobs.NewTopicDeadLetter(t.Context(), &mockmq.PublisherProviderMock{}, "")
+		_, err := jobs.NewTopicDeadLetter(t.Context(), &messagequeuemock.PublisherProviderMock{}, "")
 		test.ErrorIs(t, err, messagequeue.ErrEmptyTopicName)
 	})
 
@@ -791,7 +791,7 @@ func TestNewTopicDeadLetter(T *testing.T) {
 		t.Parallel()
 
 		expected := platformerrors.New("no broker")
-		provider := &mockmq.PublisherProviderMock{
+		provider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(context.Context, string) (messagequeue.Publisher, error) {
 				return nil, expected
 			},

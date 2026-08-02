@@ -8,7 +8,7 @@ import (
 	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
 	"github.com/shoenig/test"
@@ -111,10 +111,10 @@ func TestNewKeyedCircuitBreakerFromConfig(T *testing.T) {
 
 		ctx := t.Context()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Base.Name), counterName)
-				return &mockmetrics.Int64CounterMock{}, errors.New("arbitrary")
+				return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 			},
 		}
 
@@ -135,14 +135,14 @@ func TestNewKeyedCircuitBreakerFromConfig(T *testing.T) {
 		// the global breaker creates 3 counters successfully; fail the next one so the
 		// per-key breaker build errors.
 		var calls int
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				calls++
 				if calls > 3 {
-					return &mockmetrics.Int64CounterMock{}, errors.New("arbitrary")
+					return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 				}
 
-				return &mockmetrics.Int64CounterMock{}, nil
+				return &metricsmock.Int64CounterMock{}, nil
 			},
 		}
 

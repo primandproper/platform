@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	cbmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/identifiers"
@@ -569,7 +569,7 @@ func TestUpsert(T *testing.T) {
 
 	T.Run("circuit breaker broken", func(t *testing.T) {
 		t.Parallel()
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -670,7 +670,7 @@ func TestDelete(T *testing.T) {
 
 	T.Run("circuit breaker broken", func(t *testing.T) {
 		t.Parallel()
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -726,7 +726,7 @@ func TestWipe(T *testing.T) {
 
 	T.Run("circuit breaker broken", func(t *testing.T) {
 		t.Parallel()
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -836,7 +836,7 @@ func TestQuery(T *testing.T) {
 
 	T.Run("circuit breaker broken", func(t *testing.T) {
 		t.Parallel()
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 

@@ -13,7 +13,7 @@ import (
 	"github.com/primandproper/platform-go/v9/featureflags/posthog"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -241,10 +241,10 @@ func TestNewFeatureFlagManager(T *testing.T) {
 		cbCfg := circuitbreakingcfg.Config{}
 		cbCfg.EnsureDefaults()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, fmt.Sprintf("%s_circuit_breaker_tripped", cbCfg.Name), counterName)
-				return &mockmetrics.Int64CounterMock{}, errors.New("arbitrary")
+				return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 			},
 		}
 

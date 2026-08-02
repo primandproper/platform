@@ -16,7 +16,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v9/testutils/containers/pgtest"
@@ -206,13 +206,13 @@ func TestNew_Options(T *testing.T) {
 			t.Run(failing, func(t *testing.T) {
 				t.Parallel()
 
-				mp := &mockmetrics.ProviderMock{
+				mp := &metricsmock.ProviderMock{
 					NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 						if name == failing {
 							return nil, platformerrors.New("instrument unavailable")
 						}
 
-						return &mockmetrics.Int64CounterMock{}, nil
+						return &metricsmock.Int64CounterMock{}, nil
 					},
 				}
 
@@ -225,9 +225,9 @@ func TestNew_Options(T *testing.T) {
 		t.Run("database_migrator_latency_ms", func(t *testing.T) {
 			t.Parallel()
 
-			mp := &mockmetrics.ProviderMock{
+			mp := &metricsmock.ProviderMock{
 				NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-					return &mockmetrics.Int64CounterMock{}, nil
+					return &metricsmock.Int64CounterMock{}, nil
 				},
 				NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 					return nil, platformerrors.New("instrument unavailable")

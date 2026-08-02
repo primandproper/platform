@@ -8,7 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
 	"github.com/redis/go-redis/v9"
@@ -151,7 +151,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			Addresses: []string{"localhost:6379"},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, redisName+"_allowed", counterName)
 				return metricstest.Int64Counter(t, "x"), errors.New("counter error")
@@ -172,7 +172,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			Addresses: []string{"localhost:6379"},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case redisName + "_allowed":
@@ -199,7 +199,7 @@ func TestNewRedisRateLimiter(T *testing.T) {
 			Addresses: []string{"localhost:6379"},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case redisName + "_allowed", redisName + "_rejected":

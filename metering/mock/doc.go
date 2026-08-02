@@ -1,4 +1,4 @@
-// Package mock provides moq-generated mock implementations of interfaces in the
+// Package meteringmock provides moq-generated mock implementations of interfaces in the
 // metering package. The primary consumers are external tests that need to stand
 // in for metering.Store, metering.Recorder, or metering.Enforcer without a
 // database — a handler test asserting that an endpoint refuses a request over
@@ -13,8 +13,8 @@
 // There is nothing here for the Flusher either. It is a concrete background loop
 // rather than a seam, and a test that wants to drive one calls its methods
 // against a real store, which is the only way to observe what it actually does.
-package mock
+package meteringmock
 
 // Regenerate the moq mocks via `go generate ./metering/mock/`.
 
-//go:generate go tool github.com/matryer/moq -out metering_mock.go -pkg mock -rm -fmt goimports .. Store:StoreMock Recorder:RecorderMock Enforcer:EnforcerMock
+//go:generate go tool github.com/matryer/moq -out metering_mock.go -pkg meteringmock -rm -fmt goimports .. Store:StoreMock Recorder:RecorderMock Enforcer:EnforcerMock

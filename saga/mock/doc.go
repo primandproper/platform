@@ -1,4 +1,4 @@
-// Package mock provides moq-generated mock implementations of interfaces in
+// Package sagamock provides moq-generated mock implementations of interfaces in
 // the saga package. The primary consumer is an external test that needs to
 // stand in for saga.Store without a database — a handler test asserting that an
 // endpoint starts the saga it should, most often.
@@ -17,8 +17,8 @@
 // rather than a seam, and a test that wants to drive one calls its methods
 // against a real database, which is the only way to observe what it actually
 // does.
-package mock
+package sagamock
 
 // Regenerate the moq mocks via `go generate ./saga/mock/`.
 
-//go:generate go tool github.com/matryer/moq -out saga_mock.go -pkg mock -rm -fmt goimports .. Store:StoreMock
+//go:generate go tool github.com/matryer/moq -out saga_mock.go -pkg sagamock -rm -fmt goimports .. Store:StoreMock

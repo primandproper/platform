@@ -6,7 +6,7 @@ import (
 	capitalismnoop "github.com/primandproper/platform-go/v9/capitalism/noop"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -27,11 +27,11 @@ var errInstrument = platformerrors.New("instrument unavailable")
 // assert that each of those checks is actually wired, one instrument at a time: a
 // missed `if err != nil` there is invisible until the day a meter is
 // misconfigured in production.
-func failingInstrumentProvider(failing string) *mockmetrics.ProviderMock {
+func failingInstrumentProvider(failing string) *metricsmock.ProviderMock {
 	// Delegated to rather than reimplemented, so only the failure is a double.
 	noop := metrics.EnsureMetricsProvider(nil)
 
-	return &mockmetrics.ProviderMock{
+	return &metricsmock.ProviderMock{
 		NewInt64CounterFunc: func(name string, opts ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			if name == failing {
 				return nil, errInstrument

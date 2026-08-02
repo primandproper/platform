@@ -1,8 +1,8 @@
 /*
-Package mocksearch provides moq-generated mocks for the search/text package.
+Package textsearchmock provides moq-generated mocks for the search/text package.
 */
-package mocksearch
+package textsearchmock
 
 // Regenerate the moq mocks via `go generate ./search/text/mock/`.
 
-//go:generate go tool github.com/matryer/moq -out index_mock.go -pkg mocksearch -rm -fmt goimports .. Index:IndexMock
+//go:generate go tool github.com/matryer/moq -out index_mock.go -pkg textsearchmock -rm -fmt goimports .. Index:IndexMock

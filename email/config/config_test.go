@@ -15,7 +15,7 @@ import (
 	"github.com/primandproper/platform-go/v9/errors"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
@@ -250,10 +250,10 @@ func TestNewEmailer(T *testing.T) {
 		cfg.CircuitBreaker.ErrorRate = 50
 		cfg.CircuitBreaker.MinimumSampleThreshold = 10
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "email-breaker_circuit_breaker_tripped", counterName)
-				return &mockmetrics.Int64CounterMock{}, fmt.Errorf("counter init failure")
+				return &metricsmock.Int64CounterMock{}, fmt.Errorf("counter init failure")
 			},
 		}
 

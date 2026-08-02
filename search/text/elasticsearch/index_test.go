@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 
@@ -73,7 +73,7 @@ func TestIndexManager_Index_CircuitBroken(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -88,7 +88,7 @@ func TestIndexManager_Index_CircuitBroken(T *testing.T) {
 	T.Run("with unmarshalable value", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 		}
 
@@ -102,7 +102,7 @@ func TestIndexManager_Index_CircuitBroken(T *testing.T) {
 	T.Run("with unreachable server", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -130,7 +130,7 @@ func TestIndexManager_Index_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -159,7 +159,7 @@ func TestIndexManager_Index_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -185,7 +185,7 @@ func TestIndexManager_Search_CircuitBroken(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -201,7 +201,7 @@ func TestIndexManager_Search_CircuitBroken(T *testing.T) {
 	T.Run("with empty query", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 		}
 
@@ -217,7 +217,7 @@ func TestIndexManager_Search_CircuitBroken(T *testing.T) {
 	T.Run("with unreachable server", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -251,7 +251,7 @@ func TestIndexManager_Search_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -282,7 +282,7 @@ func TestIndexManager_Search_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -307,7 +307,7 @@ func TestIndexManager_Search_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -336,7 +336,7 @@ func TestIndexManager_Search_ErrorResponseDecodeFailure_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -365,7 +365,7 @@ func TestIndexManager_Search_SourceUnmarshalError_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -386,7 +386,7 @@ func TestIndexManager_Delete_CircuitBroken(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -401,7 +401,7 @@ func TestIndexManager_Delete_CircuitBroken(T *testing.T) {
 	T.Run("with unreachable server", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -429,7 +429,7 @@ func TestIndexManager_Delete_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -457,7 +457,7 @@ func TestIndexManager_Delete_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -492,7 +492,7 @@ func TestIndexManager_Wipe_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -518,7 +518,7 @@ func TestIndexManager_Wipe_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -534,7 +534,7 @@ func TestIndexManager_Wipe_Unit(T *testing.T) {
 	T.Run("circuit broken", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 

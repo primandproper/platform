@@ -10,9 +10,9 @@ import (
 	clockmock "github.com/primandproper/platform-go/v9/clock/mock"
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	"github.com/primandproper/platform-go/v9/distributedlock/memory"
-	dlmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
+	distributedlockmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -187,13 +187,13 @@ func TestNewScopedLocker(T *testing.T) {
 				raw, err := memory.NewLocker()
 				must.NoError(t, err)
 
-				mp := &mockmetrics.ProviderMock{
+				mp := &metricsmock.ProviderMock{
 					NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 						if name == failing {
 							return nil, errors.New("instrument unavailable")
 						}
 
-						return &mockmetrics.Int64CounterMock{}, nil
+						return &metricsmock.Int64CounterMock{}, nil
 					},
 				}
 
@@ -213,9 +213,9 @@ func TestNewScopedLocker(T *testing.T) {
 				must.NoError(t, err)
 
 				var calls int
-				mp := &mockmetrics.ProviderMock{
+				mp := &metricsmock.ProviderMock{
 					NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-						return &mockmetrics.Int64CounterMock{}, nil
+						return &metricsmock.Int64CounterMock{}, nil
 					},
 					NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
 						calls++
@@ -248,14 +248,14 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 		}
 
 		var attempts int
-		raw := &dlmock.LockerMock{
+		raw := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
 				attempts++
 				if attempts == 1 {
 					return nil, distributedlock.ErrLockNotAcquired
 				}
 
-				return &dlmock.LockMock{
+				return &distributedlockmock.LockMock{
 					ReleaseFunc: func(context.Context) error { return nil },
 				}, nil
 			},
@@ -285,14 +285,14 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 		}
 
 		var attempts int
-		raw := &dlmock.LockerMock{
+		raw := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
 				attempts++
 				if attempts <= 2 {
 					return nil, distributedlock.ErrLockNotAcquired
 				}
 
-				return &dlmock.LockMock{
+				return &distributedlockmock.LockMock{
 					ReleaseFunc: func(context.Context) error { return nil },
 				}, nil
 			},
@@ -328,7 +328,7 @@ func TestScopedLocker_LockerFailures(T *testing.T) {
 	T.Run("WithLock surfaces a non-contention acquire error immediately", func(t *testing.T) {
 		t.Parallel()
 
-		raw := &dlmock.LockerMock{
+		raw := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
 				return nil, errAcquireBroken
 			},
@@ -346,7 +346,7 @@ func TestScopedLocker_LockerFailures(T *testing.T) {
 	T.Run("TryWithLock surfaces a non-contention acquire error", func(t *testing.T) {
 		t.Parallel()
 
-		raw := &dlmock.LockerMock{
+		raw := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
 				return nil, errAcquireBroken
 			},
@@ -365,9 +365,9 @@ func TestScopedLocker_LockerFailures(T *testing.T) {
 
 		errReleaseBroken := errors.New("release rejected")
 
-		raw := &dlmock.LockerMock{
+		raw := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
-				return &dlmock.LockMock{
+				return &distributedlockmock.LockMock{
 					ReleaseFunc: func(context.Context) error { return errReleaseBroken },
 				}, nil
 			},
@@ -390,9 +390,9 @@ func TestScopedLocker_LockerFailures(T *testing.T) {
 
 		// ErrLockNotHeld on release means the TTL elapsed while fn was still
 		// running, so mutual exclusion was not actually held throughout.
-		raw := &dlmock.LockerMock{
+		raw := &distributedlockmock.LockerMock{
 			AcquireFunc: func(context.Context, string, time.Duration) (distributedlock.Lock, error) {
-				return &dlmock.LockMock{
+				return &distributedlockmock.LockMock{
 					ReleaseFunc: func(context.Context) error { return distributedlock.ErrLockNotHeld },
 				}, nil
 			},

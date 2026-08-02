@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	mockcircuitbreaking "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/identifiers"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
@@ -400,7 +400,7 @@ func TestIndexManager_ensureIndices_CircuitBroken(T *testing.T) {
 	T.Run("with broken circuit breaker", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 
@@ -415,7 +415,7 @@ func TestIndexManager_ensureIndices_CircuitBroken(T *testing.T) {
 	T.Run("with unreachable server", func(t *testing.T) {
 		t.Parallel()
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -445,7 +445,7 @@ func TestIndexManager_ensureIndices_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -476,7 +476,7 @@ func TestIndexManager_ensureIndices_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -511,7 +511,7 @@ func TestIndexManager_ensureIndices_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -539,7 +539,7 @@ func TestIndexManager_ensureIndices_Unit(T *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -651,7 +651,7 @@ func TestNewIndexManager_Unit(T *testing.T) {
 
 		logger := loggingnoop.NewLogger()
 		tracerProvider := tracingnoop.NewTracerProvider()
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -710,7 +710,7 @@ func TestNewIndexManager_Unit(T *testing.T) {
 
 		logger := loggingnoop.NewLogger()
 		tracerProvider := tracingnoop.NewTracerProvider()
-		cb := &mockcircuitbreaking.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}

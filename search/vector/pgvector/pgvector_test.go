@@ -14,7 +14,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	vectorsearch "github.com/primandproper/platform-go/v9/search/vector"
 	"github.com/primandproper/platform-go/v9/testutils/containers/pgtest"
 
@@ -33,9 +33,9 @@ type counterResult struct {
 // newCounterProviderMock returns a metrics.Provider mock whose NewInt64Counter
 // implementation looks up the result keyed on the counter name. Unknown names
 // fail the test.
-func newCounterProviderMock(t *testing.T, results map[string]counterResult) *mockmetrics.ProviderMock {
+func newCounterProviderMock(t *testing.T, results map[string]counterResult) *metricsmock.ProviderMock {
 	t.Helper()
-	return &mockmetrics.ProviderMock{
+	return &metricsmock.ProviderMock{
 		NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 			res, ok := results[name]
 			if !ok {
@@ -301,7 +301,7 @@ func TestNewIndex(T *testing.T) {
 	T.Run("error creating latency histogram", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricnoop.Int64Counter{}, nil
 			},

@@ -10,7 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v9/observability/metrics/noop"
 
 	circuit "github.com/rubyist/circuitbreaker"
@@ -124,10 +124,10 @@ func TestNewCircuitBreakerFromConfig(T *testing.T) {
 
 		ctx := t.Context()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Name), counterName)
-				return &mockmetrics.Int64CounterMock{}, errors.New("arbitrary")
+				return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 			},
 		}
 
@@ -144,13 +144,13 @@ func TestNewCircuitBreakerFromConfig(T *testing.T) {
 
 		ctx := t.Context()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Name):
-					return &mockmetrics.Int64CounterMock{}, nil
+					return &metricsmock.Int64CounterMock{}, nil
 				case fmt.Sprintf("%s_circuit_breaker_failed", cfg.Name):
-					return &mockmetrics.Int64CounterMock{}, errors.New("arbitrary")
+					return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -170,14 +170,14 @@ func TestNewCircuitBreakerFromConfig(T *testing.T) {
 
 		ctx := t.Context()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Name),
 					fmt.Sprintf("%s_circuit_breaker_failed", cfg.Name):
-					return &mockmetrics.Int64CounterMock{}, nil
+					return &metricsmock.Int64CounterMock{}, nil
 				case fmt.Sprintf("%s_circuit_breaker_reset", cfg.Name):
-					return &mockmetrics.Int64CounterMock{}, errors.New("arbitrary")
+					return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
 				return nil, nil
@@ -329,11 +329,11 @@ func TestHandleCircuitBreakerEvents(T *testing.T) {
 	T.Run("handles all event types and exits on channel close", func(t *testing.T) {
 		ctx := t.Context()
 
-		i64Counter := &mockmetrics.Int64CounterMock{
+		i64Counter := &metricsmock.Int64CounterMock{
 			AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {},
 		}
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
 				case "failure", "reset", "broken":
@@ -367,7 +367,7 @@ func TestHandleCircuitBreakerEvents(T *testing.T) {
 	T.Run("exits when the context is canceled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 
-		counter := &mockmetrics.Int64CounterMock{AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {}}
+		counter := &metricsmock.Int64CounterMock{AddFunc: func(_ context.Context, _ int64, _ ...metric.AddOption) {}}
 
 		// An open, never-closed channel: without the ctx check the goroutine would
 		// block on the range forever. Cancel, then join to prove it returns.

@@ -9,7 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/shoenig/test"
@@ -32,7 +32,7 @@ func TestBuildPubSubPublisher(T *testing.T) {
 	T.Run("returns error when first NewInt64Counter fails", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				if name == "t_published" {
 					return metricnoop.Int64Counter{}, errors.New("forced error")
@@ -51,7 +51,7 @@ func TestBuildPubSubPublisher(T *testing.T) {
 	T.Run("returns error when second NewInt64Counter fails", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch name {
 				case "t_published":
@@ -73,7 +73,7 @@ func TestBuildPubSubPublisher(T *testing.T) {
 	T.Run("returns error when NewFloat64Histogram fails", func(t *testing.T) {
 		t.Parallel()
 
-		mp := &mockmetrics.ProviderMock{
+		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				return metricnoop.Int64Counter{}, nil
 			},

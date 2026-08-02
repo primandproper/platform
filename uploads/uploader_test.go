@@ -9,7 +9,7 @@ import (
 
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/uploads"
-	mockuploads "github.com/primandproper/platform-go/v9/uploads/mock"
+	uploadsmock "github.com/primandproper/platform-go/v9/uploads/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -22,7 +22,7 @@ func TestSaveFile(T *testing.T) {
 		t.Parallel()
 
 		var saved []byte
-		m := &mockuploads.UploadManagerMock{
+		m := &uploadsmock.UploadManagerMock{
 			SaveFunc: func(_ context.Context, _ string, r io.Reader, _ ...uploads.SaveOption) error {
 				var err error
 				saved, err = io.ReadAll(r)
@@ -44,7 +44,7 @@ func TestReadFile(T *testing.T) {
 		t.Parallel()
 
 		content := []byte(t.Name())
-		m := &mockuploads.UploadManagerMock{
+		m := &uploadsmock.UploadManagerMock{
 			OpenFunc: func(context.Context, string) (io.ReadCloser, error) {
 				return io.NopCloser(bytes.NewReader(content)), nil
 			},
@@ -59,7 +59,7 @@ func TestReadFile(T *testing.T) {
 	T.Run("propagates Open errors", func(t *testing.T) {
 		t.Parallel()
 
-		m := &mockuploads.UploadManagerMock{
+		m := &uploadsmock.UploadManagerMock{
 			OpenFunc: func(context.Context, string) (io.ReadCloser, error) {
 				return nil, errors.New("nope")
 			},
@@ -86,7 +86,7 @@ func TestListAll(T *testing.T) {
 	T.Run("collects every object", func(t *testing.T) {
 		t.Parallel()
 
-		m := &mockuploads.ListerMock{
+		m := &uploadsmock.ListerMock{
 			ListFunc: func(context.Context, string) iter.Seq2[uploads.ObjectInfo, error] {
 				return func(yield func(uploads.ObjectInfo, error) bool) {
 					_ = yield(uploads.ObjectInfo{Path: "a"}, nil) && yield(uploads.ObjectInfo{Path: "b"}, nil)

@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v9/messagequeue"
-	mockpublishers "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
-	mockmetrics "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
@@ -23,16 +23,16 @@ func TestRegisterIndexScheduler(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		int64Counter := &mockmetrics.Int64CounterMock{}
-		metricsProvider := &mockmetrics.ProviderMock{
+		int64Counter := &metricsmock.Int64CounterMock{}
+		metricsProvider := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...otelmetric.Int64CounterOption) (metrics.Int64Counter, error) {
 				test.EqOp(t, "indexer.handled_records", counterName)
 				return int64Counter, nil
 			},
 		}
 
-		publisher := &mockpublishers.PublisherMock{}
-		messageQueueProvider := &mockpublishers.PublisherProviderMock{
+		publisher := &messagequeuemock.PublisherMock{}
+		messageQueueProvider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(_ context.Context, _ string) (messagequeue.Publisher, error) {
 				return publisher, nil
 			},

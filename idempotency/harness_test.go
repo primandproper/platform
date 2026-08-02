@@ -11,7 +11,7 @@ import (
 	cachemock "github.com/primandproper/platform-go/v9/cache/mock"
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	dlmemory "github.com/primandproper/platform-go/v9/distributedlock/memory"
-	dlmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
+	distributedlockmock "github.com/primandproper/platform-go/v9/distributedlock/mock"
 
 	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel/metric"
@@ -132,8 +132,8 @@ func failingStore(tb testing.TB, err error) *cachemock.CacheMock[Record[payload]
 // before is where a test injects a racer: whatever it writes to the store lands
 // between Do's pre-lock read and the claim, which is the interleaving the
 // double-check exists to survive.
-func grantingLocker(before func(ctx context.Context)) *dlmock.ScopedLockerMock {
-	return &dlmock.ScopedLockerMock{
+func grantingLocker(before func(ctx context.Context)) *distributedlockmock.ScopedLockerMock {
+	return &distributedlockmock.ScopedLockerMock{
 		WithLockFunc: func(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
 			if before != nil {
 				before(ctx)

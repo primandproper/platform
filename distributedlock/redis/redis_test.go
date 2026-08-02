@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	cbmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
+	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	"github.com/primandproper/platform-go/v9/identifiers"
@@ -295,7 +295,7 @@ func TestLocker_Acquire(T *testing.T) {
 
 	T.Run("blocked by circuit breaker", func(t *testing.T) {
 		t.Parallel()
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return true },
 		}
 		l := newUnitLocker(t, &fakeRedisClient{}, cb)
@@ -308,7 +308,7 @@ func TestLocker_Acquire(T *testing.T) {
 	T.Run("SetNX backend error trips breaker", func(t *testing.T) {
 		t.Parallel()
 		fc := &fakeRedisClient{setNXErr: errors.New("redis down")}
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			FailedFunc:        func() {},
 		}
@@ -327,7 +327,7 @@ func TestLocker_Acquire(T *testing.T) {
 	T.Run("contention does not fail breaker", func(t *testing.T) {
 		t.Parallel()
 		fc := &fakeRedisClient{setNXResult: false}
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 		}
@@ -368,7 +368,7 @@ func TestLocker_Release(T *testing.T) {
 		t.Parallel()
 		fc := &fakeRedisClient{setNXResult: true}
 		// Acquire path: proceed + succeeded. Release path: proceed + failed.
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 			FailedFunc:        func() {},
@@ -389,7 +389,7 @@ func TestLocker_Release(T *testing.T) {
 		t.Parallel()
 		fc := &fakeRedisClient{setNXResult: true}
 		var cannotProceedCalls int
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool {
 				cannotProceedCalls++
 				return cannotProceedCalls > 1 // first call (Acquire) proceeds, second (Release) is blocked
@@ -448,7 +448,7 @@ func TestLocker_Refresh(T *testing.T) {
 	T.Run("eval backend error trips breaker", func(t *testing.T) {
 		t.Parallel()
 		fc := &fakeRedisClient{setNXResult: true}
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool { return false },
 			SucceededFunc:     func() {},
 			FailedFunc:        func() {},
@@ -469,7 +469,7 @@ func TestLocker_Refresh(T *testing.T) {
 		t.Parallel()
 		fc := &fakeRedisClient{setNXResult: true}
 		var cannotProceedCalls int
-		cb := &cbmock.CircuitBreakerMock{
+		cb := &circuitbreakingmock.CircuitBreakerMock{
 			CannotProceedFunc: func() bool {
 				cannotProceedCalls++
 				return cannotProceedCalls > 1 // first call (Acquire) proceeds, second (Refresh) is blocked
