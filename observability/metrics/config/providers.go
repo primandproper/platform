@@ -8,6 +8,6 @@ import (
 )
 
 // NewMetricsProvider provides a metrics.Provider from config.
-func NewMetricsProvider(ctx context.Context, logger logging.Logger, c *Config) (metrics.Provider, error) {
+func NewMetricsProvider(ctx context.Context, c *Config, logger logging.Logger) (metrics.Provider, error) {
 	return c.NewMetricsProvider(ctx, logger)
 }

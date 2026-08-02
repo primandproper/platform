@@ -146,7 +146,7 @@ func TestNewMetricsProvider(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{}
-		metricsProvider, err := NewMetricsProvider(t.Context(), loggingnoop.NewLogger(), cfg)
+		metricsProvider, err := NewMetricsProvider(t.Context(), cfg, loggingnoop.NewLogger())
 
 		test.NoError(t, err)
 		test.NotNil(t, metricsProvider)

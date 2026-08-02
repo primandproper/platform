@@ -20,6 +20,7 @@ func TestRegisterAsyncNotifier(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, nil)

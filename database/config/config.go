@@ -347,11 +347,11 @@ func (x *ConnectionDetails) LoadFromURL(u string) error {
 // (e.g. db_sql_latency_milliseconds). DB metrics are off by default to avoid high cardinality.
 func NewDatabase(
 	ctx context.Context,
+	cfg *Config,
 	logger logging.Logger,
 	tracerProvider tracing.TracerProvider,
-	cfg *Config,
-	migrator database.Migrator,
 	metricsProvider metrics.Provider,
+	migrator database.Migrator,
 ) (client database.Client, err error) {
 	var dbMetricsProvider metrics.Provider
 	if cfg.EnableDatabaseMetrics && metricsProvider != nil {

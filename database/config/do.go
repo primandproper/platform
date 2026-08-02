@@ -40,11 +40,11 @@ func RegisterDatabase(i do.Injector) {
 
 		return NewDatabase(
 			do.MustInvoke[context.Context](i),
+			cfg,
 			do.MustInvoke[logging.Logger](i),
 			do.MustInvoke[tracing.TracerProvider](i),
-			cfg,
-			migrator,
 			do.MustInvoke[metrics.Provider](i),
+			migrator,
 		)
 	})
 }

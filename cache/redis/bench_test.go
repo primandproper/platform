@@ -16,7 +16,7 @@ type benchCacheItem struct {
 // is set (e.g. `RUN_CONTAINER_TESTS=true make bench`).
 func BenchmarkRedisCache(b *testing.B) {
 	container := redistest.Start(b)
-	cfg := &Config{QueueAddresses: []string{redistest.Address(b, container)}}
+	cfg := &Config{Addresses: []string{redistest.Address(b, container)}}
 
 	c, err := NewRedisCache[benchCacheItem](cfg, 0, nil)
 	must.NoError(b, err)

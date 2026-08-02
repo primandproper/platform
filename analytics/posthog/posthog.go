@@ -35,8 +35,8 @@ type (
 	}
 )
 
-// NewPostHogEventReporter returns a new PostHog-backed EventReporter.
-func NewPostHogEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (analytics.EventReporter, error) {
+// NewEventReporter returns a new PostHog-backed EventReporter.
+func NewEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (analytics.EventReporter, error) {
 	if apiKey == "" {
 		return nil, ErrEmptyAPIToken
 	}

@@ -56,7 +56,7 @@ func TestBreakerCallback(T *testing.T) {
 func newRecordingEventReporter(t *testing.T) (*EventReporter, *observability.RecordingObserver) {
 	t.Helper()
 
-	reporter, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
+	reporter, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, reporter)
 
@@ -69,13 +69,13 @@ func newRecordingEventReporter(t *testing.T) (*EventReporter, *observability.Rec
 	return c, obs
 }
 
-func TestNewSegmentEventReporter(T *testing.T) {
+func TestNewEventReporter(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		collector, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 	})
@@ -83,7 +83,7 @@ func TestNewSegmentEventReporter(T *testing.T) {
 	T.Run("with empty API key", func(t *testing.T) {
 		t.Parallel()
 
-		collector, err := NewSegmentEventReporter("", cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter("", cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 	})
@@ -98,7 +98,7 @@ func TestNewSegmentEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
+		collector, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -121,7 +121,7 @@ func TestNewSegmentEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
+		collector, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -135,7 +135,7 @@ func TestSegmentEventReporter_Close(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		collector, err := NewSegmentEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 

@@ -110,7 +110,7 @@ func buildContainerBackedRedisConfig(t *testing.T) *Config {
 
 	container := redistest.Start(t)
 	return &Config{
-		QueueAddresses: []string{redistest.Address(t, container)},
+		Addresses: []string{redistest.Address(t, container)},
 	}
 }
 
@@ -138,7 +138,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with single address", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
@@ -148,7 +148,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with multiple addresses", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379", "localhost:6380"}}
+		cfg := &Config{Addresses: []string{"localhost:6379", "localhost:6380"}}
 
 		c, err := NewRedisCache[example](cfg, time.Minute, nil)
 		must.NoError(t, err)
@@ -158,7 +158,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache hit counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits": {counter: okCounter(), err: errors.New("counter error")},
@@ -173,7 +173,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache miss counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits":   {counter: okCounter()},
@@ -189,7 +189,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache set counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits":   {counter: okCounter()},
@@ -206,7 +206,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache delete counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits":    {counter: okCounter()},
@@ -224,7 +224,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating cache error counter", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		mp := newCounterProviderMock(t, map[string]counterResult{
 			name + "_cache_hits":    {counter: okCounter()},
@@ -243,7 +243,7 @@ func TestNewRedisCache(T *testing.T) {
 	T.Run("with error creating latency histogram", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{QueueAddresses: []string{"localhost:6379"}}
+		cfg := &Config{Addresses: []string{"localhost:6379"}}
 
 		noopMP := metricsnoop.NewMetricsProvider()
 		h, histErr := noopMP.NewFloat64Histogram("test")
@@ -900,9 +900,9 @@ func Test_buildRedisClient(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			QueueAddresses: []string{"localhost:6379"},
-			Username:       "user",
-			Password:       "pass",
+			Addresses: []string{"localhost:6379"},
+			Username:  "user",
+			Password:  "pass",
 		}
 
 		c := buildRedisClient(cfg)
@@ -913,9 +913,9 @@ func Test_buildRedisClient(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			QueueAddresses: []string{"localhost:6379", "localhost:6380"},
-			Username:       "user",
-			Password:       "pass",
+			Addresses: []string{"localhost:6379", "localhost:6380"},
+			Username:  "user",
+			Password:  "pass",
 		}
 
 		c := buildRedisClient(cfg)
@@ -926,7 +926,7 @@ func Test_buildRedisClient(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{
-			QueueAddresses: []string{},
+			Addresses: []string{},
 		}
 
 		c := buildRedisClient(cfg)
@@ -1169,7 +1169,7 @@ func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 		t.Parallel()
 
 		_, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithCodec(cache.NewGobCodec[struct{ Other string }]()),
@@ -1181,7 +1181,7 @@ func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 		t.Parallel()
 
 		c, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithCodec(nameCodec{}),
@@ -1553,7 +1553,7 @@ func TestWithScanPageSize(T *testing.T) {
 		t.Parallel()
 
 		c, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithScanPageSize(64),
@@ -1591,7 +1591,7 @@ func TestWithLogger(T *testing.T) {
 		t.Parallel()
 
 		c, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithLogger(loggingnoop.NewLogger()),
@@ -1629,7 +1629,7 @@ func TestWithTracerProvider(T *testing.T) {
 		t.Parallel()
 
 		c, err := NewRedisCache[example](
-			&Config{QueueAddresses: []string{"localhost:6379"}},
+			&Config{Addresses: []string{"localhost:6379"}},
 			time.Minute,
 			nil,
 			WithTracerProvider(tracingnoop.NewTracerProvider()),

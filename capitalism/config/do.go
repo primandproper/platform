@@ -1,6 +1,8 @@
 package config
 
 import (
+	"context"
+
 	"github.com/primandproper/platform-go/v9/capitalism"
 	"github.com/primandproper/platform-go/v9/capitalism/stripe"
 	"github.com/primandproper/platform-go/v9/observability/logging"
@@ -20,10 +22,11 @@ func RegisterPaymentManager(i do.Injector) {
 			stripeEventHandler = h
 		}
 
-		return NewCapitalismImplementation(
+		return NewPaymentManager(
+			do.MustInvoke[context.Context](i),
+			do.MustInvoke[*Config](i),
 			do.MustInvoke[logging.Logger](i),
 			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[*Config](i),
 			stripeEventHandler,
 		)
 	})
@@ -36,10 +39,11 @@ func RegisterPaymentManager(i do.Injector) {
 // usage. A deployment registers whichever of the two it actually runs.
 func RegisterUsageReporter(i do.Injector) {
 	do.Provide[capitalism.UsageReporter](i, func(i do.Injector) (capitalism.UsageReporter, error) {
-		return NewUsageReporterImplementation(
+		return NewUsageReporter(
+			do.MustInvoke[context.Context](i),
+			do.MustInvoke[*Config](i),
 			do.MustInvoke[logging.Logger](i),
 			do.MustInvoke[tracing.TracerProvider](i),
-			do.MustInvoke[*Config](i),
 		)
 	})
 }

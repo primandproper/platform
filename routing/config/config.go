@@ -54,7 +54,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 // NewBackend provides a routing.Backend from a routing config, selecting the
 // underlying router library by provider.
-func NewBackend(cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider) (routing.Backend, error) {
+func NewBackend(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider, metricProvider metrics.Provider) (routing.Backend, error) {
 	switch cfg.Provider {
 	case ProviderChi:
 		return chi.NewBackend(cfg.Chi, chi.WithLogger(logger), chi.WithTracerProvider(tracerProvider), chi.WithMetricsProvider(metricProvider)), nil
@@ -72,14 +72,15 @@ func NewBackend(cfg *Config, logger logging.Logger, tracerProvider tracing.Trace
 // NewRouter provides a fully-wired *routing.Router from a routing config: it
 // selects the backend by provider and layers the declarative Router on top.
 func NewRouter(
+	ctx context.Context,
 	cfg *Config,
-	enc encoding.ServerEncoderDecoder,
 	logger logging.Logger,
 	tracerProvider tracing.TracerProvider,
 	metricProvider metrics.Provider,
+	enc encoding.ServerEncoderDecoder,
 	opts ...routing.RouterOption,
 ) (*routing.Router, error) {
-	backend, err := NewBackend(cfg, logger, tracerProvider, metricProvider)
+	backend, err := NewBackend(ctx, cfg, logger, tracerProvider, metricProvider)
 	if err != nil {
 		return nil, err
 	}

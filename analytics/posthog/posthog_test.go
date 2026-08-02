@@ -24,7 +24,7 @@ import (
 func newRecordingReporter(t *testing.T, apiKey string) (*EventReporter, *observability.RecordingObserver) {
 	t.Helper()
 
-	reporter, err := NewPostHogEventReporter(apiKey, cbnoop.NewCircuitBreaker())
+	reporter, err := NewEventReporter(apiKey, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, reporter)
 
@@ -37,7 +37,7 @@ func newRecordingReporter(t *testing.T, apiKey string) (*EventReporter, *observa
 	return c, obs
 }
 
-func TestNewPostHogEventReporter(T *testing.T) {
+func TestNewEventReporter(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -45,7 +45,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 
 		cfg := &Config{APIKey: t.Name()}
 
-		collector, err := NewPostHogEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 	})
@@ -55,7 +55,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 
 		cfg := &Config{}
 
-		collector, err := NewPostHogEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.Error(t, err)
 		must.Nil(t, collector)
 	})
@@ -70,7 +70,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewPostHogEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
+		collector, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -93,7 +93,7 @@ func TestNewPostHogEventReporter(T *testing.T) {
 			},
 		}
 
-		collector, err := NewPostHogEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
+		collector, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker(), WithMetricsProvider(mp))
 		must.Error(t, err)
 		must.Nil(t, collector)
 
@@ -165,7 +165,7 @@ func TestPostHogEventReporter_Close(T *testing.T) {
 
 		cfg := &Config{APIKey: t.Name()}
 
-		collector, err := NewPostHogEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
+		collector, err := NewEventReporter(cfg.APIKey, cbnoop.NewCircuitBreaker())
 		must.NoError(t, err)
 		must.NotNil(t, collector)
 

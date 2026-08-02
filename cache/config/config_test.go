@@ -40,7 +40,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderRedis,
-			Redis:    &redis.Config{QueueAddresses: []string{"localhost:6379"}},
+			Redis:    &redis.Config{Addresses: []string{"localhost:6379"}},
 		}
 
 		test.NoError(t, cfg.ValidateWithContext(t.Context()))
@@ -80,7 +80,7 @@ func TestNewCache(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderRedis,
-			Redis:    &redis.Config{QueueAddresses: []string{"localhost:6379"}},
+			Redis:    &redis.Config{Addresses: []string{"localhost:6379"}},
 		}
 		cfg.CircuitBreaker.Name = "cache-breaker"
 
@@ -101,7 +101,7 @@ func TestNewCache(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderRedis,
-			Redis:    &redis.Config{QueueAddresses: []string{"localhost:6379", "localhost:6380"}},
+			Redis:    &redis.Config{Addresses: []string{"localhost:6379", "localhost:6380"}},
 		}
 		cfg.CircuitBreaker.Name = "cache-breaker-cluster"
 
@@ -122,7 +122,7 @@ func TestNewCache(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderRedis,
-			Redis:    &redis.Config{QueueAddresses: []string{"localhost:6379"}},
+			Redis:    &redis.Config{Addresses: []string{"localhost:6379"}},
 			CircuitBreaker: circuitbreakingcfg.Config{
 				Name:                   "redis-cache-breaker",
 				ErrorRate:              50,

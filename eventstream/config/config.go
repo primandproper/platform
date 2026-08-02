@@ -40,7 +40,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewEventStreamUpgrader provides an EventStreamUpgrader based on configuration.
-func NewEventStreamUpgrader(logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config) (eventstream.EventStreamUpgrader, error) {
+func NewEventStreamUpgrader(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (eventstream.EventStreamUpgrader, error) {
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderSSE:
 		return sse.NewUpgrader(sse.WithTracerProvider(tracerProvider)), nil
@@ -52,7 +52,7 @@ func NewEventStreamUpgrader(logger logging.Logger, tracerProvider tracing.Tracer
 }
 
 // NewBidirectionalEventStreamUpgrader provides a BidirectionalEventStreamUpgrader based on configuration.
-func NewBidirectionalEventStreamUpgrader(logger logging.Logger, tracerProvider tracing.TracerProvider, cfg *Config) (eventstream.BidirectionalEventStreamUpgrader, error) {
+func NewBidirectionalEventStreamUpgrader(ctx context.Context, cfg *Config, logger logging.Logger, tracerProvider tracing.TracerProvider) (eventstream.BidirectionalEventStreamUpgrader, error) {
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderSSE:
 		return nil, errors.New("SSE does not support bidirectional event streams")

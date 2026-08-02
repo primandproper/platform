@@ -59,9 +59,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 // NewEncryptorDecryptor provides an EncryptorDecryptor based on the configured provider.
 func NewEncryptorDecryptor(
+	ctx context.Context,
 	cfg *Config,
-	tracerProvider tracing.TracerProvider,
 	logger logging.Logger,
+	tracerProvider tracing.TracerProvider,
 	key []byte,
 ) (encryption.EncryptorDecryptor, error) {
 	if cfg == nil {

@@ -19,6 +19,7 @@ func TestRegisterEventStreamUpgrader(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{Provider: ProviderSSE})
@@ -38,6 +39,7 @@ func TestRegisterBidirectionalEventStreamUpgrader(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{Provider: ProviderWebSocket})

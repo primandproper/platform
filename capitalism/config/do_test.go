@@ -21,6 +21,7 @@ func TestRegisterPaymentManager(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{
@@ -40,6 +41,7 @@ func TestRegisterPaymentManager(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{
@@ -66,6 +68,7 @@ func TestRegisterUsageReporter(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{
@@ -87,6 +90,7 @@ func TestRegisterUsageReporter(T *testing.T) {
 		// The two are wanted by different processes — an API server charges, a
 		// worker reports usage — so a deployment registers whichever it runs.
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, &Config{Enabled: false})

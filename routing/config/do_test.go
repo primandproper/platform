@@ -21,6 +21,7 @@ func TestRegisterRouter(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue(i, t.Context())
 		do.ProvideValue(i, &Config{
 			Provider: ProviderChi,
 			Chi:      &chi.Config{ServiceName: t.Name()},

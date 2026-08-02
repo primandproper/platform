@@ -123,13 +123,13 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 	})
 }
 
-func TestProvideStore(T *testing.T) {
+func TestNewStore(T *testing.T) {
 	T.Parallel()
 
 	T.Run("builds a store", func(t *testing.T) {
 		t.Parallel()
 
-		store, err := ProvideStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
+		store, err := NewStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
 		must.NoError(t, err)
 		must.NotNil(t, store)
 	})
@@ -137,7 +137,7 @@ func TestProvideStore(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := ProvideStore(t.Context(), nil, nil, nil, nil, newClient(t))
+		_, err := NewStore(t.Context(), nil, nil, nil, nil, newClient(t))
 		test.Error(t, err)
 	})
 
@@ -148,19 +148,19 @@ func TestProvideStore(T *testing.T) {
 		cfg.Worker.StepTimeout = time.Hour
 		cfg.Worker.AdvanceTimeout = time.Second
 
-		_, err := ProvideStore(t.Context(), cfg, nil, nil, nil, newClient(t))
+		_, err := NewStore(t.Context(), cfg, nil, nil, nil, newClient(t))
 		test.Error(t, err)
 	})
 
 	T.Run("propagates a store construction failure", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := ProvideStore(t.Context(), validConfig(), nil, nil, nil, nil)
+		_, err := NewStore(t.Context(), validConfig(), nil, nil, nil, nil)
 		test.ErrorIs(t, err, saga.ErrNilDatabaseClient)
 	})
 }
 
-func TestProvideWorker(T *testing.T) {
+func TestNewWorker(T *testing.T) {
 	T.Parallel()
 
 	registry := func(t *testing.T) *saga.Registry {
@@ -181,10 +181,10 @@ func TestProvideWorker(T *testing.T) {
 	T.Run("builds a worker", func(t *testing.T) {
 		t.Parallel()
 
-		store, err := ProvideStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
+		store, err := NewStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
 		must.NoError(t, err)
 
-		worker, err := ProvideWorker(t.Context(), validConfig(), nil, nil, nil,
+		worker, err := NewWorker(t.Context(), validConfig(), nil, nil, nil,
 			store, registry(t), newLocker(t), nil, nil)
 		must.NoError(t, err)
 		must.NotNil(t, worker)
@@ -193,34 +193,34 @@ func TestProvideWorker(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		store, err := ProvideStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
+		store, err := NewStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
 		must.NoError(t, err)
 
-		_, err = ProvideWorker(t.Context(), nil, nil, nil, nil, store, registry(t), newLocker(t), nil, nil)
+		_, err = NewWorker(t.Context(), nil, nil, nil, nil, store, registry(t), newLocker(t), nil, nil)
 		test.Error(t, err)
 	})
 
 	T.Run("rejects an invalid config", func(t *testing.T) {
 		t.Parallel()
 
-		store, err := ProvideStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
+		store, err := NewStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
 		must.NoError(t, err)
 
 		cfg := validConfig()
 		cfg.Worker.StepTimeout = time.Hour
 		cfg.Worker.AdvanceTimeout = time.Second
 
-		_, err = ProvideWorker(t.Context(), cfg, nil, nil, nil, store, registry(t), newLocker(t), nil, nil)
+		_, err = NewWorker(t.Context(), cfg, nil, nil, nil, store, registry(t), newLocker(t), nil, nil)
 		test.Error(t, err)
 	})
 
 	T.Run("propagates a missing locker", func(t *testing.T) {
 		t.Parallel()
 
-		store, err := ProvideStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
+		store, err := NewStore(t.Context(), validConfig(), nil, nil, nil, newClient(t))
 		must.NoError(t, err)
 
-		_, err = ProvideWorker(t.Context(), validConfig(), nil, nil, nil,
+		_, err = NewWorker(t.Context(), validConfig(), nil, nil, nil,
 			store, registry(t), nil, nil, nil)
 		test.ErrorIs(t, err, saga.ErrNilLocker)
 	})

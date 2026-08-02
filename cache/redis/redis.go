@@ -97,7 +97,7 @@ type redisCacheImpl[T any] struct {
 // Flush and an empty-prefix DeleteByPrefix return cache.ErrNamespaceRequired
 // rather than guess at ownership in a possibly shared database.
 func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreaking.CircuitBreaker, opts ...Option) (cache.Cache[T], error) {
-	if cfg == nil || len(cfg.QueueAddresses) == 0 {
+	if cfg == nil || len(cfg.Addresses) == 0 {
 		return nil, fmt.Errorf("at least one redis address is required")
 	}
 
@@ -636,16 +636,16 @@ func buildRedisClient(cfg *Config) redisClient {
 	var c redisClient
 	if cfg.clusterMode() {
 		c = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:        cfg.QueueAddresses,
+			Addrs:        cfg.Addresses,
 			Username:     cfg.Username,
 			Password:     cfg.Password,
 			DialTimeout:  1 * time.Second,
 			ReadTimeout:  1 * time.Second,
 			WriteTimeout: 1 * time.Second,
 		})
-	} else if len(cfg.QueueAddresses) == 1 {
+	} else if len(cfg.Addresses) == 1 {
 		c = redis.NewClient(&redis.Options{
-			Addr:         cfg.QueueAddresses[0],
+			Addr:         cfg.Addresses[0],
 			Username:     cfg.Username,
 			Password:     cfg.Password,
 			DialTimeout:  1 * time.Second,

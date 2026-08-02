@@ -56,10 +56,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewIndex validates a Config struct.
 func NewIndex[T any](
 	ctx context.Context,
+	cfg *Config,
 	logger logging.Logger,
 	tracerProvider tracing.TracerProvider,
 	metricsProvider metrics.Provider,
-	cfg *Config,
 	indexName string,
 ) (textsearch.Index[T], error) {
 	if cfg == nil {
