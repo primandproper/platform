@@ -9,8 +9,8 @@ import (
 type (
 	// Config configures our Stripe interface.
 	Config struct {
-		APIKey        string `env:"API_KEY"        json:"apiKey"        yaml:"apiKey"`
-		WebhookSecret string `env:"WEBHOOK_SECRET" json:"webhookSecret" yaml:"webhookSecret"`
+		APIKey        string `env:"API_KEY"        json:"apiKey,omitempty"        yaml:"apiKey,omitempty"`
+		WebhookSecret string `env:"WEBHOOK_SECRET" json:"webhookSecret,omitempty" yaml:"webhookSecret,omitempty"`
 	}
 )
 

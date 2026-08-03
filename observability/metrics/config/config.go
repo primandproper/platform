@@ -29,10 +29,10 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		Otel        *otelgrpc.Config `env:",init"        envPrefix:"OTEL_"         json:"otelgrpc,omitempty" yaml:"otelgrpc,omitempty"`
-		ServiceName string           `env:"SERVICE_NAME" json:"serviceName"        yaml:"serviceName"`
-		Provider    string           `env:"PROVIDER"     json:"provider,omitempty" yaml:"provider,omitempty"`
-		Enabled     bool             `env:"ENABLED"      json:"enabled"            yaml:"enabled"`
+		Otel        *otelgrpc.Config `env:",init"        envPrefix:"OTEL_"            json:"otelgrpc,omitempty"    yaml:"otelgrpc,omitempty"`
+		ServiceName string           `env:"SERVICE_NAME" json:"serviceName,omitempty" yaml:"serviceName,omitempty"`
+		Provider    string           `env:"PROVIDER"     json:"provider,omitempty"    yaml:"provider,omitempty"`
+		Enabled     bool             `env:"ENABLED"      json:"enabled,omitempty"     yaml:"enabled,omitempty"`
 	}
 )
 

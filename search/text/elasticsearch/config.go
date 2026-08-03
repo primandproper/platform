@@ -8,11 +8,11 @@ import (
 )
 
 type Config struct {
-	Address               string        `env:"ADDRESS"                 json:"address"               yaml:"address"`
-	Username              string        `env:"USERNAME"                json:"username"              yaml:"username"`
-	Password              string        `env:"PASSWORD"                json:"password"              yaml:"password"`
-	CACert                []byte        `env:"CA_CERT"                 json:"caCert"                yaml:"caCert"`
-	IndexOperationTimeout time.Duration `env:"INDEX_OPERATION_TIMEOUT" json:"indexOperationTimeout" yaml:"indexOperationTimeout"`
+	Address               string        `env:"ADDRESS"                 json:"address,omitempty"               yaml:"address,omitempty"`
+	Username              string        `env:"USERNAME"                json:"username,omitempty"              yaml:"username,omitempty"`
+	Password              string        `env:"PASSWORD"                json:"password,omitempty"              yaml:"password,omitempty"`
+	CACert                []byte        `env:"CA_CERT"                 json:"caCert,omitempty"                yaml:"caCert,omitempty"`
+	IndexOperationTimeout time.Duration `env:"INDEX_OPERATION_TIMEOUT" json:"indexOperationTimeout,omitempty" yaml:"indexOperationTimeout,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

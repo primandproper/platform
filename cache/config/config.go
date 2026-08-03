@@ -24,20 +24,20 @@ const (
 type (
 	// Config is the configuration for the cache.
 	Config struct {
-		Redis          *redis.Config             `env:",init"    envPrefix:"REDIS_"            json:"redis"                yaml:"redis"`
-		Provider       string                    `env:"PROVIDER" json:"provider"               yaml:"provider"`
-		CircuitBreaker circuitbreakingcfg.Config `env:",init"    envPrefix:"CIRCUIT_BREAKING_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
+		Redis          *redis.Config             `env:",init"    envPrefix:"REDIS_"            json:"redis,omitempty"               yaml:"redis,omitempty"`
+		Provider       string                    `env:"PROVIDER" json:"provider,omitempty"     yaml:"provider,omitempty"`
+		CircuitBreaker circuitbreakingcfg.Config `env:",init"    envPrefix:"CIRCUIT_BREAKING_" json:"circuitBreakerConfig,omitzero" yaml:"circuitBreakerConfig,omitempty"`
 		// Expiry is the default expiry for writes that don't specify one via
 		// cache.WithExpiry; a non-positive value means entries never expire by
 		// default.
-		Expiry time.Duration `env:"EXPIRY" envDefault:"1h" json:"expiry" yaml:"expiry"`
+		Expiry time.Duration `env:"EXPIRY" envDefault:"1h" json:"expiry,omitempty" yaml:"expiry,omitempty"`
 		// JanitorInterval is how often the memory provider sweeps expired
 		// entries. It is ignored by every other provider, which expire entries
 		// in the backing store rather than in this process. A non-positive
 		// value disables the sweep, leaving the memory provider's lazy
 		// eviction as the only reclaim path — see memory.WithJanitor for why
 		// that is rarely what a long-lived cache wants.
-		JanitorInterval time.Duration `env:"JANITOR_INTERVAL" envDefault:"5m" json:"janitorInterval" yaml:"janitorInterval"`
+		JanitorInterval time.Duration `env:"JANITOR_INTERVAL" envDefault:"5m" json:"janitorInterval,omitempty" yaml:"janitorInterval,omitempty"`
 	}
 )
 

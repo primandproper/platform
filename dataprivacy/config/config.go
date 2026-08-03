@@ -33,24 +33,24 @@ type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
 	// Dialect selects the SQL emitted; it must match the database.Client.
-	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
+	Dialect dialect.Dialect `env:"DIALECT" json:"dialect,omitempty" yaml:"dialect,omitempty"`
 
 	// TablePrefix names the request table. It must match the prefix the
 	// migrations were rendered with. Defaults to
 	// dataprivacy.DefaultTablePrefix.
-	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
 
 	// AuditErasure configures the audit log's own eraser.
-	AuditErasure AuditErasureConfig `env:",init" envPrefix:"AUDIT_ERASURE_" json:"auditErasure" yaml:"auditErasure"`
+	AuditErasure AuditErasureConfig `env:",init" envPrefix:"AUDIT_ERASURE_" json:"auditErasure,omitzero" yaml:"auditErasure,omitempty"`
 
 	// Worker carries the fulfillment loop's knobs.
-	Worker dataprivacy.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
+	Worker dataprivacy.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker,omitzero" yaml:"worker,omitempty"`
 
 	// Service carries the request state machine's timings.
-	Service dataprivacy.ServiceConfig `env:",init" envPrefix:"SERVICE_" json:"service" yaml:"service"`
+	Service dataprivacy.ServiceConfig `env:",init" envPrefix:"SERVICE_" json:"service,omitzero" yaml:"service,omitempty"`
 
 	// Sweeper carries the expiry and retention knobs.
-	Sweeper dataprivacy.SweeperConfig `env:",init" envPrefix:"SWEEPER_" json:"sweeper" yaml:"sweeper"`
+	Sweeper dataprivacy.SweeperConfig `env:",init" envPrefix:"SWEEPER_" json:"sweeper,omitzero" yaml:"sweeper,omitempty"`
 }
 
 // AuditErasureConfig configures whether, and how, an erasure touches the audit
@@ -63,11 +63,11 @@ type Config struct {
 type AuditErasureConfig struct {
 	// TablePrefix is the prefix the audit tables carry. Defaults to
 	// audit.DefaultTablePrefix, and must match the audit Recorder's.
-	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
 
 	// RetentionBasis is the wording recorded against audit entries that cannot
 	// be removed. Defaults to auditerasure.DefaultRetentionBasis.
-	RetentionBasis string `env:"RETENTION_BASIS" json:"retentionBasis" yaml:"retentionBasis"`
+	RetentionBasis string `env:"RETENTION_BASIS" json:"retentionBasis,omitempty" yaml:"retentionBasis,omitempty"`
 
 	// Disabled stops the audit eraser being registered, leaving the audit log
 	// entirely untouched by an erasure.
@@ -83,7 +83,7 @@ type AuditErasureConfig struct {
 	// it never deletes entries from the middle of a chain, because that would
 	// make audit.Reader.Verify report tampering for the rest of that scope's
 	// history. See the dataprivacy/auditerasure package documentation.
-	Disabled bool `env:"DISABLED" json:"disabled" yaml:"disabled"`
+	Disabled bool `env:"DISABLED" json:"disabled,omitempty" yaml:"disabled,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

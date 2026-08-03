@@ -8,7 +8,7 @@ import (
 
 // Config configures the GCP Secret Manager client.
 type Config struct {
-	ProjectID string `env:"PROJECT_ID" json:"projectID" yaml:"projectID"`
+	ProjectID string `env:"PROJECT_ID" json:"projectID,omitempty" yaml:"projectID,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

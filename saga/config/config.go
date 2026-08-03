@@ -36,14 +36,14 @@ type Config struct {
 
 	// TablePrefix names the instance table. It must match the prefix the
 	// migrations were rendered with. Defaults to saga.DefaultTablePrefix.
-	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
 
 	// EventTopic is the outbox topic lifecycle events are published to.
 	// Defaults to saga.DefaultEventTopic.
-	EventTopic string `env:"EVENT_TOPIC" json:"eventTopic" yaml:"eventTopic"`
+	EventTopic string `env:"EVENT_TOPIC" json:"eventTopic,omitempty" yaml:"eventTopic,omitempty"`
 
 	// Worker carries the advance loop's knobs.
-	Worker saga.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
+	Worker saga.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker,omitzero" yaml:"worker,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

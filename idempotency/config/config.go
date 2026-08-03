@@ -18,30 +18,30 @@ type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
 	// KeyPrefix namespaces store and lock keys.
-	KeyPrefix string `env:"KEY_PREFIX" json:"keyPrefix" yaml:"keyPrefix"`
+	KeyPrefix string `env:"KEY_PREFIX" json:"keyPrefix,omitempty" yaml:"keyPrefix,omitempty"`
 	// Lock configures the locker guarding the claim. It has no safe default —
 	// the noop provider acquires unconditionally, which leaves replay working
 	// while quietly removing mutual exclusion.
-	Lock distributedlockcfg.Config `env:",init" envPrefix:"LOCK_" json:"lock" yaml:"lock"`
+	Lock distributedlockcfg.Config `env:",init" envPrefix:"LOCK_" json:"lock,omitzero" yaml:"lock,omitempty"`
 
 	// Cache configures the record store. Use the redis provider in
 	// production: the memory provider is per-process, so replicas would not
 	// see each other's records, and it holds a long TTL entirely in this
 	// process's heap.
-	Cache cachecfg.Config `env:",init" envPrefix:"CACHE_" json:"cache" yaml:"cache"`
+	Cache cachecfg.Config `env:",init" envPrefix:"CACHE_" json:"cache,omitzero" yaml:"cache,omitempty"`
 	// TTL is how long a completed record stays replayable.
-	TTL time.Duration `env:"TTL" json:"ttl" yaml:"ttl"`
+	TTL time.Duration `env:"TTL" json:"ttl,omitempty" yaml:"ttl,omitempty"`
 	// InFlightTTL bounds how long a claim survives without completing. It is a
 	// deadline for the guarded work, not a tuning knob: set it above the worst
 	// case, since anything slower can produce a duplicate effect.
-	InFlightTTL time.Duration `env:"IN_FLIGHT_TTL" json:"inFlightTTL" yaml:"inFlightTTL"`
+	InFlightTTL time.Duration `env:"IN_FLIGHT_TTL" json:"inFlightTTL,omitempty" yaml:"inFlightTTL,omitempty"`
 	// MaxKeyLength is the longest client key accepted.
-	MaxKeyLength int `env:"MAX_KEY_LENGTH" json:"maxKeyLength" yaml:"maxKeyLength"`
+	MaxKeyLength int `env:"MAX_KEY_LENGTH" json:"maxKeyLength,omitempty" yaml:"maxKeyLength,omitempty"`
 	// FailOpen runs the work when the record store cannot be read, instead of
 	// refusing the request. It trades the guarantee for availability and is
 	// wrong wherever a duplicate effect costs money — see
 	// idempotency.StoreFailurePolicy.
-	FailOpen bool `env:"FAIL_OPEN" json:"failOpen" yaml:"failOpen"`
+	FailOpen bool `env:"FAIL_OPEN" json:"failOpen,omitempty" yaml:"failOpen,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

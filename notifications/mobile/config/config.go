@@ -31,11 +31,11 @@ const (
 type (
 	// APNsConfig configures APNs for iOS push notifications.
 	APNsConfig struct {
-		AuthKeyPath string `env:"AUTH_KEY_PATH" json:"authKeyPath" yaml:"authKeyPath"`
-		KeyID       string `env:"KEY_ID"        json:"keyID"       yaml:"keyID"`
-		TeamID      string `env:"TEAM_ID"       json:"teamID"      yaml:"teamID"`
-		BundleID    string `env:"BUNDLE_ID"     json:"bundleID"    yaml:"bundleID"`
-		Production  bool   `env:"PRODUCTION"    json:"production"  yaml:"production"`
+		AuthKeyPath string `env:"AUTH_KEY_PATH" json:"authKeyPath,omitempty" yaml:"authKeyPath,omitempty"`
+		KeyID       string `env:"KEY_ID"        json:"keyID,omitempty"       yaml:"keyID,omitempty"`
+		TeamID      string `env:"TEAM_ID"       json:"teamID,omitempty"      yaml:"teamID,omitempty"`
+		BundleID    string `env:"BUNDLE_ID"     json:"bundleID,omitempty"    yaml:"bundleID,omitempty"`
+		Production  bool   `env:"PRODUCTION"    json:"production,omitempty"  yaml:"production,omitempty"`
 	}
 
 	// FCMConfig configures FCM for Android push notifications.
@@ -46,14 +46,14 @@ type (
 	FCMConfig struct {
 		// CredentialsPath is the path to the Firebase service account JSON file.
 		// If empty, Application Default Credentials (ADC) are used.
-		CredentialsPath string `env:"CREDENTIALS_PATH" json:"credentialsPath" yaml:"credentialsPath"`
+		CredentialsPath string `env:"CREDENTIALS_PATH" json:"credentialsPath,omitempty" yaml:"credentialsPath,omitempty"`
 	}
 
 	// Config is the push notifications configuration.
 	Config struct {
-		APNs     *APNsConfig `env:",init"    envPrefix:"APNS_" json:"apns"     yaml:"apns"`
-		FCM      *FCMConfig  `env:",init"    envPrefix:"FCM_"  json:"fcm"      yaml:"fcm"`
-		Provider string      `env:"PROVIDER" json:"provider"   yaml:"provider"`
+		APNs     *APNsConfig `env:",init"    envPrefix:"APNS_"         json:"apns,omitempty"     yaml:"apns,omitempty"`
+		FCM      *FCMConfig  `env:",init"    envPrefix:"FCM_"          json:"fcm,omitempty"      yaml:"fcm,omitempty"`
+		Provider string      `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 	}
 )
 

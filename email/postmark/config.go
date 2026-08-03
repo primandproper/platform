@@ -9,9 +9,9 @@ import (
 type (
 	// Config configures Postmark to send email.
 	Config struct {
-		ServerToken string `env:"SERVER_TOKEN" json:"serverToken" yaml:"serverToken"`
+		ServerToken string `env:"SERVER_TOKEN" json:"serverToken,omitempty" yaml:"serverToken,omitempty"`
 		// BaseURL overrides the API base URL (e.g. for testing with httptest).
-		BaseURL string `env:"BASE_URL" json:"baseURL" yaml:"baseURL"`
+		BaseURL string `env:"BASE_URL" json:"baseURL,omitempty" yaml:"baseURL,omitempty"`
 	}
 )
 

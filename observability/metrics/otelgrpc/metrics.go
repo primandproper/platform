@@ -26,11 +26,11 @@ var (
 )
 
 type Config struct {
-	CollectorEndpoint    string        `env:"COLLECTOR_ENDPOINT"     json:"metricsCollectorEndpoint" yaml:"metricsCollectorEndpoint"`
-	CollectionInterval   time.Duration `env:"COLLECTION_INTERVAL"    json:"collectionInterval"       yaml:"collectionInterval"`
-	Insecure             bool          `env:"INSECURE"               json:"insecure"                 yaml:"insecure"`
-	EnableRuntimeMetrics bool          `env:"ENABLE_RUNTIME_METRICS" json:"enableRuntimeMetrics"     yaml:"enableRuntimeMetrics"`
-	EnableHostMetrics    bool          `env:"ENABLE_HOST_METRICS"    json:"enableHostMetrics"        yaml:"enableHostMetrics"`
+	CollectorEndpoint    string        `env:"COLLECTOR_ENDPOINT"     json:"metricsCollectorEndpoint,omitempty" yaml:"metricsCollectorEndpoint,omitempty"`
+	CollectionInterval   time.Duration `env:"COLLECTION_INTERVAL"    json:"collectionInterval,omitempty"       yaml:"collectionInterval,omitempty"`
+	Insecure             bool          `env:"INSECURE"               json:"insecure,omitempty"                 yaml:"insecure,omitempty"`
+	EnableRuntimeMetrics bool          `env:"ENABLE_RUNTIME_METRICS" json:"enableRuntimeMetrics,omitempty"     yaml:"enableRuntimeMetrics,omitempty"`
+	EnableHostMetrics    bool          `env:"ENABLE_HOST_METRICS"    json:"enableHostMetrics,omitempty"        yaml:"enableHostMetrics,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

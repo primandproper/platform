@@ -22,7 +22,7 @@ type (
 		ReadTimeout           time.Duration `env:"READ_TIMEOUT"                 json:"readTimeout,omitempty"       yaml:"readTimeout,omitempty"`
 		WriteTimeout          time.Duration `env:"WRITE_TIMEOUT"                json:"writeTimeout,omitempty"      yaml:"writeTimeout,omitempty"`
 		IdleTimeout           time.Duration `env:"IDLE_TIMEOUT"                 json:"idleTimeout,omitempty"       yaml:"idleTimeout,omitempty"`
-		Port                  uint16        `env:"PORT"                         json:"port"                        yaml:"port"`
+		Port                  uint16        `env:"PORT"                         json:"port,omitempty"              yaml:"port,omitempty"`
 	}
 )
 

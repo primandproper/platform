@@ -94,7 +94,7 @@ type RecorderConfig struct {
 	// Postgres refuses a statement with more than 65535 bound parameters, and a
 	// caller that hands Record ten thousand records would otherwise hit that
 	// instead of being chunked.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
+	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 
 	// RejectUnknownMeters refuses usage naming an unregistered meter instead of
 	// dropping it.
@@ -105,7 +105,7 @@ type RecorderConfig struct {
 	// Record that returns an error for a meter the next replica knows about turns
 	// a rollout into an outage on the path that was supposed to be cheap. An
 	// operator who would rather find out loudly sets this.
-	RejectUnknownMeters bool `env:"REJECT_UNKNOWN_METERS" json:"rejectUnknownMeters" yaml:"rejectUnknownMeters"`
+	RejectUnknownMeters bool `env:"REJECT_UNKNOWN_METERS" json:"rejectUnknownMeters,omitempty" yaml:"rejectUnknownMeters,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*RecorderConfig)(nil)
@@ -127,11 +127,11 @@ func (cfg *RecorderConfig) ValidateWithContext(ctx context.Context) error {
 // EnforcerConfig configures the read path.
 type EnforcerConfig struct {
 	// CachePrefix namespaces cache keys. Defaults to DefaultCachePrefix.
-	CachePrefix string `env:"CACHE_PREFIX" json:"cachePrefix" yaml:"cachePrefix"`
+	CachePrefix string `env:"CACHE_PREFIX" json:"cachePrefix,omitempty" yaml:"cachePrefix,omitempty"`
 
 	// Staleness is the default staleness budget for Check, used by meters that
 	// name none of their own. Defaults to DefaultStaleness.
-	Staleness time.Duration `env:"STALENESS" json:"staleness" yaml:"staleness"`
+	Staleness time.Duration `env:"STALENESS" json:"staleness,omitempty" yaml:"staleness,omitempty"`
 
 	// FailOpen decides what Check does when the durable store cannot be read and
 	// the cache has nothing.
@@ -146,7 +146,7 @@ type EnforcerConfig struct {
 	// dependency from a noisy neighbor is better off allowing traffic through an
 	// outage than adding one of its own. Consume is unaffected either way: an
 	// exact answer has nowhere to fail open to.
-	FailOpen bool `env:"FAIL_OPEN" json:"failOpen" yaml:"failOpen"`
+	FailOpen bool `env:"FAIL_OPEN" json:"failOpen,omitempty" yaml:"failOpen,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*EnforcerConfig)(nil)
@@ -173,31 +173,31 @@ func (cfg *EnforcerConfig) ValidateWithContext(ctx context.Context) error {
 // provider.
 type FlusherConfig struct {
 	// Backoff schedules the retry of a total whose post failed.
-	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff,omitzero" yaml:"backoff,omitempty"`
 
 	// LeaseDuration is how long a claimed total stays leased. It must exceed
 	// FlushTimeout — see ValidateWithContext.
-	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration" yaml:"leaseDuration"`
+	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration,omitempty" yaml:"leaseDuration,omitempty"`
 
 	// FlushTimeout bounds one provider post.
-	FlushTimeout time.Duration `env:"FLUSH_TIMEOUT" json:"flushTimeout" yaml:"flushTimeout"`
+	FlushTimeout time.Duration `env:"FLUSH_TIMEOUT" json:"flushTimeout,omitempty" yaml:"flushTimeout,omitempty"`
 
 	// EventRetention is how long a flushed period's usage events are kept.
 	// Defaults to DefaultEventRetention.
-	EventRetention time.Duration `env:"EVENT_RETENTION" json:"eventRetention" yaml:"eventRetention"`
+	EventRetention time.Duration `env:"EVENT_RETENTION" json:"eventRetention,omitempty" yaml:"eventRetention,omitempty"`
 
 	// BatchSize is how many totals one flush pass claims.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
+	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 
 	// Concurrency is how many claimed totals are posted at once.
-	Concurrency int `env:"CONCURRENCY" json:"concurrency" yaml:"concurrency"`
+	Concurrency int `env:"CONCURRENCY" json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
 
 	// MaxAttempts is how many times a total is re-posted before the flusher gives
 	// up. Defaults to DefaultMaxFlushAttempts.
-	MaxAttempts int `env:"MAX_ATTEMPTS" json:"maxAttempts" yaml:"maxAttempts"`
+	MaxAttempts int `env:"MAX_ATTEMPTS" json:"maxAttempts,omitempty" yaml:"maxAttempts,omitempty"`
 
 	// ReapBatchSize caps how many event rows one retention pass deletes.
-	ReapBatchSize int `env:"REAP_BATCH_SIZE" json:"reapBatchSize" yaml:"reapBatchSize"`
+	ReapBatchSize int `env:"REAP_BATCH_SIZE" json:"reapBatchSize,omitempty" yaml:"reapBatchSize,omitempty"`
 
 	// DisableReap stops the flusher deleting event rows past retention.
 	//
@@ -205,7 +205,7 @@ type FlusherConfig struct {
 	// how long that evidence must be kept is a jurisdiction's answer rather than
 	// a library's. An operator whose answer is "forever" should be able to say so
 	// without setting a retention of a hundred years.
-	DisableReap bool `env:"DISABLE_REAP" json:"disableReap" yaml:"disableReap"`
+	DisableReap bool `env:"DISABLE_REAP" json:"disableReap,omitempty" yaml:"disableReap,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*FlusherConfig)(nil)

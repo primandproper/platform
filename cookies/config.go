@@ -18,12 +18,12 @@ const (
 )
 
 type Config struct {
-	Domain                string        `env:"DOMAIN"      json:"domain"                yaml:"domain"`
-	Base64EncodedHashKey  string        `env:"HASH_KEY"    json:"base64EncodedHashKey"  yaml:"base64EncodedHashKey"`
-	Base64EncodedBlockKey string        `env:"BLOCK_KEY"   json:"base64EncodedBlockKey" yaml:"base64EncodedBlockKey"`
-	SameSite              string        `env:"SAME_SITE"   json:"sameSite"              yaml:"sameSite"`
-	Lifetime              time.Duration `env:"LIFETIME"    json:"lifetime"              yaml:"lifetime"`
-	SecureOnly            bool          `env:"SECURE_ONLY" json:"secureOnly"            yaml:"secureOnly"`
+	Domain                string        `env:"DOMAIN"      json:"domain,omitempty"                yaml:"domain,omitempty"`
+	Base64EncodedHashKey  string        `env:"HASH_KEY"    json:"base64EncodedHashKey,omitempty"  yaml:"base64EncodedHashKey,omitempty"`
+	Base64EncodedBlockKey string        `env:"BLOCK_KEY"   json:"base64EncodedBlockKey,omitempty" yaml:"base64EncodedBlockKey,omitempty"`
+	SameSite              string        `env:"SAME_SITE"   json:"sameSite,omitempty"              yaml:"sameSite,omitempty"`
+	Lifetime              time.Duration `env:"LIFETIME"    json:"lifetime,omitempty"              yaml:"lifetime,omitempty"`
+	SecureOnly            bool          `env:"SECURE_ONLY" json:"secureOnly,omitempty"            yaml:"secureOnly,omitempty"`
 }
 
 const minCookieLifetime = 5 * time.Minute

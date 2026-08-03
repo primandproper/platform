@@ -31,10 +31,10 @@ const ProviderNoop = "noop"
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
-	Algolia        *algolia.Config           `env:",init"    envPrefix:"ALGOLIA_"         json:"algolia"              yaml:"algolia"`
-	Elasticsearch  *elasticsearch.Config     `env:",init"    envPrefix:"ELASTICSEARCH_"   json:"elasticsearch"        yaml:"elasticsearch"`
-	Provider       string                    `env:"PROVIDER" json:"provider"              yaml:"provider"`
-	CircuitBreaker circuitbreakingcfg.Config `env:",init"    envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreakerConfig" yaml:"circuitBreakerConfig"`
+	Algolia        *algolia.Config           `env:",init"    envPrefix:"ALGOLIA_"         json:"algolia,omitempty"             yaml:"algolia,omitempty"`
+	Elasticsearch  *elasticsearch.Config     `env:",init"    envPrefix:"ELASTICSEARCH_"   json:"elasticsearch,omitempty"       yaml:"elasticsearch,omitempty"`
+	Provider       string                    `env:"PROVIDER" json:"provider,omitempty"    yaml:"provider,omitempty"`
+	CircuitBreaker circuitbreakingcfg.Config `env:",init"    envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreakerConfig,omitzero" yaml:"circuitBreakerConfig,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

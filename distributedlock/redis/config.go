@@ -10,10 +10,10 @@ import (
 
 // Config configures a Redis-backed distributed locker.
 type Config struct {
-	Username  string   `env:"USERNAME"   json:"username"           yaml:"username"`
-	Password  string   `env:"PASSWORD"   json:"password,omitempty" yaml:"password,omitempty"`
-	KeyPrefix string   `env:"KEY_PREFIX" envDefault:"lock:"        json:"keyPrefix"          yaml:"keyPrefix"`
-	Addresses []string `env:"ADDRESSES"  json:"addresses"          yaml:"addresses"`
+	Username  string   `env:"USERNAME"   json:"username,omitempty"  yaml:"username,omitempty"`
+	Password  string   `env:"PASSWORD"   json:"password,omitempty"  yaml:"password,omitempty"`
+	KeyPrefix string   `env:"KEY_PREFIX" envDefault:"lock:"         json:"keyPrefix,omitempty" yaml:"keyPrefix,omitempty"`
+	Addresses []string `env:"ADDRESSES"  json:"addresses,omitempty" yaml:"addresses,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

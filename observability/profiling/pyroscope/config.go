@@ -9,14 +9,14 @@ import (
 
 // Config holds Pyroscope-specific profiling configuration.
 type Config struct {
-	Tags               map[string]string `env:"-"                    json:"tags,omitempty"              yaml:"tags,omitempty"`
-	ServerAddress      string            `env:"SERVER_ADDRESS"       json:"serverAddress"               yaml:"serverAddress"`
-	BasicAuthUser      string            `env:"BASIC_AUTH_USER"      json:"basicAuthUser,omitempty"     yaml:"basicAuthUser,omitempty"`
-	BasicAuthPassword  string            `env:"BASIC_AUTH_PASSWORD"  json:"basicAuthPassword,omitempty" yaml:"basicAuthPassword,omitempty"`
-	UploadRate         time.Duration     `env:"UPLOAD_RATE"          json:"uploadRate"                  yaml:"uploadRate"`
-	Insecure           bool              `env:"INSECURE"             json:"insecure"                    yaml:"insecure"`
-	EnableMutexProfile bool              `env:"ENABLE_MUTEX_PROFILE" json:"enableMutexProfile"          yaml:"enableMutexProfile"`
-	EnableBlockProfile bool              `env:"ENABLE_BLOCK_PROFILE" json:"enableBlockProfile"          yaml:"enableBlockProfile"`
+	Tags               map[string]string `env:"-"                    json:"tags,omitempty"               yaml:"tags,omitempty"`
+	ServerAddress      string            `env:"SERVER_ADDRESS"       json:"serverAddress,omitempty"      yaml:"serverAddress,omitempty"`
+	BasicAuthUser      string            `env:"BASIC_AUTH_USER"      json:"basicAuthUser,omitempty"      yaml:"basicAuthUser,omitempty"`
+	BasicAuthPassword  string            `env:"BASIC_AUTH_PASSWORD"  json:"basicAuthPassword,omitempty"  yaml:"basicAuthPassword,omitempty"`
+	UploadRate         time.Duration     `env:"UPLOAD_RATE"          json:"uploadRate,omitempty"         yaml:"uploadRate,omitempty"`
+	Insecure           bool              `env:"INSECURE"             json:"insecure,omitempty"           yaml:"insecure,omitempty"`
+	EnableMutexProfile bool              `env:"ENABLE_MUTEX_PROFILE" json:"enableMutexProfile,omitempty" yaml:"enableMutexProfile,omitempty"`
+	EnableBlockProfile bool              `env:"ENABLE_BLOCK_PROFILE" json:"enableBlockProfile,omitempty" yaml:"enableBlockProfile,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

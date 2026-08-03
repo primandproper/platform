@@ -8,11 +8,11 @@ import (
 
 // Config holds Pusher async notifier configuration.
 type Config struct {
-	AppID   string `env:"APP_ID"  json:"appID"   yaml:"appID"`
-	Key     string `env:"KEY"     json:"key"     yaml:"key"`
-	Secret  string `env:"SECRET"  json:"secret"  yaml:"secret"`
-	Cluster string `env:"CLUSTER" json:"cluster" yaml:"cluster"`
-	Secure  bool   `env:"SECURE"  json:"secure"  yaml:"secure"`
+	AppID   string `env:"APP_ID"  json:"appID,omitempty"   yaml:"appID,omitempty"`
+	Key     string `env:"KEY"     json:"key,omitempty"     yaml:"key,omitempty"`
+	Secret  string `env:"SECRET"  json:"secret,omitempty"  yaml:"secret,omitempty"`
+	Cluster string `env:"CLUSTER" json:"cluster,omitempty" yaml:"cluster,omitempty"`
+	Secure  bool   `env:"SECURE"  json:"secure,omitempty"  yaml:"secure,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

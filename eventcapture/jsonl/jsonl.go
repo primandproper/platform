@@ -41,11 +41,11 @@ const (
 type Config struct {
 	// Path is the live file's location; parent directories are created as
 	// needed.
-	Path string `env:"PATH" json:"path" yaml:"path"`
+	Path string `env:"PATH" json:"path,omitempty" yaml:"path,omitempty"`
 	// MaxBytes is the size at which the live file rotates aside.
-	MaxBytes int64 `env:"MAX_BYTES" json:"maxBytes" yaml:"maxBytes"`
+	MaxBytes int64 `env:"MAX_BYTES" json:"maxBytes,omitempty" yaml:"maxBytes,omitempty"`
 	// MaxFiles is how many rotated files are retained; older ones are pruned.
-	MaxFiles int `env:"MAX_FILES" json:"maxFiles" yaml:"maxFiles"`
+	MaxFiles int `env:"MAX_FILES" json:"maxFiles,omitempty" yaml:"maxFiles,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

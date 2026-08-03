@@ -9,9 +9,9 @@ import (
 
 // Config holds WebSocket async notifier configuration.
 type Config struct {
-	HeartbeatInterval time.Duration `env:"HEARTBEAT_INTERVAL" json:"heartbeatInterval" yaml:"heartbeatInterval"`
-	ReadBufferSize    int           `env:"READ_BUFFER_SIZE"   json:"readBufferSize"    yaml:"readBufferSize"`
-	WriteBufferSize   int           `env:"WRITE_BUFFER_SIZE"  json:"writeBufferSize"   yaml:"writeBufferSize"`
+	HeartbeatInterval time.Duration `env:"HEARTBEAT_INTERVAL" json:"heartbeatInterval,omitempty" yaml:"heartbeatInterval,omitempty"`
+	ReadBufferSize    int           `env:"READ_BUFFER_SIZE"   json:"readBufferSize,omitempty"    yaml:"readBufferSize,omitempty"`
+	WriteBufferSize   int           `env:"WRITE_BUFFER_SIZE"  json:"writeBufferSize,omitempty"   yaml:"writeBufferSize,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

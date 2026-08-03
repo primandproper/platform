@@ -57,14 +57,14 @@ type Config struct {
 	// "database", and must be absent otherwise.
 	Database *authzdb.Config `env:",init" envPrefix:"DATABASE_" json:"database,omitempty" yaml:"database,omitempty"`
 	// Provider selects the implementation. Empty means ProviderStatic.
-	Provider string `env:"PROVIDER" json:"provider" yaml:"provider"`
+	Provider string `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 	// Roles is the policy for the static provider. It is loadable from JSON or
 	// YAML, so a static deployment can change policy by shipping config rather
 	// than code.
 	Roles []authorization.Role `json:"roles,omitempty" yaml:"roles,omitempty"`
 	// CacheTTL sets how long a resolution is cached when a cache is supplied to
 	// NewPolicyResolver. Zero uses the cached package's default.
-	CacheTTL time.Duration `env:"CACHE_TTL" json:"cacheTTL" yaml:"cacheTTL"`
+	CacheTTL time.Duration `env:"CACHE_TTL" json:"cacheTTL,omitempty" yaml:"cacheTTL,omitempty"`
 }
 
 // providers are every provider this package implements, plus the empty string,

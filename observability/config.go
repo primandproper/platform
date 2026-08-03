@@ -21,10 +21,10 @@ type (
 	// Config contains settings about how we report our metrics.
 	Config struct {
 		_         struct{}            `json:"-"`
-		Profiling profilingcfg.Config `envPrefix:"PROFILING_" json:"profiling"`
-		Logging   loggingcfg.Config   `envPrefix:"LOGGING_"   json:"logging"`
-		Metrics   metricscfg.Config   `envPrefix:"METRICS_"   json:"metrics"`
-		Tracing   tracingcfg.Config   `envPrefix:"TRACING_"   json:"tracing"`
+		Profiling profilingcfg.Config `envPrefix:"PROFILING_" json:"profiling,omitzero"`
+		Logging   loggingcfg.Config   `envPrefix:"LOGGING_"   json:"logging,omitzero"`
+		Metrics   metricscfg.Config   `envPrefix:"METRICS_"   json:"metrics,omitzero"`
+		Tracing   tracingcfg.Config   `envPrefix:"TRACING_"   json:"tracing,omitzero"`
 	}
 )
 

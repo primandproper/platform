@@ -18,13 +18,13 @@ import (
 type Role struct {
 	// Name identifies the role. It is the string a principal's role assignments
 	// refer to, and it must be unique within a policy.
-	Name string `json:"name" yaml:"name"`
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
 	// Description is human-facing documentation, surfaced by Roles for admin
 	// tooling. It has no effect on resolution.
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 	// Permissions are the permissions this role grants directly, before
 	// inheritance is applied.
-	Permissions []Permission `json:"permissions" yaml:"permissions"`
+	Permissions []Permission `json:"permissions,omitempty" yaml:"permissions,omitempty"`
 	// Inherits names the roles this role inherits from. Inheritance is
 	// transitive: a role receives the permissions of its parents, its parents'
 	// parents, and so on. It is not an ordering — a role may inherit from

@@ -41,31 +41,31 @@ const (
 // WorkerConfig configures a Worker.
 type WorkerConfig struct {
 	// UserAgent identifies deliveries to subscribers.
-	UserAgent string `env:"USER_AGENT" json:"userAgent" yaml:"userAgent"`
+	UserAgent string `env:"USER_AGENT" json:"userAgent,omitempty" yaml:"userAgent,omitempty"`
 	// Backoff drives the retry schedule for failed deliveries. MaxAttempts is
 	// the threshold past which a dispatch is marked dead.
-	Backoff retrycfg.Config `envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `envPrefix:"BACKOFF_" json:"backoff,omitzero" yaml:"backoff,omitempty"`
 	// PollInterval is how often the worker looks for work.
-	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval" yaml:"pollInterval"`
+	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval,omitempty" yaml:"pollInterval,omitempty"`
 	// LeaseDuration is how long a claim is held before it can be reclaimed.
-	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration" yaml:"leaseDuration"`
+	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration,omitempty" yaml:"leaseDuration,omitempty"`
 	// RequestTimeout bounds one delivery request.
-	RequestTimeout time.Duration `env:"REQUEST_TIMEOUT" json:"requestTimeout" yaml:"requestTimeout"`
+	RequestTimeout time.Duration `env:"REQUEST_TIMEOUT" json:"requestTimeout,omitempty" yaml:"requestTimeout,omitempty"`
 	// CircuitOpenRetryDelay is how long a short-circuited dispatch waits before
 	// becoming claimable again. It is a flat delay rather than a backoff step,
 	// because backing off exponentially against an open circuit means the first
 	// delivery after recovery can wait far longer than the outage did.
-	CircuitOpenRetryDelay time.Duration `env:"CIRCUIT_OPEN_RETRY_DELAY" json:"circuitOpenRetryDelay" yaml:"circuitOpenRetryDelay"`
+	CircuitOpenRetryDelay time.Duration `env:"CIRCUIT_OPEN_RETRY_DELAY" json:"circuitOpenRetryDelay,omitempty" yaml:"circuitOpenRetryDelay,omitempty"`
 	// Retention is how long delivered dispatches are kept before reaping.
-	Retention time.Duration `env:"RETENTION" json:"retention" yaml:"retention"`
+	Retention time.Duration `env:"RETENTION" json:"retention,omitempty" yaml:"retention,omitempty"`
 	// ReapInterval is how often the reaper runs.
-	ReapInterval time.Duration `env:"REAP_INTERVAL" json:"reapInterval" yaml:"reapInterval"`
+	ReapInterval time.Duration `env:"REAP_INTERVAL" json:"reapInterval,omitempty" yaml:"reapInterval,omitempty"`
 	// BatchSize is how many dispatches one cycle claims.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
+	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 	// Concurrency is how many deliveries run at once within a batch.
-	Concurrency int `env:"CONCURRENCY" json:"concurrency" yaml:"concurrency"`
+	Concurrency int `env:"CONCURRENCY" json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
 	// ReapBatchSize caps how many rows one reap deletes.
-	ReapBatchSize int `env:"REAP_BATCH_SIZE" json:"reapBatchSize" yaml:"reapBatchSize"`
+	ReapBatchSize int `env:"REAP_BATCH_SIZE" json:"reapBatchSize,omitempty" yaml:"reapBatchSize,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*WorkerConfig)(nil)

@@ -12,7 +12,7 @@ import (
 // SchedulerConfig configures a Scheduler.
 type SchedulerConfig struct {
 	// LockKeyPrefix namespaces every lock key the Scheduler takes.
-	LockKeyPrefix string `env:"LOCK_KEY_PREFIX" json:"lockKeyPrefix" yaml:"lockKeyPrefix"`
+	LockKeyPrefix string `env:"LOCK_KEY_PREFIX" json:"lockKeyPrefix,omitempty" yaml:"lockKeyPrefix,omitempty"`
 	// Timezone is the IANA name of the zone that cron schedules are read in
 	// when they did not settle the question themselves — "America/Chicago". It
 	// is what a service whose jobs all belong to one calendar sets once,
@@ -24,12 +24,12 @@ type SchedulerConfig struct {
 	// It is resolved by NewScheduler, so a name the runtime cannot load fails
 	// construction rather than the first fire. Anything but UTC needs the
 	// zoneinfo database in the image.
-	Timezone string `env:"TIMEZONE" json:"timezone" yaml:"timezone"`
+	Timezone string `env:"TIMEZONE" json:"timezone,omitempty" yaml:"timezone,omitempty"`
 	// DefaultLeaseTTL is the lease length for jobs that do not set their own.
-	DefaultLeaseTTL time.Duration `env:"DEFAULT_LEASE_TTL" json:"defaultLeaseTTL" yaml:"defaultLeaseTTL"`
+	DefaultLeaseTTL time.Duration `env:"DEFAULT_LEASE_TTL" json:"defaultLeaseTTL,omitempty" yaml:"defaultLeaseTTL,omitempty"`
 	// DefaultTimeout bounds one execution for jobs that do not set their own.
 	// Zero means no timeout.
-	DefaultTimeout time.Duration `env:"DEFAULT_TIMEOUT" json:"defaultTimeout" yaml:"defaultTimeout"`
+	DefaultTimeout time.Duration `env:"DEFAULT_TIMEOUT" json:"defaultTimeout,omitempty" yaml:"defaultTimeout,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*SchedulerConfig)(nil)
@@ -60,20 +60,20 @@ func (cfg *SchedulerConfig) ValidateWithContext(ctx context.Context) error {
 // PoolConfig configures a Pool.
 type PoolConfig struct {
 	// Topic is the queue topic to consume.
-	Topic string `env:"TOPIC" json:"topic" yaml:"topic"`
+	Topic string `env:"TOPIC" json:"topic,omitempty" yaml:"topic,omitempty"`
 	// Retry drives per-message retries. MaxAttempts is how many times the
 	// handler runs before the message is dead-lettered, so MaxAttempts of 1
 	// means no retry at all.
-	Retry retrycfg.Config `envPrefix:"RETRY_" json:"retry" yaml:"retry"`
+	Retry retrycfg.Config `envPrefix:"RETRY_" json:"retry,omitzero" yaml:"retry,omitempty"`
 	// Concurrency is how many messages the Pool handles at once. It is also the
 	// bound on read-ahead: the Pool holds at most this many messages in memory,
 	// because a consumed message is handed directly to a free worker and the
 	// consumer blocks when there is none.
-	Concurrency int `env:"CONCURRENCY" json:"concurrency" yaml:"concurrency"`
+	Concurrency int `env:"CONCURRENCY" json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
 	// HandlerTimeout bounds one attempt. Zero — the default — means no timeout,
 	// in which case a handler that neither returns nor honors its context
 	// occupies a worker permanently and will hold up Close.
-	HandlerTimeout time.Duration `env:"HANDLER_TIMEOUT" json:"handlerTimeout" yaml:"handlerTimeout"`
+	HandlerTimeout time.Duration `env:"HANDLER_TIMEOUT" json:"handlerTimeout,omitempty" yaml:"handlerTimeout,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*PoolConfig)(nil)

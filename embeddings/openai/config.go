@@ -14,7 +14,7 @@ type Config struct {
 	APIKey       string        `env:"API_KEY"       json:"apiKey,omitempty"       yaml:"apiKey,omitempty"`
 	BaseURL      string        `env:"BASE_URL"      json:"baseURL,omitempty"      yaml:"baseURL,omitempty"`
 	DefaultModel string        `env:"DEFAULT_MODEL" json:"defaultModel,omitempty" yaml:"defaultModel,omitempty"`
-	Timeout      time.Duration `env:"TIMEOUT"       json:"timeout"                yaml:"timeout"`
+	Timeout      time.Duration `env:"TIMEOUT"       json:"timeout,omitempty"      yaml:"timeout,omitempty"`
 }
 
 // ValidateWithContext validates the config.

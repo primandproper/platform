@@ -30,10 +30,10 @@ const (
 type (
 	// SourceConfig is the per-source analytics config (provider + credentials). Used for proxy sources; no ProxySources to avoid recursion.
 	SourceConfig struct {
-		Segment        *segment.Config           `env:",init"                  envPrefix:"SEGMENT_"  json:"segment"        yaml:"segment"`
-		Posthog        *posthog.Config           `env:",init"                  envPrefix:"POSTHOG_"  json:"posthog"        yaml:"posthog"`
-		Provider       string                    `env:"PROVIDER"               json:"provider"       yaml:"provider"`
-		CircuitBreaker circuitbreakingcfg.Config `envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreaker" yaml:"circuitBreaker"`
+		Segment        *segment.Config           `env:",init"                  envPrefix:"SEGMENT_"           json:"segment,omitempty"        yaml:"segment,omitempty"`
+		Posthog        *posthog.Config           `env:",init"                  envPrefix:"POSTHOG_"           json:"posthog,omitempty"        yaml:"posthog,omitempty"`
+		Provider       string                    `env:"PROVIDER"               json:"provider,omitempty"      yaml:"provider,omitempty"`
+		CircuitBreaker circuitbreakingcfg.Config `envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreaker,omitzero" yaml:"circuitBreaker,omitempty"`
 	}
 
 	// ProxySourcesConfig holds per-source analytics config for the analytics
@@ -50,7 +50,7 @@ type (
 
 	// Config is the configuration structure.
 	Config struct {
-		ProxySources ProxySourcesConfig `envPrefix:"PROXY_SOURCES_" json:"proxySources" yaml:"proxySources"`
+		ProxySources ProxySourcesConfig `envPrefix:"PROXY_SOURCES_" json:"proxySources,omitempty" yaml:"proxySources,omitempty"`
 		SourceConfig
 	}
 )
