@@ -8,7 +8,7 @@ import (
 
 // Config configures the Kubernetes secret source.
 type Config struct {
-	Namespace  string `env:"NAMESPACE"  json:"namespace"            yaml:"namespace"`
+	Namespace  string `env:"NAMESPACE"  json:"namespace,omitempty"  yaml:"namespace,omitempty"`
 	Kubeconfig string `env:"KUBECONFIG" json:"kubeconfig,omitempty" yaml:"kubeconfig,omitempty"`
 }
 

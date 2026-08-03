@@ -20,12 +20,12 @@ const (
 // dataprivacy, jobs, webhooks) as well as read from the environment directly,
 // which is why the zero value is meaningful: EnsureDefaults fills it in.
 type Config struct {
-	Provider     string        `env:"PROVIDER"      json:"provider"     yaml:"provider"`
-	MaxAttempts  uint          `env:"MAX_ATTEMPTS"  json:"maxAttempts"  yaml:"maxAttempts"`
-	InitialDelay time.Duration `env:"INITIAL_DELAY" json:"initialDelay" yaml:"initialDelay"`
-	MaxDelay     time.Duration `env:"MAX_DELAY"     json:"maxDelay"     yaml:"maxDelay"`
-	Multiplier   float64       `env:"MULTIPLIER"    json:"multiplier"   yaml:"multiplier"`
-	UseJitter    bool          `env:"USE_JITTER"    json:"useJitter"    yaml:"useJitter"`
+	Provider     string        `env:"PROVIDER"      json:"provider,omitempty"     yaml:"provider,omitempty"`
+	MaxAttempts  uint          `env:"MAX_ATTEMPTS"  json:"maxAttempts,omitempty"  yaml:"maxAttempts,omitempty"`
+	InitialDelay time.Duration `env:"INITIAL_DELAY" json:"initialDelay,omitempty" yaml:"initialDelay,omitempty"`
+	MaxDelay     time.Duration `env:"MAX_DELAY"     json:"maxDelay,omitempty"     yaml:"maxDelay,omitempty"`
+	Multiplier   float64       `env:"MULTIPLIER"    json:"multiplier,omitempty"   yaml:"multiplier,omitempty"`
+	UseJitter    bool          `env:"USE_JITTER"    json:"useJitter,omitempty"    yaml:"useJitter,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

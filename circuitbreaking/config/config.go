@@ -17,9 +17,9 @@ import (
 )
 
 type Config struct {
-	Name                   string  `env:"NAME"                     json:"name"                                     yaml:"name"`
-	ErrorRate              float64 `env:"ERROR_RATE"               json:"circuitBreakerErrorPercentage"            yaml:"circuitBreakerErrorPercentage"`
-	MinimumSampleThreshold uint64  `env:"MINIMUM_SAMPLE_THRESHOLD" json:"circuitBreakerMinimumOccurrenceThreshold" yaml:"circuitBreakerMinimumOccurrenceThreshold"`
+	Name                   string  `env:"NAME"                     json:"name,omitempty"                                     yaml:"name,omitempty"`
+	ErrorRate              float64 `env:"ERROR_RATE"               json:"circuitBreakerErrorPercentage,omitempty"            yaml:"circuitBreakerErrorPercentage,omitempty"`
+	MinimumSampleThreshold uint64  `env:"MINIMUM_SAMPLE_THRESHOLD" json:"circuitBreakerMinimumOccurrenceThreshold,omitempty" yaml:"circuitBreakerMinimumOccurrenceThreshold,omitempty"`
 }
 
 func (cfg *Config) EnsureDefaults() {

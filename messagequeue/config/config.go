@@ -51,19 +51,19 @@ type (
 	// MessageQueueConfig is used to indicate how the messaging provider should be configured.
 	MessageQueueConfig struct {
 		_        struct{}      `json:"-"            yaml:"-"`
-		Kafka    kafka.Config  `envPrefix:"KAFKA_"  json:"kafka"              yaml:"kafka"`
+		Kafka    kafka.Config  `envPrefix:"KAFKA_"  json:"kafka,omitzero"     yaml:"kafka,omitempty"`
 		Provider provider      `env:"PROVIDER"      json:"provider,omitempty" yaml:"provider,omitempty"`
-		SQS      sqs.Config    `envPrefix:"SQS_"    json:"sqs"                yaml:"sqs"`
-		PubSub   pubsub.Config `envPrefix:"PUBSUB_" json:"pubSub"             yaml:"pubSub"`
-		Redis    redis.Config  `envPrefix:"REDIS_"  json:"redis"              yaml:"redis"`
+		SQS      sqs.Config    `envPrefix:"SQS_"    json:"sqs,omitzero"       yaml:"sqs,omitempty"`
+		PubSub   pubsub.Config `envPrefix:"PUBSUB_" json:"pubSub,omitzero"    yaml:"pubSub,omitempty"`
+		Redis    redis.Config  `envPrefix:"REDIS_"  json:"redis,omitzero"     yaml:"redis,omitempty"`
 	}
 
 	// Config is used to indicate how the messaging provider should be configured.
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		Consumer  MessageQueueConfig `envPrefix:"CONSUMER_"  json:"consumer"  yaml:"consumer"`
-		Publisher MessageQueueConfig `envPrefix:"PUBLISHER_" json:"publisher" yaml:"publisher"`
+		Consumer  MessageQueueConfig `envPrefix:"CONSUMER_"  json:"consumer,omitzero"  yaml:"consumer,omitempty"`
+		Publisher MessageQueueConfig `envPrefix:"PUBLISHER_" json:"publisher,omitzero" yaml:"publisher,omitempty"`
 	}
 )
 

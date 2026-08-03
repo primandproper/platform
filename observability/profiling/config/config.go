@@ -32,10 +32,10 @@ type (
 	// Config contains settings related to profiling.
 	Config struct {
 		_           struct{}          `json:"-"           yaml:"-"`
-		Pyroscope   *pyroscope.Config `env:",init"        envPrefix:"PYROSCOPE_"    json:"pyroscope,omitempty" yaml:"pyroscope,omitempty"`
-		Pprof       *pprof.Config     `env:",init"        envPrefix:"PPROF_"        json:"pprof,omitempty"     yaml:"pprof,omitempty"`
-		ServiceName string            `env:"SERVICE_NAME" json:"serviceName"        yaml:"serviceName"`
-		Provider    string            `env:"PROVIDER"     json:"provider,omitempty" yaml:"provider,omitempty"`
+		Pyroscope   *pyroscope.Config `env:",init"        envPrefix:"PYROSCOPE_"       json:"pyroscope,omitempty"   yaml:"pyroscope,omitempty"`
+		Pprof       *pprof.Config     `env:",init"        envPrefix:"PPROF_"           json:"pprof,omitempty"       yaml:"pprof,omitempty"`
+		ServiceName string            `env:"SERVICE_NAME" json:"serviceName,omitempty" yaml:"serviceName,omitempty"`
+		Provider    string            `env:"PROVIDER"     json:"provider,omitempty"    yaml:"provider,omitempty"`
 	}
 )
 

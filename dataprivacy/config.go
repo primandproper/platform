@@ -100,12 +100,12 @@ const (
 type ServiceConfig struct {
 	// ExportResponseWindow is how long an export may take before it counts as
 	// overdue. Defaults to DefaultResponseWindow.
-	ExportResponseWindow time.Duration `env:"EXPORT_RESPONSE_WINDOW" json:"exportResponseWindow" yaml:"exportResponseWindow"`
+	ExportResponseWindow time.Duration `env:"EXPORT_RESPONSE_WINDOW" json:"exportResponseWindow,omitempty" yaml:"exportResponseWindow,omitempty"`
 
 	// ErasureResponseWindow is the same for erasures. Separate from the export
 	// window because the jurisdictions that distinguish them give erasure the
 	// longer one, and a single knob would force the stricter deadline onto both.
-	ErasureResponseWindow time.Duration `env:"ERASURE_RESPONSE_WINDOW" json:"erasureResponseWindow" yaml:"erasureResponseWindow"`
+	ErasureResponseWindow time.Duration `env:"ERASURE_RESPONSE_WINDOW" json:"erasureResponseWindow,omitempty" yaml:"erasureResponseWindow,omitempty"`
 
 	// ConfirmationWindow is how long an erasure waits for confirmation before
 	// it is cancelled. Zero — the default — means erasures are queued on
@@ -115,11 +115,11 @@ type ServiceConfig struct {
 	// support ticket and being unrecoverable. Regulation generally permits a
 	// verification step, and the failure mode it prevents is the only one in
 	// this package that cannot be undone.
-	ConfirmationWindow time.Duration `env:"CONFIRMATION_WINDOW" json:"confirmationWindow" yaml:"confirmationWindow"`
+	ConfirmationWindow time.Duration `env:"CONFIRMATION_WINDOW" json:"confirmationWindow,omitempty" yaml:"confirmationWindow,omitempty"`
 
 	// SignedURLTTL is how long a download URL is valid. Defaults to
 	// DefaultSignedURLTTL.
-	SignedURLTTL time.Duration `env:"SIGNED_URL_TTL" json:"signedURLTTL" yaml:"signedURLTTL"`
+	SignedURLTTL time.Duration `env:"SIGNED_URL_TTL" json:"signedURLTTL,omitempty" yaml:"signedURLTTL,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*ServiceConfig)(nil)
@@ -159,47 +159,47 @@ func (cfg *ServiceConfig) responseWindow(t RequestType) time.Duration {
 type WorkerConfig struct {
 	// ArtifactPathPrefix is the storage prefix artifacts are written under.
 	// Defaults to DefaultArtifactPathPrefix.
-	ArtifactPathPrefix string `env:"ARTIFACT_PATH_PREFIX" json:"artifactPathPrefix" yaml:"artifactPathPrefix"`
+	ArtifactPathPrefix string `env:"ARTIFACT_PATH_PREFIX" json:"artifactPathPrefix,omitempty" yaml:"artifactPathPrefix,omitempty"`
 
 	// Backoff schedules the retry of a request that failed for a reason worth
 	// retrying.
-	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff,omitzero" yaml:"backoff,omitempty"`
 
 	// PollInterval is how often the Worker looks for pending requests.
-	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval" yaml:"pollInterval"`
+	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval,omitempty" yaml:"pollInterval,omitempty"`
 
 	// LeaseDuration is how long a claimed request stays leased. It must exceed
 	// FulfillmentTimeout — see ValidateWithContext.
-	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration" yaml:"leaseDuration"`
+	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration,omitempty" yaml:"leaseDuration,omitempty"`
 
 	// FulfillmentTimeout bounds one whole request.
-	FulfillmentTimeout time.Duration `env:"FULFILLMENT_TIMEOUT" json:"fulfillmentTimeout" yaml:"fulfillmentTimeout"`
+	FulfillmentTimeout time.Duration `env:"FULFILLMENT_TIMEOUT" json:"fulfillmentTimeout,omitempty" yaml:"fulfillmentTimeout,omitempty"`
 
 	// CollectorTimeout bounds one collector, so one slow domain costs its own
 	// section rather than the export.
-	CollectorTimeout time.Duration `env:"COLLECTOR_TIMEOUT" json:"collectorTimeout" yaml:"collectorTimeout"`
+	CollectorTimeout time.Duration `env:"COLLECTOR_TIMEOUT" json:"collectorTimeout,omitempty" yaml:"collectorTimeout,omitempty"`
 
 	// ArtifactTTL is how long an export artifact survives after completion,
 	// stamped onto the request as ExpiresAt when the Worker writes it. Defaults
 	// to DefaultArtifactTTL.
-	ArtifactTTL time.Duration `env:"ARTIFACT_TTL" json:"artifactTTL" yaml:"artifactTTL"`
+	ArtifactTTL time.Duration `env:"ARTIFACT_TTL" json:"artifactTTL,omitempty" yaml:"artifactTTL,omitempty"`
 
 	// MaxDocumentBytes caps the assembled export. Defaults to
 	// DefaultMaxDocumentBytes.
-	MaxDocumentBytes int64 `env:"MAX_DOCUMENT_BYTES" json:"maxDocumentBytes" yaml:"maxDocumentBytes"`
+	MaxDocumentBytes int64 `env:"MAX_DOCUMENT_BYTES" json:"maxDocumentBytes,omitempty" yaml:"maxDocumentBytes,omitempty"`
 
 	// BatchSize is how many requests one cycle claims.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
+	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 
 	// Concurrency is how many claimed requests are fulfilled at once.
-	Concurrency int `env:"CONCURRENCY" json:"concurrency" yaml:"concurrency"`
+	Concurrency int `env:"CONCURRENCY" json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
 
 	// CollectorConcurrency is how many of one request's collectors run at once.
 	//
 	// It is bounded rather than unlimited because every collector queries the
 	// application's own database, and a subject present in forty domains would
 	// otherwise open forty concurrent queries on behalf of one background job.
-	CollectorConcurrency int `env:"COLLECTOR_CONCURRENCY" json:"collectorConcurrency" yaml:"collectorConcurrency"`
+	CollectorConcurrency int `env:"COLLECTOR_CONCURRENCY" json:"collectorConcurrency,omitempty" yaml:"collectorConcurrency,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*WorkerConfig)(nil)
@@ -273,12 +273,12 @@ func (cfg *WorkerConfig) ValidateWithContext(ctx context.Context) error {
 type SweeperConfig struct {
 	// RequestRetention is how long a terminal request record is kept. Defaults
 	// to DefaultRequestRetention.
-	RequestRetention time.Duration `env:"REQUEST_RETENTION" json:"requestRetention" yaml:"requestRetention"`
+	RequestRetention time.Duration `env:"REQUEST_RETENTION" json:"requestRetention,omitempty" yaml:"requestRetention,omitempty"`
 
 	// BatchSize caps how much one sweep tick does, so a long-neglected table is
 	// trimmed over several passes instead of one statement that holds locks for
 	// minutes.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
+	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 
 	// DisableReap stops the sweeper deleting terminal request records.
 	//
@@ -286,7 +286,7 @@ type SweeperConfig struct {
 	// a jurisdiction's answer and not a library's, and an operator whose answer
 	// is "forever, and we will argue about it later" should be able to say so
 	// without setting a retention of a hundred years.
-	DisableReap bool `env:"DISABLE_REAP" json:"disableReap" yaml:"disableReap"`
+	DisableReap bool `env:"DISABLE_REAP" json:"disableReap,omitempty" yaml:"disableReap,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*SweeperConfig)(nil)

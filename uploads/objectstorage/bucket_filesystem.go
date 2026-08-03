@@ -66,10 +66,10 @@ type (
 	FilesystemConfig struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		RootDirectory string `env:"ROOT_DIRECTORY" json:"rootDirectory" yaml:"rootDirectory"`
+		RootDirectory string `env:"ROOT_DIRECTORY" json:"rootDirectory,omitempty" yaml:"rootDirectory,omitempty"`
 		// DirectoryMode is the mode for directories the backend creates, parsed as
 		// octal. Defaults to 0700 when unset (zero).
-		DirectoryMode DirectoryMode `env:"DIRECTORY_MODE" json:"directoryMode" yaml:"directoryMode"`
+		DirectoryMode DirectoryMode `env:"DIRECTORY_MODE" json:"directoryMode,omitempty" yaml:"directoryMode,omitempty"`
 	}
 )
 

@@ -8,7 +8,7 @@ import (
 
 // Config configures AWS SES to send email.
 type Config struct {
-	Region string `env:"REGION" json:"region" yaml:"region"`
+	Region string `env:"REGION" json:"region,omitempty" yaml:"region,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

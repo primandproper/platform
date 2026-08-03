@@ -80,12 +80,12 @@ type Resolver struct {
 // Config configures a Resolver.
 type Config struct {
 	// Dialect selects the SQL emitted. Required.
-	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
+	Dialect dialect.Dialect `env:"DIALECT" json:"dialect,omitempty" yaml:"dialect,omitempty"`
 	// TablePrefix is the namespace prepended to every policy table name. Empty
 	// renders the schema's own names (authz_roles); set it to share a database
 	// between applications, which renders e.g. ddb_authz_roles. It must not end
 	// in '_' — the separator is supplied for you.
-	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
 }
 
 // NewResolver builds a Resolver. The executor is used for reads; writes take

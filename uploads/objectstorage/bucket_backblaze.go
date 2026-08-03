@@ -11,9 +11,9 @@ type (
 	BackblazeB2Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		ApplicationKeyID string `env:"APPLICATION_KEY_ID" json:"applicationKeyID" yaml:"applicationKeyID"`
-		ApplicationKey   string `env:"APPLICATION_KEY"    json:"applicationKey"   yaml:"applicationKey"`
-		Region           string `env:"REGION"             json:"region"           yaml:"region"`
+		ApplicationKeyID string `env:"APPLICATION_KEY_ID" json:"applicationKeyID,omitempty" yaml:"applicationKeyID,omitempty"`
+		ApplicationKey   string `env:"APPLICATION_KEY"    json:"applicationKey,omitempty"   yaml:"applicationKey,omitempty"`
+		Region           string `env:"REGION"             json:"region,omitempty"           yaml:"region,omitempty"`
 	}
 )
 

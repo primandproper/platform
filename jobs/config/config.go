@@ -28,10 +28,10 @@ type PoolConfig struct {
 	// Queue configures the consumer the Pool reads from. An empty provider
 	// selects the noop consumer, which delivers nothing — right for tests,
 	// wrong for production.
-	Queue messagequeuecfg.Config `env:",init" envPrefix:"QUEUE_" json:"queue" yaml:"queue"`
+	Queue messagequeuecfg.Config `env:",init" envPrefix:"QUEUE_" json:"queue,omitzero" yaml:"queue,omitempty"`
 
 	// Pool carries the worker pool's own knobs.
-	Pool jobs.PoolConfig `env:",init" json:"pool" yaml:"pool"`
+	Pool jobs.PoolConfig `env:",init" json:"pool,omitzero" yaml:"pool,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*PoolConfig)(nil)
@@ -105,13 +105,13 @@ type SchedulerConfig struct {
 	_ struct{} `json:"-" yaml:"-"`
 
 	// Scheduler carries the scheduler's own knobs.
-	Scheduler jobs.SchedulerConfig `env:",init" json:"scheduler" yaml:"scheduler"`
+	Scheduler jobs.SchedulerConfig `env:",init" json:"scheduler,omitzero" yaml:"scheduler,omitempty"`
 
 	// Lock configures the locker that keeps a job's execution on one replica
 	// per tick. It has no safe default — the noop provider acquires
 	// unconditionally, which leaves every replica running every job while
 	// looking configured.
-	Lock distributedlockcfg.Config `env:",init" envPrefix:"LOCK_" json:"lock" yaml:"lock"`
+	Lock distributedlockcfg.Config `env:",init" envPrefix:"LOCK_" json:"lock,omitzero" yaml:"lock,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*SchedulerConfig)(nil)

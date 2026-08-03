@@ -11,10 +11,10 @@ import (
 type Config struct {
 	// AllowedOrigins is the set of exact Origin header values permitted to upgrade.
 	// When empty, upgrades are restricted to same-origin requests.
-	AllowedOrigins    []string      `env:"ALLOWED_ORIGINS"    json:"allowedOrigins"    yaml:"allowedOrigins"`
-	HeartbeatInterval time.Duration `env:"HEARTBEAT_INTERVAL" json:"heartbeatInterval" yaml:"heartbeatInterval"`
-	ReadBufferSize    int           `env:"READ_BUFFER_SIZE"   json:"readBufferSize"    yaml:"readBufferSize"`
-	WriteBufferSize   int           `env:"WRITE_BUFFER_SIZE"  json:"writeBufferSize"   yaml:"writeBufferSize"`
+	AllowedOrigins    []string      `env:"ALLOWED_ORIGINS"    json:"allowedOrigins,omitempty"    yaml:"allowedOrigins,omitempty"`
+	HeartbeatInterval time.Duration `env:"HEARTBEAT_INTERVAL" json:"heartbeatInterval,omitempty" yaml:"heartbeatInterval,omitempty"`
+	ReadBufferSize    int           `env:"READ_BUFFER_SIZE"   json:"readBufferSize,omitempty"    yaml:"readBufferSize,omitempty"`
+	WriteBufferSize   int           `env:"WRITE_BUFFER_SIZE"  json:"writeBufferSize,omitempty"   yaml:"writeBufferSize,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

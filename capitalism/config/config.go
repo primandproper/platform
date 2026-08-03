@@ -29,8 +29,8 @@ const (
 type (
 	// Config allows for the configuration of this package and its subpackages.
 	Config struct {
-		Stripe   *stripe.Config `env:",init"    envPrefix:"STRIPE_" json:"stripe"   yaml:"stripe"`
-		Provider string         `env:"PROVIDER" json:"provider"     yaml:"provider"`
+		Stripe   *stripe.Config `env:",init"    envPrefix:"STRIPE_"       json:"stripe,omitempty"   yaml:"stripe,omitempty"`
+		Provider string         `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 	}
 )
 

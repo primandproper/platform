@@ -26,10 +26,10 @@ const (
 
 // Config is the configuration for the embeddings provider.
 type Config struct {
-	OpenAI   *openai.Config `env:",init"    envPrefix:"OPENAI_" json:"openai"   yaml:"openai"`
-	Ollama   *ollama.Config `env:",init"    envPrefix:"OLLAMA_" json:"ollama"   yaml:"ollama"`
-	Cohere   *cohere.Config `env:",init"    envPrefix:"COHERE_" json:"cohere"   yaml:"cohere"`
-	Provider string         `env:"PROVIDER" json:"provider"     yaml:"provider"`
+	OpenAI   *openai.Config `env:",init"    envPrefix:"OPENAI_"       json:"openai,omitempty"   yaml:"openai,omitempty"`
+	Ollama   *ollama.Config `env:",init"    envPrefix:"OLLAMA_"       json:"ollama,omitempty"   yaml:"ollama,omitempty"`
+	Cohere   *cohere.Config `env:",init"    envPrefix:"COHERE_"       json:"cohere,omitempty"   yaml:"cohere,omitempty"`
+	Provider string         `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

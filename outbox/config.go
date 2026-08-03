@@ -56,27 +56,27 @@ func (m ClaimMode) Valid() bool {
 type RelayConfig struct {
 	// TablePrefix is the namespace the outbox table carries. Empty renders
 	// outbox_messages; "ddb" renders ddb_outbox_messages.
-	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
 	// table is TablePrefix resolved to a full name, filled by EnsureDefaults so
 	// every query builder below reads one already-qualified string.
 	table string
 	// ClaimMode selects lease-only or SKIP LOCKED claiming.
-	ClaimMode ClaimMode `env:"CLAIM_MODE" json:"claimMode" yaml:"claimMode"`
+	ClaimMode ClaimMode `env:"CLAIM_MODE" json:"claimMode,omitempty" yaml:"claimMode,omitempty"`
 	// Backoff drives the retry schedule for messages that fail to publish.
 	// MaxAttempts is the quarantine threshold.
-	Backoff retrycfg.Config `envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `envPrefix:"BACKOFF_" json:"backoff,omitzero" yaml:"backoff,omitempty"`
 	// BatchSize is how many messages one cycle claims.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
+	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 	// PollInterval is how often the relay looks for work.
-	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval" yaml:"pollInterval"`
+	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval,omitempty" yaml:"pollInterval,omitempty"`
 	// LeaseDuration is how long a claim is held before it can be reclaimed.
-	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration" yaml:"leaseDuration"`
+	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration,omitempty" yaml:"leaseDuration,omitempty"`
 	// Retention is how long published rows are kept before reaping.
-	Retention time.Duration `env:"RETENTION" json:"retention" yaml:"retention"`
+	Retention time.Duration `env:"RETENTION" json:"retention,omitempty" yaml:"retention,omitempty"`
 	// ReapInterval is how often the reaper runs.
-	ReapInterval time.Duration `env:"REAP_INTERVAL" json:"reapInterval" yaml:"reapInterval"`
+	ReapInterval time.Duration `env:"REAP_INTERVAL" json:"reapInterval,omitempty" yaml:"reapInterval,omitempty"`
 	// ReapBatchSize caps how many rows one reap deletes.
-	ReapBatchSize int `env:"REAP_BATCH_SIZE" json:"reapBatchSize" yaml:"reapBatchSize"`
+	ReapBatchSize int `env:"REAP_BATCH_SIZE" json:"reapBatchSize,omitempty" yaml:"reapBatchSize,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*RelayConfig)(nil)

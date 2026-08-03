@@ -36,10 +36,10 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		ServiceName string           `env:"SERVICE_NAME" json:"serviceName"        yaml:"serviceName"`
-		Level       logging.Level    `env:"LEVEL"        json:"level,omitempty"    yaml:"level,omitempty"`
-		OtelSlog    *otelgrpc.Config `env:",init"        envPrefix:"OTEL_SLOG_"    json:"otelslog,omitempty" yaml:"otelslog,omitempty"`
-		Provider    string           `env:"PROVIDER"     json:"provider,omitempty" yaml:"provider,omitempty"`
+		ServiceName string           `env:"SERVICE_NAME" json:"serviceName,omitempty" yaml:"serviceName,omitempty"`
+		Level       logging.Level    `env:"LEVEL"        json:"level,omitempty"       yaml:"level,omitempty"`
+		OtelSlog    *otelgrpc.Config `env:",init"        envPrefix:"OTEL_SLOG_"       json:"otelslog,omitempty"    yaml:"otelslog,omitempty"`
+		Provider    string           `env:"PROVIDER"     json:"provider,omitempty"    yaml:"provider,omitempty"`
 	}
 )
 

@@ -35,11 +35,11 @@ type Config struct {
 	GCPClient        gcp.SecretVersionAccessor `json:"-"       yaml:"-"`
 	SSMClient        ssm.GetParameterAPI       `json:"-"       yaml:"-"`
 	KubernetesClient kubernetes.SecretGetter   `json:"-"       yaml:"-"`
-	Env              *env.Config               `env:",init"    envPrefix:"ENV_"        json:"env,omitempty"        yaml:"env,omitempty"`
-	GCP              *gcp.Config               `env:",init"    envPrefix:"GCP_"        json:"gcp,omitempty"        yaml:"gcp,omitempty"`
-	SSM              *ssm.Config               `env:",init"    envPrefix:"SSM_"        json:"ssm,omitempty"        yaml:"ssm,omitempty"`
-	Kubernetes       *kubernetes.Config        `env:",init"    envPrefix:"KUBERNETES_" json:"kubernetes,omitempty" yaml:"kubernetes,omitempty"`
-	Provider         string                    `env:"PROVIDER" json:"provider"         yaml:"provider"`
+	Env              *env.Config               `env:",init"    envPrefix:"ENV_"          json:"env,omitempty"        yaml:"env,omitempty"`
+	GCP              *gcp.Config               `env:",init"    envPrefix:"GCP_"          json:"gcp,omitempty"        yaml:"gcp,omitempty"`
+	SSM              *ssm.Config               `env:",init"    envPrefix:"SSM_"          json:"ssm,omitempty"        yaml:"ssm,omitempty"`
+	Kubernetes       *kubernetes.Config        `env:",init"    envPrefix:"KUBERNETES_"   json:"kubernetes,omitempty" yaml:"kubernetes,omitempty"`
+	Provider         string                    `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 }
 
 // providers are every provider this package implements, plus the empty string,

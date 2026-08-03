@@ -17,9 +17,9 @@ import (
 // MetadataColumn is the JSONB column used to store the per-vector payload (the
 // generic T type). It defaults to "metadata" and must be a bare identifier.
 type Config struct {
-	MetadataColumn string                      `env:"METADATA_COLUMN" envDefault:"metadata" json:"metadataColumn" yaml:"metadataColumn"`
-	Metric         vectorsearch.DistanceMetric `env:"METRIC"          envDefault:"cosine"   json:"metric"         yaml:"metric"`
-	Dimension      int                         `env:"DIMENSION"       json:"dimension"      yaml:"dimension"`
+	MetadataColumn string                      `env:"METADATA_COLUMN" envDefault:"metadata"      json:"metadataColumn,omitempty" yaml:"metadataColumn,omitempty"`
+	Metric         vectorsearch.DistanceMetric `env:"METRIC"          envDefault:"cosine"        json:"metric,omitempty"         yaml:"metric,omitempty"`
+	Dimension      int                         `env:"DIMENSION"       json:"dimension,omitempty" yaml:"dimension,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

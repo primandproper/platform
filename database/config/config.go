@@ -35,29 +35,29 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		Provider              string            `env:"PROVIDER"                envDefault:"postgres"        json:"provider"              yaml:"provider"`
-		ReadConnection        ConnectionDetails `envPrefix:"READ_CONNECTION_"  json:"readConnection"        yaml:"readConnection"`
-		WriteConnection       ConnectionDetails `envPrefix:"WRITE_CONNECTION_" json:"writeConnection"       yaml:"writeConnection"`
-		PingWaitPeriod        time.Duration     `env:"PING_WAIT_PERIOD"        envDefault:"1s"              json:"pingWaitPeriod"        yaml:"pingWaitPeriod"`
-		MaxPingAttempts       uint64            `env:"MAX_PING_ATTEMPTS"       json:"maxPingAttempts"       yaml:"maxPingAttempts"`
-		ConnMaxLifetime       time.Duration     `env:"CONN_MAX_LIFETIME"       envDefault:"30m"             json:"connMaxLifetime"       yaml:"connMaxLifetime"`
-		MaxIdleConns          uint16            `env:"MAX_IDLE_CONNS"          envDefault:"5"               json:"maxIdleConns"          yaml:"maxIdleConns"`
-		MaxOpenConns          uint16            `env:"MAX_OPEN_CONNS"          envDefault:"7"               json:"maxOpenConns"          yaml:"maxOpenConns"`
-		Debug                 bool              `env:"DEBUG"                   json:"debug"                 yaml:"debug"`
-		LogQueries            bool              `env:"LOG_QUERIES"             json:"logQueries"            yaml:"logQueries"`
-		RunMigrations         bool              `env:"RUN_MIGRATIONS"          json:"runMigrations"         yaml:"runMigrations"`
-		EnableDatabaseMetrics bool              `env:"ENABLE_DATABASE_METRICS" json:"enableDatabaseMetrics" yaml:"enableDatabaseMetrics"`
+		Provider              string            `env:"PROVIDER"                envDefault:"postgres"                  json:"provider,omitempty"              yaml:"provider,omitempty"`
+		ReadConnection        ConnectionDetails `envPrefix:"READ_CONNECTION_"  json:"readConnection,omitzero"         yaml:"readConnection,omitempty"`
+		WriteConnection       ConnectionDetails `envPrefix:"WRITE_CONNECTION_" json:"writeConnection,omitzero"        yaml:"writeConnection,omitempty"`
+		PingWaitPeriod        time.Duration     `env:"PING_WAIT_PERIOD"        envDefault:"1s"                        json:"pingWaitPeriod,omitempty"        yaml:"pingWaitPeriod,omitempty"`
+		MaxPingAttempts       uint64            `env:"MAX_PING_ATTEMPTS"       json:"maxPingAttempts,omitempty"       yaml:"maxPingAttempts,omitempty"`
+		ConnMaxLifetime       time.Duration     `env:"CONN_MAX_LIFETIME"       envDefault:"30m"                       json:"connMaxLifetime,omitempty"       yaml:"connMaxLifetime,omitempty"`
+		MaxIdleConns          uint16            `env:"MAX_IDLE_CONNS"          envDefault:"5"                         json:"maxIdleConns,omitempty"          yaml:"maxIdleConns,omitempty"`
+		MaxOpenConns          uint16            `env:"MAX_OPEN_CONNS"          envDefault:"7"                         json:"maxOpenConns,omitempty"          yaml:"maxOpenConns,omitempty"`
+		Debug                 bool              `env:"DEBUG"                   json:"debug,omitempty"                 yaml:"debug,omitempty"`
+		LogQueries            bool              `env:"LOG_QUERIES"             json:"logQueries,omitempty"            yaml:"logQueries,omitempty"`
+		RunMigrations         bool              `env:"RUN_MIGRATIONS"          json:"runMigrations,omitempty"         yaml:"runMigrations,omitempty"`
+		EnableDatabaseMetrics bool              `env:"ENABLE_DATABASE_METRICS" json:"enableDatabaseMetrics,omitempty" yaml:"enableDatabaseMetrics,omitempty"`
 	}
 
 	ConnectionDetails struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		Username   string `env:"USERNAME"    json:"username"   yaml:"username"`
-		Password   string `env:"PASSWORD"    json:"password"   yaml:"password"`
-		Database   string `env:"DATABASE"    json:"database"   yaml:"database"`
-		Host       string `env:"HOST"        json:"hostname"   yaml:"hostname"`
-		Port       uint16 `env:"PORT"        json:"port"       yaml:"port"`
-		DisableSSL bool   `env:"DISABLE_SSL" json:"disableSSL" yaml:"disableSSL"`
+		Username   string `env:"USERNAME"    json:"username,omitempty"   yaml:"username,omitempty"`
+		Password   string `env:"PASSWORD"    json:"password,omitempty"   yaml:"password,omitempty"`
+		Database   string `env:"DATABASE"    json:"database,omitempty"   yaml:"database,omitempty"`
+		Host       string `env:"HOST"        json:"hostname,omitempty"   yaml:"hostname,omitempty"`
+		Port       uint16 `env:"PORT"        json:"port,omitempty"       yaml:"port,omitempty"`
+		DisableSSL bool   `env:"DISABLE_SSL" json:"disableSSL,omitempty" yaml:"disableSSL,omitempty"`
 	}
 )
 

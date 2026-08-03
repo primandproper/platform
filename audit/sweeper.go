@@ -40,18 +40,18 @@ const (
 // SweeperConfig configures a Sweeper.
 type SweeperConfig struct {
 	// Dialect selects the SQL emitted; it must match the database.Client.
-	Dialect dialect.Dialect `env:"DIALECT" json:"dialect" yaml:"dialect"`
+	Dialect dialect.Dialect `env:"DIALECT" json:"dialect,omitempty" yaml:"dialect,omitempty"`
 	// TablePrefix is the prefix the audit tables carry. Defaults to
 	// DefaultTablePrefix, and must match the Recorder's.
-	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
 	// Retention is how long an entry is kept. Defaults to DefaultRetention.
-	Retention time.Duration `env:"RETENTION" json:"retention" yaml:"retention"`
+	Retention time.Duration `env:"RETENTION" json:"retention,omitempty" yaml:"retention,omitempty"`
 	// SweepInterval is how often the sweeper runs.
-	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval" yaml:"sweepInterval"`
+	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
 	// BatchSize caps how many entries one sweep removes from one scope.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
+	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 	// ScopeLimit caps how many scopes one sweep tick visits.
-	ScopeLimit int `env:"SCOPE_LIMIT" json:"scopeLimit" yaml:"scopeLimit"`
+	ScopeLimit int `env:"SCOPE_LIMIT" json:"scopeLimit,omitempty" yaml:"scopeLimit,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*SweeperConfig)(nil)

@@ -13,9 +13,9 @@ const (
 
 // Config holds pprof-specific profiling configuration.
 type Config struct {
-	Port               uint16 `env:"PORT"                 json:"port"               yaml:"port"`
-	EnableMutexProfile bool   `env:"ENABLE_MUTEX_PROFILE" json:"enableMutexProfile" yaml:"enableMutexProfile"`
-	EnableBlockProfile bool   `env:"ENABLE_BLOCK_PROFILE" json:"enableBlockProfile" yaml:"enableBlockProfile"`
+	Port               uint16 `env:"PORT"                 json:"port,omitempty"               yaml:"port,omitempty"`
+	EnableMutexProfile bool   `env:"ENABLE_MUTEX_PROFILE" json:"enableMutexProfile,omitempty" yaml:"enableMutexProfile,omitempty"`
+	EnableBlockProfile bool   `env:"ENABLE_BLOCK_PROFILE" json:"enableBlockProfile,omitempty" yaml:"enableBlockProfile,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

@@ -11,9 +11,9 @@ type (
 	R2Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		AccountID       string `env:"ACCOUNT_ID"        json:"accountID"       yaml:"accountID"`
-		AccessKeyID     string `env:"ACCESS_KEY_ID"     json:"accessKeyID"     yaml:"accessKeyID"`
-		SecretAccessKey string `env:"SECRET_ACCESS_KEY" json:"secretAccessKey" yaml:"secretAccessKey"`
+		AccountID       string `env:"ACCOUNT_ID"        json:"accountID,omitempty"       yaml:"accountID,omitempty"`
+		AccessKeyID     string `env:"ACCESS_KEY_ID"     json:"accessKeyID,omitempty"     yaml:"accessKeyID,omitempty"`
+		SecretAccessKey string `env:"SECRET_ACCESS_KEY" json:"secretAccessKey,omitempty" yaml:"secretAccessKey,omitempty"`
 	}
 )
 

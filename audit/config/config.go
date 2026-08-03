@@ -32,11 +32,11 @@ type Config struct {
 	// environment encoding, and this is a policy that belongs in a reviewed file
 	// rather than in a deployment variable — "which fields must never be
 	// recorded" is exactly the sort of decision that should show up in a diff.
-	Redactions map[string]audit.Redaction `json:"redactions" yaml:"redactions"`
+	Redactions map[string]audit.Redaction `json:"redactions,omitempty" yaml:"redactions,omitempty"`
 
 	// Sweeper carries the retention knobs, and the dialect and table prefix that
 	// the Recorder and Reader take as well.
-	Sweeper audit.SweeperConfig `env:",init" json:"sweeper" yaml:"sweeper"`
+	Sweeper audit.SweeperConfig `env:",init" json:"sweeper,omitzero" yaml:"sweeper,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

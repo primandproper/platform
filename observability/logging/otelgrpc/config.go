@@ -11,9 +11,9 @@ type (
 	Config struct {
 		_ struct{} `json:"-" yaml:"-"`
 
-		CollectorEndpoint string        `env:"ENDPOINT_URL" json:"endpointURL" yaml:"endpointURL"`
-		Insecure          bool          `env:"INSECURE"     json:"insecure"    yaml:"insecure"`
-		Timeout           time.Duration `env:"TIMEOUT"      json:"timeout"     yaml:"timeout"`
+		CollectorEndpoint string        `env:"ENDPOINT_URL" json:"endpointURL,omitempty" yaml:"endpointURL,omitempty"`
+		Insecure          bool          `env:"INSECURE"     json:"insecure,omitempty"    yaml:"insecure,omitempty"`
+		Timeout           time.Duration `env:"TIMEOUT"      json:"timeout,omitempty"     yaml:"timeout,omitempty"`
 	}
 )
 

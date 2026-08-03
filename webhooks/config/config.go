@@ -35,18 +35,18 @@ type Config struct {
 
 	// TablePrefix names the five webhook tables. It must match the prefix the
 	// migrations were rendered with. Defaults to webhooks.DefaultTablePrefix.
-	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix" yaml:"tablePrefix"`
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
 
 	// CircuitBreaker configures the per-endpoint breakers. Its Name is used as
 	// a prefix — each endpoint's breaker is named for the endpoint, so a
 	// tripped breaker names the subscriber that tripped it.
-	CircuitBreaker circuitbreakingcfg.Config `env:",init" envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreaker" yaml:"circuitBreaker"`
+	CircuitBreaker circuitbreakingcfg.Config `env:",init" envPrefix:"CIRCUIT_BREAKER_" json:"circuitBreaker,omitzero" yaml:"circuitBreaker,omitempty"`
 
 	// Worker carries the delivery loop's own knobs.
-	Worker webhooks.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker" yaml:"worker"`
+	Worker webhooks.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker,omitzero" yaml:"worker,omitempty"`
 
 	// HTTPClient configures the single client every delivery goes through.
-	HTTPClient httpclient.Config `env:",init" envPrefix:"HTTP_" json:"httpClient" yaml:"httpClient"`
+	HTTPClient httpclient.Config `env:",init" envPrefix:"HTTP_" json:"httpClient,omitzero" yaml:"httpClient,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)

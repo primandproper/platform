@@ -73,7 +73,7 @@ const (
 type WorkerConfig struct {
 	// LockKeyPrefix namespaces the per-instance lock keys. Defaults to
 	// DefaultLockKeyPrefix.
-	LockKeyPrefix string `env:"LOCK_KEY_PREFIX" json:"lockKeyPrefix" yaml:"lockKeyPrefix"`
+	LockKeyPrefix string `env:"LOCK_KEY_PREFIX" json:"lockKeyPrefix,omitempty" yaml:"lockKeyPrefix,omitempty"`
 
 	// IdempotencyKeyPrefix namespaces the per-step idempotency keys. Defaults
 	// to DefaultIdempotencyKeyPrefix.
@@ -81,38 +81,38 @@ type WorkerConfig struct {
 	// Changing it after instances are in flight re-arms every step that has
 	// already run: the keys the resumed instance computes will not be the ones
 	// its earlier attempts recorded. Treat it as part of the schema.
-	IdempotencyKeyPrefix string `env:"IDEMPOTENCY_KEY_PREFIX" json:"idempotencyKeyPrefix" yaml:"idempotencyKeyPrefix"`
+	IdempotencyKeyPrefix string `env:"IDEMPOTENCY_KEY_PREFIX" json:"idempotencyKeyPrefix,omitempty" yaml:"idempotencyKeyPrefix,omitempty"`
 
 	// Backoff schedules the retry of a step that failed, and its MaxAttempts is
 	// the forward budget: a Do that fails this many times begins compensation.
-	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff" yaml:"backoff"`
+	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff,omitzero" yaml:"backoff,omitempty"`
 
 	// CompensationBackoff schedules the retry of a compensation. Its
 	// MaxAttempts is the budget past which the instance is marked stuck.
-	CompensationBackoff retrycfg.Config `env:",init" envPrefix:"COMPENSATION_BACKOFF_" json:"compensationBackoff" yaml:"compensationBackoff"`
+	CompensationBackoff retrycfg.Config `env:",init" envPrefix:"COMPENSATION_BACKOFF_" json:"compensationBackoff,omitzero" yaml:"compensationBackoff,omitempty"`
 
 	// PollInterval is how often the Worker looks for instances to advance.
-	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval" yaml:"pollInterval"`
+	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval,omitempty" yaml:"pollInterval,omitempty"`
 
 	// LeaseDuration is how long a claimed instance stays leased. It must exceed
 	// AdvanceTimeout — see ValidateWithContext.
-	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration" yaml:"leaseDuration"`
+	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration,omitempty" yaml:"leaseDuration,omitempty"`
 
 	// LockTTL bounds the per-instance distributed lock. It must exceed
 	// AdvanceTimeout for the same reason the lease must.
-	LockTTL time.Duration `env:"LOCK_TTL" json:"lockTTL" yaml:"lockTTL"`
+	LockTTL time.Duration `env:"LOCK_TTL" json:"lockTTL,omitempty" yaml:"lockTTL,omitempty"`
 
 	// AdvanceTimeout bounds one pass over one instance.
-	AdvanceTimeout time.Duration `env:"ADVANCE_TIMEOUT" json:"advanceTimeout" yaml:"advanceTimeout"`
+	AdvanceTimeout time.Duration `env:"ADVANCE_TIMEOUT" json:"advanceTimeout,omitempty" yaml:"advanceTimeout,omitempty"`
 
 	// StepTimeout bounds one Do or one Undo.
-	StepTimeout time.Duration `env:"STEP_TIMEOUT" json:"stepTimeout" yaml:"stepTimeout"`
+	StepTimeout time.Duration `env:"STEP_TIMEOUT" json:"stepTimeout,omitempty" yaml:"stepTimeout,omitempty"`
 
 	// BatchSize is how many instances one cycle claims.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize" yaml:"batchSize"`
+	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
 
 	// Concurrency is how many claimed instances are advanced at once.
-	Concurrency int `env:"CONCURRENCY" json:"concurrency" yaml:"concurrency"`
+	Concurrency int `env:"CONCURRENCY" json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*WorkerConfig)(nil)

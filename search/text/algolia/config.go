@@ -8,9 +8,9 @@ import (
 )
 
 type Config struct {
-	AppID   string        `env:"APP_ID"  json:"appID"       yaml:"appID"`
-	APIKey  string        `env:"API_KEY" json:"writeAPIKey" yaml:"writeAPIKey"`
-	Timeout time.Duration `env:"TIMEOUT" json:"timeout"     yaml:"timeout"`
+	AppID   string        `env:"APP_ID"  json:"appID,omitempty"       yaml:"appID,omitempty"`
+	APIKey  string        `env:"API_KEY" json:"writeAPIKey,omitempty" yaml:"writeAPIKey,omitempty"`
+	Timeout time.Duration `env:"TIMEOUT" json:"timeout,omitempty"     yaml:"timeout,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
