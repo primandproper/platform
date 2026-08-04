@@ -1,11 +1,13 @@
 package webhookscfg
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/webhooks"
 	"github.com/primandproper/platform-go/v9/webhooks/migrations"
+	webhooksmock "github.com/primandproper/platform-go/v9/webhooks/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -261,6 +264,73 @@ func TestNewWorker(T *testing.T) {
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), webhooks.ErrLeaseTooShort.Error())
 	})
+
+	// The client built here is wrapped in tracing, which the Worker cannot reach
+	// into to install the pinning dialer — so this constructor is the only place
+	// that pin can go, and nothing else would catch it going missing. A hostname
+	// no resolver will answer for is what proves it took: the delivery lands
+	// anyway, because the dial went to the address the checker approved rather
+	// than to whatever resolving the name would have produced.
+	T.Run("its deliveries dial the address the checker approved", func(t *testing.T) {
+		t.Parallel()
+
+		var delivered atomic.Int64
+
+		server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+			delivered.Add(1)
+
+			res.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(server.Close)
+
+		host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+		must.NoError(t, err)
+
+		worker, err := NewWorker(t.Context(), validConfig(), claimOnceStore(port),
+			WithWorkerOptions(webhooks.WithWorkerPinningURLChecker(
+				func(context.Context, string) ([]netip.Addr, error) {
+					return []netip.Addr{netip.MustParseAddr(host)}, nil
+				})))
+		must.NoError(t, err)
+
+		// Run drains one last cycle on the way out, which is the one cycle this
+		// needs — no polling interval to wait through.
+		go worker.Run()
+		must.NoError(t, worker.Close(t.Context()))
+
+		test.EqOp(t, int64(1), delivered.Load())
+	})
+}
+
+// claimOnceStore hands the worker a single dispatch aimed at a hostname nothing
+// resolves, on the given port, and accepts whatever it records about it.
+func claimOnceStore(port string) webhooks.Store {
+	var claimed atomic.Bool
+
+	return &webhooksmock.StoreMock{
+		ClaimFunc: func(context.Context, time.Time, int, time.Time) ([]webhooks.ClaimedDispatch, error) {
+			if claimed.Swap(true) {
+				return nil, nil
+			}
+
+			return []webhooks.ClaimedDispatch{{
+				Endpoint: &webhooks.Endpoint{
+					ID:          "endpoint-1",
+					URL:         "http://unresolvable.invalid:" + port + "/hooks",
+					ContentType: webhooks.DefaultContentType,
+					Secret:      webhooks.Secret{Current: []byte("secret")},
+				},
+				Payload:   []byte(`{}`),
+				EventType: "order.created",
+				Dispatch: webhooks.Dispatch{
+					ID: "dispatch-1", DeliveryID: "delivery-1", EndpointID: "endpoint-1", Attempts: 1,
+				},
+			}}, nil
+		},
+		RecordAttemptFunc: func(context.Context, *webhooks.Attempt) error { return nil },
+		MarkDeliveredFunc: func(context.Context, string, time.Time) error { return nil },
+		RecordFailureFunc: func(context.Context, string, int, time.Time, string, bool) error { return nil },
+	}
 }
 
 func TestEnsureHTTPClient(T *testing.T) {
@@ -282,39 +352,6 @@ func TestEnsureHTTPClient(T *testing.T) {
 		t.Parallel()
 
 		test.NotNil(t, EnsureHTTPClient(nil))
-	})
-
-	// Tracing is forced on here, which wraps the transport in something the
-	// Worker cannot reach into to install the pinning dialer — so this is the
-	// only place that pin can be installed, and NewWorker's client is built from
-	// the same options. A name that resolves nowhere is what proves it took: the
-	// request arrives anyway, because the dial went to the pinned address rather
-	// than to whatever the resolver would have said.
-	T.Run("builds a client whose dials honor a pin", func(t *testing.T) {
-		t.Parallel()
-
-		server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
-			res.WriteHeader(http.StatusOK)
-		}))
-		t.Cleanup(server.Close)
-
-		host, port, err := net.SplitHostPort(server.Listener.Addr().String())
-		must.NoError(t, err)
-
-		cfg := validConfig()
-		cfg.EnsureDefaults()
-
-		ctx := webhooks.WithPinnedAddrs(t.Context(), "unresolvable.invalid", []netip.Addr{netip.MustParseAddr(host)})
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unresolvable.invalid:"+port+"/", http.NoBody)
-		must.NoError(t, err)
-
-		res, err := EnsureHTTPClient(cfg).Do(req)
-		must.NoError(t, err)
-
-		t.Cleanup(func() { _ = res.Body.Close() })
-
-		test.EqOp(t, http.StatusOK, res.StatusCode)
 	})
 }
 

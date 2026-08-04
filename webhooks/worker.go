@@ -204,10 +204,10 @@ func NewWorker(ctx context.Context, cfg *WorkerConfig, store Store, opts ...Work
 // attacker-supplied rather than of any one request.
 //
 // A transport that is not an *http.Transport cannot be pinned here, and the
-// client is handed back untouched; see PinningTransport for why, and
+// client is handed back untouched; see pinningTransport for why, and
 // WithHTTPClient for what to do about it.
 func pinnedClient(client *http.Client) *http.Client {
-	transport, ok := PinningTransport(client.Transport)
+	transport, ok := pinningTransport(client.Transport)
 	if !ok {
 		return client
 	}
@@ -257,7 +257,7 @@ func pinnedContext(ctx context.Context, rawURL string, addrs []netip.Addr) conte
 		return ctx
 	}
 
-	return WithPinnedAddrs(ctx, parsed.Hostname(), addrs)
+	return withPinnedAddrs(ctx, parsed.Hostname(), addrs)
 }
 
 // refuseRedirects stops the client from following a redirect.

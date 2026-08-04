@@ -99,9 +99,10 @@ func CheckEndpointURL(ctx context.Context, rawURL string) error {
 //
 // The returned addresses are the entire acceptable destination set for rawURL
 // as of this call: every one of them passed the same routability check, and no
-// address outside the set did. Handing them to PinningDialContext — via
-// WithPinnedAddrs on the request's context — is what removes the window between
-// deciding a host is safe and connecting to it.
+// address outside the set did. A Worker dials exactly that set, which is what
+// removes the window between deciding a host is safe and connecting to it. Most
+// callers never handle these addresses themselves — returning them is how a
+// replacement PinningURLChecker says what it approved.
 func CheckEndpointURLAddrs(ctx context.Context, rawURL string) ([]netip.Addr, error) {
 	return checkEndpointURL(ctx, rawURL, net.DefaultResolver)
 }

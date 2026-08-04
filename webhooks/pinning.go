@@ -43,7 +43,7 @@ type pin struct {
 	addrs []netip.Addr
 }
 
-// WithPinnedAddrs returns a context whose dials for host, through a dialer
+// withPinnedAddrs returns a context whose dials for host, through a dialer
 // built by PinningDialContext, connect to addrs and to nothing else. host is
 // the URL's hostname, as url.URL.Hostname reports it.
 //
@@ -55,7 +55,7 @@ type pin struct {
 //
 // An empty addrs leaves ctx unchanged, so a caller with nothing to pin produces
 // an unpinned dial rather than one pinned to nothing.
-func WithPinnedAddrs(ctx context.Context, host string, addrs []netip.Addr) context.Context {
+func withPinnedAddrs(ctx context.Context, host string, addrs []netip.Addr) context.Context {
 	if host == "" || len(addrs) == 0 {
 		return ctx
 	}
@@ -65,9 +65,9 @@ func WithPinnedAddrs(ctx context.Context, host string, addrs []netip.Addr) conte
 	return context.WithValue(ctx, pinnedAddrsContextKey{}, pin{host: host, addrs: slices.Clone(addrs)})
 }
 
-// PinnedAddrs reports the host a dial on ctx is pinned for and the addresses it
+// pinnedAddrs reports the host a dial on ctx is pinned for and the addresses it
 // is pinned to. A nil addrs means ctx pins nothing.
-func PinnedAddrs(ctx context.Context) (host string, addrs []netip.Addr) {
+func pinnedAddrs(ctx context.Context) (host string, addrs []netip.Addr) {
 	pinned, ok := ctx.Value(pinnedAddrsContextKey{}).(pin)
 	if !ok {
 		return "", nil
@@ -114,7 +114,7 @@ func PinningDialContext(base DialContextFunc) DialContextFunc {
 	}
 
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
-		pinnedHost, addrs := PinnedAddrs(ctx)
+		pinnedHost, addrs := pinnedAddrs(ctx)
 		if len(addrs) == 0 {
 			return base(ctx, network, address)
 		}
@@ -165,7 +165,7 @@ func PinningDialContext(base DialContextFunc) DialContextFunc {
 	}
 }
 
-// PinningTransport returns base with its dial routed through
+// pinningTransport returns base with its dial routed through
 // PinningDialContext, and reports whether it could do so.
 //
 // It works on an *http.Transport — or on nil, meaning http.DefaultTransport —
@@ -182,7 +182,7 @@ func PinningDialContext(base DialContextFunc) DialContextFunc {
 // does not share is the pool itself, so a client used both here and elsewhere
 // keeps two — which is what the Worker wants anyway, since the point of taking
 // a client at all is one warm pool per worker.
-func PinningTransport(base http.RoundTripper) (http.RoundTripper, bool) {
+func pinningTransport(base http.RoundTripper) (http.RoundTripper, bool) {
 	if base == nil {
 		base = http.DefaultTransport
 	}

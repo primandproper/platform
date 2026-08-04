@@ -64,7 +64,7 @@ func (d *recordingDialer) asked1(t *testing.T) string {
 }
 
 // unpinnableTransport is a RoundTripper that is not an *http.Transport — the
-// case PinningTransport cannot reach into.
+// case pinningTransport cannot reach into.
 type unpinnableTransport struct{}
 
 func (unpinnableTransport) RoundTrip(*http.Request) (*http.Response, error) {
@@ -100,7 +100,7 @@ func TestWithPinnedAddrs(T *testing.T) {
 
 		want := []netip.Addr{netip.MustParseAddr(publicAddr)}
 
-		host, addrs := PinnedAddrs(WithPinnedAddrs(t.Context(), "example.com", want))
+		host, addrs := pinnedAddrs(withPinnedAddrs(t.Context(), "example.com", want))
 		test.EqOp(t, "example.com", host)
 		test.Eq(t, want, addrs)
 	})
@@ -110,7 +110,7 @@ func TestWithPinnedAddrs(T *testing.T) {
 	T.Run("an empty set does not pin", func(t *testing.T) {
 		t.Parallel()
 
-		_, addrs := PinnedAddrs(WithPinnedAddrs(t.Context(), "example.com", nil))
+		_, addrs := pinnedAddrs(withPinnedAddrs(t.Context(), "example.com", nil))
 		test.SliceEmpty(t, addrs)
 	})
 
@@ -119,14 +119,14 @@ func TestWithPinnedAddrs(T *testing.T) {
 	T.Run("an empty host does not pin", func(t *testing.T) {
 		t.Parallel()
 
-		_, addrs := PinnedAddrs(WithPinnedAddrs(t.Context(), "", []netip.Addr{netip.MustParseAddr(publicAddr)}))
+		_, addrs := pinnedAddrs(withPinnedAddrs(t.Context(), "", []netip.Addr{netip.MustParseAddr(publicAddr)}))
 		test.SliceEmpty(t, addrs)
 	})
 
 	T.Run("a bare context pins nothing", func(t *testing.T) {
 		t.Parallel()
 
-		host, addrs := PinnedAddrs(t.Context())
+		host, addrs := pinnedAddrs(t.Context())
 		test.EqOp(t, "", host)
 		test.SliceEmpty(t, addrs)
 	})
@@ -137,11 +137,11 @@ func TestWithPinnedAddrs(T *testing.T) {
 		t.Parallel()
 
 		addrs := []netip.Addr{netip.MustParseAddr(publicAddr)}
-		ctx := WithPinnedAddrs(t.Context(), "example.com", addrs)
+		ctx := withPinnedAddrs(t.Context(), "example.com", addrs)
 
 		addrs[0] = netip.MustParseAddr(metadataAddr)
 
-		_, pinned := PinnedAddrs(ctx)
+		_, pinned := pinnedAddrs(ctx)
 		must.SliceLen(t, 1, pinned)
 		test.EqOp(t, netip.MustParseAddr(publicAddr), pinned[0])
 	})
@@ -163,7 +163,7 @@ func TestPinningDialContext(T *testing.T) {
 			return nil, http.ErrNotSupported
 		})
 
-		ctx := WithPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
+		ctx := withPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
 
 		_, err := dial(ctx, "tcp", "rebind.example.com:443")
 		test.Error(t, err)
@@ -183,7 +183,7 @@ func TestPinningDialContext(T *testing.T) {
 			return nil, http.ErrNotSupported
 		})
 
-		ctx := WithPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr("2606:2800:220:1:248:1893:25c8:1946")})
+		ctx := withPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr("2606:2800:220:1:248:1893:25c8:1946")})
 
 		_, err := dial(ctx, "tcp", "rebind.example.com:8443")
 		test.Error(t, err)
@@ -223,7 +223,7 @@ func TestPinningDialContext(T *testing.T) {
 			return nil, nil
 		})
 
-		ctx := WithPinnedAddrs(t.Context(), "example.com", []netip.Addr{
+		ctx := withPinnedAddrs(t.Context(), "example.com", []netip.Addr{
 			netip.MustParseAddr(publicAddr),
 			netip.MustParseAddr("93.184.216.35"),
 		})
@@ -240,7 +240,7 @@ func TestPinningDialContext(T *testing.T) {
 			return nil, http.ErrNotSupported
 		})
 
-		ctx := WithPinnedAddrs(t.Context(), "example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
+		ctx := withPinnedAddrs(t.Context(), "example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
 
 		_, err := dial(ctx, "tcp", "example.com:443")
 		test.ErrorIs(t, err, http.ErrNotSupported)
@@ -257,7 +257,7 @@ func TestPinningDialContext(T *testing.T) {
 			return nil, nil
 		})
 
-		ctx := WithPinnedAddrs(t.Context(), "example.com", []netip.Addr{netip.MustParseAddr("2606:2800:220:1:248:1893:25c8:1946")})
+		ctx := withPinnedAddrs(t.Context(), "example.com", []netip.Addr{netip.MustParseAddr("2606:2800:220:1:248:1893:25c8:1946")})
 
 		_, err := dial(ctx, "tcp4", "example.com:443")
 		test.ErrorIs(t, err, ErrNoPinnedAddress)
@@ -278,7 +278,7 @@ func TestPinningDialContext(T *testing.T) {
 			return nil, http.ErrNotSupported
 		})
 
-		ctx := WithPinnedAddrs(t.Context(), "example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
+		ctx := withPinnedAddrs(t.Context(), "example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
 
 		_, err := dial(ctx, "tcp", "proxy.internal:3128")
 		test.Error(t, err)
@@ -298,7 +298,7 @@ func TestPinningDialContext(T *testing.T) {
 			return nil, http.ErrNotSupported
 		})
 
-		ctx := WithPinnedAddrs(t.Context(), "example.com",
+		ctx := withPinnedAddrs(t.Context(), "example.com",
 			[]netip.Addr{netip.AddrFrom16(netip.MustParseAddr(publicAddr).As16())})
 
 		_, err := dial(ctx, "tcp4", "example.com:443")
@@ -319,7 +319,7 @@ func TestPinningDialContext(T *testing.T) {
 			return nil, http.ErrNotSupported
 		})
 
-		ctx := WithPinnedAddrs(t.Context(), "Example.COM", []netip.Addr{netip.MustParseAddr(publicAddr)})
+		ctx := withPinnedAddrs(t.Context(), "Example.COM", []netip.Addr{netip.MustParseAddr(publicAddr)})
 
 		_, err := dial(ctx, "tcp", "example.com:443")
 		test.Error(t, err)
@@ -331,7 +331,7 @@ func TestPinningDialContext(T *testing.T) {
 
 		dial := PinningDialContext(nil)
 
-		ctx := WithPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
+		ctx := withPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
 
 		_, err := dial(ctx, "tcp", "example.com")
 		test.Error(t, err)
@@ -376,13 +376,13 @@ func TestPinningTransport(T *testing.T) {
 			},
 		}
 
-		pinned, ok := PinningTransport(base)
+		pinned, ok := pinningTransport(base)
 		must.True(t, ok)
 
 		transport, ok := pinned.(*http.Transport)
 		must.True(t, ok)
 
-		ctx := WithPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
+		ctx := withPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
 
 		_, err := transport.DialContext(ctx, "tcp", "rebind.example.com:443")
 		test.Error(t, err)
@@ -404,10 +404,10 @@ func TestPinningTransport(T *testing.T) {
 			},
 		}
 
-		_, ok := PinningTransport(base)
+		_, ok := pinningTransport(base)
 		must.True(t, ok)
 
-		ctx := WithPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
+		ctx := withPinnedAddrs(t.Context(), "rebind.example.com", []netip.Addr{netip.MustParseAddr(publicAddr)})
 
 		_, err := base.DialContext(ctx, "tcp", "rebind.example.com:443")
 		test.Error(t, err)
@@ -419,7 +419,7 @@ func TestPinningTransport(T *testing.T) {
 
 		base := &http.Transport{Proxy: http.ProxyFromEnvironment, MaxIdleConnsPerHost: 7}
 
-		pinned, ok := PinningTransport(base)
+		pinned, ok := pinningTransport(base)
 		must.True(t, ok)
 
 		transport, ok := pinned.(*http.Transport)
@@ -432,7 +432,7 @@ func TestPinningTransport(T *testing.T) {
 	T.Run("treats a nil transport as the default one", func(t *testing.T) {
 		t.Parallel()
 
-		pinned, ok := PinningTransport(nil)
+		pinned, ok := pinningTransport(nil)
 		must.True(t, ok)
 
 		// Identity rather than equality: DefaultTransport is shared with every
@@ -447,7 +447,7 @@ func TestPinningTransport(T *testing.T) {
 
 		base := http.RoundTripper(unpinnableTransport{})
 
-		pinned, ok := PinningTransport(base)
+		pinned, ok := pinningTransport(base)
 		test.False(t, ok)
 		test.EqOp(t, base, pinned)
 	})
