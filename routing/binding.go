@@ -296,6 +296,11 @@ type bindError struct {
 	code httpx.ErrorCode
 }
 
+// ErrorCode returns the platform error code for this binding failure, which is
+// how an ErrorEncoder distinguishes a body it could not decode from input that
+// failed validation without matching on this unexported type.
+func (e *bindError) ErrorCode() httpx.ErrorCode { return e.code }
+
 func (e *bindError) Error() string {
 	if e.err != nil {
 		return e.msg + ": " + e.err.Error()

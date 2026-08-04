@@ -47,6 +47,15 @@ func TestPlatformMapper_Map(T *testing.T) {
 		test.EqOp(t, "service temporarily unavailable", msg)
 	})
 
+	T.Run("ErrResourceInUse maps to ErrResourceConflict", func(t *testing.T) {
+		t.Parallel()
+		code, msg, ok := PlatformMapper.Map(platformerrors.Wrap(platformerrors.ErrResourceInUse, "deleting provider"))
+		test.True(t, ok)
+		test.EqOp(t, ErrResourceConflict, code)
+		test.EqOp(t, "resource is in use", msg)
+		test.EqOp(t, http.StatusConflict, HTTPStatusForCode(code))
+	})
+
 	T.Run("ErrInFlight maps to ErrIdempotencyKeyInFlight", func(t *testing.T) {
 		t.Parallel()
 		code, _, ok := PlatformMapper.Map(idempotency.ErrInFlight)

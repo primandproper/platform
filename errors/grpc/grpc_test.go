@@ -44,6 +44,13 @@ func TestPlatformMapper_Map(T *testing.T) {
 		test.EqOp(t, codes.Unavailable, code)
 	})
 
+	T.Run("ErrResourceInUse maps to FailedPrecondition", func(t *testing.T) {
+		t.Parallel()
+		code, ok := PlatformMapper.Map(platformerrors.ErrResourceInUse)
+		test.True(t, ok)
+		test.EqOp(t, codes.FailedPrecondition, code)
+	})
+
 	T.Run("ErrInFlight maps to Aborted", func(t *testing.T) {
 		t.Parallel()
 		code, ok := PlatformMapper.Map(idempotency.ErrInFlight)

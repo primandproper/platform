@@ -41,6 +41,16 @@ var (
 	// specific permission that was missing must not.
 	ErrPermissionDenied = crdberrors.New("permission denied")
 
+	// ErrResourceInUse indicates the request conflicts with the current state of
+	// the resource — most often a delete of something another record still
+	// references. It is a client-correctable conflict, not a server failure: the
+	// same request may succeed once the references are gone.
+	//
+	// It lives here rather than in a data-access package for the same reason
+	// ErrPermissionDenied does: errors/http and errors/grpc map it, and neither
+	// may import a package that imports them back.
+	ErrResourceInUse = crdberrors.New("resource is in use")
+
 	// ErrUnknownProvider indicates a config named a provider the package does
 	// not implement — a typo, or a provider from a newer version of this module.
 	//

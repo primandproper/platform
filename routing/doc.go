@@ -23,6 +23,19 @@ directly, so the underlying router is swappable without touching route code:
 
 	r.MountOpenAPI("/openapi.json", "/docs")
 
+A returned error becomes the platform APIError envelope, with the status derived
+from the error's platform code. A service with an error wire format of its own
+replaces that rendering wholesale with WithErrorEncoder, which decides the status
+and the body while leaving serialization to the route's encoder:
+
+	routing.WithErrorEncoder(func(ctx context.Context, err error) (int, any) {
+		if errors.Is(err, platformerrors.ErrResourceInUse) {
+			return http.StatusConflict, legacyError{Error: "resource is in use"}
+		}
+
+		return http.StatusInternalServerError, legacyError{Error: err.Error()}
+	})
+
 Path parameters use an inline typed syntax — "/users/{id:uint64}" — which drives
 both runtime binding and the generated parameter schema. Query, header, cookie,
 and body values are bound from struct tags on the typed input.
