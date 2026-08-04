@@ -131,6 +131,17 @@ func TestUnconfiguredOptionalsStayOff(T *testing.T) {
 		must.NoError(t, cfg.ValidateWithContext(context.Background()))
 	})
 
+	T.Run("logging stays off when no provider is named", func(t *testing.T) {
+		t.Parallel()
+
+		// This one used to fail for every parsed config: ",init" allocated the
+		// otelslog block, and validating it demanded an endpoint URL nobody had
+		// asked for, so no logging config could be validated after env parsing.
+		cfg := &loggingcfg.Config{ServiceName: "svc"}
+		must.NoError(t, env.Parse(cfg))
+		must.NoError(t, cfg.ValidateWithContext(context.Background()))
+	})
+
 	T.Run("profiling stays off when no provider is named", func(t *testing.T) {
 		t.Parallel()
 

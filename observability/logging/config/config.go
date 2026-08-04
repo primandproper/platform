@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
 	"github.com/primandproper/platform-go/v9/observability/logging/otelgrpc"
@@ -44,11 +45,19 @@ type (
 )
 
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	// Release the sub-config env parsing's ",init" allocated and nothing filled
+	// in, so the rule below reads "the operator configured this" rather than
+	// "env parsing ran". Without it a logger naming no provider at all fails
+	// validation on an otelslog endpoint nobody asked for, which is every
+	// config that has been through env.Parse. The three sibling pillars each
+	// do the same for theirs.
+	cfgnorm.ZeroToNil(&cfg.OtelSlog)
+
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.ServiceName, validation.Required),
 		validation.Field(&cfg.Level, validation.By(validateLevel)),
 		validation.Field(&cfg.Provider, validation.In("", ProviderNoop, ProviderZerolog, ProviderZap, ProviderSlog, ProviderOtelSlog)),
-		validation.Field(&cfg.OtelSlog, validation.When(cfg.Provider == ProviderOtelSlog, validation.Required)),
+		validation.Field(&cfg.OtelSlog, validation.When(cfg.Provider == ProviderOtelSlog, validation.Required).Else(validation.Nil)),
 	)
 }
 
