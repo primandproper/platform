@@ -38,8 +38,8 @@ type (
 		// Serve binds the listener and serves until Shutdown is called or the
 		// context is done. A graceful close reports no error.
 		Serve(ctx context.Context) error
-		// Shutdown drains in-flight requests, then flushes and shuts down the
-		// tracer provider.
+		// Shutdown drains in-flight requests, then flushes the spans they
+		// produced. It does not shut the tracer provider down; see the method.
 		Shutdown(ctx context.Context) error
 		Router() *routing.Router
 	}
@@ -112,7 +112,17 @@ func (s *server) Router() *routing.Router {
 	return s.router
 }
 
-// Shutdown shuts down the server.
+// Shutdown drains in-flight requests and flushes the spans they produced.
+//
+// It flushes but does not shut the tracer provider down. The provider was
+// handed to this server, not built by it, and shutting it down closes the
+// exporter for everything else that shares it: the gRPC sibling that is still
+// draining, and every background loop whose Close runs after ingress stops. A
+// server that shut it down made itself the last thing in the process that could
+// be traced, which is the opposite of what a shutdown wants — the shutdown is
+// the part worth tracing. Whoever built the provider shuts it down;
+// observability.Pillars.Shutdown is that owner, and service.Service runs it
+// last.
 func (s *server) Shutdown(ctx context.Context) error {
 	// Drain in-flight requests first, then flush — otherwise spans from requests
 	// that complete during draining are lost because the flush already ran.
@@ -120,10 +130,6 @@ func (s *server) Shutdown(ctx context.Context) error {
 
 	if flushErr := s.tracerProvider.ForceFlush(ctx); flushErr != nil {
 		s.logger.Error("flushing traces", flushErr)
-	}
-
-	if shutdownErr := s.tracerProvider.Shutdown(ctx); shutdownErr != nil {
-		s.logger.Error("shutting down tracer provider", shutdownErr)
 	}
 
 	return err
