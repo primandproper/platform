@@ -243,6 +243,22 @@ func TestServer_Shutdown(T *testing.T) {
 
 		test.EqOp(t, 1, mtp.forceFlushCalls)
 	})
+
+	T.Run("flushes the tracer provider without shutting it down", func(t *testing.T) {
+		t.Parallel()
+
+		// Same reason as the HTTP sibling: the provider is shared with
+		// everything else still shutting down, and this server does not own it.
+		mtp := &mockTracerProvider{}
+
+		srv, err := NewGRPCServer(&Config{Port: 0}, nil, nil, nil, WithTracerProvider(mtp))
+		must.NoError(t, err)
+
+		_ = srv.Shutdown(context.Background())
+
+		test.EqOp(t, 1, mtp.forceFlushCalls)
+		test.EqOp(t, 0, mtp.shutdownCalls)
+	})
 }
 
 func TestNewGRPCServer_withInterceptors(T *testing.T) {

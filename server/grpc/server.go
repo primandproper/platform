@@ -110,9 +110,14 @@ func NewGRPCServer(
 	}, nil
 }
 
-// Shutdown stops the server gracefully, then flushes and shuts down the tracer
-// provider — the same order as the HTTP sibling, and for the same reason: spans
+// Shutdown stops the server gracefully, then flushes the spans its RPCs
+// produced — the same order as the HTTP sibling, and for the same reason: spans
 // from RPCs that complete during draining are lost if the flush runs first.
+//
+// Like the HTTP sibling it flushes the tracer provider without shutting it
+// down. The provider is shared with whatever else the process is still taking
+// down, and closing an exporter one server happens to be finished with would
+// blind all of it. Its owner shuts it down last.
 //
 // In-flight RPCs are given until ctx is done to finish. If ctx expires first the
 // server is stopped hard and the context's error is returned, so a caller can
@@ -137,10 +142,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	if flushErr := s.tracerProvider.ForceFlush(ctx); flushErr != nil {
 		s.logger.Error("flushing traces", flushErr)
-	}
-
-	if shutdownErr := s.tracerProvider.Shutdown(ctx); shutdownErr != nil {
-		s.logger.Error("shutting down tracer provider", shutdownErr)
 	}
 
 	return err
