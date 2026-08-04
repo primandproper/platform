@@ -44,10 +44,16 @@ type (
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct.
+//
+// The sub-config for a provider that was not selected is skipped rather than
+// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so
+// Redis' own rules were enforced and the memory provider could not load.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.In(ProviderMemory, ProviderRedis)),
-		validation.Field(&cfg.Redis, validation.When(cfg.Provider == ProviderRedis, validation.Required)),
+		validation.Field(&cfg.Redis, validation.Skip.When(cfg.Provider != ProviderRedis), validation.Required),
 	)
 }
 
