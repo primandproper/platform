@@ -162,7 +162,21 @@ func WithWorkerMetricsProvider(metricsProvider metrics.Provider) WorkerOption {
 // The supplied client's redirect policy is overridden: following a redirect
 // would deliver a signed payload to a host the operator never registered and
 // never had checked, which turns an open redirect on a subscriber's domain into
-// an SSRF. Its transport is left alone.
+// an SSRF.
+//
+// Deliveries then go through a copy of it whose transport dials through
+// PinningDialContext, so a delivery connects to the address its URL check
+// approved rather than to whatever a second resolution returns. The copy is
+// what keeps the pin off the caller's own requests, which carry none. Two
+// consequences worth knowing:
+//
+//   - Pinning needs an *http.Transport to reach the dialer. A transport wrapped
+//     in instrumentation is left alone and deliveries through it are unpinned;
+//     install the pin underneath the wrapper with httpclient.WithDialWrapper
+//     rather than over it, which is what webhookscfg.NewWorker does.
+//   - The copy has its own connection pool. That is the pool the worker warms,
+//     which is what taking a client at all was for; a caller sharing the client
+//     with the rest of the process keeps theirs.
 func WithHTTPClient(client *http.Client) WorkerOption {
 	return func(w *Worker) {
 		if client != nil {
@@ -176,10 +190,36 @@ func WithHTTPClient(client *http.Client) WorkerOption {
 // Pair it with the Dispatcher's WithDispatcherURLChecker: an endpoint accepted
 // at registration and refused here sits in the backlog until it dies, so the
 // two halves must agree. See URLChecker for what replacing it costs.
+//
+// It also turns off dial pinning, because a URLChecker vets no addresses and
+// there is nothing honest to pin to. A deployment that deliberately delivers to
+// an internal sidecar gets the policy it wrote and no addresses it never
+// approved pinned into its dials; one that wants its own policy *and* pinning
+// wants WithWorkerPinningURLChecker.
 func WithWorkerURLChecker(checker URLChecker) WorkerOption {
 	return func(w *Worker) {
 		if checker != nil {
 			w.checkURL = checker
+			w.pinURL = nil
+		}
+	}
+}
+
+// WithWorkerPinningURLChecker replaces the URL policy with one that also
+// reports the addresses it approved, which the worker pins into the dial.
+// CheckEndpointURLAddrs is the default.
+//
+// This is the option for a deployment that needs its own destination policy
+// without giving up rebinding protection — an allowlist that resolves the names
+// it permits and hands back what they resolved to, say. Options apply in order,
+// so this and WithWorkerURLChecker each displace the other: whichever is last
+// is the policy, and whether deliveries are pinned follows from which one that
+// was.
+func WithWorkerPinningURLChecker(checker PinningURLChecker) WorkerOption {
+	return func(w *Worker) {
+		if checker != nil {
+			w.pinURL = checker
+			w.checkURL = nil
 		}
 	}
 }

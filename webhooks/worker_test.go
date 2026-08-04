@@ -111,6 +111,50 @@ func TestNewWorker(T *testing.T) {
 		must.NotNil(t, client.CheckRedirect)
 		test.ErrorIs(t, client.CheckRedirect(nil, nil), http.ErrUseLastResponse)
 	})
+
+	// The pin, unlike the redirect policy, lives on a copy: rerouting the dial
+	// of a transport the caller supplied would reroute their other requests too,
+	// which carry no pin and never asked for one.
+	T.Run("pins on a copy, leaving the supplied transport alone", func(t *testing.T) {
+		t.Parallel()
+
+		transport := &http.Transport{}
+		client := &http.Client{Transport: transport}
+
+		w, err := NewWorker(t.Context(), &WorkerConfig{}, &fakeStore{}, WithHTTPClient(client))
+		must.NoError(t, err)
+
+		test.EqOp(t, http.RoundTripper(transport), client.Transport)
+		test.False(t, w.client.Transport == client.Transport)
+
+		// The redirect policy still reaches the copy, since it was set before it.
+		must.NotNil(t, w.client.CheckRedirect)
+	})
+
+	// A transport this package cannot reach into is handed back as it came,
+	// rather than copied to no purpose.
+	T.Run("leaves an unpinnable client as it found it", func(t *testing.T) {
+		t.Parallel()
+
+		client := &http.Client{Transport: unpinnableTransport{}}
+
+		w, err := NewWorker(t.Context(), &WorkerConfig{}, &fakeStore{}, WithHTTPClient(client))
+		must.NoError(t, err)
+
+		test.True(t, w.client == client)
+	})
+
+	// The default client pins too — the check that a worker built with no
+	// options at all is the safe one.
+	T.Run("pins deliveries by default", func(t *testing.T) {
+		t.Parallel()
+
+		w, err := NewWorker(t.Context(), &WorkerConfig{}, &fakeStore{})
+		must.NoError(t, err)
+
+		must.NotNil(t, w.pinURL)
+		test.Nil(t, w.checkURL)
+	})
 }
 
 func TestWorker_deliver(T *testing.T) {

@@ -168,14 +168,8 @@ func NewWorker(
 		return nil, errors.Wrap(err, "validating webhooks config")
 	}
 
-	// One client, built once, shared by every delivery. Tracing is forced on
-	// rather than read from the config: a delivery is an outbound call to a
-	// third party and is the single most useful span this package emits.
-	client := httpclient.NewHTTPClient(append(
-		cfg.HTTPClient.Options(),
-		httpclient.WithTimeout(cfg.Worker.RequestTimeout),
-		httpclient.WithTracing(true),
-	)...)
+	// One client, built once, shared by every delivery.
+	client := httpclient.NewHTTPClient(clientOptions(cfg)...)
 
 	base := []webhooks.WorkerOption{
 		webhooks.WithHTTPClient(client),
@@ -229,9 +223,27 @@ func EnsureHTTPClient(cfg *Config) *http.Client {
 
 	cfg.EnsureDefaults()
 
-	return httpclient.NewHTTPClient(append(
+	return httpclient.NewHTTPClient(clientOptions(cfg)...)
+}
+
+// clientOptions is the client both constructors build from, so that the one a
+// caller borrows through EnsureHTTPClient cannot drift from the one deliveries
+// go through.
+//
+// Two things are forced rather than read from the config. Tracing, because a
+// delivery is an outbound call to a third party and is the single most useful
+// span this package emits. And the pinning dialer, because it has to sit
+// underneath the tracing wrapper to reach the dial at all — a client assembled
+// here and handed to the Worker would otherwise present it an opaque
+// RoundTripper it cannot pin, and deliveries would fall back to resolving the
+// endpoint's name a second time at dial. It is inert on a request that carries
+// no pinned addresses, which is every request a caller makes with the borrowed
+// client.
+func clientOptions(cfg *Config) []httpclient.Option {
+	return append(
 		cfg.HTTPClient.Options(),
 		httpclient.WithTimeout(cfg.Worker.RequestTimeout),
 		httpclient.WithTracing(true),
-	)...)
+		httpclient.WithDialWrapper(webhooks.PinningDialContext),
+	)
 }

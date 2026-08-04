@@ -4,8 +4,11 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"testing"
 	"time"
+
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -344,6 +347,117 @@ func TestCheckEndpointURL_resolution(T *testing.T) {
 		test.Error(t, CheckEndpointURL(ctx, "https://example.com/hooks"))
 	})
 }
+
+func TestCheckEndpointURLAddrs(T *testing.T) {
+	T.Parallel()
+
+	T.Run("reports the literal address it accepted", func(t *testing.T) {
+		t.Parallel()
+
+		addrs, err := CheckEndpointURLAddrs(t.Context(), "https://93.184.216.34/hooks")
+		must.NoError(t, err)
+		test.Eq(t, []netip.Addr{netip.MustParseAddr("93.184.216.34")}, addrs)
+	})
+
+	T.Run("reports a v6 literal", func(t *testing.T) {
+		t.Parallel()
+
+		addrs, err := CheckEndpointURLAddrs(t.Context(), "https://[2606:2800:220:1:248:1893:25c8:1946]:8443/hooks")
+		must.NoError(t, err)
+		test.Eq(t, []netip.Addr{netip.MustParseAddr("2606:2800:220:1:248:1893:25c8:1946")}, addrs)
+	})
+
+	// net.ParseIP renders an IPv4 address as 16 bytes, and a 4-in-6 address is
+	// not dialable on a "tcp4" network even though it names the same host.
+	T.Run("unmaps a 4-in-6 address", func(t *testing.T) {
+		t.Parallel()
+
+		resolver := &stubResolver{addrs: []net.IPAddr{{IP: net.ParseIP("93.184.216.34").To16()}}}
+
+		addrs, err := NewEndpointURLChecker(resolver)(t.Context(), "https://example.com/hooks")
+		must.NoError(t, err)
+		must.SliceLen(t, 1, addrs)
+		test.True(t, addrs[0].Is4())
+	})
+
+	T.Run("reports every address a name resolves to", func(t *testing.T) {
+		t.Parallel()
+
+		resolver := &stubResolver{addrs: []net.IPAddr{
+			{IP: net.ParseIP("93.184.216.34")},
+			{IP: net.ParseIP("2606:2800:220:1:248:1893:25c8:1946")},
+		}}
+
+		addrs, err := NewEndpointURLChecker(resolver)(t.Context(), "https://example.com/hooks")
+		must.NoError(t, err)
+		test.SliceLen(t, 2, addrs)
+	})
+
+	// One bad address poisons the whole set: pinning to the rest would mean
+	// approving a name that also points somewhere it must not.
+	T.Run("reports nothing when any address is disallowed", func(t *testing.T) {
+		t.Parallel()
+
+		resolver := &stubResolver{addrs: []net.IPAddr{
+			{IP: net.ParseIP("93.184.216.34")},
+			{IP: net.ParseIP("127.0.0.1")},
+		}}
+
+		addrs, err := NewEndpointURLChecker(resolver)(t.Context(), "https://example.com/hooks")
+		test.ErrorIs(t, err, ErrDisallowedEndpointHost)
+		test.SliceEmpty(t, addrs)
+	})
+
+	T.Run("rejects a name that resolves to nothing", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewEndpointURLChecker(&stubResolver{})(t.Context(), "https://example.com/hooks")
+		test.ErrorIs(t, err, ErrInvalidEndpointURL)
+	})
+
+	T.Run("surfaces a resolver failure", func(t *testing.T) {
+		t.Parallel()
+
+		resolver := &stubResolver{err: platformerrors.New("no route to nameserver")}
+
+		_, err := NewEndpointURLChecker(resolver)(t.Context(), "https://example.com/hooks")
+		test.ErrorIs(t, err, ErrInvalidEndpointURL)
+	})
+
+	// A Resolver is an interface, so an implementation can hand back something
+	// net.Resolver never would. Pinning to an empty set must not read as "this
+	// delivery was not pinned".
+	T.Run("rejects an address it cannot represent", func(t *testing.T) {
+		t.Parallel()
+
+		resolver := &stubResolver{addrs: []net.IPAddr{{IP: net.IP{1, 2, 3}}}}
+
+		_, err := NewEndpointURLChecker(resolver)(t.Context(), "https://example.com/hooks")
+		test.ErrorIs(t, err, ErrDisallowedEndpointHost)
+	})
+
+	T.Run("a nil resolver means the default one", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, mustErr(NewEndpointURLChecker(nil)(t.Context(), "https://localhost/hooks")), ErrDisallowedEndpointHost)
+	})
+}
+
+// stubResolver answers every lookup the same way.
+type stubResolver struct {
+	err   error
+	addrs []net.IPAddr
+}
+
+var _ Resolver = (*stubResolver)(nil)
+
+func (r *stubResolver) LookupIPAddr(context.Context, string) ([]net.IPAddr, error) {
+	return r.addrs, r.err
+}
+
+// mustErr drops the value half of a checker's result, for the cases that only
+// assert on the error.
+func mustErr[T any](_ T, err error) error { return err }
 
 func TestCheckIP(T *testing.T) {
 	T.Parallel()

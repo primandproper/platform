@@ -7,6 +7,8 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -67,6 +69,7 @@ type Worker struct {
 	logger   logging.Logger
 	breaker  CircuitBreakerFactory
 	checkURL URLChecker
+	pinURL   PinningURLChecker
 
 	breakers map[string]circuitbreaking.CircuitBreaker
 
@@ -113,7 +116,7 @@ func NewWorker(ctx context.Context, cfg *WorkerConfig, store Store, opts ...Work
 		store:    store,
 		clock:    clock.NewClock(),
 		breakers: map[string]circuitbreaking.CircuitBreaker{},
-		checkURL: CheckEndpointURL,
+		pinURL:   CheckEndpointURLAddrs,
 		breaker: func(string) (circuitbreaking.CircuitBreaker, error) {
 			return cbnoop.NewCircuitBreaker(), nil
 		},
@@ -137,12 +140,17 @@ func NewWorker(ctx context.Context, cfg *WorkerConfig, store Store, opts ...Work
 		w.client = httpclient.NewHTTPClient(
 			httpclient.WithTimeout(w.cfg.RequestTimeout),
 			httpclient.WithTracing(true),
+			httpclient.WithDialWrapper(PinningDialContext),
 		)
 	}
 
 	// Applied to a supplied client as well as a built one: refusing redirects is
 	// a security property of this package, not a default a caller opts into.
 	w.client.CheckRedirect = refuseRedirects
+
+	// Then deliveries go through a pinned view of it, which the redirect policy
+	// above carries into.
+	w.client = pinnedClient(w.client)
 
 	mp := metrics.EnsureMetricsProvider(w.metricsProvider)
 
@@ -182,6 +190,74 @@ func NewWorker(ctx context.Context, cfg *WorkerConfig, store Store, opts ...Work
 	}
 
 	return w, nil
+}
+
+// pinnedClient returns the client deliveries go through: the same one when its
+// transport cannot be pinned, and otherwise a copy dialing through the pin.
+//
+// A copy, because rerouting the dial of a transport the caller supplied would
+// be a change to something this package was only lent — the client may be used
+// for more than deliveries, and those requests carry no pin but would still be
+// dialing through machinery installed for one. The redirect policy is not
+// treated the same way: it is set on the client itself, as it always has been,
+// because refusing to follow a redirect is a property of the endpoint being
+// attacker-supplied rather than of any one request.
+//
+// A transport that is not an *http.Transport cannot be pinned here, and the
+// client is handed back untouched; see PinningTransport for why, and
+// WithHTTPClient for what to do about it.
+func pinnedClient(client *http.Client) *http.Client {
+	transport, ok := PinningTransport(client.Transport)
+	if !ok {
+		return client
+	}
+
+	pinned := *client
+	pinned.Transport = transport
+
+	return &pinned
+}
+
+// checkEndpointURL applies the worker's URL policy and reports the addresses it
+// vetted, which the dial is then pinned to.
+//
+// A worker whose checker was replaced with a plain URLChecker reports none, and
+// its deliveries are not pinned. That is the whole of the opt-out: pinning is
+// enforcement of a claim some checker made, so a deployment that supplied its
+// own checker — the one that deliberately permits an internal sidecar — gets
+// exactly the policy it wrote and no addresses it never vetted pinned into its
+// dials.
+func (w *Worker) checkEndpointURL(ctx context.Context, rawURL string) ([]netip.Addr, error) {
+	if w.pinURL != nil {
+		return w.pinURL(ctx, rawURL)
+	}
+
+	return nil, w.checkURL(ctx, rawURL)
+}
+
+// pinnedContext pins a checker's approved addresses to the endpoint's host.
+//
+// The host is re-derived from the URL rather than threaded out of the checker,
+// because the checker's contract is a verdict and a set of addresses — a
+// replacement is not obliged to report anything else, and a host it did report
+// would be a second thing that could disagree with the URL the request is
+// actually built from.
+//
+// An unparseable URL cannot reach here: the check ahead of it parsed the same
+// string, and buildRequest would refuse it moments later. If one somehow did,
+// the delivery goes out unpinned rather than not at all — a URL nothing can
+// parse is not one an attacker steers with DNS.
+func pinnedContext(ctx context.Context, rawURL string, addrs []netip.Addr) context.Context {
+	if len(addrs) == 0 {
+		return ctx
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ctx
+	}
+
+	return WithPinnedAddrs(ctx, parsed.Hostname(), addrs)
 }
 
 // refuseRedirects stops the client from following a redirect.
@@ -378,7 +454,8 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 	// Re-checked at delivery, not only at registration. DNS is mutable: a name
 	// that resolved publicly when it was registered can resolve to 127.0.0.1 by
 	// the time the worker dials it.
-	if err = w.checkURL(ctx, dispatch.Endpoint.URL); err != nil {
+	addrs, err := w.checkEndpointURL(ctx, dispatch.Endpoint.URL)
+	if err != nil {
 		// Terminal, not retryable. A URL that is no longer a legal target will
 		// not become one by waiting, and continuing to resolve it every backoff
 		// interval is a slow scan of the internal network.
@@ -387,7 +464,18 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 		return attempt, platformerrors.Wrap(retry.Unretryable(err), "endpoint URL is no longer deliverable")
 	}
 
-	req, err := w.buildRequest(ctx, dispatch)
+	// The count rather than the addresses: which public IP a subscriber answered
+	// on is not something to write into every delivery's span, but "this
+	// delivery was pinned at all" is exactly what an operator asks when a
+	// delivery fails to connect.
+	op.Set(pinnedAddrsKey, len(addrs))
+
+	// The addresses the check just approved are pinned onto the request, so the
+	// transport connects to one of them rather than resolving the name a second
+	// time. Without this the check and the dial are two lookups an attacker
+	// controlling the authoritative server can answer differently, which is the
+	// whole of DNS rebinding.
+	req, err := w.buildRequest(pinnedContext(ctx, dispatch.Endpoint.URL, addrs), dispatch)
 	if err != nil {
 		attempt.Error = truncateError(err)
 
@@ -399,10 +487,11 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 	startTime := time.Now()
 
 	// G704: the URL is user-supplied by design — that is what a webhook endpoint
-	// is. w.checkURL ran immediately above and the client refuses redirects, so
-	// the target has been vetted as far as this package can vet it; see
-	// CheckEndpointURL for what that does and does not cover.
-	res, err := w.client.Do(req) //nolint:gosec // G704: endpoint URL is vetted by w.checkURL above
+	// is. The check ran immediately above, its addresses are pinned into the
+	// dial, and the client refuses redirects, so the target has been vetted as
+	// far as this package can vet it; see CheckEndpointURL for what that does
+	// and does not cover.
+	res, err := w.client.Do(req) //nolint:gosec // G704: endpoint URL is vetted and pinned by w.checkEndpointURL above
 
 	attempt.Duration = time.Since(startTime)
 	w.deliveryHist.Record(ctx, float64(attempt.Duration.Milliseconds()), endpointAttr(dispatch.EndpointID))

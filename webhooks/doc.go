@@ -128,6 +128,24 @@ loopback, link-local, private, or non-global space — at registration, where th
 rejection can be reported to whoever submitted it, and again at delivery,
 because DNS is mutable.
 
+Checking is not enough on its own, because resolution and connection are two
+separate lookups and an attacker who controls the authoritative server answers
+them differently: public for the check, 169.254.169.254 for the dial moments
+later. So the worker does not let the second lookup happen. The delivery-time
+check reports the addresses it approved, they ride the request's context, and
+PinningDialContext connects to one of them and refuses everything else. TLS
+still verifies against the hostname, so pinning costs the subscriber's
+certificate nothing.
+
+That enforcement follows the policy rather than overriding it. A deployment that
+replaced the checker with WithWorkerURLChecker — the sidecar case, where
+delivering to a private address is the point — vets no addresses and so pins
+nothing; one that wants both writes a PinningURLChecker instead. The pin also
+needs to reach the dialer: a client supplied through WithHTTPClient is pinned
+when its transport is an *http.Transport, and a transport wrapped in
+instrumentation wants the pin installed underneath it, which is what
+httpclient.WithDialWrapper is for and what webhookscfg does.
+
 Redirects are refused rather than followed. Following one would deliver a signed
 payload to a host that was never registered and never checked, turning an open
 redirect on any subscriber's domain into a way to point the worker anywhere.

@@ -164,6 +164,36 @@ func TestWorkerOptions(T *testing.T) {
 		test.NoError(t, w.checkURL(t.Context(), "http://127.0.0.1/hooks"))
 	})
 
+	// The two checkers displace one another, so a worker never has one policy
+	// deciding the verdict and another deciding what its dials are pinned to.
+	T.Run("WithWorkerURLChecker turns off pinning", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{pinURL: CheckEndpointURLAddrs}
+
+		WithWorkerURLChecker(allowAnyURL)(w)
+		test.Nil(t, w.pinURL)
+		test.NotNil(t, w.checkURL)
+	})
+
+	T.Run("WithWorkerPinningURLChecker", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Worker{checkURL: allowAnyURL}
+
+		WithWorkerPinningURLChecker(NewEndpointURLChecker(nil))(w)
+		must.NotNil(t, w.pinURL)
+		test.Nil(t, w.checkURL)
+
+		addrs, err := w.pinURL(t.Context(), "https://93.184.216.34/hooks")
+		must.NoError(t, err)
+		test.SliceLen(t, 1, addrs)
+
+		// A nil checker would leave the worker vetting nothing.
+		WithWorkerPinningURLChecker(nil)(w)
+		test.NotNil(t, w.pinURL)
+	})
+
 	T.Run("WithCircuitBreakerFactory", func(t *testing.T) {
 		t.Parallel()
 

@@ -19,12 +19,18 @@ const (
 func (c *clientConfig) buildClient() *http.Client {
 	transport := c.transport
 	if transport == nil {
+		dial := (&net.Dialer{
+			Timeout:   c.timeout,
+			KeepAlive: defaultKeepAlive,
+		}).DialContext
+
+		if c.dialWrapper != nil {
+			dial = c.dialWrapper(dial)
+		}
+
 		transport = &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   c.timeout,
-				KeepAlive: defaultKeepAlive,
-			}).DialContext,
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           dial,
 			MaxIdleConns:          c.maxIdleConns,
 			MaxIdleConnsPerHost:   c.maxIdleConnsPerHost,
 			TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,

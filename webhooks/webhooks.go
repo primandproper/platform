@@ -31,6 +31,7 @@ const (
 	backlogAgeKey   = "webhooks.backlog_age_seconds"
 	reapedKey       = "webhooks.reaped"
 	replayedKey     = "webhooks.replayed"
+	pinnedAddrsKey  = "webhooks.pinned_addresses"
 )
 
 var (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -47,7 +48,20 @@ var reservedHeaders = []string{
 	"Content-Type",
 }
 
-// CheckEndpointURL reports whether u is acceptable as a delivery target.
+// Resolver is the name-resolution seam the endpoint check runs through.
+// *net.Resolver satisfies it, and net.DefaultResolver is what the package-level
+// checks use.
+//
+// It is an interface for one reason: DNS rebinding is an attack made entirely
+// of a resolver answering one way and then another, and it cannot be staged
+// against real DNS from a test. A resolver that returns a public address on the
+// first lookup and a private one on the second is the whole attack, and it is
+// three lines to write against this.
+type Resolver interface {
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
+}
+
+// CheckEndpointURL reports whether rawURL is acceptable as a delivery target.
 //
 // This is SSRF prevention, and it is worth being explicit about what it does
 // and does not buy. A webhook endpoint is a URL supplied by a user that the
@@ -65,36 +79,73 @@ var reservedHeaders = []string{
 // sound: DNS is mutable, and a name that resolved publicly when it was
 // registered can resolve to 127.0.0.1 by the time the worker dials it.
 //
-// What this does not close is DNS rebinding. Resolution and connection are
-// separate steps, and an attacker controlling the authoritative server can
-// return a public address to this lookup and a private one to the dial moments
-// later. Closing that needs the checked IP pinned into the dial itself — a
-// custom DialContext that resolves once and refuses anything else — which this
-// package does not do, because it would mean owning the transport rather than
-// accepting the caller's. Deployments where that gap matters should supply a
-// pinning transport via WithHTTPClient; this function raises the cost without
-// claiming to eliminate it.
+// What this alone does not close is DNS rebinding: resolution and connection
+// are separate steps, and an attacker controlling the authoritative server can
+// answer this lookup with a public address and the dial that follows with a
+// private one. Closing it means dialing the addresses this check accepted
+// rather than resolving a second time, which is what CheckEndpointURLAddrs and
+// PinningDialContext are for and what the Worker does by default. Use this
+// function where a verdict is all that is wanted — registration, an admin
+// form's validation — and CheckEndpointURLAddrs anywhere the result is about to
+// be connected to.
 func CheckEndpointURL(ctx context.Context, rawURL string) error {
+	_, err := CheckEndpointURLAddrs(ctx, rawURL)
+
+	return err
+}
+
+// CheckEndpointURLAddrs is CheckEndpointURL, returning the addresses it
+// validated so they can be pinned into the dial.
+//
+// The returned addresses are the entire acceptable destination set for rawURL
+// as of this call: every one of them passed the same routability check, and no
+// address outside the set did. Handing them to PinningDialContext — via
+// WithPinnedAddrs on the request's context — is what removes the window between
+// deciding a host is safe and connecting to it.
+func CheckEndpointURLAddrs(ctx context.Context, rawURL string) ([]netip.Addr, error) {
+	return checkEndpointURL(ctx, rawURL, net.DefaultResolver)
+}
+
+// NewEndpointURLChecker returns CheckEndpointURLAddrs resolving through r
+// instead of net.DefaultResolver. A nil r means net.DefaultResolver.
+//
+// The resolver is worth overriding for a deployment that resolves subscriber
+// names through something other than the host's configured servers — a resolver
+// pinned to a particular upstream, or one with its own cache. It must be the
+// same resolution the dial would have performed, or pinning trades a rebinding
+// window for a name that is simply resolved wrongly.
+func NewEndpointURLChecker(r Resolver) PinningURLChecker {
+	if r == nil {
+		r = net.DefaultResolver
+	}
+
+	return func(ctx context.Context, rawURL string) ([]netip.Addr, error) {
+		return checkEndpointURL(ctx, rawURL, r)
+	}
+}
+
+// checkEndpointURL is the body both exported checks share.
+func checkEndpointURL(ctx context.Context, rawURL string, resolver Resolver) ([]netip.Addr, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return platformerrors.Wrapf(ErrInvalidEndpointURL, "parsing %q: %v", rawURL, err)
+		return nil, platformerrors.Wrapf(ErrInvalidEndpointURL, "parsing %q: %v", rawURL, err)
 	}
 
 	// https only. Plaintext delivery would put the payload — and the headers
 	// that authenticate it — on the wire in clear, and a signature does not make
 	// a payload confidential.
 	if parsed.Scheme != "https" {
-		return platformerrors.Wrapf(ErrInvalidEndpointURL, "scheme %q is not https", parsed.Scheme)
+		return nil, platformerrors.Wrapf(ErrInvalidEndpointURL, "scheme %q is not https", parsed.Scheme)
 	}
 
 	if parsed.Host == "" {
-		return platformerrors.Wrapf(ErrInvalidEndpointURL, "no host in %q", rawURL)
+		return nil, platformerrors.Wrapf(ErrInvalidEndpointURL, "no host in %q", rawURL)
 	}
 
 	if parsed.User != nil {
 		// Credentials in the URL would be logged everywhere the URL is, and the
 		// signature is how a subscriber authenticates us — not basic auth.
-		return platformerrors.Wrapf(ErrInvalidEndpointURL, "userinfo is not permitted in an endpoint URL")
+		return nil, platformerrors.Wrapf(ErrInvalidEndpointURL, "userinfo is not permitted in an endpoint URL")
 	}
 
 	host := parsed.Hostname()
@@ -102,32 +153,67 @@ func CheckEndpointURL(ctx context.Context, rawURL string) error {
 	// A literal IP is checked directly; a name is checked against everything it
 	// currently resolves to.
 	if ip := net.ParseIP(host); ip != nil {
-		return checkIP(ip, host)
+		addr, addrErr := checkAddr(ip, host)
+		if addrErr != nil {
+			return nil, addrErr
+		}
+
+		return []netip.Addr{addr}, nil
 	}
 
 	// Resolved through the context-aware resolver rather than net.LookupIP: this
 	// runs on the delivery path, and a name whose authoritative server is
 	// blackholed would otherwise hang a worker goroutine for the resolver's own
 	// timeout with nothing able to cancel it.
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	ips, err := resolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return platformerrors.Wrapf(ErrInvalidEndpointURL, "resolving %q: %v", host, err)
+		return nil, platformerrors.Wrapf(ErrInvalidEndpointURL, "resolving %q: %v", host, err)
 	}
 
 	if len(ips) == 0 {
-		return platformerrors.Wrapf(ErrInvalidEndpointURL, "%q resolves to no addresses", host)
+		return nil, platformerrors.Wrapf(ErrInvalidEndpointURL, "%q resolves to no addresses", host)
 	}
 
 	// Every resolved address must be acceptable, not merely one of them. A name
 	// that returns both a public and a loopback address would otherwise pass
 	// here and then be dialed at whichever the resolver returned first.
+	addrs := make([]netip.Addr, 0, len(ips))
+
 	for i := range ips {
-		if err = checkIP(ips[i].IP, host); err != nil {
-			return err
+		addr, addrErr := checkAddr(ips[i].IP, host)
+		if addrErr != nil {
+			return nil, addrErr
 		}
+
+		addrs = append(addrs, addr)
 	}
 
-	return nil
+	return addrs, nil
+}
+
+// checkAddr vets one address and returns it in the form the dialer pins on.
+//
+// The conversion is a check in its own right, not a formality: a Resolver is an
+// interface, and an implementation that hands back something neither 4 nor 16
+// bytes long has named an address nothing can dial. Refusing it here is what
+// keeps an unusable address from either being pinned or, worse, quietly
+// dropped — a set with one address silently removed is a set the dial can no
+// longer be held to.
+//
+// Unmapped, so that an IPv4 address that arrived in 4-in-6 form is dialed as
+// 1.2.3.4 rather than ::ffff:1.2.3.4: the two name the same host, but only one
+// of them is dialable on a "tcp4" network.
+func checkAddr(ip net.IP, host string) (netip.Addr, error) {
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return netip.Addr{}, platformerrors.Wrapf(ErrDisallowedEndpointHost, "%q resolves to an unusable address", host)
+	}
+
+	if err := checkIP(ip, host); err != nil {
+		return netip.Addr{}, err
+	}
+
+	return addr.Unmap(), nil
 }
 
 // checkIP rejects an address that is not globally routable.
@@ -165,7 +251,26 @@ func checkIP(ip net.IP, host string) error {
 // replacement is the only thing standing between a user-supplied URL and an
 // authenticated request from inside your network, so it should be an allowlist
 // of hosts you operate, not a function that returns nil.
+//
+// A checker of this shape reports a verdict and nothing else, so a Worker using
+// one has nothing to pin its dial to and does not pin it. That is deliberate:
+// pinning a dial to addresses the deployment's own checker never vetted would
+// enforce a policy nobody asked for. Deployments that want both write a
+// PinningURLChecker instead.
 type URLChecker func(ctx context.Context, rawURL string) error
+
+// PinningURLChecker vets a delivery target and reports the addresses it
+// accepted, so the delivery that follows can connect to those and to nothing
+// else. CheckEndpointURLAddrs is the implementation the Worker uses unless a
+// caller replaces it.
+//
+// This is the shape that closes DNS rebinding, and the reason it is a distinct
+// type from URLChecker rather than a wider one: the addresses are a claim about
+// what this checker was willing to permit, and only a checker that made that
+// claim can have it enforced. Returning no addresses and no error is legal and
+// means "acceptable, but do not pin" — the escape hatch for a checker that
+// approves by name and has no opinion about where the name points.
+type PinningURLChecker func(ctx context.Context, rawURL string) ([]netip.Addr, error)
 
 // EnsureDefaults fills an Endpoint's optional fields.
 func (e *Endpoint) EnsureDefaults() {

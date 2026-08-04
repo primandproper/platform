@@ -1,6 +1,8 @@
 package httpclient
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -114,5 +116,63 @@ func TestNewHTTPClient(T *testing.T) {
 
 		_, ok := client.Transport.(stubRoundTripper)
 		test.False(t, ok)
+	})
+
+	T.Run("with a dial wrapper", func(t *testing.T) {
+		t.Parallel()
+
+		var wrapped, dialed bool
+
+		client := NewHTTPClient(WithDialWrapper(func(base DialContextFunc) DialContextFunc {
+			wrapped = true
+
+			return func(ctx context.Context, network, address string) (net.Conn, error) {
+				dialed = true
+
+				return base(ctx, network, address)
+			}
+		}))
+		must.NotNil(t, client)
+		test.True(t, wrapped)
+
+		transport, ok := client.Transport.(*http.Transport)
+		must.True(t, ok)
+		must.NotNil(t, transport.DialContext)
+
+		// The wrapper is what the transport dials through, and the dialer it
+		// wrapped is the one WithTimeout configured — which is the whole reason
+		// this wraps rather than replaces.
+		_, err := transport.DialContext(t.Context(), "tcp", "127.0.0.1:1")
+		test.Error(t, err)
+		test.True(t, dialed)
+	})
+
+	// The transport is the caller's, so there is no dialer of ours to wrap.
+	T.Run("a dial wrapper does not apply alongside a transport", func(t *testing.T) {
+		t.Parallel()
+
+		wrapped := false
+
+		client := NewHTTPClient(
+			WithTransport(stubRoundTripper{}),
+			WithDialWrapper(func(base DialContextFunc) DialContextFunc {
+				wrapped = true
+
+				return base
+			}),
+		)
+		must.NotNil(t, client)
+		test.False(t, wrapped)
+	})
+
+	T.Run("ignores a nil dial wrapper", func(t *testing.T) {
+		t.Parallel()
+
+		client := NewHTTPClient(WithDialWrapper(nil))
+		must.NotNil(t, client)
+
+		transport, ok := client.Transport.(*http.Transport)
+		must.True(t, ok)
+		test.NotNil(t, transport.DialContext)
 	})
 }

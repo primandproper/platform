@@ -1,6 +1,10 @@
 package webhookscfg
 
 import (
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"testing"
 	"time"
@@ -278,6 +282,39 @@ func TestEnsureHTTPClient(T *testing.T) {
 		t.Parallel()
 
 		test.NotNil(t, EnsureHTTPClient(nil))
+	})
+
+	// Tracing is forced on here, which wraps the transport in something the
+	// Worker cannot reach into to install the pinning dialer — so this is the
+	// only place that pin can be installed, and NewWorker's client is built from
+	// the same options. A name that resolves nowhere is what proves it took: the
+	// request arrives anyway, because the dial went to the pinned address rather
+	// than to whatever the resolver would have said.
+	T.Run("builds a client whose dials honor a pin", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+			res.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(server.Close)
+
+		host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+		must.NoError(t, err)
+
+		cfg := validConfig()
+		cfg.EnsureDefaults()
+
+		ctx := webhooks.WithPinnedAddrs(t.Context(), "unresolvable.invalid", []netip.Addr{netip.MustParseAddr(host)})
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unresolvable.invalid:"+port+"/", http.NoBody)
+		must.NoError(t, err)
+
+		res, err := EnsureHTTPClient(cfg).Do(req)
+		must.NoError(t, err)
+
+		t.Cleanup(func() { _ = res.Body.Close() })
+
+		test.EqOp(t, http.StatusOK, res.StatusCode)
 	})
 }
 
