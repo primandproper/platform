@@ -30,11 +30,19 @@ Two constraints hold this package's shape:
 
 Register is a pure function of the config, so what a service is made of can be
 read off the config it booted with.
+
+New and Run are the other half. Register says what a service is made of; New
+builds it in the order it has to come up, and Run serves until the process is
+signaled and then takes it down in the order that makes each drain mean
+something — ingress first, background loops in reverse, the observability
+pillars last. The convention that makes that orderable is Runner, which every
+background loop in this module already satisfied before it had a name.
 */
 package service
 
 import (
 	"context"
+	"time"
 
 	analyticscfg "github.com/primandproper/platform-go/v9/analytics/config"
 	auditcfg "github.com/primandproper/platform-go/v9/audit/config"
@@ -141,14 +149,39 @@ type Config struct {
 	// there is nothing for absence to mean here that an unconfigured pillar
 	// does not already mean.
 	Observability observability.Config `envPrefix:"OBSERVABILITY_" json:"observability,omitzero" yaml:"observability,omitempty"`
+
+	// ShutdownTimeout bounds the whole of Service.Shutdown: draining ingress,
+	// closing every background loop, the final flushes, and releasing the
+	// clients.
+	//
+	// One budget rather than one per phase, because what an orchestrator gives
+	// a process is a single number — Kubernetes' terminationGracePeriodSeconds
+	// — and per-phase timeouts that sum to more than it are timeouts nobody
+	// honors. The phases therefore compete for it, which is a second reason the
+	// shutdown order is what it is.
+	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s" json:"shutdownTimeout,omitzero" yaml:"shutdownTimeout,omitempty"`
 }
+
+// DefaultShutdownTimeout is the budget Service.Shutdown gets when the config
+// names none. It is the same thirty seconds Kubernetes defaults
+// terminationGracePeriodSeconds to, so a service that configures neither is
+// bounded by its own deadline rather than by a SIGKILL.
+const DefaultShutdownTimeout = 30 * time.Second
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // EnsureDefaults propagates Name to the observability pillars that have no
 // ServiceName of their own, so a service names itself once instead of four
-// more times. A pillar that was given its own name keeps it.
+// more times. A pillar that was given its own name keeps it, and so does a
+// shutdown budget that was set.
 func (cfg *Config) EnsureDefaults() {
+	// Applied here as well as through envDefault, because a Config assembled in
+	// code never goes through env parsing, and an unset budget would otherwise
+	// make every shutdown an expired deadline.
+	if cfg.ShutdownTimeout == 0 {
+		cfg.ShutdownTimeout = DefaultShutdownTimeout
+	}
+
 	if cfg.Name == "" {
 		return
 	}
@@ -165,14 +198,23 @@ func (cfg *Config) EnsureDefaults() {
 	}
 }
 
-// ValidateWithContext applies defaults, normalizes, and then validates whatever
-// survives.
+// ValidateWithContext applies defaults, normalizes, defaults again, and then
+// validates whatever survives.
 //
-// The order is the whole method. Defaults first, so a service that named itself
-// once is not failed for the four pillar names it did not repeat. Normalization
-// second, and it is the load-bearing step: until the sub-configs `env:",init"`
-// allocated and nobody filled in have been released, every subsystem looks
-// configured and the validation below is a validation of the entire module.
+// The order is the whole method. This config's own defaults first, so a service
+// that named itself once is not failed for the four pillar names it did not
+// repeat. Normalization second, and it is the load-bearing step: until the
+// sub-configs `env:",init"` allocated and nobody filled in have been released,
+// every subsystem looks configured and the validation below is a validation of
+// the entire module.
+//
+// The surviving sub-configs' own defaults third, and only third. Every
+// constructor in this module applies a config's defaults before validating it,
+// because an unset field with a documented default is not a validation failure;
+// a parent that validates a sub-config it did not construct has to do the same
+// or it enforces rules the constructor never would. It cannot happen any
+// earlier — defaulting before normalization fills in every allocated
+// sub-config, and nothing would ever look unconfigured again.
 //
 // The sub-config rules are then deliberately empty. ozzo dereferences a field
 // pointer once and validates whatever implements ValidatableWithContext, which
@@ -192,8 +234,15 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		return err
 	}
 
+	if err := cfgnorm.EnsureSubDefaults(cfg); err != nil {
+		return err
+	}
+
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Name, validation.Required),
+		// A negative budget is an operator error worth reporting rather than
+		// quietly correcting; a zero one has already been defaulted above.
+		validation.Field(&cfg.ShutdownTimeout, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.Observability, validation.By(func(any) error {
 			return cfg.Observability.ValidateWithContext(ctx)
 		})),

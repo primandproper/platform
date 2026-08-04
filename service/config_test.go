@@ -3,9 +3,12 @@ package service
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/primandproper/platform-go/v9/encoding"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
+	outboxcfg "github.com/primandproper/platform-go/v9/outbox/config"
 	secretscfg "github.com/primandproper/platform-go/v9/secrets/config"
 
 	"github.com/caarlos0/env/v11"
@@ -107,6 +110,51 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), platformerrors.ErrUnknownProvider.Error())
 		test.StrContains(t, err.Error(), "secrets")
+	})
+
+	T.Run("applies a present subsystem's own defaults before validating it", func(t *testing.T) {
+		t.Parallel()
+
+		// A composition root validates sub-configs it did not construct, and
+		// every constructor in this module defaults before it validates. Skip
+		// that here and an outbox configured from the environment is rejected
+		// for seven knobs the library has documented defaults for.
+		cfg := &Config{
+			Name: "example",
+			Outbox: &outboxcfg.Config{
+				Queue: messagequeuecfg.Config{
+					Consumer:  messagequeuecfg.MessageQueueConfig{Provider: messagequeuecfg.ProviderNoop},
+					Publisher: messagequeuecfg.MessageQueueConfig{Provider: messagequeuecfg.ProviderNoop},
+				},
+			},
+		}
+
+		must.NoError(t, cfg.ValidateWithContext(t.Context()))
+
+		must.NotNil(t, cfg.Outbox)
+		test.Positive(t, cfg.Outbox.Relay.BatchSize)
+	})
+
+	T.Run("defaults the shutdown budget rather than failing on it", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Name: "example"}
+
+		must.NoError(t, cfg.ValidateWithContext(t.Context()))
+
+		test.EqOp(t, DefaultShutdownTimeout, cfg.ShutdownTimeout)
+	})
+
+	T.Run("rejects a negative shutdown budget", func(t *testing.T) {
+		t.Parallel()
+
+		// Zero is an operator who said nothing and gets the default; negative
+		// is an operator who said something impossible.
+		cfg := &Config{Name: "example", ShutdownTimeout: -time.Second}
+
+		err := cfg.ValidateWithContext(t.Context())
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "shutdownTimeout")
 	})
 
 	T.Run("requires a name", func(t *testing.T) {

@@ -25,9 +25,9 @@ import (
 type PoolConfig struct {
 	_ struct{} `json:"-" yaml:"-"`
 
-	// Queue configures the consumer the Pool reads from. An empty provider
-	// selects the noop consumer, which delivers nothing — right for tests,
-	// wrong for production.
+	// Queue configures the consumer the Pool reads from. It has to name one:
+	// the noop consumer delivers nothing — right for tests, wrong for
+	// production — so it is selected deliberately rather than fallen back to.
 	Queue messagequeuecfg.Config `env:",init" envPrefix:"QUEUE_" json:"queue,omitzero" yaml:"queue,omitempty"`
 
 	// Pool carries the worker pool's own knobs.

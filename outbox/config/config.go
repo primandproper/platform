@@ -26,9 +26,9 @@ type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
 	// Queue configures the publisher provider the Relay hands claimed messages
-	// to. An empty provider selects the noop publisher, which is right for
-	// tests and wrong for production: messages would be claimed, "published"
-	// nowhere, and marked done.
+	// to. It has to name one: the noop publisher is right for tests and wrong
+	// for production — messages would be claimed, "published" nowhere, and
+	// marked done — so it is selected deliberately rather than fallen back to.
 	Queue messagequeuecfg.Config `env:",init" envPrefix:"QUEUE_" json:"queue,omitzero" yaml:"queue,omitempty"`
 
 	// Relay carries the outbox's own knobs. Its Dialect and TableName also

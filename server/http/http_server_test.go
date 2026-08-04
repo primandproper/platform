@@ -227,6 +227,27 @@ func TestServer_Shutdown(T *testing.T) {
 
 		test.EqOp(t, 1, mtp.forceFlushCalls)
 	})
+
+	T.Run("flushes the tracer provider without shutting it down", func(t *testing.T) {
+		t.Parallel()
+
+		// The server did not build the provider and does not own it. Shutting
+		// it down here closes the exporter for the gRPC sibling still draining
+		// and for every background loop whose Close runs after ingress stops —
+		// which is precisely the part of a process's life worth tracing.
+		mtp := &mockTracerProvider{}
+
+		s, err := NewHTTPServer(t.Context(), &Config{Port: 0}, nil, WithTracerProvider(mtp))
+		must.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		test.NoError(t, s.Shutdown(ctx))
+
+		test.EqOp(t, 1, mtp.forceFlushCalls)
+		test.EqOp(t, 0, mtp.shutdownCalls)
+	})
 }
 
 func TestServer_Serve(T *testing.T) {
