@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v9/errors"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -453,6 +455,146 @@ func TestPinningTransport(T *testing.T) {
 	})
 }
 
+// rebindFixture stands up both ends of a rebinding attack — the public
+// subscriber the check is meant to approve, and the internal service the
+// attacker is steering the delivery toward — behind a dialer that resolves the
+// way net.Dialer does.
+//
+// That last part is what makes this a test of the attack rather than of the
+// mechanism. Resolution happens *in the dial*, on whatever host is still in the
+// address when the dial starts, so a delivery that arrives at the dialer naming
+// `example.com` gets looked up a second time and a delivery that arrives naming
+// an address does not. Nothing else about the two cases differs.
+type rebindFixture struct {
+	client   *http.Client
+	resolver *rebindResolver
+
+	subscriber atomic.Int64
+	metadata   atomic.Int64
+}
+
+func newRebindFixture(t *testing.T) *rebindFixture {
+	t.Helper()
+
+	f := &rebindFixture{resolver: &rebindResolver{}}
+
+	// Both are TLS servers presenting httptest's certificate, which is issued
+	// for example.com — so reaching either completes a real handshake against
+	// the hostname, and TLS is not what distinguishes them.
+	subscriber := httptest.NewTLSServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+		f.subscriber.Add(1)
+
+		res.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(subscriber.Close)
+
+	metadata := httptest.NewTLSServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+		f.metadata.Add(1)
+
+		res.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(metadata.Close)
+
+	routes := map[string]string{
+		publicAddr:   subscriber.Listener.Addr().String(),
+		metadataAddr: metadata.Listener.Addr().String(),
+	}
+
+	f.client = subscriber.Client()
+
+	transport, ok := f.client.Transport.(*http.Transport)
+	must.True(t, ok)
+
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+
+		// A name still here is a name the dial has to resolve, and this is the
+		// lookup an attacker answers differently the second time.
+		if _, parseErr := netip.ParseAddr(host); parseErr != nil {
+			resolved, lookupErr := f.resolver.LookupIPAddr(ctx, host)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
+			host = resolved[0].IP.String()
+		}
+
+		target, routed := routes[host]
+		if !routed {
+			return nil, platformerrors.Newf("nothing is listening at %s", host)
+		}
+
+		return (&net.Dialer{}).DialContext(ctx, network, target)
+	}
+
+	return f
+}
+
+// The bug, reproduced and then closed.
+//
+// Both halves share one fixture. The only thing that differs is which checker
+// the worker runs — and that decides which of two servers receives a signed,
+// authenticated delivery.
+func TestWorker_dnsRebinding(T *testing.T) {
+	T.Parallel()
+
+	// What this package did before pinning: resolve the name, approve what came
+	// back, throw the addresses away. Every guard passes and the dial resolves a
+	// second time.
+	T.Run("the attack succeeds against a checker that discards its addresses", func(t *testing.T) {
+		t.Parallel()
+
+		f := newRebindFixture(t)
+
+		discardAddrs := func(ctx context.Context, rawURL string) error {
+			_, err := NewEndpointURLChecker(f.resolver)(ctx, rawURL)
+
+			return err
+		}
+
+		w := newTestWorker(t, &fakeStore{},
+			WithWorkerURLChecker(discardAddrs),
+			WithHTTPClient(f.client),
+		)
+
+		attempt, err := w.deliver(t.Context(), testDispatch("https://example.com/hooks", 1))
+		must.NoError(t, err)
+		test.EqOp(t, http.StatusOK, attempt.StatusCode)
+
+		// The delivery landed at the metadata service, and the worker recorded
+		// it as a success. This is the vulnerability in one assertion.
+		test.EqOp(t, int64(1), f.metadata.Load())
+		test.EqOp(t, int64(0), f.subscriber.Load())
+	})
+
+	// The same attack, the same fixture, against the checker this package now
+	// uses by default.
+	T.Run("the attack fails once the checked address is pinned", func(t *testing.T) {
+		t.Parallel()
+
+		f := newRebindFixture(t)
+
+		w := newTestWorker(t, &fakeStore{},
+			WithWorkerPinningURLChecker(NewEndpointURLChecker(f.resolver)),
+			WithHTTPClient(f.client),
+		)
+
+		attempt, err := w.deliver(t.Context(), testDispatch("https://example.com/hooks", 1))
+		must.NoError(t, err)
+		test.EqOp(t, http.StatusOK, attempt.StatusCode)
+
+		test.EqOp(t, int64(1), f.subscriber.Load())
+		test.EqOp(t, int64(0), f.metadata.Load())
+
+		// The attacker's answer was never asked for: the dial had an address and
+		// so had nothing to look up.
+		test.EqOp(t, int64(1), f.resolver.calls.Load())
+	})
+}
+
 // The rebinding case end to end, which is what issue #71 asked for: a resolver
 // that answers one way for the check and another for the dial, and a delivery
 // that reaches the address the check approved regardless.
@@ -503,26 +645,6 @@ func TestWorker_dialPinning(T *testing.T) {
 		// And the resolver was consulted exactly once, so the answer it was
 		// holding for the dial — the metadata service — never came up.
 		test.EqOp(t, int64(1), resolver.calls.Load())
-	})
-
-	// The control. A plain URLChecker vets no addresses, so the transport is
-	// handed the name and resolves it itself: the gap this issue is about, left
-	// open on purpose for the deployments that replaced the policy.
-	T.Run("a plain URL checker leaves the dial unpinned", func(t *testing.T) {
-		t.Parallel()
-
-		_, dialer, client := newSubscriber(t)
-
-		w := newTestWorker(t, &fakeStore{},
-			WithWorkerURLChecker(allowAnyURL),
-			WithHTTPClient(client),
-		)
-
-		attempt, err := w.deliver(t.Context(), testDispatch("https://example.com/hooks", 1))
-		must.NoError(t, err)
-		test.EqOp(t, http.StatusOK, attempt.StatusCode)
-
-		test.EqOp(t, "example.com:443", dialer.asked1(t))
 	})
 
 	// The rebound answer is refused outright when it is what the check itself
