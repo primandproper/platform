@@ -66,10 +66,16 @@ type Resolver interface {
 // This is SSRF prevention, and it is worth being explicit about what it does
 // and does not buy. A webhook endpoint is a URL supplied by a user that the
 // server will then make authenticated requests to, which is the textbook shape
-// of a server-side request forgery: point it at 169.254.169.254 and the
-// delivery worker fetches cloud instance credentials on the attacker's behalf,
-// or point it at an internal admin service and the worker reaches something the
-// attacker cannot.
+// of a server-side request forgery: point it at an internal admin service and
+// the worker reaches something the attacker cannot.
+//
+// What it is not is exfiltration, and the usual telling of this overstates it.
+// The response body is discarded unread, so a delivery aimed at 169.254.169.254
+// reaches the metadata service without reading a word of what it says. What an
+// attacker gets is the status code on an attempt record — an oracle for mapping
+// internal address space, plus whatever a POST to one of those addresses sets in
+// motion. Real, worth closing, and smaller than "the worker fetches your cloud
+// credentials".
 //
 // So: https only, and no host that resolves into loopback, link-local, private,
 // or otherwise non-global address space.

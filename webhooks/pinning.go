@@ -88,6 +88,9 @@ func pinnedAddrs(ctx context.Context) (host string, addrs []netip.Addr) {
 // metadata service. Pinning removes the second lookup: the address the check
 // approved is the address dialed, by construction.
 //
+// See CheckEndpointURL for how much that delivery is actually worth to an
+// attacker, which is less than it sounds — the response never comes back.
+//
 // The address the transport asked for is discarded except for its port. What is
 // deliberately *not* touched is TLS: the transport handshakes against the
 // hostname from the URL, not the address this dialed, so a pinned delivery

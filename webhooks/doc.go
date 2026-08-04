@@ -121,12 +121,21 @@ all need replaying by hand once it recovered.
 # SSRF
 
 An endpoint URL is attacker-supplied and this package makes authenticated
-requests to it, which is textbook server-side request forgery: point it at
-169.254.169.254 and the worker fetches cloud credentials on the attacker's
-behalf. CheckEndpointURL enforces https and refuses any host resolving into
-loopback, link-local, private, or non-global space — at registration, where the
-rejection can be reported to whoever submitted it, and again at delivery,
-because DNS is mutable.
+requests to it, which is textbook server-side request forgery: point it at an
+internal address and the worker reaches something the attacker cannot.
+
+Worth sizing honestly, because the standard telling of this inflates it. The
+response body is read into io.Discard and never surfaces anywhere, so this is a
+blind SSRF — an oracle for mapping internal address space out of status codes,
+plus whatever a POST to one of those addresses sets in motion. Not credential
+theft: the metadata service can be reached but not read. And registration is
+normally behind a permission, so the whole thing sits behind an authenticated
+account rather than the open internet.
+
+Still worth closing, and CheckEndpointURL closes it: https only, and no host
+resolving into loopback, link-local, private, or non-global space — at
+registration, where the rejection can be reported to whoever submitted it, and
+again at delivery, because DNS is mutable.
 
 Checking is not enough on its own, because resolution and connection are two
 separate lookups and an attacker who controls the authoritative server answers
