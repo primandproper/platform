@@ -44,6 +44,14 @@ type (
 	}
 )
 
+// ValidateWithContext validates the config struct.
+//
+// The sub-config for a provider that was not selected is skipped rather than
+// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so the
+// unselected provider's own rules were enforced and a service logging with slog
+// could not load.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	// Release the sub-config env parsing's ",init" allocated and nothing filled
 	// in, so the rule below reads "the operator configured this" rather than
@@ -57,7 +65,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.ServiceName, validation.Required),
 		validation.Field(&cfg.Level, validation.By(validateLevel)),
 		validation.Field(&cfg.Provider, validation.In("", ProviderNoop, ProviderZerolog, ProviderZap, ProviderSlog, ProviderOtelSlog)),
-		validation.Field(&cfg.OtelSlog, validation.When(cfg.Provider == ProviderOtelSlog, validation.Required).Else(validation.Nil)),
+		validation.Field(&cfg.OtelSlog, validation.Skip.When(cfg.Provider != ProviderOtelSlog), validation.Required),
 	)
 }
 

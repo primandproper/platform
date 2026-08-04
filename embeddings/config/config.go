@@ -35,12 +35,18 @@ type Config struct {
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates the config.
+//
+// The sub-configs for providers that were not selected are skipped rather than
+// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so
+// OpenAI's and Cohere's API keys were required at once and no config could load.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, c,
 		validation.Field(&c.Provider, validation.In(ProviderOpenAI, ProviderOllama, ProviderCohere, ProviderNoop, "")),
-		validation.Field(&c.OpenAI, validation.When(c.Provider == ProviderOpenAI, validation.Required)),
-		validation.Field(&c.Ollama, validation.When(c.Provider == ProviderOllama, validation.Required)),
-		validation.Field(&c.Cohere, validation.When(c.Provider == ProviderCohere, validation.Required)),
+		validation.Field(&c.OpenAI, validation.Skip.When(c.Provider != ProviderOpenAI), validation.Required),
+		validation.Field(&c.Ollama, validation.Skip.When(c.Provider != ProviderOllama), validation.Required),
+		validation.Field(&c.Cohere, validation.Skip.When(c.Provider != ProviderCohere), validation.Required),
 	)
 }
 

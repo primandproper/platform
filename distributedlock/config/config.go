@@ -54,7 +54,21 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct. Provider is required: the noop
 // locker is reachable only by naming it.
+//
+// The sub-config for a provider that was not selected is skipped rather than
+// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so Redis
+// addresses were demanded of the memory and noop lockers. Releasing the zero
+// sub-configs instead would not do: both carry envDefault fields, so neither is
+// zero once the environment has been parsed.
+//
+// The selection is read normalized, matching dispatch: a "REDIS" that
+// knownProvider accepts and NewLocker dispatches on would otherwise skip the
+// very block it is about to use.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	provider := strings.TrimSpace(strings.ToLower(cfg.Provider))
+
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
 			if !knownProvider(cfg.Provider) {
@@ -63,8 +77,8 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 			return nil
 		})),
-		validation.Field(&cfg.Redis, validation.When(cfg.Provider == RedisProvider, validation.Required)),
-		validation.Field(&cfg.Postgres, validation.When(cfg.Provider == PostgresProvider, validation.Required)),
+		validation.Field(&cfg.Redis, validation.Skip.When(provider != RedisProvider), validation.Required),
+		validation.Field(&cfg.Postgres, validation.Skip.When(provider != PostgresProvider), validation.Required),
 	)
 }
 

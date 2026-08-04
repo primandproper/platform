@@ -80,7 +80,19 @@ func (cfg *Config) EnsureDefaults() {
 }
 
 // ValidateWithContext validates a Config.
+//
+// The sub-configs for providers that were not selected are skipped rather than
+// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so all
+// six providers' credentials were required at once and no config could load.
+//
+// The selection is read normalized, matching dispatch: a "SENDGRID" that
+// knownProvider accepts and NewEmailer dispatches on would otherwise skip the
+// very block it is about to use.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+
 	return validation.ValidateStructWithContext(
 		ctx,
 		cfg,
@@ -91,12 +103,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 			return nil
 		})),
-		validation.Field(&cfg.Sendgrid, validation.When(cfg.Provider == ProviderSendgrid, validation.Required)),
-		validation.Field(&cfg.Mailgun, validation.When(cfg.Provider == ProviderMailgun, validation.Required)),
-		validation.Field(&cfg.Mailjet, validation.When(cfg.Provider == ProviderMailjet, validation.Required)),
-		validation.Field(&cfg.Resend, validation.When(cfg.Provider == ProviderResend, validation.Required)),
-		validation.Field(&cfg.Postmark, validation.When(cfg.Provider == ProviderPostmark, validation.Required)),
-		validation.Field(&cfg.SES, validation.When(cfg.Provider == ProviderSES, validation.Required)),
+		validation.Field(&cfg.Sendgrid, validation.Skip.When(provider != ProviderSendgrid), validation.Required),
+		validation.Field(&cfg.Mailgun, validation.Skip.When(provider != ProviderMailgun), validation.Required),
+		validation.Field(&cfg.Mailjet, validation.Skip.When(provider != ProviderMailjet), validation.Required),
+		validation.Field(&cfg.Resend, validation.Skip.When(provider != ProviderResend), validation.Required),
+		validation.Field(&cfg.Postmark, validation.Skip.When(provider != ProviderPostmark), validation.Required),
+		validation.Field(&cfg.SES, validation.Skip.When(provider != ProviderSES), validation.Required),
 	)
 }
 
