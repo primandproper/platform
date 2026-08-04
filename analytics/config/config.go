@@ -89,11 +89,17 @@ func (p ProxySourcesConfig) ToMap() map[string]*SourceConfig {
 // ValidateWithContext validates a SourceConfig: the provider must be known and the
 // matching credentials block present, so a proxy source with no provider/key can't
 // pass validation and silently degrade to a noop at runtime.
+//
+// The sub-config for a provider that was not selected is skipped rather than
+// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so both
+// providers' credentials were required at once and no source could load.
 func (cfg *SourceConfig) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderSegment, ProviderPostHog, ProviderNoop)),
-		validation.Field(&cfg.Segment, validation.When(cfg.Provider == ProviderSegment, validation.Required)),
-		validation.Field(&cfg.Posthog, validation.When(cfg.Provider == ProviderPostHog, validation.Required)),
+		validation.Field(&cfg.Segment, validation.Skip.When(cfg.Provider != ProviderSegment), validation.Required),
+		validation.Field(&cfg.Posthog, validation.Skip.When(cfg.Provider != ProviderPostHog), validation.Required),
 	)
 }
 

@@ -40,13 +40,21 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct. Provider is canonicalized (trim + lowercase)
 // first so validation matches the same normalization NewIndex dispatches on.
+//
+// The sub-config for a provider that was not selected is skipped rather than
+// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so both
+// providers' dimensions and endpoints were required at once and no config could
+// load. Releasing the zero sub-configs instead would not do: both carry
+// envDefault fields, so neither is zero once the environment has been parsed.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	cfg.Provider = strings.TrimSpace(strings.ToLower(cfg.Provider))
 
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.Required, validation.In(PGvectorProvider, QdrantProvider, ProviderNoop)),
-		validation.Field(&cfg.Pgvector, validation.When(cfg.Provider == PGvectorProvider, validation.Required)),
-		validation.Field(&cfg.Qdrant, validation.When(cfg.Provider == QdrantProvider, validation.Required)),
+		validation.Field(&cfg.Pgvector, validation.Skip.When(cfg.Provider != PGvectorProvider), validation.Required),
+		validation.Field(&cfg.Qdrant, validation.Skip.When(cfg.Provider != QdrantProvider), validation.Required),
 	)
 }
 

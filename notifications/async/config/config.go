@@ -42,12 +42,18 @@ type (
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct.
+//
+// The sub-configs for providers that were not selected are skipped rather than
+// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so
+// Pusher's and Ably's credentials were required at once and no config could load.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.In(ProviderPusher, ProviderAbly, ProviderWebSocket, ProviderSSE, ProviderNoop, "")),
-		validation.Field(&cfg.Pusher, validation.When(cfg.Provider == ProviderPusher, validation.Required)),
-		validation.Field(&cfg.Ably, validation.When(cfg.Provider == ProviderAbly, validation.Required)),
-		validation.Field(&cfg.WebSocket, validation.When(cfg.Provider == ProviderWebSocket, validation.Required)),
+		validation.Field(&cfg.Pusher, validation.Skip.When(cfg.Provider != ProviderPusher), validation.Required),
+		validation.Field(&cfg.Ably, validation.Skip.When(cfg.Provider != ProviderAbly), validation.Required),
+		validation.Field(&cfg.WebSocket, validation.Skip.When(cfg.Provider != ProviderWebSocket), validation.Required),
 	)
 }
 

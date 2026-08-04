@@ -37,10 +37,16 @@ type (
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct.
+//
+// The Stripe sub-config is skipped rather than merely unguarded when Stripe is
+// not the provider: ozzo validates any non-nil pointer to a Validatable once a
+// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
+// validation.When guard alone stops the Required rule and nothing else, so a
+// webhook secret was demanded of deployments that charge nobody.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.Required, validation.In(StripeProvider, NoopProvider)),
-		validation.Field(&cfg.Stripe, validation.When(cfg.Provider == StripeProvider, validation.Required)),
+		validation.Field(&cfg.Stripe, validation.Skip.When(cfg.Provider != StripeProvider), validation.Required),
 	)
 }
 
