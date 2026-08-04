@@ -8,9 +8,15 @@ import (
 	"testing"
 	"time"
 
+	capitalismmock "github.com/primandproper/platform-go/v9/capitalism/mock"
 	"github.com/primandproper/platform-go/v9/database"
 	databasemock "github.com/primandproper/platform-go/v9/database/mock"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/messagequeue"
+	messagequeuemock "github.com/primandproper/platform-go/v9/messagequeue/mock"
+	"github.com/primandproper/platform-go/v9/metering"
+	meteringcfg "github.com/primandproper/platform-go/v9/metering/config"
+	meteringmock "github.com/primandproper/platform-go/v9/metering/mock"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/routing"
@@ -132,8 +138,30 @@ func (s *fakeServer) Router() *routing.Router { return nil }
 
 var _ httpserver.Server = (*fakeServer)(nil)
 
+// fakeProfiler is the one pillar with a start of its own, which makes it the
+// cheapest way to drive both ends of the sequence: the failure Run reports
+// before anything is serving, and the failure Pillars.Shutdown reports after
+// everything has stopped.
+type fakeProfiler struct {
+	startErr    error
+	shutdownErr error
+	journal     *journal
+}
+
+func (p *fakeProfiler) Start(context.Context) error {
+	p.journal.record("start:profiler")
+
+	return p.startErr
+}
+
+func (p *fakeProfiler) Shutdown(context.Context) error {
+	p.journal.record("shutdown:profiler")
+
+	return p.shutdownErr
+}
+
 // lifecycleInjector registers the pieces New resolves through interfaces, which
-// is as much of a service as these tests need: a client to close and a server
+// is as much of a service as these tests need: clients to release and a server
 // to drain.
 func lifecycleInjector(t *testing.T, j *journal, srv httpserver.Server) do.Injector {
 	t.Helper()
@@ -148,6 +176,16 @@ func lifecycleInjector(t *testing.T, j *journal, srv httpserver.Server) do.Injec
 
 			return nil
 		},
+	})
+
+	// The message queue providers are the components whose Close reports
+	// nothing at all, so they are also the ones that exercise the adapter for
+	// that shape.
+	do.ProvideValue[messagequeue.PublisherProvider](i, &messagequeuemock.PublisherProviderMock{
+		CloseFunc: func() { j.record("close:publishers") },
+	})
+	do.ProvideValue[messagequeue.ConsumerProvider](i, &messagequeuemock.ConsumerProviderMock{
+		CloseFunc: func() { j.record("close:consumers") },
 	})
 
 	if srv != nil {
@@ -225,18 +263,36 @@ func TestService_Shutdown(T *testing.T) {
 		runner := newFakeRunner(j, "relay")
 		runner.closeErr = platformerrors.New("relaying")
 
+		errFlush := platformerrors.New("flushing")
+		errRelease := platformerrors.New("releasing")
+
+		profiler := &fakeProfiler{journal: j, shutdownErr: platformerrors.New("profiling")}
+
 		svc := &Service{
 			logger:          testLogger(),
-			pillars:         &observability.Pillars{},
+			pillars:         &observability.Pillars{Profiler: profiler},
 			shutdownTimeout: time.Minute,
 			servers:         []named[Server]{{name: "HTTP server", v: srv}},
 			runners:         []named[Runner]{{name: "outbox relay", v: runner}},
+			flushes: []named[func(context.Context) error]{
+				{name: "metering flusher", v: func(context.Context) error { return errFlush }},
+			},
+			closers: []named[func(context.Context) error]{
+				{name: "database client", v: func(context.Context) error { return errRelease }},
+			},
 		}
 
 		err := svc.Shutdown(t.Context())
 		must.Error(t, err)
 		test.ErrorIs(t, err, srv.shutdownErr)
 		test.ErrorIs(t, err, runner.closeErr)
+		test.ErrorIs(t, err, errFlush)
+		test.ErrorIs(t, err, errRelease)
+		test.ErrorIs(t, err, profiler.shutdownErr)
+
+		// Every phase still ran, and the pillars that carried the reports of
+		// the other four failures were the last thing to go.
+		test.SliceContains(t, j.all(), "shutdown:profiler")
 	})
 
 	T.Run("bounds the sequence and keeps going past a loop that will not stop", func(t *testing.T) {
@@ -333,7 +389,9 @@ func TestService_Run(T *testing.T) {
 		events := j.all()
 		test.SliceContains(t, events, "run:app")
 		happensBefore(t, events, "shutdown:http", "close:app")
-		happensBefore(t, events, "close:app", "close:database")
+		happensBefore(t, events, "close:app", "close:consumers")
+		happensBefore(t, events, "close:consumers", "close:publishers")
+		happensBefore(t, events, "close:publishers", "close:database")
 	})
 
 	T.Run("a server that stops serving takes the service down with it", func(t *testing.T) {
@@ -359,6 +417,51 @@ func TestService_Run(T *testing.T) {
 		test.SliceContains(t, j.all(), "close:database")
 	})
 
+	T.Run("a profiler that will not start stops the service before it serves", func(t *testing.T) {
+		t.Parallel()
+
+		// The profiler starts first, so its failure is the one startup failure
+		// Run can hit after New succeeded — and it still has to take down
+		// everything New built rather than leaking it.
+		j := &journal{}
+
+		profiler := &fakeProfiler{journal: j, startErr: platformerrors.New("profiling")}
+
+		srv := newFakeServer(j, "http")
+		i := lifecycleInjector(t, j, srv)
+		do.ProvideValue(i, &observability.Pillars{Profiler: profiler})
+
+		svc, err := New(i)
+		must.NoError(t, err)
+
+		err = svc.Run(t.Context())
+		must.Error(t, err)
+		test.ErrorIs(t, err, profiler.startErr)
+
+		events := j.all()
+		test.SliceNotContains(t, events, "serve:http")
+		test.SliceContains(t, events, "close:database")
+	})
+
+	T.Run("runs the final flush after the loops and before the clients", func(t *testing.T) {
+		t.Parallel()
+
+		// The metering flush is the one drain with no loop of its own: it needs
+		// every producer above it to have stopped and the database below it to
+		// still be open.
+		j := &journal{}
+
+		i := lifecycleInjector(t, j, nil)
+		do.ProvideValue(i, meteringFlusher(t, j))
+
+		svc, err := New(i)
+		must.NoError(t, err)
+
+		must.NoError(t, svc.Shutdown(t.Context()))
+
+		happensBefore(t, j.all(), "flush:metering", "close:database")
+	})
+
 	T.Run("a service made of nothing still runs and stops", func(t *testing.T) {
 		t.Parallel()
 
@@ -378,6 +481,32 @@ func TestService_Run(T *testing.T) {
 
 		must.NoError(t, <-errs)
 	})
+}
+
+// meteringFlusher builds a real *metering.Flusher over mocked storage and a
+// mocked billing provider. Real, because the shutdown's final pass calls Flush
+// and a hand-made stand-in would only prove that a function this package wrote
+// calls itself.
+func meteringFlusher(t *testing.T, j *journal) *metering.Flusher {
+	t.Helper()
+
+	store := &meteringmock.StoreMock{
+		ClaimFlushableFunc: func(context.Context, time.Time, int, int, time.Time) ([]*metering.Total, error) {
+			j.record("flush:metering")
+
+			return nil, nil
+		},
+		ReapEventsFunc: func(context.Context, time.Time, int) (int64, error) { return 0, nil },
+	}
+
+	mapper := metering.ProviderMapperFunc(func(context.Context, string, string) (metering.ProviderRef, error) {
+		return metering.ProviderRef{}, nil
+	})
+
+	flusher, err := meteringcfg.NewFlusher(t.Context(), &meteringcfg.Config{}, store, mapper, &capitalismmock.UsageReporterMock{})
+	must.NoError(t, err)
+
+	return flusher
 }
 
 // waitFor blocks until the journal has recorded event, so a test can act on

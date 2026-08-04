@@ -13,6 +13,7 @@ import (
 	"github.com/primandproper/platform-go/v9/jobs"
 	jobscfg "github.com/primandproper/platform-go/v9/jobs/config"
 	messagequeuecfg "github.com/primandproper/platform-go/v9/messagequeue/config"
+	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/outbox"
 	outboxcfg "github.com/primandproper/platform-go/v9/outbox/config"
 
@@ -147,6 +148,25 @@ func TestNew(T *testing.T) {
 		svc, err := New(i)
 		must.Error(t, err)
 		test.ErrorIs(t, err, errBuild)
+		test.Nil(t, svc)
+	})
+
+	T.Run("reports observability that was registered and cannot be built", func(t *testing.T) {
+		t.Parallel()
+
+		// Registering none is fine — every pillar resolves to its noop. An
+		// exporter that cannot reach its collector is not, and must not degrade
+		// into the noop that absence gets.
+		errPillars := platformerrors.New("reaching the collector")
+
+		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
+		do.ProvideValue(i, &Config{Name: "example"})
+		do.Provide(i, func(do.Injector) (*observability.Pillars, error) { return nil, errPillars })
+
+		svc, err := New(i)
+		must.Error(t, err)
+		test.ErrorIs(t, err, errPillars)
 		test.Nil(t, svc)
 	})
 
