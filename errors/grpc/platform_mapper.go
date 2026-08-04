@@ -31,6 +31,12 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 		return codes.Unavailable, true
 	case errors.Is(err, platformerrors.ErrPermissionDenied):
 		return codes.PermissionDenied, true
+	// FailedPrecondition rather than Aborted: gRPC's own guidance gives
+	// "rmdir on a non-empty directory" as the canonical FailedPrecondition
+	// case, and a delete blocked by a live reference is the same shape. The
+	// client must change the system state before retrying, not just retry.
+	case errors.Is(err, platformerrors.ErrResourceInUse):
+		return codes.FailedPrecondition, true
 	// Aborted is gRPC's concurrency-conflict code, and its documented advice —
 	// retry at a higher level — is exactly right here: the work may still
 	// succeed, and the client should ask again with the same key.

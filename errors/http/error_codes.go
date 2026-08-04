@@ -18,6 +18,7 @@ var (
 		string(ErrCircuitBroken):              ErrCircuitBroken,
 		string(ErrIdempotencyKeyInFlight):     ErrIdempotencyKeyInFlight,
 		string(ErrIdempotencyKeyReused):       ErrIdempotencyKeyReused,
+		string(ErrResourceConflict):           ErrResourceConflict,
 	}
 )
 
@@ -61,4 +62,10 @@ const (
 	// with a different request than the one it was first used for. Replaying
 	// the earlier response would hide a client bug.
 	ErrIdempotencyKeyReused ErrorCode = "E114"
+	// ErrResourceConflict is returned when a request conflicts with the current
+	// state of the resource — deleting something another record still
+	// references, for instance. It is the general conflict code:
+	// ErrIdempotencyKeyInFlight is also a 409, but it says something specific
+	// about idempotency rather than about the resource.
+	ErrResourceConflict ErrorCode = "E115"
 )

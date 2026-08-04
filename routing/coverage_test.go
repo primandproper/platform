@@ -122,12 +122,25 @@ func TestRouterOptions(T *testing.T) {
 	WithInfoDescription("d")(c)
 	WithServer("http://example.test")(c)
 	WithDefaultEnvelope(false)(c)
+	WithErrorEncoder(func(context.Context, error) (int, any) { return 0, nil })(c)
 
 	test.EqOp(T, "t", c.title)
+	test.NotNil(T, c.errEncoder)
 	test.EqOp(T, "v", c.version)
 	test.EqOp(T, "d", c.description)
 	test.SliceLen(T, 1, c.servers)
 	test.False(T, c.envelope)
+}
+
+// A binding failure is the one error the router raises itself, and an
+// ErrorEncoder has to be able to read its code without seeing the unexported
+// type it arrives as.
+func TestBindError_SatisfiesCodedError(T *testing.T) {
+	T.Parallel()
+
+	var coded CodedError = &bindError{code: httpx.ErrValidatingRequestInput, msg: "invalid request input"}
+
+	test.EqOp(T, httpx.ErrValidatingRequestInput, coded.ErrorCode())
 }
 
 func TestNew_InfoAndServers(T *testing.T) {

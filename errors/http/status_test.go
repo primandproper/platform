@@ -23,6 +23,7 @@ func TestHTTPStatusForCode(T *testing.T) {
 		ErrCircuitBroken:              http.StatusServiceUnavailable,
 		ErrIdempotencyKeyInFlight:     http.StatusConflict,
 		ErrIdempotencyKeyReused:       http.StatusUnprocessableEntity,
+		ErrResourceConflict:           http.StatusConflict,
 		// unmapped / server-side codes fall back to 500.
 		ErrNothingSpecific:         http.StatusInternalServerError,
 		ErrTalkingToDatabase:       http.StatusInternalServerError,

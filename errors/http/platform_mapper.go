@@ -32,6 +32,8 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		// naming the missing permission would disclose the permission taxonomy to
 		// a caller that just failed to authorize.
 		return ErrUserIsNotAuthorized, "permission denied", true
+	case errors.Is(err, platformerrors.ErrResourceInUse):
+		return ErrResourceConflict, "resource is in use", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):

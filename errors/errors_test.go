@@ -42,8 +42,15 @@ func TestSentinelErrors(T *testing.T) {
 		test.StrContains(t, ErrEmptyInputProvided.Error(), "empty")
 	})
 
+	T.Run("ErrResourceInUse", func(t *testing.T) {
+		t.Parallel()
+		test.NotNil(t, ErrResourceInUse)
+		test.StrContains(t, ErrResourceInUse.Error(), "in use")
+	})
+
 	T.Run("sentinels are distinct", func(t *testing.T) {
 		t.Parallel()
+		test.False(t, errors.Is(ErrResourceInUse, ErrPermissionDenied))
 		test.False(t, errors.Is(ErrNilInputParameter, ErrEmptyInputParameter))
 		test.False(t, errors.Is(ErrNilInputProvided, ErrInvalidIDProvided))
 		test.False(t, errors.Is(ErrEmptyInputProvided, ErrNilInputProvided))

@@ -22,6 +22,32 @@ type (
 	// Middleware is a standard net/http middleware function.
 	Middleware func(http.Handler) http.Handler
 
+	// ErrorEncoder renders a handler or binding error as the status and body to
+	// send. It is the seam for a service whose error wire format predates this
+	// router: returning (409, myFlatError{Message: "..."}) produces exactly that
+	// body, encoded by the route's encoder, instead of the platform APIError
+	// envelope.
+	//
+	// It is not asked whether it wants to handle a given error — a Router either
+	// has one or does not, so a service cannot end up with two error formats
+	// depending on which error was returned. To fall back to the platform
+	// envelope for some errors, call DefaultErrorBody and return what it gives.
+	//
+	// A nil body writes the status and no body at all. A status outside
+	// 100..999 is not a valid HTTP status and would panic the ResponseWriter, so
+	// it is written as 500.
+	ErrorEncoder func(ctx context.Context, err error) (status int, body any)
+
+	// CodedError is an error carrying the platform ErrorCode that determines its
+	// status and appears in the platform envelope. The router's own binding
+	// failures implement it, so an ErrorEncoder can tell a malformed body
+	// (ErrDecodingRequestInput) from a failed validation (ErrValidatingRequestInput)
+	// from a handler's own error without matching on unexported types.
+	CodedError interface {
+		error
+		ErrorCode() httpx.ErrorCode
+	}
+
 	// Backend is the pluggable HTTP-muxing seam beneath a Router. A concrete
 	// router library (chi, gin, ...) implements it; the Router builds every typed
 	// route, spec, and lifecycle concern on top of these primitives and never
@@ -54,10 +80,11 @@ type (
 // generic and Go does not permit generic interface methods. The swappable seam
 // is Backend; the Router is the one fixed orchestration layer above it.
 type Router struct {
-	backend   Backend
-	enc       encoding.ServerEncoderDecoder
-	o11y      observability.Observer
-	reflector *openapi3.Reflector
+	backend    Backend
+	enc        encoding.ServerEncoderDecoder
+	errEncoder ErrorEncoder
+	o11y       observability.Observer
+	reflector  *openapi3.Reflector
 
 	encoders *encoderCache
 	errs     *regErrors
@@ -121,6 +148,7 @@ type (
 	routerConfig struct {
 		logger         logging.Logger
 		tracerProvider tracing.TracerProvider
+		errEncoder     ErrorEncoder
 		title          string
 		version        string
 		description    string
@@ -153,6 +181,24 @@ func WithServer(url string) RouterOption {
 // errors/http.APIResponse[Out] by default (per-route override via WithEnvelope).
 func WithDefaultEnvelope(enabled bool) RouterOption {
 	return func(c *routerConfig) { c.envelope = enabled }
+}
+
+// WithErrorEncoder replaces how returned errors are rendered, for services that
+// serve an error wire format this router did not define. The encoder decides the
+// status and the body; the route's encoder still serializes it, so content-type
+// negotiation and the ServerEncoderDecoder seam are unaffected.
+//
+// Without it, errors are rendered exactly as they always were — the platform
+// APIError envelope, with the status from the code map. With it, they are
+// rendered by the encoder for every error, binding failures included; those
+// implement CodedError, so the encoder can recover the code it would have been
+// given.
+//
+// It is an option on the Router rather than a per-route one because a service's
+// error format is a property of its API, not of one endpoint. A nil encoder
+// leaves the default in place.
+func WithErrorEncoder(encoder ErrorEncoder) RouterOption {
+	return func(c *routerConfig) { c.errEncoder = encoder }
 }
 
 // WithLogger attaches a logger.
@@ -194,10 +240,11 @@ func New(
 	}
 
 	return &Router{
-		backend:   backend,
-		enc:       enc,
-		o11y:      observability.NewObserver(observerName, logger, tracerProvider),
-		reflector: reflector,
+		backend:    backend,
+		enc:        enc,
+		errEncoder: cfg.errEncoder,
+		o11y:       observability.NewObserver(observerName, logger, tracerProvider),
+		reflector:  reflector,
 		encoders: &encoderCache{
 			logger:         logger,
 			tracerProvider: tracerProvider,
@@ -233,28 +280,57 @@ func (r *Router) encoderFor(contentType encoding.ContentType) encoding.ServerEnc
 	return r.encoders.get(contentType)
 }
 
-// writeError maps a handler or binding error to an HTTP status and error envelope
-// and encodes it. Binding errors carry their own platform error code; other
-// errors are mapped via errors/http.
+// writeError maps a handler or binding error to an HTTP status and body and
+// encodes it, through the Router's ErrorEncoder if it has one and
+// DefaultErrorBody if it does not.
+//
+// The error is acknowledged on the operation either way: a custom encoder
+// changes what the client is told, not what the service records.
 func (r *Router) writeError(ctx context.Context, res http.ResponseWriter, op observability.Operation, enc encoding.ServerEncoderDecoder, err error) {
 	op.Acknowledge(err, "handling request")
 
-	if be, ok := errors.AsType[*bindError](err); ok {
-		enc.EncodeResponseWithStatus(
-			ctx, res,
-			httpx.NewAPIErrorResponse(be.msg, be.code, detailsFromCtx(ctx)),
-			httpx.HTTPStatusForCode(be.code),
-		)
+	encode := r.errEncoder
+	if encode == nil {
+		encode = DefaultErrorBody
+	}
+
+	status, body := encode(ctx, err)
+
+	// An out-of-range status would panic the ResponseWriter, taking down a
+	// request that was already failing in a way that was going to be reported.
+	if status < 100 || status > 999 {
+		status = http.StatusInternalServerError
+	}
+
+	if body == nil {
+		res.WriteHeader(status)
 
 		return
 	}
 
+	enc.EncodeResponseWithStatus(ctx, res, body, status)
+}
+
+// DefaultErrorBody is the rendering a Router uses when given no ErrorEncoder:
+// the platform APIError envelope, with the status from the error's code.
+// Binding errors carry their own code; anything else is mapped through
+// errors/http.
+//
+// It is exported so an ErrorEncoder can delegate — a service that wants its own
+// format for its own errors and the platform's for everything else returns
+// DefaultErrorBody's result for the cases it does not recognize.
+//
+// The message sent for a binding failure is the bindError's own, not its
+// Error() string: the wrapped cause is for the operation record, not for the
+// client.
+func DefaultErrorBody(ctx context.Context, err error) (status int, body any) {
+	if be, ok := errors.AsType[*bindError](err); ok {
+		return httpx.HTTPStatusForCode(be.code), httpx.NewAPIErrorResponse(be.msg, be.code, detailsFromCtx(ctx))
+	}
+
 	code, msg := httpx.ToAPIError(err)
-	enc.EncodeResponseWithStatus(
-		ctx, res,
-		httpx.NewAPIErrorResponse(msg, code, detailsFromCtx(ctx)),
-		httpx.HTTPStatusForCode(code),
-	)
+
+	return httpx.HTTPStatusForCode(code), httpx.NewAPIErrorResponse(msg, code, detailsFromCtx(ctx))
 }
 
 // detailsFromCtx builds response details from the active span (trace ID).
