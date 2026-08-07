@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const name = "in_memory_cache"
@@ -27,22 +30,29 @@ type entry[T any] struct {
 }
 
 type inMemoryCacheImpl[T any] struct {
-	o11y              observability.Observer
-	logger            logging.Logger
-	tracerProvider    tracing.TracerProvider
-	metricsProvider   metrics.Provider
-	clock             clock.Clock
-	janitor           func()
-	stopJanitor       context.CancelFunc
-	cacheHitCounter   metrics.Int64Counter
-	cacheMissCounter  metrics.Int64Counter
-	cacheSetCounter   metrics.Int64Counter
-	cacheDelCounter   metrics.Int64Counter
-	cacheEvictCounter metrics.Int64Counter
-	latencyHist       metrics.Float64Histogram
-	cache             map[string]entry[T]
-	defaultExpiry     time.Duration
-	cacheMu           sync.RWMutex
+	o11y                      observability.Observer
+	logger                    logging.Logger
+	tracerProvider            tracing.TracerProvider
+	metricsProvider           metrics.Provider
+	clock                     clock.Clock
+	cacheHitCounter           metrics.Int64Counter
+	cacheMissCounter          metrics.Int64Counter
+	cacheSetCounter           metrics.Int64Counter
+	cacheDelCounter           metrics.Int64Counter
+	cacheEvictCounter         metrics.Int64Counter
+	cacheCapacityEvictCounter metrics.Int64Counter
+	cacheLoadCounter          metrics.Int64Counter
+	latencyHist               metrics.Float64Histogram
+	// flight collapses concurrent loads for one key. It is only reached when a
+	// loader is configured, and is zero-valued and unused otherwise.
+	flight        singleflight.Group
+	janitor       func()
+	stopJanitor   context.CancelFunc
+	loader        Loader[T]
+	index         *evictionIndex
+	cache         map[string]entry[T]
+	defaultExpiry time.Duration
+	cacheMu       sync.RWMutex
 }
 
 // NewInMemoryCache builds an in-memory cache. Writes expire after defaultExpiry
@@ -52,7 +62,12 @@ type inMemoryCacheImpl[T any] struct {
 // By default expired entries are evicted lazily, on the read that discovers
 // them or when overwritten, and the map is not otherwise size-bounded. Pass
 // WithJanitor to sweep them on a timer instead — see that option for when the
-// lazy default is not enough.
+// lazy default is not enough — and WithMaxEntries to bound the map by count
+// rather than only by expiry.
+//
+// The cache answers only for what has been written to it unless it is given a
+// WithLoader, which makes reads compute what they miss and collapses concurrent
+// misses on a key into one computation.
 func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (cache.Cache[T], error) {
 	o := &options{}
 	for _, opt := range opts {
@@ -61,13 +76,37 @@ func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (cache
 		}
 	}
 
+	// Checked before anything is built: a bound whose policy nobody implements
+	// is a cache that would silently forget by some other rule than the one it
+	// was configured with.
+	if o.maxEntries > 0 && !o.evictionPolicy.valid() {
+		return nil, errors.Wrapf(ErrUnknownEvictionPolicy, "eviction policy %d", uint8(o.evictionPolicy))
+	}
+
 	i := &inMemoryCacheImpl[T]{
 		clock:           clock.NewClock(),
 		cache:           make(map[string]entry[T]),
 		defaultExpiry:   defaultExpiry,
+		index:           newEvictionIndex(o.maxEntries, o.evictionPolicy),
 		logger:          o.logger,
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
+	}
+
+	// Asserted rather than assumed: Option cannot name T, so this is where a
+	// loader built for another type is caught. Silently leaving the cache
+	// without one would be worse than failing — every read would miss, the
+	// cache would look merely cold, and the caller would never learn their
+	// loader was ignored.
+	if o.loader != nil {
+		loader, ok := o.loader.(Loader[T])
+		if !ok {
+			return nil, errors.Wrapf(
+				ErrLoaderTypeMismatch, "loader is %T, want memory.Loader[%T]", o.loader, *new(T),
+			)
+		}
+
+		i.loader = loader
 	}
 
 	// Staged, not started: the sweep must not observe a half-built cache, so it
@@ -110,6 +149,20 @@ func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (cache
 	i.cacheEvictCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_evictions", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating cache eviction counter")
+	}
+
+	i.cacheCapacityEvictCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_capacity_evictions", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache capacity eviction counter")
+	}
+
+	// Loads against misses is what says whether the flight is collapsing
+	// anything: every miss that had to compute counts once here, and every miss
+	// that joined a computation already running counts nowhere but the miss
+	// counter.
+	i.cacheLoadCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_cache_loads", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating cache load counter")
 	}
 
 	i.latencyHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_cache_latency_ms", name))
@@ -156,8 +209,45 @@ func (i *inMemoryCacheImpl[T]) evictExpired(ctx context.Context, key string) {
 
 	if cur, ok := i.cache[key]; ok && i.expired(cur) {
 		delete(i.cache, key)
+		i.index.forget(key)
 		i.cacheEvictCounter.Add(ctx, 1)
 	}
+}
+
+// readLocked runs fn holding whichever lock the eviction policy requires.
+//
+// An LRU bound has to write down the reads it serves, so a cache configured
+// that way takes the write lock on its read path and readers stop running
+// concurrently with one another. Every other configuration keeps the shared
+// read lock, which is why the promotion lives behind evictionIndex.recordRead
+// rather than an `if` here: the one method is a no-op exactly when the lock
+// held cannot support it.
+func (i *inMemoryCacheImpl[T]) readLocked(fn func()) {
+	if i.index.recordsReads() {
+		i.cacheMu.Lock()
+		defer i.cacheMu.Unlock()
+	} else {
+		i.cacheMu.RLock()
+		defer i.cacheMu.RUnlock()
+	}
+
+	fn()
+}
+
+// lookup reads one key, recording the read if the policy tracks them.
+func (i *inMemoryCacheImpl[T]) lookup(key string) (entry[T], bool) {
+	var (
+		e  entry[T]
+		ok bool
+	)
+
+	i.readLocked(func() {
+		if e, ok = i.cache[key]; ok && !i.expired(e) {
+			i.index.recordRead(key)
+		}
+	})
+
+	return e, ok
 }
 
 func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
@@ -169,9 +259,7 @@ func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) 
 		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	i.cacheMu.RLock()
-	e, ok := i.cache[key]
-	i.cacheMu.RUnlock()
+	e, ok := i.lookup(key)
 
 	if ok && !i.expired(e) {
 		i.cacheHitCounter.Add(ctx, 1)
@@ -183,6 +271,13 @@ func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) 
 	}
 
 	i.cacheMissCounter.Add(ctx, 1)
+
+	// Counted as a miss before the loader runs, whatever the loader answers: the
+	// cache did not hold the key, and a read-through cache that reported its
+	// loads as hits could not be told from one that never missed at all.
+	if i.loader != nil {
+		return i.load(ctx, key)
+	}
 
 	return nil, cache.ErrNotFound
 }
@@ -202,7 +297,9 @@ func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T, op
 	defer i.cacheMu.Unlock()
 
 	i.cache[key] = e
+	i.index.recordWrite(key)
 	i.cacheSetCounter.Add(ctx, 1)
+	i.evictOverflowLocked(ctx)
 
 	return nil
 }
@@ -220,6 +317,7 @@ func (i *inMemoryCacheImpl[T]) Delete(ctx context.Context, key string) error {
 	defer i.cacheMu.Unlock()
 
 	delete(i.cache, key)
+	i.index.forget(key)
 	i.cacheDelCounter.Add(ctx, 1)
 
 	return nil
@@ -234,27 +332,45 @@ func (i *inMemoryCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[
 		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	var expiredKeys []string
+	var expiredKeys, missingKeys []string
 
-	i.cacheMu.RLock()
 	out := make(map[string]*T, len(keys))
-	for _, key := range keys {
-		e, ok := i.cache[key]
-		if ok && !i.expired(e) {
-			out[key] = e.value
-			i.cacheHitCounter.Add(ctx, 1)
-			continue
-		}
 
-		if ok {
-			expiredKeys = append(expiredKeys, key)
+	i.readLocked(func() {
+		for _, key := range keys {
+			e, ok := i.cache[key]
+			if ok && !i.expired(e) {
+				out[key] = e.value
+				i.index.recordRead(key)
+				i.cacheHitCounter.Add(ctx, 1)
+				continue
+			}
+
+			if ok {
+				expiredKeys = append(expiredKeys, key)
+			}
+
+			// Collected only when something will read them, so a cache with no
+			// loader does not allocate a list of its own misses.
+			if i.loader != nil {
+				missingKeys = append(missingKeys, key)
+			}
+
+			i.cacheMissCounter.Add(ctx, 1)
 		}
-		i.cacheMissCounter.Add(ctx, 1)
-	}
-	i.cacheMu.RUnlock()
+	})
 
 	for _, key := range expiredKeys {
 		i.evictExpired(ctx, key)
+	}
+
+	if len(missingKeys) > 0 {
+		loaded, err := i.loadMany(ctx, missingKeys)
+		if err != nil {
+			return nil, err
+		}
+
+		maps.Copy(out, loaded)
 	}
 
 	return out, nil
@@ -280,8 +396,15 @@ func (i *inMemoryCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T,
 
 	for key, value := range items {
 		i.cache[key] = entry[T]{value: value, expiresAt: expiresAt}
+		i.index.recordWrite(key)
 		i.cacheSetCounter.Add(ctx, 1)
 	}
+
+	// Once for the batch rather than once per item: the overflow is the same
+	// either way, and evicting as we go would drop entries this very call is
+	// about to add — a batch larger than the bound would otherwise thrash
+	// through the whole map instead of settling on its own tail.
+	i.evictOverflowLocked(ctx)
 
 	return nil
 }
@@ -302,6 +425,7 @@ func (i *inMemoryCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) er
 	for _, key := range keys {
 		if _, ok := i.cache[key]; ok {
 			delete(i.cache, key)
+			i.index.forget(key)
 			i.cacheDelCounter.Add(ctx, 1)
 		}
 	}
@@ -327,6 +451,7 @@ func (i *inMemoryCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string
 	for key := range i.cache {
 		if strings.HasPrefix(key, prefix) {
 			delete(i.cache, key)
+			i.index.forget(key)
 			i.cacheDelCounter.Add(ctx, 1)
 		}
 	}
@@ -350,6 +475,7 @@ func (i *inMemoryCacheImpl[T]) Flush(ctx context.Context) error {
 
 	i.cacheDelCounter.Add(ctx, int64(len(i.cache)))
 	i.cache = make(map[string]entry[T])
+	i.index.reset()
 
 	return nil
 }

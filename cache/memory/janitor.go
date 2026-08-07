@@ -3,34 +3,7 @@ package memory
 import (
 	"context"
 	"time"
-
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
-
-// Option configures an in-memory cache at construction. Options are applied in
-// the order given, and a nil option is ignored.
-//
-// It carries no type parameter even though the cache does: nothing an Option
-// sets depends on the cached type, and Go cannot infer a type argument from a
-// call's result type — so an Option[T] would force every call site to spell the
-// cached type out by hand — WithLogger[MyValue](l) — forever.
-type Option func(*options)
-
-// options accumulates what the options set, so Option can stay free of the
-// cache's type parameter.
-type options struct {
-	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
-	metricsProvider metrics.Provider
-
-	// janitorCtx and janitorInterval are held rather than started, because a
-	// janitor must not observe a half-built cache; the constructor launches the
-	// sweep once everything else is in place.
-	janitorCtx      context.Context //nolint:containedctx // deliberate: see WithJanitor
-	janitorInterval time.Duration
-}
 
 // WithJanitor starts a background sweep that removes expired entries every
 // interval, rather than waiting for a read to discover them.
@@ -42,6 +15,12 @@ type options struct {
 // request cache — because nothing ever triggers the lazy path and the map grows
 // without bound. The rule of thumb: enable it whenever the expiry is long
 // relative to how often a given key is read.
+//
+// A sweep bounds the map in time, not in size: it reclaims entries once they
+// expire, and reclaims nothing before then. A keyspace that can produce entries
+// faster than they expire — or one whose entries never expire at all — needs
+// WithMaxEntries as well, which is the only thing here that puts a ceiling on
+// the map.
 //
 // The sweep stops on Close, and also when ctx is done — whichever happens
 // first. Passing context.Background() and relying on Close is the ordinary
