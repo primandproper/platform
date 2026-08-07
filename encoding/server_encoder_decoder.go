@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cbormode"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 	"github.com/primandproper/platform-go/v9/panicking"
@@ -27,6 +28,7 @@ const (
 	contentTypeJSON  = "application/json"
 	contentTypeTOML  = "application/toml"
 	contentTypeYAML  = "application/yaml"
+	contentTypeCBOR  = "application/cbor"
 	contentTypeEmoji = "application/emoji"
 )
 
@@ -90,6 +92,8 @@ func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, des
 		d = newTomlDecoder(bytes.NewReader(data))
 	case ContentTypeYAML:
 		d = yaml.NewDecoder(bytes.NewReader(data))
+	case ContentTypeCBOR:
+		d = cbormode.NewDecoder(bytes.NewReader(data))
 	case ContentTypeEmoji:
 		d = newEmojiDecoder(bytes.NewReader(data))
 	default:
@@ -198,6 +202,8 @@ func (e *serverEncoderDecoder) DecodeRequest(ctx context.Context, req *http.Requ
 		d = newTomlDecoder(req.Body)
 	case ContentTypeYAML:
 		d = yaml.NewDecoder(req.Body)
+	case ContentTypeCBOR:
+		d = cbormode.NewDecoder(req.Body)
 	case ContentTypeEmoji:
 		d = newEmojiDecoder(req.Body)
 	default:

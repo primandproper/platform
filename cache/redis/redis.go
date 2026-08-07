@@ -96,6 +96,11 @@ type redisCacheImpl[T any] struct {
 // possible (it deletes exactly the namespace's keys). Without a namespace,
 // Flush and an empty-prefix DeleteByPrefix return cache.ErrNamespaceRequired
 // rather than guess at ownership in a possibly shared database.
+//
+// Values are stored through cache.NewCBORCodec unless WithCodec says otherwise.
+// Entries carry no record of the codec that wrote them, so pointing a cache
+// with one codec at a store warmed by another produces decode errors until the
+// old entries expire; give the new codec its own cfg.Namespace when switching.
 func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreaking.CircuitBreaker, opts ...Option) (cache.Cache[T], error) {
 	if cfg == nil || len(cfg.Addresses) == 0 {
 		return nil, fmt.Errorf("at least one redis address is required")
@@ -109,7 +114,7 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreak
 	}
 
 	impl := &redisCacheImpl[T]{
-		codec:           cache.NewGobCodec[T](),
+		codec:           cache.NewCBORCodec[T](),
 		circuitBreaker:  circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		namespace:       cfg.Namespace,
 		expiration:      expiration,
@@ -121,7 +126,7 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreak
 	}
 
 	// Asserted rather than assumed: Option cannot name T, so this is where a
-	// codec built for another type is caught. Silently keeping the gob default
+	// codec built for another type is caught. Silently keeping the default
 	// would be worse than failing — the cache would encode correctly and the
 	// caller would never learn their codec was ignored.
 	if o.codec != nil {

@@ -26,6 +26,7 @@ require (
 	github.com/dhaus67/openfeature-posthog-go v0.1.2
 	github.com/disintegration/imaging v1.6.2
 	github.com/elastic/go-elasticsearch/v8 v8.19.3
+	github.com/fxamacker/cbor/v2 v2.9.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
@@ -123,7 +124,6 @@ require (
 	github.com/dkorunic/betteralign v0.14.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect

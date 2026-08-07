@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v9/internal/cbormode"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 
@@ -65,8 +66,9 @@ type (
 // counterparts — append a trailing newline, so a package that mixed the two
 // would answer the same question with two different byte slices depending on
 // which entry point you happened to call. Routing everything through here is
-// what makes MustEncodeJSON(v) equal json.Marshal(v) exactly, which callers
-// that compare or store the bytes depend on.
+// what makes MustEncodeJSON(v) equal json.Marshal(v) exactly — this package
+// passes the marshaler's output through untouched. It says nothing about
+// whether a given marshaler encodes a value the same way twice; see doc.go.
 func marshalFuncFor(ct ContentType) func(v any) ([]byte, error) {
 	switch ct {
 	case ContentTypeXML:
@@ -75,6 +77,8 @@ func marshalFuncFor(ct ContentType) func(v any) ([]byte, error) {
 		return tomlMarshalFunc
 	case ContentTypeYAML:
 		return yaml.Marshal
+	case ContentTypeCBOR:
+		return cbormode.Marshal
 	case ContentTypeEmoji:
 		return marshalEmoji
 	default:
@@ -97,6 +101,8 @@ func (e *clientEncoder) Unmarshal(ctx context.Context, data []byte, v any) error
 		unmarshalFunc = toml.Unmarshal
 	case ContentTypeYAML:
 		unmarshalFunc = yaml.Unmarshal
+	case ContentTypeCBOR:
+		unmarshalFunc = cbormode.Unmarshal
 	default:
 		unmarshalFunc = json.Unmarshal
 	}

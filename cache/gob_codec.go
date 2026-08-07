@@ -7,14 +7,22 @@ import (
 	"github.com/primandproper/platform-go/v9/errors"
 )
 
-// gobCodec is the default Codec, using encoding/gob.
+// gobCodec is the opt-in Codec for values CBOR cannot carry, using
+// encoding/gob.
 type gobCodec[T any] struct{}
 
 var _ Codec[struct{}] = gobCodec[struct{}]{}
 
-// NewGobCodec returns the default gob-backed Codec. Types must be
-// gob-friendly: exported fields only, and interface-typed fields need their
-// concrete types registered with gob.Register.
+// NewGobCodec returns the gob-backed Codec. Types must be gob-friendly:
+// exported fields only, and interface-typed fields need their concrete types
+// registered with gob.Register.
+//
+// It was the default until CBOR replaced it (NewCBORCodec, which is smaller on
+// the wire and not Go-only), and is retained for the two things gob does that
+// CBOR does not: interface-typed fields resolved through gob.Register, and
+// decoding into a struct that has drifted from the one that was encoded. Reach
+// for it when a cached value has either property, and keep in mind that
+// entries written by one codec are unreadable through another.
 func NewGobCodec[T any]() Codec[T] {
 	return gobCodec[T]{}
 }
