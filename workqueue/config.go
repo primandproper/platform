@@ -1,0 +1,151 @@
+package workqueue
+
+import (
+	"context"
+	"time"
+
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+)
+
+const (
+	// DefaultTablePrefix is the namespace the queue table carries when none is
+	// configured, which is none — rendering work_queue_items.
+	//
+	// The work_queue_ segment is the schema's, not the caller's: a table always
+	// says which package created it. Setting a namespace of "ddb" renders
+	// ddb_work_queue_items, for a database shared between applications.
+	DefaultTablePrefix = ""
+
+	// DefaultMaxClaimBatch caps a single Claim. It is a guard, not a target: an
+	// unbounded claim on a deep queue leases more work than the caller can
+	// finish inside the lease, so the excess is reclaimed by somebody else and
+	// done twice.
+	DefaultMaxClaimBatch = 500
+
+	// DefaultRetention is how long a completed item is kept before reaping.
+	DefaultRetention = 24 * time.Hour
+
+	// DefaultReapBatchSize caps one reap, so a long-neglected queue is drained
+	// over several passes instead of one long-running DELETE.
+	DefaultReapBatchSize = 1000
+
+	// DefaultWriteAttempts is how many times a writer re-runs a statement
+	// Postgres asked it to retry. Ordered locking makes a deadlock between two
+	// of this package's writers impossible; this covers the residual case where
+	// something else in the consumer's schema touches these rows.
+	DefaultWriteAttempts = 3
+)
+
+// Config configures a Queue.
+//
+// There is deliberately no Dialect field, and no clock. The SQL has to match the
+// database it runs against, so New reads the dialect off the database.Client —
+// the one thing that cannot be wrong about its own dialect — and every timestamp
+// that governs scheduling comes from that database's now().
+type Config struct {
+	// Name is the logical queue. It is required and has no default: one table
+	// holds every queue in the database, partitioned by this column, so an
+	// unnamed queue would quietly share rows with every other unnamed one.
+	//
+	// It is bound as a parameter, never interpolated, so it is free-form text
+	// rather than an SQL identifier.
+	Name string `env:"NAME" json:"name,omitempty" yaml:"name,omitempty"`
+
+	// TablePrefix is the namespace the queue table carries. Empty renders
+	// work_queue_items; "ddb" renders ddb_work_queue_items. It must match the
+	// namespace the migrations were rendered with.
+	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
+
+	// table is TablePrefix resolved to a full name, filled by EnsureDefaults so
+	// every query builder reads one already-qualified string.
+	table string
+
+	// Retention is how long a completed item is kept before Reap may delete it.
+	Retention time.Duration `env:"RETENTION" json:"retention,omitempty" yaml:"retention,omitempty"`
+
+	// MaxAttempts is how many times an item may be claimed before the queue
+	// stops handing it out. Zero — the default — means unlimited, which is the
+	// right answer when the work is idempotent and a failure is transient.
+	//
+	// Set it when an item can be poisonous. Without a ceiling, one key that
+	// reliably kills its worker is claimed, half-processed, and reclaimed
+	// forever, and because it sorts to the front on every pass it takes the
+	// whole queue's throughput with it. Stalled items are counted by
+	// Stats.Stalled and excluded from every claim; they are not deleted, so the
+	// keys remain available for inspection and a Release resets nothing on its
+	// own — an operator re-enqueues them once the cause is fixed.
+	MaxAttempts uint `env:"MAX_ATTEMPTS" json:"maxAttempts,omitempty" yaml:"maxAttempts,omitempty"`
+
+	// MaxClaimBatch caps how many items one Claim may lease. A larger limit is
+	// clamped to it rather than rejected, and a non-positive limit means "as
+	// many as allowed".
+	MaxClaimBatch int `env:"MAX_CLAIM_BATCH" json:"maxClaimBatch,omitempty" yaml:"maxClaimBatch,omitempty"`
+
+	// ReapBatchSize caps how many completed items one Reap deletes.
+	ReapBatchSize int `env:"REAP_BATCH_SIZE" json:"reapBatchSize,omitempty" yaml:"reapBatchSize,omitempty"`
+
+	// WriteAttempts is how many times a writer re-runs a statement that failed
+	// with a serialization failure or a deadlock — the two conditions Postgres
+	// resolves by asking the caller to try the whole thing again. Anything else
+	// is returned on the first failure.
+	WriteAttempts uint `env:"WRITE_ATTEMPTS" json:"writeAttempts,omitempty" yaml:"writeAttempts,omitempty"`
+}
+
+var _ validation.ValidatableWithContext = (*Config)(nil)
+
+// EnsureDefaults fills unset knobs with the package defaults.
+//
+// MaxAttempts is not among them: zero is a meaningful value there, not an unset
+// one.
+func (cfg *Config) EnsureDefaults() {
+	cfg.table = tableFor(cfg.TablePrefix)
+
+	if cfg.Retention <= 0 {
+		cfg.Retention = DefaultRetention
+	}
+	if cfg.MaxClaimBatch <= 0 {
+		cfg.MaxClaimBatch = DefaultMaxClaimBatch
+	}
+	if cfg.ReapBatchSize <= 0 {
+		cfg.ReapBatchSize = DefaultReapBatchSize
+	}
+	if cfg.WriteAttempts == 0 {
+		cfg.WriteAttempts = DefaultWriteAttempts
+	}
+}
+
+// ValidateWithContext validates a Config.
+func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	return validation.ValidateStructWithContext(ctx, cfg,
+		validation.Field(&cfg.Name, validation.Required, validation.Length(1, MaxKeyLength)),
+		validation.Field(&cfg.Retention, validation.Required, validation.Min(time.Second)),
+		validation.Field(&cfg.MaxClaimBatch, validation.Required, validation.Min(1)),
+		validation.Field(&cfg.ReapBatchSize, validation.Required, validation.Min(1)),
+		validation.Field(&cfg.WriteAttempts, validation.Required, validation.Min(uint(1))),
+	)
+}
+
+// resolvedTable returns the qualified table name, for the tests and the
+// constructor that have to vet it.
+func (cfg *Config) resolvedTable() string {
+	return cfg.table
+}
+
+// attemptCeiling renders MaxAttempts as the bound parameter the predicates
+// expect, where a non-positive value means unlimited.
+//
+// The cast is uint -> int rather than the other way around because the ceiling
+// travels to Postgres as an int, and a MaxAttempts large enough to overflow one
+// is indistinguishable from unlimited anyway — so it saturates rather than
+// wrapping to a negative, which would read as "unlimited" and quietly turn the
+// poison-item guard off.
+func (cfg *Config) attemptCeiling() int {
+	if cfg.MaxAttempts > uint(maxInt32) {
+		return maxInt32
+	}
+
+	return int(cfg.MaxAttempts)
+}
+
+// maxInt32 is the widest attempt ceiling the attempts column can hold.
+const maxInt32 = 1<<31 - 1
