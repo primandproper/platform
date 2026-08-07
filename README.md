@@ -114,6 +114,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `capitalism`      | Payments                   | stripe                  |
 | `saga`            | Linear durable sagas with compensations | postgres, mysql, sqlite |
 | `distributedlock` | Distributed locking        | memory, postgres, redis |
+| `workqueue`       | Leased work queue (`SKIP LOCKED` claim/complete/expire) | postgres |
 | `filtering`       | Query filters / pagination | —                       |
 | `qrcodes`         | QR code generation         | —                       |
 | `artifacts`       | Artifact handling          | —                       |
