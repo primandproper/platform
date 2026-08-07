@@ -78,6 +78,7 @@ func Register(i do.Injector, cfg *Config) {
 	registerInfrastructure(i, cfg)
 	registerPlatformServices(i, cfg)
 	registerDurableWorkflows(i, cfg)
+	registerHealth(i)
 	registerServers(i, cfg)
 }
 

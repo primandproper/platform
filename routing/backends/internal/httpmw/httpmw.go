@@ -28,9 +28,15 @@ const (
 // healthCheckPaths are request paths that should not be traced or logged (e.g.
 // load balancer probes). It mirrors the chi backend's set so probes are quiet
 // regardless of which backend is in use.
+//
+// The two /healthz and /readyz entries are server/http's LivenessPath and
+// ReadinessPath, spelled out rather than imported: that package is built on
+// routing, so the constants cannot travel in this direction.
 var healthCheckPaths = map[string]bool{
 	"/_ops_/live":  true,
 	"/_ops_/ready": true,
+	"/healthz":     true,
+	"/readyz":      true,
 }
 
 // IsHealthCheck reports whether path is an operational health-check endpoint.

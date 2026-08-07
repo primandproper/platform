@@ -37,6 +37,14 @@ signaled and then takes it down in the order that makes each drain mean
 something — ingress first, background loops in reverse, the observability
 pillars last. The convention that makes that orderable is Runner, which every
 background loop in this module already satisfied before it had a name.
+
+Health falls out of the same reading. Register wraps the infrastructure it
+registered in the healthcheck adapters that have always existed for it, so a
+service that configured a database and a queue has a readiness answer for both
+without asking for one; the servers mount it, HTTP at /readyz and gRPC as
+grpc_health_v1, from the one registry. What the platform cannot see — a domain
+dependency, a cache whose type no config can name — joins through
+WithHealthChecks.
 */
 package service
 
@@ -99,8 +107,12 @@ import (
 // concrete type, with an index name or a type argument no config can supply, so
 // they stay explicit calls to their own Register functions on the injector this
 // package does not hide. The same goes for the config-less primitives —
-// clock.RegisterClock, random.RegisterGenerator, healthcheck.RegisterRegistry —
-// which have no presence to read.
+// clock.RegisterClock, random.RegisterGenerator — which have no presence to
+// read.
+//
+// The health registry is the one config-less thing this package does register,
+// because it is not a primitive: it is a reading of everything else that got
+// registered, which is a question only the composition root can answer.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
