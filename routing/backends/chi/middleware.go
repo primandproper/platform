@@ -13,9 +13,15 @@ import (
 )
 
 // healthCheckPaths are request paths that should not be traced or logged (e.g. load balancer probes).
+//
+// The two /healthz and /readyz entries are server/http's LivenessPath and
+// ReadinessPath, spelled out rather than imported: that package is built on this
+// one, so the constants cannot travel in this direction.
 var healthCheckPaths = map[string]bool{
 	"/_ops_/live":  true,
 	"/_ops_/ready": true,
+	"/healthz":     true,
+	"/readyz":      true,
 }
 
 func isHealthCheck(path string) bool {
