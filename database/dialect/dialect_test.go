@@ -39,6 +39,47 @@ func TestDialect_SupportsSkipLocked(T *testing.T) {
 	})
 }
 
+func TestRequireDialect(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts a dialect in the wanted set", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, RequireDialect("work queue", Postgres, Postgres))
+		test.NoError(t, RequireDialect("outbox", MySQL, Postgres, MySQL))
+	})
+
+	T.Run("rejects a dialect outside the wanted set", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, RequireDialect("outbox", SQLite, Postgres, MySQL), ErrUnsupported)
+	})
+
+	// One dialect reads as itself; several read as a list.
+	T.Run("renders the requirement", func(t *testing.T) {
+		t.Parallel()
+
+		one := RequireDialect("work queue", MySQL, Postgres)
+		must.Error(t, one)
+		test.StrContains(t, one.Error(), "requires postgres")
+
+		several := RequireDialect("outbox", SQLite, Postgres, MySQL)
+		must.Error(t, several)
+		test.StrContains(t, several.Error(), "requires one of postgres, mysql")
+	})
+
+	// An empty set is a caller's bug, not a dialect that satisfies everything.
+	T.Run("rejects an empty wanted set", func(t *testing.T) {
+		t.Parallel()
+
+		err := RequireDialect("work queue", Postgres)
+		must.Error(t, err)
+
+		test.ErrorIs(t, err, ErrUnsupported)
+		test.StrContains(t, err.Error(), "no accepted dialects")
+	})
+}
+
 func TestRequirePostgres(T *testing.T) {
 	T.Parallel()
 

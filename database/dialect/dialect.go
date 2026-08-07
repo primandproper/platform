@@ -13,6 +13,7 @@ package dialect
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -56,21 +57,54 @@ func (d Dialect) SupportsSkipLocked() bool {
 	return d == Postgres || d == MySQL
 }
 
-// RequirePostgres returns a wrapped ErrUnsupported naming component and d unless
-// d is Postgres.
+// RequireDialect returns a wrapped ErrUnsupported naming component and d unless
+// d is one of want.
 //
-// It is for the packages whose SQL is written against Postgres rather than
-// reduced to a portable subset, so that all of them refuse the same way and at
-// the same moment — construction — instead of emitting syntax the server rejects
-// on the first query. component names the caller in the message ("work queue",
-// "workqueue migration"), since a process wiring several of these needs to know
-// which one objected.
-func RequirePostgres(component string, d Dialect) error {
-	if d != Postgres {
-		return platformerrors.Wrapf(ErrUnsupported, "%s dialect %q: Postgres-only", component, d)
+// It is for the packages whose SQL is written against particular dialects rather
+// than reduced to a portable subset, so that all of them refuse the same way and
+// at the same moment — construction — instead of emitting syntax the server
+// rejects on the first query. component names the caller in the message ("work
+// queue", "workqueue migration"), since a process wiring several of these needs
+// to know which one objected.
+//
+// want is variadic because the constraint is not always a single dialect: this
+// module holds packages that support Postgres and MySQL but not SQLite, which
+// has no SKIP LOCKED. Prefer Valid over listing all three.
+//
+// Calling it with no accepted dialects is a programming error rather than a
+// vacuous pass, and says so.
+func RequireDialect(component string, d Dialect, want ...Dialect) error {
+	if len(want) == 0 {
+		return platformerrors.Wrapf(ErrUnsupported,
+			"%s dialect %q: RequireDialect called with no accepted dialects", component, d)
 	}
 
-	return nil
+	if slices.Contains(want, d) {
+		return nil
+	}
+
+	return platformerrors.Wrapf(ErrUnsupported, "%s dialect %q: requires %s", component, d, requirement(want))
+}
+
+// requirement renders want as the tail of the error message: one dialect reads
+// as itself, several as a list.
+func requirement(want []Dialect) string {
+	names := make([]string, len(want))
+	for i, w := range want {
+		names[i] = string(w)
+	}
+
+	if len(names) == 1 {
+		return names[0]
+	}
+
+	return "one of " + strings.Join(names, ", ")
+}
+
+// RequirePostgres is RequireDialect for the Postgres-only packages, which are
+// the common case — the work queue and its migrations both reach for it.
+func RequirePostgres(component string, d Dialect) error {
+	return RequireDialect(component, d, Postgres)
 }
 
 // Placeholder renders the n-th bind marker (1-indexed). Postgres numbers its
