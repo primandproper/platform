@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"github.com/primandproper/platform-go/v9/healthcheck"
 	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/tracing"
 )
@@ -13,6 +14,7 @@ type Option func(*options)
 type options struct {
 	logger         logging.Logger
 	tracerProvider tracing.TracerProvider
+	healthRegistry healthcheck.Registry
 	serviceName    string
 	reflection     bool
 }
@@ -55,4 +57,16 @@ func WithServiceName(serviceName string) Option {
 // production — so it is opted into rather than out of.
 func WithReflection() Option {
 	return func(o *options) { o.reflection = true }
+}
+
+// WithHealthRegistry registers the grpc_health_v1 service, backed by the given
+// registry. It names the same registry the HTTP sibling's option of the same
+// name takes, so both transports answer from one set of checkers rather than
+// from two that can disagree.
+//
+// A nil registry registers nothing. A server that registers its own
+// grpc_health_v1 implementation through a RegistrationFunc must not also pass
+// this — gRPC rejects a service registered twice by panicking.
+func WithHealthRegistry(registry healthcheck.Registry) Option {
+	return func(o *options) { o.healthRegistry = registry }
 }

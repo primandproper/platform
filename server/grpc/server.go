@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -91,6 +92,10 @@ func NewGRPCServer(
 	grpcServer := grpc.NewServer(serverOpts...)
 	for _, rf := range registrationFunctions {
 		rf(grpcServer)
+	}
+
+	if o.healthRegistry != nil {
+		grpc_health_v1.RegisterHealthServer(grpcServer, NewHealthService(o.healthRegistry))
 	}
 
 	if o.reflection {

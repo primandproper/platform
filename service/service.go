@@ -13,6 +13,7 @@ import (
 	"github.com/primandproper/platform-go/v9/distributedlock"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/featureflags"
+	"github.com/primandproper/platform-go/v9/healthcheck"
 	"github.com/primandproper/platform-go/v9/internal/injection"
 	"github.com/primandproper/platform-go/v9/jobs"
 	"github.com/primandproper/platform-go/v9/messagequeue"
@@ -109,6 +110,7 @@ func New(i do.Injector, opts ...Option) (*Service, error) {
 
 	svc.resolveInfrastructure(r)
 	svc.resolveClients(r)
+	svc.resolveHealth(r, o.healthChecks)
 	svc.resolveRunners(r)
 	svc.resolveFlushes(r)
 	svc.resolveServers(r)
@@ -151,15 +153,22 @@ func resolve[T any](r *resolver, fn func(T)) {
 		return
 	}
 
-	// Absence is InvokeOptional's zero value, which is a nil interface for the
-	// interface-typed components and a typed nil pointer for the rest. Only
-	// reflection reads those two as the same nil; `any(v) == nil` reads the
-	// second as a live component and hands shutdown a nil receiver.
-	if reflect.ValueOf(&v).Elem().IsZero() {
+	if isAbsent(v) {
 		return
 	}
 
 	fn(v)
+}
+
+// isAbsent reports whether v is what InvokeOptional yields for a service nobody
+// registered.
+//
+// That zero value is a nil interface for the interface-typed components and a
+// typed nil pointer for the rest. Only reflection reads those two as the same
+// nil; `any(v) == nil` reads the second as a live component and hands shutdown a
+// nil receiver.
+func isAbsent[T any](v T) bool {
+	return reflect.ValueOf(&v).Elem().IsZero()
 }
 
 // resolveInfrastructure collects the clients everything else is built on.
@@ -185,6 +194,37 @@ func (s *Service) resolveClients(r *resolver) {
 	resolve(r, func(rep analytics.EventReporter) { s.addCloser("analytics reporter", rep.Close) })
 	resolve(r, func(m featureflags.FeatureFlagManager) { s.addCloser("feature flag manager", closeErr(m)) })
 	resolve(r, func(n async.AsyncNotifier) { s.addCloser("async notifier", closeErr(n)) })
+}
+
+// resolveHealth joins the application's own checks to the registry Register
+// built, which by now holds a checker for every piece of infrastructure the
+// config named.
+//
+// It happens before the servers are resolved so that nothing can bind a listener
+// serving a readiness answer that is still missing half its checks — even for
+// the moment between.
+//
+// A registry the injector cannot produce is a failure rather than a shrug: the
+// checks were handed over to be answered, and a service that reports ready
+// without ever running them is lying about the one thing it was asked.
+func (s *Service) resolveHealth(r *resolver, checks []healthcheck.Checker) {
+	if len(checks) == 0 {
+		return
+	}
+
+	var joined bool
+
+	resolve(r, func(registry healthcheck.Registry) {
+		joined = true
+
+		for _, check := range checks {
+			registry.Register(check)
+		}
+	})
+
+	if r.err == nil && !joined {
+		r.err = platformerrors.New("joining the application's health checks: no health registry is registered")
+	}
 }
 
 // resolveRunners collects the background loops in start order.

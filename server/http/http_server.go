@@ -27,6 +27,9 @@ func skipNoisePaths(r *http.Request) bool {
 	if strings.HasPrefix(path, "/_ops_/") {
 		return false
 	}
+	if isProbePath(path) {
+		return false
+	}
 	if path == AppleAppSiteAssociationPath {
 		return false
 	}
@@ -62,6 +65,10 @@ type (
 //
 // The service name comes from WithServiceName, not a positional argument, so it
 // sits with the other observability wiring — and matches the gRPC sibling.
+//
+// WithHealthRegistry and WithVersionEndpoint mount the operational routes on
+// the router's backend, outside the OpenAPI document. Without them the router is
+// left exactly as it was handed over.
 func NewHTTPServer(
 	ctx context.Context,
 	serverSettings *Config,
@@ -90,6 +97,13 @@ func NewHTTPServer(
 		logger:         logging.NewNamedLogger(o.logger, loggerName),
 		httpServer:     provideStdLibHTTPServer(serverSettings),
 		tracerProvider: tracing.EnsureTracerProvider(o.tracerProvider),
+	}
+
+	if router != nil {
+		// The operational routes are mounted before anything else this
+		// constructor registers, so a service whose router is otherwise empty
+		// still answers a probe.
+		mountOperationalEndpoints(router.Backend(), o.healthRegistry, o.versionRoute, WithLogger(srv.logger))
 	}
 
 	if router != nil && serverSettings.AppleAppSiteAssociation.Enabled() {
