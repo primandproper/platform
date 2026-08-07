@@ -9,6 +9,30 @@ against.
 NewQueue is generic over the key type, which the caller names at the call site.
 That is the only part of a queue the environment cannot express: a key is a Go
 type, so a config file has nothing to say about it.
+
+# Why there is no Config here
+
+Every other config subpackage in this module declares its own Config, and this
+one deliberately does not — it takes *workqueue.Config directly.
+
+Those types earn their place by being a different shape than any single leaf
+config: cachecfg.Config selects a provider and carries a circuit breaker,
+outboxcfg.Config pairs a message queue with a relay, webhookscfg.Config gathers a
+worker, an HTTP client, and a breaker. Where one of them does nest a leaf
+package's config, that config is named for the role it plays there —
+audit.SweeperConfig, saga.WorkerConfig, outbox.RelayConfig.
+
+A work queue has exactly one thing to configure, so a wrapper here would hold a
+single workqueue.Config field and nothing else. It would carry env:",init" with
+no envPrefix, leaving every variable name identical; its EnsureDefaults and
+ValidateWithContext would each forward one call to the leaf's; and workqueue.New
+already rejects a nil config, applies defaults, and validates, so the forwarding
+would run twice. That is a level of nesting in JSON and YAML in exchange for
+nothing.
+
+Resist adding one back for symmetry. A consumer that wants the queue under its
+own key nests workqueue.Config in its application config the way uploadscfg.Config
+nests objectstorage.Config.
 */
 package workqueuecfg
 
@@ -16,40 +40,8 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/workqueue"
-
-	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
-
-// Config assembles a workqueue.Queue from environment configuration.
-type Config struct {
-	_ struct{} `json:"-" yaml:"-"`
-
-	// Queue carries the queue's own knobs, including the name that partitions
-	// the shared table and the prefix that names it.
-	Queue workqueue.Config `env:",init" json:"queue,omitzero" yaml:"queue,omitempty"`
-}
-
-var _ validation.ValidatableWithContext = (*Config)(nil)
-
-// EnsureDefaults fills in zero fields.
-func (cfg *Config) EnsureDefaults() {
-	cfg.Queue.EnsureDefaults()
-}
-
-// ValidateWithContext validates a Config struct.
-//
-// The nested config is validated through a validation.By closure because ozzo
-// dereferences a struct-value field before checking ValidatableWithContext, so
-// it would otherwise be skipped.
-func (cfg *Config) ValidateWithContext(ctx context.Context) error {
-	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Queue, validation.By(func(any) error {
-			return cfg.Queue.ValidateWithContext(ctx)
-		})),
-	)
-}
 
 // NewQueue builds a Queue from configuration.
 //
@@ -61,28 +53,17 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // override anything — including the key codec, which configuration has no way to
 // express.
 //
+// The config is defaulted and validated by workqueue.New rather than here, so
+// there is one place that decides what a usable queue config is.
+//
 // The returned Queue owns a goroutine and must be Closed.
 func NewQueue[K comparable](
 	ctx context.Context,
-	cfg *Config,
+	cfg *workqueue.Config,
 	client database.Client,
 	opts ...Option,
 ) (*workqueue.Queue[K], error) {
 	o := newOptions(opts)
-
-	if cfg == nil {
-		return nil, errors.ErrNilInputParameter
-	}
-
-	if client == nil {
-		return nil, workqueue.ErrNilDatabaseClient
-	}
-
-	cfg.EnsureDefaults()
-
-	if err := cfg.ValidateWithContext(ctx); err != nil {
-		return nil, errors.Wrap(err, "validating work queue config")
-	}
 
 	base := make([]workqueue.Option, 0, len(o.queue)+3) //nolint:mnd // the three observability options below
 
@@ -96,5 +77,5 @@ func NewQueue[K comparable](
 		base = append(base, workqueue.WithMetricsProvider(o.metricsProvider))
 	}
 
-	return workqueue.New[K](ctx, &cfg.Queue, client, append(base, o.queue...)...)
+	return workqueue.New[K](ctx, cfg, client, append(base, o.queue...)...)
 }

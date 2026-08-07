@@ -81,7 +81,7 @@ func TestRegisterQueue(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, &Config{})
+		do.ProvideValue(i, &workqueue.Config{})
 		do.ProvideValue(i, clientFor(dialect.Postgres))
 
 		RegisterQueue[string](i)

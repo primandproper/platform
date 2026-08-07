@@ -14,8 +14,8 @@ import (
 // generic because a queue schedules work for one concrete key type; an
 // application draining two kinds of work registers each separately.
 //
-// Prerequisites: *Config and database.Client must be registered in the injector
-// before the Queue is invoked.
+// Prerequisites: *workqueue.Config and database.Client must be registered in the
+// injector before the Queue is invoked.
 //
 // A Queue owns a goroutine and has to be Closed, and the injector will not do
 // it: do recognizes a Shutdown method, and this module's background components
@@ -30,7 +30,7 @@ func RegisterQueue[K comparable](i do.Injector) {
 
 		return NewQueue[K](
 			do.MustInvoke[context.Context](i),
-			do.MustInvoke[*Config](i),
+			do.MustInvoke[*workqueue.Config](i),
 			do.MustInvoke[database.Client](i),
 			WithPillars(pillars),
 		)

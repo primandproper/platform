@@ -2,7 +2,6 @@ package workqueuecfg
 
 import (
 	"testing"
-	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
 	"github.com/primandproper/platform-go/v9/database/dialect"
@@ -21,56 +20,8 @@ func clientFor(d dialect.Dialect) database.Client {
 	}
 }
 
-func validConfig() *Config {
-	return &Config{Queue: workqueue.Config{Name: "jobs"}}
-}
-
-func TestConfig_EnsureDefaults(T *testing.T) {
-	T.Parallel()
-
-	T.Run("fills the nested section's zero fields", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := validConfig()
-		cfg.EnsureDefaults()
-
-		test.EqOp(t, workqueue.DefaultRetention, cfg.Queue.Retention)
-		test.EqOp(t, workqueue.DefaultMaxClaimBatch, cfg.Queue.MaxClaimBatch)
-	})
-
-	T.Run("leaves set fields alone", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := validConfig()
-		cfg.Queue.Retention = time.Hour
-		cfg.EnsureDefaults()
-
-		test.EqOp(t, time.Hour, cfg.Queue.Retention)
-	})
-}
-
-func TestConfig_ValidateWithContext(T *testing.T) {
-	T.Parallel()
-
-	T.Run("accepts a valid config", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := validConfig()
-		cfg.EnsureDefaults()
-
-		test.NoError(t, cfg.ValidateWithContext(t.Context()))
-	})
-
-	// The nested config is reached through a validation.By closure, because
-	// ozzo would otherwise dereference the struct and skip it.
-	T.Run("rejects an invalid nested queue config", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &Config{}
-		cfg.EnsureDefaults()
-
-		test.Error(t, cfg.ValidateWithContext(t.Context()))
-	})
+func validConfig() *workqueue.Config {
+	return &workqueue.Config{Name: "jobs"}
 }
 
 func TestNewQueue(T *testing.T) {
@@ -91,7 +42,16 @@ func TestNewQueue(T *testing.T) {
 		t.Parallel()
 
 		_, err := NewQueue[string](t.Context(), nil, clientFor(dialect.Postgres))
-		test.Error(t, err)
+		test.ErrorIs(t, err, workqueue.ErrNilConfig)
+	})
+
+	// Defaulting and validation belong to workqueue.New; this pins that they
+	// still happen for a config that arrives through here.
+	T.Run("rejects an invalid config", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewQueue[string](t.Context(), &workqueue.Config{}, clientFor(dialect.Postgres))
+		test.ErrorIs(t, err, workqueue.ErrEmptyQueueName)
 	})
 
 	T.Run("rejects a nil client", func(t *testing.T) {
