@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/primandproper/platform-go/v9/cache"
 	"github.com/primandproper/platform-go/v9/cache/memory"
@@ -95,4 +96,44 @@ func ExampleCache_notFound() {
 	// Output:
 	// not found
 	// true
+}
+
+// ExampleWithLoader memoizes an expensive computation. Concurrent readers that
+// arrive while the computation is running share its result instead of each
+// running their own, which is what keeps an expiring memo from turning every
+// expiry into a stampede.
+func ExampleWithLoader() {
+	ctx := context.Background()
+
+	var computations int
+
+	c, err := memory.NewInMemoryCache[int](time.Minute,
+		memory.WithLoader(func(_ context.Context, key string) (*int, error) {
+			computations++
+			total := len(key) * 100
+
+			return &total, nil
+		}),
+		// Bounded, because a loader will answer for any key it is handed.
+		memory.WithMaxEntries(1024, memory.EvictLeastRecentlyUsed),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	for range 3 {
+		total, getErr := c.Get(ctx, "east")
+		if getErr != nil {
+			panic(getErr)
+		}
+
+		fmt.Println(*total)
+	}
+
+	fmt.Println("computations:", computations)
+	// Output:
+	// 400
+	// 400
+	// 400
+	// computations: 1
 }
