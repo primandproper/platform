@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
@@ -19,6 +20,10 @@ var (
 	// NewRelay. It wraps errors.ErrNilInputParameter, so a caller may check
 	// either.
 	ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil database client")
+	// ErrNotifyUnsupported indicates a notify channel was configured on a
+	// dialect without LISTEN/NOTIFY. It wraps dialect.ErrUnsupported, so a
+	// caller may check either.
+	ErrNotifyUnsupported = platformerrors.Wrap(dialect.ErrUnsupported, "outbox notifications require postgres")
 	// ErrNilPublisherProvider indicates a nil PublisherProvider was passed to
 	// NewRelay. It wraps errors.ErrNilInputParameter, so a caller may check
 	// either.

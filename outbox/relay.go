@@ -44,6 +44,7 @@ const (
 	backlogAgeKey      = "outbox.backlog_age_seconds"
 	retentionCutoffKey = "outbox.retention_cutoff"
 	reapedKey          = "outbox.reaped"
+	notifyChannelKey   = "outbox.notify_channel"
 )
 
 // claimedMessage is one row the relay has taken ownership of.
@@ -68,6 +69,11 @@ type Relay struct {
 	logger  logging.Logger
 
 	publishers map[string]messagequeue.Publisher
+
+	// wakeup is nil unless WithRelayWakeup supplied one. A nil channel blocks
+	// forever in a select, so the loop below needs no branch for its absence —
+	// a relay without one behaves exactly as it did before the option existed.
+	wakeup <-chan struct{}
 
 	stop chan struct{}
 	done chan struct{}
@@ -182,6 +188,11 @@ func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, pro
 // committing outbox rows. The owner calls Close after the server has shut
 // down.
 //
+// A wakeup supplied by WithRelayWakeup cycles the relay beside the poll ticker.
+// The two are not alternatives: the ticker is the backstop that makes the
+// wakeup safe to lose, which it is — the signal is at-most-once, and a
+// reconnecting listener misses whatever arrived while it was away.
+//
 // Run returns only after Close.
 func (r *Relay) Run() {
 	defer close(r.done)
@@ -194,6 +205,32 @@ func (r *Relay) Run() {
 	reapTicker := r.clock.NewTicker(r.cfg.ReapInterval)
 	defer reapTicker.Stop()
 
+	// lastCycle anchors the wake floor. It starts at the zero time so the first
+	// wake — the catch-up a listener fires as soon as it connects — is served
+	// immediately.
+	var (
+		lastCycle   time.Time
+		wakePending bool
+		wakeFloor   <-chan time.Time
+	)
+
+	// The floor is a ticker rather than a timer because clock.Clock offers no
+	// timer, and giving it one would mean adding a method to an exported
+	// interface. It exists only when a wakeup does, and it costs a timer tick
+	// rather than a query: an idle relay with a wakeup issues strictly fewer
+	// statements than one without, which is the point.
+	if r.wakeup != nil {
+		floorTicker := r.clock.NewTicker(r.cfg.MinWakeInterval)
+		defer floorTicker.Stop()
+
+		wakeFloor = floorTicker.Chan()
+	}
+
+	cycle := func() {
+		lastCycle = r.clock.Now()
+		r.cycle(ctx)
+	}
+
 	for {
 		select {
 		case <-r.stop:
@@ -203,7 +240,26 @@ func (r *Relay) Run() {
 
 			return
 		case <-pollTicker.Chan():
-			r.cycle(ctx)
+			cycle()
+		case <-r.wakeup:
+			// A burst of enqueues is one notification per commit, and without
+			// this a busy table would drive a claim transaction per commit —
+			// more queries under load than polling, which is the opposite of
+			// what a wakeup is for. Deferring instead of dropping is what keeps
+			// the last enqueue of a burst from waiting out the poll interval.
+			if r.clock.Since(lastCycle) < r.cfg.MinWakeInterval {
+				wakePending = true
+
+				continue
+			}
+
+			cycle()
+		case <-wakeFloor:
+			if wakePending {
+				wakePending = false
+
+				cycle()
+			}
 		case <-reapTicker.Chan():
 			r.reap(ctx)
 			// Sampled on the reap tick rather than every poll: it is an

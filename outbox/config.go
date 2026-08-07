@@ -27,6 +27,11 @@ const (
 	// DefaultReapBatchSize caps one reap, so a large backlog is removed over
 	// several passes instead of one long-running DELETE.
 	DefaultReapBatchSize = 1000
+	// DefaultMinWakeInterval is the floor between two wake-driven cycles. It
+	// only bites during a burst: a wake that arrives when the last cycle is
+	// already older than this runs immediately, which is the ordinary case and
+	// the whole point of a wakeup.
+	DefaultMinWakeInterval = 100 * time.Millisecond
 )
 
 // ClaimMode selects how the relay takes ownership of messages.
@@ -62,6 +67,19 @@ type RelayConfig struct {
 	table string
 	// ClaimMode selects lease-only or SKIP LOCKED claiming.
 	ClaimMode ClaimMode `env:"CLAIM_MODE" json:"claimMode,omitempty" yaml:"claimMode,omitempty"`
+	// NotifyChannel makes the Writer emit a payload-free pg_notify on this
+	// channel inside the caller's transaction, so a relay listening on it wakes
+	// the moment the enqueue commits instead of on the next poll.
+	//
+	// Empty — the default — emits nothing at all, and the SQL running inside
+	// every caller's transaction is unchanged. It is Postgres-only, and a
+	// channel configured on any other dialect is refused at construction rather
+	// than ignored.
+	//
+	// The Relay does not read this. Nothing in this package speaks LISTEN: a
+	// wakeup arrives as a bare channel through WithRelayWakeup, which
+	// database/postgres/pgnotify is one way to fill.
+	NotifyChannel string `env:"NOTIFY_CHANNEL" json:"notifyChannel,omitempty" yaml:"notifyChannel,omitempty"`
 	// Backoff drives the retry schedule for messages that fail to publish.
 	// MaxAttempts is the quarantine threshold.
 	Backoff retrycfg.Config `envPrefix:"BACKOFF_" json:"backoff,omitzero" yaml:"backoff,omitempty"`
@@ -77,6 +95,10 @@ type RelayConfig struct {
 	ReapInterval time.Duration `env:"REAP_INTERVAL" json:"reapInterval,omitempty" yaml:"reapInterval,omitempty"`
 	// ReapBatchSize caps how many rows one reap deletes.
 	ReapBatchSize int `env:"REAP_BATCH_SIZE" json:"reapBatchSize,omitempty" yaml:"reapBatchSize,omitempty"`
+	// MinWakeInterval floors the rate of wake-driven cycles, so that a table
+	// taking thousands of inserts a second cannot drive thousands of relay
+	// cycles a second. It is inert without WithRelayWakeup.
+	MinWakeInterval time.Duration `env:"MIN_WAKE_INTERVAL" json:"minWakeInterval,omitempty" yaml:"minWakeInterval,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*RelayConfig)(nil)
@@ -109,6 +131,9 @@ func (cfg *RelayConfig) EnsureDefaults() {
 	if cfg.ReapBatchSize <= 0 {
 		cfg.ReapBatchSize = DefaultReapBatchSize
 	}
+	if cfg.MinWakeInterval <= 0 {
+		cfg.MinWakeInterval = DefaultMinWakeInterval
+	}
 
 	cfg.Backoff.EnsureDefaults()
 }
@@ -129,6 +154,7 @@ func (cfg *RelayConfig) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Retention, validation.Required, validation.Min(time.Minute)),
 		validation.Field(&cfg.ReapInterval, validation.Required, validation.Min(time.Second)),
 		validation.Field(&cfg.ReapBatchSize, validation.Required, validation.Min(1)),
+		validation.Field(&cfg.MinWakeInterval, validation.Required, validation.Min(time.Millisecond)),
 	)
 }
 

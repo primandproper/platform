@@ -4,6 +4,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/primandproper/platform-go/v9/database"
@@ -24,17 +25,18 @@ import (
 // un-namespaced attribute name collides with every other component writing to
 // the same trace.
 const (
-	queueNameKey   = "workqueue.queue"
-	itemCountKey   = "workqueue.item_count"
-	claimedKey     = "workqueue.claimed"
-	reclaimedKey   = "workqueue.reclaimed"
-	claimLimitKey  = "workqueue.claim_limit"
-	leaseKey       = "workqueue.lease"
-	attemptKey     = "workqueue.attempt"
-	depthKey       = "workqueue.depth"
-	readyKey       = "workqueue.ready"
-	oldestReadyKey = "workqueue.oldest_ready_age_seconds"
-	reapedKey      = "workqueue.reaped"
+	queueNameKey     = "workqueue.queue"
+	itemCountKey     = "workqueue.item_count"
+	claimedKey       = "workqueue.claimed"
+	reclaimedKey     = "workqueue.reclaimed"
+	claimLimitKey    = "workqueue.claim_limit"
+	leaseKey         = "workqueue.lease"
+	attemptKey       = "workqueue.attempt"
+	depthKey         = "workqueue.depth"
+	readyKey         = "workqueue.ready"
+	oldestReadyKey   = "workqueue.oldest_ready_age_seconds"
+	reapedKey        = "workqueue.reaped"
+	notifyChannelKey = "workqueue.notify_channel"
 )
 
 // maxStoredErrLen bounds what goes into last_error, so a pathological driver
@@ -112,11 +114,15 @@ type Stats struct {
 //
 // A Queue owns a goroutine and must be Closed.
 type Queue[K comparable] struct {
-	client  database.Client
-	codec   KeyCodec[K]
-	o11y    observability.Observer
-	logger  logging.Logger
-	batcher *enqueueBatcher
+	// lastWake anchors the wake floor, guarded by wakeMu below because a Queue
+	// is shared. It is the one place this package reads a process clock, and it
+	// is allowed to: it paces this process's own polling, and no part of the
+	// schedule depends on it — which is what the database's now() is for.
+	lastWake time.Time
+	client   database.Client
+	codec    KeyCodec[K]
+	o11y     observability.Observer
+	logger   logging.Logger
 
 	enqueuedCounter  metrics.Int64Counter
 	claimedCounter   metrics.Int64Counter
@@ -142,7 +148,15 @@ type Queue[K comparable] struct {
 	// is invisible beside the ones that are fine.
 	attrs metric.MeasurementOption
 
+	batcher *enqueueBatcher
+
+	// wakeup is nil unless WithWakeup supplied one. A nil channel blocks
+	// forever in a select, so Wait needs no branch for its absence.
+	wakeup <-chan struct{}
+
 	cfg Config
+
+	wakeMu sync.Mutex
 }
 
 // New builds a Queue over client, which must speak Postgres and must be the
@@ -181,6 +195,13 @@ func New[K comparable](
 		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "work queue table %q", cfg.resolvedTable())
 	}
 
+	// The channel is bound as text by the statement this package emits, but the
+	// listener on the other end has to render it into a LISTEN, which takes no
+	// parameters. Vetting it here is what keeps that end from having to.
+	if cfg.NotifyChannel != "" && !dialect.ValidIdentifier(cfg.NotifyChannel) {
+		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "work queue notify channel %q", cfg.NotifyChannel)
+	}
+
 	o := newQueueOptions(opts)
 
 	q := &Queue[K]{
@@ -188,6 +209,7 @@ func New[K comparable](
 		client: client,
 		codec:  DefaultKeyCodec[K](),
 		logger: o.logger,
+		wakeup: o.wakeup,
 		attrs:  metric.WithAttributes(attribute.String(queueNameKey, cfg.Name)),
 	}
 
@@ -307,6 +329,96 @@ func (q *Queue[K]) Close(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// Wait paces a claim loop: it blocks until a wakeup arrives, until poll
+// elapses, or until ctx is done, whichever comes first.
+//
+// It is the one piece of the loop this package supplies, and it exists because
+// the loop is otherwise the caller's:
+//
+//	for {
+//		items, err := queue.Claim(ctx, 10, time.Minute)
+//		// ...
+//		if len(items) == 0 {
+//			if err = queue.Wait(ctx, time.Second); err != nil {
+//				return err
+//			}
+//		}
+//	}
+//
+// Without WithWakeup it is a sleep, and a loop written around it behaves
+// exactly as one written around time.Sleep. With one, an enqueue that lands a
+// millisecond after a poll is claimed a millisecond later instead of a poll
+// interval later, and an idle worker stops issuing a claim per tick — which is
+// the larger win, because idle is what a work queue mostly is.
+//
+// poll must be positive. It is the backstop that makes the wakeup safe to lose,
+// and losing wakes is normal: the signal is at-most-once, and a listener that
+// reconnects misses whatever arrived while it was away. A loop with no backstop
+// would stop forever the first time that happened.
+//
+// Config.MinWakeInterval floors how often a wake can return, so a burst of
+// enqueues costs one extra claim rather than one per enqueue. Wait holds the
+// wake for the remainder of the interval rather than discarding it, so the last
+// enqueue of a burst is still claimed promptly.
+//
+// Call it from one loop per Queue. A wake goes to a single receiver, so several
+// loops sharing a Queue would divide the wakes between them arbitrarily and run
+// on their poll intervals the rest of the time — correct, but pointless. Give
+// each loop its own Queue and its own Listener.
+//
+// Wait is not traced. A span per poll would be a root span per idle tick, which
+// is the same noise Claim declines to emit when it leases nothing.
+func (q *Queue[K]) Wait(ctx context.Context, poll time.Duration) error {
+	if poll <= 0 {
+		return ErrInvalidPollInterval
+	}
+
+	timer := time.NewTimer(poll)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return platformerrors.Wrap(ctx.Err(), "waiting for work queue")
+	case <-timer.C:
+		return nil
+	case <-q.wakeup:
+		hold := q.reserveWake()
+		if hold <= 0 {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return platformerrors.Wrap(ctx.Err(), "waiting out the work queue wake floor")
+		case <-time.After(hold):
+			return nil
+		}
+	}
+}
+
+// reserveWake claims the next wake slot and reports how long the caller must
+// hold before taking it.
+//
+// The reservation is what bounds a burst: the slot moves forward whether or not
+// the caller had to wait, so a second waker arriving during the hold is pushed
+// behind the first rather than joining it.
+func (q *Queue[K]) reserveWake() time.Duration {
+	q.wakeMu.Lock()
+	defer q.wakeMu.Unlock()
+
+	now := time.Now()
+
+	if earliest := q.lastWake.Add(q.cfg.MinWakeInterval); now.Before(earliest) {
+		q.lastWake = earliest
+
+		return earliest.Sub(now)
+	}
+
+	q.lastWake = now
+
+	return 0
 }
 
 // Claim leases up to limit of the queue's due items for the given lease

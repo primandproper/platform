@@ -31,6 +31,8 @@ type (
 		tracerProvider  tracing.TracerProvider
 		metricsProvider metrics.Provider
 
+		wakeup <-chan struct{}
+
 		// keyCodec holds a KeyCodec[K] for the K of the Queue being built. It is
 		// typed as any because Option cannot name K; New asserts it back to the
 		// concrete interface and reports a mismatch rather than ignoring it.
@@ -68,6 +70,25 @@ func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
 // nothing.
 func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 	return func(o *queueOptions) { o.metricsProvider = metricsProvider }
+}
+
+// WithWakeup gives Wait a channel to return on, beside its poll interval. A
+// receive means "there may be work now"; the caller runs the same Claim it
+// would have run on its next poll, so nothing about the queue's guarantees
+// changes and a wake that never arrives costs only latency.
+//
+// It is a bare channel because the queue must not learn where the wake came
+// from. database/postgres/pgnotify fills it from LISTEN/NOTIFY — pair it with
+// Config.NotifyChannel on the enqueueing side — but a test fills it by hand.
+//
+// The channel should coalesce — capacity one, non-blocking sends, as
+// pgnotify.Listener.Signal does. Config.MinWakeInterval floors the rate
+// regardless.
+//
+// Without one, Wait is a plain sleep and every claim loop keeps the behavior it
+// has today.
+func WithWakeup(wakeup <-chan struct{}) Option {
+	return func(o *queueOptions) { o.wakeup = wakeup }
 }
 
 // WithKeyCodec overrides how keys are rendered into the table's primary key.

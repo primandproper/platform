@@ -44,6 +44,30 @@ func WithRelayMetricsProvider(metricsProvider metrics.Provider) RelayOption {
 	}
 }
 
+// WithRelayWakeup gives the relay a channel to cycle on, beside its poll
+// ticker. A receive means "there may be work now"; the relay runs the same
+// claim it would have run on the next tick, so nothing about the durable path
+// changes and a wake that never arrives costs only latency.
+//
+// It is a bare channel because the relay must not learn where the wake came
+// from. database/postgres/pgnotify fills it from LISTEN/NOTIFY, which is the
+// case this exists for, but the relay stays dialect-generic and a test fills it
+// by hand.
+//
+// The channel should coalesce — capacity one, non-blocking sends, as
+// pgnotify.Listener.Signal does. RelayConfig.MinWakeInterval floors the rate
+// regardless, so a channel that does not coalesce costs a full receive per
+// send but still cannot drive more than one cycle per interval.
+//
+// The poll ticker is unchanged and remains the backstop. Correctness never
+// depends on a wake arriving, which is what makes it safe to build on an
+// at-most-once signal.
+func WithRelayWakeup(wakeup <-chan struct{}) RelayOption {
+	return func(r *Relay) {
+		r.wakeup = wakeup
+	}
+}
+
 // WriterOption configures a Writer.
 type WriterOption func(*Writer)
 
@@ -80,6 +104,25 @@ func WithWriterLogger(logger logging.Logger) WriterOption {
 func WithWriterTracerProvider(tracerProvider tracing.TracerProvider) WriterOption {
 	return func(w *Writer) {
 		w.tracerProvider = tracerProvider
+	}
+}
+
+// WithWriterNotifyChannel makes Enqueue emit a payload-free pg_notify on
+// channel as part of the caller's transaction, so a relay listening on it wakes
+// at commit rather than on its next poll.
+//
+// It is off unless set: an unconfigured Writer emits no extra statement at all,
+// because turning this on changes the SQL running inside every caller's
+// transaction. The channel must be a plain SQL identifier — it is bound as text
+// here, but the listener has to render it into a LISTEN, which takes no
+// parameters — and Postgres is the only dialect that has it, so a channel set
+// on any other is refused by NewWriter rather than silently dropped.
+//
+// The notification carries no payload, which is what lets Postgres collapse
+// every enqueue in one transaction into a single notification.
+func WithWriterNotifyChannel(channel string) WriterOption {
+	return func(w *Writer) {
+		w.notifyChannel = channel
 	}
 }
 

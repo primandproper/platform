@@ -133,6 +133,39 @@ func TestNewWriter(T *testing.T) {
 	})
 }
 
+// The notify channel is read from the Relay section so the half that writes and
+// the half that is woken cannot name different channels. That it reaches the
+// Writer at all is observable only through the Writer's own rules for it.
+func TestNewWriter_notifyChannel(T *testing.T) {
+	T.Parallel()
+
+	T.Run("carries the channel from the relay section", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := sqliteConfig()
+		cfg.Relay.NotifyChannel = "outbox"
+
+		w, err := NewWriter(t.Context(), cfg, &databasemock.ClientMock{
+			DialectFunc: func() dialect.Dialect { return dialect.Postgres },
+		})
+		must.NoError(t, err)
+		must.NotNil(t, w)
+	})
+
+	// A channel on a dialect without NOTIFY is refused by the leaf package, and
+	// this is what proves the config actually handed it over: without the
+	// passthrough, a SQLite writer with a channel configured would build fine.
+	T.Run("a channel on a dialect without NOTIFY is refused", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := sqliteConfig()
+		cfg.Relay.NotifyChannel = "outbox"
+
+		_, err := NewWriter(t.Context(), cfg, sqliteClient())
+		test.ErrorIs(t, err, outbox.ErrNotifyUnsupported)
+	})
+}
+
 func TestNewRelay(T *testing.T) {
 	T.Parallel()
 

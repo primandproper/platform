@@ -35,6 +35,12 @@ const (
 	// of this package's writers impossible; this covers the residual case where
 	// something else in the consumer's schema touches these rows.
 	DefaultWriteAttempts = 3
+
+	// DefaultMinWakeInterval is the floor between two wake-driven returns from
+	// Wait. It only bites during a burst: a wake arriving when the last one is
+	// already older than this is served immediately, which is the ordinary case
+	// and the whole point of a wakeup.
+	DefaultMinWakeInterval = 100 * time.Millisecond
 )
 
 // Config configures a Queue.
@@ -60,6 +66,19 @@ type Config struct {
 	// table is TablePrefix resolved to a full name, filled by EnsureDefaults so
 	// every query builder reads one already-qualified string.
 	table string
+
+	// NotifyChannel makes Enqueue emit a payload-free pg_notify on this channel
+	// after the rows land, so a claim loop listening on it wakes at once
+	// instead of on its next poll.
+	//
+	// Empty — the default — emits nothing at all, and the enqueue path runs
+	// exactly the statements it always did. It must be a plain SQL identifier:
+	// it is bound as text here, but a listener has to render it into a LISTEN,
+	// which takes no parameters.
+	//
+	// Nothing in this package listens. A wakeup arrives as a bare channel
+	// through WithWakeup, which database/postgres/pgnotify is one way to fill.
+	NotifyChannel string `env:"NOTIFY_CHANNEL" json:"notifyChannel,omitempty" yaml:"notifyChannel,omitempty"`
 
 	// Retention is how long a completed item is kept before Reap may delete it.
 	Retention time.Duration `env:"RETENTION" json:"retention,omitempty" yaml:"retention,omitempty"`
@@ -90,6 +109,11 @@ type Config struct {
 	// resolves by asking the caller to try the whole thing again. Anything else
 	// is returned on the first failure.
 	WriteAttempts uint `env:"WRITE_ATTEMPTS" json:"writeAttempts,omitempty" yaml:"writeAttempts,omitempty"`
+
+	// MinWakeInterval floors the rate at which Wait returns on a wakeup, so a
+	// queue taking thousands of enqueues a second cannot drive thousands of
+	// claim round trips a second. It is inert without WithWakeup.
+	MinWakeInterval time.Duration `env:"MIN_WAKE_INTERVAL" json:"minWakeInterval,omitempty" yaml:"minWakeInterval,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
@@ -113,6 +137,9 @@ func (cfg *Config) EnsureDefaults() {
 	if cfg.WriteAttempts == 0 {
 		cfg.WriteAttempts = DefaultWriteAttempts
 	}
+	if cfg.MinWakeInterval <= 0 {
+		cfg.MinWakeInterval = DefaultMinWakeInterval
+	}
 }
 
 // ValidateWithContext validates a Config.
@@ -123,6 +150,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.MaxClaimBatch, validation.Required, validation.Min(1)),
 		validation.Field(&cfg.ReapBatchSize, validation.Required, validation.Min(1)),
 		validation.Field(&cfg.WriteAttempts, validation.Required, validation.Min(uint(1))),
+		validation.Field(&cfg.MinWakeInterval, validation.Required, validation.Min(time.Millisecond)),
 	)
 }
 

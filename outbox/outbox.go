@@ -68,7 +68,18 @@ type Writer struct {
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
 	table           string
+
+	// notifyChannel is empty unless WithWriterNotifyChannel was given one, and
+	// an empty one emits nothing: an outbox that has not asked for wakeups runs
+	// exactly the SQL it always did inside its callers' transactions.
+	notifyChannel string
 }
+
+// notifyQuery wakes any listener on the channel bound to it. The payload is
+// empty on purpose — Postgres collapses duplicate (channel, payload) pairs
+// within a transaction, so a transaction enqueueing fifty messages sends one
+// notification, and there is nothing in it for a consumer to come to depend on.
+const notifyQuery = `SELECT pg_notify($1, '')`
 
 // NewWriter builds a Writer for the given dialect.
 func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
@@ -89,6 +100,20 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 
 	if !dialect.ValidIdentifier(w.table) {
 		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", w.table)
+	}
+
+	if w.notifyChannel != "" {
+		// Refused rather than ignored. A channel configured against MySQL is a
+		// deployment that believes it has millisecond wakeups and has silently
+		// been running on the poll interval — which is exactly the
+		// working-looking noop this module's constructors exist to prevent.
+		if w.dialect != dialect.Postgres {
+			return nil, platformerrors.Wrapf(ErrNotifyUnsupported, "outbox dialect %q", w.dialect)
+		}
+
+		if !dialect.ValidIdentifier(w.notifyChannel) {
+			return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox notify channel %q", w.notifyChannel)
+		}
 	}
 
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
@@ -164,6 +189,22 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 
 	if _, err := q.ExecContext(ctx, query, args...); err != nil {
 		return op.Error(err, "inserting outbox messages")
+	}
+
+	// On the caller's executor, so the notification is transactional: Postgres
+	// delivers it at commit, which means a woken relay cannot look for the rows
+	// before they are visible. That exactness is why this rides the same
+	// transaction rather than firing after it.
+	//
+	// The error is returned rather than swallowed. A failed statement has
+	// already aborted the caller's transaction, so there is no "carry on
+	// without the wakeup" branch to take.
+	if w.notifyChannel != "" {
+		op.Set(notifyChannelKey, w.notifyChannel)
+
+		if _, err := q.ExecContext(ctx, notifyQuery, w.notifyChannel); err != nil {
+			return op.Error(err, "notifying outbox channel %q", w.notifyChannel)
+		}
 	}
 
 	// Counted after the statement succeeds, but the transaction can still roll

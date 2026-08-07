@@ -98,6 +98,33 @@ drained. That depends on the shape of the claim statement — a LIMIT pushed int
 subquery below the lock would silently start returning short batches — so there
 is a test pinning it.
 
+The loop around that is yours, and Wait is the only part of it this package
+supplies: it blocks until a wakeup arrives, until the poll elapses, or until the
+context is done. Given a wakeup it turns an idle worker from one claim query per
+tick into none, and turns the latency of a fresh enqueue from a poll interval
+into a millisecond:
+
+	listener, err := pgnotify.NewListener(ctx, &pgnotify.Config{
+		ConnectionString: dsn,
+		Channel:          "work",
+	})
+	// ...
+	go listener.Run()
+
+	queue, err := workqueue.New[string](ctx, cfg, client,
+		workqueue.WithWakeup(listener.Signal()))
+
+with Config.NotifyChannel set to the same channel on whatever enqueues, so
+Enqueue emits a payload-free pg_notify once the rows have landed.
+
+None of the queue's guarantees rest on that. The notification carries no
+information, the poll stays exactly as it was, and a wake that is never
+delivered costs latency and nothing else — which matters, because NOTIFY is
+at-most-once and connection-scoped, so a reconnecting listener misses everything
+sent while it was away. Config.MinWakeInterval floors how often a wake can
+return, so a burst of enqueues costs one extra claim rather than one per
+enqueue.
+
 Reap and Stats are methods rather than a loop this package runs, because you
 already have a scheduler — see the jobs package. Reap deletes completed items
 past their retention; Stats is the health read. Nothing here fails loudly, so
