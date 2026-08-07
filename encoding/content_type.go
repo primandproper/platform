@@ -25,6 +25,10 @@ const (
 	ContentTypeTOML ContentType = contentTypeTOML
 	// ContentTypeYAML selects YAML encoding.
 	ContentTypeYAML ContentType = contentTypeYAML
+	// ContentTypeCBOR selects CBOR encoding (RFC 8949) — the binary option,
+	// smaller than JSON on the wire and readable outside Go. Struct tags carry
+	// over: a field with no cbor tag falls back to its json tag.
+	ContentTypeCBOR ContentType = contentTypeCBOR
 	// ContentTypeEmoji selects Ecoji-over-gob encoding.
 	ContentTypeEmoji ContentType = contentTypeEmoji
 )
@@ -40,6 +44,7 @@ var ContentTypes = []ContentType{
 	ContentTypeXML,
 	ContentTypeTOML,
 	ContentTypeYAML,
+	ContentTypeCBOR,
 	ContentTypeEmoji,
 }
 
@@ -51,7 +56,7 @@ func (c ContentType) String() string {
 // Valid reports whether c is one of the content types this package implements.
 func (c ContentType) Valid() bool {
 	switch c {
-	case ContentTypeJSON, ContentTypeXML, ContentTypeTOML, ContentTypeYAML, ContentTypeEmoji:
+	case ContentTypeJSON, ContentTypeXML, ContentTypeTOML, ContentTypeYAML, ContentTypeCBOR, ContentTypeEmoji:
 		return true
 	default:
 		return false

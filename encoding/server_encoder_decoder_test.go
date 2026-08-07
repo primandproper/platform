@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/primandproper/platform-go/v9/internal/cbormode"
 	"github.com/primandproper/platform-go/v9/observability"
 	"github.com/primandproper/platform-go/v9/observability/keys"
 
@@ -93,6 +94,11 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		"yaml": {
 			contentType:      ContentTypeYAML,
 			expectedResponse: "name: name\n",
+		},
+		// A one-pair CBOR map: 0xa1, then the text strings "name" and "name".
+		"cbor": {
+			contentType:      ContentTypeCBOR,
+			expectedResponse: "\xa1dnamedname",
 		},
 	}
 
@@ -275,6 +281,22 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 		test.NotEq(t, "", actual)
 	})
 
+	// Asserted by round trip rather than by byte literal: the subtest's own
+	// name is the payload, so a literal here would be a copy of t.Name().
+	T.Run("cbor", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeCBOR)
+
+		encoded := encoderDecoder.MustEncode(ctx, &example{Name: t.Name()})
+		must.SliceNotEmpty(t, encoded)
+
+		var decoded example
+		must.NoError(t, encoderDecoder.DecodeBytes(ctx, encoded, &decoded))
+		test.EqOp(t, t.Name(), decoded.Name)
+	})
+
 	T.Run("with broken struct", func(t *testing.T) {
 		t.Parallel()
 
@@ -338,6 +360,11 @@ func TestServerEncoderDecoder_DecodeRequest(T *testing.T) {
 			expected:    `<example><name>name</name></example>`,
 			marshaller:  yaml.Marshal,
 		},
+		"cbor": {
+			contentType: ContentTypeCBOR,
+			expected:    `<example><name>name</name></example>`,
+			marshaller:  cbormode.Marshal,
+		},
 		"emoji": {
 			contentType: ContentTypeEmoji,
 			expected:    `<example><name>name</name></example>`,
@@ -395,6 +422,11 @@ func Test_serverEncoderDecoder_DecodeBytes(T *testing.T) {
 		"yaml": {
 			data:        []byte(`name: "name"`),
 			contentType: ContentTypeYAML,
+		},
+		// A one-pair CBOR map: 0xa1, then the text strings "name" and "name".
+		"cbor": {
+			data:        []byte("\xa1dnamedname"),
+			contentType: ContentTypeCBOR,
 		},
 		"emoji": {
 			data:        []byte("🍃🧁🌆🙍☔🌾🐯🦮💆🚂🚕🏏🧔✊🀄🏏☔🌊🥈🐾👥♓🙌🀄🀄🍧🦖📓♿😱🦨🐶🀄☕\n"),

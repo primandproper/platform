@@ -26,12 +26,19 @@ Encode and Decode return errors, MustEncode and MustDecode panic, and each has
 a JSON-pinned variant (EncodeJSON, DecodeJSON, and so on) for callers whose
 wire format is fixed rather than configurable.
 
-# Bytes are exact
+# This package does not alter the marshaler's output
 
 Every encode path routes through one byte-oriented marshaler per content type,
 so EncodeJSON(v) returns exactly what json.Marshal(v) returns. In particular no
 trailing newline is appended — the streaming encoders in the standard library
 add one, and this package deliberately does not use them for that reason.
-Callers that store, compare, or checksum encoded bytes can rely on this.
+
+That is the whole of the claim: nothing is added, removed, or reordered on the
+way out. It is not a promise that a value has one canonical encoding. Some
+marshalers do not offer that — CBOR does not sort map keys, so encoding the same
+map twice can produce different bytes — and no caller here needs it. What is
+guaranteed is the round trip: bytes produced by one content type decode back
+into the value they came from. Code that wants a stable digest should hash the
+bytes it stored rather than re-encoding the value to compare.
 */
 package encoding
