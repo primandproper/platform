@@ -302,6 +302,8 @@ func TestNewInMemoryCache_InstrumentFailures(T *testing.T) {
 		"in_memory_cache_cache_sets",
 		"in_memory_cache_cache_deletes",
 		"in_memory_cache_cache_evictions",
+		"in_memory_cache_cache_capacity_evictions",
+		"in_memory_cache_cache_loads",
 	}
 
 	for _, failing := range counters {
