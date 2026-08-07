@@ -56,6 +56,23 @@ func (d Dialect) SupportsSkipLocked() bool {
 	return d == Postgres || d == MySQL
 }
 
+// RequirePostgres returns a wrapped ErrUnsupported naming component and d unless
+// d is Postgres.
+//
+// It is for the packages whose SQL is written against Postgres rather than
+// reduced to a portable subset, so that all of them refuse the same way and at
+// the same moment — construction — instead of emitting syntax the server rejects
+// on the first query. component names the caller in the message ("work queue",
+// "workqueue migration"), since a process wiring several of these needs to know
+// which one objected.
+func RequirePostgres(component string, d Dialect) error {
+	if d != Postgres {
+		return platformerrors.Wrapf(ErrUnsupported, "%s dialect %q: Postgres-only", component, d)
+	}
+
+	return nil
+}
+
 // Placeholder renders the n-th bind marker (1-indexed). Postgres numbers its
 // placeholders; MySQL and SQLite do not.
 func (d Dialect) Placeholder(n int) string {

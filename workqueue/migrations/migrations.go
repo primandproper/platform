@@ -37,7 +37,6 @@ import (
 
 	"github.com/primandproper/platform-go/v9/database/ddl"
 	"github.com/primandproper/platform-go/v9/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
 )
 
 //go:embed postgres.sql
@@ -58,12 +57,7 @@ var schema = ddl.Schema{
 // indication that nothing had been created. This turns that silence into the
 // error it should have been.
 func requirePostgres(d dialect.Dialect) error {
-	if d != dialect.Postgres {
-		return platformerrors.Wrapf(dialect.ErrUnsupported,
-			"workqueue migration dialect %q: the work queue is Postgres-only", d)
-	}
-
-	return nil
+	return dialect.RequirePostgres("workqueue migration", d)
 }
 
 // Statements renders the DDL against the given table prefix and splits it into

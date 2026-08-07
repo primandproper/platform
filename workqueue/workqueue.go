@@ -163,9 +163,8 @@ func New[K comparable](
 		return nil, ErrNilDatabaseClient
 	}
 
-	if d := client.Dialect(); d != dialect.Postgres {
-		return nil, platformerrors.Wrapf(dialect.ErrUnsupported,
-			"work queue dialect %q: this package is Postgres-only", d)
+	if err := dialect.RequirePostgres("work queue", client.Dialect()); err != nil {
+		return nil, err
 	}
 
 	cfg.EnsureDefaults()

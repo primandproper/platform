@@ -45,6 +45,11 @@ import (
 
 // NewQueue builds a Queue from configuration.
 //
+// client must speak Postgres: this package's SQL is written against it rather
+// than reduced to a portable subset, and workqueue.New returns
+// dialect.ErrUnsupported for anything else. See the workqueue package doc for
+// which construct is the binding one.
+//
 // K is the key type the queue schedules work for, and is the caller's to name:
 //
 //	queue, err := workqueuecfg.NewQueue[OrderID](ctx, cfg, client)

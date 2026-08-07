@@ -132,9 +132,21 @@ share nothing but storage.
 Deliberately. The contract above is "the database's now() is the only clock, and
 SKIP LOCKED is the arbiter", and the SQL that delivers it — a lock-ordering CTE,
 a single-statement claim with RETURNING, interval arithmetic on the server — is
-written against Postgres rather than reduced to a portable subset. MySQL could
-carry it; SQLite cannot (it has no SKIP LOCKED at all). New returns
-dialect.ErrUnsupported for anything else rather than degrading to a lease-only
-claim that would look like it worked.
+written against Postgres rather than reduced to a portable subset.
+
+SKIP LOCKED is not the part that binds. MySQL 8.0 has it, and CTEs too; what it
+has no form of is RETURNING. The claim is one statement that selects due rows,
+locks them, increments attempts, extends the lease, and hands back the keys, and
+without RETURNING those become a SELECT … FOR UPDATE SKIP LOCKED and a separate
+UPDATE inside a transaction held across both round trips. That is a different
+concurrency shape with a different failure model — a second implementation
+rather than a dialect switch. SQLite is a harder no: it is single-writer, with no
+row-level locking to skip.
+
+So New returns dialect.ErrUnsupported for anything but Postgres, rather than
+degrading to a lease-only claim that would look like it worked. If a second
+backend is ever wanted, the shape to reach for is this package as the interface
+with a workqueue/postgres beneath it, the way cache and cache/redis sit — nothing
+here forecloses that.
 */
 package workqueue
