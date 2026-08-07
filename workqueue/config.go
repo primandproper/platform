@@ -2,6 +2,7 @@ package workqueue
 
 import (
 	"context"
+	"math"
 	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -139,13 +140,14 @@ func (cfg *Config) resolvedTable() string {
 // is indistinguishable from unlimited anyway — so it saturates rather than
 // wrapping to a negative, which would read as "unlimited" and quietly turn the
 // poison-item guard off.
+//
+// It saturates at MaxInt32 rather than MaxInt because int32 is the width of the
+// attempts column — which also keeps the conversion in range where int is 32
+// bits.
 func (cfg *Config) attemptCeiling() int {
-	if cfg.MaxAttempts > uint(maxInt32) {
-		return maxInt32
+	if cfg.MaxAttempts > uint(math.MaxInt32) {
+		return math.MaxInt32
 	}
 
 	return int(cfg.MaxAttempts)
 }
-
-// maxInt32 is the widest attempt ceiling the attempts column can hold.
-const maxInt32 = 1<<31 - 1

@@ -1,6 +1,7 @@
 package workqueue
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -119,7 +120,7 @@ func TestConfig_AttemptCeiling(T *testing.T) {
 
 		cfg := &Config{MaxAttempts: 1 << 40}
 
-		must.EqOp(t, maxInt32, cfg.attemptCeiling())
+		must.EqOp(t, math.MaxInt32, cfg.attemptCeiling())
 		test.True(t, cfg.attemptCeiling() > 0)
 	})
 }
