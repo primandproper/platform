@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	"github.com/primandproper/platform-go/v9/testutils/containers/pgtest"
 
 	"github.com/shoenig/test"
@@ -22,12 +24,6 @@ import (
 // microseconds, so anything approaching this is a failure rather than a slow
 // machine.
 const signalTimeout = 15 * time.Second
-
-// notifyQuery is the producer side, spelled here as the packages that emit it
-// spell it — plain database/sql with the channel bound as text, no pgx. This
-// package cannot offer it to them: outbox serves three dialects and must not
-// take a pgx dependency to reach a constant.
-const notifyQuery = `SELECT pg_notify($1, '')`
 
 // startListener builds a listener against the container, runs it, and waits out
 // the catch-up wake every session opens with — so a test that returns from this
@@ -71,12 +67,14 @@ func assertNoSignal(t *testing.T, l *Listener, d time.Duration, what string) {
 	}
 }
 
-// notify sends one payload-free notification, the way a producer's transaction
-// does.
-func notify(t *testing.T, db *sql.DB, channel string) {
+// notify sends one payload-free notification, running the same statement the
+// producing packages run. It takes an executor rather than the pool, so the
+// tests that notify inside a transaction go through it too — which is where it
+// matters most, since that is the property the outbox depends on.
+func notify(t *testing.T, q database.SQLQueryExecutor, channel string) {
 	t.Helper()
 
-	_, err := db.ExecContext(t.Context(), notifyQuery, channel)
+	_, err := q.ExecContext(t.Context(), dialect.PostgresNotifyStatement, channel)
 	must.NoError(t, err)
 }
 
@@ -108,8 +106,7 @@ func TestListener_Containers(T *testing.T) {
 			must.NoError(t, err)
 
 			for range 500 {
-				_, execErr := tx.ExecContext(t.Context(), notifyQuery, "wake_burst")
-				must.NoError(t, execErr)
+				notify(t, tx, "wake_burst")
 			}
 
 			must.NoError(t, tx.Commit())
@@ -129,8 +126,7 @@ func TestListener_Containers(T *testing.T) {
 			tx, err := pg.DB.BeginTx(t.Context(), nil)
 			must.NoError(t, err)
 
-			_, err = tx.ExecContext(t.Context(), notifyQuery, "wake_uncommitted")
-			must.NoError(t, err)
+			notify(t, tx, "wake_uncommitted")
 
 			assertNoSignal(t, l, time.Second, "a notification arrived before its transaction committed")
 

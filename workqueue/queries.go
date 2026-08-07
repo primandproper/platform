@@ -18,12 +18,6 @@ func tableFor(prefix string) string {
 	return ddl.Qualify(prefix) + "work_queue_items"
 }
 
-// notifyQuery wakes any listener on the channel bound to it. The payload is
-// empty on purpose — Postgres collapses duplicate (channel, payload) pairs
-// within a transaction, and there is nothing in an at-most-once signal that a
-// consumer should be able to come to depend on.
-const notifyQuery = `SELECT pg_notify($1, '')`
-
 // epoch is the never-leased sentinel.
 //
 // lease_until is NOT NULL and starts here rather than being nullable, so the

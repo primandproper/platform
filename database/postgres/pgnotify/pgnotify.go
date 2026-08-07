@@ -11,7 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/observability/logging"
 	"github.com/primandproper/platform-go/v9/observability/metrics"
 
 	"github.com/jackc/pgx/v5"
@@ -38,8 +37,10 @@ const closeTimeout = 5 * time.Second
 //
 // It owns a goroutine started by Run and stopped by Close.
 type Listener struct {
-	o11y   observability.Observer
-	logger logging.Logger
+	// o11y carries the channel, seeded at construction, so every span and every
+	// log line this listener emits says which channel it is about without any
+	// of them having to remember to.
+	o11y observability.Observer
 
 	// signal has capacity one and is only ever sent to non-blockingly, which is
 	// what makes a burst collapse into a single pending wake — and what keeps
@@ -108,8 +109,10 @@ func NewListener(ctx context.Context, cfg *Config, opts ...Option) (*Listener, e
 		done:   make(chan struct{}),
 	}
 
-	l.o11y = observability.NewObserver(serviceName, o.logger, o.tracerProvider)
-	l.logger = l.o11y.Logger().WithValue(channelKey, cfg.Channel)
+	// The channel is what every line and every span here is about, and it never
+	// changes, so it is stated once rather than at each of the sites below.
+	l.o11y = observability.NewObserverWithValues(serviceName, o.logger, o.tracerProvider,
+		map[string]any{channelKey: cfg.Channel})
 
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
@@ -190,7 +193,7 @@ func (l *Listener) Run() {
 			backoff = l.cfg.MinReconnectBackoff
 		}
 
-		l.logger.WithValue(backoffKey, backoff).Error("postgres listener session ended, reconnecting", err)
+		l.o11y.Logger().WithValue(backoffKey, backoff).Error("postgres listener session ended, reconnecting", err)
 
 		if !l.sleep(ctx, jitter(backoff)) {
 			return
@@ -244,7 +247,7 @@ func (l *Listener) session(ctx context.Context) (bool, error) {
 		defer cancel()
 
 		if closeErr := conn.Close(closeCtx); closeErr != nil {
-			l.logger.Error("closing postgres listener connection", closeErr)
+			l.o11y.Logger().Error("closing postgres listener connection", closeErr)
 		}
 	}()
 
@@ -272,7 +275,7 @@ func (l *Listener) session(ctx context.Context) (bool, error) {
 // The span covers connecting only, not the session it opens: a span held for
 // the life of a connection would be a trace that never ends.
 func (l *Listener) connect(ctx context.Context) (*pgx.Conn, error) {
-	ctx, op := l.o11y.Begin(ctx, observability.WithValue(channelKey, l.cfg.Channel))
+	ctx, op := l.o11y.Begin(ctx)
 	defer op.End()
 
 	conn, err := pgx.Connect(ctx, l.cfg.ConnectionString)
@@ -293,7 +296,7 @@ func (l *Listener) connect(ctx context.Context) (*pgx.Conn, error) {
 
 	if l.everConnected {
 		l.reconnectCounter.Add(ctx, 1)
-		l.logger.Debug("postgres listener reconnected")
+		op.Logger().Debug("postgres listener reconnected")
 	}
 	l.everConnected = true
 

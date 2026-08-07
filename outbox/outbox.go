@@ -75,12 +75,6 @@ type Writer struct {
 	notifyChannel string
 }
 
-// notifyQuery wakes any listener on the channel bound to it. The payload is
-// empty on purpose — Postgres collapses duplicate (channel, payload) pairs
-// within a transaction, so a transaction enqueueing fifty messages sends one
-// notification, and there is nothing in it for a consumer to come to depend on.
-const notifyQuery = `SELECT pg_notify($1, '')`
-
 // NewWriter builds a Writer for the given dialect.
 func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 	if !d.Valid() {
@@ -107,7 +101,7 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 		// deployment that believes it has millisecond wakeups and has silently
 		// been running on the poll interval — which is exactly the
 		// working-looking noop this module's constructors exist to prevent.
-		if w.dialect != dialect.Postgres {
+		if !w.dialect.SupportsNotify() {
 			return nil, platformerrors.Wrapf(ErrNotifyUnsupported, "outbox dialect %q", w.dialect)
 		}
 
@@ -202,7 +196,7 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 	if w.notifyChannel != "" {
 		op.Set(notifyChannelKey, w.notifyChannel)
 
-		if _, err := q.ExecContext(ctx, notifyQuery, w.notifyChannel); err != nil {
+		if _, err := q.ExecContext(ctx, dialect.PostgresNotifyStatement, w.notifyChannel); err != nil {
 			return op.Error(err, "notifying outbox channel %q", w.notifyChannel)
 		}
 	}

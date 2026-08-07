@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
 )
@@ -151,7 +152,7 @@ func (q *Queue[K]) notify(ctx context.Context) {
 		return
 	}
 
-	if _, err := q.client.Writer().ExecContext(ctx, notifyQuery, q.cfg.NotifyChannel); err != nil {
+	if _, err := q.client.Writer().ExecContext(ctx, dialect.PostgresNotifyStatement, q.cfg.NotifyChannel); err != nil {
 		q.logger.WithValues(map[string]any{
 			queueNameKey:     q.cfg.Name,
 			notifyChannelKey: q.cfg.NotifyChannel,
