@@ -63,6 +63,11 @@ func Test_clientEncoder_Unmarshal(T *testing.T) {
 			contentType: ContentTypeYAML,
 			expected:    `name: "name"`,
 		},
+		// A one-pair CBOR map: 0xa1, then the text strings "name" and "name".
+		"cbor": {
+			contentType: ContentTypeCBOR,
+			expected:    "\xa1dnamedname",
+		},
 		"emoji": {
 			contentType: ContentTypeEmoji,
 			expected:    "🍃🧁🌆🙍☔🌾🐯🦮💆🚂🚕🏏🧔✊🀄🏏☔🌊🥈🐾👥♓🙌🀄🀄🍧🦖📓♿😱🦨🐶🀄☕\n",
