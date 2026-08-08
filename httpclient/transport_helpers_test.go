@@ -7,7 +7,11 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/primandproper/platform-go/v10/cache"
+	"github.com/primandproper/platform-go/v10/cache/memory"
+	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/retry"
 
 	"github.com/shoenig/test/must"
@@ -48,6 +52,89 @@ func retryTransportForTest(t *testing.T, policy retry.Policy, opts ...RetryOptio
 	return transport
 }
 
+// cacheURL is the origin the cache tests read from. It is a constant because
+// the key is derived from it, and half of those tests turn on two requests
+// landing on the same key or on different ones.
+const cacheURL = "https://idp.example.com/.well-known/jwks.json"
+
+// cacheTransportForTest builds a cache transport over a real in-memory cache
+// and the given base, already holding the observer buildClient would have given
+// it.
+//
+// The cache is real rather than a mock: what these tests are about is which
+// requests reach the origin, and a stub that answered Get however the test
+// wanted would be asserting on the test's own bookkeeping instead. Its default
+// expiry is long, since retention is the cache's business and freshness — the
+// thing under test — is the transport's.
+func cacheTransportForTest(t *testing.T, base http.RoundTripper, opts ...CacheOption) *cacheTransport {
+	t.Helper()
+
+	transport := newCacheTransport(cacheForTest(t), opts)
+	transport.base = base
+	transport.obs = observerForTest(t)
+
+	return transport
+}
+
+// cacheForTest builds the store the cache tests read and write through.
+//
+// Its default expiry is long on purpose: retention is the cache's business and
+// freshness is the transport's, and a store that dropped entries the moment
+// they went stale would take the revalidation path out of reach.
+func cacheForTest(t *testing.T) cache.Cache[CachedResponse] {
+	t.Helper()
+
+	store, err := memory.NewInMemoryCache[CachedResponse](time.Hour)
+	must.NoError(t, err)
+
+	t.Cleanup(func() { must.NoError(t, store.Close()) })
+
+	return store
+}
+
+// cacheRequest builds a request for the cache tests, which care about method
+// and URL and never about a body.
+func cacheRequest(ctx context.Context, method, url string) *http.Request {
+	return newRequest(ctx, method, url, nil)
+}
+
+// readBody reads a response body to completion and closes it, which is what
+// makes "did this come from the cache?" answerable by looking at the bytes.
+func readBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+
+	body, err := io.ReadAll(resp.Body)
+	must.NoError(t, err)
+	must.NoError(t, resp.Body.Close())
+
+	return string(body)
+}
+
+// steppingClock is a clock.Clock that only moves when a test says so, which is
+// how freshness and expiry are asserted without sleeping through them.
+type steppingClock struct {
+	now time.Time
+}
+
+var _ clock.Clock = (*steppingClock)(nil)
+
+func (c *steppingClock) Now() time.Time                  { return c.now }
+func (c *steppingClock) Since(t time.Time) time.Duration { return c.now.Sub(t) }
+
+// advance moves the clock forward.
+func (c *steppingClock) advance(d time.Duration) { c.now = c.now.Add(d) }
+
+// Sleep and NewTicker are here to satisfy clock.Clock. The cache transport
+// reads time and never waits on it, so a test reaching either of these has
+// found a behavior change worth failing on rather than faking.
+func (c *steppingClock) Sleep(context.Context, time.Duration) error {
+	panic("the cache transport does not sleep")
+}
+
+func (c *steppingClock) NewTicker(time.Duration) clock.Ticker {
+	panic("the cache transport does not tick")
+}
+
 // roundTripperFunc adapts a function to http.RoundTripper so a test can state
 // the base transport's behavior inline.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -63,6 +150,20 @@ func response(status int, body string) *http.Response {
 		Header:     http.Header{},
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
+}
+
+// header builds a header from alternating names and values.
+//
+// It goes through Set rather than a map literal because http.Header's map keys
+// are canonicalized ("ETag" is stored as "Etag"), and a literal that spells one
+// the way the RFC does builds a header whose Get finds nothing.
+func header(pairs ...string) http.Header {
+	built := http.Header{}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		built.Set(pairs[i], pairs[i+1])
+	}
+
+	return built
 }
 
 // withHeader sets a header on a response and returns it, for inline use.
