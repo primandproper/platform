@@ -5,6 +5,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/secrets"
 )
 
 // Option configures how NewSecretSource assembles its source.
@@ -21,6 +22,7 @@ type options struct {
 	logger          logging.Logger
 	tracerProvider  tracing.TracerProvider
 	metricsProvider metrics.Provider
+	cachingOptions  []secrets.Option
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -60,4 +62,17 @@ func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 // its pillars and then override one of them.
 func WithPillars(p *observability.Pillars) Option {
 	return func(o *options) { o.logger, o.tracerProvider, o.metricsProvider = p.Deps() }
+}
+
+// WithCachingOptions passes options through to the caching source built when
+// CacheTTL is set, for the settings that have no config field — a refresh tied
+// to a context narrower than the one this constructor was called with, say.
+//
+// It exists because Go allows one variadic per function and this one belongs to
+// this package's own Option. They are applied after the options the config
+// derived, so an explicit secrets.WithRefresh here replaces the one
+// RefreshInterval produced. When CacheTTL is unset nothing caching is built and
+// these are ignored.
+func WithCachingOptions(opts ...secrets.Option) Option {
+	return func(o *options) { o.cachingOptions = append(o.cachingOptions, opts...) }
 }
