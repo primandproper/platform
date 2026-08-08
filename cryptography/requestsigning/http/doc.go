@@ -50,11 +50,11 @@ signed payloads. There is no unlimited setting.
 
 # Other schemes
 
-The middleware holds a requestsigning.Verifier, not a keyring, so a third
-party's scheme — Stripe's t=…,v1=…, GitHub's X-Hub-Signature-256 — is an
+The middleware holds a requestsigning.Verifier, not a keyring, so a scheme this
+platform did not design — a proof in another header, in another format — is an
 implementation of that interface rather than a second copy of this middleware.
 Construct one and pass it here; which header it reads comes from the verifier
-itself, via HeaderName.
+itself, via HeaderName, so nothing here is specific to v1.
 
 # What it does not do
 

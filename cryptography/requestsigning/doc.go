@@ -85,13 +85,13 @@ store holds and what the HMAC consumes cannot drift.
 
 # Other schemes
 
-Verifier is an interface so that a third party's scheme is an implementation of
-it rather than a second verification stack. A Stripe or GitHub verifier lives in
-its own package, satisfies this interface, and is handed to the same middleware:
-
-	verifier := stripe.NewVerifier(keys)   // hypothetical; see #96
-
-	mw, err := requestsigninghttp.NewMiddleware(verifier)
+v1 is what this package mints, and it is not the only thing it can check.
+Verifier is an interface so that an inbound scheme somebody else designed is an
+implementation of it rather than a second verification stack — the receiving
+service runs one middleware over one seam either way. An implementation owes
+three things: a Scheme name for its spans and log lines, the HeaderName its
+proof arrives in, and a VerifyHeaderValue that checks that value against the
+exact bytes received.
 
 There is no registry of schemes by name, and that is deliberate. Which scheme
 guards an endpoint is something the wiring already knows — it is choosing the

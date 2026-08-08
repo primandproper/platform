@@ -129,11 +129,11 @@ type (
 	// Verifier checks that a request body was signed by a holder of a key it
 	// trusts, and is the inbound half of Signer.
 	//
-	// The per-provider inbound schemes — Stripe's t=…,v1=…, GitHub's
-	// X-Hub-Signature-256 — are implementations of this interface rather than
-	// separate verification stacks, so a service verifying a third party's
-	// webhooks and a service verifying its own first-party callers run the same
-	// middleware over the same seam.
+	// NewVerifier is only its v1 implementation. A scheme this package did not
+	// design — a proof in another header, in another format, over the same body
+	// — satisfies these same three methods, so a service checking somebody
+	// else's signature runs the same middleware over the same seam rather than
+	// a second verification stack beside it.
 	Verifier interface {
 		// Scheme names the wire format this verifier reads. It is a label, for
 		// spans and log lines; nothing dispatches on it.
