@@ -115,6 +115,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `saga`            | Linear durable sagas with compensations | postgres, mysql, sqlite |
 | `distributedlock` | Distributed locking        | memory, postgres, redis |
 | `workqueue`       | Leased work queue (`SKIP LOCKED` claim/complete/expire) | postgres |
+| `timers`          | Durable one-shot scheduling (run once at time T, fleet-wide) | postgres |
 | `filtering`       | Query filters / pagination | —                       |
 | `qrcodes`         | QR code generation         | —                       |
 | `artifacts`       | Artifact handling          | —                       |

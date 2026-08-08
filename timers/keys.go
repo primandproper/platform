@@ -1,0 +1,135 @@
+package timers
+
+import (
+	"reflect"
+	"strings"
+
+	"github.com/primandproper/platform-go/v10/encoding"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+)
+
+// MaxKeyLength bounds an encoded key.
+//
+// The encoded key is half of the table's primary key, and a primary key has to
+// be indexable. The limit is enforced in Go rather than by the column, because
+// the failure it prevents is not a rejected write: two keys that differ only
+// past the limit encode to the same row, so scheduling the second timer would
+// silently move the first instead of creating one.
+const MaxKeyLength = 512
+
+// MaxPayloadSize bounds a timer's payload.
+//
+// A timer is a schedule with a note attached, not a document store. The poller
+// reads whatever is due on every pass, so an oversized row is paid for over and
+// over; if the note is large, store it somewhere addressable and let the payload
+// carry the address.
+const MaxPayloadSize = 64 << 10
+
+// KeyCodec translates a timer key to and from the text stored in the table's
+// primary key column.
+//
+// The default handles the two shapes that cover nearly everything — see
+// DefaultKeyCodec — so this exists for keys that need a specific rendering: one
+// that has to sort a particular way, one with a canonical string form already,
+// or one whose Go type is about to change in a way JSON would notice.
+//
+// Whatever a codec produces has to be stable forever. It is the identity of a
+// row: a rendering that changes between releases does not migrate the timers, it
+// silently forks them, and Cancel stops matching the rows it used to.
+type KeyCodec[K comparable] interface {
+	// EncodeKey renders key as the text stored in the primary key column.
+	EncodeKey(key K) (string, error)
+	// DecodeKey is EncodeKey's inverse, applied to keys read back from a claim.
+	DecodeKey(encoded string) (K, error)
+}
+
+// DefaultKeyCodec is the codec a timer set uses when none is supplied.
+//
+// A string, or any type whose underlying type is string, is stored as itself.
+// That is not only shorter than the JSON rendering, it keeps the table legible:
+// an operator reading timer_key sees the key, not a quoted one.
+//
+// Everything else is JSON. K is comparable, which is most of what makes that
+// safe — maps and slices cannot be keys in the first place, so the only
+// remaining source of instability is struct field order, and Go's encoder emits
+// fields in declaration order. Reordering the fields of a key struct therefore
+// forks the set, exactly as changing a custom codec would; treat the key type as
+// part of the schema.
+func DefaultKeyCodec[K comparable]() KeyCodec[K] {
+	if reflect.TypeFor[K]().Kind() == reflect.String {
+		return stringKeyCodec[K]{}
+	}
+
+	return jsonKeyCodec[K]{}
+}
+
+// stringKeyCodec stores a string-like key as itself. It goes through reflection
+// rather than a ~string type constraint because it has to satisfy
+// KeyCodec[K comparable], which cannot name that constraint — the caller's K is
+// already fixed by the time a codec is chosen.
+type stringKeyCodec[K comparable] struct{}
+
+func (stringKeyCodec[K]) EncodeKey(key K) (string, error) {
+	return reflect.ValueOf(key).String(), nil
+}
+
+func (stringKeyCodec[K]) DecodeKey(encoded string) (K, error) {
+	// Written through a pointer to the zero value rather than assembled from
+	// reflect.New and asserted back: the assertion could not fail, but it would
+	// still have to be spelled and defended, and this needs neither.
+	var key K
+
+	reflect.ValueOf(&key).Elem().SetString(encoded)
+
+	return key, nil
+}
+
+// jsonKeyCodec stores a key as its JSON rendering.
+type jsonKeyCodec[K comparable] struct{}
+
+func (jsonKeyCodec[K]) EncodeKey(key K) (string, error) {
+	encoded, err := encoding.EncodeJSON(key)
+	if err != nil {
+		return "", platformerrors.Wrap(err, "encoding timer key")
+	}
+
+	return string(encoded), nil
+}
+
+func (jsonKeyCodec[K]) DecodeKey(encoded string) (K, error) {
+	var key K
+	if err := encoding.Decode([]byte(encoded), encoding.ContentTypeJSON, &key); err != nil {
+		return key, platformerrors.Wrap(err, "decoding timer key")
+	}
+
+	return key, nil
+}
+
+// encodeKey renders one key and vets the result. The vetting lives here rather
+// than in the codecs so that a custom codec inherits it: a caller supplying
+// their own rendering should not also have to remember the column's limits.
+func encodeKey[K comparable](codec KeyCodec[K], key K) (string, error) {
+	encoded, err := codec.EncodeKey(key)
+	if err != nil {
+		return "", err
+	}
+
+	if encoded == "" {
+		return "", ErrEmptyKey
+	}
+
+	if len(encoded) > MaxKeyLength {
+		return "", platformerrors.Wrapf(ErrKeyTooLong,
+			"encoded key is %d bytes, over the %d-byte limit", len(encoded), MaxKeyLength)
+	}
+
+	// A newline or a NUL in a primary key is legal in Postgres and always a
+	// mistake here: it is what a key built by concatenating unvalidated input
+	// looks like, and it makes every log line and every psql session that
+	// touches the row unreadable.
+	if strings.ContainsAny(encoded, "\x00\n\r") {
+		return "", platformerrors.Wrapf(ErrEmptyKey, "encoded key %q contains a control character", encoded)
+	}
+
+	return encoded, nil
+}
