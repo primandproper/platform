@@ -2,7 +2,9 @@ package ratelimiting
 
 import (
 	"context"
+	"math"
 	"sync"
+	"time"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -25,6 +27,11 @@ type RateLimiter interface {
 	Allow(ctx context.Context, key string) (bool, error)
 	Close() error
 }
+
+var (
+	_ RateLimiter = (*inMemoryRateLimiter)(nil)
+	_ RetryHinter = (*inMemoryRateLimiter)(nil)
+)
 
 type inMemoryRateLimiter struct {
 	o11y            observability.Observer
@@ -72,6 +79,45 @@ func (r *inMemoryRateLimiter) Allow(ctx context.Context, key string) (bool, erro
 		r.rejectedCounter.Add(ctx, 1)
 	}
 	return allowed, nil
+}
+
+// RetryAfter reports how long key's bucket needs to hold a whole token again.
+//
+// It reads the bucket rather than reserving from it. rate.Limiter.Reserve
+// answers the same question, but spends the token to do it — so asking when to
+// come back would itself push the answer further out, and a refused caller that
+// asked twice would be told to wait longer for having asked.
+//
+// A key with no bucket yet reports no hint rather than zero: the caller is
+// about to be allowed, so there is nothing to wait for and nothing to say.
+func (r *inMemoryRateLimiter) RetryAfter(_ context.Context, key string) (time.Duration, bool) {
+	value, ok := r.limiters.Load(key)
+	if !ok {
+		return 0, false
+	}
+
+	limiter, ok := value.(*rate.Limiter)
+	if !ok {
+		return 0, false
+	}
+
+	// A bucket that cannot hold a token never fills, so no wait would make the
+	// next attempt succeed. Saying nothing is the honest answer.
+	if limiter.Burst() < 1 {
+		return 0, false
+	}
+
+	limit := float64(limiter.Limit())
+	if limit <= 0 {
+		return 0, false
+	}
+
+	deficit := 1 - limiter.Tokens()
+	if deficit <= 0 || math.IsInf(limit, 1) {
+		return 0, true
+	}
+
+	return time.Duration(deficit / limit * float64(time.Second)), true
 }
 
 func (r *inMemoryRateLimiter) getOrCreateLimiter(_ context.Context, key string) *rate.Limiter {

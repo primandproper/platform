@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
+	"github.com/primandproper/platform-go/v10/ratelimiting"
 
 	"google.golang.org/grpc/codes"
 )
@@ -37,6 +38,12 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 	// client must change the system state before retrying, not just retry.
 	case errors.Is(err, platformerrors.ErrResourceInUse):
 		return codes.FailedPrecondition, true
+	// ResourceExhausted is gRPC's own name for "out of quota or rate", and its
+	// documented client advice — back off and retry — is the right one here.
+	// Unavailable would be wrong: nothing is down, and it invites the client to
+	// fail over to another instance that shares the same limiter.
+	case errors.Is(err, ratelimiting.ErrRateLimited):
+		return codes.ResourceExhausted, true
 	// Aborted is gRPC's concurrency-conflict code, and its documented advice —
 	// retry at a higher level — is exactly right here: the work may still
 	// succeed, and the client should ask again with the same key.

@@ -50,12 +50,43 @@ end
 return 0
 `
 
+// retryAfterScript reports how many milliseconds a saturated window needs
+// before its oldest entry falls out of it, or 0 when the window has room now.
+//
+// It is read-only, unlike slidingWindowScript: it uses an exclusive-minimum
+// ZCOUNT to ignore the entries that have aged out rather than deleting them,
+// so consulting the hint cannot change what the next Allow decides. The
+// exclusive bound matches slidingWindowScript's ZREMRANGEBYSCORE, which evicts
+// scores up to and including the floor.
+const retryAfterScript = `
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window_ms = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local floor = string.format("(%d", now - window_ms)
+if redis.call('ZCOUNT', key, floor, '+inf') < limit then
+    return 0
+end
+local oldest = redis.call('ZRANGEBYSCORE', key, floor, '+inf', 'LIMIT', 0, 1, 'WITHSCORES')
+if #oldest < 2 then
+    return 0
+end
+local wait = tonumber(oldest[2]) + window_ms - now
+if wait < 0 then
+    return 0
+end
+return wait
+`
+
 type redisClient interface {
 	Eval(ctx context.Context, script string, keys []string, args ...any) *redis.Cmd
 	Close() error
 }
 
-var _ ratelimiting.RateLimiter = (*rateLimiter)(nil)
+var (
+	_ ratelimiting.RateLimiter = (*rateLimiter)(nil)
+	_ ratelimiting.RetryHinter = (*rateLimiter)(nil)
+)
 
 const redisName = "redis_rate_limiter"
 
@@ -126,18 +157,7 @@ func (r *rateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	defer op.End()
 
 	now := time.Now().UnixMilli()
-
-	// Map the token-bucket-style (requestsPerSec, burstSize) config onto a sliding
-	// window: allow up to `limit` requests per window, where the window is the time
-	// to accrue a full burst at the steady rate (burst / rate seconds). This honors
-	// BurstSize and avoids the old int64(requestsPerSec) truncation that floored any
-	// sub-1 rate to a limit of 0 (rejecting everything).
-	limit := max(int64(r.burstSize), 1)
-	rate := r.requestsPerSec
-	if rate <= 0 {
-		rate = 1
-	}
-	windowMS := max(int64(math.Ceil(float64(limit)/rate*1000)), 1)
+	limit, windowMS := r.window()
 
 	// The member must be unique per request: ZADD on a duplicate member only
 	// updates its score, so keying solely on the millisecond timestamp would
@@ -147,7 +167,7 @@ func (r *rateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	member := fmt.Sprintf("%d-%s", now, identifiers.New())
 
 	result, err := r.client.Eval(ctx, slidingWindowScript,
-		[]string{fmt.Sprintf("ratelimit:%s", key)},
+		[]string{redisKey(key)},
 		now,
 		windowMS,
 		limit,
@@ -165,6 +185,69 @@ func (r *rateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 		r.rejectedCounter.Add(ctx, 1)
 	}
 	return allowed, nil
+}
+
+// RetryAfter reports when the oldest request in key's window falls out of it,
+// which is the earliest moment a saturated window has room again.
+//
+// It costs a round trip, so it is worth making only on the refusal path — which
+// is where ratelimiting.RetryAfterFor calls it. A window with room reports no
+// hint rather than zero: there is nothing to wait for, and a Retry-After of 0
+// invites the client back immediately for a token it was never refused.
+//
+// The estimate can be beaten. Nothing reserves the slot it describes, so a
+// caller that waits exactly this long may find another has taken it — which is
+// why RetryHinter documents the answer as a floor.
+func (r *rateLimiter) RetryAfter(ctx context.Context, key string) (time.Duration, bool) {
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
+	limit, windowMS := r.window()
+
+	waitMS, err := r.client.Eval(ctx, retryAfterScript,
+		[]string{redisKey(key)},
+		time.Now().UnixMilli(),
+		windowMS,
+		limit,
+	).Int64()
+	if err != nil {
+		// Counted and acknowledged, not returned: the caller is already
+		// refusing this request and a missing hint only costs it a header.
+		r.errorCounter.Add(ctx, 1)
+		op.Acknowledge(err, "estimating retry delay")
+
+		return 0, false
+	}
+
+	if waitMS <= 0 {
+		return 0, false
+	}
+
+	return time.Duration(waitMS) * time.Millisecond, true
+}
+
+// window maps the token-bucket-style (requestsPerSec, burstSize) config onto a
+// sliding window: allow up to `limit` requests per window, where the window is
+// the time to accrue a full burst at the steady rate (burst / rate seconds).
+// This honors BurstSize and avoids the old int64(requestsPerSec) truncation
+// that floored any sub-1 rate to a limit of 0 (rejecting everything).
+//
+// Allow and RetryAfter both read it, so the window the hint measures against is
+// always the window the decision was made in.
+func (r *rateLimiter) window() (limit, windowMS int64) {
+	limit = max(int64(r.burstSize), 1)
+
+	perSec := r.requestsPerSec
+	if perSec <= 0 {
+		perSec = 1
+	}
+
+	return limit, max(int64(math.Ceil(float64(limit)/perSec*1000)), 1)
+}
+
+// redisKey namespaces a caller's key inside Redis.
+func redisKey(key string) string {
+	return fmt.Sprintf("ratelimit:%s", key)
 }
 
 // Close closes the underlying Redis client.

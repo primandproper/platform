@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
+	"github.com/primandproper/platform-go/v10/ratelimiting"
 )
 
 // PlatformMapper maps platform-level errors to HTTP error codes and messages.
@@ -34,6 +35,12 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrUserIsNotAuthorized, "permission denied", true
 	case errors.Is(err, platformerrors.ErrResourceInUse):
 		return ErrResourceConflict, "resource is in use", true
+	case errors.Is(err, ratelimiting.ErrRateLimited):
+		// The message says nothing about the limit or the key it was counted
+		// against. Both are useful to an operator and useful to an attacker
+		// probing for the threshold; when a limiter can say when to come back,
+		// that answer belongs in Retry-After, where a client can act on it.
+		return ErrTooManyRequests, "too many requests", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):

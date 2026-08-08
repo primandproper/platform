@@ -19,6 +19,7 @@ var (
 		string(ErrIdempotencyKeyInFlight):     ErrIdempotencyKeyInFlight,
 		string(ErrIdempotencyKeyReused):       ErrIdempotencyKeyReused,
 		string(ErrResourceConflict):           ErrResourceConflict,
+		string(ErrTooManyRequests):            ErrTooManyRequests,
 	}
 )
 
@@ -68,4 +69,9 @@ const (
 	// ErrIdempotencyKeyInFlight is also a 409, but it says something specific
 	// about idempotency rather than about the resource.
 	ErrResourceConflict ErrorCode = "E115"
+	// ErrTooManyRequests is returned when a rate limiter refused the request.
+	// It says only that the request came too fast, never that a quota is
+	// spent: "too much this month" is a different answer with a different
+	// remedy, and conflating them tells a client to retry when it should stop.
+	ErrTooManyRequests ErrorCode = "E116"
 )
