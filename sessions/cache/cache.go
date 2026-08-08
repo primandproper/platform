@@ -85,25 +85,21 @@ func (b *backend[T]) Create(ctx context.Context, id string, record *sessions.Rec
 
 // Update overwrites the record stored under an existing identifier.
 //
-// The read is what stops a signed-out session from coming back. A request that
-// loaded a session just before Delete removed it would otherwise write it back
-// afterwards, complete with a fresh idle deadline, and the sign-out would not
-// have happened.
+// The condition is what stops a signed-out session from coming back. A request
+// that loaded a session just before Delete removed it would otherwise write it
+// back afterwards, complete with a fresh idle deadline, and the sign-out would
+// not have happened.
 //
-// It narrows that window rather than closing it: cache.Cache exposes no
-// conditional write, so between this read and the write below the record can
-// still be deleted. The window is two adjacent round trips instead of a whole
-// request. A deployment that needs it closed wants sessions/database, where the
-// same guarantee is a WHERE clause.
+// SetIfPresent makes that one operation, so there is no interval for the delete
+// to land in: the write either precedes it or is refused by it. An absent record
+// comes back as ErrNotFound, which translate turns into sessions.ErrNotFound —
+// the same answer a load would give, because a session that was revoked
+// mid-request is exactly a session that is not there.
 func (b *backend[T]) Update(ctx context.Context, id string, record *sessions.Record[T], ttl time.Duration) error {
 	ctx, op := b.o11y.Begin(ctx)
 	defer op.End()
 
-	if _, err := b.cache.Get(ctx, id); err != nil {
-		return translate(err, "checking session record before update")
-	}
-
-	if err := b.cache.Set(ctx, id, record, cache.WithExpiry(ttl)); err != nil {
+	if err := b.cache.SetIfPresent(ctx, id, record, cache.WithExpiry(ttl)); err != nil {
 		return translate(err, "updating session record")
 	}
 

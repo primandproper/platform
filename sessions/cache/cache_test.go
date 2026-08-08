@@ -204,6 +204,47 @@ func TestBackend_Update(T *testing.T) {
 			newTestBackend(t).Update(t.Context(), "never-written", testRecord("u_1"), time.Hour),
 			sessions.ErrNotFound)
 	})
+
+	// The mechanism, not just the outcome. A read-then-write passes the two
+	// tests above and still has the window this exists to close, so the thing
+	// worth pinning is that the existence check and the write are one call.
+	T.Run("is a single conditional write, with no separate read", func(t *testing.T) {
+		t.Parallel()
+
+		c := &cachemock.CacheMock[sessions.Record[principal]]{
+			SetIfPresentFunc: func(context.Context, string, *sessions.Record[principal], ...cache.WriteOption) error {
+				return nil
+			},
+		}
+
+		backend, err := NewBackend[principal](c)
+		must.NoError(t, err)
+
+		must.NoError(t, backend.Update(t.Context(), "id-1", testRecord("u_1"), time.Hour))
+
+		test.SliceLen(t, 1, c.SetIfPresentCalls())
+		test.SliceLen(t, 0, c.GetCalls())
+		test.SliceLen(t, 0, c.SetCalls())
+	})
+
+	// An outage must not read as a revoked session: one signs the user out, the
+	// other is a retryable failure, and the store's caller branches on which.
+	T.Run("keeps an unavailable cache distinct from a missing record", func(t *testing.T) {
+		t.Parallel()
+
+		c := &cachemock.CacheMock[sessions.Record[principal]]{
+			SetIfPresentFunc: func(context.Context, string, *sessions.Record[principal], ...cache.WriteOption) error {
+				return cache.ErrUnavailable
+			},
+		}
+
+		backend, err := NewBackend[principal](c)
+		must.NoError(t, err)
+
+		err = backend.Update(t.Context(), "id-1", testRecord("u_1"), time.Hour)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
+		test.False(t, stderrors.Is(err, sessions.ErrNotFound))
+	})
 }
 
 func TestBackend_Rename(T *testing.T) {
