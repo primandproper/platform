@@ -136,8 +136,8 @@ type (
 	// this takes the whole request and not a header value somebody else picked
 	// out of it.
 	//
-	// Code that holds bytes rather than a request — a queue consumer, a gRPC
-	// interceptor, a test — wants the Verify function instead. That is the
+	// Code that holds bytes rather than a request — a queue consumer reading a
+	// message payload, a test — wants the Verify function instead. That is the
 	// transport-agnostic seam; this one is deliberately HTTP-shaped.
 	Verifier interface {
 		// Scheme names the wire format this verifier reads. It is a label, for

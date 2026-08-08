@@ -101,9 +101,9 @@ finds its own proof on the request and checks it against the body, read through
 RequestBody so that what it verifies and what the handler sees are the same
 bytes.
 
-Code that holds bytes rather than a request — a queue consumer, a gRPC
-interceptor — wants the Verify function instead. The interface is deliberately
-HTTP-shaped; the function is not.
+Code that holds bytes rather than a request — a queue consumer reading a
+message payload, a test — wants the Verify function instead. The interface is
+deliberately HTTP-shaped; the function is not.
 
 There is no registry of schemes by name, and that is deliberate. Which scheme
 guards an endpoint is something the wiring already knows — it is choosing the
