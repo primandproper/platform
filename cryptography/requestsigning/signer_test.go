@@ -2,8 +2,11 @@ package requestsigning
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +25,19 @@ func fixedClock(at time.Time) clock.Clock {
 	return &clockmock.ClockMock{NowFunc: func() time.Time { return at }}
 }
 
+// outboundRequest builds the shape the signing transport hands a Signer: a
+// request whose body is buffered and replayable, so signing rewinds it rather
+// than consuming it.
+func outboundRequest(t *testing.T, body []byte) *http.Request {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(),
+		http.MethodPost, "http://example.com/thing", strings.NewReader(string(body)))
+	must.NoError(t, err)
+
+	return req
+}
+
 func TestNewSigner(T *testing.T) {
 	T.Parallel()
 
@@ -33,22 +49,38 @@ func TestNewSigner(T *testing.T) {
 
 		test.EqOp(t, SchemeV1, signer.Scheme())
 
-		header := http.Header{}
-		must.NoError(t, signer.SignHeaders(t.Context(), header, testBody))
+		req := outboundRequest(t, testBody)
+		must.NoError(t, signer.SignRequest(t.Context(), req))
 
 		// What was stamped is what Verify accepts, which is the only property
 		// worth asserting about a signer.
 		test.NoError(t, Verify(
 			Keyring{Current: []byte("secret")},
 			testBody,
-			header.Get(SignatureHeader),
+			req.Header.Get(SignatureHeader),
 			WithVerificationTime(signingTime),
 		))
 
 		// The timestamp header is the same instant as the one inside the
 		// signature, so a receiver that sheds stale requests before hashing
 		// cannot disagree with the one that hashes.
-		test.EqOp(t, strconv.FormatInt(signingTime.Unix(), 10), header.Get(TimestampHeader))
+		test.EqOp(t, strconv.FormatInt(signingTime.Unix(), 10), req.Header.Get(TimestampHeader))
+	})
+
+	// The signer reads the body it was handed and leaves it there. Anything else
+	// would mean the caller signs a request it can no longer send.
+	T.Run("leaves the body readable", func(t *testing.T) {
+		t.Parallel()
+
+		signer, err := NewSigner(StaticKeyring(Keyring{Current: []byte("secret")}), WithClock(fixedClock(signingTime)))
+		must.NoError(t, err)
+
+		req := outboundRequest(t, testBody)
+		must.NoError(t, signer.SignRequest(t.Context(), req))
+
+		remaining, err := RequestBody(req)
+		must.NoError(t, err)
+		test.Eq(t, testBody, remaining)
 	})
 
 	// Each call reads the clock again. This is what makes a retry that fires
@@ -63,16 +95,16 @@ func TestNewSigner(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		first := http.Header{}
-		must.NoError(t, signer.SignHeaders(t.Context(), first, testBody))
+		first := outboundRequest(t, testBody)
+		must.NoError(t, signer.SignRequest(t.Context(), first))
 
 		now = signingTime.Add(time.Hour)
 
-		second := http.Header{}
-		must.NoError(t, signer.SignHeaders(t.Context(), second, testBody))
+		second := outboundRequest(t, testBody)
+		must.NoError(t, signer.SignRequest(t.Context(), second))
 
-		test.NotEqOp(t, first.Get(SignatureHeader), second.Get(SignatureHeader))
-		test.EqOp(t, strconv.FormatInt(now.Unix(), 10), second.Get(TimestampHeader))
+		test.NotEqOp(t, first.Header.Get(SignatureHeader), second.Header.Get(SignatureHeader))
+		test.EqOp(t, strconv.FormatInt(now.Unix(), 10), second.Header.Get(TimestampHeader))
 	})
 
 	// The keyring is read per request, so a rotation in the store reaches the
@@ -90,13 +122,32 @@ func TestNewSigner(T *testing.T) {
 
 		key = []byte("second")
 
-		header := http.Header{}
-		must.NoError(t, signer.SignHeaders(t.Context(), header, testBody))
+		req := outboundRequest(t, testBody)
+		must.NoError(t, signer.SignRequest(t.Context(), req))
 
 		test.NoError(t, Verify(
 			Keyring{Current: []byte("second")},
 			testBody,
-			header.Get(SignatureHeader),
+			req.Header.Get(SignatureHeader),
+			WithVerificationTime(signingTime),
+		))
+	})
+
+	// A request with no body signs over no bytes, and the two sides agree about
+	// what that means.
+	T.Run("signs a request with no body", func(t *testing.T) {
+		t.Parallel()
+
+		signer, err := NewSigner(StaticKeyring(Keyring{Current: []byte("secret")}), WithClock(fixedClock(signingTime)))
+		must.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/ping", http.NoBody)
+		must.NoError(t, signer.SignRequest(t.Context(), req))
+
+		test.NoError(t, Verify(
+			Keyring{Current: []byte("secret")},
+			nil,
+			req.Header.Get(SignatureHeader),
 			WithVerificationTime(signingTime),
 		))
 	})
@@ -109,7 +160,7 @@ func TestNewSigner(T *testing.T) {
 		signer, err := NewSigner(KeySourceFunc(func(context.Context) (Keyring, error) { return Keyring{}, boom }))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, signer.SignHeaders(t.Context(), http.Header{}, testBody), boom)
+		test.ErrorIs(t, signer.SignRequest(t.Context(), outboundRequest(t, testBody)), boom)
 	})
 
 	T.Run("reports a keyring with no current key", func(t *testing.T) {
@@ -118,7 +169,21 @@ func TestNewSigner(T *testing.T) {
 		signer, err := NewSigner(StaticKeyring(Keyring{Previous: []byte("old")}))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, signer.SignHeaders(t.Context(), http.Header{}, testBody), ErrNoSigningKey)
+		test.ErrorIs(t, signer.SignRequest(t.Context(), outboundRequest(t, testBody)), ErrNoSigningKey)
+	})
+
+	T.Run("reports a body it could not read", func(t *testing.T) {
+		t.Parallel()
+
+		boom := platformerrors.New("the disk went away")
+
+		signer, err := NewSigner(StaticKeyring(Keyring{Current: []byte("secret")}))
+		must.NoError(t, err)
+
+		req := outboundRequest(t, testBody)
+		req.GetBody = func() (io.ReadCloser, error) { return nil, boom }
+
+		test.ErrorIs(t, signer.SignRequest(t.Context(), req), boom)
 	})
 
 	T.Run("rejects its own bad inputs", func(t *testing.T) {
@@ -130,6 +195,6 @@ func TestNewSigner(T *testing.T) {
 		signer, err := NewSigner(StaticKeyring(Keyring{Current: []byte("k")}))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, signer.SignHeaders(t.Context(), nil, testBody), platformerrors.ErrNilInputParameter)
+		test.ErrorIs(t, signer.SignRequest(t.Context(), nil), platformerrors.ErrNilInputParameter)
 	})
 }

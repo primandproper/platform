@@ -42,11 +42,6 @@ type middleware struct {
 	rejectedCounter metrics.Int64Counter
 	errorCounter    metrics.Int64Counter
 	cfg             *config
-
-	// headerName is read once at construction rather than per request. A
-	// verifier's header is fixed for its lifetime, and asking it again on every
-	// request would invite an implementation where it is not.
-	headerName string
 }
 
 // NewMiddleware builds middleware that verifies a request's signature before
@@ -92,9 +87,8 @@ func NewMiddleware(verifier requestsigning.Verifier, opts ...Option) (routing.Mi
 	cfg := newConfig(opts...)
 
 	m := &middleware{
-		verifier:   verifier,
-		cfg:        cfg,
-		headerName: verifier.HeaderName(),
+		verifier: verifier,
+		cfg:      cfg,
 		o11y: observability.NewObserverWithValues(serviceName, cfg.logger, cfg.tracerProvider,
 			map[string]any{keys.SignatureSchemeKey: verifier.Scheme()}),
 		enc: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON,
@@ -134,30 +128,18 @@ func NewMiddleware(verifier requestsigning.Verifier, opts ...Option) (routing.Mi
 // A span held open across next.ServeHTTP would make every trace read as though
 // signature checking took the whole request, when what it did was one HMAC.
 func (m *middleware) serve(res http.ResponseWriter, req *http.Request, next http.Handler) {
-	verified, body := m.admit(res, req)
+	verified, replayed := m.admit(res, req)
 	if !verified {
 		return
 	}
 
-	// The handler reads the bytes that were verified, not the socket. GetBody
-	// goes with them so anything downstream that replays the request — a
-	// middleware, a test harness — replays the same bytes too.
-	//
-	// Onto a shallow copy rather than the request itself, the way
-	// http.MaxBytesHandler does it: whoever called this middleware still holds
-	// the original, and a body swapped out from under them is a surprise.
-	replayed := *req
-	replayed.Body = io.NopCloser(bytes.NewReader(body))
-	replayed.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
-	replayed.ContentLength = int64(len(body))
-
-	next.ServeHTTP(res, &replayed)
+	next.ServeHTTP(res, replayed)
 }
 
 // admit verifies req and reports whether it should reach the handler, along
-// with the body that was verified. A request it does not admit has already been
-// answered.
-func (m *middleware) admit(res http.ResponseWriter, req *http.Request) (verified bool, body []byte) {
+// with the replayable request the handler should get. A request it does not
+// admit has already been answered.
+func (m *middleware) admit(res http.ResponseWriter, req *http.Request) (verified bool, replayed *http.Request) {
 	ctx, op := m.o11y.Begin(req.Context())
 	defer op.End()
 
@@ -168,7 +150,21 @@ func (m *middleware) admit(res http.ResponseWriter, req *http.Request) (verified
 		return false, nil
 	}
 
-	if err = m.verifier.VerifyHeaderValue(ctx, req.Header.Get(m.headerName), body); err != nil {
+	// Rebuilt before verification rather than after, so the verifier and the
+	// handler read one request between them — the same bytes, bounded by the
+	// same cap, and no opportunity for the two reads to disagree.
+	//
+	// Onto a shallow copy rather than the request itself, the way
+	// http.MaxBytesHandler does it: whoever called this middleware still holds
+	// the original, and a body swapped out from under them is a surprise.
+	buffered := *req
+	buffered.Body = io.NopCloser(bytes.NewReader(body))
+	buffered.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
+	buffered.ContentLength = int64(len(body))
+
+	// GetBody is set above, so the verifier's read rewinds rather than consumes
+	// and the handler still gets every byte.
+	if err = m.verifier.VerifyRequest(ctx, &buffered); err != nil {
 		m.reject(ctx, res, op, req, err)
 
 		return false, nil
@@ -176,7 +172,7 @@ func (m *middleware) admit(res http.ResponseWriter, req *http.Request) (verified
 
 	m.verifiedCounter.Add(ctx, 1)
 
-	return true, body
+	return true, &buffered
 }
 
 // read buffers the request body, refusing to read past the cap.

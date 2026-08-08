@@ -125,19 +125,24 @@ func ExampleNewSigner() {
 		panic(err)
 	}
 
-	body := []byte(`{"amount":4200}`)
-
-	header := http.Header{}
-	if err = signer.SignHeaders(context.Background(), header, body); err != nil {
+	req, err := http.NewRequestWithContext(context.Background(),
+		http.MethodPost, "https://internal.example.com/charge", strings.NewReader(`{"amount":4200}`))
+	if err != nil {
 		panic(err)
 	}
 
-	// The verifier names the header it reads, so a caller wiring one does not
-	// have to know which scheme it got.
-	fmt.Println(verifier.VerifyHeaderValue(context.Background(), header.Get(verifier.HeaderName()), body))
+	// Neither side is told which header carries the proof, and neither is handed
+	// the body apart from the request that holds it. The signer reads through
+	// GetBody, so the request is as sendable afterwards as it was before.
+	if err = signer.SignRequest(context.Background(), req); err != nil {
+		panic(err)
+	}
+
+	fmt.Println(verifier.VerifyRequest(context.Background(), req))
 
 	// An unsigned request is refused the same way a badly signed one is.
-	fmt.Println(verifier.VerifyHeaderValue(context.Background(), "", body))
+	req.Header.Del(requestsigning.SignatureHeader)
+	fmt.Println(verifier.VerifyRequest(context.Background(), req))
 
 	// Output:
 	// <nil>

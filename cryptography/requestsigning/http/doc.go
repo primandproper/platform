@@ -53,8 +53,13 @@ signed payloads. There is no unlimited setting.
 The middleware holds a requestsigning.Verifier, not a keyring, so a scheme this
 platform did not design — a proof in another header, in another format — is an
 implementation of that interface rather than a second copy of this middleware.
-Construct one and pass it here; which header it reads comes from the verifier
-itself, via HeaderName, so nothing here is specific to v1.
+Construct one and pass it here; the verifier locates its own proof on the
+request, so nothing in this package is specific to v1.
+
+What this package does supply, whatever the scheme, is the bound: the body is
+read once and capped here, and the verifier is handed a request whose GetBody
+replays those capped bytes. A verifier cannot read past the cap, and cannot
+verify bytes the handler will not see.
 
 # What it does not do
 

@@ -33,26 +33,30 @@ var _ requestsigning.Verifier = (*failingVerifier)(nil)
 
 func (*failingVerifier) Scheme() string { return "stub" }
 
-func (*failingVerifier) HeaderName() string { return "X-Stub-Signature" }
+func (f *failingVerifier) VerifyRequest(context.Context, *http.Request) error { return f.err }
 
-func (f *failingVerifier) VerifyHeaderValue(context.Context, string, []byte) error { return f.err }
-
-// recordingVerifier accepts everything and records the header value it was
-// handed, so a test can assert the middleware read the header the verifier
-// named rather than one of its own choosing.
+// recordingVerifier accepts everything and records what it found on the
+// request, so a test can assert the middleware handed over a request the
+// verifier could read for itself rather than one somebody else picked apart.
 type recordingVerifier struct {
 	headerName string
-	seen       string
+	seenHeader string
+	seenBody   []byte
 }
 
 var _ requestsigning.Verifier = (*recordingVerifier)(nil)
 
 func (*recordingVerifier) Scheme() string { return "stub" }
 
-func (r *recordingVerifier) HeaderName() string { return r.headerName }
+func (r *recordingVerifier) VerifyRequest(_ context.Context, req *http.Request) error {
+	r.seenHeader = req.Header.Get(r.headerName)
 
-func (r *recordingVerifier) VerifyHeaderValue(_ context.Context, value string, _ []byte) error {
-	r.seen = value
+	body, err := requestsigning.RequestBody(req)
+	if err != nil {
+		return err
+	}
+
+	r.seenBody = body
 
 	return nil
 }
@@ -127,9 +131,11 @@ func TestNewMiddleware(T *testing.T) {
 		test.Eq(t, body, seen)
 	})
 
-	// The scheme owns its header name. A middleware that hardcoded one would
-	// work for v1 and silently pass every Stripe callback straight through.
-	T.Run("reads the header the verifier names", func(t *testing.T) {
+	// Nothing here is specific to v1. A scheme carrying its proof in some other
+	// header finds it for itself, and the middleware neither knows nor cares —
+	// which is what stops this package from being a v1-shaped hole that every
+	// other scheme has to be bent through.
+	T.Run("hands the verifier a request it can read for itself", func(t *testing.T) {
 		t.Parallel()
 
 		verifier := &recordingVerifier{headerName: "X-Partner-Signature"}
@@ -137,15 +143,20 @@ func TestNewMiddleware(T *testing.T) {
 		mw, err := NewMiddleware(verifier)
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodPost, "/callbacks/partner", strings.NewReader(`{}`))
+		req := httptest.NewRequest(http.MethodPost, "/callbacks/partner", strings.NewReader(`{"partner":true}`))
 		req.Header.Set("X-Partner-Signature", "whatever the partner sends")
-		req.Header.Set(requestsigning.SignatureHeader, "the platform's own, which must be ignored")
+		req.Header.Set(requestsigning.SignatureHeader, "the platform's own, which is none of its business")
 
-		rec, reached, _ := serve(t, mw, req)
+		rec, reached, seen := serve(t, mw, req)
 
 		test.EqOp(t, http.StatusNoContent, rec.Code)
 		test.True(t, reached)
-		test.EqOp(t, "whatever the partner sends", verifier.seen)
+		test.EqOp(t, "whatever the partner sends", verifier.seenHeader)
+
+		// And the verifier and the handler read the same bytes: the verifier's
+		// read rewinds rather than consumes, so nothing downstream is starved.
+		test.Eq(t, []byte(`{"partner":true}`), verifier.seenBody)
+		test.Eq(t, []byte(`{"partner":true}`), seen)
 	})
 
 	T.Run("refuses to build without a verifier", func(t *testing.T) {

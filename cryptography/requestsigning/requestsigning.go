@@ -2,6 +2,7 @@ package requestsigning
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"time"
 
@@ -97,61 +98,95 @@ func (k Keyring) Keys() [][]byte {
 }
 
 type (
-	// Signer stamps the headers that prove a request body was produced by
+	// Signer stamps a request with whatever proves its body was produced by
 	// someone holding the key.
 	//
-	// It is an interface rather than a function so that a scheme reading its key
-	// from somewhere per call is expressible without every caller learning its
-	// shape. Neither half of this pair takes an *http.Request: what a signature
-	// covers is bytes and headers, and a seam that took a request would have to
-	// have an opinion about who reads the body and what bounds that read. Those
-	// are serving concerns, and they live in requestsigning/http and in
-	// httpclient, where a request already means something.
+	// It takes the request rather than a header bag and a []byte, and that is
+	// what keeps it honest: the bytes it signs are read from the same request
+	// its caller is about to send, so the two cannot be different bytes. A seam
+	// that accepted the body separately would let a caller sign one payload and
+	// transmit another, and nothing in the type would notice.
 	Signer interface {
 		// Scheme names the wire format this signer mints. It is a label, for
 		// spans and log lines; nothing dispatches on it.
 		Scheme() string
 
-		// SignHeaders writes whatever proves body was signed into header.
+		// SignRequest reads req's body through RequestBody and writes the proof
+		// into req.Header. It writes headers rather than returning one value
+		// because a scheme may carry more than one — v1 sets a timestamp beside
+		// its signature, so a receiver can shed a stale request before hashing
+		// anything.
 		//
-		// It writes a bag rather than returning one value because a scheme may
-		// carry more than one — v1 sets a timestamp beside its signature, so a
-		// receiver can shed a stale request before hashing anything. Only the
-		// signature is authoritative, which is why the verifying half below
-		// reads a single value.
-		//
-		// It is called once per attempt rather than once per logical request, so
-		// the timestamp it stamps is always fresh — a retry that fires after a
-		// long backoff must not arrive already stale.
-		SignHeaders(ctx context.Context, header http.Header, body []byte) error
+		// req must be a request the caller is willing to have read, and should
+		// carry a GetBody so the read is repeatable — see RequestBody. It is
+		// called once per attempt rather than once per logical request, so the
+		// timestamp it stamps is always fresh: a retry that fires after a long
+		// backoff must not arrive already stale.
+		SignRequest(ctx context.Context, req *http.Request) error
 	}
 
-	// Verifier checks that a request body was signed by a holder of a key it
-	// trusts, and is the inbound half of Signer.
+	// Verifier checks that a request was signed by a holder of a key it trusts,
+	// and is the inbound half of Signer.
 	//
 	// NewVerifier is only its v1 implementation. A scheme this package did not
-	// design — a proof in another header, in another format, over the same body
-	// — satisfies these same three methods, so a service checking somebody
-	// else's signature runs the same middleware over the same seam rather than
-	// a second verification stack beside it.
+	// design — a proof in another header, in another format — satisfies these
+	// same two methods, so a service checking somebody else's signature runs the
+	// same middleware over the same seam rather than a second verification stack
+	// beside it. Locating the proof is the scheme's own business, which is why
+	// this takes the whole request and not a header value somebody else picked
+	// out of it.
+	//
+	// Code that holds bytes rather than a request — a queue consumer, a gRPC
+	// interceptor, a test — wants the Verify function instead. That is the
+	// transport-agnostic seam; this one is deliberately HTTP-shaped.
 	Verifier interface {
 		// Scheme names the wire format this verifier reads. It is a label, for
 		// spans and log lines; nothing dispatches on it.
 		Scheme() string
 
-		// HeaderName is the request header this scheme's proof travels in, so a
-		// caller knows what to hand to VerifyHeaderValue without knowing the
-		// scheme. It is fixed for the life of the verifier.
-		HeaderName() string
-
-		// VerifyHeaderValue checks body against the proof carried in value, and
-		// returns nil only if it matches. An empty value is ErrInvalidSignature:
-		// an unsigned request and a badly signed one are both "did not prove it
-		// holds the key".
+		// VerifyRequest checks req and returns nil only if its body was signed
+		// under a key this verifier holds. A request carrying no proof at all is
+		// ErrInvalidSignature: unsigned and badly signed are both "did not prove
+		// it holds the key".
 		//
-		// body must be the exact bytes received, read before any decoding.
-		// Decoding and re-encoding changes key order and whitespace, and the
-		// signature covers bytes, not meaning.
-		VerifyHeaderValue(ctx context.Context, value string, body []byte) error
+		// The body is read through RequestBody, so it must be the exact bytes
+		// received and the read must not have been bounded somewhere the
+		// signature was not. requestsigning/http's middleware caps it before
+		// handing the request over, which is where that bound belongs.
+		VerifyRequest(ctx context.Context, req *http.Request) error
 	}
 )
+
+// RequestBody reads a request's body without consuming it, when it can.
+//
+// GetBody is preferred and Body is the fallback, which is net/http's own way of
+// saying whether a body is replayable. A signer or verifier calling this on a
+// request that carries GetBody — which is what both callers in this module hand
+// it — leaves that request as readable as it found it. On one that does not, the
+// body is consumed, and whoever built it that way owns the consequence.
+//
+// It is exported because a scheme this package did not write needs to read the
+// body exactly the way the built-in one does. A verifier that read it some other
+// way would be checking a signature over bytes the handler never sees.
+func RequestBody(req *http.Request) ([]byte, error) {
+	if req == nil {
+		return nil, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil request")
+	}
+
+	if req.GetBody != nil {
+		body, err := req.GetBody()
+		if err != nil {
+			return nil, platformerrors.Wrap(err, "rewinding the request body")
+		}
+
+		defer func() { _ = body.Close() }() //nolint:errcheck // a rewound in-memory body has nothing to fail at
+
+		return io.ReadAll(body)
+	}
+
+	if req.Body == nil || req.Body == http.NoBody {
+		return nil, nil
+	}
+
+	return io.ReadAll(req.Body)
+}

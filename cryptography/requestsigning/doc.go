@@ -41,11 +41,18 @@ Signer and Verifier are the interfaces, for code that should not have to. Both
 resolve their keyring per operation through a KeySource, which is what turns a
 rotation into a change in the secret store rather than a deploy.
 
-Neither takes an *http.Request. Signer.SignHeaders writes into a header bag and
-Verifier.VerifyHeaderValue reads one value out of it; who reads the body, and
-what bounds that read, is a serving concern that belongs to the caller — which
-is why the request-shaped ergonomics live in requestsigning/http and httpclient
-rather than here.
+Both take an *http.Request, and that is load-bearing rather than convenient. The
+signer reads its bytes out of the same request its caller is about to send, so
+signing one payload and transmitting another is not a mistake the shape can
+make; the verifier locates its own proof, so which header carries it stays the
+scheme's business instead of something every wiring site restates. Both read the
+body through RequestBody, which prefers GetBody — the callers in this module set
+it, so the read rewinds rather than consumes and the handler downstream still
+gets every byte.
+
+What the interfaces do not decide is how much of a body is worth reading. That
+bound is a serving concern and it lives in requestsigning/http, which caps the
+read before the verifier ever sees the request.
 
 	keys, err := requestsigning.NewSecretKeySource(secretSource, "SIGNING_KEY", "SIGNING_KEY_PREVIOUS")
 	if err != nil {
@@ -88,10 +95,15 @@ store holds and what the HMAC consumes cannot drift.
 v1 is what this package mints, and it is not the only thing it can check.
 Verifier is an interface so that an inbound scheme somebody else designed is an
 implementation of it rather than a second verification stack — the receiving
-service runs one middleware over one seam either way. An implementation owes
-three things: a Scheme name for its spans and log lines, the HeaderName its
-proof arrives in, and a VerifyHeaderValue that checks that value against the
-exact bytes received.
+service runs one middleware over one seam either way. An implementation owes two
+things: a Scheme name for its spans and log lines, and a VerifyRequest that
+finds its own proof on the request and checks it against the body, read through
+RequestBody so that what it verifies and what the handler sees are the same
+bytes.
+
+Code that holds bytes rather than a request — a queue consumer, a gRPC
+interceptor — wants the Verify function instead. The interface is deliberately
+HTTP-shaped; the function is not.
 
 There is no registry of schemes by name, and that is deliberate. Which scheme
 guards an endpoint is something the wiring already knows — it is choosing the

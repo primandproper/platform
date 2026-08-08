@@ -39,7 +39,7 @@ var _ requestsigning.Signer = (*failingSigner)(nil)
 
 func (*failingSigner) Scheme() string { return "stub" }
 
-func (f *failingSigner) SignHeaders(context.Context, http.Header, []byte) error { return f.err }
+func (f *failingSigner) SignRequest(context.Context, *http.Request) error { return f.err }
 
 func TestSigningTransport_RoundTrip(T *testing.T) {
 	T.Parallel()
@@ -240,8 +240,8 @@ var _ requestsigning.Signer = (*countingSigner)(nil)
 
 func (c *countingSigner) Scheme() string { return c.inner.Scheme() }
 
-func (c *countingSigner) SignHeaders(ctx context.Context, header http.Header, body []byte) error {
+func (c *countingSigner) SignRequest(ctx context.Context, req *http.Request) error {
 	c.calls++
 
-	return c.inner.SignHeaders(ctx, header, body)
+	return c.inner.SignRequest(ctx, req)
 }
