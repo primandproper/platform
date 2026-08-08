@@ -133,4 +133,15 @@ const (
 	// RetryAfterKey is the standard key for referring to the delay a server asked
 	// for via the Retry-After header.
 	RetryAfterKey = "retry_after"
+	// RateLimitKeyKey is the standard key for referring to what a rate limiter
+	// counted a request against — a principal, an API key's hash, an address.
+	//
+	// It belongs on spans, never on metric attributes: it is unbounded by
+	// construction, so one time series per caller is one time series too many.
+	RateLimitKeyKey = "rate_limit.key"
+	// RateLimitMethodKey is the standard key for referring to the RPC a rate
+	// limiter ruled on. Unlike RateLimitKeyKey it comes from the service
+	// definition rather than from the caller, so it is bounded and safe as a
+	// metric attribute.
+	RateLimitMethodKey = "rate_limit.method"
 )

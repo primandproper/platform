@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/ratelimiting"
 
 	"github.com/cockroachdb/errors/errorspb"
 	gogoproto "github.com/gogo/protobuf/proto"
@@ -89,6 +90,7 @@ func clientMessage(code codes.Code, err error) string {
 // safe to return verbatim.
 var clientSafeSentinels = []error{
 	platformerrors.ErrPermissionDenied,
+	ratelimiting.ErrRateLimited,
 	platformerrors.ErrNilInputParameter,
 	platformerrors.ErrEmptyInputParameter,
 	platformerrors.ErrNilInputProvided,
