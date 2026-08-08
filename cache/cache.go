@@ -61,6 +61,28 @@ type (
 		// from the result is a cache miss.
 		GetMany(ctx context.Context, keys []string) (map[string]*T, error)
 		Set(ctx context.Context, key string, value *T, opts ...WriteOption) error
+		// SetIfPresent overwrites key only if it currently holds a value,
+		// reporting ErrNotFound without writing when it does not. It is the
+		// conditional half of Set, and it resolves WriteOptions the same way.
+		//
+		// It exists because "update what is there, and do not create it" is not
+		// expressible as a read followed by a Set. Between those two calls the
+		// entry can be deleted, and the Set then puts it back — which for a
+		// caller whose deletes mean something (a revoked session, a released
+		// claim) undoes the delete rather than losing a race harmlessly. This
+		// is one operation and cannot be interleaved with one.
+		//
+		// It is not a compare-and-swap: it tests existence, not the value. A
+		// caller that must not overwrite a *changed* value wants a lock — see
+		// distributedlock — and the two compose, since this narrows what the
+		// lock has to cover rather than replacing it.
+		//
+		// Providers that store nothing report ErrNotFound always, because
+		// nothing is ever present in them. That makes a noop cache visibly
+		// unable to serve a caller who needs this, which is the honest answer:
+		// reporting success would claim a conditional write happened against a
+		// store that holds no conditions.
+		SetIfPresent(ctx context.Context, key string, value *T, opts ...WriteOption) error
 		// SetMany stores multiple values at once. WriteOptions apply to the
 		// whole batch: every item gets the same expiry resolution as a single
 		// Set call would.
