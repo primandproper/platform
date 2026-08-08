@@ -144,6 +144,11 @@ func TestSelectedProviderMustBeConfigured(T *testing.T) {
 		{name: "llm/anthropic", provider: llmcfg.ProviderAnthropic, cfg: &llmcfg.Config{Provider: llmcfg.ProviderAnthropic}},
 		{name: "notifications-async/pusher", provider: asyncnotifcfg.ProviderPusher, cfg: &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderPusher}},
 		{name: "notifications-async/ably", provider: asyncnotifcfg.ProviderAbly, cfg: &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderAbly}},
+		// sse and websocket configure no credentials, but they do have to
+		// declare a topology: a self-hosted provider that names nothing is the
+		// silently-single-replica config this sweep should refuse.
+		{name: "notifications-async/sse", provider: asyncnotifcfg.ProviderSSE, cfg: &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderSSE}},
+		{name: "notifications-async/websocket", provider: asyncnotifcfg.ProviderWebSocket, cfg: &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderWebSocket}},
 		{name: "logging/otelslog", provider: loggingcfg.ProviderOtelSlog, cfg: &loggingcfg.Config{Provider: loggingcfg.ProviderOtelSlog, ServiceName: "svc"}},
 		{name: "metrics/otel", provider: metricscfg.ProviderOtel, cfg: &metricscfg.Config{Provider: metricscfg.ProviderOtel, ServiceName: "svc", Enabled: true}},
 		{name: "profiling/pyroscope", provider: profilingcfg.ProviderPyroscope, cfg: &profilingcfg.Config{Provider: profilingcfg.ProviderPyroscope, ServiceName: "svc"}},
@@ -414,13 +419,22 @@ func TestUnselectedProvidersAreNotEnforced(T *testing.T) {
 			name: "notifications-async/noop",
 			cfg:  &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderNoop},
 		},
+		// The self-hosted providers carry a required Topology, so a fully
+		// configured example of one names it — the same way the pusher and ably
+		// cases below carry their credentials.
 		{
 			name: "notifications-async/sse",
-			cfg:  &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderSSE},
+			cfg: &asyncnotifcfg.Config{
+				Provider: asyncnotifcfg.ProviderSSE,
+				Topology: asyncnotifcfg.TopologySingleReplica,
+			},
 		},
 		{
 			name: "notifications-async/websocket",
-			cfg:  &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderWebSocket},
+			cfg: &asyncnotifcfg.Config{
+				Provider: asyncnotifcfg.ProviderWebSocket,
+				Topology: asyncnotifcfg.TopologySingleReplica,
+			},
 		},
 		{
 			name: "notifications-async/pusher",
