@@ -113,6 +113,26 @@ func (p *recordingProvider) attrs(t *testing.T, name string) attribute.Set {
 	return sets[0]
 }
 
+// attrValues returns one attribute's value from every recording of a counter,
+// in order, which is how a test states the sequence of outcomes a run produced
+// rather than just their total.
+func (p *recordingProvider) attrValues(t *testing.T, name, key string) []string {
+	t.Helper()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	sets := p.seen[serviceName+"_"+name]
+	must.SliceNotEmpty(t, sets)
+
+	values := make([]string, 0, len(sets))
+	for _, set := range sets {
+		values = append(values, attrValue(t, set, key))
+	}
+
+	return values
+}
+
 func attrValue(t *testing.T, set attribute.Set, key string) string {
 	t.Helper()
 
@@ -342,6 +362,54 @@ func TestTransportObservability(T *testing.T) {
 		}
 	})
 
+	T.Run("the cache records how each request was answered", func(t *testing.T) {
+		t.Parallel()
+
+		provider := newRecordingProvider()
+		clk := &steppingClock{now: time.Unix(1_700_000_000, 0)}
+
+		var calls int
+		client := newClient(t,
+			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				calls++
+
+				if calls == 1 {
+					resp := withHeader(response(http.StatusOK, "jwks"), "Cache-Control", "max-age=60")
+
+					return withHeader(resp, "ETag", `"v1"`), nil
+				}
+
+				return response(http.StatusNotModified, ""), nil
+			})),
+			WithHTTPCache(cacheForTest(t), WithCacheClock(clk)),
+			WithMetricsProvider(provider),
+		)
+
+		read := func() {
+			resp, err := get(t.Context(), client, cacheURL)
+			must.NoError(t, err)
+			must.NoError(t, resp.Body.Close())
+		}
+
+		read() // miss
+		read() // hit
+
+		clk.advance(61 * time.Second)
+
+		read() // revalidated
+
+		resp, err := post(t.Context(), client, cacheURL, strings.NewReader("body"))
+		must.NoError(t, err)
+		must.NoError(t, resp.Body.Close())
+
+		test.Eq(t, []string{
+			cacheOutcomeMiss,
+			cacheOutcomeHit,
+			cacheOutcomeRevalidated,
+			cacheOutcomeUncacheable,
+		}, provider.attrValues(t, "cache_outcomes", keys.CacheOutcomeKey))
+	})
+
 	T.Run("every instrument the transports record to is created", func(t *testing.T) {
 		t.Parallel()
 
@@ -359,6 +427,7 @@ func TestTransportObservability(T *testing.T) {
 			serviceName + "_circuit_rejections",
 			serviceName + "_circuit_outcomes",
 			serviceName + "_rate_limited",
+			serviceName + "_cache_outcomes",
 			serviceName + "_retry_after_seconds",
 		}, provider.created)
 	})

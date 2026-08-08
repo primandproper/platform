@@ -1,6 +1,6 @@
 /*
 Package httpclient constructs HTTP clients with optional OpenTelemetry tracing
-instrumentation and resilience middleware.
+instrumentation, resilience middleware, and response caching.
 
 Clients are built with functional options:
 
@@ -21,39 +21,96 @@ provider refused an instrument. Nothing else here can fail.
 
 # Resilience
 
-Retry, circuit breaking, and rate limiting are http.RoundTripper middlewares,
-composed at construction rather than at every call site:
+Retry, circuit breaking, rate limiting, and response caching are
+http.RoundTripper middlewares, composed at construction rather than at every
+call site:
 
 	client := httpclient.NewHTTPClient(
 		append(cfg.Options(),
 			httpclient.WithRetryPolicy(policy),
 			httpclient.WithCircuitBreaker(breaker),
 			httpclient.WithRateLimit(limiter),
+			httpclient.WithHTTPCache(store),
 		)...,
 	)
 
 Each is off unless named. A client built without them behaves exactly as it did
 before they existed, and the collaborators come from the packages that own them
-— retry.Policy, circuitbreaking.CircuitBreaker, ratelimiting.RateLimiter — so
-this package configures none of them and picks no defaults on their behalf.
+— retry.Policy, circuitbreaking.CircuitBreaker, ratelimiting.RateLimiter,
+cache.Cache — so this package configures none of them and picks no defaults on
+their behalf.
 
 They are also not resolved from the injector. RegisterHTTPClient takes them as
 options like everything else, because a RateLimiter or a CircuitBreaker in a
 container is far more often the one guarding the service's own inbound API, and
 silently repurposing it to throttle outbound calls would be a surprise nobody
-asked for.
+asked for. The same holds for a cache, doubly so: a registered cache.Cache is
+the service's own, and quietly filling it with third-party HTTP responses would
+evict what it was built to hold.
+
+# Response caching
+
+The resilience transports protect an origin from failure, not from repetition.
+WithHTTPCache adds the fourth middleware, over any cache.Cache — memory for a
+per-process cache, redis for a fleet-wide one:
+
+	client, err := httpclient.NewHTTPClient(
+		httpclient.WithHTTPCache(store, httpclient.WithCacheTTL(5*time.Minute)),
+	)
+
+The policy is RFC 9111 read narrowly. GET and HEAD only; Cache-Control and
+Expires decide freshness; ETag and Last-Modified drive revalidation, and a 304
+refreshes the stored entry rather than replacing it. Freshness is judged against
+a clock.Clock, so expiry is assertable in a test rather than slept through.
+
+The explicit TTL is the reason most callers want this at all. JWKS documents,
+.well-known metadata, and catalog endpoints are routinely served with no
+freshness headers, and the hand-rolled TTL map that grows in front of them has
+no revalidation, no Vary, and no size bound. WithCacheTTL is consulted last, so
+naming one cannot make this client hold a response longer than the origin
+permitted — it only fills the silence.
+
+Two bounds are worth knowing. Bodies above WithMaxCacheableBody are returned in
+full and not stored, so one large document cannot evict everything else. And one
+variant per URL is retained: an entry records the request-header values named by
+the response's Vary, and a request whose values differ is a miss rather than a
+wrong answer.
+
+Retention and freshness are separate knobs on purpose. The cache's own default
+expiry decides how long an entry is kept; the headers above decide when it must
+be revalidated. Keeping an entry past its freshness is what makes a 304
+possible, so a store that expires entries the moment they go stale gives up the
+cheaper half of this.
+
+# What is never cached
+
+A response to a request bearing Authorization, unless WithCacheAuthorized says
+otherwise — and even then the credential becomes part of the cache key, so two
+callers holding different tokens get different entries rather than each other's.
+A shared Redis serving one tenant's response to another is the failure this is
+designed against, not a corner case.
+
+Also never stored: responses marked no-store or private, responses setting
+cookies, responses that Vary: *, and any request already running its own
+conditional exchange — an If-None-Match or a Range the caller set is a
+precondition this transport has no business answering from a stored copy.
 
 # The nesting is fixed
 
-Outermost to innermost: observability, circuit breaker, retry, rate limit,
-tracing, base transport. Option order does not change it, because only one
-arrangement of the three resilience layers is right and a caller who got it
-wrong would hold a client that looks protected and is not.
+Outermost to innermost: observability, response cache, circuit breaker, retry,
+rate limit, tracing, base transport. Option order does not change it, because
+only one arrangement of these layers is right and a caller who got it wrong
+would hold a client that looks protected and is not.
 
-The breaker is outermost so an open circuit rejects before the retry loop is
-entered — failing fast once, rather than three times with backoff in between.
-It therefore judges a host on final outcomes, after retrying has already
-absorbed the transients.
+The cache is outermost because a hit is not a request. It reaches no wire, so it
+must not report an outcome to a circuit breaker or spend a token from a budget
+that counts requests the origin actually saw. A miss or a revalidation passes
+through all three resilience layers exactly as an uncached request would.
+
+The breaker is next so an open circuit rejects before the retry loop is entered
+— failing fast once, rather than three times with backoff in between. It
+therefore judges a host on final outcomes, after retrying has already absorbed
+the transients.
 
 The rate limiter is innermost so every attempt the retry loop makes spends a
 token. A provider's documented budget counts requests on the wire, not the
@@ -116,6 +173,14 @@ URL, which is unbounded:
 	circuit_rejections    requests refused by an open circuit
 	circuit_outcomes      how each completed request was classified
 	rate_limited          requests the local limiter refused
+	cache_outcomes        how the response cache answered, by cache.outcome
+
+The cache.outcome values partition every request that reaches the cache: hit
+(answered without a wire request), revalidated (a 304 confirmed the stored
+copy), miss (the origin answered in full), and uncacheable (a request the cache
+took no part in). A cache that cannot be reached is counted as a miss and logged
+at debug — the origin is still there, so an unreachable store should cost hit
+rate and nothing else.
 
 Two log lines are worth knowing about. A request refused by an open circuit
 is logged where it happens, because it produces no response, no attempt, and no
