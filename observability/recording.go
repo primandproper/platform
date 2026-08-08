@@ -57,19 +57,41 @@ type Observation struct {
 // assert which fields a unit observed, in what order, and on which pillar. It
 // performs no real logging or tracing.
 type RecordingObserver struct {
+
+	// values mirrors observer.values: seeded onto every Operation handed out.
+	values map[string]any
+
 	Operations []*RecordingOperation
-	seq        int
-	mu         sync.Mutex
+
+	seq int
+	mu  sync.Mutex
 }
 
 // NewRecordingObserver builds a RecordingObserver for use in unit tests.
 func NewRecordingObserver() *RecordingObserver {
-	return &RecordingObserver{}
+	return NewRecordingObserverWithValues(nil)
+}
+
+// NewRecordingObserverWithValues is NewRecordingObserver for a unit whose real
+// observer came from NewObserverWithValues. Pass the same values that
+// constructor was given: they are seeded onto every Operation this observer
+// hands out, so a test that substitutes the double still sees the fields the
+// component states once at construction rather than at each call site.
+//
+// Without it, moving a value from the call sites to the constructor would delete
+// the assertion that the component observes it at all — the test would pass a
+// key the double never records.
+//
+// The values are recorded on the span pillar, mirroring observer.seed. In
+// production their logger half comes from the named logger built alongside them,
+// which this double's noop Logger does not model; assert them through
+// ObservedOperationWith* (which unions both pillars) rather than LogValues.
+func NewRecordingObserverWithValues(values map[string]any) *RecordingObserver {
+	return &RecordingObserver{values: values}
 }
 
 func (o *RecordingObserver) newOperation() *RecordingOperation {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 
 	op := &RecordingOperation{
 		owner:      o,
@@ -78,6 +100,14 @@ func (o *RecordingObserver) newOperation() *RecordingOperation {
 		LogValues:  map[string]any{},
 	}
 	o.Operations = append(o.Operations, op)
+
+	o.mu.Unlock()
+
+	// Seeded outside the lock because record takes it, and before the caller's
+	// own BeginOptions are applied, so an operation may still override one.
+	for key, value := range o.values {
+		o.record(op, key, value, PillarSpan)
+	}
 
 	return op
 }

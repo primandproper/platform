@@ -23,6 +23,8 @@ const name = "gcp_secret_source"
 const (
 	secretVersionLatest = "latest"
 	projectsPrefix      = "projects/"
+
+	projectIDKey = "project.id"
 )
 
 // SecretVersionAccessor abstracts AccessSecretVersion for testability.
@@ -51,7 +53,11 @@ func NewSecretSource(ctx context.Context, cfg *Config, client SecretVersionAcces
 	}
 
 	o := newOptions(opts)
-	o11y := observability.NewObserver(name, o.logger, o.tracerProvider)
+	// A source is bound to one project, so the project is stated here — which
+	// also puts it on the constructor-time and error log lines, not just on the
+	// one operation that used to set it.
+	o11y := observability.NewObserverWithValues(name, o.logger, o.tracerProvider,
+		map[string]any{projectIDKey: cfg.ProjectID})
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	lookupCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_lookups", name))
@@ -113,7 +119,7 @@ func (g *gcpSecretSource) GetSecret(ctx context.Context, name string) (string, e
 		g.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	op.Set(keys.NameKey, name).Set("project.id", g.projectID)
+	op.Set(keys.NameKey, name)
 
 	resourceName := g.resolveName(name)
 	req := &secretmanagerpb.AccessSecretVersionRequest{

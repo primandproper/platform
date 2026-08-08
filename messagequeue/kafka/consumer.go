@@ -78,7 +78,7 @@ func provideKafkaConsumer(logger logging.Logger, tracerProvider tracing.TracerPr
 	return &kafkaConsumer{
 		handlerFunc:     handlerFunc,
 		reader:          reader,
-		o11y:            observability.NewObserver(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider),
+		o11y:            observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
 		consumedCounter: consumedCounter,
 	}, nil
 }
@@ -110,7 +110,7 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 		}
 
 		msgCtx, op := c.o11y.BeginCustom(ctx, "consume_message")
-		op.Set(keys.TopicKey, msg.Topic).Set(keys.LengthKey, len(msg.Value))
+		op.Set(keys.LengthKey, len(msg.Value))
 		op.SpanOnly("partition", msg.Partition).SpanOnly("offset", msg.Offset)
 		c.consumedCounter.Add(msgCtx, 1)
 

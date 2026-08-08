@@ -65,15 +65,20 @@ func NewIndexManager[T any](ctx context.Context, cfg *Config, indexName string, 
 		return nil, errors.New("elasticsearch not ready")
 	}
 
+	// Elasticsearch index names must be lowercase. Normalize once so create,
+	// existence-check, index, delete, and search all target the same name — the
+	// previous code created a lowercased index but read/wrote the original case.
+	// The observed value is the normalized one for the same reason: it is the
+	// name the requests below actually carry.
+	normalizedIndex := strings.ToLower(indexName)
+
 	im := &indexManager[T]{
-		o11y:                  observability.NewObserver(fmt.Sprintf("search_%s", indexName), logger, o.tracerProvider),
+		o11y: observability.NewObserverWithValues(fmt.Sprintf("search_%s", indexName), logger, o.tracerProvider,
+			map[string]any{keys.IndexNameKey: normalizedIndex}),
 		esClient:              c,
 		indexOperationTimeout: cfg.IndexOperationTimeout,
-		// Elasticsearch index names must be lowercase. Normalize once so create,
-		// existence-check, index, delete, and search all target the same name — the
-		// previous code created a lowercased index but read/wrote the original case.
-		indexName:      strings.ToLower(indexName),
-		circuitBreaker: circuitBreaker,
+		indexName:             normalizedIndex,
+		circuitBreaker:        circuitBreaker,
 	}
 
 	if indexErr := im.ensureIndices(ctx); indexErr != nil {
@@ -132,7 +137,7 @@ func elasticsearchIsReadyToInit(
 }
 
 func (sm *indexManager[T]) ensureIndices(ctx context.Context) error {
-	ctx, op := sm.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, sm.indexName))
+	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 
 	if sm.circuitBreaker.CannotProceed() {

@@ -47,7 +47,6 @@ func (p *sqsPublisher) Publish(ctx context.Context, data any) error {
 
 	startTime := time.Now()
 
-	op.Set(keys.TopicKey, p.topic)
 	op.Logger().Debug("publishing message")
 
 	var b bytes.Buffer
@@ -104,7 +103,7 @@ func provideSQSPublisher(logger logging.Logger, sqsClient messagePublisher, trac
 		publisher:         sqsClient,
 		topic:             topic,
 		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
-		o11y:              observability.NewObserver(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider),
+		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
 		publishedCounter:  publishedCounter,
 		publishErrCounter: publishErrCounter,
 		latencyHist:       latencyHist,

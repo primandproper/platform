@@ -149,7 +149,9 @@ func buildRecordingIndex(t *testing.T, stub *qdrantStub, cb circuitbreaking.Circ
 
 	idx := buildStubIndex(t, stub, cb)
 
-	obs := observability.NewRecordingObserver()
+	// Seeded as NewIndexManager seeds it: the collection is stated once at
+	// construction.
+	obs := observability.NewRecordingObserverWithValues(map[string]any{keys.IndexNameKey: idx.collection})
 	idx.o11y = obs
 
 	return idx, obs
@@ -938,7 +940,7 @@ func TestQuery(T *testing.T) {
 		must.NoError(t, err)
 
 		im := idx.(*indexManager[doc])
-		obs := observability.NewRecordingObserver()
+		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.IndexNameKey: im.collection})
 		im.o11y = obs
 
 		filter := map[string]any{"must": []any{map[string]any{"key": "kind", "match": map[string]any{"value": "doc"}}}}

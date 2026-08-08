@@ -60,7 +60,10 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		actual, isConsumer := consumer.(*redisConsumer)
 		must.True(t, isConsumer)
 
-		obs := observability.NewRecordingObserver()
+		// Seeded as provideRedisConsumer seeds it: the subscription is to one
+		// topic, so the topic is stated at construction rather than read off
+		// each message.
+		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: t.Name()})
 		actual.o11y = obs
 
 		errorsChan := make(chan error, 1)
@@ -120,7 +123,10 @@ func Test_redisConsumer_Consume(T *testing.T) {
 		actual, isConsumer := consumer.(*redisConsumer)
 		must.True(t, isConsumer)
 
-		obs := observability.NewRecordingObserver()
+		// Seeded as provideRedisConsumer seeds it: the subscription is to one
+		// topic, so the topic is stated at construction rather than read off
+		// each message.
+		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: t.Name()})
 		actual.o11y = obs
 
 		errorsChan := make(chan error, 1)

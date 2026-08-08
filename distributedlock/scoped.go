@@ -234,7 +234,10 @@ func NewScopedLocker(locker Locker, opts ...ScopedOption) (ScopedLocker, error) 
 		}
 	}
 
-	s.o11y = observability.NewObserver(scopedServiceName, s.logger, s.tracerProvider)
+	// The TTL is fixed for this locker's lifetime and every operation it reports
+	// on is bounded by it, so it is stated here rather than at each Begin.
+	s.o11y = observability.NewObserverWithValues(scopedServiceName, s.logger, s.tracerProvider,
+		map[string]any{keys.LockTTLKey: s.ttl})
 
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
@@ -283,10 +286,7 @@ func NewScopedLocker(locker Locker, opts ...ScopedOption) (ScopedLocker, error) 
 
 // WithLock implements ScopedLocker, waiting for a contended lock by polling.
 func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(keys.LockKeyKey, key),
-		observability.WithValue(keys.LockTTLKey, s.ttl),
-	)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(keys.LockKeyKey, key))
 	defer op.End()
 
 	startTime := time.Now()
@@ -338,10 +338,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 
 // TryWithLock implements ScopedLocker.
 func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(keys.LockKeyKey, key),
-		observability.WithValue(keys.LockTTLKey, s.ttl),
-	)
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(keys.LockKeyKey, key))
 	defer op.End()
 
 	startTime := time.Now()

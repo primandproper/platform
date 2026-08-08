@@ -151,7 +151,7 @@ func NewIndex[T any](
 	}
 
 	im := &indexManager[T]{
-		o11y:           observability.NewObserver(fmt.Sprintf("%s_%s", serviceName, collection), o.logger, o.tracerProvider),
+		o11y:           observability.NewObserverWithValues(fmt.Sprintf("%s_%s", serviceName, collection), o.logger, o.tracerProvider, map[string]any{keys.IndexNameKey: collection}),
 		httpClient:     &http.Client{Timeout: timeout},
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		upsertCounter:  upsertCounter,
@@ -190,7 +190,7 @@ func metricToDistance(m vectorsearch.DistanceMetric) (string, error) {
 // ensureCollection creates the collection if it does not exist. PUT /collections/{name}
 // is idempotent in qdrant when the body matches the existing collection.
 func (i *indexManager[T]) ensureCollection(ctx context.Context) error {
-	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.collection))
+	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
 	exists, err := i.collectionExists(ctx)
@@ -237,10 +237,7 @@ func (i *indexManager[T]) collectionExists(ctx context.Context) (bool, error) {
 
 // Upsert implements vectorsearch.Index.
 func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Vector[T]) error {
-	ctx, op := i.o11y.Begin(ctx,
-		observability.WithValue(keys.IndexNameKey, i.collection),
-		observability.WithValue(keys.LengthKey, len(vectors)),
-	)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(vectors)))
 	defer op.End()
 
 	if len(vectors) == 0 {
@@ -304,10 +301,7 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 
 // Delete implements vectorsearch.Index.
 func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
-	ctx, op := i.o11y.Begin(ctx,
-		observability.WithValue(keys.IndexNameKey, i.collection),
-		observability.WithValue(keys.LengthKey, len(ids)),
-	)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(ids)))
 	defer op.End()
 
 	if len(ids) == 0 {
@@ -356,7 +350,7 @@ func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
 // atomic from the caller's perspective since they hold the only handle to the
 // collection name.
 func (i *indexManager[T]) Wipe(ctx context.Context) error {
-	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.collection))
+	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
 	if i.circuitBreaker.CannotProceed() {
@@ -392,7 +386,7 @@ func (i *indexManager[T]) Wipe(ctx context.Context) error {
 
 // Query implements vectorsearch.Index.
 func (i *indexManager[T]) Query(ctx context.Context, req vectorsearch.QueryRequest) ([]vectorsearch.QueryResult[T], error) {
-	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.collection))
+	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
 	if len(req.Embedding) == 0 {

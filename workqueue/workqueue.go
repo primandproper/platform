@@ -227,7 +227,10 @@ func New[K comparable](
 		q.codec = codec
 	}
 
-	q.o11y = observability.NewObserver(serviceName, q.logger, o.tracerProvider)
+	// Every operation this queue performs is about this one queue, so the name
+	// is stated once here instead of at each Begin below.
+	q.o11y = observability.NewObserverWithValues(serviceName, q.logger, o.tracerProvider,
+		map[string]any{queueNameKey: cfg.Name})
 	q.logger = q.o11y.Logger()
 
 	if err := q.buildInstruments(o.metricsProvider); err != nil {
@@ -441,7 +444,6 @@ func (q *Queue[K]) reserveWake() time.Duration {
 // idempotent; if it is not, this package is the wrong tool.
 func (q *Queue[K]) Claim(ctx context.Context, limit int, lease time.Duration) ([]Item[K], error) {
 	ctx, op := q.o11y.Begin(ctx, observability.WithValues(map[string]any{
-		queueNameKey:  q.cfg.Name,
 		claimLimitKey: limit,
 		leaseKey:      lease.String(),
 	}))
@@ -560,10 +562,7 @@ func (q *Queue[K]) claimOnce(ctx context.Context, limit int, lease time.Duration
 // Completing is idempotent, and re-enqueueing a completed key restarts it with a
 // fresh attempt count.
 func (q *Queue[K]) Complete(ctx context.Context, keys ...K) error {
-	ctx, op := q.o11y.Begin(ctx, observability.WithValues(map[string]any{
-		queueNameKey: q.cfg.Name,
-		itemCountKey: len(keys),
-	}))
+	ctx, op := q.o11y.Begin(ctx, observability.WithValue(itemCountKey, len(keys)))
 	defer op.End()
 
 	affected, err := q.writeKeys(ctx, "complete", keys, func(encoded []string) (string, []any) {
@@ -602,10 +601,7 @@ func (q *Queue[K]) Complete(ctx context.Context, keys ...K) error {
 // Items that have already been completed are skipped, so a late Release arriving
 // after somebody else finished the work cannot resurrect it.
 func (q *Queue[K]) Release(ctx context.Context, delay time.Duration, cause error, keys ...K) error {
-	ctx, op := q.o11y.Begin(ctx, observability.WithValues(map[string]any{
-		queueNameKey: q.cfg.Name,
-		itemCountKey: len(keys),
-	}))
+	ctx, op := q.o11y.Begin(ctx, observability.WithValue(itemCountKey, len(keys)))
 	defer op.End()
 
 	delay = max(delay, 0)
@@ -636,10 +632,7 @@ func (q *Queue[K]) Release(ctx context.Context, delay time.Duration, cause error
 // an item somebody currently holds a lease on is allowed — their Complete simply
 // matches nothing, exactly as it would after a lapsed lease.
 func (q *Queue[K]) Remove(ctx context.Context, keys ...K) error {
-	ctx, op := q.o11y.Begin(ctx, observability.WithValues(map[string]any{
-		queueNameKey: q.cfg.Name,
-		itemCountKey: len(keys),
-	}))
+	ctx, op := q.o11y.Begin(ctx, observability.WithValue(itemCountKey, len(keys)))
 	defer op.End()
 
 	affected, err := q.writeKeys(ctx, "remove", keys, func(encoded []string) (string, []any) {
@@ -671,7 +664,7 @@ func (q *Queue[K]) Remove(ctx context.Context, keys ...K) error {
 // accumulate; a return value equal to the batch size means the queue is falling
 // behind on retention and the period is too long.
 func (q *Queue[K]) Reap(ctx context.Context) (int64, error) {
-	ctx, op := q.o11y.Begin(ctx, observability.WithValue(queueNameKey, q.cfg.Name))
+	ctx, op := q.o11y.Begin(ctx)
 	defer op.End()
 
 	var affected int64
@@ -708,7 +701,7 @@ func (q *Queue[K]) Reap(ctx context.Context) (int64, error) {
 // aggregate over the queue, and at claim cadence the read costs more than the
 // work it reports on.
 func (q *Queue[K]) Stats(ctx context.Context) (Stats, error) {
-	ctx, op := q.o11y.Begin(ctx, observability.WithValue(queueNameKey, q.cfg.Name))
+	ctx, op := q.o11y.Begin(ctx)
 	defer op.End()
 
 	var (
@@ -807,9 +800,8 @@ func (q *Queue[K]) withRetries(ctx context.Context, label string, fn func() erro
 
 		q.retryCounter.Add(ctx, 1, q.attrs)
 		q.logger.WithValues(map[string]any{
-			queueNameKey: q.cfg.Name,
-			attemptKey:   attempt,
-			"operation":  label,
+			attemptKey:  attempt,
+			"operation": label,
 		}).Info("retrying work queue write after a serialization failure")
 	}
 }
