@@ -1,4 +1,4 @@
-package webhooks
+package requestsigning
 
 import (
 	"errors"
@@ -21,7 +21,7 @@ func TestSign(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		signature, err := Sign(Secret{Current: []byte("secret")}, testBody, signingTime)
+		signature, err := Sign(Keyring{Current: []byte("secret")}, testBody, signingTime)
 		must.NoError(t, err)
 
 		test.True(t, strings.HasPrefix(signature, "v1,t=1753900000,s="))
@@ -33,12 +33,12 @@ func TestSign(T *testing.T) {
 	T.Run("is deterministic", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		first, err := Sign(secret, testBody, signingTime)
+		first, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
-		second, err := Sign(secret, testBody, signingTime)
+		second, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
 		test.EqOp(t, first, second)
@@ -50,12 +50,12 @@ func TestSign(T *testing.T) {
 	T.Run("timestamp changes the signature", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		first, err := Sign(secret, testBody, signingTime)
+		first, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
-		second, err := Sign(secret, testBody, signingTime.Add(time.Second))
+		second, err := Sign(keyring, testBody, signingTime.Add(time.Second))
 		must.NoError(t, err)
 
 		test.NotEqOp(t, first, second)
@@ -65,7 +65,7 @@ func TestSign(T *testing.T) {
 		t.Parallel()
 
 		signature, err := Sign(
-			Secret{Current: []byte("new"), Previous: []byte("old")},
+			Keyring{Current: []byte("new"), Previous: []byte("old")},
 			testBody, signingTime,
 		)
 		must.NoError(t, err)
@@ -73,21 +73,21 @@ func TestSign(T *testing.T) {
 		test.EqOp(t, 2, strings.Count(signature, ",s="))
 
 		// And each component is the signature that key alone would produce.
-		current, err := Sign(Secret{Current: []byte("new")}, testBody, signingTime)
+		current, err := Sign(Keyring{Current: []byte("new")}, testBody, signingTime)
 		must.NoError(t, err)
 
-		previous, err := Sign(Secret{Current: []byte("old")}, testBody, signingTime)
+		previous, err := Sign(Keyring{Current: []byte("old")}, testBody, signingTime)
 		must.NoError(t, err)
 
 		test.True(t, strings.Contains(signature, mustSuffix(t, current)))
 		test.True(t, strings.Contains(signature, mustSuffix(t, previous)))
 	})
 
-	T.Run("without a current secret", func(t *testing.T) {
+	T.Run("without a current key", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := Sign(Secret{Previous: []byte("old")}, testBody, signingTime)
-		test.ErrorIs(t, err, ErrNoSigningSecret)
+		_, err := Sign(Keyring{Previous: []byte("old")}, testBody, signingTime)
+		test.ErrorIs(t, err, ErrNoSigningKey)
 	})
 }
 
@@ -97,53 +97,66 @@ func TestVerify(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		signature, err := Sign(secret, testBody, signingTime)
+		signature, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
-		test.NoError(t, Verify(secret, testBody, signature, WithVerificationTime(signingTime)))
+		test.NoError(t, Verify(keyring, testBody, signature, WithVerificationTime(signingTime)))
 	})
 
 	T.Run("rejects a tampered body", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		signature, err := Sign(secret, testBody, signingTime)
+		signature, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
-		err = Verify(secret, []byte(`{"id":"abc","amount":999}`), signature, WithVerificationTime(signingTime))
+		err = Verify(keyring, []byte(`{"id":"abc","amount":999}`), signature, WithVerificationTime(signingTime))
 		test.ErrorIs(t, err, ErrInvalidSignature)
 	})
 
-	T.Run("rejects the wrong secret", func(t *testing.T) {
+	T.Run("rejects the wrong key", func(t *testing.T) {
 		t.Parallel()
 
-		signature, err := Sign(Secret{Current: []byte("secret")}, testBody, signingTime)
+		signature, err := Sign(Keyring{Current: []byte("secret")}, testBody, signingTime)
 		must.NoError(t, err)
 
-		err = Verify(Secret{Current: []byte("other")}, testBody, signature, WithVerificationTime(signingTime))
+		err = Verify(Keyring{Current: []byte("other")}, testBody, signature, WithVerificationTime(signingTime))
 		test.ErrorIs(t, err, ErrInvalidSignature)
 	})
 
-	// The point of the rotation window: a subscriber holding the new key accepts
-	// a delivery still signed with the old one, and vice versa.
+	// A verifier with nothing to verify against rejects everything, and says so
+	// as its own fault rather than as a verdict about the caller.
+	T.Run("an empty keyring is a configuration error", func(t *testing.T) {
+		t.Parallel()
+
+		signature, err := Sign(Keyring{Current: []byte("secret")}, testBody, signingTime)
+		must.NoError(t, err)
+
+		err = Verify(Keyring{}, testBody, signature, WithVerificationTime(signingTime))
+		test.ErrorIs(t, err, ErrNoVerificationKey)
+		test.False(t, errors.Is(err, ErrInvalidSignature))
+	})
+
+	// The point of the rotation window: a receiver holding the new key accepts a
+	// request still signed with the old one, and vice versa.
 	T.Run("accepts either side of a rotation", func(t *testing.T) {
 		t.Parallel()
 
-		sent, err := Sign(Secret{Current: []byte("new"), Previous: []byte("old")}, testBody, signingTime)
+		sent, err := Sign(Keyring{Current: []byte("new"), Previous: []byte("old")}, testBody, signingTime)
 		must.NoError(t, err)
 
-		// A subscriber that has already moved to the new key.
-		test.NoError(t, Verify(Secret{Current: []byte("new")}, testBody, sent, WithVerificationTime(signingTime)))
+		// A receiver that has already moved to the new key.
+		test.NoError(t, Verify(Keyring{Current: []byte("new")}, testBody, sent, WithVerificationTime(signingTime)))
 
-		// A subscriber that has not yet moved.
-		test.NoError(t, Verify(Secret{Current: []byte("old")}, testBody, sent, WithVerificationTime(signingTime)))
+		// One that has not yet moved.
+		test.NoError(t, Verify(Keyring{Current: []byte("old")}, testBody, sent, WithVerificationTime(signingTime)))
 
 		// One that never had either.
 		test.ErrorIs(t,
-			Verify(Secret{Current: []byte("unrelated")}, testBody, sent, WithVerificationTime(signingTime)),
+			Verify(Keyring{Current: []byte("unrelated")}, testBody, sent, WithVerificationTime(signingTime)),
 			ErrInvalidSignature,
 		)
 	})
@@ -151,11 +164,11 @@ func TestVerify(T *testing.T) {
 	T.Run("a verifier mid-rotation accepts a sender that has not rotated", func(t *testing.T) {
 		t.Parallel()
 
-		sent, err := Sign(Secret{Current: []byte("old")}, testBody, signingTime)
+		sent, err := Sign(Keyring{Current: []byte("old")}, testBody, signingTime)
 		must.NoError(t, err)
 
 		test.NoError(t, Verify(
-			Secret{Current: []byte("new"), Previous: []byte("old")},
+			Keyring{Current: []byte("new"), Previous: []byte("old")},
 			testBody, sent, WithVerificationTime(signingTime),
 		))
 	})
@@ -166,21 +179,21 @@ func TestVerify(T *testing.T) {
 	T.Run("rejects a stale signature", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		signature, err := Sign(secret, testBody, signingTime)
+		signature, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
-		test.NoError(t, Verify(secret, testBody, signature,
+		test.NoError(t, Verify(keyring, testBody, signature,
 			WithVerificationTime(signingTime.Add(4*time.Minute))))
 
 		test.ErrorIs(t,
-			Verify(secret, testBody, signature, WithVerificationTime(signingTime.Add(6*time.Minute))),
+			Verify(keyring, testBody, signature, WithVerificationTime(signingTime.Add(6*time.Minute))),
 			ErrStaleSignature,
 		)
 
 		test.ErrorIs(t,
-			Verify(secret, testBody, signature, WithVerificationTime(signingTime.Add(-6*time.Minute))),
+			Verify(keyring, testBody, signature, WithVerificationTime(signingTime.Add(-6*time.Minute))),
 			ErrStaleSignature,
 		)
 	})
@@ -188,18 +201,18 @@ func TestVerify(T *testing.T) {
 	T.Run("honors a custom tolerance", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		signature, err := Sign(secret, testBody, signingTime)
+		signature, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
-		test.NoError(t, Verify(secret, testBody, signature,
+		test.NoError(t, Verify(keyring, testBody, signature,
 			WithVerificationTime(signingTime.Add(30*time.Minute)),
 			WithTolerance(time.Hour),
 		))
 
 		test.ErrorIs(t,
-			Verify(secret, testBody, signature,
+			Verify(keyring, testBody, signature,
 				WithVerificationTime(signingTime.Add(2*time.Second)),
 				WithTolerance(time.Second),
 			),
@@ -212,13 +225,13 @@ func TestVerify(T *testing.T) {
 	T.Run("a non-positive tolerance does not disable the check", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		signature, err := Sign(secret, testBody, signingTime)
+		signature, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
 		test.ErrorIs(t,
-			Verify(secret, testBody, signature,
+			Verify(keyring, testBody, signature,
 				WithVerificationTime(signingTime.Add(time.Hour)),
 				WithTolerance(0),
 			),
@@ -231,15 +244,15 @@ func TestVerify(T *testing.T) {
 	T.Run("rejects an unknown scheme", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		signature, err := Sign(secret, testBody, signingTime)
+		signature, err := Sign(keyring, testBody, signingTime)
 		must.NoError(t, err)
 
 		swapped := "v2" + strings.TrimPrefix(signature, "v1")
 
 		test.ErrorIs(t,
-			Verify(secret, testBody, swapped, WithVerificationTime(signingTime)),
+			Verify(keyring, testBody, swapped, WithVerificationTime(signingTime)),
 			ErrInvalidSignature,
 		)
 	})
@@ -247,7 +260,7 @@ func TestVerify(T *testing.T) {
 	T.Run("malformed headers", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
 		for name, signature := range map[string]string{
 			"empty":               "",
@@ -263,25 +276,24 @@ func TestVerify(T *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 
-				err := Verify(secret, testBody, signature, WithVerificationTime(signingTime))
+				err := Verify(keyring, testBody, signature, WithVerificationTime(signingTime))
 				must.Error(t, err)
 				test.True(t, errors.Is(err, ErrInvalidSignature))
 			})
 		}
 	})
 
-	// An empty body is a legal payload for the signing construction even though
-	// Dispatch refuses to send one — the two rejections belong at different
-	// layers, and Verify must not disagree with Sign about it.
+	// An empty body is a legal payload for the signing construction, and Verify
+	// must not disagree with Sign about it.
 	T.Run("empty body round-trips", func(t *testing.T) {
 		t.Parallel()
 
-		secret := Secret{Current: []byte("secret")}
+		keyring := Keyring{Current: []byte("secret")}
 
-		signature, err := Sign(secret, nil, signingTime)
+		signature, err := Sign(keyring, nil, signingTime)
 		must.NoError(t, err)
 
-		test.NoError(t, Verify(secret, nil, signature, WithVerificationTime(signingTime)))
+		test.NoError(t, Verify(keyring, nil, signature, WithVerificationTime(signingTime)))
 	})
 }
 
@@ -299,7 +311,7 @@ func mustSuffix(t *testing.T, signature string) string {
 func TestSigningPayload(T *testing.T) {
 	T.Parallel()
 
-	// Pinned literally, because this is the wire contract every subscriber
+	// Pinned literally, because this is the wire contract every counterparty
 	// reimplements. A change here breaks every consumer at once and must be a
 	// new scheme version rather than an edit.
 	T.Run("renders scheme.timestamp.body", func(t *testing.T) {
@@ -307,7 +319,24 @@ func TestSigningPayload(T *testing.T) {
 
 		test.EqOp(t,
 			`v1.1753900000.{"id":"abc","amount":42}`,
-			string(signingPayload(SignatureSchemeV1, 1753900000, testBody)),
+			string(signingPayload(SchemeV1, 1753900000, testBody)),
 		)
+	})
+}
+
+func TestKeyring_Keys(T *testing.T) {
+	T.Parallel()
+
+	T.Run("skips empty keys and preserves order", func(t *testing.T) {
+		t.Parallel()
+
+		test.SliceLen(t, 0, Keyring{}.Keys())
+		test.SliceLen(t, 1, Keyring{Current: []byte("a")}.Keys())
+		test.SliceLen(t, 1, Keyring{Previous: []byte("b")}.Keys())
+
+		both := Keyring{Current: []byte("a"), Previous: []byte("b")}.Keys()
+		must.SliceLen(t, 2, both)
+		test.Eq(t, []byte("a"), both[0])
+		test.Eq(t, []byte("b"), both[1])
 	})
 }

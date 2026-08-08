@@ -4,6 +4,7 @@ import (
 	"context"
 	stderrors "errors"
 
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 
@@ -91,6 +92,11 @@ func clientMessage(code codes.Code, err error) string {
 var clientSafeSentinels = []error{
 	platformerrors.ErrPermissionDenied,
 	ratelimiting.ErrRateLimited,
+	// Both signature sentinels: neither says anything about the key, and the
+	// stale one names clock skew, which is the difference between a caller that
+	// can fix itself and one that files a ticket.
+	requestsigning.ErrStaleSignature,
+	requestsigning.ErrInvalidSignature,
 	platformerrors.ErrNilInputParameter,
 	platformerrors.ErrEmptyInputParameter,
 	platformerrors.ErrNilInputProvided,

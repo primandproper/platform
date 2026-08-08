@@ -223,38 +223,6 @@ func TestSQLStoreOptions(T *testing.T) {
 	})
 }
 
-func TestVerifyOptions(T *testing.T) {
-	T.Parallel()
-
-	T.Run("WithTolerance", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &verifyConfig{tolerance: DefaultTolerance}
-
-		WithTolerance(time.Hour)(cfg)
-		test.EqOp(t, time.Hour, cfg.tolerance)
-
-		// Non-positive must not disable the freshness check.
-		WithTolerance(0)(cfg)
-		test.EqOp(t, time.Hour, cfg.tolerance)
-
-		WithTolerance(-time.Hour)(cfg)
-		test.EqOp(t, time.Hour, cfg.tolerance)
-	})
-
-	T.Run("WithVerificationTime", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &verifyConfig{}
-
-		WithVerificationTime(signingTime)(cfg)
-		test.EqOp(t, signingTime, cfg.now)
-
-		WithVerificationTime(time.Time{})(cfg)
-		test.EqOp(t, signingTime, cfg.now)
-	})
-}
-
 // A nil option in the variadic list is skipped rather than dereferenced, so a
 // caller building an option slice conditionally cannot panic the constructor.
 func TestNilOptionsAreSkipped(T *testing.T) {
@@ -277,24 +245,7 @@ func TestNilOptionsAreSkipped(T *testing.T) {
 
 		_, err = NewSQLStore(newSQLiteEnv(t).client, absentStore)
 		test.NoError(t, err)
-
-		test.NoError(t, Verify(
-			Secret{Current: []byte("k")},
-			nil,
-			mustSign(t, Secret{Current: []byte("k")}, nil, signingTime),
-			nil,
-			WithVerificationTime(signingTime),
-		))
 	})
-}
-
-func mustSign(t *testing.T, secret Secret, body []byte, at time.Time) string {
-	t.Helper()
-
-	signature, err := Sign(secret, body, at)
-	must.NoError(t, err)
-
-	return signature
 }
 
 // allowAnyURLCtx documents that the test helper matches the URLChecker shape.

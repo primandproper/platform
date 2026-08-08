@@ -13,6 +13,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/retry"
 
@@ -148,14 +149,14 @@ func TestWorker_deliver(T *testing.T) {
 		// And the signature verifies against exactly those bytes. This is the
 		// round trip that matters: Sign and Verify agreeing in a unit test
 		// proves less than the signature on a real request body doing so.
-		timestamp, err := strconv.ParseInt(gotHeader.Get(TimestampHeader), 10, 64)
+		timestamp, err := strconv.ParseInt(gotHeader.Get(requestsigning.TimestampHeader), 10, 64)
 		must.NoError(t, err)
 
-		must.NoError(t, Verify(
+		must.NoError(t, requestsigning.Verify(
 			Secret{Current: []byte("secret")},
 			gotBody,
-			gotHeader.Get(SignatureHeader),
-			WithVerificationTime(time.Unix(timestamp, 0)),
+			gotHeader.Get(requestsigning.SignatureHeader),
+			requestsigning.WithVerificationTime(time.Unix(timestamp, 0)),
 		))
 
 		test.EqOp(t, "order.created", gotHeader.Get(EventTypeHeader))
@@ -202,12 +203,12 @@ func TestWorker_deliver(T *testing.T) {
 		w := newTestWorker(t, &fakeStore{})
 
 		dispatch := testDispatch(server.URL, 1)
-		dispatch.Endpoint.Headers = map[string]string{SignatureHeader: "v1,t=0,s=deadbeef"}
+		dispatch.Endpoint.Headers = map[string]string{requestsigning.SignatureHeader: "v1,t=0,s=deadbeef"}
 
 		_, err := w.deliver(t.Context(), dispatch)
 		must.NoError(t, err)
 
-		test.NotEqOp(t, "v1,t=0,s=deadbeef", gotHeader.Get(SignatureHeader))
+		test.NotEqOp(t, "v1,t=0,s=deadbeef", gotHeader.Get(requestsigning.SignatureHeader))
 	})
 
 	T.Run("a non-2xx status is a failure", func(t *testing.T) {

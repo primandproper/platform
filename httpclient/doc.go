@@ -95,12 +95,30 @@ cookies, responses that Vary: *, and any request already running its own
 conditional exchange — an If-None-Match or a Range the caller set is a
 precondition this transport has no business answering from a stored copy.
 
+# Request signing
+
+WithRequestSigning stamps an HMAC signature over every outgoing request body, so
+a first-party callee can prove the call came from a holder of the shared key:
+
+	client, err := httpclient.NewHTTPClient(
+		httpclient.WithRequestSigning(signer),
+		httpclient.WithRetryPolicy(policy),
+	)
+
+The signer comes from cryptography/requestsigning, whose keys are resolved
+through secrets rather than captured at construction, so a rotation reaches the
+wire without a restart. The inbound counterpart is requestsigning/http's
+middleware, over the same scheme — one configuration governs both directions.
+
+Every signed request's body is buffered whole, because a MAC over it cannot be
+computed any other way. A client that streams large uploads should not sign them.
+
 # The nesting is fixed
 
 Outermost to innermost: observability, response cache, circuit breaker, retry,
-rate limit, tracing, base transport. Option order does not change it, because
-only one arrangement of these layers is right and a caller who got it wrong
-would hold a client that looks protected and is not.
+rate limit, request signing, tracing, base transport. Option order does not
+change it, because only one arrangement of these layers is right and a caller
+who got it wrong would hold a client that looks protected and is not.
 
 The cache is outermost because a hit is not a request. It reaches no wire, so it
 must not report an outcome to a circuit breaker or spend a token from a budget
@@ -118,7 +136,15 @@ caller's intentions, so a retry storm has to be charged against it. The other
 arrangement — one token per logical call — would let a retrying client burst
 straight past the budget it was configured to respect.
 
-Tracing sits below all three, so each attempt is its own client span instead of
+Signing is below even the limiter, for both of the reasons above read the other
+way round. Below retry, because a signature carries a timestamp and the receiver
+rejects a stale one: an attempt that reused the first attempt's signature would
+arrive outside the tolerance after a long backoff, which is a failure that shows
+up only in the requests already having a bad time. Below the limiter, because
+signing costs a key resolution and an HMAC over the whole body, and a request
+that never leaves should pay for neither.
+
+Tracing sits below all of them, so each attempt is its own client span instead of
 one span spread over a loop.
 
 # What retrying will and will not do
@@ -174,6 +200,7 @@ URL, which is unbounded:
 	circuit_outcomes      how each completed request was classified
 	rate_limited          requests the local limiter refused
 	cache_outcomes        how the response cache answered, by cache.outcome
+	signing_failures      requests that could not be signed, and so never sent
 
 The cache.outcome values partition every request that reaches the cache: hit
 (answered without a wire request), revalidated (a 304 confirmed the stored

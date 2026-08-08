@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
@@ -39,8 +40,8 @@ var (
 // overwrite its own signature header would be authenticating deliveries against
 // a value it chose.
 var reservedHeaders = []string{
-	SignatureHeader,
-	TimestampHeader,
+	requestsigning.SignatureHeader,
+	requestsigning.TimestampHeader,
 	EventTypeHeader,
 	DeliveryIDHeader,
 	AttemptHeader,

@@ -5,11 +5,28 @@ import (
 	"slices"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.
 const serviceName = "webhooks"
+
+// The headers this package sets that are specific to a webhook delivery. The
+// signature and timestamp headers are not among them: those belong to the
+// signing scheme rather than to webhooks, and live in
+// requestsigning.SignatureHeader and requestsigning.TimestampHeader.
+const (
+	// EventTypeHeader carries the delivery's event type, so a subscriber can
+	// route without parsing the body.
+	EventTypeHeader = "X-Platform-Event"
+	// DeliveryIDHeader carries the delivery ID, which is stable across retries
+	// of the same delivery and is therefore the subscriber's deduplication key.
+	DeliveryIDHeader = "X-Platform-Delivery"
+	// AttemptHeader carries which attempt this is, 1-indexed, so a subscriber
+	// can tell a first delivery from a redelivery.
+	AttemptHeader = "X-Platform-Attempt"
+)
 
 // Observability keys for this package's spans and log fields. Declared once so
 // a field set on a span and the same field logged beside it cannot drift, and
@@ -42,7 +59,12 @@ var (
 	// ErrNoSigningSecret indicates an endpoint with no current signing secret.
 	// Unsigned delivery is not an option this package offers: a subscriber that
 	// cannot authenticate a payload cannot safely act on it.
-	ErrNoSigningSecret = platformerrors.New("webhook endpoint has no signing secret")
+	//
+	// It is requestsigning's own sentinel rather than one of this package's, so
+	// that an endpoint rejected at registration and a delivery that failed to
+	// sign report the same error — they are the same condition, found at two
+	// different moments.
+	ErrNoSigningSecret = requestsigning.ErrNoSigningKey
 
 	// ErrEndpointDisabled indicates a Replay targeting an endpoint that is
 	// disabled. Dispatch skips disabled endpoints silently — that is what
@@ -124,13 +146,12 @@ func (c Catalog) EventTypes() []string {
 // A single per-account secret — which is what this package exists partly to
 // replace — makes that impossible: rolling it breaks every subscriber for the
 // account at the same instant, so in practice it never gets rolled.
-type Secret struct {
-	// Current is the key new signatures are minted under. Required.
-	Current []byte `json:"-"`
-	// Previous is an outgoing key still emitted alongside Current during a
-	// rotation window. Empty outside one.
-	Previous []byte `json:"-"`
-}
+//
+// It is an alias rather than a type of its own, so that an endpoint's keys and
+// the keys any other signed call in the platform uses are the same thing. The
+// scheme lives in requestsigning; webhooks is one of its callers, not its
+// owner.
+type Secret = requestsigning.Keyring
 
 // Endpoint is one subscriber: where deliveries go, what they are signed with,
 // and which events reach it.

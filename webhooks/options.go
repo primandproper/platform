@@ -2,7 +2,6 @@ package webhooks
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -70,35 +69,6 @@ func WithDispatcherTracerProvider(tracerProvider tracing.Provider) DispatcherOpt
 func WithDispatcherMetricsProvider(metricsProvider metrics.Provider) DispatcherOption {
 	return func(d *dispatcher) {
 		d.metricsProvider = metricsProvider
-	}
-}
-
-// VerifyOption customizes Verify.
-type VerifyOption func(*verifyConfig)
-
-// WithTolerance overrides DefaultTolerance — how far the signature's timestamp
-// may sit from the verifier's clock. A non-positive duration leaves the default
-// in place.
-//
-// There is deliberately no way to disable the check. A signature with no
-// freshness bound is replayable forever, which is the property this scheme
-// exists to remove.
-func WithTolerance(d time.Duration) VerifyOption {
-	return func(c *verifyConfig) {
-		if d > 0 {
-			c.tolerance = d
-		}
-	}
-}
-
-// WithVerificationTime pins the time Verify compares the signature's timestamp
-// against, instead of the wall clock. It exists for tests and for replaying a
-// captured request against a known instant.
-func WithVerificationTime(t time.Time) VerifyOption {
-	return func(c *verifyConfig) {
-		if !t.IsZero() {
-			c.now = t
-		}
 	}
 }
 

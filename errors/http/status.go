@@ -20,6 +20,7 @@ var codeToStatus = map[ErrorCode]int{
 	ErrIdempotencyKeyReused:       http.StatusUnprocessableEntity, // E114
 	ErrResourceConflict:           http.StatusConflict,            // E115
 	ErrTooManyRequests:            http.StatusTooManyRequests,     // E116
+	ErrInvalidRequestSignature:    http.StatusUnauthorized,        // E117
 }
 
 // HTTPStatusForCode returns the HTTP status code that corresponds to an ErrorCode.

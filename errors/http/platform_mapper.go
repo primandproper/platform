@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
@@ -41,6 +42,14 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		// probing for the threshold; when a limiter can say when to come back,
 		// that answer belongs in Retry-After, where a client can act on it.
 		return ErrTooManyRequests, "too many requests", true
+	// Ordered before ErrInvalidSignature, which it does not wrap, but the pair
+	// reads as one decision: a stale signature is the only verification failure
+	// with a cause the caller can diagnose, so it is the only one told what to
+	// fix. Neither message says anything about the key.
+	case errors.Is(err, requestsigning.ErrStaleSignature):
+		return ErrInvalidRequestSignature, "request signature timestamp outside tolerance", true
+	case errors.Is(err, requestsigning.ErrInvalidSignature):
+		return ErrInvalidRequestSignature, "invalid request signature", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):

@@ -53,31 +53,30 @@ state a row is in rather than a message that stopped being redelivered.
 
 	X-Platform-Signature: v1,t=1753900000,s=<hex(HMAC-SHA256(secret, "v1." + t + "." + body))>
 
-Both the scheme and the timestamp are inside the signed material, and each is
-load-bearing.
+The scheme is cryptography/requestsigning, and this package is one of its
+callers rather than its owner. Secret is requestsigning.Keyring, deliveries are
+signed with requestsigning.Sign, and a subscriber verifies them with
+requestsigning.Verify — the same functions guarding first-party
+service-to-service calls, over the same wire format. Read that package for why
+both the version and the timestamp are inside the signed material, and for what
+the Current/Previous pair buys.
 
-The timestamp is what makes a captured request expire. A signature over the body
-alone is valid forever, so anyone who observes one request can replay it against
-the subscriber indefinitely. Verify rejects anything outside DefaultTolerance,
-and does so before computing any HMAC, so a replay flood costs the subscriber
-nothing.
+What is worth repeating here is the receiving end. Verification is where these
+schemes are actually got wrong: subscribers compare with ==, skip the timestamp
+check, or verify a re-serialized body rather than the received bytes. Point
+subscribers at requestsigning.Verify rather than at the paragraph above — a
+scheme described in prose is a scheme reimplemented, and reimplemented
+verification is where the timing leak goes.
 
-The v1 prefix is what makes the construction replaceable. Binding the scheme
-into the signed bytes means a v1 signature can only ever verify as v1, so a
-later scheme can be introduced alongside it rather than by flag-day.
+	body, err := io.ReadAll(req.Body)   // the exact bytes, before any decoding
+	if err != nil {
+		return err
+	}
 
-Rotation is the other half. Secret carries Current and Previous, and every
-delivery is signed under both while Previous is set — several s= components in
-one header. A subscriber rolls its key by accepting either signature for as long
-as it needs, and the operator clears Previous afterwards. A single secret per
-account, which is what this package was extracted to replace, cannot be rolled
-at all without breaking every subscriber for that account simultaneously; in
-practice that means it never gets rolled.
+	err = requestsigning.Verify(secret, body, req.Header.Get(requestsigning.SignatureHeader))
 
-Verify ships here on purpose. Verification is where these schemes are actually
-got wrong — subscribers compare with ==, skip the timestamp check, or verify a
-re-serialized body rather than the received bytes. Handing out the sender and
-leaving the receiver to reimplement it from prose is how that keeps happening.
+A subscriber that is itself a platform service can skip even that and install
+requestsigning/http's middleware on the callback route.
 
 # Ordering
 
