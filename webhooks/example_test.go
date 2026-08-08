@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/database/sqlite"
@@ -53,9 +54,10 @@ func ExampleDispatcher_Dispatch() {
 	// Output: <nil>
 }
 
-// Verify is what a subscriber calls on receipt. It is shipped with the sender
-// because this is where webhook schemes are actually got wrong.
-func ExampleVerify() {
+// What a subscriber does on receipt. The scheme lives in
+// cryptography/requestsigning, which this package signs through; a subscriber
+// verifies through the same package, so the two halves cannot drift.
+func Example_verifyingADelivery() {
 	secret := webhooks.Secret{Current: []byte("the shared signing key")}
 
 	subscriber := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
@@ -69,7 +71,7 @@ func ExampleVerify() {
 			return
 		}
 
-		if err = webhooks.Verify(secret, body, req.Header.Get(webhooks.SignatureHeader)); err != nil {
+		if err = requestsigning.Verify(secret, body, req.Header.Get(requestsigning.SignatureHeader)); err != nil {
 			res.WriteHeader(http.StatusUnauthorized)
 
 			return
@@ -85,7 +87,7 @@ func ExampleVerify() {
 
 	payload := []byte(`{"id":"order-7"}`)
 
-	signature, err := webhooks.Sign(secret, payload, time.Now())
+	signature, err := requestsigning.Sign(secret, payload, time.Now())
 	if err != nil {
 		panic(err)
 	}
@@ -96,7 +98,7 @@ func ExampleVerify() {
 		panic(err)
 	}
 
-	req.Header.Set(webhooks.SignatureHeader, signature)
+	req.Header.Set(requestsigning.SignatureHeader, signature)
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -107,47 +109,11 @@ func ExampleVerify() {
 	fmt.Println(res.StatusCode)
 
 	// A tampered body no longer verifies.
-	fmt.Println(webhooks.Verify(secret, []byte(`{"id":"order-8"}`), signature))
+	fmt.Println(requestsigning.Verify(secret, []byte(`{"id":"order-8"}`), signature))
 
 	// Output:
 	// 204
-	// invalid webhook signature
-}
-
-// Rotation is why Secret is a pair. Deliveries are signed under both keys while
-// Previous is set, so a subscriber can switch without coordinating an instant
-// of downtime with the sender.
-func ExampleSign() {
-	rotating := webhooks.Secret{
-		Current:  []byte("the new key"),
-		Previous: []byte("the outgoing key"),
-	}
-
-	payload := []byte(`{"id":"order-7"}`)
-	signedAt := time.Unix(1753900000, 0)
-
-	signature, err := webhooks.Sign(rotating, payload, signedAt)
-	if err != nil {
-		panic(err)
-	}
-
-	// Two s= components: a subscriber that has moved to the new key and one that
-	// has not both find a signature they can verify.
-	fmt.Println(strings.Count(signature, ",s="))
-
-	fmt.Println(webhooks.Verify(
-		webhooks.Secret{Current: []byte("the new key")},
-		payload, signature, webhooks.WithVerificationTime(signedAt),
-	))
-	fmt.Println(webhooks.Verify(
-		webhooks.Secret{Current: []byte("the outgoing key")},
-		payload, signature, webhooks.WithVerificationTime(signedAt),
-	))
-
-	// Output:
-	// 2
-	// <nil>
-	// <nil>
+	// invalid request signature
 }
 
 // exampleWiring stands up a throwaway SQLite-backed dispatcher so the Dispatch

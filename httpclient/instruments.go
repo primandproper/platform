@@ -38,6 +38,7 @@ type transportObserver struct {
 	circuitOutcomes   metrics.Int64Counter
 	rateLimited       metrics.Int64Counter
 	cacheOutcomes     metrics.Int64Counter
+	signingFailures   metrics.Int64Counter
 
 	retryAfterWaits metrics.Float64Histogram
 }
@@ -66,6 +67,7 @@ func newTransportObserver(
 		{&obs.circuitOutcomes, "circuit_outcomes"},
 		{&obs.rateLimited, "rate_limited"},
 		{&obs.cacheOutcomes, "cache_outcomes"},
+		{&obs.signingFailures, "signing_failures"},
 	}
 	for _, c := range counters {
 		instrument, err := mp.NewInt64Counter(fmt.Sprintf("%s_%s", serviceName, c.name))

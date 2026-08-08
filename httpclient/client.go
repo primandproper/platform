@@ -52,8 +52,8 @@ func (c *clientConfig) buildClient() (*http.Client, error) {
 		)
 	}
 
-	// The middlewares wrap inside-out, so this reads bottom-up: the rate limiter
-	// is nearest the wire and the response cache is outermost. The nesting is
+	// The middlewares wrap inside-out, so this reads bottom-up: the signer is
+	// nearest the wire and the response cache is outermost. The nesting is
 	// fixed rather than following the order the options were passed, because
 	// only one arrangement of them is correct and a caller who got it wrong
 	// would have a client that looks protected and is not.
@@ -61,6 +61,18 @@ func (c *clientConfig) buildClient() (*http.Client, error) {
 	// Tracing sits below all of them, so each attempt is its own client span
 	// rather than one span covering a loop.
 	layered := false
+
+	// Signing lowest of all, for two reasons. Below retry, so every attempt is
+	// signed afresh — a retry carrying the first attempt's timestamp arrives
+	// stale after a long backoff, and is refused. Below the limiter, so a
+	// request that never leaves is never signed: a key resolution and an HMAC
+	// over the whole body is real work to spend on something being dropped.
+	if c.signer != nil {
+		c.signer.base = transport
+		c.signer.obs = obs
+		transport = c.signer
+		layered = true
+	}
 
 	if c.rateLimiter != nil {
 		c.rateLimiter.base = transport

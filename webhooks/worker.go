@@ -14,6 +14,7 @@ import (
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v10/clock"
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/httpclient"
 	"github.com/primandproper/platform-go/v10/identifiers"
@@ -472,7 +473,7 @@ func (w *Worker) buildRequest(ctx context.Context, dispatch *ClaimedDispatch) (*
 	// and carried as raw bytes precisely so that nothing between dispatch and
 	// delivery re-serializes it — a signature over a re-marshaled body covers
 	// something the subscriber never received.
-	signature, err := Sign(endpoint.Secret, dispatch.Payload, signedAt)
+	signature, err := requestsigning.Sign(endpoint.Secret, dispatch.Payload, signedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -492,8 +493,8 @@ func (w *Worker) buildRequest(ctx context.Context, dispatch *ClaimedDispatch) (*
 	}
 
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set(SignatureHeader, signature)
-	req.Header.Set(TimestampHeader, strconv.FormatInt(signedAt.Unix(), 10))
+	req.Header.Set(requestsigning.SignatureHeader, signature)
+	req.Header.Set(requestsigning.TimestampHeader, strconv.FormatInt(signedAt.Unix(), 10))
 	req.Header.Set(EventTypeHeader, dispatch.EventType)
 	req.Header.Set(DeliveryIDHeader, dispatch.DeliveryID)
 	req.Header.Set(AttemptHeader, strconv.Itoa(dispatch.Attempts))

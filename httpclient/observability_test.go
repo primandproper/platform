@@ -428,6 +428,7 @@ func TestTransportObservability(T *testing.T) {
 			serviceName + "_circuit_outcomes",
 			serviceName + "_rate_limited",
 			serviceName + "_cache_outcomes",
+			serviceName + "_signing_failures",
 			serviceName + "_retry_after_seconds",
 		}, provider.created)
 	})

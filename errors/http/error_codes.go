@@ -20,6 +20,7 @@ var (
 		string(ErrIdempotencyKeyReused):       ErrIdempotencyKeyReused,
 		string(ErrResourceConflict):           ErrResourceConflict,
 		string(ErrTooManyRequests):            ErrTooManyRequests,
+		string(ErrInvalidRequestSignature):    ErrInvalidRequestSignature,
 	}
 )
 
@@ -74,4 +75,13 @@ const (
 	// spent: "too much this month" is a different answer with a different
 	// remedy, and conflating them tells a client to retry when it should stop.
 	ErrTooManyRequests ErrorCode = "E116"
+	// ErrInvalidRequestSignature is returned when a request's HMAC signature did
+	// not verify, or verified against a timestamp outside the tolerance.
+	//
+	// One code for both, because the client's remedy is the same — sign it
+	// properly, with a current clock — and because a code per failure mode is a
+	// forgery oracle. The two are still distinguishable in the message, which is
+	// where clock skew, the one benign cause, can be said out loud without
+	// saying anything about the key.
+	ErrInvalidRequestSignature ErrorCode = "E117"
 )

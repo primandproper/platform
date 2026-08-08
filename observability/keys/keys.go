@@ -151,4 +151,9 @@ const (
 	// both a cache miss and a circuit-breaker success, and one attribute cannot
 	// carry both.
 	CacheOutcomeKey = "cache.outcome"
+	// SignatureSchemeKey is the standard key for referring to the request-signing
+	// scheme a signature was minted or checked under. It comes from the
+	// component's own configuration rather than from the caller, so it is bounded
+	// and safe as a metric attribute.
+	SignatureSchemeKey = "signature.scheme"
 )

@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
@@ -44,6 +45,13 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 	// fail over to another instance that shares the same limiter.
 	case errors.Is(err, ratelimiting.ErrRateLimited):
 		return codes.ResourceExhausted, true
+	// Unauthenticated rather than PermissionDenied: gRPC's own guidance
+	// separates "we do not know who you are" from "we know, and you may not".
+	// A signature that does not verify is the first — nothing has been
+	// identified yet, so there is nothing to deny.
+	case errors.Is(err, requestsigning.ErrInvalidSignature),
+		errors.Is(err, requestsigning.ErrStaleSignature):
+		return codes.Unauthenticated, true
 	// Aborted is gRPC's concurrency-conflict code, and its documented advice —
 	// retry at a higher level — is exactly right here: the work may still
 	// succeed, and the client should ask again with the same key.

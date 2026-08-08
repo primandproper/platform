@@ -32,6 +32,14 @@ func (c *testClientConfig) GetMaxIdleConns() int              { return 2 }
 func (c *testClientConfig) GetMaxOpenConns() int              { return 1 }
 func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
 
+// The fixtures the delivery tests sign and verify against. They live here
+// rather than beside a signing test because the scheme itself moved to
+// cryptography/requestsigning; what is left in this package is a caller of it.
+var (
+	signingTime = time.Unix(1753900000, 0).UTC()
+	testBody    = []byte(`{"id":"abc","amount":42}`)
+)
+
 // prefixCounter names a fresh set of tables per subtest. Subtests may share one
 // database, and they must not share tables — the claim predicate is global to
 // the dispatches table, so one test's backlog would be another's.

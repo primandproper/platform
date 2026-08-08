@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -145,7 +147,7 @@ func TestEndpoint_Validate(T *testing.T) {
 	T.Run("setting a reserved header", func(t *testing.T) {
 		t.Parallel()
 
-		for _, name := range []string{SignatureHeader, "content-type", "X-PLATFORM-TIMESTAMP"} {
+		for _, name := range []string{requestsigning.SignatureHeader, "content-type", "X-PLATFORM-TIMESTAMP"} {
 			endpoint := valid()
 			endpoint.Headers = map[string]string{name: "attacker-chosen"}
 
@@ -202,7 +204,7 @@ func TestEndpoint_applyHeaders(T *testing.T) {
 		header := http.Header{}
 		endpoint.applyHeaders(header)
 
-		test.EqOp(t, "", header.Get(SignatureHeader))
+		test.EqOp(t, "", header.Get(requestsigning.SignatureHeader))
 		test.EqOp(t, "", header.Get("Content-Type"))
 		test.EqOp(t, "acme", header.Get("X-Tenant"))
 	})

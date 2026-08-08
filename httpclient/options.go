@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v10/cache"
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/circuitbreaking/partitioned"
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -32,6 +33,7 @@ type clientConfig struct {
 	breaker       *breakerTransport
 	retry         *retryTransport
 	rateLimiter   *rateLimitTransport
+	signer        *signingTransport
 
 	// The three pillars, each resolved to its noop at build time when absent, so
 	// a client asked for no observability records nowhere rather than nil-checks
@@ -245,6 +247,48 @@ func WithHTTPCache(store cache.Cache[CachedResponse], opts ...CacheOption) Optio
 	return func(c *clientConfig) {
 		if store != nil {
 			c.responseCache = newCacheTransport(store, opts)
+		}
+	}
+}
+
+// WithRequestSigning stamps a signature over every outgoing request body, so
+// the far side can prove the call came from a holder of the shared key.
+//
+// It is the outbound half of what requestsigning/http's middleware does
+// inbound, over the same requestsigning.Signer — so a first-party caller and
+// the service it calls can be configured from one scheme and one key source.
+//
+//	keys, err := requestsigning.NewSecretKeySource(secretSource, "SIGNING_KEY", "SIGNING_KEY_PREVIOUS")
+//	signer, err := requestsigning.NewSigner(keys)
+//
+//	client, err := httpclient.NewHTTPClient(
+//		httpclient.WithRequestSigning(signer),
+//		httpclient.WithRetryPolicy(policy),
+//	)
+//
+// # Where it sits
+//
+// Below the retry loop, so each attempt is signed afresh. A signature carries a
+// timestamp and the receiver rejects a stale one; a retry that fired after
+// thirty seconds of backoff still carrying the first attempt's timestamp would
+// arrive outside the tolerance and be refused — a failure that appears only
+// under the conditions that caused the retry in the first place.
+//
+// Below the rate limiter too, so a request the local limiter refused is never
+// signed at all. Signing costs a key resolution and an HMAC over the whole
+// body, and spending either on a request that will not be sent is waste.
+//
+// # The body
+//
+// Every signed request's body is buffered whole, because a MAC over it cannot
+// be computed any other way, and the buffered copy is what gets sent. A client
+// that streams large uploads should not sign them.
+//
+// A nil signer is ignored.
+func WithRequestSigning(signer requestsigning.Signer) Option {
+	return func(c *clientConfig) {
+		if signer != nil {
+			c.signer = &signingTransport{signer: signer}
 		}
 	}
 }
