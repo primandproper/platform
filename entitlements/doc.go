@@ -127,16 +127,21 @@ on the request path — moved to wiring time.
 	KillFlag   true -> deny any feature, whatever the plan says
 
 Both are false by default, and false in both cases means "defer to the plan".
-That symmetry is the whole design of this part, and it exists because
-featureflags.CanUseFeature cannot distinguish a flag that is off from one that
-was never created from a provider that is unreachable — all three answer false.
-Any scheme where a flag's false answer decided something would have an
-unconfigured flag, or a five-minute provider outage, silently revoke every
-entitlement in the catalog.
+That symmetry is the whole design of this part.
 
-So a flag nobody has created is inert, a provider nobody can reach is inert, and
-the plan keeps answering. A kill flag beats a grant flag, because a kill switch
-a grant can beat is not a kill switch.
+Three different things produce that false and only one of them is a decision. A
+flag that is off answers (false, nil). A flag that was never created answers
+(false, error) — the providers here report an unresolvable flag as a resolution
+failure rather than as a default. A provider that cannot be reached answers
+(false, error) too, indistinguishably from the previous case. This package
+treats all three alike and lets the plan answer, so a flag nobody has created is
+inert, a provider nobody can reach is inert, and only a flag somebody
+deliberately turned on changes anything.
+
+The alternative — letting a false answer decide — would have an unconfigured
+flag, or a five-minute provider outage, silently revoke every entitlement in the
+catalog. A kill flag beats a grant flag, because a kill switch a grant can beat
+is not a kill switch.
 
 Grant flags are refused on quota features (ErrGrantFlagNotAllowed). Opening a
 quota feature the plan excludes leaves nowhere for the limit to come from — the

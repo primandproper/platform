@@ -516,12 +516,20 @@ func (c *PlanChecker) validPlan(name string, cached bool) (plan string, stale bo
 //
 // An unnamed flag, an absent flag manager, a flag the provider does not know,
 // and a provider that errored all answer false, and that uniformity is the
-// design rather than a coincidence. featureflags.CanUseFeature cannot
-// distinguish "off" from "undefined" from "broken", so this package only ever
-// asks it questions whose false answer is inert: a grant flag that is false
-// defers to the plan, and a kill flag that is false defers to the plan. Neither
-// direction can be flipped by a flag nobody has created or a provider nobody can
-// reach.
+// design rather than a coincidence. The last two are reported as errors and are
+// indistinguishable from one another — a provider cannot tell "this flag does
+// not exist" from "I cannot reach the service that would know" — so this package
+// only ever asks questions whose false answer is inert: a grant flag that is
+// false defers to the plan, and a kill flag that is false defers to the plan.
+// Neither direction can be flipped by a flag nobody has created or a provider
+// nobody can reach.
+//
+// The error is counted rather than returned, and a sustained rise in
+// entitlements_flag_errors is worth an alert. It usually means a flag named in
+// this catalog was never created in the provider — a rollout that will never
+// happen, and, because the providers here score an unresolvable flag against
+// their circuit breaker, an evaluation that can eventually take the rest of the
+// process's flags down with it. See issue #126.
 func (c *PlanChecker) flagEnabled(ctx context.Context, op observability.Operation, account, flag string) bool {
 	if flag == "" || c.flags == nil {
 		return false
