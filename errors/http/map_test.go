@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
+	"github.com/primandproper/platform-go/v10/sessions"
 
 	"github.com/shoenig/test"
 )
@@ -54,6 +55,38 @@ func TestPlatformMapper_Map(T *testing.T) {
 		test.EqOp(t, ErrResourceConflict, code)
 		test.EqOp(t, "resource is in use", msg)
 		test.EqOp(t, http.StatusConflict, HTTPStatusForCode(code))
+	})
+
+	// Every unusable session is a 401 and a message that says nothing about
+	// which kind: telling a client apart "no such session" from "that one
+	// expired" is an oracle for whether a guessed identifier ever existed.
+	T.Run("session errors map to ErrFetchingSessionContextData", func(t *testing.T) {
+		t.Parallel()
+		for _, err := range []error{
+			sessions.ErrNotFound,
+			sessions.ErrExpired,
+			sessions.ErrIdleTimeout,
+			sessions.ErrAbsoluteTimeout,
+			platformerrors.Wrap(sessions.ErrIdleTimeout, "reading session"),
+		} {
+			code, _, ok := PlatformMapper.Map(err)
+			test.True(t, ok)
+			test.EqOp(t, ErrFetchingSessionContextData, code)
+			test.EqOp(t, http.StatusUnauthorized, HTTPStatusForCode(code))
+		}
+	})
+
+	// ErrExpired wraps ErrNotFound, so ordering decides which message wins —
+	// and the more specific one has to.
+	T.Run("an expired session is reported as expired", func(t *testing.T) {
+		t.Parallel()
+		_, msg, ok := PlatformMapper.Map(sessions.ErrIdleTimeout)
+		test.True(t, ok)
+		test.EqOp(t, "session expired", msg)
+
+		_, msg, ok = PlatformMapper.Map(sessions.ErrNotFound)
+		test.True(t, ok)
+		test.EqOp(t, "no active session", msg)
 	})
 
 	T.Run("ErrInFlight maps to ErrIdempotencyKeyInFlight", func(t *testing.T) {
