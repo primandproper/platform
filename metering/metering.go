@@ -5,6 +5,7 @@ import (
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/identifier"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.
@@ -292,27 +293,12 @@ func (m Meter) validate() error {
 	return nil
 }
 
-// validMeterName reports whether a name is a plain identifier: a letter or
-// underscore followed by letters, digits, or underscores.
+// validMeterName reports whether a name is a plain identifier.
 //
-// Restricted rather than escaped, because the name travels into a provider-side
-// idempotency key and into metric attribute values, and neither has a quoting
-// convention this package could rely on.
+// A meter name travels into a provider-side idempotency key and into metric
+// attribute values, which is the rule internal/identifier states.
 func validMeterName(name string) bool {
-	if name == "" || len(name) > MaxMeterNameLength {
-		return false
-	}
-
-	for i, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
-		case r >= '0' && r <= '9' && i > 0:
-		default:
-			return false
-		}
-	}
-
-	return true
+	return identifier.Valid(name, MaxMeterNameLength)
 }
 
 // Usage is one record of something having been consumed.
