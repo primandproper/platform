@@ -23,7 +23,7 @@ func (h errorHandler) Handle(err error) {
 }
 
 // SetupOtelGRPC creates a new trace provider instance and registers it as global trace provider.
-func SetupOtelGRPC(ctx context.Context, serviceName string, collectionProbability float64, c *Config) (tracing.TracerProvider, error) {
+func SetupOtelGRPC(ctx context.Context, serviceName string, collectionProbability float64, c *Config) (tracing.Provider, error) {
 	res := o11yutils.MustOtelResource(ctx, serviceName)
 
 	options := []otlptracegrpc.Option{

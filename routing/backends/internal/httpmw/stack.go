@@ -18,7 +18,7 @@ import (
 // StackConfig carries the configuration the shared middleware stack needs. Each
 // backend maps its own Config onto this so the stack stays backend-agnostic.
 type StackConfig struct {
-	TracerProvider         tracing.TracerProvider
+	TracerProvider         tracing.Provider
 	MeterProvider          metric.MeterProvider
 	ServiceName            string
 	ValidDomains           []string

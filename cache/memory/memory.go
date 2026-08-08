@@ -32,7 +32,7 @@ type entry[T any] struct {
 type inMemoryCacheImpl[T any] struct {
 	o11y                      observability.Observer
 	logger                    logging.Logger
-	tracerProvider            tracing.TracerProvider
+	tracerProvider            tracing.Provider
 	metricsProvider           metrics.Provider
 	clock                     clock.Clock
 	cacheHitCounter           metrics.Int64Counter

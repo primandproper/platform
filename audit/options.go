@@ -28,7 +28,7 @@ func WithReaderLogger(logger logging.Logger) ReaderOption {
 }
 
 // WithReaderTracerProvider attaches a tracer provider.
-func WithReaderTracerProvider(tracerProvider tracing.TracerProvider) ReaderOption {
+func WithReaderTracerProvider(tracerProvider tracing.Provider) ReaderOption {
 	return func(r *reader) {
 		r.tracerProvider = tracerProvider
 	}
@@ -83,7 +83,7 @@ func WithRecorderLogger(logger logging.Logger) RecorderOption {
 
 // WithRecorderTracerProvider attaches a tracer provider, so a Record shows up
 // as a child of the span that owns the transaction.
-func WithRecorderTracerProvider(tracerProvider tracing.TracerProvider) RecorderOption {
+func WithRecorderTracerProvider(tracerProvider tracing.Provider) RecorderOption {
 	return func(r *recorder) {
 		r.tracerProvider = tracerProvider
 	}
@@ -133,7 +133,7 @@ func WithSweeperLogger(logger logging.Logger) SweeperOption {
 
 // WithSweeperTracerProvider attaches a tracer provider. A tick that prunes
 // nothing is not traced: a root span every interval is noise.
-func WithSweeperTracerProvider(tracerProvider tracing.TracerProvider) SweeperOption {
+func WithSweeperTracerProvider(tracerProvider tracing.Provider) SweeperOption {
 	return func(s *Sweeper) {
 		s.tracerProvider = tracerProvider
 	}

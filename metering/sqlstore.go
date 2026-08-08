@@ -47,7 +47,7 @@ type sqlStore struct {
 
 	guardMissCounter metrics.Int64Counter
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
 }

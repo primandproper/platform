@@ -45,7 +45,7 @@ type service struct {
 	cancelledCounter metrics.Int64Counter
 	downloadCounter  metrics.Int64Counter
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg ServiceConfig

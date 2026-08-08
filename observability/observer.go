@@ -48,7 +48,7 @@ type observer struct {
 // scope its spans by accident, so none of them do.
 // A nil tracerProvider is safe: NewNamedTracer substitutes a noop provider, so
 // an unconfigured component traces nowhere rather than panicking.
-func NewObserver(name string, logger logging.Logger, tracerProvider tracing.TracerProvider) Observer {
+func NewObserver(name string, logger logging.Logger, tracerProvider tracing.Provider) Observer {
 	return NewObserverWithValues(name, logger, tracerProvider, nil)
 }
 
@@ -69,7 +69,7 @@ func NewObserver(name string, logger logging.Logger, tracerProvider tracing.Trac
 func NewObserverWithValues(
 	name string,
 	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
+	tracerProvider tracing.Provider,
 	values map[string]any,
 ) Observer {
 	named := logging.NewNamedLogger(logger, name)

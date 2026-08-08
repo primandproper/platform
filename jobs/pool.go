@@ -120,7 +120,7 @@ type Pool struct {
 	messageHist        metrics.Float64Histogram
 	waitHist           metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	topicAttr metric.MeasurementOption

@@ -64,7 +64,7 @@ type Writer struct {
 
 	enqueuedCounter metrics.Int64Counter
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
 	table           string

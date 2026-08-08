@@ -13,7 +13,7 @@ type Option func(*options)
 
 type options struct {
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 }
 
@@ -40,7 +40,7 @@ func WithLogger(logger logging.Logger) Option {
 // each connect attempt. Individual notifications are not traced: a root span
 // per wake is one span per enqueue across the whole fleet, and the work the
 // wake causes belongs to the consumer's trace, not the listener's.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }
 

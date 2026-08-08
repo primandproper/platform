@@ -54,7 +54,7 @@ type Recorder[E any] struct {
 	sink            Sink
 	o11y            observability.Observer
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	stop            chan struct{}
 	done            chan struct{}

@@ -67,7 +67,7 @@ type Resolver struct {
 	errorsCounter      metrics.Int64Counter
 
 	metricsProvider metrics.Provider
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	dialect         dialect.Dialect
 	// prefix is the caller's namespace with its separator already appended —
 	// "ddb_" for a namespace of "ddb", and empty for none. Every query in

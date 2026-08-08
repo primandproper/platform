@@ -82,7 +82,7 @@ func (p *redisPublisher) PublishAsync(ctx context.Context, data any) {
 }
 
 // provideRedisPublisher provides a redis-backed Publisher.
-func provideRedisPublisher(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, redisClient messagePublisher, topic string) (*redisPublisher, error) {
+func provideRedisPublisher(logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, redisClient messagePublisher, topic string) (*redisPublisher, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
 	publishedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_published", topic))
@@ -115,7 +115,7 @@ type publisherProvider struct {
 	o11y              observability.Observer
 	publisherCache    map[string]messagequeue.Publisher
 	redisClient       messagePublisher
-	tracerProvider    tracing.TracerProvider
+	tracerProvider    tracing.Provider
 	metricsProvider   metrics.Provider
 	publisherCacheHat sync.RWMutex
 }

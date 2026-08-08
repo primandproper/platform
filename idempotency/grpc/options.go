@@ -34,7 +34,7 @@ type (
 		methodFilter func(string) bool
 
 		logger          logging.Logger
-		tracerProvider  tracing.TracerProvider
+		tracerProvider  tracing.Provider
 		metricsProvider metrics.Provider
 
 		metadataKey      string
@@ -126,7 +126,7 @@ func WithLogger(logger logging.Logger) Option {
 }
 
 // WithTracerProvider attaches a tracer provider.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(c *config) {
 		c.tracerProvider = tracerProvider
 	}

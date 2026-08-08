@@ -46,7 +46,7 @@ func WithServiceLogger(logger logging.Logger) ServiceOption {
 }
 
 // WithServiceTracerProvider attaches a tracer provider.
-func WithServiceTracerProvider(tracerProvider tracing.TracerProvider) ServiceOption {
+func WithServiceTracerProvider(tracerProvider tracing.Provider) ServiceOption {
 	return func(s *service) {
 		s.tracerProvider = tracerProvider
 	}
@@ -144,7 +144,7 @@ func WithStoreLogger(logger logging.Logger) SQLStoreOption {
 }
 
 // WithStoreTracerProvider attaches a tracer provider.
-func WithStoreTracerProvider(tracerProvider tracing.TracerProvider) SQLStoreOption {
+func WithStoreTracerProvider(tracerProvider tracing.Provider) SQLStoreOption {
 	return func(s *sqlStore) {
 		s.tracerProvider = tracerProvider
 	}
@@ -177,7 +177,7 @@ func WithSweeperLogger(logger logging.Logger) SweeperOption {
 }
 
 // WithSweeperTracerProvider attaches a tracer provider.
-func WithSweeperTracerProvider(tracerProvider tracing.TracerProvider) SweeperOption {
+func WithSweeperTracerProvider(tracerProvider tracing.Provider) SweeperOption {
 	return func(s *Sweeper) {
 		s.tracerProvider = tracerProvider
 	}
@@ -230,7 +230,7 @@ func WithWorkerLogger(logger logging.Logger) WorkerOption {
 
 // WithWorkerTracerProvider attaches a tracer provider. Cycles that claim
 // nothing are not traced — a root span every poll interval is noise.
-func WithWorkerTracerProvider(tracerProvider tracing.TracerProvider) WorkerOption {
+func WithWorkerTracerProvider(tracerProvider tracing.Provider) WorkerOption {
 	return func(w *Worker) {
 		w.tracerProvider = tracerProvider
 	}

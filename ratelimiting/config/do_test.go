@@ -23,7 +23,7 @@ func TestRegisterRateLimiter(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue[logging.Logger](i, loggingnoop.NewLogger())
-		do.ProvideValue[tracing.TracerProvider](i, tracingnoop.NewTracerProvider())
+		do.ProvideValue[tracing.Provider](i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, nil)
 		do.ProvideValue(i, &Config{Provider: ProviderNoop})
 

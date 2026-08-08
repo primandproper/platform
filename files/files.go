@@ -36,14 +36,14 @@ type (
 		fsys           fs.FS
 		o11y           observability.Observer
 		logger         logging.Logger
-		tracerProvider tracing.TracerProvider
+		tracerProvider tracing.Provider
 	}
 )
 
 // newStandardReader builds a Reader over the OS filesystem. It keeps the raw logger and tracer
 // provider around so the decode helpers can build an encoding.ClientEncoder that traces under the
 // same tracer as the file read.
-func newStandardReader(logger logging.Logger, tracerProvider tracing.TracerProvider) *standardReader {
+func newStandardReader(logger logging.Logger, tracerProvider tracing.Provider) *standardReader {
 	return newStandardReaderFS(osFS{}, logger, tracerProvider)
 }
 
@@ -53,7 +53,7 @@ func newStandardReader(logger logging.Logger, tracerProvider tracing.TracerProvi
 // the retained field is used directly — closeQuietly logs through it — and
 // WithLogger is optional, so a Reader built without one would otherwise panic
 // on the close path instead of logging nowhere as the option documents.
-func newStandardReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider tracing.TracerProvider) *standardReader {
+func newStandardReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider tracing.Provider) *standardReader {
 	logger = logging.EnsureLogger(logger)
 
 	return &standardReader{

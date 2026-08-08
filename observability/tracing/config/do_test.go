@@ -25,7 +25,7 @@ func TestRegisterTracerProvider(T *testing.T) {
 
 		RegisterTracerProvider(i)
 
-		tp, err := do.Invoke[tracing.TracerProvider](i)
+		tp, err := do.Invoke[tracing.Provider](i)
 		must.NoError(t, err)
 		test.NotNil(t, tp)
 	})

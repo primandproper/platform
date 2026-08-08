@@ -34,7 +34,7 @@ func WithSchedulerLogger(logger logging.Logger) SchedulerOption {
 // WithSchedulerTracerProvider attaches a tracer provider. A tick that is skipped
 // because another replica holds the lease is still traced: "did this replica
 // decline, or did nobody run it" is the question a missed job actually raises.
-func WithSchedulerTracerProvider(tracerProvider tracing.TracerProvider) SchedulerOption {
+func WithSchedulerTracerProvider(tracerProvider tracing.Provider) SchedulerOption {
 	return func(s *Scheduler) {
 		s.tracerProvider = tracerProvider
 	}
@@ -86,7 +86,7 @@ func WithPoolLogger(logger logging.Logger) PoolOption {
 
 // WithPoolTracerProvider attaches a tracer provider. Each message gets a root
 // span covering all of its attempts.
-func WithPoolTracerProvider(tracerProvider tracing.TracerProvider) PoolOption {
+func WithPoolTracerProvider(tracerProvider tracing.Provider) PoolOption {
 	return func(p *Pool) {
 		p.tracerProvider = tracerProvider
 	}

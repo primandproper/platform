@@ -7,7 +7,7 @@ import (
 )
 
 // NewInstrumentedSQLTracer wraps a Tracer for instrumentedsql.
-func NewInstrumentedSQLTracer(tracerProvider TracerProvider, name string) instrumentedsql.Tracer {
+func NewInstrumentedSQLTracer(tracerProvider Provider, name string) instrumentedsql.Tracer {
 	return &instrumentedSQLTracerWrapper{tracer: NewNamedTracer(tracerProvider, name)}
 }
 

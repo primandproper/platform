@@ -64,7 +64,7 @@ func TestRegister(T *testing.T) {
 		must.NoError(t, err)
 		test.NotNil(t, logger)
 
-		tracerProvider, err := do.Invoke[tracing.TracerProvider](i)
+		tracerProvider, err := do.Invoke[tracing.Provider](i)
 		must.NoError(t, err)
 		test.NotNil(t, tracerProvider)
 

@@ -94,7 +94,7 @@ func (c *sqsConsumer) sendErr(ctx context.Context, errs chan<- error, err error)
 
 func provideSQSConsumer(
 	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
+	tracerProvider tracing.Provider,
 	metricsProvider metrics.Provider,
 	receiver messageReceiver,
 	queueURL string,
@@ -192,7 +192,7 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 
 type consumerProvider struct {
 	o11y            observability.Observer
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	consumerCache   map[string]messagequeue.Consumer
 	sqsClient       messageReceiver

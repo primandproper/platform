@@ -18,7 +18,7 @@ type Option func(*options)
 type options struct {
 	refreshCtx      context.Context
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	refreshInterval time.Duration
 }
@@ -41,7 +41,7 @@ func WithLogger(logger logging.Logger) Option {
 
 // WithTracerProvider attaches a tracer provider, enabling spans on every
 // operation.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }
 

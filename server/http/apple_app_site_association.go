@@ -169,7 +169,7 @@ func (cfg *AppleAppSiteAssociationConfig) document() appleAppSiteAssociation {
 func AppleAppSiteAssociationHandler(
 	cfg *AppleAppSiteAssociationConfig,
 	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
+	tracerProvider tracing.Provider,
 ) http.HandlerFunc {
 	if !cfg.Enabled() {
 		return http.NotFound

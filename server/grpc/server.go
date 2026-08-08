@@ -34,7 +34,7 @@ type (
 		logger         logging.Logger
 		config         *Config
 		grpcServer     *grpc.Server
-		tracerProvider tracing.TracerProvider
+		tracerProvider tracing.Provider
 	}
 
 	// RegistrationFunc is i.e. protobuf.RegisterSomeExampleServiceServer(grpcServer, &exampleServiceServerImpl{}).

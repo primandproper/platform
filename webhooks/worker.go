@@ -85,7 +85,7 @@ type Worker struct {
 	cycleHist         metrics.Float64Histogram
 	batchHist         metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg WorkerConfig

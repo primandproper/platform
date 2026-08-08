@@ -34,7 +34,7 @@ type runnerOptions struct {
 	clock           clock.Clock
 	publisher       EventPublisher
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 }
 
@@ -69,7 +69,7 @@ func WithRunnerLogger(logger logging.Logger) RunnerOption {
 }
 
 // WithRunnerTracerProvider attaches a tracer provider.
-func WithRunnerTracerProvider(tracerProvider tracing.TracerProvider) RunnerOption {
+func WithRunnerTracerProvider(tracerProvider tracing.Provider) RunnerOption {
 	return func(o *runnerOptions) {
 		o.tracerProvider = tracerProvider
 	}
@@ -104,7 +104,7 @@ func WithStoreLogger(logger logging.Logger) SQLStoreOption {
 }
 
 // WithStoreTracerProvider attaches a tracer provider.
-func WithStoreTracerProvider(tracerProvider tracing.TracerProvider) SQLStoreOption {
+func WithStoreTracerProvider(tracerProvider tracing.Provider) SQLStoreOption {
 	return func(s *sqlStore) {
 		s.tracerProvider = tracerProvider
 	}
@@ -141,7 +141,7 @@ func WithWorkerLogger(logger logging.Logger) WorkerOption {
 // WithWorkerTracerProvider attaches a tracer provider. Cycles that claim
 // nothing are not traced — a root span every poll interval is noise, and this
 // worker polls every second.
-func WithWorkerTracerProvider(tracerProvider tracing.TracerProvider) WorkerOption {
+func WithWorkerTracerProvider(tracerProvider tracing.Provider) WorkerOption {
 	return func(w *Worker) {
 		w.tracerProvider = tracerProvider
 	}

@@ -32,7 +32,7 @@ func TestRegister_failingObservabilityIsAnError(T *testing.T) {
 
 		RegisterTracerProvider(i)
 
-		_, err := do.Invoke[tracing.TracerProvider](i)
+		_, err := do.Invoke[tracing.Provider](i)
 		must.Error(t, err)
 		test.ErrorIs(t, err, errBuild)
 	})

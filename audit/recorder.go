@@ -57,7 +57,7 @@ type recorder struct {
 	recordedCounter metrics.Int64Counter
 	recordLatency   metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
 	prefix          string

@@ -61,7 +61,7 @@ func (c *kafkaConsumer) sendErr(ctx context.Context, errs chan<- error, err erro
 	}
 }
 
-func provideKafkaConsumer(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, brokers []string, groupID, topic string, handlerFunc func(context.Context, []byte) error) (*kafkaConsumer, error) {
+func provideKafkaConsumer(logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, brokers []string, groupID, topic string, handlerFunc func(context.Context, []byte) error) (*kafkaConsumer, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
 	consumedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_consumed", topic))
@@ -135,7 +135,7 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 
 type consumerProvider struct {
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	consumerCache   map[string]messagequeue.Consumer
 	groupID         string

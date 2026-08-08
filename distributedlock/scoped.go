@@ -143,7 +143,7 @@ func WithLogger(logger logging.Logger) ScopedOption {
 
 // WithTracerProvider attaches a tracer provider, enabling spans on every
 // scoped-lock operation. An absent tracer provider traces nowhere.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) ScopedOption {
+func WithTracerProvider(tracerProvider tracing.Provider) ScopedOption {
 	return func(s *scopedLocker) {
 		s.tracerProvider = tracerProvider
 	}
@@ -161,7 +161,7 @@ func WithMetricsProvider(metricsProvider metrics.Provider) ScopedOption {
 type scopedLocker struct {
 	o11y            observability.Observer
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	locker          Locker
 	clock           clock.Clock

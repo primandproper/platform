@@ -31,7 +31,7 @@ func WithRelayLogger(logger logging.Logger) RelayOption {
 
 // WithRelayTracerProvider attaches a tracer provider. Cycles that claim nothing
 // are not traced — a root span every poll interval is noise.
-func WithRelayTracerProvider(tracerProvider tracing.TracerProvider) RelayOption {
+func WithRelayTracerProvider(tracerProvider tracing.Provider) RelayOption {
 	return func(r *Relay) {
 		r.tracerProvider = tracerProvider
 	}
@@ -101,7 +101,7 @@ func WithWriterLogger(logger logging.Logger) WriterOption {
 
 // WithWriterTracerProvider attaches a tracer provider, so an Enqueue shows up
 // as a child of the span that owns the transaction.
-func WithWriterTracerProvider(tracerProvider tracing.TracerProvider) WriterOption {
+func WithWriterTracerProvider(tracerProvider tracing.Provider) WriterOption {
 	return func(w *Writer) {
 		w.tracerProvider = tracerProvider
 	}

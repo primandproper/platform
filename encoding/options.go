@@ -12,7 +12,7 @@ type Option func(*options)
 
 type options struct {
 	logger         logging.Logger
-	tracerProvider tracing.TracerProvider
+	tracerProvider tracing.Provider
 }
 
 func newOptions(opts []Option) *options {
@@ -33,6 +33,6 @@ func WithLogger(logger logging.Logger) Option {
 
 // WithTracerProvider attaches a tracer provider, enabling spans on every
 // encode and decode.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }

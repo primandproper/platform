@@ -105,7 +105,7 @@ type Flusher struct {
 	postHist        metrics.Float64Histogram
 	passHist        metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg FlusherConfig

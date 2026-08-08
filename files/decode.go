@@ -88,7 +88,7 @@ func MustDecodeFile[T any](ctx context.Context, name string, ct encoding.Content
 
 // decodeBytes unmarshals data into a T using a one-off encoder for ct. Empty input is rejected
 // before the encoder sees it, since no supported encoding treats it as a valid document.
-func decodeBytes[T any](ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, data []byte, ct encoding.ContentType) (T, error) {
+func decodeBytes[T any](ctx context.Context, logger logging.Logger, tracerProvider tracing.Provider, data []byte, ct encoding.ContentType) (T, error) {
 	var v T
 
 	if len(data) == 0 {

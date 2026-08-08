@@ -74,7 +74,7 @@ func TestInvokePillars(T *testing.T) {
 		i := do.New()
 		do.ProvideValue(i, want)
 		// Registered individually too, to prove the bundle takes precedence.
-		do.ProvideValue[tracing.TracerProvider](i, tracingnoop.NewTracerProvider())
+		do.ProvideValue[tracing.Provider](i, tracingnoop.NewTracerProvider())
 
 		pillars, err := InvokePillars(i)
 		must.NoError(t, err)
@@ -116,7 +116,7 @@ func TestInvokePillars(T *testing.T) {
 				do.Provide(i, func(do.Injector) (logging.Logger, error) { return nil, errBuild })
 			},
 			"tracer provider": func(i do.Injector) {
-				do.Provide(i, func(do.Injector) (tracing.TracerProvider, error) { return nil, errBuild })
+				do.Provide(i, func(do.Injector) (tracing.Provider, error) { return nil, errBuild })
 			},
 			"metrics provider": func(i do.Injector) {
 				do.Provide(i, func(do.Injector) (metrics.Provider, error) { return nil, errBuild })

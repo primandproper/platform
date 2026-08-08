@@ -146,7 +146,7 @@ type Sweeper struct {
 	backlogGauge   metrics.Int64Gauge
 	sweepHist      metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	actor audit.Actor

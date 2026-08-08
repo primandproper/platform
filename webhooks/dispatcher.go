@@ -43,7 +43,7 @@ type dispatcher struct {
 	fanoutHist        metrics.Float64Histogram
 	replayedCounter   metrics.Int64Counter
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 }
 

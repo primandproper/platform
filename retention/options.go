@@ -34,7 +34,7 @@ func WithSweeperLogger(logger logging.Logger) SweeperOption {
 }
 
 // WithSweeperTracerProvider attaches a tracer provider.
-func WithSweeperTracerProvider(tracerProvider tracing.TracerProvider) SweeperOption {
+func WithSweeperTracerProvider(tracerProvider tracing.Provider) SweeperOption {
 	return func(s *Sweeper) {
 		s.tracerProvider = tracerProvider
 	}

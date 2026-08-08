@@ -104,7 +104,7 @@ type Resolver struct {
 	writeFaultsCounter metrics.Int64Counter
 
 	metricsProvider metrics.Provider
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 
 	generation atomic.Uint64
 	ttl        time.Duration
@@ -123,7 +123,7 @@ func WithLogger(logger logging.Logger) Option {
 // WithTracerProvider attaches a tracer provider, so that a resolution served
 // from cache and one that fell through to the inner resolver are
 // distinguishable in a trace rather than both being absent from it.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(r *Resolver) {
 		r.tracerProvider = tracerProvider
 	}

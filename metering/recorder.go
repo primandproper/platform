@@ -44,7 +44,7 @@ type DurableRecorder struct {
 	quantityCounter  metrics.Int64Counter
 	latencyHist      metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg RecorderConfig

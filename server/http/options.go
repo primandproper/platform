@@ -13,7 +13,7 @@ type Option func(*options)
 
 type options struct {
 	logger         logging.Logger
-	tracerProvider tracing.TracerProvider
+	tracerProvider tracing.Provider
 	healthRegistry healthcheck.Registry
 	serviceName    string
 	versionRoute   bool
@@ -37,7 +37,7 @@ func WithLogger(logger logging.Logger) Option {
 
 // WithTracerProvider attaches a tracer provider, enabling spans on served
 // requests.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }
 

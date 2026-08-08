@@ -41,7 +41,7 @@ type (
 )
 
 // NewTracerProvider provides a TracerProvider.
-func (c *Config) NewTracerProvider(ctx context.Context, opts ...Option) (tracing.TracerProvider, error) {
+func (c *Config) NewTracerProvider(ctx context.Context, opts ...Option) (tracing.Provider, error) {
 	// EnsureLogger, not the raw option: the logger is optional now, and every
 	// branch below logs what it configured.
 	logger := logging.EnsureLogger(newOptions(opts).logger).WithValue("tracing_provider", c.Provider)

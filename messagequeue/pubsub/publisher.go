@@ -36,7 +36,7 @@ type (
 )
 
 // buildPubSubPublisher provides a Pub/Sub-backed pubSubPublisher.
-func buildPubSubPublisher(logger logging.Logger, pubsubClient *pubsub.Publisher, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, topic string) (*pubSubPublisher, error) {
+func buildPubSubPublisher(logger logging.Logger, pubsubClient *pubsub.Publisher, tracerProvider tracing.Provider, metricsProvider metrics.Provider, topic string) (*pubSubPublisher, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
 	publishedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_published", topic))
@@ -73,7 +73,7 @@ type publisherProvider struct {
 	logger            logging.Logger
 	publisherCache    map[string]messagequeue.Publisher
 	pubsubClient      *pubsub.Client
-	tracerProvider    tracing.TracerProvider
+	tracerProvider    tracing.Provider
 	metricsProvider   metrics.Provider
 	projectID         string
 	publisherCacheHat sync.RWMutex
