@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/analytics"
-	"github.com/primandproper/platform-go/v9/analytics/noop"
-	"github.com/primandproper/platform-go/v9/analytics/posthog"
-	"github.com/primandproper/platform-go/v9/analytics/segment"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/analytics"
+	"github.com/primandproper/platform-go/v10/analytics/noop"
+	"github.com/primandproper/platform-go/v10/analytics/posthog"
+	"github.com/primandproper/platform-go/v10/analytics/segment"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	posthogsdk "github.com/posthog/posthog-go"

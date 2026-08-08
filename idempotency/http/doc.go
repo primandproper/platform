@@ -33,7 +33,7 @@ TTL. NewManager applies Recordable, which draws the line at 5xx.
 
 # Client
 
-	c := httpclient.NewHTTPClient(cfg)
+	c, _ := httpclient.NewHTTPClient(cfg.Options()...)
 	c.Transport = idempotencyhttp.NewTransport(c.Transport)
 
 	ctx, _ := idempotency.WithNewKey(ctx)   // once, OUTSIDE the retry loop

@@ -6,7 +6,7 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/retry"
+	"github.com/primandproper/platform-go/v10/retry"
 )
 
 // DelayFor returns the backoff before attempt, which is 1-indexed: attempt 1 is

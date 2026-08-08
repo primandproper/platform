@@ -1,9 +1,9 @@
 package http
 
 import (
-	"github.com/primandproper/platform-go/v9/healthcheck"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v10/healthcheck"
+	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
 
 // Option configures the server this package constructs. The zero configuration

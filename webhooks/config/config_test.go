@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	"github.com/primandproper/platform-go/v9/database/sqlite"
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/webhooks"
-	"github.com/primandproper/platform-go/v9/webhooks/migrations"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/sqlite"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/webhooks"
+	"github.com/primandproper/platform-go/v10/webhooks/migrations"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -269,7 +269,8 @@ func TestEnsureHTTPClient(T *testing.T) {
 		cfg.EnsureDefaults()
 		cfg.Worker.RequestTimeout = 3 * time.Second
 
-		client := EnsureHTTPClient(cfg)
+		client, err := EnsureHTTPClient(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, client)
 		test.EqOp(t, 3*time.Second, client.Timeout)
 	})
@@ -277,7 +278,9 @@ func TestEnsureHTTPClient(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, EnsureHTTPClient(nil))
+		client, err := EnsureHTTPClient(nil)
+		must.NoError(t, err)
+		test.NotNil(t, client)
 	})
 }
 

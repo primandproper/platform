@@ -9,7 +9,7 @@ import (
 	"iter"
 	"sync"
 
-	"github.com/primandproper/platform-go/v9/uploads"
+	"github.com/primandproper/platform-go/v10/uploads"
 )
 
 // Ensure, that UploadManagerMock does implement uploads.UploadManager.

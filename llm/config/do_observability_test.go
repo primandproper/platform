@@ -3,9 +3,9 @@ package llmcfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/llm"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/llm"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

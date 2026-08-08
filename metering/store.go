@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/database"
+	"github.com/primandproper/platform-go/v10/database"
 )
 
 // Entry is one usage record with everything the store needs to file it: which

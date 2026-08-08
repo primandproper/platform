@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/notifications/async/ably"
-	"github.com/primandproper/platform-go/v9/notifications/async/pusher"
-	asyncws "github.com/primandproper/platform-go/v9/notifications/async/websocket"
+	"github.com/primandproper/platform-go/v10/notifications/async/ably"
+	"github.com/primandproper/platform-go/v10/notifications/async/pusher"
+	asyncws "github.com/primandproper/platform-go/v10/notifications/async/websocket"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/dialect"
 )
 
 // resolveQuery builds the permission-resolution query for roleCount role names.

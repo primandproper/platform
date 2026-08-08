@@ -3,11 +3,11 @@ package routingcfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/encoding"
-	"github.com/primandproper/platform-go/v9/routing/backends/chi"
-	"github.com/primandproper/platform-go/v9/routing/backends/gin"
-	"github.com/primandproper/platform-go/v9/routing/backends/httprouter"
-	"github.com/primandproper/platform-go/v9/routing/backends/stdlib"
+	"github.com/primandproper/platform-go/v10/encoding"
+	"github.com/primandproper/platform-go/v10/routing/backends/chi"
+	"github.com/primandproper/platform-go/v10/routing/backends/gin"
+	"github.com/primandproper/platform-go/v10/routing/backends/httprouter"
+	"github.com/primandproper/platform-go/v10/routing/backends/stdlib"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -3,7 +3,7 @@ package service
 import (
 	"fmt"
 
-	"github.com/primandproper/platform-go/v9/healthcheck"
+	"github.com/primandproper/platform-go/v10/healthcheck"
 )
 
 // Option configures what New assembles.

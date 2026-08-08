@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/capitalism"
-	capitalismnoop "github.com/primandproper/platform-go/v9/capitalism/noop"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/jobs"
+	"github.com/primandproper/platform-go/v10/capitalism"
+	capitalismnoop "github.com/primandproper/platform-go/v10/capitalism/noop"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/jobs"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

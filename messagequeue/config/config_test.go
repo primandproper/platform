@@ -3,10 +3,10 @@ package messagequeuecfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/messagequeue/kafka"
-	"github.com/primandproper/platform-go/v9/messagequeue/pubsub"
-	"github.com/primandproper/platform-go/v9/messagequeue/sqs"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/messagequeue/kafka"
+	"github.com/primandproper/platform-go/v10/messagequeue/pubsub"
+	"github.com/primandproper/platform-go/v10/messagequeue/sqs"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

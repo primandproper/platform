@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/authorization"
-	"github.com/primandproper/platform-go/v9/authorization/cached"
-	authzdb "github.com/primandproper/platform-go/v9/authorization/database"
-	"github.com/primandproper/platform-go/v9/cache"
-	"github.com/primandproper/platform-go/v9/cache/memory"
-	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v10/authorization"
+	"github.com/primandproper/platform-go/v10/authorization/cached"
+	authzdb "github.com/primandproper/platform-go/v10/authorization/database"
+	"github.com/primandproper/platform-go/v10/cache"
+	"github.com/primandproper/platform-go/v10/cache/memory"
+	"github.com/primandproper/platform-go/v10/database/dialect"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

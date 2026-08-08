@@ -5,7 +5,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/errors"
 )
 
 // Role is a named grant of permissions, optionally inheriting from other roles.

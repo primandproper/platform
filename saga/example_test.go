@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/primandproper/platform-go/v9/retry"
-	"github.com/primandproper/platform-go/v9/saga"
+	"github.com/primandproper/platform-go/v10/retry"
+	"github.com/primandproper/platform-go/v10/saga"
 )
 
 // Booking is the state one order-placement saga carries between its steps.

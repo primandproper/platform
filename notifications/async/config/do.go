@@ -3,8 +3,8 @@ package asynccfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/notifications/async"
-	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v10/notifications/async"
+	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/samber/do/v2"
 )

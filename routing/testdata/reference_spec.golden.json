@@ -58,7 +58,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpAPIResponseGithubComPrimandproperPlatformGoV9RoutingTestReferenceUser"
+                  "$ref": "#/components/schemas/HttpAPIResponseGithubComPrimandproperPlatformGoV10RoutingTestReferenceUser"
                 }
               }
             }
@@ -140,7 +140,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpAPIResponseGithubComPrimandproperPlatformGoV9RoutingTestReferenceUser"
+                  "$ref": "#/components/schemas/HttpAPIResponseGithubComPrimandproperPlatformGoV10RoutingTestReferenceUser"
                 }
               }
             }
@@ -170,7 +170,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpAPIResponseGithubComPrimandproperPlatformGoV9RoutingTestStressAllTypes"
+                  "$ref": "#/components/schemas/HttpAPIResponseGithubComPrimandproperPlatformGoV10RoutingTestStressAllTypes"
                 }
               }
             }
@@ -260,7 +260,7 @@
           }
         }
       },
-      "HttpAPIResponseGithubComPrimandproperPlatformGoV9RoutingTestReferenceUser": {
+      "HttpAPIResponseGithubComPrimandproperPlatformGoV10RoutingTestReferenceUser": {
         "type": "object",
         "properties": {
           "data": {
@@ -277,7 +277,7 @@
           }
         }
       },
-      "HttpAPIResponseGithubComPrimandproperPlatformGoV9RoutingTestStressAllTypes": {
+      "HttpAPIResponseGithubComPrimandproperPlatformGoV10RoutingTestStressAllTypes": {
         "type": "object",
         "properties": {
           "data": {

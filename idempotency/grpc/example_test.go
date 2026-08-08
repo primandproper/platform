@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	cachememory "github.com/primandproper/platform-go/v9/cache/memory"
-	"github.com/primandproper/platform-go/v9/distributedlock"
-	dlmemory "github.com/primandproper/platform-go/v9/distributedlock/memory"
-	"github.com/primandproper/platform-go/v9/idempotency"
-	idempotencygrpc "github.com/primandproper/platform-go/v9/idempotency/grpc"
+	cachememory "github.com/primandproper/platform-go/v10/cache/memory"
+	"github.com/primandproper/platform-go/v10/distributedlock"
+	dlmemory "github.com/primandproper/platform-go/v10/distributedlock/memory"
+	"github.com/primandproper/platform-go/v10/idempotency"
+	idempotencygrpc "github.com/primandproper/platform-go/v10/idempotency/grpc"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"

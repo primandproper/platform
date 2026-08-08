@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/database/ddl"
-	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/ddl"
+	"github.com/primandproper/platform-go/v10/database/dialect"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.

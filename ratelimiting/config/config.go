@@ -5,10 +5,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/ratelimiting"
-	"github.com/primandproper/platform-go/v9/ratelimiting/noop"
-	redisrl "github.com/primandproper/platform-go/v9/ratelimiting/redis"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/ratelimiting"
+	"github.com/primandproper/platform-go/v10/ratelimiting/noop"
+	redisrl "github.com/primandproper/platform-go/v10/ratelimiting/redis"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

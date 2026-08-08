@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability/keys"
-	textsearch "github.com/primandproper/platform-go/v9/search/text"
+	"github.com/primandproper/platform-go/v10/circuitbreaking"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability/keys"
+	textsearch "github.com/primandproper/platform-go/v10/search/text"
 
 	"github.com/algolia/algoliasearch-client-go/v3/algolia/opt"
 )

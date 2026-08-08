@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/llm"
-	"github.com/primandproper/platform-go/v9/llm/anthropic"
-	llmnoop "github.com/primandproper/platform-go/v9/llm/noop"
-	"github.com/primandproper/platform-go/v9/llm/openai"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/llm"
+	"github.com/primandproper/platform-go/v10/llm/anthropic"
+	llmnoop "github.com/primandproper/platform-go/v10/llm/noop"
+	"github.com/primandproper/platform-go/v10/llm/openai"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

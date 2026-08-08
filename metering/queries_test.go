@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/dialect"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

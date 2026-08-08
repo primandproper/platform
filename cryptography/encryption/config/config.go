@@ -5,10 +5,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/cryptography/encryption"
-	"github.com/primandproper/platform-go/v9/cryptography/encryption/aes"
-	"github.com/primandproper/platform-go/v9/cryptography/encryption/salsa20"
-	perrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
+	"github.com/primandproper/platform-go/v10/cryptography/encryption/salsa20"
+	perrors "github.com/primandproper/platform-go/v10/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

@@ -4,12 +4,12 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	"github.com/primandproper/platform-go/v9/database/migrate"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	"github.com/primandproper/platform-go/v9/outbox/migrations"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/migrate"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	"github.com/primandproper/platform-go/v10/outbox/migrations"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

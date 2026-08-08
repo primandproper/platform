@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
 // DefaultContentType is the Content-Type deliveries carry when an Endpoint does

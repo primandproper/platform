@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/authorization"
+	"github.com/primandproper/platform-go/v10/authorization"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

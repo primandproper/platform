@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	vectorsearch "github.com/primandproper/platform-go/v9/search/vector"
+	vectorsearch "github.com/primandproper/platform-go/v10/search/vector"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

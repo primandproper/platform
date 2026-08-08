@@ -5,14 +5,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
-	"github.com/primandproper/platform-go/v9/secrets"
-	"github.com/primandproper/platform-go/v9/secrets/env"
-	"github.com/primandproper/platform-go/v9/secrets/gcp"
-	"github.com/primandproper/platform-go/v9/secrets/kubernetes"
-	"github.com/primandproper/platform-go/v9/secrets/noop"
-	"github.com/primandproper/platform-go/v9/secrets/ssm"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v10/secrets"
+	"github.com/primandproper/platform-go/v10/secrets/env"
+	"github.com/primandproper/platform-go/v10/secrets/gcp"
+	"github.com/primandproper/platform-go/v10/secrets/kubernetes"
+	"github.com/primandproper/platform-go/v10/secrets/noop"
+	"github.com/primandproper/platform-go/v10/secrets/ssm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

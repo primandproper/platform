@@ -7,7 +7,7 @@ import (
 	"hash/fnv"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/testutils/containers/mysqltest"
+	"github.com/primandproper/platform-go/v10/testutils/containers/mysqltest"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

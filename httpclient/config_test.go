@@ -50,7 +50,7 @@ func TestConfig_Options(T *testing.T) {
 
 		test.SliceEmpty(t, cfg.Options())
 
-		client := NewHTTPClient(cfg.Options()...)
+		client := newClient(t, cfg.Options()...)
 		must.NotNil(t, client)
 		test.EqOp(t, defaultTimeout, client.Timeout)
 	})
@@ -64,7 +64,7 @@ func TestConfig_Options(T *testing.T) {
 			MaxIdleConnsPerHost: 7,
 		}
 
-		client := NewHTTPClient(cfg.Options()...)
+		client := newClient(t, cfg.Options()...)
 		must.NotNil(t, client)
 		test.EqOp(t, 7*time.Second, client.Timeout)
 
@@ -77,7 +77,7 @@ func TestConfig_Options(T *testing.T) {
 	T.Run("zero-valued fields keep defaults", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient((&Config{}).Options()...)
+		client := newClient(t, (&Config{}).Options()...)
 		must.NotNil(t, client)
 		test.EqOp(t, defaultTimeout, client.Timeout)
 
@@ -90,7 +90,7 @@ func TestConfig_Options(T *testing.T) {
 	T.Run("enables tracing", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient((&Config{EnableTracing: true}).Options()...)
+		client := newClient(t, (&Config{EnableTracing: true}).Options()...)
 		must.NotNil(t, client)
 
 		_, ok := client.Transport.(*http.Transport)
@@ -102,7 +102,7 @@ func TestConfig_Options(T *testing.T) {
 
 		cfg := &Config{Timeout: 7 * time.Second}
 
-		client := NewHTTPClient(append(cfg.Options(), WithTimeout(11*time.Second))...)
+		client := newClient(t, append(cfg.Options(), WithTimeout(11*time.Second))...)
 		must.NotNil(t, client)
 		test.EqOp(t, 11*time.Second, client.Timeout)
 	})

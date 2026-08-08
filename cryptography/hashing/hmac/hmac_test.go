@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/cryptography/hashing"
+	"github.com/primandproper/platform-go/v10/cryptography/hashing"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

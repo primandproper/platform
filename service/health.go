@@ -1,11 +1,11 @@
 package service
 
 import (
-	"github.com/primandproper/platform-go/v9/database"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/healthcheck"
-	"github.com/primandproper/platform-go/v9/internal/injection"
-	"github.com/primandproper/platform-go/v9/messagequeue"
+	"github.com/primandproper/platform-go/v10/database"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/healthcheck"
+	"github.com/primandproper/platform-go/v10/internal/injection"
+	"github.com/primandproper/platform-go/v10/messagequeue"
 
 	"github.com/samber/do/v2"
 )

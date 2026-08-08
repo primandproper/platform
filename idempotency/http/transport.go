@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/primandproper/platform-go/v9/idempotency"
+	"github.com/primandproper/platform-go/v10/idempotency"
 )
 
 // transport stamps the idempotency key carried by a request's context onto the
@@ -23,7 +23,7 @@ var _ http.RoundTripper = (*transport)(nil)
 // It composes the same way the platform's tracing transport does, so no change
 // to httpclient is needed:
 //
-//	c := httpclient.NewHTTPClient(cfg)
+//	c, _ := httpclient.NewHTTPClient(cfg.Options()...)
 //	c.Transport = idempotencyhttp.NewTransport(c.Transport)
 //
 //	ctx, _ := idempotency.WithNewKey(ctx)   // once, OUTSIDE the retry loop

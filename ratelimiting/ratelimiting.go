@@ -4,14 +4,21 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
 
 	"golang.org/x/time/rate"
 )
 
 const inMemoryName = "in_memory_rate_limiter"
+
+// ErrRateLimited reports that a limiter refused an operation. Allow expresses a
+// refusal as (false, nil) because the caller is usually deciding what to do
+// next; this sentinel exists for the callers that have to hand the refusal back
+// as an error instead — an http.RoundTripper, for one, has nowhere else to put
+// it. Callers branch on it with errors.Is rather than on a bare false.
+var ErrRateLimited = errors.New("rate limited")
 
 // RateLimiter limits the rate of operations per key.
 type RateLimiter interface {

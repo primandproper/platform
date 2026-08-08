@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/primandproper/platform-go/v9/cache/memory"
-	"github.com/primandproper/platform-go/v9/distributedlock"
-	dlmemory "github.com/primandproper/platform-go/v9/distributedlock/memory"
-	"github.com/primandproper/platform-go/v9/idempotency"
+	"github.com/primandproper/platform-go/v10/cache/memory"
+	"github.com/primandproper/platform-go/v10/distributedlock"
+	dlmemory "github.com/primandproper/platform-go/v10/distributedlock/memory"
+	"github.com/primandproper/platform-go/v10/idempotency"
 )
 
 // charge is the recorded result: a concrete struct with exported fields, which

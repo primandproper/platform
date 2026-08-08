@@ -5,14 +5,14 @@ import (
 	"slices"
 	"strings"
 
-	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/distributedlock"
-	"github.com/primandproper/platform-go/v9/distributedlock/memory"
-	"github.com/primandproper/platform-go/v9/distributedlock/noop"
-	pglock "github.com/primandproper/platform-go/v9/distributedlock/postgres"
-	redislock "github.com/primandproper/platform-go/v9/distributedlock/redis"
-	"github.com/primandproper/platform-go/v9/errors"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/distributedlock"
+	"github.com/primandproper/platform-go/v10/distributedlock/memory"
+	"github.com/primandproper/platform-go/v10/distributedlock/noop"
+	pglock "github.com/primandproper/platform-go/v10/distributedlock/postgres"
+	redislock "github.com/primandproper/platform-go/v10/distributedlock/redis"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

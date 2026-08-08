@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/eventstream"
-	"github.com/primandproper/platform-go/v9/eventstream/sse"
-	"github.com/primandproper/platform-go/v9/eventstream/websocket"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/eventstream"
+	"github.com/primandproper/platform-go/v10/eventstream/sse"
+	"github.com/primandproper/platform-go/v10/eventstream/websocket"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

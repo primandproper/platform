@@ -3,7 +3,7 @@ package profilingcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/observability/profiling"
+	"github.com/primandproper/platform-go/v10/observability/profiling"
 )
 
 // NewProfilingProvider provides a profiling.Provider from a config.
