@@ -2,6 +2,8 @@ package entitlements
 
 import (
 	"context"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,9 +18,33 @@ import (
 	"github.com/shoenig/test/must"
 )
 
+// The fixture vocabulary every test in this package shares. Named rather than
+// repeated because the strings are load-bearing in three different ways — a
+// feature key is validated as an identifier, a flag name is not, and a plan name
+// is what the catalog indexes grants by — and a typo in a literal produces a
+// test that passes for the wrong reason: an unregistered feature and a
+// misspelled one are the same string to the catalog.
 const (
 	testAccount = "account_123"
-	testMeter   = "llm_tokens"
+
+	// featureSearch is the boolean feature; featureTokens is the quota one.
+	featureSearch = "advanced_search"
+	featureTokens = "llm_tokens"
+
+	// testMeter is the meter featureTokens counts against. It matches the
+	// feature key because that is the ordinary way to name one, not because
+	// anything requires it — QuotaSource maps the two through Feature.Meter.
+	testMeter = featureTokens
+
+	// Flag names are hyphenated where feature keys are not: they are provider
+	// identifiers, not this package's, and nothing validates them here.
+	flagSearchGrant = "advanced-search-rollout"
+	flagSearchKill  = "advanced-search-kill"
+	flagTokensKill  = "llm-tokens-kill"
+
+	planPro        = "pro"
+	planEnterprise = "enterprise"
+	planFree       = "free"
 )
 
 // newRegistry builds a metering registry holding the meter the quota feature in
@@ -46,30 +72,30 @@ func newCatalog(t *testing.T) *Catalog {
 
 	c := NewCatalog()
 	must.NoError(t, c.RegisterFeature(Feature{
-		Key:       "advanced_search",
+		Key:       featureSearch,
 		Kind:      KindBoolean,
-		GrantFlag: "advanced-search-rollout",
-		KillFlag:  "advanced-search-kill",
+		GrantFlag: flagSearchGrant,
+		KillFlag:  flagSearchKill,
 	}))
 	must.NoError(t, c.RegisterFeature(Feature{
-		Key:      "llm_tokens",
+		Key:      featureTokens,
 		Kind:     KindQuota,
 		Meter:    testMeter,
-		KillFlag: "llm-tokens-kill",
+		KillFlag: flagTokensKill,
 	}))
 
 	must.NoError(t, c.RegisterPlan(Plan{
-		Name: "pro",
+		Name: planPro,
 		Includes: []Grant{
-			{Feature: "advanced_search"},
-			{Feature: "llm_tokens", Limit: 1000},
+			{Feature: featureSearch},
+			{Feature: featureTokens, Limit: 1000},
 		},
 	}))
 	must.NoError(t, c.RegisterPlan(Plan{
-		Name:     "enterprise",
-		Includes: []Grant{{Feature: "advanced_search"}, {Feature: "llm_tokens", Unlimited: true}},
+		Name:     planEnterprise,
+		Includes: []Grant{{Feature: featureSearch}, {Feature: featureTokens, Unlimited: true}},
 	}))
-	must.NoError(t, c.RegisterPlan(Plan{Name: "free"}))
+	must.NoError(t, c.RegisterPlan(Plan{Name: planFree}))
 
 	return c
 }
@@ -80,9 +106,9 @@ func newBooleanCatalog(t *testing.T) *Catalog {
 	t.Helper()
 
 	c := NewCatalog()
-	must.NoError(t, c.RegisterFeature(Feature{Key: "advanced_search", Kind: KindBoolean}))
-	must.NoError(t, c.RegisterPlan(Plan{Name: "pro", Includes: []Grant{{Feature: "advanced_search"}}}))
-	must.NoError(t, c.RegisterPlan(Plan{Name: "free"}))
+	must.NoError(t, c.RegisterFeature(Feature{Key: featureSearch, Kind: KindBoolean}))
+	must.NoError(t, c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{{Feature: featureSearch}}}))
+	must.NoError(t, c.RegisterPlan(Plan{Name: planFree}))
 
 	return c
 }
@@ -116,6 +142,49 @@ func enabledFlags(enabled ...string) featureflags.FeatureFlagManager {
 			return ok, nil
 		},
 		CloseFunc: func() error { return nil },
+	}
+}
+
+// capturingFlags records the evaluation context of every flag it is asked
+// about, so a test can assert on what reached the provider rather than only on
+// the decision that came back. It reports true for the named flags, as
+// enabledFlags does.
+//
+// The recorded contexts are returned by the accessor rather than exposed as a
+// field, because a checker evaluates flags on the caller's goroutine and the
+// race detector is the point of running these with -race.
+func capturingFlags(enabled ...string) (
+	manager featureflags.FeatureFlagManager,
+	recorded func() []featureflags.EvaluationContext,
+) {
+	on := make(map[string]struct{}, len(enabled))
+	for _, f := range enabled {
+		on[f] = struct{}{}
+	}
+
+	var (
+		mu   sync.Mutex
+		seen []featureflags.EvaluationContext
+	)
+
+	manager = &featureflagsmock.FeatureFlagManagerMock{
+		CanUseFeatureFunc: func(_ context.Context, feature string, evalCtx featureflags.EvaluationContext) (bool, error) {
+			mu.Lock()
+			seen = append(seen, evalCtx)
+			mu.Unlock()
+
+			_, ok := on[feature]
+
+			return ok, nil
+		},
+		CloseFunc: func() error { return nil },
+	}
+
+	return manager, func() []featureflags.EvaluationContext {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return slices.Clone(seen)
 	}
 }
 

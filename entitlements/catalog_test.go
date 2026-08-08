@@ -13,12 +13,12 @@ import (
 
 // booleanFeature is the feature every boolean-path test registers.
 func booleanFeature() Feature {
-	return Feature{Key: "advanced_search", Kind: KindBoolean}
+	return Feature{Key: featureSearch, Kind: KindBoolean}
 }
 
 // quotaFeature is the feature every quota-path test registers.
 func quotaFeature() Feature {
-	return Feature{Key: "llm_tokens", Kind: KindQuota, Meter: "llm_tokens"}
+	return Feature{Key: featureTokens, Kind: KindQuota, Meter: featureTokens}
 }
 
 func TestCatalog_RegisterFeature(T *testing.T) {
@@ -30,7 +30,7 @@ func TestCatalog_RegisterFeature(T *testing.T) {
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(booleanFeature()))
 
-		f, ok := c.Feature("advanced_search")
+		f, ok := c.Feature(featureSearch)
 		must.True(t, ok)
 		test.EqOp(t, authorization.Permission("entitlement.advanced_search"), f.Permission)
 	})
@@ -40,12 +40,12 @@ func TestCatalog_RegisterFeature(T *testing.T) {
 
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(Feature{
-			Key:        "advanced_search",
+			Key:        featureSearch,
 			Kind:       KindBoolean,
 			Permission: "search.advanced",
 		}))
 
-		f, _ := c.Feature("advanced_search")
+		f, _ := c.Feature(featureSearch)
 		test.EqOp(t, authorization.Permission("search.advanced"), f.Permission)
 	})
 
@@ -128,14 +128,14 @@ func TestCatalog_RegisterPlan(T *testing.T) {
 		must.NoError(t, c.RegisterFeature(quotaFeature()))
 
 		must.NoError(t, c.RegisterPlan(Plan{
-			Name: "pro",
+			Name: planPro,
 			Includes: []Grant{
-				{Feature: "advanced_search"},
-				{Feature: "llm_tokens", Limit: 100},
+				{Feature: featureSearch},
+				{Feature: featureTokens, Limit: 100},
 			},
 		}))
 
-		g, ok := c.GrantFor("pro", "llm_tokens")
+		g, ok := c.GrantFor(planPro, featureTokens)
 		must.True(t, ok)
 		test.EqOp(t, int64(100), g.Limit)
 	})
@@ -145,9 +145,9 @@ func TestCatalog_RegisterPlan(T *testing.T) {
 
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(quotaFeature()))
-		must.NoError(t, c.RegisterPlan(Plan{Name: "free", Includes: []Grant{{Feature: "llm_tokens", Limit: 10}}}))
+		must.NoError(t, c.RegisterPlan(Plan{Name: planFree, Includes: []Grant{{Feature: featureTokens, Limit: 10}}}))
 
-		g, _ := c.GrantFor("free", "llm_tokens")
+		g, _ := c.GrantFor(planFree, featureTokens)
 		test.EqOp(t, metering.BehaviorBlock, g.Behavior)
 	})
 
@@ -156,11 +156,11 @@ func TestCatalog_RegisterPlan(T *testing.T) {
 
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(quotaFeature()))
-		must.NoError(t, c.RegisterPlan(Plan{Name: "pro", Includes: []Grant{
-			{Feature: "llm_tokens", Limit: 10, Behavior: metering.BehaviorAllowOverage},
+		must.NoError(t, c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{
+			{Feature: featureTokens, Limit: 10, Behavior: metering.BehaviorAllowOverage},
 		}}))
 
-		g, _ := c.GrantFor("pro", "llm_tokens")
+		g, _ := c.GrantFor(planPro, featureTokens)
 		test.EqOp(t, metering.BehaviorAllowOverage, g.Behavior)
 	})
 
@@ -176,16 +176,16 @@ func TestCatalog_RegisterPlan(T *testing.T) {
 		t.Parallel()
 
 		c := NewCatalog()
-		must.NoError(t, c.RegisterPlan(Plan{Name: "pro"}))
+		must.NoError(t, c.RegisterPlan(Plan{Name: planPro}))
 
-		test.ErrorIs(t, c.RegisterPlan(Plan{Name: "pro"}), ErrDuplicatePlan)
+		test.ErrorIs(t, c.RegisterPlan(Plan{Name: planPro}), ErrDuplicatePlan)
 	})
 
 	T.Run("rejects a grant naming an unregistered feature", func(t *testing.T) {
 		t.Parallel()
 
 		c := NewCatalog()
-		err := c.RegisterPlan(Plan{Name: "pro", Includes: []Grant{{Feature: "nope"}}})
+		err := c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{{Feature: "nope"}}})
 
 		test.ErrorIs(t, err, ErrUnknownFeature)
 	})
@@ -196,9 +196,9 @@ func TestCatalog_RegisterPlan(T *testing.T) {
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(booleanFeature()))
 
-		err := c.RegisterPlan(Plan{Name: "pro", Includes: []Grant{
-			{Feature: "advanced_search"},
-			{Feature: "advanced_search"},
+		err := c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{
+			{Feature: featureSearch},
+			{Feature: featureSearch},
 		}})
 
 		test.ErrorIs(t, err, ErrDuplicateGrant)
@@ -210,7 +210,7 @@ func TestCatalog_RegisterPlan(T *testing.T) {
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(booleanFeature()))
 
-		err := c.RegisterPlan(Plan{Name: "pro", Includes: []Grant{{Feature: "advanced_search", Limit: 5}}})
+		err := c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{{Feature: featureSearch, Limit: 5}}})
 
 		test.ErrorIs(t, err, ErrLimitOnBooleanFeature)
 	})
@@ -221,7 +221,7 @@ func TestCatalog_RegisterPlan(T *testing.T) {
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(quotaFeature()))
 
-		err := c.RegisterPlan(Plan{Name: "pro", Includes: []Grant{{Feature: "llm_tokens", Limit: -1}}})
+		err := c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{{Feature: featureTokens, Limit: -1}}})
 
 		test.ErrorIs(t, err, ErrNegativeLimit)
 	})
@@ -234,15 +234,15 @@ func TestCatalog_RegisterPlan(T *testing.T) {
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(booleanFeature()))
 
-		must.Error(t, c.RegisterPlan(Plan{Name: "pro", Includes: []Grant{
-			{Feature: "advanced_search"},
+		must.Error(t, c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{
+			{Feature: featureSearch},
 			{Feature: "nope"},
 		}}))
 
-		_, ok := c.Plan("pro")
+		_, ok := c.Plan(planPro)
 		test.False(t, ok)
 
-		_, granted := c.GrantFor("pro", "advanced_search")
+		_, granted := c.GrantFor(planPro, featureSearch)
 		test.False(t, granted)
 	})
 }
@@ -256,11 +256,11 @@ func TestCatalog_lookups(T *testing.T) {
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(quotaFeature()))
 		must.NoError(t, c.RegisterFeature(booleanFeature()))
-		must.NoError(t, c.RegisterPlan(Plan{Name: "pro"}))
-		must.NoError(t, c.RegisterPlan(Plan{Name: "free"}))
+		must.NoError(t, c.RegisterPlan(Plan{Name: planPro}))
+		must.NoError(t, c.RegisterPlan(Plan{Name: planFree}))
 
-		test.Eq(t, []string{"advanced_search", "llm_tokens"}, c.FeatureKeys())
-		test.Eq(t, []string{"free", "pro"}, c.PlanNames())
+		test.Eq(t, []string{featureSearch, featureTokens}, c.FeatureKeys())
+		test.Eq(t, []string{planFree, planPro}, c.PlanNames())
 		test.SliceLen(t, 2, c.Features())
 		test.SliceLen(t, 2, c.Plans())
 	})
@@ -271,7 +271,7 @@ func TestCatalog_lookups(T *testing.T) {
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(booleanFeature()))
 
-		_, ok := c.GrantFor("nonexistent", "advanced_search")
+		_, ok := c.GrantFor("nonexistent", featureSearch)
 		test.False(t, ok)
 	})
 

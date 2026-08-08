@@ -1,6 +1,8 @@
 package entitlements
 
 import (
+	"maps"
+
 	"github.com/primandproper/platform-go/v10/cache"
 	"github.com/primandproper/platform-go/v10/featureflags"
 	"github.com/primandproper/platform-go/v10/metering"
@@ -86,5 +88,71 @@ func WithTracerProvider(tracerProvider tracing.Provider) CheckerOption {
 func WithMetricsProvider(metricsProvider metrics.Provider) CheckerOption {
 	return func(c *PlanChecker) {
 		c.metricsProvider = metricsProvider
+	}
+}
+
+// CheckOption configures a single call to Check, CheckQuantity, or Permissions.
+//
+// It is a separate type from CheckerOption because the two are answered at
+// different times: a CheckerOption is applied once, when the checker is built,
+// and a CheckOption describes the request in hand.
+type CheckOption func(*checkOptions)
+
+// checkOptions is the resolved per-call configuration.
+type checkOptions struct {
+	attributes map[string]any
+}
+
+func newCheckOptions(opts []CheckOption) *checkOptions {
+	co := &checkOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(co)
+		}
+	}
+
+	return co
+}
+
+// WithTargetingAttributes supplies additional signals for this call's flag
+// evaluations, carried to the provider as featureflags.EvaluationContext
+// Attributes alongside the account, which is always the targeting key.
+//
+// The account alone answers "is this account in the rollout". It does not answer
+// the questions a rollout is usually actually written against — region, plan
+// tier, beta cohort, the particular workspace inside the account — and a flag
+// provider can only target on what it was given. Without this, a rule that
+// depends on any of them evaluates against a context that omits it and silently
+// takes the default branch.
+//
+//	dec, err := checker.Check(ctx, account, "advanced_search",
+//		entitlements.WithTargetingAttributes(map[string]any{
+//			"region":    req.Region,
+//			"workspace": req.WorkspaceID,
+//		}))
+//
+// It reaches the flag provider and nothing else: plan resolution, the plan
+// cache, and quota accounting are all keyed on the account, and an attribute
+// that changed one of them would make two calls for the same account disagree
+// about what that account is entitled to.
+//
+// The map is not recorded on spans or logs. These are caller-chosen keys and
+// values, and an exporter is not the place to discover that somebody started
+// targeting on an email address.
+//
+// Note the value type is any rather than string: it is passed through to
+// featureflags.EvaluationContext unchanged, and providers there target on
+// booleans and numbers as well as strings.
+func WithTargetingAttributes(attributes map[string]any) CheckOption {
+	return func(co *checkOptions) {
+		if len(attributes) == 0 {
+			return
+		}
+
+		if co.attributes == nil {
+			co.attributes = make(map[string]any, len(attributes))
+		}
+
+		maps.Copy(co.attributes, attributes)
 	}
 }

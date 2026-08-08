@@ -156,13 +156,19 @@ func (c *PlanChecker) initInstruments() error {
 }
 
 // Check implements Checker.
-func (c *PlanChecker) Check(ctx context.Context, account, feature string) (*Decision, error) {
-	return c.CheckQuantity(ctx, account, feature, 1)
+func (c *PlanChecker) Check(ctx context.Context, account, feature string, opts ...CheckOption) (*Decision, error) {
+	return c.CheckQuantity(ctx, account, feature, 1, opts...)
 }
 
 // CheckQuantity implements Checker.
-func (c *PlanChecker) CheckQuantity(ctx context.Context, account, feature string, quantity int64) (*Decision, error) {
+func (c *PlanChecker) CheckQuantity(
+	ctx context.Context,
+	account, feature string,
+	quantity int64,
+	opts ...CheckOption,
+) (*Decision, error) {
 	startTime := time.Now()
+	co := newCheckOptions(opts)
 
 	ctx, op := c.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		accountKey:  account,
@@ -195,7 +201,7 @@ func (c *PlanChecker) CheckQuantity(ctx context.Context, account, feature string
 	// answer that does not depend on one — and because the reason to reach for a
 	// kill switch is usually that something downstream is on fire, which is the
 	// worst moment to make the answer require another lookup.
-	if c.flagEnabled(ctx, op, account, f.KillFlag) {
+	if c.flagEnabled(ctx, op, account, f.KillFlag, co.attributes) {
 		return c.finish(ctx, op, &Decision{
 			Feature:    f.Key,
 			Kind:       f.Kind,
@@ -225,7 +231,7 @@ func (c *PlanChecker) CheckQuantity(ctx context.Context, account, feature string
 	grant, included := c.catalog.GrantFor(plan, f.Key)
 
 	if f.Kind == KindBoolean {
-		return c.finish(ctx, op, c.decideBoolean(ctx, op, account, &f, plan, included, stale)), nil
+		return c.finish(ctx, op, c.decideBoolean(ctx, op, account, &f, plan, included, stale, co.attributes)), nil
 	}
 
 	return c.decideQuota(ctx, op, account, &f, plan, grant, included, quantity, stale)
@@ -239,6 +245,7 @@ func (c *PlanChecker) decideBoolean(
 	f *Feature,
 	plan string,
 	included, stale bool,
+	attributes map[string]any,
 ) *Decision {
 	d := &Decision{
 		Feature:    f.Key,
@@ -253,7 +260,7 @@ func (c *PlanChecker) decideBoolean(
 	switch {
 	case included:
 		d.Allowed, d.Reason = true, ReasonPlanIncludes
-	case c.flagEnabled(ctx, op, account, f.GrantFlag):
+	case c.flagEnabled(ctx, op, account, f.GrantFlag, attributes):
 		d.Allowed, d.Reason = true, ReasonFlagGranted
 	default:
 		d.Reason = ReasonPlanExcludes
@@ -358,7 +365,13 @@ func (c *PlanChecker) noteLimitMismatch(
 }
 
 // Permissions implements Checker.
-func (c *PlanChecker) Permissions(ctx context.Context, account string) (*authorization.PermissionSet, error) {
+func (c *PlanChecker) Permissions(
+	ctx context.Context,
+	account string,
+	opts ...CheckOption,
+) (*authorization.PermissionSet, error) {
+	co := newCheckOptions(opts)
+
 	ctx, op := c.o11y.Begin(ctx, observability.WithValue(accountKey, account))
 	defer op.End()
 
@@ -387,12 +400,12 @@ func (c *PlanChecker) Permissions(ctx context.Context, account string) (*authori
 			continue
 		}
 
-		if c.flagEnabled(ctx, op, account, f.KillFlag) {
+		if c.flagEnabled(ctx, op, account, f.KillFlag, co.attributes) {
 			continue
 		}
 
 		_, included := c.catalog.GrantFor(plan, f.Key)
-		if included || c.flagEnabled(ctx, op, account, f.GrantFlag) {
+		if included || c.flagEnabled(ctx, op, account, f.GrantFlag, co.attributes) {
 			perms = append(perms, f.permission())
 		}
 	}
@@ -530,12 +543,20 @@ func (c *PlanChecker) validPlan(name string, cached bool) (plan string, stale bo
 // happen, and, because the providers here score an unresolvable flag against
 // their circuit breaker, an evaluation that can eventually take the rest of the
 // process's flags down with it. See issue #126.
-func (c *PlanChecker) flagEnabled(ctx context.Context, op observability.Operation, account, flag string) bool {
+func (c *PlanChecker) flagEnabled(
+	ctx context.Context,
+	op observability.Operation,
+	account, flag string,
+	attributes map[string]any,
+) bool {
 	if flag == "" || c.flags == nil {
 		return false
 	}
 
-	enabled, err := c.flags.CanUseFeature(ctx, flag, featureflags.EvaluationContext{TargetingKey: account})
+	enabled, err := c.flags.CanUseFeature(ctx, flag, featureflags.EvaluationContext{
+		TargetingKey: account,
+		Attributes:   attributes,
+	})
 	if err != nil {
 		c.flagErrCounter.Add(ctx, 1, metric.WithAttributes(attribute.String(flagKey, flag)))
 		op.Acknowledge(err, "evaluating entitlement feature flag %q", flag)

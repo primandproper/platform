@@ -24,7 +24,7 @@ func TestNewPlanChecker(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("pro"))
+		c := newChecker(t, staticPlans(planPro))
 
 		test.NotNil(t, c)
 		test.EqOp(t, DefaultCacheTTL, c.cfg.CacheTTL)
@@ -34,7 +34,7 @@ func TestNewPlanChecker(T *testing.T) {
 	T.Run("rejects a nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewPlanChecker(t.Context(), nil, newBooleanCatalog(t), staticPlans("pro"))
+		_, err := NewPlanChecker(t.Context(), nil, newBooleanCatalog(t), staticPlans(planPro))
 
 		test.Error(t, err)
 	})
@@ -42,7 +42,7 @@ func TestNewPlanChecker(T *testing.T) {
 	T.Run("rejects a nil catalog", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewPlanChecker(t.Context(), &CheckerConfig{}, nil, staticPlans("pro"))
+		_, err := NewPlanChecker(t.Context(), &CheckerConfig{}, nil, staticPlans(planPro))
 
 		test.ErrorIs(t, err, ErrNilCatalog)
 	})
@@ -61,7 +61,7 @@ func TestNewPlanChecker(T *testing.T) {
 		// The failure this catches is a service that passes every test written
 		// for its boolean features and fails in production on the one that costs
 		// money.
-		_, err := NewPlanChecker(t.Context(), &CheckerConfig{}, newCatalog(t), staticPlans("pro"))
+		_, err := NewPlanChecker(t.Context(), &CheckerConfig{}, newCatalog(t), staticPlans(planPro))
 
 		test.ErrorIs(t, err, ErrEnforcerRequired)
 	})
@@ -69,7 +69,7 @@ func TestNewPlanChecker(T *testing.T) {
 	T.Run("a boolean-only catalog needs no enforcer", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewPlanChecker(t.Context(), &CheckerConfig{}, newBooleanCatalog(t), staticPlans("pro"),
+		c, err := NewPlanChecker(t.Context(), &CheckerConfig{}, newBooleanCatalog(t), staticPlans(planPro),
 			WithLogger(loggingnoop.NewLogger()))
 
 		must.NoError(t, err)
@@ -82,7 +82,7 @@ func TestNewPlanChecker(T *testing.T) {
 		// Otherwise the misconfiguration is discovered by having the outage it
 		// was configured to survive.
 		_, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: "nope"},
-			newBooleanCatalog(t), staticPlans("pro"), WithLogger(loggingnoop.NewLogger()))
+			newBooleanCatalog(t), staticPlans(planPro), WithLogger(loggingnoop.NewLogger()))
 
 		test.ErrorIs(t, err, ErrUnknownPlan)
 	})
@@ -90,8 +90,8 @@ func TestNewPlanChecker(T *testing.T) {
 	T.Run("accepts a fallback plan the catalog defines", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: "free"},
-			newBooleanCatalog(t), staticPlans("pro"), WithLogger(loggingnoop.NewLogger()))
+		_, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: planFree},
+			newBooleanCatalog(t), staticPlans(planPro), WithLogger(loggingnoop.NewLogger()))
 
 		test.NoError(t, err)
 	})
@@ -100,7 +100,7 @@ func TestNewPlanChecker(T *testing.T) {
 		t.Parallel()
 
 		_, err := NewPlanChecker(t.Context(), &CheckerConfig{CacheTTL: MaxCacheTTL + time.Second},
-			newBooleanCatalog(t), staticPlans("pro"))
+			newBooleanCatalog(t), staticPlans(planPro))
 
 		test.Error(t, err)
 	})
@@ -108,7 +108,7 @@ func TestNewPlanChecker(T *testing.T) {
 	T.Run("a nil option is ignored", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewPlanChecker(t.Context(), &CheckerConfig{}, newBooleanCatalog(t), staticPlans("pro"), nil)
+		c, err := NewPlanChecker(t.Context(), &CheckerConfig{}, newBooleanCatalog(t), staticPlans(planPro), nil)
 
 		must.NoError(t, err)
 		test.NotNil(t, c)
@@ -121,12 +121,12 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 	T.Run("a plan that includes the feature allows", func(t *testing.T) {
 		t.Parallel()
 
-		d, err := newChecker(t, staticPlans("pro")).Check(t.Context(), testAccount, "advanced_search")
+		d, err := newChecker(t, staticPlans(planPro)).Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
 		test.EqOp(t, ReasonPlanIncludes, d.Reason)
-		test.EqOp(t, "pro", d.Plan)
+		test.EqOp(t, planPro, d.Plan)
 		test.EqOp(t, KindBoolean, d.Kind)
 		test.EqOp(t, authorization.Permission("entitlement.advanced_search"), d.Permission)
 		test.NoError(t, d.Err())
@@ -135,7 +135,7 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 	T.Run("a plan that excludes the feature denies", func(t *testing.T) {
 		t.Parallel()
 
-		d, err := newChecker(t, staticPlans("free")).Check(t.Context(), testAccount, "advanced_search")
+		d, err := newChecker(t, staticPlans(planFree)).Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -148,7 +148,7 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 
 		// A boolean feature has no amount, and rendering "0 remaining" for one is
 		// the bug Unbounded exists to make impossible.
-		d, err := newChecker(t, staticPlans("pro")).Check(t.Context(), testAccount, "advanced_search")
+		d, err := newChecker(t, staticPlans(planPro)).Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.EqOp(t, Unbounded, d.Limit)
@@ -158,9 +158,9 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 	T.Run("a grant flag opens a feature the plan excludes", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("free"), WithFeatureFlags(enabledFlags("advanced-search-rollout")))
+		c := newChecker(t, staticPlans(planFree), WithFeatureFlags(enabledFlags(flagSearchGrant)))
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
@@ -170,9 +170,9 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 	T.Run("a kill flag closes a feature the plan includes", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("pro"), WithFeatureFlags(enabledFlags("advanced-search-kill")))
+		c := newChecker(t, staticPlans(planPro), WithFeatureFlags(enabledFlags(flagSearchKill)))
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -182,14 +182,54 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 	T.Run("a kill flag beats a grant flag", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("free"),
-			WithFeatureFlags(enabledFlags("advanced-search-rollout", "advanced-search-kill")))
+		c := newChecker(t, staticPlans(planFree),
+			WithFeatureFlags(enabledFlags(flagSearchGrant, flagSearchKill)))
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
 		test.EqOp(t, ReasonFlagKilled, d.Reason)
+	})
+
+	T.Run("targeting attributes reach the flag provider", func(t *testing.T) {
+		t.Parallel()
+
+		flags, recorded := capturingFlags(flagSearchGrant)
+		c := newChecker(t, staticPlans(planFree), WithFeatureFlags(flags))
+
+		d, err := c.Check(t.Context(), testAccount, featureSearch,
+			WithTargetingAttributes(map[string]any{"region": "eu-west-1", "beta": true}))
+
+		must.NoError(t, err)
+		test.True(t, d.Allowed)
+
+		seen := recorded()
+		must.SliceNotEmpty(t, seen)
+
+		for _, evalCtx := range seen {
+			// The account stays the targeting key: attributes add signals, they
+			// do not replace the subject a provider's percentage rollout hashes.
+			test.EqOp(t, testAccount, evalCtx.TargetingKey)
+			test.Eq(t, map[string]any{"region": "eu-west-1", "beta": true}, evalCtx.Attributes)
+		}
+	})
+
+	T.Run("attributes are absent when the caller passes none", func(t *testing.T) {
+		t.Parallel()
+
+		flags, recorded := capturingFlags(flagSearchGrant)
+		c := newChecker(t, staticPlans(planFree), WithFeatureFlags(flags))
+
+		_, err := c.Check(t.Context(), testAccount, featureSearch)
+		must.NoError(t, err)
+
+		seen := recorded()
+		must.SliceNotEmpty(t, seen)
+
+		for _, evalCtx := range seen {
+			test.Nil(t, evalCtx.Attributes)
+		}
 	})
 
 	T.Run("an unconfigured flag manager leaves both flags inert", func(t *testing.T) {
@@ -197,9 +237,9 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 
 		// The plan keeps answering. A deployment with no flag provider is a real
 		// configuration, not a degraded one.
-		c := newChecker(t, staticPlans("pro"))
+		c := newChecker(t, staticPlans(planPro))
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
@@ -214,13 +254,13 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 		// and cannot grant one.
 		errFlags := platformerrors.New("flag provider is down")
 
-		included := newChecker(t, staticPlans("pro"), WithFeatureFlags(failingFlags(errFlags)))
-		d, err := included.Check(t.Context(), testAccount, "advanced_search")
+		included := newChecker(t, staticPlans(planPro), WithFeatureFlags(failingFlags(errFlags)))
+		d, err := included.Check(t.Context(), testAccount, featureSearch)
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
 
-		excluded := newChecker(t, staticPlans("free"), WithFeatureFlags(failingFlags(errFlags)))
-		d, err = excluded.Check(t.Context(), testAccount, "advanced_search")
+		excluded := newChecker(t, staticPlans(planFree), WithFeatureFlags(failingFlags(errFlags)))
+		d, err = excluded.Check(t.Context(), testAccount, featureSearch)
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
 	})
@@ -233,14 +273,14 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 		t.Parallel()
 
 		resets := time.Now().UTC().Add(time.Hour)
-		c := newChecker(t, staticPlans("pro"), WithEnforcer(staticEnforcer(&metering.Decision{
+		c := newChecker(t, staticPlans(planPro), WithEnforcer(staticEnforcer(&metering.Decision{
 			Allowed:  true,
 			Used:     400,
 			Limit:    1000,
 			ResetsAt: resets,
 		}, nil)))
 
-		d, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		d, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
@@ -254,13 +294,13 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 	T.Run("a spent quota denies with its own sentinel", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("pro"), WithEnforcer(staticEnforcer(&metering.Decision{
+		c := newChecker(t, staticPlans(planPro), WithEnforcer(staticEnforcer(&metering.Decision{
 			Allowed: false,
 			Used:    1000,
 			Limit:   1000,
 		}, nil)))
 
-		d, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		d, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -272,7 +312,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 	T.Run("an allowed overage is reported as one", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("pro"), WithEnforcer(staticEnforcer(&metering.Decision{
+		c := newChecker(t, staticPlans(planPro), WithEnforcer(staticEnforcer(&metering.Decision{
 			Allowed:  true,
 			Used:     1200,
 			Limit:    1000,
@@ -280,7 +320,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 			Behavior: metering.BehaviorAllowOverage,
 		}, nil)))
 
-		d, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		d, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
@@ -295,7 +335,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 		// Not zero. "May I consume nothing" is true at exactly the moment a quota
 		// is spent, which is the moment the question is being asked.
 		var asked atomic.Int64
-		c := newChecker(t, staticPlans("pro"), WithEnforcer(&meteringmock.EnforcerMock{
+		c := newChecker(t, staticPlans(planPro), WithEnforcer(&meteringmock.EnforcerMock{
 			CheckFunc: func(_ context.Context, _, _ string, quantity int64) (*metering.Decision, error) {
 				asked.Store(quantity)
 
@@ -303,7 +343,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 			},
 		}))
 
-		_, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		_, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), asked.Load())
@@ -313,7 +353,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 		t.Parallel()
 
 		var asked atomic.Int64
-		c := newChecker(t, staticPlans("pro"), WithEnforcer(&meteringmock.EnforcerMock{
+		c := newChecker(t, staticPlans(planPro), WithEnforcer(&meteringmock.EnforcerMock{
 			CheckFunc: func(_ context.Context, _, _ string, quantity int64) (*metering.Decision, error) {
 				asked.Store(quantity)
 
@@ -321,7 +361,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 			},
 		}))
 
-		_, err := c.CheckQuantity(t.Context(), testAccount, "llm_tokens", 5000)
+		_, err := c.CheckQuantity(t.Context(), testAccount, featureTokens, 5000)
 
 		must.NoError(t, err)
 		test.EqOp(t, int64(5000), asked.Load())
@@ -331,7 +371,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 		t.Parallel()
 
 		var calls atomic.Int64
-		c := newChecker(t, staticPlans("free"), WithEnforcer(&meteringmock.EnforcerMock{
+		c := newChecker(t, staticPlans(planFree), WithEnforcer(&meteringmock.EnforcerMock{
 			CheckFunc: func(context.Context, string, string, int64) (*metering.Decision, error) {
 				calls.Add(1)
 
@@ -339,7 +379,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 			},
 		}))
 
-		d, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		d, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -353,7 +393,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 		// There is no total that would change the answer, so paying for the read
 		// would be spending latency to learn nothing.
 		var calls atomic.Int64
-		c := newChecker(t, staticPlans("enterprise"), WithEnforcer(&meteringmock.EnforcerMock{
+		c := newChecker(t, staticPlans(planEnterprise), WithEnforcer(&meteringmock.EnforcerMock{
 			CheckFunc: func(context.Context, string, string, int64) (*metering.Decision, error) {
 				calls.Add(1)
 
@@ -361,7 +401,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 			},
 		}))
 
-		d, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		d, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
@@ -375,8 +415,8 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 		t.Parallel()
 
 		var calls atomic.Int64
-		c := newChecker(t, staticPlans("pro"),
-			WithFeatureFlags(enabledFlags("llm-tokens-kill")),
+		c := newChecker(t, staticPlans(planPro),
+			WithFeatureFlags(enabledFlags(flagTokensKill)),
 			WithEnforcer(&meteringmock.EnforcerMock{
 				CheckFunc: func(context.Context, string, string, int64) (*metering.Decision, error) {
 					calls.Add(1)
@@ -385,7 +425,7 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 				},
 			}))
 
-		d, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		d, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -400,9 +440,9 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 		// not one, and reporting it as a denial would have a customer told they
 		// are out of quota during a database outage.
 		errCheck := platformerrors.New("metering is down")
-		c := newChecker(t, staticPlans("pro"), WithEnforcer(staticEnforcer(nil, errCheck)))
+		c := newChecker(t, staticPlans(planPro), WithEnforcer(staticEnforcer(nil, errCheck)))
 
-		d, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		d, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		test.ErrorIs(t, err, errCheck)
 		test.Nil(t, d)
@@ -411,13 +451,13 @@ func TestPlanChecker_Check_quota(T *testing.T) {
 	T.Run("metering staleness propagates to the decision", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("pro"), WithEnforcer(staticEnforcer(&metering.Decision{
+		c := newChecker(t, staticPlans(planPro), WithEnforcer(staticEnforcer(&metering.Decision{
 			Allowed: true,
 			Limit:   1000,
 			Stale:   true,
 		}, nil)))
 
-		d, err := c.Check(t.Context(), testAccount, "llm_tokens")
+		d, err := c.Check(t.Context(), testAccount, featureTokens)
 
 		must.NoError(t, err)
 		test.True(t, d.Stale)
@@ -434,7 +474,7 @@ func TestPlanChecker_Check_planResolution(T *testing.T) {
 		// report filed with the wrong team.
 		c := newChecker(t, failingPlans(ErrNoPlan))
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -444,7 +484,7 @@ func TestPlanChecker_Check_planResolution(T *testing.T) {
 	T.Run("an empty plan name is treated as no plan", func(t *testing.T) {
 		t.Parallel()
 
-		d, err := newChecker(t, staticPlans("")).Check(t.Context(), testAccount, "advanced_search")
+		d, err := newChecker(t, staticPlans("")).Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.EqOp(t, ReasonNoPlan, d.Reason)
@@ -455,7 +495,7 @@ func TestPlanChecker_Check_planResolution(T *testing.T) {
 
 		// Distinct from ReasonNoPlan because it wants a different person woken
 		// up: this is a catalog that has drifted from the plan store.
-		d, err := newChecker(t, staticPlans("legacy_gold")).Check(t.Context(), testAccount, "advanced_search")
+		d, err := newChecker(t, staticPlans("legacy_gold")).Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -468,7 +508,7 @@ func TestPlanChecker_Check_planResolution(T *testing.T) {
 
 		c := newChecker(t, failingPlans(platformerrors.New("plan store is down")))
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -478,17 +518,17 @@ func TestPlanChecker_Check_planResolution(T *testing.T) {
 	T.Run("a failed resolution falls back to the configured plan", func(t *testing.T) {
 		t.Parallel()
 
-		c, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: "pro"},
+		c, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: planPro},
 			newCatalog(t), failingPlans(platformerrors.New("plan store is down")),
 			WithLogger(loggingnoop.NewLogger()),
 			WithEnforcer(staticEnforcer(&metering.Decision{Allowed: true, Limit: 1000}, nil)))
 		must.NoError(t, err)
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
-		test.EqOp(t, "pro", d.Plan)
+		test.EqOp(t, planPro, d.Plan)
 		test.True(t, d.Stale)
 	})
 
@@ -497,13 +537,13 @@ func TestPlanChecker_Check_planResolution(T *testing.T) {
 
 		// Not an outage — a customer who has not paid. The fallback is for the
 		// former and would quietly hand the product to the latter.
-		c, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: "pro"},
+		c, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: planPro},
 			newCatalog(t), failingPlans(ErrNoPlan),
 			WithLogger(loggingnoop.NewLogger()),
 			WithEnforcer(staticEnforcer(&metering.Decision{Allowed: true}, nil)))
 		must.NoError(t, err)
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
@@ -517,7 +557,7 @@ func TestPlanChecker_Check_inputs(T *testing.T) {
 	T.Run("rejects an empty account", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newChecker(t, staticPlans("pro")).Check(t.Context(), "", "advanced_search")
+		_, err := newChecker(t, staticPlans(planPro)).Check(t.Context(), "", featureSearch)
 
 		test.ErrorIs(t, err, ErrEmptyAccount)
 	})
@@ -527,7 +567,7 @@ func TestPlanChecker_Check_inputs(T *testing.T) {
 
 		// Answering "your plan does not include it" would have somebody ship a
 		// permanently dark feature and open a billing ticket.
-		_, err := newChecker(t, staticPlans("pro")).Check(t.Context(), testAccount, "nope")
+		_, err := newChecker(t, staticPlans(planPro)).Check(t.Context(), testAccount, "nope")
 
 		test.ErrorIs(t, err, ErrUnknownFeature)
 	})
@@ -543,13 +583,13 @@ func TestPlanChecker_caching(T *testing.T) {
 		plans := PlanSourceFunc(func(context.Context, string) (string, error) {
 			calls.Add(1)
 
-			return "pro", nil
+			return planPro, nil
 		})
 
 		c := newChecker(t, plans, WithCache(newAssignmentCache(t)))
 
 		for range 3 {
-			_, err := c.Check(t.Context(), testAccount, "advanced_search")
+			_, err := c.Check(t.Context(), testAccount, featureSearch)
 			must.NoError(t, err)
 		}
 
@@ -559,13 +599,13 @@ func TestPlanChecker_caching(T *testing.T) {
 	T.Run("a cached answer is marked stale", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("pro"), WithCache(newAssignmentCache(t)))
+		c := newChecker(t, staticPlans(planPro), WithCache(newAssignmentCache(t)))
 
-		first, err := c.Check(t.Context(), testAccount, "advanced_search")
+		first, err := c.Check(t.Context(), testAccount, featureSearch)
 		must.NoError(t, err)
 		test.False(t, first.Stale)
 
-		second, err := c.Check(t.Context(), testAccount, "advanced_search")
+		second, err := c.Check(t.Context(), testAccount, featureSearch)
 		must.NoError(t, err)
 		test.True(t, second.Stale)
 	})
@@ -577,17 +617,17 @@ func TestPlanChecker_caching(T *testing.T) {
 		plans := PlanSourceFunc(func(context.Context, string) (string, error) {
 			calls.Add(1)
 
-			return "pro", nil
+			return planPro, nil
 		})
 
 		c := newChecker(t, plans, WithCache(newAssignmentCache(t)))
 
-		_, err := c.Check(t.Context(), testAccount, "advanced_search")
+		_, err := c.Check(t.Context(), testAccount, featureSearch)
 		must.NoError(t, err)
 
 		must.NoError(t, c.Invalidate(t.Context(), testAccount))
 
-		_, err = c.Check(t.Context(), testAccount, "advanced_search")
+		_, err = c.Check(t.Context(), testAccount, featureSearch)
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(2), calls.Load())
@@ -596,7 +636,7 @@ func TestPlanChecker_caching(T *testing.T) {
 	T.Run("Invalidate without a cache is a no-op", func(t *testing.T) {
 		t.Parallel()
 
-		test.NoError(t, newChecker(t, staticPlans("pro")).Invalidate(t.Context(), testAccount))
+		test.NoError(t, newChecker(t, staticPlans(planPro)).Invalidate(t.Context(), testAccount))
 	})
 
 	T.Run("Invalidate reports a delete that failed", func(t *testing.T) {
@@ -606,7 +646,7 @@ func TestPlanChecker_caching(T *testing.T) {
 		// policy to stop being served, and silently not doing that is the bug
 		// they were trying to avoid.
 		errDelete := platformerrors.New("cache is down")
-		c := newChecker(t, staticPlans("pro"), WithCache(&cachemock.CacheMock[Assignment]{
+		c := newChecker(t, staticPlans(planPro), WithCache(&cachemock.CacheMock[Assignment]{
 			DeleteFunc: func(context.Context, string) error { return errDelete },
 		}))
 
@@ -617,7 +657,7 @@ func TestPlanChecker_caching(T *testing.T) {
 		t.Parallel()
 
 		// The wrong response to a degraded cache is to stop answering.
-		c := newChecker(t, staticPlans("pro"), WithCache(&cachemock.CacheMock[Assignment]{
+		c := newChecker(t, staticPlans(planPro), WithCache(&cachemock.CacheMock[Assignment]{
 			GetFunc: func(context.Context, string) (*Assignment, error) {
 				return nil, cache.ErrUnavailable
 			},
@@ -626,7 +666,7 @@ func TestPlanChecker_caching(T *testing.T) {
 			},
 		}))
 
-		d, err := c.Check(t.Context(), testAccount, "advanced_search")
+		d, err := c.Check(t.Context(), testAccount, featureSearch)
 
 		must.NoError(t, err)
 		test.True(t, d.Allowed)
@@ -645,7 +685,7 @@ func TestPlanChecker_caching(T *testing.T) {
 			return "", platformerrors.New("plan store is down")
 		})
 
-		c, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: "pro"},
+		c, err := NewPlanChecker(t.Context(), &CheckerConfig{FallbackPlan: planPro},
 			newCatalog(t), plans,
 			WithLogger(loggingnoop.NewLogger()),
 			WithCache(newAssignmentCache(t)),
@@ -653,7 +693,7 @@ func TestPlanChecker_caching(T *testing.T) {
 		must.NoError(t, err)
 
 		for range 2 {
-			_, checkErr := c.Check(t.Context(), testAccount, "advanced_search")
+			_, checkErr := c.Check(t.Context(), testAccount, featureSearch)
 			must.NoError(t, checkErr)
 		}
 
@@ -663,7 +703,7 @@ func TestPlanChecker_caching(T *testing.T) {
 	T.Run("keys are namespaced by the configured prefix", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("pro"))
+		c := newChecker(t, staticPlans(planPro))
 
 		test.EqOp(t, DefaultCachePrefix+testAccount, c.cacheKey(testAccount))
 	})
@@ -675,10 +715,32 @@ func TestPlanChecker_Permissions(T *testing.T) {
 	T.Run("carries the plan's boolean features", func(t *testing.T) {
 		t.Parallel()
 
-		set, err := newChecker(t, staticPlans("pro")).Permissions(t.Context(), testAccount)
+		set, err := newChecker(t, staticPlans(planPro)).Permissions(t.Context(), testAccount)
 
 		must.NoError(t, err)
 		test.True(t, set.Has("entitlement.advanced_search"))
+	})
+
+	T.Run("carries targeting attributes to every flag it evaluates", func(t *testing.T) {
+		t.Parallel()
+
+		// Permissions evaluates both flags of every boolean feature in one call,
+		// so an attribute that reached only the first would produce a set that is
+		// internally inconsistent about the same account.
+		flags, recorded := capturingFlags()
+		c := newChecker(t, staticPlans(planPro), WithFeatureFlags(flags))
+
+		_, err := c.Permissions(t.Context(), testAccount,
+			WithTargetingAttributes(map[string]any{"region": "eu-west-1"}))
+		must.NoError(t, err)
+
+		seen := recorded()
+		must.SliceNotEmpty(t, seen)
+
+		for _, evalCtx := range seen {
+			test.EqOp(t, testAccount, evalCtx.TargetingKey)
+			test.Eq(t, map[string]any{"region": "eu-west-1"}, evalCtx.Attributes)
+		}
 	})
 
 	T.Run("omits quota features", func(t *testing.T) {
@@ -686,7 +748,7 @@ func TestPlanChecker_Permissions(T *testing.T) {
 
 		// A permission meaning "was entitled a moment ago" would be read by every
 		// caller as "may proceed".
-		set, err := newChecker(t, staticPlans("pro")).Permissions(t.Context(), testAccount)
+		set, err := newChecker(t, staticPlans(planPro)).Permissions(t.Context(), testAccount)
 
 		must.NoError(t, err)
 		test.False(t, set.Has("entitlement.llm_tokens"))
@@ -696,7 +758,7 @@ func TestPlanChecker_Permissions(T *testing.T) {
 	T.Run("a plan that includes nothing carries nothing", func(t *testing.T) {
 		t.Parallel()
 
-		set, err := newChecker(t, staticPlans("free")).Permissions(t.Context(), testAccount)
+		set, err := newChecker(t, staticPlans(planFree)).Permissions(t.Context(), testAccount)
 
 		must.NoError(t, err)
 		test.True(t, set.IsEmpty())
@@ -705,7 +767,7 @@ func TestPlanChecker_Permissions(T *testing.T) {
 	T.Run("a grant flag adds a permission", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("free"), WithFeatureFlags(enabledFlags("advanced-search-rollout")))
+		c := newChecker(t, staticPlans(planFree), WithFeatureFlags(enabledFlags(flagSearchGrant)))
 
 		set, err := c.Permissions(t.Context(), testAccount)
 
@@ -716,7 +778,7 @@ func TestPlanChecker_Permissions(T *testing.T) {
 	T.Run("a kill flag removes one", func(t *testing.T) {
 		t.Parallel()
 
-		c := newChecker(t, staticPlans("pro"), WithFeatureFlags(enabledFlags("advanced-search-kill")))
+		c := newChecker(t, staticPlans(planPro), WithFeatureFlags(enabledFlags(flagSearchKill)))
 
 		set, err := c.Permissions(t.Context(), testAccount)
 
@@ -744,7 +806,7 @@ func TestPlanChecker_Permissions(T *testing.T) {
 	T.Run("rejects an empty account", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newChecker(t, staticPlans("pro")).Permissions(t.Context(), "")
+		_, err := newChecker(t, staticPlans(planPro)).Permissions(t.Context(), "")
 
 		test.ErrorIs(t, err, ErrEmptyAccount)
 	})
@@ -754,7 +816,7 @@ func TestPlanChecker_Permissions(T *testing.T) {
 
 		// The shape the whole Permissions method exists for: one grants.Has, and
 		// the handler does not know which of the two put the permission there.
-		entitlementPerms, err := newChecker(t, staticPlans("pro")).Permissions(t.Context(), testAccount)
+		entitlementPerms, err := newChecker(t, staticPlans(planPro)).Permissions(t.Context(), testAccount)
 		must.NoError(t, err)
 
 		rolePerms := authorization.NewPermissionSet("update.recipes")

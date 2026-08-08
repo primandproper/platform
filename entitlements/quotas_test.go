@@ -26,19 +26,19 @@ func TestNewQuotaSource(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, newQuotaSource(t, staticPlans("pro")))
+		test.NotNil(t, newQuotaSource(t, staticPlans(planPro)))
 	})
 
 	T.Run("rejects nil dependencies", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewQuotaSource(nil, staticPlans("pro"), newRegistry(t))
+		_, err := NewQuotaSource(nil, staticPlans(planPro), newRegistry(t))
 		test.ErrorIs(t, err, ErrNilCatalog)
 
 		_, err = NewQuotaSource(newCatalog(t), nil, newRegistry(t))
 		test.ErrorIs(t, err, ErrNilPlanSource)
 
-		_, err = NewQuotaSource(newCatalog(t), staticPlans("pro"), nil)
+		_, err = NewQuotaSource(newCatalog(t), staticPlans(planPro), nil)
 		test.ErrorIs(t, err, ErrNilRegistry)
 	})
 
@@ -50,7 +50,7 @@ func TestNewQuotaSource(T *testing.T) {
 		c := NewCatalog()
 		must.NoError(t, c.RegisterFeature(Feature{Key: "seats", Kind: KindQuota, Meter: "seats"}))
 
-		_, err := NewQuotaSource(c, staticPlans("pro"), newRegistry(t))
+		_, err := NewQuotaSource(c, staticPlans(planPro), newRegistry(t))
 
 		test.ErrorIs(t, err, metering.ErrUnknownMeter)
 	})
@@ -62,7 +62,7 @@ func TestQuotaSource_QuotaFor(T *testing.T) {
 	T.Run("serves the plan's limit", func(t *testing.T) {
 		t.Parallel()
 
-		q, err := newQuotaSource(t, staticPlans("pro")).QuotaFor(t.Context(), testAccount, testMeter)
+		q, err := newQuotaSource(t, staticPlans(planPro)).QuotaFor(t.Context(), testAccount, testMeter)
 
 		must.NoError(t, err)
 		test.EqOp(t, int64(1000), q.Limit)
@@ -75,7 +75,7 @@ func TestQuotaSource_QuotaFor(T *testing.T) {
 		// Taking it instead would move metering's ErrPeriodMismatch — a
 		// wiring-time mistake it can only raise on the request path — back onto
 		// the request path.
-		q, err := newQuotaSource(t, staticPlans("pro")).QuotaFor(t.Context(), testAccount, testMeter)
+		q, err := newQuotaSource(t, staticPlans(planPro)).QuotaFor(t.Context(), testAccount, testMeter)
 
 		must.NoError(t, err)
 		test.EqOp(t, metering.PeriodMonth, q.Period)
@@ -84,7 +84,7 @@ func TestQuotaSource_QuotaFor(T *testing.T) {
 	T.Run("an unlimited grant becomes a limit nobody reaches", func(t *testing.T) {
 		t.Parallel()
 
-		q, err := newQuotaSource(t, staticPlans("enterprise")).QuotaFor(t.Context(), testAccount, testMeter)
+		q, err := newQuotaSource(t, staticPlans(planEnterprise)).QuotaFor(t.Context(), testAccount, testMeter)
 
 		must.NoError(t, err)
 		test.EqOp(t, UnlimitedLimit, q.Limit)
@@ -95,7 +95,7 @@ func TestQuotaSource_QuotaFor(T *testing.T) {
 		t.Parallel()
 
 		// Reported rather than treated as unlimited — see metering.ErrNoQuota.
-		_, err := newQuotaSource(t, staticPlans("free")).QuotaFor(t.Context(), testAccount, testMeter)
+		_, err := newQuotaSource(t, staticPlans(planFree)).QuotaFor(t.Context(), testAccount, testMeter)
 
 		test.ErrorIs(t, err, metering.ErrNoQuota)
 	})
@@ -111,7 +111,7 @@ func TestQuotaSource_QuotaFor(T *testing.T) {
 			Period:      metering.PeriodMonth,
 		}))
 
-		q, err := NewQuotaSource(newCatalog(t), staticPlans("pro"), registry)
+		q, err := NewQuotaSource(newCatalog(t), staticPlans(planPro), registry)
 		must.NoError(t, err)
 
 		_, err = q.QuotaFor(t.Context(), testAccount, "unmetered_by_catalog")
@@ -122,7 +122,7 @@ func TestQuotaSource_QuotaFor(T *testing.T) {
 	T.Run("an unregistered meter is an unknown meter", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newQuotaSource(t, staticPlans("pro")).QuotaFor(t.Context(), testAccount, "nope")
+		_, err := newQuotaSource(t, staticPlans(planPro)).QuotaFor(t.Context(), testAccount, "nope")
 
 		test.ErrorIs(t, err, metering.ErrUnknownMeter)
 	})
@@ -153,10 +153,10 @@ func TestQuotaSource_QuotaFor(T *testing.T) {
 		// The whole point of the arrangement: one number, so the limit an account
 		// is shown is the limit enforced against it.
 		catalog := newCatalog(t)
-		grant, ok := catalog.GrantFor("pro", "llm_tokens")
+		grant, ok := catalog.GrantFor(planPro, featureTokens)
 		must.True(t, ok)
 
-		q, err := newQuotaSource(t, staticPlans("pro")).QuotaFor(t.Context(), testAccount, testMeter)
+		q, err := newQuotaSource(t, staticPlans(planPro)).QuotaFor(t.Context(), testAccount, testMeter)
 
 		must.NoError(t, err)
 		test.EqOp(t, grant.Limit, q.Limit)

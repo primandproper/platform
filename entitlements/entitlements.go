@@ -6,6 +6,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/authorization"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/identifier"
 	"github.com/primandproper/platform-go/v10/metering"
 )
 
@@ -488,7 +489,7 @@ type Checker interface {
 	// One unit rather than none, because "may I consume nothing" is true at
 	// exactly the moment a quota is spent, and that is the moment the question is
 	// being asked.
-	Check(ctx context.Context, account, feature string) (*Decision, error)
+	Check(ctx context.Context, account, feature string, opts ...CheckOption) (*Decision, error)
 
 	// CheckQuantity is Check for a caller that knows how much it is about to
 	// consume: whether the account may use quantity more of the feature this
@@ -498,7 +499,7 @@ type Checker interface {
 	// before it runs — a completion whose token count was estimated, a bulk
 	// import whose row count is in hand. Asking for one unit and then consuming
 	// five thousand is how a limit is exceeded by a factor nobody chose.
-	CheckQuantity(ctx context.Context, account, feature string, quantity int64) (*Decision, error)
+	CheckQuantity(ctx context.Context, account, feature string, quantity int64, opts ...CheckOption) (*Decision, error)
 
 	// Permissions resolves the account's boolean entitlements into a permission
 	// set, for a caller building a session.
@@ -510,31 +511,15 @@ type Checker interface {
 	// which is the same shape authorization already uses to merge service-wide
 	// and per-tenant authority. Quota features are absent from the set; see the
 	// interface documentation.
-	Permissions(ctx context.Context, account string) (*authorization.PermissionSet, error)
+	Permissions(ctx context.Context, account string, opts ...CheckOption) (*authorization.PermissionSet, error)
 }
 
-// validIdentifier reports whether a name is a plain identifier: a letter or
-// underscore followed by letters, digits, or underscores.
+// validIdentifier reports whether a name is a plain identifier.
 //
-// Restricted rather than escaped, because feature keys and plan names travel
-// into cache keys, metric attribute values, and permission strings, and none of
-// the three has a quoting convention this package could rely on. The cache key
-// is the one that matters: a separator that can appear inside a component is a
-// key collision, and a key collision here serves one account another's
-// entitlements.
+// Feature keys and plan names travel into cache keys, metric attribute values,
+// and permission strings, which is the rule internal/identifier states — and the
+// same rule metering applies to a meter name, since a quota feature's key and
+// the meter it counts against end up in the same cache key.
 func validIdentifier(name string, maxLen int) bool {
-	if name == "" || len(name) > maxLen {
-		return false
-	}
-
-	for i, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
-		case r >= '0' && r <= '9' && i > 0:
-		default:
-			return false
-		}
-	}
-
-	return true
+	return identifier.Valid(name, maxLen)
 }

@@ -143,6 +143,20 @@ flag, or a five-minute provider outage, silently revoke every entitlement in the
 catalog. A kill flag beats a grant flag, because a kill switch a grant can beat
 is not a kill switch.
 
+The account is always the evaluation's targeting key. A rollout usually depends
+on more than that — a region, a beta cohort, the particular workspace inside the
+account — and a provider can only target on what it was handed, so a rule
+written against a signal nobody passed silently takes its default branch.
+WithTargetingAttributes is where those go:
+
+	decision, err := checker.Check(ctx, accountID, "advanced_search",
+	    entitlements.WithTargetingAttributes(map[string]any{"region": req.Region}))
+
+They reach the flag provider and nothing else. Plan resolution, the plan cache,
+and quota accounting are all keyed on the account alone, and an attribute that
+moved any of them would let two calls for the same account disagree about what
+that account is entitled to.
+
 Grant flags are refused on quota features (ErrGrantFlagNotAllowed). Opening a
 quota feature the plan excludes leaves nowhere for the limit to come from — the
 plan is the only thing that knows it — and defaulting to unlimited is how a
