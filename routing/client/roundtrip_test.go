@@ -326,6 +326,9 @@ func TestCall_MissingRequiredPathParam(T *testing.T) {
 // escaped form to nothing at all. That disagreement predates this package and is
 // the server's to settle; escaping here is correct either way, and not escaping
 // would be wrong for all four.
+//
+// Tracked in https://github.com/primandproper/platform-go/issues/129, which is
+// where the server-side half of this assertion belongs once the backends agree.
 func TestCall_PathValuesAreEscaped(T *testing.T) {
 	T.Parallel()
 

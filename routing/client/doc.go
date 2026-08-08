@@ -62,5 +62,6 @@ depends on which routing backend it runs: the stdlib ServeMux decodes a path
 value, chi hands the handler the raw escaped text, and gin and httprouter route
 the escaped form to nothing. Keep values that need escaping out of the path —
 they belong in the query, where every backend agrees — until that is settled.
+See https://github.com/primandproper/platform-go/issues/129.
 */
 package client
