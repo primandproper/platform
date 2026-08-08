@@ -19,6 +19,10 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// observedTopic is the topic these consumers are built against. It stands in
+// for what provideKafkaConsumer seeds onto the observer.
+const observedTopic = "observed-topic"
+
 type mockKafkaReader struct {
 	fetchMessageFunc   func(ctx context.Context) (kafka.Message, error)
 	commitMessagesFunc func(ctx context.Context, msgs ...kafka.Message) error
@@ -263,7 +267,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		obs := observability.NewRecordingObserver()
+		// Seeded as provideKafkaConsumer seeds it: a reader is bound to one topic,
+		// so the topic is stated at construction rather than read off each message.
+		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: observedTopic})
 
 		handlerCalled := false
 		c := &kafkaConsumer{
@@ -289,7 +295,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		// The message's topic and payload length must have been observed, and the
 		// operation should have ended cleanly.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.TopicKey:  msg.Topic,
+			keys.TopicKey:  observedTopic,
 			keys.LengthKey: len(msg.Value),
 		})
 		test.True(t, op.Ended)
@@ -315,7 +321,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		obs := observability.NewRecordingObserver()
+		// Seeded as provideKafkaConsumer seeds it: a reader is bound to one topic,
+		// so the topic is stated at construction rather than read off each message.
+		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: observedTopic})
 
 		c := &kafkaConsumer{
 			reader:          reader,
@@ -340,7 +348,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		// The topic and payload length must still have been observed, and the
 		// handler failure acknowledged on the operation.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.TopicKey:  msg.Topic,
+			keys.TopicKey:  observedTopic,
 			keys.LengthKey: len(msg.Value),
 		})
 		test.True(t, op.Ended)
@@ -454,7 +462,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 			},
 		}
 
-		obs := observability.NewRecordingObserver()
+		// Seeded as provideKafkaConsumer seeds it: a reader is bound to one topic,
+		// so the topic is stated at construction rather than read off each message.
+		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: observedTopic})
 
 		c := &kafkaConsumer{
 			reader:          reader,
@@ -476,7 +486,7 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		// The topic and payload length must still have been observed, and the
 		// commit failure acknowledged on the operation.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.TopicKey:  msg.Topic,
+			keys.TopicKey:  observedTopic,
 			keys.LengthKey: len(msg.Value),
 		})
 		test.True(t, op.Ended)

@@ -67,10 +67,7 @@ type Entry[K comparable] struct {
 // Keys are validated before they join a batch, so a malformed key fails its own
 // Enqueue rather than poisoning everybody else's.
 func (q *Queue[K]) Enqueue(ctx context.Context, entries ...Entry[K]) error {
-	ctx, op := q.o11y.Begin(ctx, observability.WithValues(map[string]any{
-		queueNameKey: q.cfg.Name,
-		itemCountKey: len(entries),
-	}))
+	ctx, op := q.o11y.Begin(ctx, observability.WithValue(itemCountKey, len(entries)))
 	defer op.End()
 
 	if len(entries) == 0 {
@@ -153,10 +150,7 @@ func (q *Queue[K]) notify(ctx context.Context) {
 	}
 
 	if _, err := q.client.Writer().ExecContext(ctx, dialect.PostgresNotifyStatement, q.cfg.NotifyChannel); err != nil {
-		q.logger.WithValues(map[string]any{
-			queueNameKey:     q.cfg.Name,
-			notifyChannelKey: q.cfg.NotifyChannel,
-		}).Error("notifying work queue channel", err)
+		q.logger.WithValue(notifyChannelKey, q.cfg.NotifyChannel).Error("notifying work queue channel", err)
 	}
 }
 

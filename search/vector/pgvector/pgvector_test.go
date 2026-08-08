@@ -94,7 +94,8 @@ func provideTestIndex(t *testing.T, client database.Client, indexName string, di
 func newRecordingIndex(t *testing.T) (*indexManager[doc], *observability.RecordingObserver) {
 	t.Helper()
 
-	obs := observability.NewRecordingObserver()
+	// Seeded as NewIndex seeds it: the index name is stated once at construction.
+	obs := observability.NewRecordingObserverWithValues(map[string]any{keys.IndexNameKey: t.Name()})
 	im := &indexManager[doc]{
 		o11y:           obs,
 		circuitBreaker: cbnoop.NewCircuitBreaker(),

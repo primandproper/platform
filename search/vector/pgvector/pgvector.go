@@ -123,7 +123,7 @@ func NewIndex[T any](
 	}
 
 	im := &indexManager[T]{
-		o11y:              observability.NewObserver(fmt.Sprintf("%s_%s", serviceName, indexName), o.logger, o.tracerProvider),
+		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_%s", serviceName, indexName), o.logger, o.tracerProvider, map[string]any{keys.IndexNameKey: indexName}),
 		db:                db,
 		circuitBreaker:    circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		upsertCounter:     upsertCounter,
@@ -174,7 +174,7 @@ const ensureSchemaLockKey int64 = 0x7067766563746f72 // "pgvector" as ASCII
 // and concurrently — concurrent callers serialize via a transaction-scoped advisory
 // lock so they observe each other's CREATE EXTENSION as already-done.
 func (i *indexManager[T]) ensureTable(ctx context.Context) error {
-	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.indexName))
+	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
 	stmts := []string{
@@ -217,10 +217,7 @@ func (i *indexManager[T]) ensureTable(ctx context.Context) error {
 
 // Upsert implements vectorsearch.Index.
 func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Vector[T]) error {
-	ctx, op := i.o11y.Begin(ctx,
-		observability.WithValue(keys.IndexNameKey, i.indexName),
-		observability.WithValue(keys.LengthKey, len(vectors)),
-	)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(vectors)))
 	defer op.End()
 
 	if len(vectors) == 0 {
@@ -300,10 +297,7 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 
 // Delete implements vectorsearch.Index.
 func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
-	ctx, op := i.o11y.Begin(ctx,
-		observability.WithValue(keys.IndexNameKey, i.indexName),
-		observability.WithValue(keys.LengthKey, len(ids)),
-	)
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(ids)))
 	defer op.End()
 
 	if len(ids) == 0 {
@@ -332,7 +326,7 @@ func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
 
 // Wipe implements vectorsearch.Index.
 func (i *indexManager[T]) Wipe(ctx context.Context) error {
-	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.indexName))
+	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
 	if i.circuitBreaker.CannotProceed() {
@@ -358,7 +352,7 @@ func (i *indexManager[T]) Wipe(ctx context.Context) error {
 
 // Query implements vectorsearch.Index.
 func (i *indexManager[T]) Query(ctx context.Context, req vectorsearch.QueryRequest) ([]vectorsearch.QueryResult[T], error) {
-	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.IndexNameKey, i.indexName))
+	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
 	if len(req.Embedding) == 0 {

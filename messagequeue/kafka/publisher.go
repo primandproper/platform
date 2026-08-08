@@ -46,7 +46,7 @@ func (p *kafkaPublisher) Stop() {
 
 // Publish publishes a message to a Kafka topic.
 func (p *kafkaPublisher) Publish(ctx context.Context, data any) error {
-	ctx, op := p.o11y.Begin(ctx, observability.WithValue(keys.TopicKey, p.topic))
+	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
 	startTime := time.Now()
@@ -109,7 +109,7 @@ func provideKafkaPublisher(logger logging.Logger, tracerProvider tracing.TracerP
 	return &kafkaPublisher{
 		writer:            writer,
 		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
-		o11y:              observability.NewObserver(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider),
+		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
 		topic:             topic,
 		publishedCounter:  publishedCounter,
 		publishErrCounter: publishErrCounter,

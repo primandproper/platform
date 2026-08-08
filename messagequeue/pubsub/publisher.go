@@ -32,7 +32,6 @@ type (
 		publishedCounter  metrics.Int64Counter
 		publishErrCounter metrics.Int64Counter
 		latencyHist       metrics.Float64Histogram
-		topic             string
 	}
 )
 
@@ -57,9 +56,8 @@ func buildPubSubPublisher(logger logging.Logger, pubsubClient *pubsub.Publisher,
 
 	return &pubSubPublisher{
 		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
-		o11y:              observability.NewObserver(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider),
+		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
 		publisher:         pubsubClient,
-		topic:             topic,
 		publishedCounter:  publishedCounter,
 		publishErrCounter: publishErrCounter,
 		latencyHist:       latencyHist,
@@ -154,7 +152,7 @@ func (p *pubSubPublisher) Publish(ctx context.Context, data any) error {
 		return observability.PrepareError(err, op.Span(), "encoding topic message")
 	}
 
-	op.Set(keys.TopicKey, p.topic).Set(keys.LengthKey, b.Len())
+	op.Set(keys.LengthKey, b.Len())
 
 	msg := &pubsub.Message{Data: b.Bytes()}
 	result := p.publisher.Publish(ctx, msg)

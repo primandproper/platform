@@ -167,7 +167,9 @@ func TestPubSubPublisher_Container(T *testing.T) {
 			must.NoError(t, err)
 			must.NotNil(t, publisher)
 
-			obs := observability.NewRecordingObserver()
+			// Seeded as buildPubSubPublisher seeds it: the topic is stated once at
+			// construction, not at each Publish.
+			obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: topicName})
 			publisher.(*pubSubPublisher).o11y = obs
 
 			inputData := &struct {

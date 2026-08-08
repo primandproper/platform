@@ -281,6 +281,11 @@ func (l *gatedLogger) WithName(string) logging.Logger { return l }
 
 func (l *gatedLogger) WithValue(string, any) logging.Logger { return l }
 
+// WithValues must return l for the same reason WithValue does: the Pool's
+// observer is built with seeded values, so the logger it derives goes through
+// here — and the embedded noop's version would hand back a logger with no gate.
+func (l *gatedLogger) WithValues(map[string]any) logging.Logger { return l }
+
 func (l *gatedLogger) errors() []error {
 	l.mu.Lock()
 	defer l.mu.Unlock()

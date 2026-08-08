@@ -112,7 +112,9 @@ func provideSQSConsumer(
 	}
 
 	return &sqsConsumer{
-		o11y:            observability.NewObserver(fmt.Sprintf("%s_consumer", instrumentName(queueURL)), logger, tracerProvider),
+		// The queue URL, not the instrument name: the value identifies the queue
+		// for a reader, while instrumentName only has to satisfy OpenTelemetry.
+		o11y:            observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", instrumentName(queueURL)), logger, tracerProvider, map[string]any{keys.TopicKey: queueURL}),
 		receiver:        receiver,
 		queueURL:        queueURL,
 		handlerFunc:     handlerFunc,
@@ -166,7 +168,7 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 			body := []byte(aws.ToString(msg.Body))
 
 			msgCtx, op := c.o11y.BeginCustom(ctx, "consume_message")
-			op.Set(keys.TopicKey, c.queueURL).Set(keys.LengthKey, len(body))
+			op.Set(keys.LengthKey, len(body))
 			op.SpanOnly("message_id", aws.ToString(msg.MessageId))
 			c.consumedCounter.Add(msgCtx, 1)
 			if err = c.handlerFunc(msgCtx, body); err != nil {

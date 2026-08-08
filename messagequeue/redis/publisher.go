@@ -61,7 +61,7 @@ func (p *redisPublisher) Publish(ctx context.Context, data any) error {
 		return op.Error(err, "encoding topic message")
 	}
 
-	op.Set(keys.TopicKey, p.topic).Set(keys.LengthKey, b.Len())
+	op.Set(keys.LengthKey, b.Len())
 
 	if err := p.publisher.Publish(ctx, p.topic, b.Bytes()).Err(); err != nil {
 		p.publishErrCounter.Add(ctx, 1)
@@ -104,7 +104,7 @@ func provideRedisPublisher(logger logging.Logger, tracerProvider tracing.TracerP
 		publisher:         redisClient,
 		topic:             topic,
 		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
-		o11y:              observability.NewObserver(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider),
+		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
 		publishedCounter:  publishedCounter,
 		publishErrCounter: publishErrCounter,
 		latencyHist:       latencyHist,

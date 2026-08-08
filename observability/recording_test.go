@@ -77,6 +77,64 @@ func TestRecordingObserver(T *testing.T) {
 	})
 }
 
+func TestNewRecordingObserverWithValues(T *testing.T) {
+	T.Parallel()
+
+	T.Run("seeds every operation", func(t *testing.T) {
+		t.Parallel()
+
+		o := NewRecordingObserverWithValues(map[string]any{"channel": "outbox"})
+
+		for range 2 {
+			_, op := o.Begin(t.Context())
+			op.End()
+		}
+
+		test.SliceLen(t, 2, o.Operations)
+		for i := range o.Operations {
+			test.EqOp(t, "outbox", o.Operations[i].SpanValues["channel"].(string))
+		}
+
+		// The assertion helpers union both pillars, so a test asserting on a
+		// constructor-seeded value reads exactly as it did when the unit set it
+		// at each call site.
+		o.ObservedOperationWithData(t, map[string]any{"channel": "outbox"})
+	})
+
+	T.Run("seeds an explicitly named operation too", func(t *testing.T) {
+		t.Parallel()
+
+		o := NewRecordingObserverWithValues(map[string]any{"channel": "outbox"})
+
+		_, op := o.BeginCustom(t.Context(), "custom")
+		op.End()
+
+		o.ObservedOperationWithKeys(t, "channel")
+	})
+
+	T.Run("the caller's own options win", func(t *testing.T) {
+		t.Parallel()
+
+		o := NewRecordingObserverWithValues(map[string]any{"channel": "outbox"})
+
+		_, op := o.Begin(t.Context(), WithValue("channel", "override"))
+		op.End()
+
+		o.ObservedOperationWithData(t, map[string]any{"channel": "override"})
+	})
+
+	T.Run("nil values behave as NewRecordingObserver", func(t *testing.T) {
+		t.Parallel()
+
+		o := NewRecordingObserverWithValues(nil)
+
+		_, op := o.Begin(t.Context())
+		op.End()
+
+		test.MapEmpty(t, o.Operations[0].SpanValues)
+	})
+}
+
 func TestRecordingObserver_assertionHelpers(T *testing.T) {
 	T.Parallel()
 

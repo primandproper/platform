@@ -62,7 +62,9 @@ func buildTestPublisher(t *testing.T) (*kafkaPublisher, *mockKafkaWriter, *obser
 	latencyHist, err := mp.NewFloat64Histogram("test_publish_latency_ms")
 	must.NoError(t, err)
 
-	obs := observability.NewRecordingObserver()
+	// Seeded as provideKafkaPublisher seeds it: the topic is stated once at
+	// construction, not at each Publish.
+	obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: t.Name()})
 
 	pub := &kafkaPublisher{
 		writer:            writer,

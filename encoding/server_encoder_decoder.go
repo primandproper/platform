@@ -24,6 +24,8 @@ const (
 
 	o11yName = "server_encoder_decoder"
 
+	contentTypeKey = "content_type"
+
 	contentTypeXML   = "application/xml"
 	contentTypeJSON  = "application/json"
 	contentTypeTOML  = "application/toml"
@@ -78,10 +80,7 @@ func (t *tomlDecoder) Decode(v any) error {
 
 // DecodeBytes decodes bytes into values.
 func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, dest any) error {
-	_, op := e.o11y.Begin(ctx,
-		observability.WithValue(keys.LengthKey, len(data)),
-		observability.WithValue("content_type", e.contentType.String()),
-	)
+	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(data)))
 	defer op.End()
 
 	var d decoder
@@ -230,7 +229,12 @@ func NewServerEncoderDecoder(contentType ContentType, opts ...Option) ServerEnco
 	cfg := newOptions(opts)
 
 	return &serverEncoderDecoder{
-		o11y:        observability.NewObserver(o11yName, cfg.logger, cfg.tracerProvider),
+		// An encoder/decoder speaks one content type for its whole life, and every
+		// operation below is about it, so it is stated once here. Previously only
+		// DecodeBytes recorded it, which is exactly the "set at some call sites and
+		// forgotten at the rest" case this constructor exists for.
+		o11y: observability.NewObserverWithValues(o11yName, cfg.logger, cfg.tracerProvider,
+			map[string]any{contentTypeKey: contentType.String()}),
 		panicker:    panicking.NewProductionPanicker(),
 		contentType: contentType,
 	}

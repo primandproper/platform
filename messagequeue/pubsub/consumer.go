@@ -45,7 +45,7 @@ func buildPubSubConsumer(
 
 	return &pubSubConsumer{
 		topic:           topic,
-		o11y:            observability.NewObserver(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider),
+		o11y:            observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
 		consumer:        pubsubClient,
 		handlerFunc:     handlerFunc,
 		consumedCounter: consumedCounter,
@@ -89,7 +89,7 @@ func (c *pubSubConsumer) Consume(ctx context.Context, errors chan<- error) {
 		msgCtx, op := c.o11y.BeginCustom(receivedContext, "consume_message")
 		defer op.End()
 
-		op.Set(keys.TopicKey, c.topic).Set(keys.LengthKey, len(m.Data))
+		op.Set(keys.LengthKey, len(m.Data))
 		op.SpanOnly("message_id", m.ID)
 		if m.DeliveryAttempt != nil {
 			op.SpanOnly("delivery_attempt", *m.DeliveryAttempt)

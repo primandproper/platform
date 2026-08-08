@@ -51,7 +51,7 @@ func (sm *indexManager[T]) Index(ctx context.Context, id string, value any) erro
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	op.Set("id", id).Set(keys.IndexNameKey, sm.indexName)
+	op.Set("id", id)
 	op.Logger().Debug("adding to index")
 
 	b, err := json.Marshal(value)
@@ -186,7 +186,7 @@ func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 		resultIDs = append(resultIDs, c)
 	}
 
-	op.Set(keys.IndexNameKey, sm.indexName).Set(keys.LengthKey, len(resultIDs))
+	op.Set(keys.LengthKey, len(resultIDs))
 
 	out := &textsearch.SearchResults[T]{Hits: resultIDs}
 
@@ -219,8 +219,6 @@ func (sm *indexManager[T]) Wipe(ctx context.Context) error {
 	if sm.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken
 	}
-
-	op.Set(keys.IndexNameKey, sm.indexName)
 
 	refresh := true
 	res, err := esapi.DeleteByQueryRequest{
@@ -256,7 +254,7 @@ func (sm *indexManager[T]) Delete(ctx context.Context, id string) error {
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	op.Set("id", id).Set(keys.IndexNameKey, sm.indexName)
+	op.Set("id", id)
 
 	res, err := esapi.DeleteRequest{
 		Index:      sm.indexName,

@@ -53,7 +53,9 @@ func newObservedPool(t *testing.T, handler Handler) (*Pool, *observability.Recor
 	}, provider, handler)
 	must.NoError(t, err)
 
-	obs := observability.NewRecordingObserver()
+	// Seeded as NewPool seeds it: a pool consumes one topic, so the topic is
+	// stated once at construction.
+	obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: observedTopic})
 	pool.o11y = obs
 
 	return pool, obs

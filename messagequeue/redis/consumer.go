@@ -80,7 +80,7 @@ func provideRedisConsumer(ctx context.Context, logger logging.Logger, tracerProv
 	return &redisConsumer{
 		handlerFunc:     handlerFunc,
 		subscription:    subscription,
-		o11y:            observability.NewObserver(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider),
+		o11y:            observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
 		consumedCounter: consumedCounter,
 	}, nil
 }
@@ -109,7 +109,7 @@ func (r *redisConsumer) Consume(ctx context.Context, errs chan<- error) {
 				return
 			}
 			msgCtx, op := r.o11y.BeginCustom(ctx, "consume_message")
-			op.Set(keys.TopicKey, msg.Channel).Set(keys.LengthKey, len(msg.Payload))
+			op.Set(keys.LengthKey, len(msg.Payload))
 			r.consumedCounter.Add(msgCtx, 1)
 			if err := r.handlerFunc(msgCtx, []byte(msg.Payload)); err != nil {
 				op.Acknowledge(err, "handling message")

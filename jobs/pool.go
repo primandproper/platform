@@ -172,8 +172,12 @@ func NewPool(ctx context.Context, cfg *PoolConfig, provider messagequeue.Consume
 
 	p.workerCtx, p.cancelWorker = context.WithCancel(context.WithoutCancel(ctx))
 
-	p.o11y = observability.NewObserver(poolServiceName, p.logger, p.tracerProvider)
-	p.logger = p.o11y.Logger().WithValue(keys.TopicKey, p.cfg.Topic)
+	// A pool consumes exactly one topic, so the topic is stated here rather than
+	// at each call site. Seeding the observer rather than only the logger is
+	// what puts it on the pool's spans as well as its log lines.
+	p.o11y = observability.NewObserverWithValues(poolServiceName, p.logger, p.tracerProvider,
+		map[string]any{keys.TopicKey: p.cfg.Topic})
+	p.logger = p.o11y.Logger()
 
 	if p.policy == nil {
 		p.policy = retrycfg.NewExponentialBackoffPolicy(p.cfg.Retry)
@@ -334,7 +338,7 @@ func (p *Pool) reportConsumerError(err error) {
 // returned — but the goroutines are not waited on, so a handler that ignores
 // its context may still be running when Close returns.
 func (p *Pool) Close(ctx context.Context) error {
-	_, op := p.o11y.Begin(ctx, observability.WithValue(keys.TopicKey, p.cfg.Topic))
+	_, op := p.o11y.Begin(ctx)
 	defer op.End()
 
 	p.stopOnce.Do(func() { close(p.stop) })
@@ -419,7 +423,7 @@ func (p *Pool) process(msg *message) {
 	ctx, op := p.o11y.BeginCustom(p.workerCtx, "handle_message", msg.linkToOrigin()...)
 	defer op.End()
 
-	op.Set(keys.TopicKey, p.cfg.Topic).Set(payloadSizeKey, len(msg.payload))
+	op.Set(payloadSizeKey, len(msg.payload))
 
 	p.inFlightGauge.Add(ctx, 1, p.topicAttr)
 	defer p.inFlightGauge.Add(ctx, -1, p.topicAttr)

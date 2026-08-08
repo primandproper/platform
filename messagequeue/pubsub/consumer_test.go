@@ -277,7 +277,9 @@ func TestPubSub_Container(T *testing.T) {
 			consumer, err := provider.NewConsumer(ctx, topicName, handler)
 			must.NoError(t, err)
 
-			obs := observability.NewRecordingObserver()
+			// Seeded as buildPubSubConsumer seeds it: a consumer is bound to one
+			// topic, so the topic is stated once at construction.
+			obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: topicName})
 			consumer.(*pubSubConsumer).o11y = obs
 
 			messageData := []byte(`{"name":"test"}`)
@@ -342,7 +344,9 @@ func TestPubSub_Container(T *testing.T) {
 			consumer, err := provider.NewConsumer(ctx, topicName, handler)
 			must.NoError(t, err)
 
-			obs := observability.NewRecordingObserver()
+			// Seeded as buildPubSubConsumer seeds it: a consumer is bound to one
+			// topic, so the topic is stated once at construction.
+			obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: topicName})
 			consumer.(*pubSubConsumer).o11y = obs
 
 			messageData := []byte(`{"name":"test"}`)

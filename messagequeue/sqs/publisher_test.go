@@ -64,7 +64,9 @@ func Test_sqsPublisher_Publish(T *testing.T) {
 
 		actual.publisher = mmp
 
-		obs := observability.NewRecordingObserver()
+		// Seeded as provideSQSPublisher seeds it: the topic is stated once at
+		// construction, not at each Publish.
+		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: actual.topic})
 		actual.o11y = obs
 
 		err = actual.Publish(ctx, inputData)
@@ -92,7 +94,9 @@ func Test_sqsPublisher_Publish(T *testing.T) {
 		actual, ok := a.(*sqsPublisher)
 		must.True(t, ok)
 
-		obs := observability.NewRecordingObserver()
+		// Seeded as provideSQSPublisher seeds it: the topic is stated once at
+		// construction, not at each Publish.
+		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: actual.topic})
 		actual.o11y = obs
 
 		inputData := &struct {
