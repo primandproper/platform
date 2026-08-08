@@ -98,6 +98,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `random`         | Secure randomness                   | —                              |
 | `identifiers`    | ID generation                       | —                              |
 | `dataprivacy`    | Subject access & erasure requests   | postgres, mysql, sqlite        |
+| `retention`      | Policy-driven expiry deletion       | postgres, mysql, sqlite        |
 
 ### AI, ML & product
 | Package        | Purpose                      | Implementations               |
