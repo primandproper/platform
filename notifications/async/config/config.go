@@ -15,14 +15,25 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
+// The providers split into two classes that this constant block is the only
+// place anyone chooses between, and the difference is a deployment constraint
+// rather than a preference:
+//
+//   - pusher and ably are fleet-safe. A hosted broker holds the connections, so
+//     any replica can publish to a client connected to any other.
+//   - websocket and sse hold connections in the publishing process, and are
+//     therefore correct only at one replica. At two, a client connected to one
+//     instance silently misses every event published on another. See those
+//     packages' docs for why there is no messagequeue backplane that would lift
+//     the constraint.
 const (
-	// ProviderPusher is the Pusher provider.
+	// ProviderPusher is the Pusher provider. Fleet-safe.
 	ProviderPusher = "pusher"
-	// ProviderAbly is the Ably provider.
+	// ProviderAbly is the Ably provider. Fleet-safe.
 	ProviderAbly = "ably"
-	// ProviderWebSocket is the WebSocket provider.
+	// ProviderWebSocket is the WebSocket provider. Correct at one replica only.
 	ProviderWebSocket = "websocket"
-	// ProviderSSE is the SSE provider.
+	// ProviderSSE is the SSE provider. Correct at one replica only.
 	ProviderSSE = "sse"
 	// ProviderNoop is the no-op provider.
 	ProviderNoop = "noop"
