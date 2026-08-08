@@ -275,6 +275,10 @@ func (c *stubCache) GetMany(context.Context, []string) (map[string]*CachedTotal,
 	return nil, platformerrors.New("stub cache does not implement GetMany")
 }
 
+func (c *stubCache) SetIfPresent(context.Context, string, *CachedTotal, ...cache.WriteOption) error {
+	return platformerrors.New("stub cache does not implement SetIfPresent")
+}
+
 func (c *stubCache) SetMany(context.Context, map[string]*CachedTotal, ...cache.WriteOption) error {
 	return platformerrors.New("stub cache does not implement SetMany")
 }

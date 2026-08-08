@@ -105,6 +105,107 @@ func Test_inMemoryCacheImpl_Set(T *testing.T) {
 	})
 }
 
+func Test_inMemoryCacheImpl_SetIfPresent(T *testing.T) {
+	T.Parallel()
+
+	T.Run("overwrites an entry that is there", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		c, err := NewInMemoryCache[example](0)
+		must.NoError(t, err)
+
+		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "before"}))
+		must.NoError(t, c.SetIfPresent(ctx, exampleKey, &example{Name: "after"}))
+
+		got, err := c.Get(ctx, exampleKey)
+		must.NoError(t, err)
+		test.EqOp(t, "after", got.Name)
+	})
+
+	T.Run("refuses an entry that is absent, and does not create it", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		c, err := NewInMemoryCache[example](0)
+		must.NoError(t, err)
+
+		test.ErrorIs(t, c.SetIfPresent(ctx, exampleKey, &example{Name: t.Name()}), cache.ErrNotFound)
+
+		// The refusal has to leave the map alone. A conditional write that
+		// creates on miss is just Set with extra steps, and the caller reaching
+		// for it is relying on the absence being preserved.
+		test.MapLen(t, 0, c.(*inMemoryCacheImpl[example]).cache)
+	})
+
+	T.Run("refuses an entry whose deadline has passed", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			c, err := NewInMemoryCache[example](time.Minute)
+			must.NoError(t, err)
+
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "before"}))
+
+			time.Sleep(2 * time.Minute)
+			synctest.Wait()
+
+			// Still in the map — nothing has swept it — but expired, and the
+			// caller asking "is it still there" means the deadline.
+			test.MapLen(t, 1, c.(*inMemoryCacheImpl[example]).cache)
+			test.ErrorIs(t, c.SetIfPresent(ctx, exampleKey, &example{Name: "after"}), cache.ErrNotFound)
+		})
+	})
+
+	T.Run("a delete racing a conditional write cannot be undone", func(t *testing.T) {
+		t.Parallel()
+
+		// The property the method exists for. Under a read-then-write, a Delete
+		// landing between the two steps is silently reversed; here the write
+		// either precedes the delete or is refused by it, so the entry is never
+		// resurrected. Run under -race, which is how the suite runs.
+		ctx := t.Context()
+
+		for range 200 {
+			c, err := NewInMemoryCache[example](0)
+			must.NoError(t, err)
+
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "before"}))
+
+			var wg sync.WaitGroup
+
+			wg.Add(2)
+
+			go func() {
+				defer wg.Done()
+
+				// The racing half; its outcome is not what is asserted.
+				_ = c.Delete(ctx, exampleKey)
+			}()
+
+			var writeErr error
+
+			go func() {
+				defer wg.Done()
+
+				writeErr = c.SetIfPresent(ctx, exampleKey, &example{Name: "after"})
+			}()
+
+			wg.Wait()
+
+			// If the write was refused, the delete won and the entry must be
+			// gone. That is the direction that matters: a refused conditional
+			// write must never leave the value behind.
+			if writeErr != nil {
+				must.ErrorIs(t, writeErr, cache.ErrNotFound)
+				_, getErr := c.Get(ctx, exampleKey)
+				must.ErrorIs(t, getErr, cache.ErrNotFound)
+			}
+		}
+	})
+}
+
 func Test_inMemoryCacheImpl_Delete(T *testing.T) {
 	T.Parallel()
 

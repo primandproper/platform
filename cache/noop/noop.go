@@ -26,6 +26,23 @@ func (*Cache[T]) Set(context.Context, string, *T, ...cache.WriteOption) error {
 	return nil
 }
 
+// SetIfPresent always returns ErrNotFound.
+//
+// It is the one write this cache refuses, and refusing is the point. Every
+// other method here can no-op honestly, because "stored" and "deleted" are
+// claims about a store the caller already knows is absent. A conditional write
+// is different: answering nil would assert that the entry existed and was
+// replaced, and a caller that reached for this method did so precisely because
+// it needs that assertion to mean something.
+//
+// So a component whose correctness rests on a conditional write cannot be
+// silently configured with a noop cache and appear to work. That is the same
+// distinction cache.ErrUnavailable draws for an outage, applied to a store that
+// is absent by configuration rather than by failure.
+func (*Cache[T]) SetIfPresent(context.Context, string, *T, ...cache.WriteOption) error {
+	return cache.ErrNotFound
+}
+
 // Delete is a no-op.
 func (*Cache[T]) Delete(context.Context, string) error {
 	return nil

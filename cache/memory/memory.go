@@ -304,6 +304,49 @@ func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T, op
 	return nil
 }
 
+// SetIfPresent overwrites key only if it currently holds a live entry.
+//
+// Presence is judged under the same lock the write takes, so an entry that
+// expires or is deleted concurrently cannot be resurrected: the check and the
+// write are one critical section, which is the whole point of the method.
+//
+// An expired-but-not-yet-swept entry counts as absent. The janitor and the
+// read path are both lazy about eviction, so an entry's presence in the map is
+// not the same as its being live, and a caller asking "is it still there"
+// means the deadline, not the bookkeeping. It is left for the sweeper rather
+// than evicted here: this is a write path, and counting a TTL loss discovered
+// by a refused write would mix it in with the ones reads discover.
+func (i *inMemoryCacheImpl[T]) SetIfPresent(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
+	defer op.End()
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	e := i.newEntry(value, opts)
+
+	i.cacheMu.Lock()
+	defer i.cacheMu.Unlock()
+
+	cur, ok := i.cache[key]
+	if !ok || i.expired(cur) {
+		i.cacheMissCounter.Add(ctx, 1)
+
+		return cache.ErrNotFound
+	}
+
+	i.cache[key] = e
+	i.index.recordWrite(key)
+	i.cacheSetCounter.Add(ctx, 1)
+
+	// No evictOverflowLocked: this replaced an entry rather than adding one, so
+	// the map is exactly the size it was and nothing can have overflowed.
+
+	return nil
+}
+
 func (i *inMemoryCacheImpl[T]) Delete(ctx context.Context, key string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()

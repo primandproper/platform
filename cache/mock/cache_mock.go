@@ -47,6 +47,9 @@ var _ cache.Cache[any] = &CacheMock[any]{}
 //			SetFunc: func(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 //				panic("mock out the Set method")
 //			},
+//			SetIfPresentFunc: func(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
+//				panic("mock out the SetIfPresent method")
+//			},
 //			SetManyFunc: func(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
 //				panic("mock out the SetMany method")
 //			},
@@ -83,6 +86,9 @@ type CacheMock[T any] struct {
 
 	// SetFunc mocks the Set method.
 	SetFunc func(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error
+
+	// SetIfPresentFunc mocks the SetIfPresent method.
+	SetIfPresentFunc func(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error
 
 	// SetManyFunc mocks the SetMany method.
 	SetManyFunc func(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error
@@ -148,6 +154,17 @@ type CacheMock[T any] struct {
 			// Opts is the opts argument value.
 			Opts []cache.WriteOption
 		}
+		// SetIfPresent holds details about calls to the SetIfPresent method.
+		SetIfPresent []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Key is the key argument value.
+			Key string
+			// Value is the value argument value.
+			Value *T
+			// Opts is the opts argument value.
+			Opts []cache.WriteOption
+		}
 		// SetMany holds details about calls to the SetMany method.
 		SetMany []struct {
 			// Ctx is the ctx argument value.
@@ -167,6 +184,7 @@ type CacheMock[T any] struct {
 	lockGetMany        sync.RWMutex
 	lockPing           sync.RWMutex
 	lockSet            sync.RWMutex
+	lockSetIfPresent   sync.RWMutex
 	lockSetMany        sync.RWMutex
 }
 
@@ -482,6 +500,50 @@ func (mock *CacheMock[T]) SetCalls() []struct {
 	mock.lockSet.RLock()
 	calls = mock.calls.Set
 	mock.lockSet.RUnlock()
+	return calls
+}
+
+// SetIfPresent calls SetIfPresentFunc.
+func (mock *CacheMock[T]) SetIfPresent(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
+	if mock.SetIfPresentFunc == nil {
+		panic("CacheMock.SetIfPresentFunc: method is nil but Cache.SetIfPresent was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Key   string
+		Value *T
+		Opts  []cache.WriteOption
+	}{
+		Ctx:   ctx,
+		Key:   key,
+		Value: value,
+		Opts:  opts,
+	}
+	mock.lockSetIfPresent.Lock()
+	mock.calls.SetIfPresent = append(mock.calls.SetIfPresent, callInfo)
+	mock.lockSetIfPresent.Unlock()
+	return mock.SetIfPresentFunc(ctx, key, value, opts...)
+}
+
+// SetIfPresentCalls gets all the calls that were made to SetIfPresent.
+// Check the length with:
+//
+//	len(mockedCache.SetIfPresentCalls())
+func (mock *CacheMock[T]) SetIfPresentCalls() []struct {
+	Ctx   context.Context
+	Key   string
+	Value *T
+	Opts  []cache.WriteOption
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Key   string
+		Value *T
+		Opts  []cache.WriteOption
+	}
+	mock.lockSetIfPresent.RLock()
+	calls = mock.calls.SetIfPresent
+	mock.lockSetIfPresent.RUnlock()
 	return calls
 }
 

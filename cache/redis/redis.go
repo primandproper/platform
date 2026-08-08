@@ -64,6 +64,7 @@ type redisClient interface {
 
 	Get(ctx context.Context, key string) *redis.StringCmd
 	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
+	SetArgs(ctx context.Context, key string, value any, a redis.SetArgs) *redis.StatusCmd
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Eval(ctx context.Context, script string, keys []string, args ...any) *redis.Cmd
 	Ping(ctx context.Context) *redis.StatusCmd
@@ -257,6 +258,67 @@ func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts 
 		i.cacheErrCounter.Add(ctx, 1)
 		i.circuitBreaker.Failed()
 		return setErr
+	}
+
+	i.circuitBreaker.Succeeded()
+	i.cacheSetCounter.Add(ctx, 1)
+
+	return nil
+}
+
+// SetIfPresent writes key only if redis already holds it, as a single SET with
+// the XX flag.
+//
+// This is the reason the method is on the interface at all: redis decides the
+// condition and performs the write in one command, so nothing can delete the
+// key in between. A GET followed by a SET would leave exactly that window, and
+// no amount of care on this side closes it.
+//
+// A refusal comes back as redis.Nil — the same reply a missing GET produces —
+// and is translated to ErrNotFound. Like a read miss it is a healthy answer
+// rather than an infrastructure failure, so it feeds the breaker a success: the
+// server responded, correctly, that the condition did not hold.
+func (i *redisCacheImpl[T]) SetIfPresent(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
+	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
+	defer op.End()
+
+	if i.circuitBreaker.CannotProceed() {
+		return cache.ErrUnavailable
+	}
+
+	startTime := time.Now()
+	defer func() {
+		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	}()
+
+	encoded, err := i.encode(value)
+	if err != nil {
+		i.cacheErrCounter.Add(ctx, 1)
+
+		return op.Error(err, "encoding value for cache")
+	}
+
+	// TTL carries the resolved expiry, and zero means "no expiry" to go-redis
+	// exactly as it does to Set — so an entry written here keeps whatever expiry
+	// policy the caller's options describe rather than inheriting the one the
+	// previous write happened to use. KeepTTL is deliberately not set: this
+	// method's callers are refreshing a deadline, not preserving one.
+	setErr := i.client.SetArgs(ctx, i.key(key), encoded, redis.SetArgs{
+		Mode: "XX",
+		TTL:  cache.EffectiveExpiry(i.expiration, opts...),
+	}).Err()
+
+	switch {
+	case stderrors.Is(setErr, redis.Nil):
+		i.circuitBreaker.Succeeded()
+		i.cacheMissCounter.Add(ctx, 1)
+
+		return cache.ErrNotFound
+	case setErr != nil:
+		i.cacheErrCounter.Add(ctx, 1)
+		i.circuitBreaker.Failed()
+
+		return op.Error(setErr, "setting cache value if present")
 	}
 
 	i.circuitBreaker.Succeeded()

@@ -48,6 +48,32 @@ func TestCache_Set(T *testing.T) {
 	})
 }
 
+func TestCache_SetIfPresent(T *testing.T) {
+	T.Parallel()
+
+	T.Run("refuses, because nothing is ever present", func(t *testing.T) {
+		t.Parallel()
+
+		// The one write this cache does not pretend to perform. A nil here would
+		// tell a caller its conditional write succeeded against a store that
+		// holds nothing, which is the assertion such a caller is relying on.
+		c := NewCache[string]()
+		v := "value"
+
+		test.ErrorIs(t, c.SetIfPresent(t.Context(), "any-key", &v), cache.ErrNotFound)
+	})
+
+	T.Run("refuses even directly after a Set", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewCache[string]()
+		v := "value"
+		must.NoError(t, c.Set(t.Context(), "any-key", &v))
+
+		test.ErrorIs(t, c.SetIfPresent(t.Context(), "any-key", &v), cache.ErrNotFound)
+	})
+}
+
 func TestCache_Delete(T *testing.T) {
 	T.Parallel()
 
