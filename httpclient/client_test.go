@@ -21,7 +21,7 @@ func TestNewHTTPClient(T *testing.T) {
 	T.Run("with no options uses defaults", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient()
+		client := newClient(t)
 		must.NotNil(t, client)
 		test.EqOp(t, defaultTimeout, client.Timeout)
 
@@ -34,7 +34,7 @@ func TestNewHTTPClient(T *testing.T) {
 	T.Run("with tracing enabled", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(WithTimeout(2*time.Second), WithTracing(true))
+		client := newClient(t, WithTimeout(2*time.Second), WithTracing(true))
 		must.NotNil(t, client)
 		test.EqOp(t, 2*time.Second, client.Timeout)
 		must.NotNil(t, client.Transport)
@@ -46,7 +46,7 @@ func TestNewHTTPClient(T *testing.T) {
 	T.Run("with tracing disabled", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(WithTimeout(3*time.Second), WithTracing(false))
+		client := newClient(t, WithTimeout(3*time.Second), WithTracing(false))
 		must.NotNil(t, client)
 		test.EqOp(t, 3*time.Second, client.Timeout)
 
@@ -57,7 +57,7 @@ func TestNewHTTPClient(T *testing.T) {
 	T.Run("applies connection pool options", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTimeout(time.Second),
 			WithMaxIdleConns(42),
 			WithMaxIdleConnsPerHost(21),
@@ -73,7 +73,7 @@ func TestNewHTTPClient(T *testing.T) {
 	T.Run("ignores non-positive option values", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTimeout(0),
 			WithMaxIdleConns(0),
 			WithMaxIdleConnsPerHost(-1),
@@ -91,7 +91,7 @@ func TestNewHTTPClient(T *testing.T) {
 	T.Run("later options override earlier ones", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(WithTimeout(time.Second), WithTimeout(5*time.Second))
+		client := newClient(t, WithTimeout(time.Second), WithTimeout(5*time.Second))
 		must.NotNil(t, client)
 		test.EqOp(t, 5*time.Second, client.Timeout)
 	})
@@ -99,7 +99,7 @@ func TestNewHTTPClient(T *testing.T) {
 	T.Run("with transport", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(WithTransport(stubRoundTripper{}))
+		client := newClient(t, WithTransport(stubRoundTripper{}))
 		must.NotNil(t, client)
 
 		_, ok := client.Transport.(stubRoundTripper)
@@ -109,7 +109,7 @@ func TestNewHTTPClient(T *testing.T) {
 	T.Run("with transport still wraps in tracing", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(WithTransport(stubRoundTripper{}), WithTracing(true))
+		client := newClient(t, WithTransport(stubRoundTripper{}), WithTracing(true))
 		must.NotNil(t, client)
 
 		_, ok := client.Transport.(stubRoundTripper)

@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/embeddings"
-	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/metrics/metricstest"
-	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v10/embeddings"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
+	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

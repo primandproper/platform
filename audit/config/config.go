@@ -13,9 +13,9 @@ package auditcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/audit"
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/audit"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

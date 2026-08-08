@@ -3,8 +3,8 @@ package static
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/authorization"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
+	"github.com/primandproper/platform-go/v10/authorization"
+	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

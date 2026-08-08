@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
-	"github.com/primandproper/platform-go/v9/notifications/mobile"
-	"github.com/primandproper/platform-go/v9/notifications/mobile/apns"
-	"github.com/primandproper/platform-go/v9/notifications/mobile/fcm"
-	"github.com/primandproper/platform-go/v9/notifications/mobile/noop"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v10/notifications/mobile"
+	"github.com/primandproper/platform-go/v10/notifications/mobile/apns"
+	"github.com/primandproper/platform-go/v10/notifications/mobile/fcm"
+	"github.com/primandproper/platform-go/v10/notifications/mobile/noop"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

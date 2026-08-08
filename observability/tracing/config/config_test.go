@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/observability/tracing/cloudtrace"
-	"github.com/primandproper/platform-go/v9/observability/tracing/oteltrace"
+	"github.com/primandproper/platform-go/v10/observability/tracing/cloudtrace"
+	"github.com/primandproper/platform-go/v10/observability/tracing/oteltrace"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

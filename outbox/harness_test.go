@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/clock"
-	clockmock "github.com/primandproper/platform-go/v9/clock/mock"
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	"github.com/primandproper/platform-go/v9/database/sqlite"
-	"github.com/primandproper/platform-go/v9/outbox/migrations"
+	"github.com/primandproper/platform-go/v10/clock"
+	clockmock "github.com/primandproper/platform-go/v10/clock/mock"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/sqlite"
+	"github.com/primandproper/platform-go/v10/outbox/migrations"
 
 	"github.com/shoenig/test/must"
 )

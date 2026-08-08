@@ -3,8 +3,8 @@ package multisource
 import (
 	"context"
 
-	analyticscfg "github.com/primandproper/platform-go/v9/analytics/config"
-	"github.com/primandproper/platform-go/v9/observability"
+	analyticscfg "github.com/primandproper/platform-go/v10/analytics/config"
+	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/samber/do/v2"
 )

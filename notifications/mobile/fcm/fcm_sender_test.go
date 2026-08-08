@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
 
 	firebase "firebase.google.com/go/v4"
 	"github.com/shoenig/test"

@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/observability/keys"
-	textsearch "github.com/primandproper/platform-go/v9/search/text"
+	"github.com/primandproper/platform-go/v10/circuitbreaking"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
+	textsearch "github.com/primandproper/platform-go/v10/search/text"
 
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 )

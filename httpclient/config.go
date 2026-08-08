@@ -39,7 +39,7 @@ func (cfg *Config) EnsureDefaults() {
 // Options expresses the config as the equivalent list of Options, which is how a
 // Config reaches NewHTTPClient:
 //
-//	client := httpclient.NewHTTPClient(cfg.Options()...)
+//	client, err := httpclient.NewHTTPClient(cfg.Options()...)
 //
 // Callers can append further Options to override individual settings. Zero-valued
 // numeric fields yield Options that leave the package defaults in place, matching

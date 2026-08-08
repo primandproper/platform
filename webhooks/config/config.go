@@ -16,14 +16,14 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/httpclient"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/webhooks"
+	"github.com/primandproper/platform-go/v10/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/httpclient"
+	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v10/webhooks"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"go.opentelemetry.io/otel/attribute"
@@ -171,11 +171,17 @@ func NewWorker(
 	// One client, built once, shared by every delivery. Tracing is forced on
 	// rather than read from the config: a delivery is an outbound call to a
 	// third party and is the single most useful span this package emits.
-	client := httpclient.NewHTTPClient(append(
+	client, err := httpclient.NewHTTPClient(append(
 		cfg.HTTPClient.Options(),
 		httpclient.WithTimeout(cfg.Worker.RequestTimeout),
 		httpclient.WithTracing(true),
+		httpclient.WithLogger(logger),
+		httpclient.WithTracerProvider(tracerProvider),
+		httpclient.WithMetricsProvider(metricsProvider),
 	)...)
+	if err != nil {
+		return nil, errors.Wrap(err, "building the webhooks HTTP client")
+	}
 
 	base := []webhooks.WorkerOption{
 		webhooks.WithHTTPClient(client),
@@ -222,7 +228,11 @@ func breakerFactory(
 // EnsureHTTPClient is the seam a caller reaches for when it wants the worker's
 // client for something else — a health probe against a subscriber, say. It
 // returns the same kind of client NewWorker builds.
-func EnsureHTTPClient(cfg *Config) *http.Client {
+//
+// It takes no observability options, and so builds a client that records
+// nowhere. That is the honest shape for a helper with no pillars to hand it;
+// callers that want the instrumented client should take the one NewWorker built.
+func EnsureHTTPClient(cfg *Config) (*http.Client, error) {
 	if cfg == nil {
 		return httpclient.NewHTTPClient()
 	}

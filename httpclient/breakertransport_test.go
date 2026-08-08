@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	circuitbreakingmock "github.com/primandproper/platform-go/v9/circuitbreaking/mock"
-	"github.com/primandproper/platform-go/v9/circuitbreaking/partitioned"
+	"github.com/primandproper/platform-go/v10/circuitbreaking"
+	circuitbreakingmock "github.com/primandproper/platform-go/v10/circuitbreaking/mock"
+	"github.com/primandproper/platform-go/v10/circuitbreaking/partitioned"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -41,7 +41,7 @@ func TestBreakerTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		breaker := openBreaker()
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				t.Error("the request should never have reached the wire")
 
@@ -60,7 +60,7 @@ func TestBreakerTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		breaker := closedBreaker()
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return response(http.StatusOK, "fine"), nil
 			})),
@@ -79,7 +79,7 @@ func TestBreakerTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		breaker := closedBreaker()
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return response(http.StatusInternalServerError, "boom"), nil
 			})),
@@ -98,7 +98,7 @@ func TestBreakerTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		breaker := closedBreaker()
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return nil, errors.New("dial tcp: no route to host")
 			})),
@@ -115,7 +115,7 @@ func TestBreakerTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		breaker := closedBreaker()
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return response(http.StatusNotFound, "gone"), nil
 			})),
@@ -136,7 +136,7 @@ func TestBreakerTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		broken, healthy := openBreaker(), closedBreaker()
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return response(http.StatusOK, "fine"), nil
 			})),
@@ -161,7 +161,7 @@ func TestBreakerTransport_RoundTrip(T *testing.T) {
 	T.Run("passes through when no breaker resolves for the host", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return response(http.StatusOK, "fine"), nil
 			})),
@@ -180,7 +180,7 @@ func TestBreakerTransport_RoundTrip(T *testing.T) {
 	T.Run("nil breakers are ignored", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(stubRoundTripper{}),
 			WithCircuitBreaker(nil),
 			WithKeyedCircuitBreaker(nil),

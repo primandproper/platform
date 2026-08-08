@@ -3,11 +3,11 @@ package authorizationcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/authorization"
-	"github.com/primandproper/platform-go/v9/cache"
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/internal/injection"
-	"github.com/primandproper/platform-go/v9/observability"
+	"github.com/primandproper/platform-go/v10/authorization"
+	"github.com/primandproper/platform-go/v10/cache"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/internal/injection"
+	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/samber/do/v2"
 )

@@ -3,13 +3,13 @@ package dataprivacycfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/compression"
-	"github.com/primandproper/platform-go/v9/cryptography/encryption"
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/dataprivacy"
-	"github.com/primandproper/platform-go/v9/internal/injection"
-	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/uploads"
+	"github.com/primandproper/platform-go/v10/compression"
+	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/dataprivacy"
+	"github.com/primandproper/platform-go/v10/internal/injection"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/uploads"
 
 	"github.com/samber/do/v2"
 )

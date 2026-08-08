@@ -3,7 +3,7 @@ package noop
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/secrets"
+	"github.com/primandproper/platform-go/v10/secrets"
 )
 
 var _ secrets.SecretSource = (*secretSource)(nil)

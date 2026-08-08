@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/authentication/tokens"
-	"github.com/primandproper/platform-go/v9/authentication/tokens/jwt"
-	"github.com/primandproper/platform-go/v9/authentication/tokens/paseto"
+	"github.com/primandproper/platform-go/v10/authentication/tokens"
+	"github.com/primandproper/platform-go/v10/authentication/tokens/jwt"
+	"github.com/primandproper/platform-go/v10/authentication/tokens/paseto"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

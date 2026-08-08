@@ -116,4 +116,21 @@ const (
 	// LockIDKey is the standard key for referring to a distributed lock's
 	// backend-level identifier, such as a Postgres advisory lock ID.
 	LockIDKey = "lock" + idSuffix
+	// ServerAddressKey is the standard key for referring to the host and port an
+	// outbound request was addressed to. It is deliberately the host rather than
+	// the URL: a metric attribute has to stay bounded, and a path with an ID in
+	// it does not.
+	ServerAddressKey = "server.address"
+	// RequestAttemptKey is the standard key for referring to which attempt of a
+	// retried request produced what is being reported, counting from one.
+	RequestAttemptKey = "request.attempt"
+	// RequestAttemptsKey is the standard key for referring to how many attempts a
+	// retried request took in total.
+	RequestAttemptsKey = "request.attempts"
+	// OutcomeKey is the standard key for referring to how a component judged the
+	// result of an operation, as distinct from what the operation returned.
+	OutcomeKey = "outcome"
+	// RetryAfterKey is the standard key for referring to the delay a server asked
+	// for via the Retry-After header.
+	RetryAfterKey = "retry_after"
 )

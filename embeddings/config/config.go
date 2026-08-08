@@ -3,10 +3,10 @@ package embeddingscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/embeddings"
-	"github.com/primandproper/platform-go/v9/embeddings/cohere"
-	"github.com/primandproper/platform-go/v9/embeddings/ollama"
-	"github.com/primandproper/platform-go/v9/embeddings/openai"
+	"github.com/primandproper/platform-go/v10/embeddings"
+	"github.com/primandproper/platform-go/v10/embeddings/cohere"
+	"github.com/primandproper/platform-go/v10/embeddings/ollama"
+	"github.com/primandproper/platform-go/v10/embeddings/openai"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

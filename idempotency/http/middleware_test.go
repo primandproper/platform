@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/idempotency"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v9/observability/metrics/mock"
-	tracingnoop "github.com/primandproper/platform-go/v9/observability/tracing/noop"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/idempotency"
+	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
+	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

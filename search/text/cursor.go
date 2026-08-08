@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
 // ErrInvalidCursor is returned when a cursor cannot be decoded, or was issued

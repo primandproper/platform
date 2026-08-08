@@ -1,7 +1,7 @@
 package cookies
 
 import (
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
 
 // Option configures the Manager this package constructs. The zero

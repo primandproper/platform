@@ -4,7 +4,7 @@ import (
 	"mime"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
 // ContentType is a media type this package can encode and decode.

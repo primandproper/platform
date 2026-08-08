@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v9/testutils/containers/redistest"
+	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v10/testutils/containers/redistest"
 
 	"github.com/shoenig/test/must"
 )

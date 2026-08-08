@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/capitalism"
-	"github.com/primandproper/platform-go/v9/capitalism/noop"
-	"github.com/primandproper/platform-go/v9/capitalism/stripe"
-	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/capitalism"
+	"github.com/primandproper/platform-go/v10/capitalism/noop"
+	"github.com/primandproper/platform-go/v10/capitalism/stripe"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

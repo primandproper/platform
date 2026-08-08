@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

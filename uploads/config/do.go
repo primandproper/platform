@@ -1,7 +1,7 @@
 package uploadscfg
 
 import (
-	"github.com/primandproper/platform-go/v9/uploads/objectstorage"
+	"github.com/primandproper/platform-go/v10/uploads/objectstorage"
 
 	"github.com/samber/do/v2"
 )

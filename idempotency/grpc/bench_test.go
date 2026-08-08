@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/idempotency"
+	"github.com/primandproper/platform-go/v10/idempotency"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/wrapperspb"

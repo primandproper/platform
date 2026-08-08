@@ -1,8 +1,8 @@
 package cache
 
 import (
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/internal/cbormode"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cbormode"
 )
 
 // cborCodec is the default Codec, using CBOR (RFC 8949).

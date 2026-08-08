@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/encoding"
+	"github.com/primandproper/platform-go/v10/encoding"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
+	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

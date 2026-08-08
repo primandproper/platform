@@ -6,9 +6,47 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"testing"
 
-	"github.com/primandproper/platform-go/v9/retry"
+	"github.com/primandproper/platform-go/v10/retry"
+
+	"github.com/shoenig/test/must"
 )
+
+// newClient builds a client for a test, failing rather than making every call
+// site handle an error only a broken metrics provider can produce.
+func newClient(t *testing.T, opts ...Option) *http.Client {
+	t.Helper()
+
+	client, err := NewHTTPClient(opts...)
+	must.NoError(t, err)
+
+	return client
+}
+
+// observerForTest builds the observability the transports share, the way
+// buildClient does. Every pillar is absent, so it records nowhere — these tests
+// are about behavior, and the recording paths only have to not panic.
+func observerForTest(t *testing.T) *transportObserver {
+	t.Helper()
+
+	obs, err := newTransportObserver(nil, nil, nil)
+	must.NoError(t, err)
+
+	return obs
+}
+
+// retryTransportForTest builds a retry transport already holding the observer
+// buildClient would have given it, for tests that exercise it directly rather
+// than through a client.
+func retryTransportForTest(t *testing.T, policy retry.Policy, opts ...RetryOption) *retryTransport {
+	t.Helper()
+
+	transport := newRetryTransport(policy, opts)
+	transport.obs = observerForTest(t)
+
+	return transport
+}
 
 // roundTripperFunc adapts a function to http.RoundTripper so a test can state
 // the base transport's behavior inline.
@@ -70,6 +108,13 @@ func (p *immediatePolicy) Execute(ctx context.Context, operation func(context.Co
 	}
 
 	return err
+}
+
+// classifyRequest is a stand-in for tests that exercise classify directly.
+// Classification turns on the response, but the transport still needs a request
+// to describe in the lines it logs about one.
+func classifyRequest(ctx context.Context) *http.Request {
+	return newRequest(ctx, http.MethodGet, "http://example.com", nil)
 }
 
 // newRequest builds a request bound to ctx, failing loudly on a bad URL rather

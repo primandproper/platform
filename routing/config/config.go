@@ -3,13 +3,13 @@ package routingcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/encoding"
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/routing"
-	"github.com/primandproper/platform-go/v9/routing/backends/chi"
-	"github.com/primandproper/platform-go/v9/routing/backends/gin"
-	"github.com/primandproper/platform-go/v9/routing/backends/httprouter"
-	"github.com/primandproper/platform-go/v9/routing/backends/stdlib"
+	"github.com/primandproper/platform-go/v10/encoding"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/routing"
+	"github.com/primandproper/platform-go/v10/routing/backends/chi"
+	"github.com/primandproper/platform-go/v10/routing/backends/gin"
+	"github.com/primandproper/platform-go/v10/routing/backends/httprouter"
+	"github.com/primandproper/platform-go/v10/routing/backends/stdlib"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

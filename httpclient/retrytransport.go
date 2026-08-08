@@ -2,6 +2,7 @@ package httpclient
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"slices"
@@ -9,8 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/retry"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability/keys"
+	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/retry"
+
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // DefaultMaxRetryAfter is how long a Retry-After header may park a request
@@ -40,6 +46,8 @@ var defaultRetryMethods = []string{
 type retryTransport struct {
 	base          http.RoundTripper
 	policy        retry.Policy
+	classifier    RetryClassifier
+	obs           *transportObserver
 	methods       []string
 	maxRetryAfter time.Duration
 }
@@ -76,11 +84,48 @@ func WithMaxRetryAfter(maxRetryAfter time.Duration) RetryOption {
 	}
 }
 
+// WithRetryClassifier replaces the rule deciding whether a response is worth
+// another attempt.
+//
+// The default, DefaultRetryClassification, retries 5xx, 408, and 429 and stops
+// on every other 4xx. That is what the status registry says those codes mean;
+// it is not always what a given service means by them. An API that reports its
+// own overload as 400, or returns 200 with a failure document, or uses 409 for
+// a condition that clears on its own, needs the rule stated in its terms rather
+// than the registry's.
+//
+// The classifier answers in the retry package's vocabulary — nil to accept,
+// retry.Unretryable to stop, any other error to try again — and should delegate
+// to DefaultRetryClassification for whatever it does not have an opinion about:
+//
+//	httpclient.WithRetryPolicy(policy, httpclient.WithRetryClassifier(
+//		func(resp *http.Response) error {
+//			if resp.StatusCode == http.StatusConflict {
+//				return platformerrors.New("lock still held")
+//			}
+//
+//			return httpclient.DefaultRetryClassification(resp)
+//		},
+//	))
+//
+// Retry-After is still honored for whatever the classifier asks to retry, and
+// the method and body-replay rules still apply — a classifier widens which
+// responses are worth another attempt, not which requests may be repeated. A
+// nil classifier is ignored.
+func WithRetryClassifier(classifier RetryClassifier) RetryOption {
+	return func(t *retryTransport) {
+		if classifier != nil {
+			t.classifier = classifier
+		}
+	}
+}
+
 // newRetryTransport resolves the retry options into an unattached transport.
-// buildClient fills in the base.
+// buildClient fills in the base and the observer.
 func newRetryTransport(policy retry.Policy, opts []RetryOption) *retryTransport {
 	t := &retryTransport{
 		policy:        policy,
+		classifier:    DefaultRetryClassification,
 		methods:       defaultRetryMethods,
 		maxRetryAfter: DefaultMaxRetryAfter,
 	}
@@ -102,8 +147,8 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	var (
-		resp  *http.Response
-		first = true
+		resp     *http.Response
+		attempts int
 	)
 
 	err := t.policy.Execute(req.Context(), func(ctx context.Context) error {
@@ -115,20 +160,24 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			resp = nil
 		}
 
+		attempts++
+
 		attempt := req.Clone(ctx)
 
 		// The first attempt sends the body it was handed; the base transport
 		// owns closing it. Later attempts need a fresh one, because that body
 		// has been read.
-		if first {
-			first = false
-		} else if req.GetBody != nil {
-			body, bodyErr := req.GetBody()
-			if bodyErr != nil {
-				return retry.Unretryable(errors.Wrap(bodyErr, "rewinding request body"))
-			}
+		if attempts > 1 {
+			t.obs.retryAttempts.Add(ctx, 1, requestAttrs(req))
 
-			attempt.Body = body
+			if req.GetBody != nil {
+				body, bodyErr := req.GetBody()
+				if bodyErr != nil {
+					return retry.Unretryable(platformerrors.Wrap(bodyErr, "rewinding request body"))
+				}
+
+				attempt.Body = body
+			}
 		}
 
 		var roundTripErr error
@@ -140,17 +189,19 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if roundTripErr != nil {
 			// A transport error means no answer at all — a dial failure, a
 			// reset, a timeout. Those are the failures retrying exists for.
-			return errors.Wrap(roundTripErr, "sending request")
+			return platformerrors.Wrap(roundTripErr, "sending request")
 		}
 
-		return t.classify(ctx, resp)
+		return t.classify(ctx, req, resp)
 	})
 
 	// A policy that returns without ever running the operation would otherwise
 	// yield (nil, nil), which no http.Client is prepared for.
 	if resp == nil && err == nil {
-		return nil, errors.New("retry policy returned without sending the request")
+		return nil, platformerrors.New("retry policy returned without sending the request")
 	}
+
+	t.report(req, resp, err, attempts)
 
 	// Attempts are spent, but the last one still produced a real response. A
 	// 503 is the server's answer, not this transport's failure, and the caller
@@ -160,6 +211,56 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	return nil, err
+}
+
+// report records how the loop ended.
+//
+// It exists because RoundTrip throws the loop's error away whenever there is a
+// response to return — which is the right answer for the caller and a terrible
+// one for anybody trying to understand the system afterward. Without this, a
+// request that burned four attempts and eight seconds of backoff to arrive at a
+// 503 is indistinguishable from one that got a 503 immediately, and the
+// difference between those two is the entire reason retrying was configured.
+func (t *retryTransport) report(req *http.Request, resp *http.Response, err error, attempts int) {
+	ctx := req.Context()
+
+	// Onto the span observedTransport opened, so a trace answers "how many
+	// times did we ask?" without needing the log line beside it.
+	tracing.AttachToSpan(oteltrace.SpanFromContext(ctx), keys.RequestAttemptsKey, attempts)
+
+	logger := t.obs.o11y.Logger().WithRequest(req).WithValue(keys.RequestAttemptsKey, attempts)
+	if resp != nil {
+		logger = logger.WithResponse(resp)
+	}
+
+	if err == nil {
+		// One attempt that worked is the unremarkable case, and the tracing
+		// transport below already recorded it.
+		if attempts > 1 {
+			logger.Debug("request succeeded after retrying")
+		}
+
+		return
+	}
+
+	// Stopped without ever retrying: a 4xx the classifier called terminal, or a
+	// body that could not be rewound. Worth a line for anyone asking why no
+	// retry happened, but it is not an exhausted loop and must not be counted
+	// as one — every 404 this client sees comes through here.
+	if attempts <= 1 {
+		logger.WithError(err).Debug("not retried")
+
+		return
+	}
+
+	attrs := []attribute.KeyValue{}
+	if resp != nil {
+		attrs = append(attrs, attribute.Int(keys.ResponseStatusKey, resp.StatusCode))
+	}
+
+	t.obs.retriesExhausted.Add(ctx, 1, requestAttrs(req, attrs...))
+
+	logger.Error("giving up on request after retrying", err)
 }
 
 // retryable reports whether this request may be sent more than once.
@@ -173,22 +274,12 @@ func (t *retryTransport) retryable(req *http.Request) bool {
 	return slices.Contains(t.methods, req.Method)
 }
 
-// classify turns a response into the retry package's vocabulary: nil to stop
-// happily, an Unretryable error to stop immediately, a plain error to try again.
-func (t *retryTransport) classify(ctx context.Context, resp *http.Response) error {
-	if resp.StatusCode < http.StatusBadRequest {
-		return nil
-	}
-
-	err := errors.Newf("server responded with %s", resp.Status)
-
-	// A 4xx is the server saying the request itself is wrong, and repeating a
-	// wrong request cannot make it right. The two exceptions are the ones that
-	// are about timing rather than about the request: 408 and 429.
-	if resp.StatusCode < http.StatusInternalServerError &&
-		resp.StatusCode != http.StatusRequestTimeout &&
-		resp.StatusCode != http.StatusTooManyRequests {
-		return retry.Unretryable(err)
+// classify asks the classifier what the response means for another attempt, and
+// honors Retry-After for whatever it asks to retry.
+func (t *retryTransport) classify(ctx context.Context, req *http.Request, resp *http.Response) error {
+	err := t.classifier(resp)
+	if err == nil || errors.Is(err, retry.ErrUnretryable) {
+		return err
 	}
 
 	delay, ok := retryAfterDelay(resp)
@@ -196,13 +287,20 @@ func (t *retryTransport) classify(ctx context.Context, resp *http.Response) erro
 		return err
 	}
 
+	logger := t.obs.o11y.Logger().WithRequest(req).WithResponse(resp).WithValue(keys.RetryAfterKey, delay.String())
+
 	// A Retry-After beyond the cap is honored by not retrying at all. Retrying
 	// sooner than asked is the behavior the header exists to prevent, and
 	// parking the caller for an interval the server picked is worse than
 	// handing back the response already in hand.
 	if delay > t.maxRetryAfter {
+		logger.Debug("Retry-After exceeds the cap, returning the response rather than waiting")
+
 		return retry.Unretryable(err)
 	}
+
+	t.obs.retryAfterWaits.Record(ctx, delay.Seconds(), requestAttrs(req))
+	logger.Debug("honoring Retry-After before the next attempt")
 
 	// The policy's own backoff runs after this, so Retry-After is a floor under
 	// the wait rather than a replacement for it.

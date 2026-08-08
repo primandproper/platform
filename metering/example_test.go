@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/metering"
+	"github.com/primandproper/platform-go/v10/metering"
 )
 
 // A meter says what is being counted and how its records combine. The

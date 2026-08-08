@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/errors"
 )
 
 // GetModulePath reads the module path from the go.mod file in the given directory.

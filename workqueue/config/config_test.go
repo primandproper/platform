@@ -3,10 +3,10 @@ package workqueuecfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	databasemock "github.com/primandproper/platform-go/v9/database/mock"
-	"github.com/primandproper/platform-go/v9/workqueue"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	databasemock "github.com/primandproper/platform-go/v10/database/mock"
+	"github.com/primandproper/platform-go/v10/workqueue"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

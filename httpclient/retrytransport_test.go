@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/retry"
+	"github.com/primandproper/platform-go/v10/retry"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -17,8 +17,10 @@ import (
 
 // newRetryClient builds a client whose only layer is the retrying transport, so
 // a test asserts on retry behavior and nothing else.
-func newRetryClient(base http.RoundTripper, attempts int, opts ...RetryOption) *http.Client {
-	return NewHTTPClient(
+func newRetryClient(t *testing.T, base http.RoundTripper, attempts int, opts ...RetryOption) *http.Client {
+	t.Helper()
+
+	return newClient(t,
 		WithTransport(base),
 		WithRetryPolicy(&immediatePolicy{attempts: attempts}, opts...),
 	)
@@ -31,7 +33,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 
 			return response(http.StatusOK, "fine"), nil
@@ -49,7 +51,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 			if calls < 3 {
 				return response(http.StatusBadGateway, "nope"), nil
@@ -70,7 +72,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 
 			return response(http.StatusServiceUnavailable, "still down"), nil
@@ -94,7 +96,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 
 			return response(http.StatusNotFound, "gone"), nil
@@ -113,7 +115,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 
 		for _, status := range []int{http.StatusRequestTimeout, http.StatusTooManyRequests} {
 			var calls int
-			client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				calls++
 
 				return response(status, "slow down"), nil
@@ -133,7 +135,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		expected := errors.New("connection reset")
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 
 			return nil, expected
@@ -150,7 +152,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 
 			return response(http.StatusServiceUnavailable, "down"), nil
@@ -167,7 +169,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 
 			return response(http.StatusServiceUnavailable, "down"), nil
@@ -184,7 +186,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var seen []string
-		client := newRetryClient(roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			body, err := io.ReadAll(req.Body)
 			must.NoError(t, err)
 			_ = req.Body.Close()
@@ -208,7 +210,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			calls++
 			_, _ = io.Copy(io.Discard, req.Body)
 			_ = req.Body.Close()
@@ -232,7 +234,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var bodies []*trackedBody
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			body := &trackedBody{Reader: strings.NewReader("down")}
 			bodies = append(bodies, body)
 
@@ -259,7 +261,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 
 			return withHeader(response(http.StatusTooManyRequests, "slow down"), "Retry-After", "1"), nil
@@ -279,7 +281,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		t.Parallel()
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 
 			return withHeader(response(http.StatusTooManyRequests, "come back tomorrow"), "Retry-After", "3600"), nil
@@ -301,7 +303,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 
 		var calls int
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			calls++
 			cancel()
 
@@ -320,7 +322,7 @@ func TestRetryTransport_RoundTrip(T *testing.T) {
 
 		// A zero-attempt policy would otherwise produce (nil, nil), which no
 		// http.Client is prepared to be handed.
-		client := newRetryClient(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		client := newRetryClient(t, roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			t.Error("the base transport should never have been reached")
 
 			return nil, nil
@@ -338,14 +340,14 @@ func TestRetryTransport_retryable(T *testing.T) {
 	T.Run("a nil body is always replayable", func(t *testing.T) {
 		t.Parallel()
 
-		transport := newRetryTransport(&immediatePolicy{attempts: 1}, nil)
+		transport := retryTransportForTest(t, &immediatePolicy{attempts: 1})
 		test.True(t, transport.retryable(newRequest(t.Context(), http.MethodGet, "http://example.com", nil)))
 	})
 
 	T.Run("http.NoBody is always replayable", func(t *testing.T) {
 		t.Parallel()
 
-		transport := newRetryTransport(&immediatePolicy{attempts: 1}, nil)
+		transport := retryTransportForTest(t, &immediatePolicy{attempts: 1})
 
 		req := newRequest(t.Context(), http.MethodDelete, "http://example.com", http.NoBody)
 		req.GetBody = nil
@@ -360,12 +362,12 @@ func TestRetryOptions(T *testing.T) {
 	T.Run("empty and nil options leave the defaults in place", func(t *testing.T) {
 		t.Parallel()
 
-		transport := newRetryTransport(&immediatePolicy{attempts: 1}, []RetryOption{
+		transport := retryTransportForTest(t, &immediatePolicy{attempts: 1},
 			nil,
 			WithRetryMethods(),
 			WithMaxRetryAfter(0),
 			WithMaxRetryAfter(-time.Second),
-		})
+		)
 
 		test.Eq(t, defaultRetryMethods, transport.methods)
 		test.EqOp(t, DefaultMaxRetryAfter, transport.maxRetryAfter)
@@ -374,7 +376,7 @@ func TestRetryOptions(T *testing.T) {
 	T.Run("a nil policy is ignored", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(WithTransport(stubRoundTripper{}), WithRetryPolicy(nil))
+		client := newClient(t, WithTransport(stubRoundTripper{}), WithRetryPolicy(nil))
 
 		_, ok := client.Transport.(stubRoundTripper)
 		test.True(t, ok)
@@ -477,9 +479,9 @@ func TestRetryTransport_classify(T *testing.T) {
 	T.Run("a plain 4xx is unretryable", func(t *testing.T) {
 		t.Parallel()
 
-		transport := newRetryTransport(&immediatePolicy{attempts: 1}, nil)
+		transport := retryTransportForTest(t, &immediatePolicy{attempts: 1})
 
-		err := transport.classify(t.Context(), response(http.StatusBadRequest, ""))
+		err := transport.classify(t.Context(), classifyRequest(t.Context()), response(http.StatusBadRequest, ""))
 		must.Error(t, err)
 		test.ErrorIs(t, err, retry.ErrUnretryable)
 	})
@@ -487,9 +489,9 @@ func TestRetryTransport_classify(T *testing.T) {
 	T.Run("a 5xx is retryable", func(t *testing.T) {
 		t.Parallel()
 
-		transport := newRetryTransport(&immediatePolicy{attempts: 1}, nil)
+		transport := retryTransportForTest(t, &immediatePolicy{attempts: 1})
 
-		err := transport.classify(t.Context(), response(http.StatusInternalServerError, ""))
+		err := transport.classify(t.Context(), classifyRequest(t.Context()), response(http.StatusInternalServerError, ""))
 		must.Error(t, err)
 		test.False(t, errors.Is(err, retry.ErrUnretryable))
 	})
@@ -497,10 +499,10 @@ func TestRetryTransport_classify(T *testing.T) {
 	T.Run("a 2xx and a 3xx are successes", func(t *testing.T) {
 		t.Parallel()
 
-		transport := newRetryTransport(&immediatePolicy{attempts: 1}, nil)
+		transport := retryTransportForTest(t, &immediatePolicy{attempts: 1})
 
-		test.NoError(t, transport.classify(t.Context(), response(http.StatusOK, "")))
-		test.NoError(t, transport.classify(t.Context(), response(http.StatusFound, "")))
+		test.NoError(t, transport.classify(t.Context(), classifyRequest(t.Context()), response(http.StatusOK, "")))
+		test.NoError(t, transport.classify(t.Context(), classifyRequest(t.Context()), response(http.StatusFound, "")))
 	})
 
 	T.Run("a done context cuts the Retry-After wait short", func(t *testing.T) {
@@ -509,9 +511,9 @@ func TestRetryTransport_classify(T *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		transport := newRetryTransport(&immediatePolicy{attempts: 1}, nil)
+		transport := retryTransportForTest(t, &immediatePolicy{attempts: 1})
 
-		err := transport.classify(ctx, withHeader(response(http.StatusTooManyRequests, ""), "Retry-After", "10"))
+		err := transport.classify(ctx, classifyRequest(ctx), withHeader(response(http.StatusTooManyRequests, ""), "Retry-After", "10"))
 		must.Error(t, err)
 		test.ErrorIs(t, err, context.Canceled)
 	})

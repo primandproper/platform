@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	"github.com/primandproper/platform-go/v9/ratelimiting"
+	"github.com/primandproper/platform-go/v10/circuitbreaking"
+	"github.com/primandproper/platform-go/v10/ratelimiting"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -14,12 +14,12 @@ import (
 func TestResilienceNesting(T *testing.T) {
 	T.Parallel()
 
-	T.Run("wraps breaker over retry over rate limit over the base", func(t *testing.T) {
+	T.Run("wraps observability over breaker over retry over rate limit over the base", func(t *testing.T) {
 		t.Parallel()
 
 		base := stubRoundTripper{}
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(base),
 			// Deliberately named in an order that does not match the nesting:
 			// the arrangement is a property of the middlewares, not of the
@@ -29,7 +29,12 @@ func TestResilienceNesting(T *testing.T) {
 			WithRetryPolicy(&immediatePolicy{attempts: 2}),
 		)
 
-		breaker, ok := client.Transport.(*breakerTransport)
+		// Outermost, so the span it opens covers the breaker's rejections as
+		// well as the attempts underneath them.
+		observed, ok := client.Transport.(*observedTransport)
+		must.True(t, ok)
+
+		breaker, ok := observed.base.(*breakerTransport)
 		must.True(t, ok)
 
 		retrier, ok := breaker.base.(*retryTransport)
@@ -45,18 +50,32 @@ func TestResilienceNesting(T *testing.T) {
 	T.Run("tracing sits below the resilience layers", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(stubRoundTripper{}),
 			WithTracing(true),
 			WithRetryPolicy(&immediatePolicy{attempts: 2}),
 		)
 
-		retrier, ok := client.Transport.(*retryTransport)
+		observed, ok := client.Transport.(*observedTransport)
+		must.True(t, ok)
+
+		retrier, ok := observed.base.(*retryTransport)
 		must.True(t, ok)
 
 		// Each attempt gets its own client span rather than one span stretched
 		// over the whole loop.
 		_, ok = retrier.base.(stubRoundTripper)
+		test.False(t, ok)
+	})
+
+	T.Run("a client with no resilience layers is not wrapped", func(t *testing.T) {
+		t.Parallel()
+
+		// Nothing to describe that otelhttp does not already describe, so the
+		// logical-request span would only duplicate the per-attempt one.
+		client := newClient(t, WithTransport(stubRoundTripper{}))
+
+		_, ok := client.Transport.(*observedTransport)
 		test.False(t, ok)
 	})
 }
@@ -70,7 +89,7 @@ func TestResilienceComposition(T *testing.T) {
 		limiter := &stubLimiter{allow: func(string) (bool, error) { return true, nil }}
 
 		var calls int
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				calls++
 
@@ -93,7 +112,7 @@ func TestResilienceComposition(T *testing.T) {
 	T.Run("an open circuit is not retried", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				t.Error("the request should never have reached the wire")
 
@@ -123,7 +142,7 @@ func TestResilienceComposition(T *testing.T) {
 			return asked > 2, nil
 		}}
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return response(http.StatusOK, "fine"), nil
 			})),
@@ -145,7 +164,7 @@ func TestResilienceComposition(T *testing.T) {
 		breaker := closedBreaker()
 
 		var calls int
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				calls++
 				if calls < 3 {
@@ -175,7 +194,7 @@ func TestResilienceComposition(T *testing.T) {
 		breaker := closedBreaker()
 		limiter := &stubLimiter{allow: func(string) (bool, error) { return false, nil }}
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				t.Error("the request should never have reached the wire")
 

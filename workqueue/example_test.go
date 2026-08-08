@@ -5,11 +5,11 @@ import (
 	"log"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	"github.com/primandproper/platform-go/v9/database/migrate"
-	"github.com/primandproper/platform-go/v9/workqueue"
-	"github.com/primandproper/platform-go/v9/workqueue/migrations"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/migrate"
+	"github.com/primandproper/platform-go/v10/workqueue"
+	"github.com/primandproper/platform-go/v10/workqueue/migrations"
 )
 
 // Every example here is compiled but not run, and carries a nolint saying so.

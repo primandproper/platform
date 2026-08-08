@@ -11,7 +11,7 @@ import (
 	_ "image/png"
 	"io"
 
-	"github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/errors"
 )
 
 const (

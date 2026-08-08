@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	encodingmock "github.com/primandproper/platform-go/v9/encoding/mock"
-	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/random"
+	encodingmock "github.com/primandproper/platform-go/v10/encoding/mock"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/random"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

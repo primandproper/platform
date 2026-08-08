@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/clock"
-	clockmock "github.com/primandproper/platform-go/v9/clock/mock"
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	"github.com/primandproper/platform-go/v9/database/sqlite"
-	"github.com/primandproper/platform-go/v9/dataprivacy/migrations"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/uploads"
+	"github.com/primandproper/platform-go/v10/clock"
+	clockmock "github.com/primandproper/platform-go/v10/clock/mock"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/sqlite"
+	"github.com/primandproper/platform-go/v10/dataprivacy/migrations"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/uploads"
 
 	"github.com/shoenig/test/must"
 )

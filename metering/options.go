@@ -1,12 +1,12 @@
 package metering
 
 import (
-	"github.com/primandproper/platform-go/v9/analytics"
-	"github.com/primandproper/platform-go/v9/cache"
-	"github.com/primandproper/platform-go/v9/clock"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v10/analytics"
+	"github.com/primandproper/platform-go/v10/cache"
+	"github.com/primandproper/platform-go/v10/clock"
+	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
 
 // EnforcerOption configures a QuotaEnforcer.

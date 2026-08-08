@@ -3,7 +3,7 @@ package analyticscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/analytics"
+	"github.com/primandproper/platform-go/v10/analytics"
 )
 
 // NewEventReporter provides an analytics.EventReporter from a config.

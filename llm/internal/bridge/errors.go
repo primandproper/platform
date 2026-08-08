@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/llm"
+	"github.com/primandproper/platform-go/v10/llm"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
 )

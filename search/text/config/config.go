@@ -4,13 +4,13 @@ import (
 	"context"
 	"strings"
 
-	circuitbreakingcfg "github.com/primandproper/platform-go/v9/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/internal/cfgnorm"
-	textsearch "github.com/primandproper/platform-go/v9/search/text"
-	"github.com/primandproper/platform-go/v9/search/text/algolia"
-	"github.com/primandproper/platform-go/v9/search/text/elasticsearch"
-	"github.com/primandproper/platform-go/v9/search/text/noop"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
+	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	"github.com/primandproper/platform-go/v10/search/text/algolia"
+	"github.com/primandproper/platform-go/v10/search/text/elasticsearch"
+	"github.com/primandproper/platform-go/v10/search/text/noop"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

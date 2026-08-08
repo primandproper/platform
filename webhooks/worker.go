@@ -11,18 +11,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/circuitbreaking"
-	cbnoop "github.com/primandproper/platform-go/v9/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v9/clock"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/httpclient"
-	"github.com/primandproper/platform-go/v9/identifiers"
-	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	"github.com/primandproper/platform-go/v9/observability/metrics"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
-	"github.com/primandproper/platform-go/v9/retry"
-	retrycfg "github.com/primandproper/platform-go/v9/retry/config"
+	"github.com/primandproper/platform-go/v10/circuitbreaking"
+	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v10/clock"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/httpclient"
+	"github.com/primandproper/platform-go/v10/identifiers"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/retry"
+	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -134,10 +134,18 @@ func NewWorker(ctx context.Context, cfg *WorkerConfig, store Store, opts ...Work
 	w.logger = w.o11y.Logger()
 
 	if w.client == nil {
-		w.client = httpclient.NewHTTPClient(
+		client, err := httpclient.NewHTTPClient(
 			httpclient.WithTimeout(w.cfg.RequestTimeout),
 			httpclient.WithTracing(true),
+			httpclient.WithLogger(w.logger),
+			httpclient.WithTracerProvider(w.tracerProvider),
+			httpclient.WithMetricsProvider(w.metricsProvider),
 		)
+		if err != nil {
+			return nil, platformerrors.Wrap(err, "building the delivery HTTP client")
+		}
+
+		w.client = client
 	}
 
 	// Applied to a supplied client as well as a built one: refusing redirects is

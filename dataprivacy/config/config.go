@@ -15,15 +15,15 @@ package dataprivacycfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/audit"
-	"github.com/primandproper/platform-go/v9/compression"
-	"github.com/primandproper/platform-go/v9/cryptography/encryption"
-	"github.com/primandproper/platform-go/v9/database"
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	"github.com/primandproper/platform-go/v9/dataprivacy"
-	"github.com/primandproper/platform-go/v9/dataprivacy/auditerasure"
-	"github.com/primandproper/platform-go/v9/errors"
-	"github.com/primandproper/platform-go/v9/uploads"
+	"github.com/primandproper/platform-go/v10/audit"
+	"github.com/primandproper/platform-go/v10/compression"
+	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/dataprivacy"
+	"github.com/primandproper/platform-go/v10/dataprivacy/auditerasure"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/uploads"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

@@ -6,8 +6,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
 var (

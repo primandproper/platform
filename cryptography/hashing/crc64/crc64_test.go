@@ -3,7 +3,7 @@ package crc64
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/cryptography/hashing"
+	"github.com/primandproper/platform-go/v10/cryptography/hashing"
 
 	"github.com/shoenig/test"
 )

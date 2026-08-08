@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	"github.com/primandproper/platform-go/v9/random"
+	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	"github.com/primandproper/platform-go/v10/random"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

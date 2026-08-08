@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/primandproper/platform-go/v9/ratelimiting"
+	"github.com/primandproper/platform-go/v10/ratelimiting"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -38,7 +38,7 @@ func TestRateLimitTransport_RoundTrip(T *testing.T) {
 		limiter := &stubLimiter{allow: func(string) (bool, error) { return true, nil }}
 
 		var calls int
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				calls++
 
@@ -60,7 +60,7 @@ func TestRateLimitTransport_RoundTrip(T *testing.T) {
 
 		limiter := &stubLimiter{allow: func(string) (bool, error) { return false, nil }}
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				t.Error("the request should never have reached the wire")
 
@@ -81,7 +81,7 @@ func TestRateLimitTransport_RoundTrip(T *testing.T) {
 		expected := errors.New("redis is unreachable")
 		limiter := &stubLimiter{allow: func(string) (bool, error) { return false, expected }}
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				t.Error("the request should never have reached the wire")
 
@@ -103,7 +103,7 @@ func TestRateLimitTransport_RoundTrip(T *testing.T) {
 
 		limiter := &stubLimiter{allow: func(string) (bool, error) { return true, nil }}
 
-		client := NewHTTPClient(
+		client := newClient(t,
 			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return response(http.StatusOK, "fine"), nil
 			})),
@@ -122,7 +122,7 @@ func TestRateLimitTransport_RoundTrip(T *testing.T) {
 	T.Run("a nil limiter is ignored", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewHTTPClient(WithTransport(stubRoundTripper{}), WithRateLimit(nil))
+		client := newClient(t, WithTransport(stubRoundTripper{}), WithRateLimit(nil))
 
 		_, ok := client.Transport.(stubRoundTripper)
 		test.True(t, ok)

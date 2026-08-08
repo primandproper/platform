@@ -9,9 +9,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/primandproper/platform-go/v9/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v9/observability/logging/noop"
-	"github.com/primandproper/platform-go/v9/observability/tracing"
+	"github.com/primandproper/platform-go/v10/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	"github.com/primandproper/platform-go/v10/observability/tracing"
 
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"

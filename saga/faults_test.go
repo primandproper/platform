@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v9/database"
-	_ "github.com/primandproper/platform-go/v9/database/sqlite"
-	platformerrors "github.com/primandproper/platform-go/v9/errors"
+	"github.com/primandproper/platform-go/v10/database"
+	_ "github.com/primandproper/platform-go/v10/database/sqlite"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -3,10 +3,10 @@ package http
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v9/healthcheck"
-	"github.com/primandproper/platform-go/v9/internal/injection"
-	"github.com/primandproper/platform-go/v9/observability"
-	"github.com/primandproper/platform-go/v9/routing"
+	"github.com/primandproper/platform-go/v10/healthcheck"
+	"github.com/primandproper/platform-go/v10/internal/injection"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/routing"
 
 	"github.com/samber/do/v2"
 )

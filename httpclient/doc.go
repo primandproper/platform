@@ -4,7 +4,7 @@ instrumentation and resilience middleware.
 
 Clients are built with functional options:
 
-	client := httpclient.NewHTTPClient(
+	client, err := httpclient.NewHTTPClient(
 		httpclient.WithTimeout(5*time.Second),
 		httpclient.WithTracing(true),
 	)
@@ -14,7 +14,10 @@ environment-loaded Config expresses itself as Options via Config.Options, so a
 config-driven client is built the same way, and individual settings can still be
 overridden after it:
 
-	client := httpclient.NewHTTPClient(append(cfg.Options(), httpclient.WithTracing(true))...)
+	client, err := httpclient.NewHTTPClient(append(cfg.Options(), httpclient.WithTracing(true))...)
+
+The error reports only that the client could not be instrumented — the metrics
+provider refused an instrument. Nothing else here can fail.
 
 # Resilience
 
@@ -42,10 +45,10 @@ asked for.
 
 # The nesting is fixed
 
-Outermost to innermost: circuit breaker, retry, rate limit, tracing, base
-transport. Option order does not change it, because only one arrangement of the
-three is right and a caller who got it wrong would hold a client that looks
-protected and is not.
+Outermost to innermost: observability, circuit breaker, retry, rate limit,
+tracing, base transport. Option order does not change it, because only one
+arrangement of the three resilience layers is right and a caller who got it
+wrong would hold a client that looks protected and is not.
 
 The breaker is outermost so an open circuit rejects before the retry loop is
 entered — failing fast once, rather than three times with backoff in between.
@@ -70,11 +73,65 @@ repeat a POST on a guess. WithRetryMethods opts POST in for callers that pair it
 with idempotency/http, whose transport sends one key across every attempt so the
 server can recognize the repeat.
 
-5xx, 408, and 429 are retried. Every other 4xx is reported to the policy as
-retry.Unretryable, so the loop stops on the first one instead of spending its
-attempts re-asking a question the server has already answered. Retry-After is
-honored, capped by WithMaxRetryAfter; a server asking for longer than the cap
-gets its response handed back rather than a retry that ignores what it asked for.
+By default 5xx, 408, and 429 are retried, and every other 4xx is reported to the
+policy as retry.Unretryable, so the loop stops on the first one instead of
+spending its attempts re-asking a question the server has already answered.
+Retry-After is honored, capped by WithMaxRetryAfter; a server asking for longer
+than the cap gets its response handed back rather than a retry that ignores what
+it asked for.
+
+# Classification is a default, not a rule
+
+Two decisions above are stated in terms of status codes, and status codes are
+the part of HTTP that services agree on least. Both are overridable, and both
+default to the registry's reading:
+
+	WithRetryPolicy(policy, WithRetryClassifier(fn))     // is this worth another attempt?
+	WithCircuitBreaker(breaker, WithOutcomeClassifier(fn)) // what did this say about the host?
+
+They are separate questions and a single answer would serve neither. A 429 is
+worth retrying but says nothing about whether the host is healthy; a 400 is
+neither; a 503 is both. Delegate to DefaultRetryClassification and DefaultOutcome
+for whatever a classifier does not have an opinion about, rather than restating
+the rules it means to keep.
+
+The outcome classifier is three-valued — success, failure, ignored — because a
+request can fail without the host having done anything wrong. A request this
+client's own limiter refused is the built-in case: it never reached the wire, so
+counting it either way would be a lie, and counting it as a failure would let
+ordinary throttling trip a circuit against a host that is perfectly well.
+
+# Observability
+
+The resilience layers report through the standard pillars, supplied with
+WithLogger, WithTracerProvider, and WithMetricsProvider, or with WithPillars for
+all three. Absent, each resolves to its noop and the client records nowhere.
+
+Metrics, all prefixed httpclient_ and attributed by host and method — never by
+URL, which is unbounded:
+
+	retry_attempts        attempts beyond the first
+	retries_exhausted     loops that retried and still gave up, by final status
+	retry_after_seconds   Retry-After delays actually honored
+	circuit_rejections    requests refused by an open circuit
+	circuit_outcomes      how each completed request was classified
+	rate_limited          requests the local limiter refused
+
+Two log lines are worth knowing about. A request refused by an open circuit
+is logged where it happens, because it produces no response, no attempt, and no
+span of its own — without that line, a client that has stopped talking to a
+dependency altogether looks exactly like one with nothing to say. And a loop
+that exhausted its attempts is logged with the error it gave up on, because
+RoundTrip deliberately discards that error in favor of the last response: the
+right answer for the caller, and one that would otherwise make a request that
+burned four attempts indistinguishable from one that succeeded immediately.
+
+The outermost layer opens a span covering the logical request, which is what
+gives the per-attempt spans below the retry loop a parent, and what puts a
+breaker or limiter rejection into a trace at all. It follows WithTracerProvider
+rather than WithTracing: the two describe different things, and there is no
+reason to configure a tracer provider and want the resilience layers left out
+of it.
 
 When attempts run out the caller gets the last response, not an error. A 503
 that survived three tries is still the server's answer, and code that reads the
