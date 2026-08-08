@@ -57,6 +57,29 @@ func (d Dialect) SupportsSkipLocked() bool {
 	return d == Postgres || d == MySQL
 }
 
+// SupportsNotify reports whether the dialect can signal a listening session
+// with LISTEN/NOTIFY, which is what lets a poller be woken instead of waiting
+// out its interval.
+func (d Dialect) SupportsNotify() bool {
+	return d == Postgres
+}
+
+// PostgresNotifyStatement emits a payload-free notification on the channel
+// bound to it, waking anything listening on that channel — see
+// database/postgres/pgnotify for the other end.
+//
+// The payload is empty on purpose. Postgres collapses duplicate
+// (channel, payload) pairs within a transaction, so a transaction that notifies
+// fifty times sends one notification, and there is nothing in it for a consumer
+// to come to depend on. The channel is bound rather than interpolated; the
+// listening side has to render it into a LISTEN, which takes no parameters, so
+// it is vetted with ValidIdentifier there.
+//
+// It lives here, in the leaf every SQL-emitting package already imports, rather
+// than beside the listener: outbox serves three dialects and workqueue serves
+// one, and neither should take a pgx dependency to reach a constant.
+const PostgresNotifyStatement = `SELECT pg_notify($1, '')`
+
 // RequireDialect returns a wrapped ErrUnsupported naming component and d unless
 // d is one of want.
 //

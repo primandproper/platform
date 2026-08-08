@@ -73,6 +73,41 @@ check and claim freely. ClaimLease serializes on a single relay and preserves
 global order. Postgres and MySQL support both modes; SQLite has no SKIP LOCKED
 and always uses ClaimLease.
 
+# Waking the relay
+
+The relay polls, at PollInterval, which puts a floor under how long a committed
+event waits and a floor under how many claim transactions an idle relay runs.
+Both floors come off with a wakeup:
+
+	listener, err := pgnotify.NewListener(ctx, &pgnotify.Config{
+		ConnectionString: dsn,
+		Channel:          "outbox",
+	})
+	// ...
+	go listener.Run()
+
+	relay, err := outbox.NewRelay(ctx, cfg, client, provider,
+		outbox.WithRelayWakeup(listener.Signal()))
+
+with the producing half configured to notify that channel, via
+WithWriterNotifyChannel or RelayConfig.NotifyChannel. Enqueue then emits a
+payload-free pg_notify inside the caller's transaction, which Postgres delivers
+at commit — so a woken relay can never look for a row before it is visible.
+
+Nothing about the durable path changes. The notification carries no information,
+the poll ticker stays exactly as it was, and a wake that is never delivered
+costs latency and nothing else. That last point is not a nicety: NOTIFY is
+at-most-once and connection-scoped, so a listener that reconnects misses
+everything sent while it was away. It is safe here only because it is a hint
+about a table the relay knows how to read for itself.
+
+RelayConfig.MinWakeInterval floors the rate of wake-driven cycles so a table
+taking thousands of inserts a second cannot drive thousands of cycles a second;
+a burst becomes one extra cycle. Wakeups are Postgres-only on the producing
+side, but WithRelayWakeup is a bare channel — the relay stays dialect-generic,
+knows nothing about LISTEN, and is tested against a channel rather than a
+container.
+
 # Watching it
 
 Nothing here fails loudly — publish errors are logged and retried, never

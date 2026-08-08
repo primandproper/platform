@@ -39,6 +39,32 @@ func TestDialect_SupportsSkipLocked(T *testing.T) {
 	})
 }
 
+func TestDialect_SupportsNotify(T *testing.T) {
+	T.Parallel()
+
+	T.Run("per dialect", func(t *testing.T) {
+		t.Parallel()
+
+		test.True(t, Postgres.SupportsNotify())
+		test.False(t, MySQL.SupportsNotify())
+		test.False(t, SQLite.SupportsNotify())
+	})
+}
+
+func TestPostgresNotifyStatement(T *testing.T) {
+	T.Parallel()
+
+	// The channel is bound, never interpolated, and the payload is empty —
+	// which is what makes Postgres collapse a transaction's notifications into
+	// one. Both are load-bearing enough to pin.
+	T.Run("binds its channel and carries no payload", func(t *testing.T) {
+		t.Parallel()
+
+		test.StrContains(t, PostgresNotifyStatement, Postgres.Placeholder(1))
+		test.StrContains(t, PostgresNotifyStatement, "''")
+	})
+}
+
 func TestRequireDialect(T *testing.T) {
 	T.Parallel()
 

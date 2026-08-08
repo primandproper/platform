@@ -29,6 +29,12 @@ type Observer interface {
 type observer struct {
 	logger logging.Logger
 	tracer tracing.Tracer
+
+	// values are seeded onto every Operation this observer begins. They are
+	// held rather than baked into the logger alone because an Operation records
+	// to both pillars, and a field worth having on every log line is worth
+	// having on every span.
+	values map[string]any
 }
 
 // NewObserver builds the production Observer from the standard DI dependencies.
@@ -43,9 +49,38 @@ type observer struct {
 // A nil tracerProvider is safe: NewNamedTracer substitutes a noop provider, so
 // an unconfigured component traces nowhere rather than panicking.
 func NewObserver(name string, logger logging.Logger, tracerProvider tracing.TracerProvider) Observer {
+	return NewObserverWithValues(name, logger, tracerProvider, nil)
+}
+
+// NewObserverWithValues is NewObserver for a component whose every operation
+// describes the same thing: a listener bound to one channel, a worker bound to
+// one queue. The values land on the component's logger and are seeded onto
+// every Operation Begin returns, so a field that is constant for the
+// component's lifetime is stated once at construction instead of at every call
+// site — and, more to the point, cannot be stated at some of them and forgotten
+// at the rest.
+//
+// They are seeded before the caller's own BeginOptions, so an operation may
+// still override one.
+//
+// It is a constructor rather than a method on Observer because Observer is an
+// exported interface: a method would break every implementation outside this
+// module, and the values are known where the observer is built anyway.
+func NewObserverWithValues(
+	name string,
+	logger logging.Logger,
+	tracerProvider tracing.TracerProvider,
+	values map[string]any,
+) Observer {
+	named := logging.NewNamedLogger(logger, name)
+	if len(values) > 0 {
+		named = named.WithValues(values)
+	}
+
 	return &observer{
-		logger: logging.NewNamedLogger(logger, name),
+		logger: named,
 		tracer: tracing.NewNamedTracer(tracerProvider, name),
+		values: values,
 	}
 }
 
@@ -69,14 +104,32 @@ func NewObserverForTest(name string) Observer {
 func (o *observer) Begin(ctx context.Context, opts ...BeginOption) (context.Context, Operation) {
 	ctx, span := o.tracer.StartCustomSpan(ctx, tracing.GetCallerName())
 
-	return ctx, applyBeginOptions(newOperation(span, o.logger), opts)
+	return ctx, applyBeginOptions(o.seed(span), opts)
 }
 
 // BeginCustom starts an explicitly named span and returns an Operation.
 func (o *observer) BeginCustom(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, Operation) {
 	ctx, span := o.tracer.StartCustomSpan(ctx, name, opts...)
 
-	return ctx, newOperation(span, o.logger)
+	return ctx, o.seed(span)
+}
+
+// seed builds the Operation for a span and records whatever this observer was
+// constructed with. The values are applied through the Operation rather than
+// onto the span directly, so they land on exactly the pillars an equivalent
+// Set would have put them on.
+func (o *observer) seed(span tracing.Span) Operation {
+	op := newOperation(span, o.logger)
+
+	if len(o.values) > 0 {
+		// The logger already carries them from construction; this is the span's
+		// half. LogOnly's counterpart would double them up on every line.
+		for key, value := range o.values {
+			op.SpanOnly(key, value)
+		}
+	}
+
+	return op
 }
 
 // Logger returns the component's span-less named logger, for use outside of a

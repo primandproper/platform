@@ -23,6 +23,12 @@ var (
 	// claimer would take the same item.
 	ErrInvalidLease = platformerrors.New("invalid work queue lease")
 
+	// ErrInvalidPollInterval indicates a non-positive poll was supplied to Wait.
+	// The poll is the backstop that makes a lost wakeup survivable, so a loop
+	// without one would stop forever the first time a notification went
+	// missing — which is a normal event, not an exceptional one.
+	ErrInvalidPollInterval = platformerrors.New("invalid work queue poll interval")
+
 	// ErrKeyTooLong indicates a key whose encoded form exceeds MaxKeyLength. It
 	// is reported rather than truncated: two keys that differ only past the
 	// limit would become one row, and the second unit of work would silently

@@ -86,7 +86,15 @@ func NewWriter(
 		return nil, errors.Wrap(err, "validating outbox config")
 	}
 
-	base := []outbox.WriterOption{outbox.WithWriterTablePrefix(cfg.Relay.TablePrefix)}
+	// The notify channel comes from the Relay section for the same reason the
+	// table does: the half that writes and the half that is woken have to name
+	// the same channel, and reading them from one place is what makes that
+	// unrepresentable. An empty channel — the default — leaves the Writer
+	// emitting no notification at all.
+	base := []outbox.WriterOption{
+		outbox.WithWriterTablePrefix(cfg.Relay.TablePrefix),
+		outbox.WithWriterNotifyChannel(cfg.Relay.NotifyChannel),
+	}
 	if logger != nil {
 		base = append(base, outbox.WithWriterLogger(logger))
 	}

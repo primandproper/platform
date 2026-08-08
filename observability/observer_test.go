@@ -147,6 +147,116 @@ func TestObserver_accessors(T *testing.T) {
 	})
 }
 
+func TestNewObserverWithValues(T *testing.T) {
+	T.Parallel()
+
+	// newSeededObserver mirrors newTestObserver, with values a component would
+	// know at construction and never change.
+	newSeededObserver := func(t *testing.T, values map[string]any) (Observer, *loggerRecord, *recordingExporter) {
+		t.Helper()
+
+		rl := newRecordingLogger()
+		exp := &recordingExporter{}
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+		t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+		return NewObserverWithValues("test_observer", rl, tp, values), rl.rec, exp
+	}
+
+	T.Run("records the values on the component's logger", func(t *testing.T) {
+		t.Parallel()
+
+		_, rec, _ := newSeededObserver(t, map[string]any{"channel": "outbox"})
+
+		test.EqOp(t, "outbox", rec.values["channel"])
+	})
+
+	T.Run("seeds every span the observer begins", func(t *testing.T) {
+		t.Parallel()
+
+		o, _, exp := newSeededObserver(t, map[string]any{"channel": "outbox"})
+
+		for range 2 {
+			_, op := o.Begin(t.Context())
+			op.End()
+		}
+
+		spans := exp.recorded()
+		must.SliceLen(t, 2, spans)
+
+		for i := range spans {
+			value, ok := spanAttr(spans[i], "channel")
+			must.True(t, ok, must.Sprintf("span %d carried no seeded value", i))
+			test.EqOp(t, "outbox", value.AsString())
+		}
+	})
+
+	T.Run("seeds an explicitly named span too", func(t *testing.T) {
+		t.Parallel()
+
+		o, _, exp := newSeededObserver(t, map[string]any{"channel": "outbox"})
+
+		_, op := o.BeginCustom(t.Context(), "custom")
+		op.End()
+
+		spans := exp.recorded()
+		must.SliceLen(t, 1, spans)
+
+		value, ok := spanAttr(spans[0], "channel")
+		must.True(t, ok)
+		test.EqOp(t, "outbox", value.AsString())
+	})
+
+	// The logger already carries them from construction, so seeding them onto
+	// the operation's logger as well would double every line's fields.
+	T.Run("does not re-record the values on the operation's logger", func(t *testing.T) {
+		t.Parallel()
+
+		o, rec, _ := newSeededObserver(t, map[string]any{"channel": "outbox"})
+
+		_, op := o.Begin(t.Context())
+		op.Set("other", "value")
+		op.End()
+
+		test.EqOp(t, "outbox", rec.values["channel"])
+		test.EqOp(t, "value", rec.values["other"])
+	})
+
+	T.Run("an operation may still record its own value for a seeded key", func(t *testing.T) {
+		t.Parallel()
+
+		o, _, exp := newSeededObserver(t, map[string]any{"channel": "outbox"})
+
+		_, op := o.Begin(t.Context(), WithValue("channel", "work"))
+		op.End()
+
+		spans := exp.recorded()
+		must.SliceLen(t, 1, spans)
+
+		value, ok := spanAttr(spans[0], "channel")
+		must.True(t, ok)
+		test.EqOp(t, "work", value.AsString())
+	})
+
+	// NewObserver is this with no values, so the absent case has to stay
+	// exactly what it was.
+	T.Run("no values behaves as NewObserver does", func(t *testing.T) {
+		t.Parallel()
+
+		for _, values := range []map[string]any{nil, {}} {
+			o, rec, exp := newSeededObserver(t, values)
+
+			_, op := o.Begin(t.Context())
+			op.End()
+
+			spans := exp.recorded()
+			must.SliceLen(t, 1, spans)
+
+			test.MapEmpty(t, rec.values)
+		}
+	})
+}
+
 func TestNewObserverForTest(T *testing.T) {
 	T.Parallel()
 

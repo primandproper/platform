@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/primandproper/platform-go/v9/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v9/errors"
 	"github.com/primandproper/platform-go/v9/observability"
 )
@@ -123,13 +124,40 @@ func (q *Queue[K]) upsert(ctx context.Context, rows []encodedEntry) error {
 
 	query, args := buildUpsert(q.cfg.resolvedTable(), q.cfg.Name, rows)
 
-	return q.withRetries(ctx, "enqueue", func() error {
-		if _, err := q.client.Writer().ExecContext(ctx, query, args...); err != nil {
-			return platformerrors.Wrap(err, "upserting work queue items")
+	if err := q.withRetries(ctx, "enqueue", func() error {
+		if _, execErr := q.client.Writer().ExecContext(ctx, query, args...); execErr != nil {
+			return platformerrors.Wrap(execErr, "upserting work queue items")
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	q.notify(ctx)
+
+	return nil
+}
+
+// notify wakes whoever is listening, after the rows are committed and never
+// before — a claimer woken early would find nothing and go back to sleep until
+// its poll, which is the latency this exists to remove.
+//
+// A failure here is logged rather than returned. The work is already durably
+// enqueued; reporting an error would tell the caller its enqueue failed when it
+// did not, and the only consequence of a missing notification is that the item
+// waits for a poll — exactly what happens when a listener is reconnecting.
+func (q *Queue[K]) notify(ctx context.Context) {
+	if q.cfg.NotifyChannel == "" {
+		return
+	}
+
+	if _, err := q.client.Writer().ExecContext(ctx, dialect.PostgresNotifyStatement, q.cfg.NotifyChannel); err != nil {
+		q.logger.WithValues(map[string]any{
+			queueNameKey:     q.cfg.Name,
+			notifyChannelKey: q.cfg.NotifyChannel,
+		}).Error("notifying work queue channel", err)
+	}
 }
 
 // enqueueBatcher merges concurrent Enqueue calls into one upsert — group commit,
