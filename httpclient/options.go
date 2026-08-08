@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/cache"
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/circuitbreaking/partitioned"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -24,12 +25,13 @@ type clientConfig struct {
 	// of one built from the settings below. Tracing, if enabled, still wraps it.
 	transport http.RoundTripper
 
-	// The resilience middlewares, each held unattached until buildClient knows
-	// what it is wrapping. Nil means the client does not have that layer at all,
-	// rather than having one that does nothing.
-	breaker     *breakerTransport
-	retry       *retryTransport
-	rateLimiter *rateLimitTransport
+	// The middlewares, each held unattached until buildClient knows what it is
+	// wrapping. Nil means the client does not have that layer at all, rather
+	// than having one that does nothing.
+	responseCache *cacheTransport
+	breaker       *breakerTransport
+	retry         *retryTransport
+	rateLimiter   *rateLimitTransport
 
 	// The three pillars, each resolved to its noop at build time when absent, so
 	// a client asked for no observability records nowhere rather than nil-checks
@@ -206,6 +208,43 @@ func WithKeyedCircuitBreaker(breakers partitioned.KeyedCircuitBreaker, opts ...B
 	return func(c *clientConfig) {
 		if breakers != nil {
 			c.breaker = newBreakerTransport(breakers, opts)
+		}
+	}
+}
+
+// WithHTTPCache answers repeated GETs and HEADs of a stable resource from store
+// instead of from the origin.
+//
+// It is the layer above the resilience three, and that placement is the whole
+// design: a hit makes no wire request, so it consults no circuit and spends no
+// rate-limit token. A miss or a revalidation passes through all three exactly
+// as an uncached request would.
+//
+// The policy is RFC 9111 read narrowly. Cache-Control and Expires decide
+// freshness; ETag and Last-Modified drive revalidation, and a 304 refreshes the
+// stored entry rather than replacing it. What the RFC leaves to a cache's
+// discretion, this errs toward not caching: no-store, private, Set-Cookie,
+// Vary: *, and an Authorization header without WithCacheAuthorized all mean the
+// response is not stored.
+//
+// Most origins worth caching send no freshness headers at all, which is why
+// callers hand-roll TTL maps in front of them. WithCacheTTL is the supported
+// version of that, and it loses to anything the origin actually said:
+//
+//	client, err := httpclient.NewHTTPClient(
+//	    httpclient.WithHTTPCache(store, httpclient.WithCacheTTL(5*time.Minute)),
+//	)
+//
+// The cache's own default expiry governs how long an entry is retained; the
+// freshness above governs when it must be revalidated. Retaining an entry past
+// its freshness is what makes a 304 possible, so a store configured to expire
+// entries the moment they go stale gives up the cheaper half of this.
+//
+// A nil cache is ignored.
+func WithHTTPCache(store cache.Cache[CachedResponse], opts ...CacheOption) Option {
+	return func(c *clientConfig) {
+		if store != nil {
+			c.responseCache = newCacheTransport(store, opts)
 		}
 	}
 }

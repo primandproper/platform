@@ -3,6 +3,7 @@ package httpclient
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
@@ -14,7 +15,7 @@ import (
 func TestResilienceNesting(T *testing.T) {
 	T.Parallel()
 
-	T.Run("wraps observability over breaker over retry over rate limit over the base", func(t *testing.T) {
+	T.Run("wraps observability over cache over breaker over retry over rate limit over the base", func(t *testing.T) {
 		t.Parallel()
 
 		base := stubRoundTripper{}
@@ -26,6 +27,7 @@ func TestResilienceNesting(T *testing.T) {
 			// caller's typing.
 			WithRateLimit(&stubLimiter{allow: func(string) (bool, error) { return true, nil }}),
 			WithCircuitBreaker(closedBreaker()),
+			WithHTTPCache(cacheForTest(t)),
 			WithRetryPolicy(&immediatePolicy{attempts: 2}),
 		)
 
@@ -34,7 +36,12 @@ func TestResilienceNesting(T *testing.T) {
 		observed, ok := client.Transport.(*observedTransport)
 		must.True(t, ok)
 
-		breaker, ok := observed.base.(*breakerTransport)
+		// Above the breaker, because a hit is not a request: it reaches no
+		// wire, so it must not report an outcome to a circuit or spend a token.
+		responses, ok := observed.base.(*cacheTransport)
+		must.True(t, ok)
+
+		breaker, ok := responses.base.(*breakerTransport)
 		must.True(t, ok)
 
 		retrier, ok := breaker.base.(*retryTransport)
@@ -68,7 +75,7 @@ func TestResilienceNesting(T *testing.T) {
 		test.False(t, ok)
 	})
 
-	T.Run("a client with no resilience layers is not wrapped", func(t *testing.T) {
+	T.Run("a client with no middleware is not wrapped", func(t *testing.T) {
 		t.Parallel()
 
 		// Nothing to describe that otelhttp does not already describe, so the
@@ -77,6 +84,18 @@ func TestResilienceNesting(T *testing.T) {
 
 		_, ok := client.Transport.(*observedTransport)
 		test.False(t, ok)
+	})
+
+	T.Run("a cache alone is enough to be wrapped", func(t *testing.T) {
+		t.Parallel()
+
+		// A hit reaches neither the tracing transport nor the wire, so without
+		// this it would produce no span at all — the same hole an open circuit
+		// leaves, and the same reason for closing it.
+		client := newClient(t, WithTransport(stubRoundTripper{}), WithHTTPCache(cacheForTest(t)))
+
+		_, ok := client.Transport.(*observedTransport)
+		test.True(t, ok)
 	})
 }
 
@@ -214,5 +233,118 @@ func TestResilienceComposition(T *testing.T) {
 		// against a dependency that is perfectly well.
 		test.SliceLen(t, 0, breaker.FailedCalls())
 		test.SliceLen(t, 0, breaker.SucceededCalls())
+	})
+
+	T.Run("a cache hit spends no token and reports to no circuit", func(t *testing.T) {
+		t.Parallel()
+
+		breaker := closedBreaker()
+		limiter := &stubLimiter{allow: func(string) (bool, error) { return true, nil }}
+
+		var calls int
+		client := newClient(t,
+			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				calls++
+
+				return withHeader(response(http.StatusOK, "jwks"), "Cache-Control", "max-age=300"), nil
+			})),
+			WithHTTPCache(cacheForTest(t)),
+			WithCircuitBreaker(breaker),
+			WithRateLimit(limiter),
+		)
+
+		for range 3 {
+			resp, err := get(t.Context(), client, cacheURL)
+			must.NoError(t, err)
+			test.EqOp(t, "jwks", readBody(t, resp))
+		}
+
+		// One request on the wire, and exactly one of everything that describes
+		// a request on the wire. A provider's documented budget counts requests
+		// the origin saw, and a circuit judges a host on answers it gave — two
+		// hits produce neither, and a cache placed under either layer would
+		// have manufactured both.
+		test.EqOp(t, 1, calls)
+		test.SliceLen(t, 1, limiter.keys)
+		test.SliceLen(t, 1, breaker.SucceededCalls())
+	})
+
+	T.Run("a revalidation passes through every layer", func(t *testing.T) {
+		t.Parallel()
+
+		breaker := closedBreaker()
+		limiter := &stubLimiter{allow: func(string) (bool, error) { return true, nil }}
+		clk := &steppingClock{now: time.Unix(1_700_000_000, 0)}
+
+		var calls int
+		client := newClient(t,
+			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				calls++
+
+				if calls == 1 {
+					resp := withHeader(response(http.StatusOK, "jwks"), "Cache-Control", "max-age=60")
+
+					return withHeader(resp, "ETag", `"v1"`), nil
+				}
+
+				return response(http.StatusNotModified, ""), nil
+			})),
+			WithHTTPCache(cacheForTest(t), WithCacheClock(clk)),
+			WithCircuitBreaker(breaker),
+			WithRateLimit(limiter),
+		)
+
+		resp, err := get(t.Context(), client, cacheURL)
+		must.NoError(t, err)
+		test.EqOp(t, "jwks", readBody(t, resp))
+
+		clk.advance(61 * time.Second)
+
+		revalidated, err := get(t.Context(), client, cacheURL)
+		must.NoError(t, err)
+		test.EqOp(t, "jwks", readBody(t, revalidated))
+
+		// The body came from the cache, but the question went to the origin —
+		// so it is a request like any other, and pays for itself like one.
+		test.EqOp(t, 2, calls)
+		test.SliceLen(t, 2, limiter.keys)
+		test.SliceLen(t, 2, breaker.SucceededCalls())
+	})
+
+	T.Run("an open circuit does not reject what the cache can answer", func(t *testing.T) {
+		t.Parallel()
+
+		store := cacheForTest(t)
+
+		warm := newClient(t,
+			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				return withHeader(response(http.StatusOK, "jwks"), "Cache-Control", "max-age=300"), nil
+			})),
+			WithHTTPCache(store),
+		)
+
+		resp, err := get(t.Context(), warm, cacheURL)
+		must.NoError(t, err)
+		test.EqOp(t, "jwks", readBody(t, resp))
+
+		// Same store, and a dependency that has since fallen over hard enough
+		// to trip its circuit.
+		broken := newClient(t,
+			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				t.Error("the request should never have reached the wire")
+
+				return nil, nil
+			})),
+			WithHTTPCache(store),
+			WithCircuitBreaker(openBreaker()),
+		)
+
+		// The cache is above the breaker, so a fresh entry is still served.
+		// This is the payoff of that placement rather than an accident of it: a
+		// stable third-party document does not stop being readable because the
+		// origin serving it is down.
+		served, err := get(t.Context(), broken, cacheURL)
+		must.NoError(t, err)
+		test.EqOp(t, "jwks", readBody(t, served))
 	})
 }

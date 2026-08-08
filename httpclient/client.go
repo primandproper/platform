@@ -52,21 +52,21 @@ func (c *clientConfig) buildClient() (*http.Client, error) {
 		)
 	}
 
-	// The resilience layers wrap inside-out, so this reads bottom-up: the rate
-	// limiter is nearest the wire and the breaker is outermost. The nesting is
+	// The middlewares wrap inside-out, so this reads bottom-up: the rate limiter
+	// is nearest the wire and the response cache is outermost. The nesting is
 	// fixed rather than following the order the options were passed, because
-	// only one arrangement of the three is correct and a caller who got it wrong
+	// only one arrangement of them is correct and a caller who got it wrong
 	// would have a client that looks protected and is not.
 	//
 	// Tracing sits below all of them, so each attempt is its own client span
 	// rather than one span covering a loop.
-	resilient := false
+	layered := false
 
 	if c.rateLimiter != nil {
 		c.rateLimiter.base = transport
 		c.rateLimiter.obs = obs
 		transport = c.rateLimiter
-		resilient = true
+		layered = true
 	}
 
 	// Retry above the limiter: every attempt it makes spends a token, so a retry
@@ -75,24 +75,36 @@ func (c *clientConfig) buildClient() (*http.Client, error) {
 		c.retry.base = transport
 		c.retry.obs = obs
 		transport = c.retry
-		resilient = true
+		layered = true
 	}
 
-	// The breaker outermost: an open circuit rejects before the retry loop is
-	// entered, which is the difference between failing fast and failing fast
+	// The breaker above the retry loop: an open circuit rejects before the loop
+	// is entered, which is the difference between failing fast and failing fast
 	// three times with backoff in between.
 	if c.breaker != nil {
 		c.breaker.base = transport
 		c.breaker.obs = obs
 		transport = c.breaker
-		resilient = true
+		layered = true
 	}
 
-	// Above even the breaker, and only when there is something for it to
-	// describe: a client with no resilience layers has nothing between the
-	// caller and the tracing transport, so a second span would only duplicate
-	// the one otelhttp already emits.
-	if resilient {
+	// The response cache above all three, because a hit is not a request. It
+	// reaches no wire, so it must not report an outcome to a circuit or spend a
+	// token from a budget that counts requests the origin actually saw — and
+	// the only placement that guarantees that is one where the hit returns
+	// before either layer is consulted.
+	if c.responseCache != nil {
+		c.responseCache.base = transport
+		c.responseCache.obs = obs
+		transport = c.responseCache
+		layered = true
+	}
+
+	// Above even the cache, and only when there is something for it to
+	// describe: a client with no middleware has nothing between the caller and
+	// the tracing transport, so a second span would only duplicate the one
+	// otelhttp already emits.
+	if layered {
 		transport = &observedTransport{base: transport, obs: obs}
 	}
 
