@@ -73,7 +73,7 @@ type redisClient interface {
 type redisCacheImpl[T any] struct {
 	o11y             observability.Observer
 	logger           logging.Logger
-	tracerProvider   tracing.TracerProvider
+	tracerProvider   tracing.Provider
 	metricsProvider  metrics.Provider
 	codec            cache.Codec[T]
 	cacheHitCounter  metrics.Int64Counter

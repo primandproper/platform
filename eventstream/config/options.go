@@ -18,7 +18,7 @@ type Option func(*options)
 // options collects what the options set.
 type options struct {
 	logger         logging.Logger
-	tracerProvider tracing.TracerProvider
+	tracerProvider tracing.Provider
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -40,7 +40,7 @@ func WithLogger(logger logging.Logger) Option {
 
 // WithTracerProvider attaches a tracer provider, enabling spans on the
 // instrumented operations. An absent tracer provider traces nowhere.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }
 

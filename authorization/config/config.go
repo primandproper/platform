@@ -112,7 +112,7 @@ type Option func(*options)
 // observability the resolver is built with.
 type options struct {
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	static   []static.Option
@@ -157,7 +157,7 @@ func WithLogger(logger logging.Logger) Option {
 
 // WithTracerProvider attaches a tracer provider, enabling spans on policy
 // resolution. An absent tracer provider traces nowhere.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }
 

@@ -9,7 +9,7 @@ import (
 	otelnoop "go.opentelemetry.io/otel/trace/noop"
 )
 
-var _ tracing.TracerProvider = (*TracerProvider)(nil)
+var _ tracing.Provider = (*TracerProvider)(nil)
 
 // TracerProvider is a no-op TracerProvider.
 type TracerProvider struct {
@@ -17,7 +17,7 @@ type TracerProvider struct {
 }
 
 // NewTracerProvider returns a no-op TracerProvider.
-func NewTracerProvider() tracing.TracerProvider {
+func NewTracerProvider() tracing.Provider {
 	return &TracerProvider{}
 }
 

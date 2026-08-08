@@ -58,7 +58,7 @@ func WithDispatcherLogger(logger logging.Logger) DispatcherOption {
 
 // WithDispatcherTracerProvider attaches a tracer provider, so a Dispatch shows
 // up as a child of the span that owns the transaction.
-func WithDispatcherTracerProvider(tracerProvider tracing.TracerProvider) DispatcherOption {
+func WithDispatcherTracerProvider(tracerProvider tracing.Provider) DispatcherOption {
 	return func(d *dispatcher) {
 		d.tracerProvider = tracerProvider
 	}
@@ -139,7 +139,7 @@ func WithWorkerLogger(logger logging.Logger) WorkerOption {
 
 // WithWorkerTracerProvider attaches a tracer provider. Cycles that claim
 // nothing are not traced — a root span every poll interval is noise.
-func WithWorkerTracerProvider(tracerProvider tracing.TracerProvider) WorkerOption {
+func WithWorkerTracerProvider(tracerProvider tracing.Provider) WorkerOption {
 	return func(w *Worker) {
 		w.tracerProvider = tracerProvider
 	}

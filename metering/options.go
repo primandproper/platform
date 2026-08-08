@@ -70,7 +70,7 @@ func WithEnforcerLogger(logger logging.Logger) EnforcerOption {
 }
 
 // WithEnforcerTracerProvider attaches a tracer provider.
-func WithEnforcerTracerProvider(tracerProvider tracing.TracerProvider) EnforcerOption {
+func WithEnforcerTracerProvider(tracerProvider tracing.Provider) EnforcerOption {
 	return func(e *QuotaEnforcer) {
 		e.tracerProvider = tracerProvider
 	}
@@ -105,7 +105,7 @@ func WithFlusherLogger(logger logging.Logger) FlusherOption {
 }
 
 // WithFlusherTracerProvider attaches a tracer provider.
-func WithFlusherTracerProvider(tracerProvider tracing.TracerProvider) FlusherOption {
+func WithFlusherTracerProvider(tracerProvider tracing.Provider) FlusherOption {
 	return func(f *Flusher) {
 		f.tracerProvider = tracerProvider
 	}
@@ -154,7 +154,7 @@ func WithRecorderLogger(logger logging.Logger) RecorderOption {
 }
 
 // WithRecorderTracerProvider attaches a tracer provider.
-func WithRecorderTracerProvider(tracerProvider tracing.TracerProvider) RecorderOption {
+func WithRecorderTracerProvider(tracerProvider tracing.Provider) RecorderOption {
 	return func(r *DurableRecorder) {
 		r.tracerProvider = tracerProvider
 	}
@@ -206,7 +206,7 @@ func WithStoreLogger(logger logging.Logger) SQLStoreOption {
 }
 
 // WithStoreTracerProvider attaches a tracer provider.
-func WithStoreTracerProvider(tracerProvider tracing.TracerProvider) SQLStoreOption {
+func WithStoreTracerProvider(tracerProvider tracing.Provider) SQLStoreOption {
 	return func(s *sqlStore) {
 		s.tracerProvider = tracerProvider
 	}

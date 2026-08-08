@@ -98,7 +98,7 @@ type Router struct {
 // using WithContentType), shared across a Router and its Groups.
 type encoderCache struct {
 	logger         logging.Logger
-	tracerProvider tracing.TracerProvider
+	tracerProvider tracing.Provider
 	byType         map[encoding.ContentType]encoding.ServerEncoderDecoder
 	mu             sync.Mutex
 }
@@ -147,7 +147,7 @@ type (
 
 	routerConfig struct {
 		logger         logging.Logger
-		tracerProvider tracing.TracerProvider
+		tracerProvider tracing.Provider
 		errEncoder     ErrorEncoder
 		title          string
 		version        string
@@ -208,7 +208,7 @@ func WithLogger(logger logging.Logger) RouterOption {
 
 // WithTracerProvider attaches a tracer provider, enabling spans on every
 // registered route.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) RouterOption {
+func WithTracerProvider(tracerProvider tracing.Provider) RouterOption {
 	return func(c *routerConfig) { c.tracerProvider = tracerProvider }
 }
 

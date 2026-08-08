@@ -48,7 +48,7 @@ const (
 type Migrator struct {
 	o11y                observability.Observer
 	logger              logging.Logger
-	tracerProvider      tracing.TracerProvider
+	tracerProvider      tracing.Provider
 	metricsProvider     metrics.Provider
 	fsys                fs.FS
 	runCounter          metrics.Int64Counter
@@ -87,7 +87,7 @@ func WithLogger(logger logging.Logger) Option {
 // is typically the longest blocking step in service startup, and on Postgres
 // it can spend up to a minute waiting on the advisory lock behind a peer that
 // is migrating.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(m *Migrator) {
 		m.tracerProvider = tracerProvider
 	}

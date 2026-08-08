@@ -37,7 +37,7 @@ type clientConfig struct {
 	// a client asked for no observability records nowhere rather than nil-checks
 	// at every point that would have recorded.
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	timeout             time.Duration
@@ -112,7 +112,7 @@ func WithLogger(logger logging.Logger) Option {
 // Absent, both trace nowhere — including the per-attempt spans, which until now
 // silently fell back to the OpenTelemetry global rather than to the provider
 // the service configured.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(c *clientConfig) { c.tracerProvider = tracerProvider }
 }
 

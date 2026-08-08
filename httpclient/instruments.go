@@ -47,7 +47,7 @@ type transportObserver struct {
 // client that asked for no observability at all.
 func newTransportObserver(
 	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
+	tracerProvider tracing.Provider,
 	metricsProvider metrics.Provider,
 ) (*transportObserver, error) {
 	obs := &transportObserver{

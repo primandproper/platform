@@ -17,9 +17,9 @@ func NewTracerForTest(name string) Tracer {
 	return NewNamedTracer(nil, name)
 }
 
-// NewNamedTracer creates a named Tracer from the given TracerProvider.
-// If tracerProvider is nil, a noop TracerProvider is used.
-func NewNamedTracer(tracerProvider TracerProvider, name string) Tracer {
+// NewNamedTracer creates a named Tracer from the given Provider.
+// If tracerProvider is nil, a noop Provider is used.
+func NewNamedTracer(tracerProvider Provider, name string) Tracer {
 	return &otelTraceWrapper{tracer: EnsureTracerProvider(tracerProvider).Tracer(name)}
 }
 

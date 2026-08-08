@@ -27,7 +27,7 @@ type (
 	managerOptions struct {
 		clock           clock.Clock
 		logger          logging.Logger
-		tracerProvider  tracing.TracerProvider
+		tracerProvider  tracing.Provider
 		metricsProvider metrics.Provider
 
 		// recordable holds a func(*T) bool for the T of the Manager being
@@ -125,7 +125,7 @@ func WithLogger(logger logging.Logger) Option {
 }
 
 // WithTracerProvider attaches a tracer provider.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *managerOptions) {
 		o.tracerProvider = tracerProvider
 	}

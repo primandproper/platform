@@ -127,7 +127,7 @@ type reader struct {
 	verificationsCounter metrics.Int64Counter
 	breaksCounter        metrics.Int64Counter
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
 	prefix          string

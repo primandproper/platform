@@ -45,7 +45,7 @@ func InvokePillars(i do.Injector) (*Pillars, error) {
 	}
 	p.Logger = logger
 
-	tracerProvider, err := injection.InvokeOptional[tracing.TracerProvider](i)
+	tracerProvider, err := injection.InvokeOptional[tracing.Provider](i)
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking tracer provider")
 	}

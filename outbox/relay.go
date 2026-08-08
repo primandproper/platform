@@ -89,7 +89,7 @@ type Relay struct {
 	cycleHist          metrics.Float64Histogram
 	publishHist        metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg RelayConfig

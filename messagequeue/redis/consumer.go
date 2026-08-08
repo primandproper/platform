@@ -57,7 +57,7 @@ func (r *redisConsumer) sendErr(ctx context.Context, errs chan<- error, err erro
 	}
 }
 
-func provideRedisConsumer(ctx context.Context, logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, redisClient subscriptionProvider, topic string, handlerFunc func(context.Context, []byte) error) (*redisConsumer, error) {
+func provideRedisConsumer(ctx context.Context, logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, redisClient subscriptionProvider, topic string, handlerFunc func(context.Context, []byte) error) (*redisConsumer, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
 	consumedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_consumed", topic))
@@ -122,7 +122,7 @@ func (r *redisConsumer) Consume(ctx context.Context, errs chan<- error) {
 
 type consumerProvider struct {
 	o11y            observability.Observer
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	consumerCache   map[string]messagequeue.Consumer
 	redisClient     subscriptionProvider

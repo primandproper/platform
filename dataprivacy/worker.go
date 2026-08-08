@@ -111,7 +111,7 @@ type Worker struct {
 	collectHist       metrics.Float64Histogram
 	artifactHist      metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg WorkerConfig

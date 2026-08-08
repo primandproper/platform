@@ -9,7 +9,7 @@ import (
 type Option func(*options)
 
 type options struct {
-	tracerProvider tracing.TracerProvider
+	tracerProvider tracing.Provider
 }
 
 func newOptions(opts []Option) *options {
@@ -24,6 +24,6 @@ func newOptions(opts []Option) *options {
 }
 
 // WithTracerProvider attaches a tracer provider.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }

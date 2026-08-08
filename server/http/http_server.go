@@ -52,7 +52,7 @@ type (
 		logger         logging.Logger
 		router         *routing.Router
 		httpServer     *http.Server
-		tracerProvider tracing.TracerProvider
+		tracerProvider tracing.Provider
 		config         *Config
 	}
 )

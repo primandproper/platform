@@ -18,7 +18,7 @@ func WithLogger(logger logging.Logger) Option {
 
 // WithTracerProvider attaches a tracer provider, so a policy resolution shows
 // up as a child of the span that triggered it.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(r *Resolver) {
 		r.tracerProvider = tracerProvider
 	}

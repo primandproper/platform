@@ -60,7 +60,7 @@ type QuotaEnforcer struct {
 	checkHist       metrics.Float64Histogram
 	consumeHist     metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg EnforcerConfig

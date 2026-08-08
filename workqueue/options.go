@@ -28,7 +28,7 @@ type (
 	// free of the Queue's type parameter.
 	queueOptions struct {
 		logger          logging.Logger
-		tracerProvider  tracing.TracerProvider
+		tracerProvider  tracing.Provider
 		metricsProvider metrics.Provider
 
 		wakeup <-chan struct{}
@@ -62,7 +62,7 @@ func WithLogger(logger logging.Logger) Option {
 // WithTracerProvider attaches a tracer provider. A claim that leases nothing is
 // not traced: a root span per empty poll is noise, and an idle worker polls far
 // more often than a busy one.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *queueOptions) { o.tracerProvider = tracerProvider }
 }
 

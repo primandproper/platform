@@ -77,7 +77,7 @@ func (p *kafkaPublisher) PublishAsync(ctx context.Context, data any) {
 	}
 }
 
-func provideKafkaPublisher(logger logging.Logger, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, brokers []string, topic string) (*kafkaPublisher, error) {
+func provideKafkaPublisher(logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, brokers []string, topic string) (*kafkaPublisher, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
 	publishedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_published", topic))
@@ -120,7 +120,7 @@ func provideKafkaPublisher(logger logging.Logger, tracerProvider tracing.TracerP
 type publisherProvider struct {
 	logger            logging.Logger
 	publisherCache    map[string]messagequeue.Publisher
-	tracerProvider    tracing.TracerProvider
+	tracerProvider    tracing.Provider
 	metricsProvider   metrics.Provider
 	brokers           []string
 	publisherCacheHat sync.RWMutex

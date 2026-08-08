@@ -78,7 +78,7 @@ type Worker struct {
 	stepHist             metrics.Float64Histogram
 	advanceHist          metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg WorkerConfig

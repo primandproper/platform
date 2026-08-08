@@ -119,7 +119,7 @@ type (
 		staleRecordCounter   metrics.Int64Counter
 		latencyHist          metrics.Float64Histogram
 
-		tracerProvider  tracing.TracerProvider
+		tracerProvider  tracing.Provider
 		metricsProvider metrics.Provider
 
 		keyPrefix          string

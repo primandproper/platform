@@ -19,7 +19,7 @@ func Test_tracingErrorHandler_Handle(T *testing.T) {
 	})
 }
 
-func Test_noopTracerProvider_ForceFlush(T *testing.T) {
+func Test_noopProvider_ForceFlush(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {

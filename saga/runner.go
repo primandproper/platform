@@ -40,7 +40,7 @@ type runner[T any] struct {
 	startedCounter metrics.Int64Counter
 	resumedCounter metrics.Int64Counter
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 }
 

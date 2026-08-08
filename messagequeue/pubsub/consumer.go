@@ -30,7 +30,7 @@ type (
 // buildPubSubConsumer provides a Pub/Sub-backed pubSubConsumer.
 func buildPubSubConsumer(
 	logger logging.Logger,
-	tracerProvider tracing.TracerProvider,
+	tracerProvider tracing.Provider,
 	metricsProvider metrics.Provider,
 	pubsubClient *pubsub.Client,
 	topic string,
@@ -115,7 +115,7 @@ func (c *pubSubConsumer) Consume(ctx context.Context, errors chan<- error) {
 
 type pubsubConsumerProvider struct {
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	consumerCache   map[string]messagequeue.Consumer
 	pubsubClient    *pubsub.Client

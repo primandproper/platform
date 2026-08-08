@@ -49,7 +49,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // Pillars holds the four observability pillars: logging, tracing, metrics, and profiling.
 type Pillars struct {
 	Logger          logging.Logger
-	TracerProvider  tracing.TracerProvider
+	TracerProvider  tracing.Provider
 	MetricsProvider metrics.Provider
 	Profiler        profiling.Provider
 }
@@ -65,7 +65,7 @@ type Pillars struct {
 // The profiler is deliberately absent. Nothing is instrumented with it — it is
 // a process-wide agent that Pillars owns for shutdown, not a dependency a
 // component takes.
-func (p *Pillars) Deps() (logging.Logger, tracing.TracerProvider, metrics.Provider) {
+func (p *Pillars) Deps() (logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider) {
 	if p == nil {
 		return nil, nil, nil
 	}

@@ -24,7 +24,7 @@ type Option func(*options)
 type options struct {
 	clock           clock.Clock
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	overflow func() uint64
@@ -86,7 +86,7 @@ func WithLogger(logger logging.Logger) Option {
 // caller to parent it to, is noise rather than signal. The tracer is used for
 // Close, where the drain is a real, once-per-process operation a shutdown
 // trace wants to account for.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) {
 		o.tracerProvider = tracerProvider
 	}

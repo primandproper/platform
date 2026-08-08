@@ -21,7 +21,7 @@ type Option func(*options)
 // cache's type parameter.
 type options struct {
 	logger          logging.Logger
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	// codec holds a cache.Codec[T] for the T of the cache being built. It is
@@ -77,7 +77,7 @@ func WithLogger(logger logging.Logger) Option {
 
 // WithTracerProvider attaches a tracer provider, enabling spans on every cache
 // operation. An absent tracer provider traces nowhere.
-func WithTracerProvider(tracerProvider tracing.TracerProvider) Option {
+func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }
 

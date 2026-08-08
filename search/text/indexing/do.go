@@ -24,7 +24,7 @@ func RegisterIndexScheduler(i do.Injector, topic string) {
 			topic,
 			do.MustInvoke[map[string]Function](i),
 			WithLogger(do.MustInvoke[logging.Logger](i)),
-			WithTracerProvider(do.MustInvoke[tracing.TracerProvider](i)),
+			WithTracerProvider(do.MustInvoke[tracing.Provider](i)),
 			WithMetricsProvider(do.MustInvoke[metrics.Provider](i)),
 		)
 	})

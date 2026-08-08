@@ -81,7 +81,7 @@ func (p *sqsPublisher) PublishAsync(ctx context.Context, data any) {
 }
 
 // provideSQSPublisher provides a sqs-backed Publisher.
-func provideSQSPublisher(logger logging.Logger, sqsClient messagePublisher, tracerProvider tracing.TracerProvider, metricsProvider metrics.Provider, topic string) (*sqsPublisher, error) {
+func provideSQSPublisher(logger logging.Logger, sqsClient messagePublisher, tracerProvider tracing.Provider, metricsProvider metrics.Provider, topic string) (*sqsPublisher, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
 
 	publishedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_published", topic))
@@ -114,7 +114,7 @@ type publisherProvider struct {
 	o11y              observability.Observer
 	publisherCache    map[string]messagequeue.Publisher
 	sqsClient         messagePublisher
-	tracerProvider    tracing.TracerProvider
+	tracerProvider    tracing.Provider
 	metricsProvider   metrics.Provider
 	publisherCacheHat sync.RWMutex
 }

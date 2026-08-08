@@ -126,7 +126,7 @@ type Sweeper struct {
 	errorsCounter metrics.Int64Counter
 	sweepHist     metrics.Float64Histogram
 
-	tracerProvider  tracing.TracerProvider
+	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
 	cfg SweeperConfig
