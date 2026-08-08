@@ -33,7 +33,29 @@ var _ requestsigning.Verifier = (*failingVerifier)(nil)
 
 func (*failingVerifier) Scheme() string { return "stub" }
 
-func (f *failingVerifier) VerifyRequest(context.Context, http.Header, []byte) error { return f.err }
+func (*failingVerifier) HeaderName() string { return "X-Stub-Signature" }
+
+func (f *failingVerifier) VerifyHeaderValue(context.Context, string, []byte) error { return f.err }
+
+// recordingVerifier accepts everything and records the header value it was
+// handed, so a test can assert the middleware read the header the verifier
+// named rather than one of its own choosing.
+type recordingVerifier struct {
+	headerName string
+	seen       string
+}
+
+var _ requestsigning.Verifier = (*recordingVerifier)(nil)
+
+func (*recordingVerifier) Scheme() string { return "stub" }
+
+func (r *recordingVerifier) HeaderName() string { return r.headerName }
+
+func (r *recordingVerifier) VerifyHeaderValue(_ context.Context, value string, _ []byte) error {
+	r.seen = value
+
+	return nil
+}
 
 // testVerifier is the v1 verifier pinned to signingTime, which is what every
 // signed fixture below is stamped with.
@@ -103,6 +125,27 @@ func TestNewMiddleware(T *testing.T) {
 		// The handler reads the bytes that were verified, not an empty body
 		// somebody else already drained.
 		test.Eq(t, body, seen)
+	})
+
+	// The scheme owns its header name. A middleware that hardcoded one would
+	// work for v1 and silently pass every Stripe callback straight through.
+	T.Run("reads the header the verifier names", func(t *testing.T) {
+		t.Parallel()
+
+		verifier := &recordingVerifier{headerName: "X-Partner-Signature"}
+
+		mw, err := NewMiddleware(verifier)
+		must.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/callbacks/partner", strings.NewReader(`{}`))
+		req.Header.Set("X-Partner-Signature", "whatever the partner sends")
+		req.Header.Set(requestsigning.SignatureHeader, "the platform's own, which must be ignored")
+
+		rec, reached, _ := serve(t, mw, req)
+
+		test.EqOp(t, http.StatusNoContent, rec.Code)
+		test.True(t, reached)
+		test.EqOp(t, "whatever the partner sends", verifier.seen)
 	})
 
 	T.Run("refuses to build without a verifier", func(t *testing.T) {
@@ -210,6 +253,23 @@ func TestNewMiddleware(T *testing.T) {
 		test.False(t, reached)
 	})
 
+	// A body the middleware could not read is not a verdict about the caller's
+	// key, and must not be counted or reported as one.
+	T.Run("a body that will not read is a 500", func(t *testing.T) {
+		t.Parallel()
+
+		mw, err := NewMiddleware(testVerifier(t))
+		must.NoError(t, err)
+
+		req := signedRequest(t, []byte(`{"amount":4200}`))
+		req.Body = io.NopCloser(&failingReader{err: platformerrors.New("the client hung up")})
+
+		rec, reached, _ := serve(t, mw, req)
+
+		test.EqOp(t, http.StatusInternalServerError, rec.Code)
+		test.False(t, reached)
+	})
+
 	T.Run("a request with no body verifies against no bytes", func(t *testing.T) {
 		t.Parallel()
 
@@ -299,6 +359,14 @@ func TestNewMiddleware(T *testing.T) {
 		test.NotNil(t, mw)
 	})
 }
+
+// failingReader is a request body that fails partway through, the way a client
+// hanging up mid-upload does.
+type failingReader struct{ err error }
+
+var _ io.Reader = (*failingReader)(nil)
+
+func (f *failingReader) Read([]byte) (int, error) { return 0, f.err }
 
 // decodeCode reads the platform error envelope's code out of a response.
 func decodeCode(t *testing.T, rec *httptest.ResponseRecorder) httperrors.ErrorCode {

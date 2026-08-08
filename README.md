@@ -95,7 +95,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `authorization`  | Role/permission policy, enforcement | static (default), database     |
 | `audit`          | Tamper-evident audit log            | postgres, mysql, sqlite        |
 | `cryptography`   | Cryptographic primitives            | —                              |
-| `cryptography/requestsigning` | HMAC request signing & verification | v1 (extensible by scheme) |
+| `cryptography/requestsigning` | HMAC request signing & verification | v1                             |
 | `random`         | Secure randomness                   | —                              |
 | `identifiers`    | ID generation                       | —                              |
 | `dataprivacy`    | Subject access & erasure requests   | postgres, mysql, sqlite        |

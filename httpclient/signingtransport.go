@@ -36,7 +36,7 @@ func (t *signingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// is a modification. Clone gives the copy a header map of its own.
 	signed := req.Clone(req.Context())
 
-	if err = t.signer.SignRequest(req.Context(), signed.Header, body); err != nil {
+	if err = t.signer.SignHeaders(req.Context(), signed.Header, body); err != nil {
 		t.obs.signingFailures.Add(req.Context(), 1, requestAttrs(req))
 
 		// Error, not debug: a client that cannot sign sends nothing at all, and

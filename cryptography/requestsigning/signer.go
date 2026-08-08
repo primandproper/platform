@@ -36,13 +36,13 @@ func NewSigner(keys KeySource, opts ...Option) (Signer, error) {
 // Scheme returns SchemeV1.
 func (s *signer) Scheme() string { return SchemeV1 }
 
-// SignRequest stamps the signature and timestamp headers over body.
+// SignHeaders stamps the signature and timestamp headers over body.
 //
 // The timestamp header carries the same value that is inside the signature. It
 // is set separately so a receiver can reject a stale request before spending an
 // HMAC on it; a receiver must still treat the signature as authoritative, since
 // only the copy inside the signed material is covered by the MAC.
-func (s *signer) SignRequest(ctx context.Context, header http.Header, body []byte) error {
+func (s *signer) SignHeaders(ctx context.Context, header http.Header, body []byte) error {
 	if header == nil {
 		return platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil header")
 	}

@@ -34,7 +34,7 @@ func TestNewSigner(T *testing.T) {
 		test.EqOp(t, SchemeV1, signer.Scheme())
 
 		header := http.Header{}
-		must.NoError(t, signer.SignRequest(t.Context(), header, testBody))
+		must.NoError(t, signer.SignHeaders(t.Context(), header, testBody))
 
 		// What was stamped is what Verify accepts, which is the only property
 		// worth asserting about a signer.
@@ -64,12 +64,12 @@ func TestNewSigner(T *testing.T) {
 		must.NoError(t, err)
 
 		first := http.Header{}
-		must.NoError(t, signer.SignRequest(t.Context(), first, testBody))
+		must.NoError(t, signer.SignHeaders(t.Context(), first, testBody))
 
 		now = signingTime.Add(time.Hour)
 
 		second := http.Header{}
-		must.NoError(t, signer.SignRequest(t.Context(), second, testBody))
+		must.NoError(t, signer.SignHeaders(t.Context(), second, testBody))
 
 		test.NotEqOp(t, first.Get(SignatureHeader), second.Get(SignatureHeader))
 		test.EqOp(t, strconv.FormatInt(now.Unix(), 10), second.Get(TimestampHeader))
@@ -91,7 +91,7 @@ func TestNewSigner(T *testing.T) {
 		key = []byte("second")
 
 		header := http.Header{}
-		must.NoError(t, signer.SignRequest(t.Context(), header, testBody))
+		must.NoError(t, signer.SignHeaders(t.Context(), header, testBody))
 
 		test.NoError(t, Verify(
 			Keyring{Current: []byte("second")},
@@ -109,7 +109,7 @@ func TestNewSigner(T *testing.T) {
 		signer, err := NewSigner(KeySourceFunc(func(context.Context) (Keyring, error) { return Keyring{}, boom }))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, signer.SignRequest(t.Context(), http.Header{}, testBody), boom)
+		test.ErrorIs(t, signer.SignHeaders(t.Context(), http.Header{}, testBody), boom)
 	})
 
 	T.Run("reports a keyring with no current key", func(t *testing.T) {
@@ -118,7 +118,7 @@ func TestNewSigner(T *testing.T) {
 		signer, err := NewSigner(StaticKeyring(Keyring{Previous: []byte("old")}))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, signer.SignRequest(t.Context(), http.Header{}, testBody), ErrNoSigningKey)
+		test.ErrorIs(t, signer.SignHeaders(t.Context(), http.Header{}, testBody), ErrNoSigningKey)
 	})
 
 	T.Run("rejects its own bad inputs", func(t *testing.T) {
@@ -130,6 +130,6 @@ func TestNewSigner(T *testing.T) {
 		signer, err := NewSigner(StaticKeyring(Keyring{Current: []byte("k")}))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, signer.SignRequest(t.Context(), nil, testBody), platformerrors.ErrNilInputParameter)
+		test.ErrorIs(t, signer.SignHeaders(t.Context(), nil, testBody), platformerrors.ErrNilInputParameter)
 	})
 }

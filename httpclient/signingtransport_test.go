@@ -39,7 +39,7 @@ var _ requestsigning.Signer = (*failingSigner)(nil)
 
 func (*failingSigner) Scheme() string { return "stub" }
 
-func (f *failingSigner) SignRequest(context.Context, http.Header, []byte) error { return f.err }
+func (f *failingSigner) SignHeaders(context.Context, http.Header, []byte) error { return f.err }
 
 func TestSigningTransport_RoundTrip(T *testing.T) {
 	T.Parallel()
@@ -192,6 +192,26 @@ func TestSigningTransport_RoundTrip(T *testing.T) {
 		test.ErrorIs(t, err, boom)
 	})
 
+	// A body that cannot be read cannot be signed, and a request that cannot be
+	// signed must not go out unsigned.
+	T.Run("a body that will not read fails the request", func(t *testing.T) {
+		t.Parallel()
+
+		boom := platformerrors.New("the disk went away mid-upload")
+
+		client := newClient(t,
+			WithTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				t.Error("the request reached the wire")
+
+				return response(http.StatusOK, "fine"), nil
+			})),
+			WithRequestSigning(testSigner(t, &steppingClock{now: signedAt})),
+		)
+
+		_, err := post(t.Context(), client, "http://example.com/thing", &failingReader{err: boom})
+		test.ErrorIs(t, err, boom)
+	})
+
 	T.Run("a nil signer installs no layer", func(t *testing.T) {
 		t.Parallel()
 
@@ -201,6 +221,14 @@ func TestSigningTransport_RoundTrip(T *testing.T) {
 		test.Nil(t, cfg.signer)
 	})
 }
+
+// failingReader is a request body that fails partway through, the way a client
+// hanging up mid-upload does.
+type failingReader struct{ err error }
+
+var _ io.Reader = (*failingReader)(nil)
+
+func (f *failingReader) Read([]byte) (int, error) { return 0, f.err }
 
 // countingSigner records how many times it was asked to sign.
 type countingSigner struct {
@@ -212,8 +240,8 @@ var _ requestsigning.Signer = (*countingSigner)(nil)
 
 func (c *countingSigner) Scheme() string { return c.inner.Scheme() }
 
-func (c *countingSigner) SignRequest(ctx context.Context, header http.Header, body []byte) error {
+func (c *countingSigner) SignHeaders(ctx context.Context, header http.Header, body []byte) error {
 	c.calls++
 
-	return c.inner.SignRequest(ctx, header, body)
+	return c.inner.SignHeaders(ctx, header, body)
 }

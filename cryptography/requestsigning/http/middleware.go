@@ -35,13 +35,18 @@ var (
 // middleware holds what every request needs, built once at construction.
 type middleware struct {
 	verifier requestsigning.Verifier
-	cfg      *config
 	o11y     observability.Observer
 	enc      encoding.ServerEncoderDecoder
 
 	verifiedCounter metrics.Int64Counter
 	rejectedCounter metrics.Int64Counter
 	errorCounter    metrics.Int64Counter
+	cfg             *config
+
+	// headerName is read once at construction rather than per request. A
+	// verifier's header is fixed for its lifetime, and asking it again on every
+	// request would invite an implementation where it is not.
+	headerName string
 }
 
 // NewMiddleware builds middleware that verifies a request's signature before
@@ -87,8 +92,9 @@ func NewMiddleware(verifier requestsigning.Verifier, opts ...Option) (routing.Mi
 	cfg := newConfig(opts...)
 
 	m := &middleware{
-		verifier: verifier,
-		cfg:      cfg,
+		verifier:   verifier,
+		cfg:        cfg,
+		headerName: verifier.HeaderName(),
 		o11y: observability.NewObserverWithValues(serviceName, cfg.logger, cfg.tracerProvider,
 			map[string]any{keys.SignatureSchemeKey: verifier.Scheme()}),
 		enc: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON,
@@ -162,7 +168,7 @@ func (m *middleware) admit(res http.ResponseWriter, req *http.Request) (verified
 		return false, nil
 	}
 
-	if err = m.verifier.VerifyRequest(ctx, req.Header, body); err != nil {
+	if err = m.verifier.VerifyHeaderValue(ctx, req.Header.Get(m.headerName), body); err != nil {
 		m.reject(ctx, res, op, req, err)
 
 		return false, nil

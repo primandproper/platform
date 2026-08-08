@@ -53,8 +53,8 @@ signed payloads. There is no unlimited setting.
 The middleware holds a requestsigning.Verifier, not a keyring, so a third
 party's scheme — Stripe's t=…,v1=…, GitHub's X-Hub-Signature-256 — is an
 implementation of that interface rather than a second copy of this middleware.
-Build one by name with requestsigning.NewVerifierForScheme when which scheme
-guards an endpoint is a config value.
+Construct one and pass it here; which header it reads comes from the verifier
+itself, via HeaderName.
 
 # What it does not do
 

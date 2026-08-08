@@ -17,8 +17,8 @@ const (
 	// a receiver can reject a stale request before doing any HMAC work.
 	TimestampHeader = "X-Platform-Timestamp"
 
-	// SchemeV1 is the only scheme this package mints, and the name it is
-	// registered under.
+	// SchemeV1 is the only scheme this package mints. It is the literal prefix
+	// bound into the signed bytes, so changing it is a wire break, not a rename.
 	SchemeV1 = "v1"
 
 	// DefaultTolerance is how far a signature's timestamp may sit from the
@@ -100,20 +100,30 @@ type (
 	// Signer stamps the headers that prove a request body was produced by
 	// someone holding the key.
 	//
-	// It is an interface rather than a function so that a scheme carrying more
-	// than one header — or reading the key from somewhere per call — is
-	// expressible without every caller learning its shape. The headers it sets
-	// are the scheme's business; httpclient.WithRequestSigning just installs it.
+	// It is an interface rather than a function so that a scheme reading its key
+	// from somewhere per call is expressible without every caller learning its
+	// shape. Neither half of this pair takes an *http.Request: what a signature
+	// covers is bytes and headers, and a seam that took a request would have to
+	// have an opinion about who reads the body and what bounds that read. Those
+	// are serving concerns, and they live in requestsigning/http and in
+	// httpclient, where a request already means something.
 	Signer interface {
-		// Scheme names the wire format this signer mints, for observability and
-		// for pairing a signer with the verifier that reads it.
+		// Scheme names the wire format this signer mints. It is a label, for
+		// spans and log lines; nothing dispatches on it.
 		Scheme() string
 
-		// SignRequest stamps header with whatever proves body was signed. It is
-		// called once per attempt rather than once per logical request, so the
-		// timestamp it stamps is always fresh — a retry that fires after a long
-		// backoff must not arrive already stale.
-		SignRequest(ctx context.Context, header http.Header, body []byte) error
+		// SignHeaders writes whatever proves body was signed into header.
+		//
+		// It writes a bag rather than returning one value because a scheme may
+		// carry more than one — v1 sets a timestamp beside its signature, so a
+		// receiver can shed a stale request before hashing anything. Only the
+		// signature is authoritative, which is why the verifying half below
+		// reads a single value.
+		//
+		// It is called once per attempt rather than once per logical request, so
+		// the timestamp it stamps is always fresh — a retry that fires after a
+		// long backoff must not arrive already stale.
+		SignHeaders(ctx context.Context, header http.Header, body []byte) error
 	}
 
 	// Verifier checks that a request body was signed by a holder of a key it
@@ -125,15 +135,23 @@ type (
 	// webhooks and a service verifying its own first-party callers run the same
 	// middleware over the same seam.
 	Verifier interface {
-		// Scheme names the wire format this verifier reads.
+		// Scheme names the wire format this verifier reads. It is a label, for
+		// spans and log lines; nothing dispatches on it.
 		Scheme() string
 
-		// VerifyRequest checks body against whatever the scheme reads out of
-		// header, and returns nil only if it matches.
+		// HeaderName is the request header this scheme's proof travels in, so a
+		// caller knows what to hand to VerifyHeaderValue without knowing the
+		// scheme. It is fixed for the life of the verifier.
+		HeaderName() string
+
+		// VerifyHeaderValue checks body against the proof carried in value, and
+		// returns nil only if it matches. An empty value is ErrInvalidSignature:
+		// an unsigned request and a badly signed one are both "did not prove it
+		// holds the key".
 		//
 		// body must be the exact bytes received, read before any decoding.
 		// Decoding and re-encoding changes key order and whitespace, and the
 		// signature covers bytes, not meaning.
-		VerifyRequest(ctx context.Context, header http.Header, body []byte) error
+		VerifyHeaderValue(ctx context.Context, value string, body []byte) error
 	}
 )

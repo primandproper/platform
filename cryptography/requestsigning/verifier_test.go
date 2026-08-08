@@ -12,18 +12,15 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// signedHeader renders the header a signer would have produced, so the verifier
-// tests state what arrives rather than how it was built.
-func signedHeader(t *testing.T, keyring Keyring, body []byte, at time.Time) http.Header {
+// signedValue renders the header value a signer would have produced, so the
+// verifier tests state what arrives rather than how it was built.
+func signedValue(t *testing.T, keyring Keyring, body []byte, at time.Time) string {
 	t.Helper()
 
 	signature, err := Sign(keyring, body, at)
 	must.NoError(t, err)
 
-	header := http.Header{}
-	header.Set(SignatureHeader, signature)
-
-	return header
+	return signature
 }
 
 func TestNewVerifier(T *testing.T) {
@@ -38,7 +35,18 @@ func TestNewVerifier(T *testing.T) {
 		must.NoError(t, err)
 
 		test.EqOp(t, SchemeV1, verifier.Scheme())
-		test.NoError(t, verifier.VerifyRequest(t.Context(), signedHeader(t, keyring, testBody, signingTime), testBody))
+		test.NoError(t, verifier.VerifyHeaderValue(t.Context(), signedValue(t, keyring, testBody, signingTime), testBody))
+	})
+
+	// The caller reads the header this names, so a scheme's header is the
+	// scheme's business rather than something every wiring site restates.
+	T.Run("names the header it reads", func(t *testing.T) {
+		t.Parallel()
+
+		verifier, err := NewVerifier(StaticKeyring(keyring))
+		must.NoError(t, err)
+
+		test.EqOp(t, SignatureHeader, verifier.HeaderName())
 	})
 
 	// A missing header is the same answer as a wrong one. Separating them tells
@@ -49,10 +57,7 @@ func TestNewVerifier(T *testing.T) {
 		verifier, err := NewVerifier(StaticKeyring(keyring), WithVerificationTime(signingTime))
 		must.NoError(t, err)
 
-		test.ErrorIs(t,
-			verifier.VerifyRequest(t.Context(), http.Header{}, testBody),
-			ErrInvalidSignature,
-		)
+		test.ErrorIs(t, verifier.VerifyHeaderValue(t.Context(), "", testBody), ErrInvalidSignature)
 	})
 
 	T.Run("rejects a tampered body", func(t *testing.T) {
@@ -62,7 +67,7 @@ func TestNewVerifier(T *testing.T) {
 		must.NoError(t, err)
 
 		test.ErrorIs(t,
-			verifier.VerifyRequest(t.Context(), signedHeader(t, keyring, testBody, signingTime), []byte("something else")),
+			verifier.VerifyHeaderValue(t.Context(), signedValue(t, keyring, testBody, signingTime), []byte("something else")),
 			ErrInvalidSignature,
 		)
 	})
@@ -70,20 +75,20 @@ func TestNewVerifier(T *testing.T) {
 	T.Run("honors the configured tolerance", func(t *testing.T) {
 		t.Parallel()
 
-		header := signedHeader(t, keyring, testBody, signingTime)
+		value := signedValue(t, keyring, testBody, signingTime)
 
 		tight, err := NewVerifier(StaticKeyring(keyring),
 			WithVerificationTime(signingTime.Add(30*time.Minute)))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, tight.VerifyRequest(t.Context(), header, testBody), ErrStaleSignature)
+		test.ErrorIs(t, tight.VerifyHeaderValue(t.Context(), value, testBody), ErrStaleSignature)
 
 		loose, err := NewVerifier(StaticKeyring(keyring),
 			WithVerificationTime(signingTime.Add(30*time.Minute)),
 			WithTolerance(time.Hour))
 		must.NoError(t, err)
 
-		test.NoError(t, loose.VerifyRequest(t.Context(), header, testBody))
+		test.NoError(t, loose.VerifyHeaderValue(t.Context(), value, testBody))
 	})
 
 	// The verifier re-reads its keyring too, so a receiver picks up its own
@@ -100,13 +105,13 @@ func TestNewVerifier(T *testing.T) {
 		must.NoError(t, err)
 
 		second := Keyring{Current: []byte("second")}
-		header := signedHeader(t, second, testBody, signingTime)
+		value := signedValue(t, second, testBody, signingTime)
 
-		test.ErrorIs(t, verifier.VerifyRequest(t.Context(), header, testBody), ErrInvalidSignature)
+		test.ErrorIs(t, verifier.VerifyHeaderValue(t.Context(), value, testBody), ErrInvalidSignature)
 
 		trusted = second
 
-		test.NoError(t, verifier.VerifyRequest(t.Context(), header, testBody))
+		test.NoError(t, verifier.VerifyHeaderValue(t.Context(), value, testBody))
 	})
 
 	T.Run("reports a key source it could not read", func(t *testing.T) {
@@ -118,7 +123,7 @@ func TestNewVerifier(T *testing.T) {
 		must.NoError(t, err)
 
 		test.ErrorIs(t,
-			verifier.VerifyRequest(t.Context(), signedHeader(t, keyring, testBody, time.Now()), testBody),
+			verifier.VerifyHeaderValue(t.Context(), signedValue(t, keyring, testBody, time.Now()), testBody),
 			boom,
 		)
 	})
@@ -128,11 +133,6 @@ func TestNewVerifier(T *testing.T) {
 
 		_, err := NewVerifier(nil)
 		test.ErrorIs(t, err, ErrNilKeySource)
-
-		verifier, err := NewVerifier(StaticKeyring(keyring))
-		must.NoError(t, err)
-
-		test.ErrorIs(t, verifier.VerifyRequest(t.Context(), nil, testBody), platformerrors.ErrNilInputParameter)
 	})
 }
 
@@ -153,8 +153,10 @@ func TestSignerVerifierRoundTrip(T *testing.T) {
 		must.NoError(t, err)
 
 		header := http.Header{}
-		must.NoError(t, signer.SignRequest(t.Context(), header, testBody))
+		must.NoError(t, signer.SignHeaders(t.Context(), header, testBody))
 
-		test.NoError(t, verifier.VerifyRequest(t.Context(), header, testBody))
+		// The verifier names the header, so the two halves are wired together
+		// without either side's caller restating the scheme's wire details.
+		test.NoError(t, verifier.VerifyHeaderValue(t.Context(), header.Get(verifier.HeaderName()), testBody))
 	})
 }

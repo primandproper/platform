@@ -128,15 +128,16 @@ func ExampleNewSigner() {
 	body := []byte(`{"amount":4200}`)
 
 	header := http.Header{}
-	if err = signer.SignRequest(context.Background(), header, body); err != nil {
+	if err = signer.SignHeaders(context.Background(), header, body); err != nil {
 		panic(err)
 	}
 
-	fmt.Println(verifier.VerifyRequest(context.Background(), header, body))
+	// The verifier names the header it reads, so a caller wiring one does not
+	// have to know which scheme it got.
+	fmt.Println(verifier.VerifyHeaderValue(context.Background(), header.Get(verifier.HeaderName()), body))
 
-	// The timestamp is inside the signed material, so the body alone is not
-	// enough to forge one.
-	fmt.Println(verifier.VerifyRequest(context.Background(), http.Header{}, body))
+	// An unsigned request is refused the same way a badly signed one is.
+	fmt.Println(verifier.VerifyHeaderValue(context.Background(), "", body))
 
 	// Output:
 	// <nil>

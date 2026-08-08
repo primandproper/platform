@@ -41,6 +41,12 @@ Signer and Verifier are the interfaces, for code that should not have to. Both
 resolve their keyring per operation through a KeySource, which is what turns a
 rotation into a change in the secret store rather than a deploy.
 
+Neither takes an *http.Request. Signer.SignHeaders writes into a header bag and
+Verifier.VerifyHeaderValue reads one value out of it; who reads the body, and
+what bounds that read, is a serving concern that belongs to the caller — which
+is why the request-shaped ergonomics live in requestsigning/http and httpclient
+rather than here.
+
 	keys, err := requestsigning.NewSecretKeySource(secretSource, "SIGNING_KEY", "SIGNING_KEY_PREVIOUS")
 	if err != nil {
 		return err
@@ -77,17 +83,28 @@ The secret's value is used as key material verbatim. A store holding it base64-
 or hex-encoded should be wrapped in a KeySourceFunc that decodes it, so what the
 store holds and what the HMAC consumes cannot drift.
 
-# Schemes
+# Other schemes
 
 Verifier is an interface so that a third party's scheme is an implementation of
-it rather than a second verification stack. RegisterScheme records one by name
-and NewVerifierForScheme builds it, so which scheme guards an endpoint is a
-config value; an unregistered name returns errors.ErrUnknownProvider rather
-than something permissive.
+it rather than a second verification stack. A Stripe or GitHub verifier lives in
+its own package, satisfies this interface, and is handed to the same middleware:
 
-That lookup is wiring-time. Reading the scheme off the incoming request would
-let the caller choose which verifier judges it, and a caller who can choose
-picks the weakest one on offer.
+	verifier := stripe.NewVerifier(keys)   // hypothetical; see #96
+
+	mw, err := requestsigninghttp.NewMiddleware(verifier)
+
+There is no registry of schemes by name, and that is deliberate. Which scheme
+guards an endpoint is something the wiring already knows — it is choosing the
+route and the key source in the same breath — so a name-to-constructor map would
+buy nothing except package-level mutable state and an ordering dependency
+between init functions. A service that genuinely needs to pick from a config
+string does what the rest of this module does: a config subpackage with a switch
+over the providers it imports, returning errors.ErrUnknownProvider for a name it
+does not carry.
+
+Whatever the selection mechanism, it belongs to startup. Reading the scheme off
+an incoming request would let the caller choose which verifier judges it, and a
+caller who can choose picks the weakest one on offer.
 
 # What the failures mean
 
