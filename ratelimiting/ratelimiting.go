@@ -13,6 +13,13 @@ import (
 
 const inMemoryName = "in_memory_rate_limiter"
 
+// ErrRateLimited reports that a limiter refused an operation. Allow expresses a
+// refusal as (false, nil) because the caller is usually deciding what to do
+// next; this sentinel exists for the callers that have to hand the refusal back
+// as an error instead — an http.RoundTripper, for one, has nowhere else to put
+// it. Callers branch on it with errors.Is rather than on a bare false.
+var ErrRateLimited = errors.New("rate limited")
+
 // RateLimiter limits the rate of operations per key.
 type RateLimiter interface {
 	Allow(ctx context.Context, key string) (bool, error)
