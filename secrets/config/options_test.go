@@ -7,6 +7,7 @@ import (
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v10/secrets"
 
 	"github.com/shoenig/test"
 )
@@ -85,5 +86,27 @@ func TestOptions(T *testing.T) {
 		test.Nil(t, o.metricsProvider)
 		test.NotNil(t, o.logger)
 		test.NotNil(t, o.tracerProvider)
+	})
+
+	T.Run("WithCachingOptions accumulates rather than replacing", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{
+			WithCachingOptions(secrets.WithLogger(loggingnoop.NewLogger())),
+			WithCachingOptions(
+				secrets.WithTracerProvider(tracingnoop.NewTracerProvider()),
+				secrets.WithMetricsProvider(metricsnoop.NewMetricsProvider()),
+			),
+		})
+
+		test.SliceLen(t, 3, o.cachingOptions)
+	})
+
+	T.Run("WithCachingOptions with nothing to pass through changes nothing", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithCachingOptions()})
+
+		test.SliceEmpty(t, o.cachingOptions)
 	})
 }

@@ -1,20 +1,19 @@
-package secretscfg
+package retentioncfg
 
 import (
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
-	"github.com/primandproper/platform-go/v10/secrets"
+	"github.com/primandproper/platform-go/v10/retention"
 )
 
-// Option configures how NewSecretSource assembles its source.
+// Option configures how this package's constructor assembles what it builds.
 //
 // The observability dependencies are options rather than parameters because
 // every one of them is genuinely optional: an absent logger logs nowhere, an
 // absent tracer provider traces nowhere, and an absent metrics provider records
-// nothing. Requiring them positionally made a caller that wanted none of the
-// three name all three anyway, usually as noops.
+// nothing.
 type Option func(*options)
 
 // options collects what the options set.
@@ -22,7 +21,8 @@ type options struct {
 	logger          logging.Logger
 	tracerProvider  tracing.TracerProvider
 	metricsProvider metrics.Provider
-	cachingOptions  []secrets.Option
+
+	sweeper []retention.SweeperOption
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -64,15 +64,12 @@ func WithPillars(p *observability.Pillars) Option {
 	return func(o *options) { o.logger, o.tracerProvider, o.metricsProvider = p.Deps() }
 }
 
-// WithCachingOptions passes options through to the caching source built when
-// CacheTTL is set, for the settings that have no config field — a refresh tied
-// to a context narrower than the one this constructor was called with, say.
+// WithSweeperOptions passes opts to NewSweeper, which applies them after the
+// options it derives from configuration — so a caller can override anything.
 //
-// It exists because Go allows one variadic per function and this one belongs to
-// this package's own Option. They are applied after the options the config
-// derived, so an explicit secrets.WithRefresh here replaces the one
-// RefreshInterval produced. When CacheTTL is unset nothing caching is built and
-// these are ignored.
-func WithCachingOptions(opts ...secrets.Option) Option {
-	return func(o *options) { o.cachingOptions = append(o.cachingOptions, opts...) }
+// It is how the audit recorder gets in. There is no configuration for that: the
+// recorder is a live object built against the same database, not a setting, and
+// see retention.WithSweeperAuditRecorder for why a deployment wants one.
+func WithSweeperOptions(opts ...retention.SweeperOption) Option {
+	return func(o *options) { o.sweeper = append(o.sweeper, opts...) }
 }

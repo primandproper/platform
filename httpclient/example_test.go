@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/cache/memory"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v10/httpclient"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -63,6 +64,51 @@ func ExampleNewHTTPClient_resilience() {
 	fmt.Println(client.Timeout)
 
 	// Output: 30s
+}
+
+// The identity provider's JWKS document changes a few times a year and is read
+// on every token verification. It is also served with no caching headers
+// whatsoever, which is the usual reason a TTL map grows in front of one.
+func ExampleWithHTTPCache() {
+	// Per-process, because a JWKS is small, public, and read constantly. A
+	// cache/redis store would share the entries across the fleet instead; the
+	// option is the same either way. The hour is retention, not freshness — an
+	// entry kept past its freshness is one a 304 can confirm without a body.
+	store, err := memory.NewInMemoryCache[httpclient.CachedResponse](time.Hour)
+	if err != nil {
+		panic(err)
+	}
+
+	defer func() {
+		if closeErr := store.Close(); closeErr != nil {
+			panic(closeErr)
+		}
+	}()
+
+	limiter, err := ratelimiting.NewInMemoryRateLimiter(10, 20)
+	if err != nil {
+		panic(err)
+	}
+
+	client, err := httpclient.NewHTTPClient(
+		httpclient.WithHTTPCache(store,
+			// Consulted only where the origin said nothing. An origin that
+			// sends max-age still governs its own resource.
+			httpclient.WithCacheTTL(5*time.Minute),
+			httpclient.WithMaxCacheableBody(256<<10),
+		),
+		// The cache sits above this, and above a circuit breaker if one is
+		// named. A hit spends no token and reports no outcome, because it
+		// never became a request.
+		httpclient.WithRateLimit(limiter),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(client.Timeout)
+
+	// Output: 10s
 }
 
 // A service whose status codes do not mean what the registry says they mean is

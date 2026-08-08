@@ -144,4 +144,11 @@ const (
 	// definition rather than from the caller, so it is bounded and safe as a
 	// metric attribute.
 	RateLimitMethodKey = "rate_limit.method"
+	// CacheOutcomeKey is the standard key for referring to how a cache answered:
+	// a hit, a miss, a revalidation, or a request it took no part in. It is
+	// deliberately distinct from OutcomeKey, which may describe the same
+	// operation from another layer's point of view — an outbound request can be
+	// both a cache miss and a circuit-breaker success, and one attribute cannot
+	// carry both.
+	CacheOutcomeKey = "cache.outcome"
 )
