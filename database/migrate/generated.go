@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing/fstest"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/errors"
 )
 
@@ -36,7 +36,7 @@ func (g *generatedMigration) validate() error {
 	if g.name == "" {
 		return errors.New("generated migration name is required")
 	}
-	if !migrationName.MatchString(g.name) {
+	if !migrationName.Valid(g.name) {
 		return errors.Newf(
 			"generated migration name %q must contain only letters, digits and underscores", g.name,
 		)
@@ -55,8 +55,14 @@ func (g *generatedMigration) validate() error {
 // Deliberately ASCII rather than unicode.IsLetter: the job is filename safety,
 // not language coverage. Admitting the full letter category would let two names
 // that render identically — homoglyphs, or the same string in NFC and NFD —
-// claim two different files, which is worse than refusing both.
-var migrationName = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+// claim two different files, which is worse than refusing both. charset admits
+// only ASCII for that reason, so the rule is now stated by the alphabet rather
+// than argued for beside it.
+//
+// A digit may lead, unlike the identifier rules elsewhere in this module: this
+// name is a filename fragment and never a bare SQL identifier, so there is
+// nothing here for a leading digit to be mistaken for.
+var migrationName = charset.New(charset.ASCIIAlphanumeric.Union(charset.Bytes('_')))
 
 // mergeGenerated adds the generated migrations to an already-annotated
 // filesystem, failing on any version that a file on disk already claims.

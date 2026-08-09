@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v10/database"
@@ -32,17 +32,20 @@ var ErrInvalidIdentifier = platformerrors.New("identifier must match [A-Za-z_][A
 // instead of an unfiltered query that could leak rows across a tenant boundary.
 var ErrInvalidFilter = platformerrors.New("pgvector filter must be a string SQL fragment")
 
-// safeIdentifier matches a Postgres identifier safe to use after quoting; we still
+// safeIdentifier is a Postgres identifier safe to use after quoting; we still
 // quoteIdent everywhere we interpolate, but we also reject obvious garbage early so
 // callers get a clear error rather than a SQL parse failure.
-var safeIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var safeIdentifier = charset.New(
+	charset.ASCIIAlphanumeric.Union(charset.Bytes('_')),
+	charset.WithFirst(charset.ASCIILetters.Union(charset.Bytes('_'))),
+)
 
 // validIdentifier reports whether s is a bare identifier this provider will
 // interpolate. Unlike dialect.ValidIdentifier it admits no schema qualifier:
 // every name reaching it is one this package renders itself, and a dot in one
 // would mean the caller is naming a table rather than a column.
 func validIdentifier(s string) bool {
-	return safeIdentifier.MatchString(s)
+	return safeIdentifier.Valid(s)
 }
 
 type indexManager[T any] struct {
