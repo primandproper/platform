@@ -39,14 +39,21 @@ type (
 		ID KeyID
 	}
 
-	// ringEntry is a key's Cipher alongside its precomputed metric attributes.
+	// ringEntry is a key's Cipher alongside everything derived from its ID.
 	//
-	// The attributes are built once per key rather than per operation. A key
-	// ID never changes after construction, and building the attribute set
-	// inline cost more allocations than the encryption it was measuring.
+	// Both derived values are built once per key rather than per operation. A
+	// key ID never changes after construction, so building the attribute set
+	// inline cost more allocations than the encryption it was measuring, and
+	// re-encoding the frame header on every Encrypt did the same.
+	//
+	// Precomputing the header also removes an error return from Encrypt. A
+	// header can only fail to encode for an ID that is empty or over-long, and
+	// NewKeyring rejects both — so the branch was unreachable and existed only
+	// to be forwarded.
 	ringEntry struct {
 		cipher Cipher
 		attrs  metric.MeasurementOption
+		header []byte
 	}
 
 	// Keyring is an EncryptorDecryptor over several keys at once: it encrypts
@@ -67,12 +74,12 @@ type (
 	// that.
 	Keyring struct {
 		o11y            observability.Observer
-		byID            map[KeyID]ringEntry
-		current         ringEntry
 		encryptCounter  metrics.Int64Counter
 		decryptCounter  metrics.Int64Counter
 		unknownKeyCount metrics.Int64Counter
+		byID            map[KeyID]ringEntry
 		currentID       KeyID
+		current         ringEntry
 	}
 )
 
@@ -97,12 +104,7 @@ func NewKeyring(current KeyID, ringKeys []RingKey, opts ...Option) (*Keyring, er
 	for i := range ringKeys {
 		k := &ringKeys[i]
 
-		switch {
-		case k.ID == "":
-			return nil, ErrEmptyKeyID
-		case len(k.ID) > MaxKeyIDLength:
-			return nil, fmt.Errorf("%w: %d bytes exceeds %d", ErrKeyIDTooLong, len(k.ID), MaxKeyIDLength)
-		case k.Cipher == nil:
+		if k.Cipher == nil {
 			return nil, fmt.Errorf("%w: key %q has no cipher", ErrNilCipher, k.ID)
 		}
 
@@ -110,9 +112,19 @@ func NewKeyring(current KeyID, ringKeys []RingKey, opts ...Option) (*Keyring, er
 			return nil, fmt.Errorf("%w: %q", ErrDuplicateKeyID, k.ID)
 		}
 
+		// encodeHeader is the only place that decides what makes a key ID
+		// usable — empty and over-long are both its calls to make. Repeating
+		// those checks here would be two definitions of one constraint, free
+		// to drift, with the copy that runs first winning silently.
+		header, err := encodeHeader(k.ID)
+		if err != nil {
+			return nil, err
+		}
+
 		byID[k.ID] = ringEntry{
 			cipher: k.Cipher,
 			attrs:  metric.WithAttributes(attribute.String(keyIDAttribute, string(k.ID))),
+			header: header,
 		}
 	}
 
@@ -172,10 +184,7 @@ func (r *Keyring) Encrypt(ctx context.Context, plaintext, associatedData []byte)
 
 	op.Set(keyIDAttribute, string(r.currentID))
 
-	header, err := encodeHeader(r.currentID)
-	if err != nil {
-		return nil, op.Error(err, "encoding ciphertext header")
-	}
+	header := r.current.header
 
 	// The header is authenticated, not just prepended. Without this an
 	// attacker could rewrite the key ID on a stored ciphertext and steer
@@ -188,7 +197,12 @@ func (r *Keyring) Encrypt(ctx context.Context, plaintext, associatedData []byte)
 
 	r.encryptCounter.Add(ctx, 1, r.current.attrs)
 
-	return append(header, sealed...), nil
+	// Assembled into a fresh slice rather than appended onto the shared
+	// header, which is now owned by the ring and reused by every call.
+	out := make([]byte, 0, len(header)+len(sealed))
+	out = append(out, header...)
+
+	return append(out, sealed...), nil
 }
 
 func (r *Keyring) Decrypt(ctx context.Context, ciphertext, associatedData []byte) ([]byte, error) {

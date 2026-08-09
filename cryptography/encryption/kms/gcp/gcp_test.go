@@ -5,11 +5,15 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	gax "github.com/googleapis/gax-go/v2"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const testKeyName = "projects/p/locations/l/keyRings/r/cryptoKeys/k"
@@ -182,4 +186,73 @@ func TestGCPKeyWrapper_Unwrap(T *testing.T) {
 		_, err = w.Unwrap(t.Context(), []byte("wrapped"), nil)
 		test.ErrorIs(t, err, errKMS)
 	})
+}
+
+func TestGCPKeyWrapper_Close(T *testing.T) {
+	T.Parallel()
+
+	T.Run("releases the underlying client", func(t *testing.T) {
+		t.Parallel()
+
+		client := &fakeClient{}
+
+		w, err := NewKeyWrapper(t.Context(), validConfig(), client)
+		must.NoError(t, err)
+
+		closer, ok := w.(interface{ Close() error })
+		must.True(t, ok)
+
+		must.NoError(t, closer.Close())
+		test.True(t, client.closed)
+	})
+}
+
+// providerFailingOn is a metrics.Provider that refuses to build exactly one
+// instrument, so each of NewKeyWrapper's failures can be reached
+// independently rather than only the first.
+func providerFailingOn(failing string) metrics.Provider {
+	delegate := metricsnoop.NewMetricsProvider()
+
+	return &metricsmock.ProviderMock{
+		NewInt64CounterFunc: func(name string, options ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+			if name == failing {
+				return nil, errInstrument
+			}
+
+			return delegate.NewInt64Counter(name, options...)
+		},
+		NewFloat64HistogramFunc: func(name string, options ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+			if name == failing {
+				return nil, errInstrument
+			}
+
+			return delegate.NewFloat64Histogram(name, options...)
+		},
+	}
+}
+
+var errInstrument = errors.New("creating the instrument")
+
+func TestNewKeyWrapper_instrumentFailures(T *testing.T) {
+	T.Parallel()
+
+	// A metrics provider that cannot build an instrument is a
+	// misconfiguration. Wrap latency in particular is the number that decides
+	// whether data keys need caching, so carrying on unmetered would hide the
+	// thing most worth watching.
+	for _, instrument := range []string{
+		name + "_operations",
+		name + "_errors",
+		name + "_latency_ms",
+	} {
+		T.Run(instrument, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewKeyWrapper(t.Context(), validConfig(), &fakeClient{},
+				WithMetricsProvider(providerFailingOn(instrument)),
+			)
+			must.Error(t, err)
+			test.ErrorIs(t, err, errInstrument)
+		})
+	}
 }

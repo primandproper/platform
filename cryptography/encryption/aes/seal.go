@@ -2,7 +2,6 @@ package aes
 
 import (
 	"context"
-	"crypto/rand"
 	"io"
 
 	"github.com/primandproper/platform-go/v10/observability"
@@ -20,7 +19,7 @@ func (e *aesImpl) Seal(ctx context.Context, plaintext, associatedData []byte) ([
 	defer op.End()
 
 	nonce := make([]byte, e.aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+	if _, err := io.ReadFull(e.random, nonce); err != nil {
 		return nil, op.Error(err, "generating nonce")
 	}
 

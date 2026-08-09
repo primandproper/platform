@@ -6,10 +6,14 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var errKMS = errors.New("kms is unavailable")
@@ -223,5 +227,71 @@ func TestAWSKeyWrapper_Unwrap(T *testing.T) {
 
 		_, err = w.Unwrap(t.Context(), []byte("wrapped"), nil)
 		test.ErrorIs(t, err, errKMS)
+	})
+}
+
+// providerFailingOn is a metrics.Provider that refuses to build exactly one
+// instrument, so each of NewKeyWrapper's failures can be reached
+// independently rather than only the first.
+func providerFailingOn(failing string) metrics.Provider {
+	delegate := metricsnoop.NewMetricsProvider()
+
+	return &metricsmock.ProviderMock{
+		NewInt64CounterFunc: func(name string, options ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+			if name == failing {
+				return nil, errInstrument
+			}
+
+			return delegate.NewInt64Counter(name, options...)
+		},
+		NewFloat64HistogramFunc: func(name string, options ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+			if name == failing {
+				return nil, errInstrument
+			}
+
+			return delegate.NewFloat64Histogram(name, options...)
+		},
+	}
+}
+
+var errInstrument = errors.New("creating the instrument")
+
+func TestNewKeyWrapper_instrumentFailures(T *testing.T) {
+	T.Parallel()
+
+	// A metrics provider that cannot build an instrument is a
+	// misconfiguration. Wrap latency in particular is the number that decides
+	// whether data keys need caching, so carrying on unmetered would hide the
+	// thing most worth watching.
+	for _, instrument := range []string{
+		name + "_operations",
+		name + "_errors",
+		name + "_latency_ms",
+	} {
+		T.Run(instrument, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewKeyWrapper(t.Context(), validConfig(), &fakeClient{},
+				WithMetricsProvider(providerFailingOn(instrument)),
+			)
+			must.Error(t, err)
+			test.ErrorIs(t, err, errInstrument)
+		})
+	}
+}
+
+func TestNewKeyWrapper_defaultClient(T *testing.T) {
+	T.Parallel()
+
+	T.Run("builds its own client when given none", func(t *testing.T) {
+		t.Parallel()
+
+		// Hermetic: LoadDefaultConfig and NewFromConfig resolve configuration
+		// and build a client struct without contacting anything, so this
+		// exercises the branch without credentials or network. Requests would
+		// need both; construction does not.
+		w, err := NewKeyWrapper(t.Context(), validConfig(), nil)
+		must.NoError(t, err)
+		test.NotNil(t, w)
 	})
 }

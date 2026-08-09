@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -202,5 +203,33 @@ func TestCipher_Authentication(T *testing.T) {
 
 		_, err := c.Open(t.Context(), []byte{0x01, 0x02}, nil)
 		test.ErrorIs(t, err, encryption.ErrMalformedCiphertext)
+	})
+}
+
+// exhaustedReader stands in for an entropy source that has stopped answering.
+type exhaustedReader struct{}
+
+func (exhaustedReader) Read([]byte) (int, error) { return 0, errNoEntropy }
+
+var errNoEntropy = errors.New("entropy source is exhausted")
+
+func TestCipher_NonceFailure(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a nonce that cannot be generated fails the seal", func(t *testing.T) {
+		t.Parallel()
+
+		// Sealing without a fresh nonce would reuse one, and nonce reuse under
+		// GCM is not a degraded mode — it leaks the authentication key. There
+		// is no sensible fallback, so this has to be a hard failure.
+		c, err := NewCipher(key)
+		must.NoError(t, err)
+
+		impl, ok := c.(*aesImpl)
+		must.True(t, ok)
+		impl.random = exhaustedReader{}
+
+		_, err = impl.Seal(t.Context(), []byte("secret"), nil)
+		test.ErrorIs(t, err, errNoEntropy)
 	})
 }

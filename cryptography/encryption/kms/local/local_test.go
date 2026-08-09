@@ -1,10 +1,12 @@
 package local
 
 import (
+	"context"
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/cryptography/encryption"
 	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -103,5 +105,42 @@ func TestLocalWrapper_RoundTrip(T *testing.T) {
 
 		_, err = w.Unwrap(t.Context(), wrapped, nil)
 		test.ErrorIs(t, err, encryption.ErrAuthenticationFailed)
+	})
+}
+
+// failingCipher refuses in both directions.
+type failingCipher struct{}
+
+func (failingCipher) Seal(context.Context, []byte, []byte) ([]byte, error) {
+	return nil, errCipher
+}
+
+func (failingCipher) Open(context.Context, []byte, []byte) ([]byte, error) {
+	return nil, errCipher
+}
+
+var errCipher = errors.New("the cipher is unavailable")
+
+func TestLocalWrapper_CipherFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a cipher that cannot seal fails the wrap", func(t *testing.T) {
+		t.Parallel()
+
+		w, err := NewKeyWrapper(failingCipher{})
+		must.NoError(t, err)
+
+		_, err = w.Wrap(t.Context(), []byte("data-key"), nil)
+		test.ErrorIs(t, err, errCipher)
+	})
+
+	T.Run("a cipher that cannot open fails the unwrap", func(t *testing.T) {
+		t.Parallel()
+
+		w, err := NewKeyWrapper(failingCipher{})
+		must.NoError(t, err)
+
+		_, err = w.Unwrap(t.Context(), []byte("wrapped"), nil)
+		test.ErrorIs(t, err, errCipher)
 	})
 }

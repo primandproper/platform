@@ -3,6 +3,8 @@ package aes
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
+	"io"
 
 	"github.com/primandproper/platform-go/v10/cryptography/encryption"
 	"github.com/primandproper/platform-go/v10/errors"
@@ -20,6 +22,11 @@ const KeyLength = 32
 type aesImpl struct {
 	o11y observability.Observer
 	aead cipher.AEAD
+	// random is the nonce source, always crypto/rand.Reader outside this
+	// package's own tests. It is a field rather than a direct call so the
+	// exhausted-entropy path can be exercised without swapping a global that
+	// every other parallel test in the process would see.
+	random io.Reader
 }
 
 var _ encryption.Cipher = (*aesImpl)(nil)
@@ -36,6 +43,11 @@ func NewCipher(key []byte, opts ...Option) (encryption.Cipher, error) {
 
 	o := newOptions(opts)
 
+	// Neither of the next two errors is reachable with a key this constructor
+	// has already length-checked: crypto/aes rejects only wrong key sizes, and
+	// cipher.NewGCM rejects only non-16-byte block sizes. They are forwarded
+	// rather than ignored because the alternative is discarding an error the
+	// standard library might one day return for a reason not listed here.
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, errors.Wrap(err, "aes cipher: creating block cipher")
@@ -47,7 +59,8 @@ func NewCipher(key []byte, opts ...Option) (encryption.Cipher, error) {
 	}
 
 	return &aesImpl{
-		o11y: observability.NewObserver(name, o.logger, o.tracerProvider),
-		aead: aead,
+		o11y:   observability.NewObserver(name, o.logger, o.tracerProvider),
+		aead:   aead,
+		random: rand.Reader,
 	}, nil
 }

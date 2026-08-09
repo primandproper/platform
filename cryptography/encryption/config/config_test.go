@@ -141,3 +141,20 @@ func TestNewKeyring(T *testing.T) {
 		test.ErrorIs(t, err, encryption.ErrIncorrectKeyLength)
 	})
 }
+
+func TestNewCipher_unknownProvider(T *testing.T) {
+	T.Parallel()
+
+	T.Run("the dispatch default refuses rather than defaulting", func(t *testing.T) {
+		t.Parallel()
+
+		// Called directly because ValidateWithContext rejects an unknown
+		// provider first, making this branch unreachable through NewKeyring.
+		// It still has to be right: validation and dispatch read the same
+		// provider list, and if they ever drift this is what catches it —
+		// silently falling through to AES would encrypt under an algorithm
+		// nobody configured.
+		_, err := newCipher(&Config{Provider: "salsa20"}, keyOne, newOptions(nil))
+		test.ErrorIs(t, err, perrors.ErrUnknownProvider)
+	})
+}
