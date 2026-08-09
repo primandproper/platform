@@ -222,7 +222,7 @@ func (h *Handlers) describeStream(r *routing.Router) {
 			In:       openapi3.ParameterInPath,
 			Required: new(true),
 			Schema: &openapi3.SchemaOrRef{
-				Schema: &openapi3.Schema{Type: schemaType(openapi3.SchemaTypeString)},
+				Schema: &openapi3.Schema{Type: new(openapi3.SchemaTypeString)},
 			},
 		},
 	}}
@@ -246,9 +246,3 @@ func (h *Handlers) describeStream(r *routing.Router) {
 		h.o11y.Logger().Error("describing the operation event stream in the OpenAPI document", err)
 	}
 }
-
-// schemaType is the same for the SchemaType enum, which openapi3 also takes by
-// pointer.
-//
-//go:fix inline
-func schemaType(t openapi3.SchemaType) *openapi3.SchemaType { return new(t) }
