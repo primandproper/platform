@@ -10,7 +10,7 @@ import (
 
 // RegisterLogger registers a logging.Logger with the injector.
 func RegisterLogger(i do.Injector) {
-	do.Provide[logging.Logger](i, func(i do.Injector) (logging.Logger, error) {
+	do.Provide(i, func(i do.Injector) (logging.Logger, error) {
 		return NewLogger(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),

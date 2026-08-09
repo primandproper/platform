@@ -11,7 +11,7 @@ import (
 
 // RegisterCircuitBreaker registers a CircuitBreaker with the injector.
 func RegisterCircuitBreaker(i do.Injector) {
-	do.Provide[circuitbreaking.CircuitBreaker](i, func(i do.Injector) (circuitbreaking.CircuitBreaker, error) {
+	do.Provide(i, func(i do.Injector) (circuitbreaking.CircuitBreaker, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

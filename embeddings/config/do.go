@@ -11,7 +11,7 @@ import (
 
 // RegisterEmbedder registers an embeddings.Embedder with the injector.
 func RegisterEmbedder(i do.Injector) {
-	do.Provide[embeddings.Embedder](i, func(i do.Injector) (embeddings.Embedder, error) {
+	do.Provide(i, func(i do.Injector) (embeddings.Embedder, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

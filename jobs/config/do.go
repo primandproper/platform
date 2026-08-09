@@ -15,7 +15,7 @@ import (
 // Prerequisites: *PoolConfig and jobs.Handler (the application's dispatch
 // function) must be registered in the injector before the Pool is invoked.
 func RegisterPool(i do.Injector) {
-	do.Provide[*jobs.Pool](i, func(i do.Injector) (*jobs.Pool, error) {
+	do.Provide(i, func(i do.Injector) (*jobs.Pool, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -35,7 +35,7 @@ func RegisterPool(i do.Injector) {
 // Prerequisites: *SchedulerConfig and database.Client must be registered in
 // the injector before the Scheduler is invoked.
 func RegisterScheduler(i do.Injector) {
-	do.Provide[*jobs.Scheduler](i, func(i do.Injector) (*jobs.Scheduler, error) {
+	do.Provide(i, func(i do.Injector) (*jobs.Scheduler, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

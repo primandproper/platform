@@ -11,7 +11,7 @@ import (
 
 // RegisterSecretSource registers a secrets.SecretSource with the injector.
 func RegisterSecretSource(i do.Injector) {
-	do.Provide[secrets.SecretSource](i, func(i do.Injector) (secrets.SecretSource, error) {
+	do.Provide(i, func(i do.Injector) (secrets.SecretSource, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

@@ -19,7 +19,7 @@ import (
 // Prerequisites: *Config and database.Client must be registered in the
 // injector before the Store is invoked.
 func RegisterStore(i do.Injector) {
-	do.Provide[metering.Store](i, func(i do.Injector) (metering.Store, error) {
+	do.Provide(i, func(i do.Injector) (metering.Store, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -42,7 +42,7 @@ func RegisterStore(i do.Injector) {
 // the injector before the Recorder is invoked. Where no analytics reporting is
 // wanted, register the named noop reporter.
 func RegisterRecorder(i do.Injector) {
-	do.Provide[*metering.DurableRecorder](i, func(i do.Injector) (*metering.DurableRecorder, error) {
+	do.Provide(i, func(i do.Injector) (*metering.DurableRecorder, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -70,7 +70,7 @@ func RegisterRecorder(i do.Injector) {
 // metering.NewRegistryQuotaSource adapts the Registry where quotas live in
 // meter definitions.
 func RegisterEnforcer(i do.Injector) {
-	do.Provide[metering.Enforcer](i, func(i do.Injector) (metering.Enforcer, error) {
+	do.Provide(i, func(i do.Injector) (metering.Enforcer, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -101,7 +101,7 @@ func RegisterEnforcer(i do.Injector) {
 // the injector before the Flusher is invoked. Where no provider push is
 // wanted, register the named noop reporter.
 func RegisterFlusher(i do.Injector) {
-	do.Provide[*metering.Flusher](i, func(i do.Injector) (*metering.Flusher, error) {
+	do.Provide(i, func(i do.Injector) (*metering.Flusher, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

@@ -19,7 +19,7 @@ import (
 // is invoked. A database.Client is only required when the config's provider
 // is pgvector, so a qdrant-backed service can build without one.
 func RegisterIndex[T any](i do.Injector, indexName string) {
-	do.Provide[vectorsearch.Index[T]](i, func(i do.Injector) (vectorsearch.Index[T], error) {
+	do.Provide(i, func(i do.Injector) (vectorsearch.Index[T], error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

@@ -24,7 +24,7 @@ import (
 // Prerequisites: *Config, database.Client, and []retention.Policy must be
 // registered in the injector before the Sweeper is invoked.
 func RegisterSweeper(i do.Injector) {
-	do.Provide[*retention.Sweeper](i, func(i do.Injector) (*retention.Sweeper, error) {
+	do.Provide(i, func(i do.Injector) (*retention.Sweeper, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

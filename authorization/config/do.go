@@ -23,7 +23,7 @@ import (
 // provider is "database", so a statically-authorized service can build
 // without one.
 func RegisterPolicyResolver(i do.Injector) {
-	do.Provide[authorization.PolicyResolver](i, func(i do.Injector) (authorization.PolicyResolver, error) {
+	do.Provide(i, func(i do.Injector) (authorization.PolicyResolver, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

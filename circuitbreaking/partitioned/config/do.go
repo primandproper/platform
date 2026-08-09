@@ -11,7 +11,7 @@ import (
 
 // RegisterKeyedCircuitBreaker registers a KeyedCircuitBreaker with the injector.
 func RegisterKeyedCircuitBreaker(i do.Injector) {
-	do.Provide[partitioned.KeyedCircuitBreaker](i, func(i do.Injector) (partitioned.KeyedCircuitBreaker, error) {
+	do.Provide(i, func(i do.Injector) (partitioned.KeyedCircuitBreaker, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

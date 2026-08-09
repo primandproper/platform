@@ -14,7 +14,7 @@ func NewTokenIssuer(cfg *Config, opts ...Option) (tokens.Issuer, error) {
 
 // RegisterTokenIssuer registers the token issuer with the injector.
 func RegisterTokenIssuer(i do.Injector) {
-	do.Provide[tokens.Issuer](i, func(i do.Injector) (tokens.Issuer, error) {
+	do.Provide(i, func(i do.Injector) (tokens.Issuer, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

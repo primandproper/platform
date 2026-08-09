@@ -19,7 +19,7 @@ import (
 // Prerequisites: *Config and database.Client must be registered in the
 // injector before the Store is invoked.
 func RegisterStore(i do.Injector) {
-	do.Provide[dataprivacy.Store](i, func(i do.Injector) (dataprivacy.Store, error) {
+	do.Provide(i, func(i do.Injector) (dataprivacy.Store, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -42,7 +42,7 @@ func RegisterStore(i do.Injector) {
 // Prerequisites: *Config and dataprivacy.Store (see RegisterStore) must be
 // registered in the injector before the Service is invoked.
 func RegisterService(i do.Injector) {
-	do.Provide[dataprivacy.Service](i, func(i do.Injector) (dataprivacy.Service, error) {
+	do.Provide(i, func(i do.Injector) (dataprivacy.Service, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -72,7 +72,7 @@ func RegisterService(i do.Injector) {
 // uploads.UploadManager must be registered in the injector before the Worker
 // is invoked.
 func RegisterWorker(i do.Injector) {
-	do.Provide[*dataprivacy.Worker](i, func(i do.Injector) (*dataprivacy.Worker, error) {
+	do.Provide(i, func(i do.Injector) (*dataprivacy.Worker, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -107,7 +107,7 @@ func RegisterWorker(i do.Injector) {
 // uploads.UploadManager must be registered in the injector before the Sweeper
 // is invoked.
 func RegisterSweeper(i do.Injector) {
-	do.Provide[*dataprivacy.Sweeper](i, func(i do.Injector) (*dataprivacy.Sweeper, error) {
+	do.Provide(i, func(i do.Injector) (*dataprivacy.Sweeper, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

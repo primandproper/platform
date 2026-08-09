@@ -12,7 +12,7 @@ import (
 // RegisterDatabaseClient registers a database.Client with the injector.
 // Prerequisite: database.ClientConfig must be registered (e.g. via databasecfg.RegisterClientConfig).
 func RegisterDatabaseClient(i do.Injector) {
-	do.Provide[database.Client](i, func(i do.Injector) (database.Client, error) {
+	do.Provide(i, func(i do.Injector) (database.Client, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

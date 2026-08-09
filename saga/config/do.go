@@ -18,7 +18,7 @@ import (
 // Prerequisites: *Config and database.Client must be registered in the
 // injector before the Store is invoked.
 func RegisterStore(i do.Injector) {
-	do.Provide[saga.Store](i, func(i do.Injector) (saga.Store, error) {
+	do.Provide(i, func(i do.Injector) (saga.Store, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -39,7 +39,7 @@ func RegisterStore(i do.Injector) {
 // Prerequisites: *Config and *outbox.Writer (see outboxcfg.RegisterWriter)
 // must be registered in the injector before the publisher is invoked.
 func RegisterOutboxEventPublisher(i do.Injector) {
-	do.Provide[saga.EventPublisher](i, func(i do.Injector) (saga.EventPublisher, error) {
+	do.Provide(i, func(i do.Injector) (saga.EventPublisher, error) {
 		cfg := do.MustInvoke[*Config](i)
 		cfg.EnsureDefaults()
 
@@ -58,7 +58,7 @@ func RegisterOutboxEventPublisher(i do.Injector) {
 // RegisterOutboxEventPublisher) must be registered in the injector before the
 // Worker is invoked.
 func RegisterWorker(i do.Injector) {
-	do.Provide[*saga.Worker](i, func(i do.Injector) (*saga.Worker, error) {
+	do.Provide(i, func(i do.Injector) (*saga.Worker, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

@@ -20,7 +20,7 @@ import (
 // are a registered value rather than something this package can derive — see
 // the package documentation on why they are code and plans are configuration.
 func RegisterCatalog(i do.Injector) {
-	do.Provide[*entitlements.Catalog](i, func(i do.Injector) (*entitlements.Catalog, error) {
+	do.Provide(i, func(i do.Injector) (*entitlements.Catalog, error) {
 		return NewCatalog(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
@@ -36,7 +36,7 @@ func RegisterCatalog(i do.Injector) {
 // metering.QuotaSource from the injector, so registering this one as that
 // interface is what makes the catalog's limits the enforced limits:
 //
-//	do.Provide[metering.QuotaSource](i, func(i do.Injector) (metering.QuotaSource, error) {
+//	do.Provide(i, func(i do.Injector) (metering.QuotaSource, error) {
 //	    return do.Invoke[*entitlements.QuotaSource](i)
 //	})
 //
@@ -49,7 +49,7 @@ func RegisterCatalog(i do.Injector) {
 // entitlements.PlanSource, and *metering.Registry must be registered before the
 // QuotaSource is invoked.
 func RegisterQuotaSource(i do.Injector) {
-	do.Provide[*entitlements.QuotaSource](i, func(i do.Injector) (*entitlements.QuotaSource, error) {
+	do.Provide(i, func(i do.Injector) (*entitlements.QuotaSource, error) {
 		return NewQuotaSource(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
@@ -70,7 +70,7 @@ func RegisterQuotaSource(i do.Injector) {
 // Prerequisites: *Config, *entitlements.Catalog (see RegisterCatalog), and
 // entitlements.PlanSource must be registered before the Checker is invoked.
 func RegisterChecker(i do.Injector) {
-	do.Provide[entitlements.Checker](i, func(i do.Injector) (entitlements.Checker, error) {
+	do.Provide(i, func(i do.Injector) (entitlements.Checker, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

@@ -12,7 +12,7 @@ import (
 // RegisterUploadManager registers both *Uploader and uploads.UploadManager with the injector.
 // Prerequisite: *Config must be registered (e.g. via uploadscfg.RegisterStorageConfig).
 func RegisterUploadManager(i do.Injector) {
-	do.Provide[*Uploader](i, func(i do.Injector) (*Uploader, error) {
+	do.Provide(i, func(i do.Injector) (*Uploader, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -26,7 +26,7 @@ func RegisterUploadManager(i do.Injector) {
 			WithMetricsProvider(pillars.MetricsProvider),
 		)
 	})
-	do.Provide[uploads.UploadManager](i, func(i do.Injector) (uploads.UploadManager, error) {
+	do.Provide(i, func(i do.Injector) (uploads.UploadManager, error) {
 		return do.MustInvoke[*Uploader](i), nil
 	})
 }

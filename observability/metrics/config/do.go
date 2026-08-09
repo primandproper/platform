@@ -16,7 +16,7 @@ import (
 // container that registers no logger still gets a metrics provider, which just
 // says nothing about how it was set up.
 func RegisterMetricsProvider(i do.Injector) {
-	do.Provide[metrics.Provider](i, func(i do.Injector) (metrics.Provider, error) {
+	do.Provide(i, func(i do.Injector) (metrics.Provider, error) {
 		logger, err := injection.InvokeOptional[logging.Logger](i)
 		if err != nil {
 			return nil, err

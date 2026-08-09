@@ -21,7 +21,7 @@ import (
 // into — a caller who wants the probes elsewhere, or not at all, calls
 // NewHTTPServer with the options it wants instead.
 func RegisterHTTPServer(i do.Injector, serviceName string) {
-	do.Provide[Server](i, func(i do.Injector) (Server, error) {
+	do.Provide(i, func(i do.Injector) (Server, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

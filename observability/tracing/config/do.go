@@ -16,7 +16,7 @@ import (
 // container that registers no logger still gets a tracer provider, which just
 // says nothing about how it was set up.
 func RegisterTracerProvider(i do.Injector) {
-	do.Provide[tracing.Provider](i, func(i do.Injector) (tracing.Provider, error) {
+	do.Provide(i, func(i do.Injector) (tracing.Provider, error) {
 		logger, err := injection.InvokeOptional[logging.Logger](i)
 		if err != nil {
 			return nil, err

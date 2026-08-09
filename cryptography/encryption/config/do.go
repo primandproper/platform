@@ -16,7 +16,7 @@ import (
 // as the named encryption.MasterKey type rather than a bare []byte so it cannot
 // collide with an unrelated []byte value registered in the same container.
 func RegisterEncryptorDecryptor(i do.Injector) {
-	do.Provide[encryption.EncryptorDecryptor](i, func(i do.Injector) (encryption.EncryptorDecryptor, error) {
+	do.Provide(i, func(i do.Injector) (encryption.EncryptorDecryptor, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

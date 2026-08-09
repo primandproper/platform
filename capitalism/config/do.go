@@ -14,7 +14,7 @@ import (
 // stripe.EventHandler may optionally be registered in the container; when present, it is wired into
 // the Stripe manager so consumers can act on verified webhook events.
 func RegisterPaymentManager(i do.Injector) {
-	do.Provide[capitalism.PaymentManager](i, func(i do.Injector) (capitalism.PaymentManager, error) {
+	do.Provide(i, func(i do.Injector) (capitalism.PaymentManager, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -41,7 +41,7 @@ func RegisterPaymentManager(i do.Injector) {
 // wanted by different processes: an API server charges, and a worker reports
 // usage. A deployment registers whichever of the two it actually runs.
 func RegisterUsageReporter(i do.Injector) {
-	do.Provide[capitalism.UsageReporter](i, func(i do.Injector) (capitalism.UsageReporter, error) {
+	do.Provide(i, func(i do.Injector) (capitalism.UsageReporter, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

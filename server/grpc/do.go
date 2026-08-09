@@ -16,7 +16,7 @@ import (
 // The server it builds serves grpc_health_v1 when a healthcheck.Registry is
 // registered, from the same registry the HTTP server answers /readyz from.
 func RegisterGRPCServer(i do.Injector) {
-	do.Provide[*Server](i, func(i do.Injector) (*Server, error) {
+	do.Provide(i, func(i do.Injector) (*Server, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

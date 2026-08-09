@@ -16,7 +16,7 @@ import (
 // container that registers no logger still gets a profiler, which just says
 // nothing about how it was started.
 func RegisterProfilingProvider(i do.Injector) {
-	do.Provide[profiling.Provider](i, func(i do.Injector) (profiling.Provider, error) {
+	do.Provide(i, func(i do.Injector) (profiling.Provider, error) {
 		logger, err := injection.InvokeOptional[logging.Logger](i)
 		if err != nil {
 			return nil, err

@@ -8,7 +8,7 @@ import (
 
 // RegisterBuilder registers a Builder with the injector.
 func RegisterBuilder(i do.Injector) {
-	do.Provide[Builder](i, func(i do.Injector) (Builder, error) {
+	do.Provide(i, func(i do.Injector) (Builder, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

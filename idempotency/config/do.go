@@ -17,7 +17,7 @@ import (
 // Prerequisites: *Config and database.Client must be registered in the
 // injector before the Manager is invoked.
 func RegisterManager[T any](i do.Injector) {
-	do.Provide[*idempotency.Manager[T]](i, func(i do.Injector) (*idempotency.Manager[T], error) {
+	do.Provide(i, func(i do.Injector) (*idempotency.Manager[T], error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

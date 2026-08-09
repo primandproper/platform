@@ -11,7 +11,7 @@ import (
 
 // RegisterRateLimiter registers a RateLimiter with the injector.
 func RegisterRateLimiter(i do.Injector) {
-	do.Provide[ratelimiting.RateLimiter](i, func(i do.Injector) (ratelimiting.RateLimiter, error) {
+	do.Provide(i, func(i do.Injector) (ratelimiting.RateLimiter, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
