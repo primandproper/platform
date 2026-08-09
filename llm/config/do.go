@@ -11,7 +11,7 @@ import (
 
 // RegisterLLMProvider registers an llm.Provider with the injector.
 func RegisterLLMProvider(i do.Injector) {
-	do.Provide[llm.Provider](i, func(i do.Injector) (llm.Provider, error) {
+	do.Provide(i, func(i do.Injector) (llm.Provider, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

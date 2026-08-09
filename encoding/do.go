@@ -8,10 +8,10 @@ import (
 
 // RegisterServerEncoderDecoder registers a ContentType and ServerEncoderDecoder with the injector.
 func RegisterServerEncoderDecoder(i do.Injector) {
-	do.Provide[ContentType](i, func(i do.Injector) (ContentType, error) {
+	do.Provide(i, func(i do.Injector) (ContentType, error) {
 		return NewContentType(do.MustInvoke[Config](i))
 	})
-	do.Provide[ServerEncoderDecoder](i, func(i do.Injector) (ServerEncoderDecoder, error) {
+	do.Provide(i, func(i do.Injector) (ServerEncoderDecoder, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

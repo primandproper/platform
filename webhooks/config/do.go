@@ -15,7 +15,7 @@ import (
 // Prerequisites: *Config and database.Client must be registered in the
 // injector before the Store is invoked.
 func RegisterStore(i do.Injector) {
-	do.Provide[webhooks.Store](i, func(i do.Injector) (webhooks.Store, error) {
+	do.Provide(i, func(i do.Injector) (webhooks.Store, error) {
 		return NewStore(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
@@ -31,7 +31,7 @@ func RegisterStore(i do.Injector) {
 // invoked. The Catalog is the application's declaration of which event types
 // exist, so it has no environment-driven construction here.
 func RegisterDispatcher(i do.Injector) {
-	do.Provide[webhooks.Dispatcher](i, func(i do.Injector) (webhooks.Dispatcher, error) {
+	do.Provide(i, func(i do.Injector) (webhooks.Dispatcher, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -52,7 +52,7 @@ func RegisterDispatcher(i do.Injector) {
 // Prerequisites: *Config and webhooks.Store (see RegisterStore) must be
 // registered in the injector before the Worker is invoked.
 func RegisterWorker(i do.Injector) {
-	do.Provide[*webhooks.Worker](i, func(i do.Injector) (*webhooks.Worker, error) {
+	do.Provide(i, func(i do.Injector) (*webhooks.Worker, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

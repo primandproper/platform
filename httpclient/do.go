@@ -25,7 +25,7 @@ import (
 // third-party HTTP responses would evict what it was built to hold. They pass
 // as options like everything else.
 func RegisterHTTPClient(i do.Injector, opts ...Option) {
-	do.Provide[*http.Client](i, func(i do.Injector) (*http.Client, error) {
+	do.Provide(i, func(i do.Injector) (*http.Client, error) {
 		cfg := do.MustInvoke[*Config](i)
 
 		pillars, err := observability.InvokePillars(i)

@@ -11,7 +11,7 @@ import (
 
 // RegisterClientConfig registers a database.ClientConfig with the injector.
 func RegisterClientConfig(i do.Injector) {
-	do.Provide[database.ClientConfig](i, func(i do.Injector) (database.ClientConfig, error) {
+	do.Provide(i, func(i do.Injector) (database.ClientConfig, error) {
 		cfg := do.MustInvoke[*Config](i)
 		return NewClientConfig(*cfg), nil
 	})
@@ -22,7 +22,7 @@ func RegisterClientConfig(i do.Injector) {
 // only required when the config's RunMigrations is true.
 func RegisterDatabase(i do.Injector) {
 	RegisterClientConfig(i)
-	do.Provide[database.Client](i, func(i do.Injector) (database.Client, error) {
+	do.Provide(i, func(i do.Injector) (database.Client, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

@@ -21,7 +21,7 @@ import (
 // server writing timers that a separate worker fleet fires. It starts nothing
 // and needs no shutdown.
 func RegisterTimers[K comparable](i do.Injector) {
-	do.Provide[*timers.Timers[K]](i, func(i do.Injector) (*timers.Timers[K], error) {
+	do.Provide(i, func(i do.Injector) (*timers.Timers[K], error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -48,7 +48,7 @@ func RegisterTimers[K comparable](i do.Injector) {
 // it. Run it from wherever you start the rest of your background work, and stop
 // it by cancelling that context.
 func RegisterWorker[K comparable](i do.Injector) {
-	do.Provide[*timers.Worker[K]](i, func(i do.Injector) (*timers.Worker[K], error) {
+	do.Provide(i, func(i do.Injector) (*timers.Worker[K], error) {
 		return timers.NewWorker(
 			do.MustInvoke[context.Context](i),
 			&do.MustInvoke[*Config](i).Worker,

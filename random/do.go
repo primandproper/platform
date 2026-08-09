@@ -8,7 +8,7 @@ import (
 
 // RegisterGenerator registers a Generator with the injector.
 func RegisterGenerator(i do.Injector) {
-	do.Provide[Generator](i, func(i do.Injector) (Generator, error) {
+	do.Provide(i, func(i do.Injector) (Generator, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

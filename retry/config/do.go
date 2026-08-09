@@ -10,7 +10,7 @@ import (
 
 // RegisterPolicy registers a retry.Policy with the injector.
 func RegisterPolicy(i do.Injector) {
-	do.Provide[retry.Policy](i, func(i do.Injector) (retry.Policy, error) {
+	do.Provide(i, func(i do.Injector) (retry.Policy, error) {
 		return NewPolicy(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),

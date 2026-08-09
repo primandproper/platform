@@ -11,7 +11,7 @@ import (
 
 // RegisterEventStreamUpgrader registers an eventstream.EventStreamUpgrader with the injector.
 func RegisterEventStreamUpgrader(i do.Injector) {
-	do.Provide[eventstream.EventStreamUpgrader](i, func(i do.Injector) (eventstream.EventStreamUpgrader, error) {
+	do.Provide(i, func(i do.Injector) (eventstream.EventStreamUpgrader, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -27,7 +27,7 @@ func RegisterEventStreamUpgrader(i do.Injector) {
 
 // RegisterBidirectionalEventStreamUpgrader registers an eventstream.BidirectionalEventStreamUpgrader with the injector.
 func RegisterBidirectionalEventStreamUpgrader(i do.Injector) {
-	do.Provide[eventstream.BidirectionalEventStreamUpgrader](i, func(i do.Injector) (eventstream.BidirectionalEventStreamUpgrader, error) {
+	do.Provide(i, func(i do.Injector) (eventstream.BidirectionalEventStreamUpgrader, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

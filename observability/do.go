@@ -70,19 +70,19 @@ func InvokePillars(i do.Injector) (*Pillars, error) {
 // This extracts sub-configs from the parent *Config and registers them with the injector.
 // Prerequisite: *Config must be registered in the injector before calling this.
 func RegisterO11yConfigs(i do.Injector) {
-	do.Provide[*loggingcfg.Config](i, func(i do.Injector) (*loggingcfg.Config, error) {
+	do.Provide(i, func(i do.Injector) (*loggingcfg.Config, error) {
 		cfg := do.MustInvoke[*Config](i)
 		return &cfg.Logging, nil
 	})
-	do.Provide[*metricscfg.Config](i, func(i do.Injector) (*metricscfg.Config, error) {
+	do.Provide(i, func(i do.Injector) (*metricscfg.Config, error) {
 		cfg := do.MustInvoke[*Config](i)
 		return &cfg.Metrics, nil
 	})
-	do.Provide[*tracingcfg.Config](i, func(i do.Injector) (*tracingcfg.Config, error) {
+	do.Provide(i, func(i do.Injector) (*tracingcfg.Config, error) {
 		cfg := do.MustInvoke[*Config](i)
 		return &cfg.Tracing, nil
 	})
-	do.Provide[*profilingcfg.Config](i, func(i do.Injector) (*profilingcfg.Config, error) {
+	do.Provide(i, func(i do.Injector) (*profilingcfg.Config, error) {
 		cfg := do.MustInvoke[*Config](i)
 		return &cfg.Profiling, nil
 	})

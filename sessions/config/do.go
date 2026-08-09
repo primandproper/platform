@@ -22,7 +22,7 @@ import (
 // the cache provider needs none — and one whose registered client fails to
 // build still hears about it.
 func RegisterStore[T any](i do.Injector) {
-	do.Provide[sessions.Store[T]](i, func(i do.Injector) (sessions.Store[T], error) {
+	do.Provide(i, func(i do.Injector) (sessions.Store[T], error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -49,7 +49,7 @@ func RegisterStore[T any](i do.Injector) {
 // registered. As with RegisterStore, a database.Client is resolved only if one
 // is registered.
 func RegisterManager[T any](i do.Injector) {
-	do.Provide[*sessionshttp.Manager[T]](i, func(i do.Injector) (*sessionshttp.Manager[T], error) {
+	do.Provide(i, func(i do.Injector) (*sessionshttp.Manager[T], error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

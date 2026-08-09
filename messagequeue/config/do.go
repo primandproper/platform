@@ -12,7 +12,7 @@ import (
 // RegisterMessageQueue registers both messagequeue.ConsumerProvider and
 // messagequeue.PublisherProvider with the injector.
 func RegisterMessageQueue(i do.Injector) {
-	do.Provide[messagequeue.ConsumerProvider](i, func(i do.Injector) (messagequeue.ConsumerProvider, error) {
+	do.Provide(i, func(i do.Injector) (messagequeue.ConsumerProvider, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -24,7 +24,7 @@ func RegisterMessageQueue(i do.Injector) {
 			WithPillars(pillars),
 		)
 	})
-	do.Provide[messagequeue.PublisherProvider](i, func(i do.Injector) (messagequeue.PublisherProvider, error) {
+	do.Provide(i, func(i do.Injector) (messagequeue.PublisherProvider, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

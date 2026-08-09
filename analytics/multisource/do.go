@@ -12,7 +12,7 @@ import (
 // RegisterMultiSourceEventReporter registers a *MultiSourceEventReporter with the injector.
 // Prerequisite: map[string]*analyticscfg.SourceConfig must be registered in the injector.
 func RegisterMultiSourceEventReporter(i do.Injector) {
-	do.Provide[*MultiSourceEventReporter](i, func(i do.Injector) (*MultiSourceEventReporter, error) {
+	do.Provide(i, func(i do.Injector) (*MultiSourceEventReporter, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

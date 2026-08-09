@@ -15,7 +15,7 @@ import (
 // Prerequisites: *Config and database.Client must be registered in the
 // injector before the Writer is invoked.
 func RegisterWriter(i do.Injector) {
-	do.Provide[*outbox.Writer](i, func(i do.Injector) (*outbox.Writer, error) {
+	do.Provide(i, func(i do.Injector) (*outbox.Writer, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -36,7 +36,7 @@ func RegisterWriter(i do.Injector) {
 // Prerequisites: *Config and database.Client must be registered in the
 // injector before the Relay is invoked.
 func RegisterRelay(i do.Injector) {
-	do.Provide[*outbox.Relay](i, func(i do.Injector) (*outbox.Relay, error) {
+	do.Provide(i, func(i do.Injector) (*outbox.Relay, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

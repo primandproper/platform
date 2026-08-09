@@ -16,7 +16,7 @@ import (
 // is invoked. A database.Client is only required when the config's provider is
 // postgres, so a redis- or memory-locked service can build without one.
 func RegisterLocker(i do.Injector) {
-	do.Provide[distributedlock.Locker](i, func(i do.Injector) (distributedlock.Locker, error) {
+	do.Provide(i, func(i do.Injector) (distributedlock.Locker, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -49,7 +49,7 @@ func RegisterLocker(i do.Injector) {
 // is invoked. A database.Client is only required when the config's provider is
 // postgres, so a redis- or memory-locked service can build without one.
 func RegisterScopedLocker(i do.Injector) {
-	do.Provide[distributedlock.ScopedLocker](i, func(i do.Injector) (distributedlock.ScopedLocker, error) {
+	do.Provide(i, func(i do.Injector) (distributedlock.ScopedLocker, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

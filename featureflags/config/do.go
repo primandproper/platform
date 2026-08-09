@@ -12,7 +12,7 @@ import (
 
 // RegisterFeatureFlagManager registers a featureflags.FeatureFlagManager with the injector.
 func RegisterFeatureFlagManager(i do.Injector) {
-	do.Provide[featureflags.FeatureFlagManager](i, func(i do.Injector) (featureflags.FeatureFlagManager, error) {
+	do.Provide(i, func(i do.Injector) (featureflags.FeatureFlagManager, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

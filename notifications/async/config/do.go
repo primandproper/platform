@@ -11,7 +11,7 @@ import (
 
 // RegisterAsyncNotifier registers an async.AsyncNotifier with the injector.
 func RegisterAsyncNotifier(i do.Injector) {
-	do.Provide[async.AsyncNotifier](i, func(i do.Injector) (async.AsyncNotifier, error) {
+	do.Provide(i, func(i do.Injector) (async.AsyncNotifier, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

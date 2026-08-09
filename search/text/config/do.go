@@ -17,7 +17,7 @@ import (
 // Prerequisites: *Config must be registered in the injector before the Index
 // is invoked.
 func RegisterIndex[T any](i do.Injector, indexName string) {
-	do.Provide[textsearch.Index[T]](i, func(i do.Injector) (textsearch.Index[T], error) {
+	do.Provide(i, func(i do.Injector) (textsearch.Index[T], error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

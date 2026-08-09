@@ -38,7 +38,7 @@ const (
 // healthcheck.RegisterRegistry after this, which replaces the provider with one
 // that starts empty.
 func registerHealth(i do.Injector) {
-	do.Provide[healthcheck.Registry](i, func(i do.Injector) (healthcheck.Registry, error) {
+	do.Provide(i, func(i do.Injector) (healthcheck.Registry, error) {
 		registry := healthcheck.NewRegistry()
 
 		// Readiness is an optional capability of a Client rather than part of the

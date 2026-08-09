@@ -11,7 +11,7 @@ import (
 
 // RegisterPushSender registers a mobile.PushNotificationSender with the injector.
 func RegisterPushSender(i do.Injector) {
-	do.Provide[mobile.PushNotificationSender](i, func(i do.Injector) (mobile.PushNotificationSender, error) {
+	do.Provide(i, func(i do.Injector) (mobile.PushNotificationSender, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

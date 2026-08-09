@@ -9,7 +9,7 @@ import (
 
 // RegisterCookieManager registers a cookies.Manager with the injector.
 func RegisterCookieManager(i do.Injector) {
-	do.Provide[cookies.Manager](i, func(i do.Injector) (cookies.Manager, error) {
+	do.Provide(i, func(i do.Injector) (cookies.Manager, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

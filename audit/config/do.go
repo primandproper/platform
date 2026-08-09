@@ -17,7 +17,7 @@ import (
 // Prerequisites: *Config must be registered in the injector before the
 // Recorder is invoked.
 func RegisterRecorder(i do.Injector) {
-	do.Provide[audit.Recorder](i, func(i do.Injector) (audit.Recorder, error) {
+	do.Provide(i, func(i do.Injector) (audit.Recorder, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -36,7 +36,7 @@ func RegisterRecorder(i do.Injector) {
 // Prerequisites: *Config and database.Client must be registered in the
 // injector before the Reader is invoked.
 func RegisterReader(i do.Injector) {
-	do.Provide[audit.Reader](i, func(i do.Injector) (audit.Reader, error) {
+	do.Provide(i, func(i do.Injector) (audit.Reader, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -61,7 +61,7 @@ func RegisterReader(i do.Injector) {
 //
 // So the wiring is a line in the provider for that slice:
 //
-//	do.Provide[[]retention.Policy](i, func(i do.Injector) ([]retention.Policy, error) {
+//	do.Provide(i, func(i do.Injector) ([]retention.Policy, error) {
 //		auditPolicy, err := auditcfg.NewRetentionPolicy(
 //			do.MustInvoke[context.Context](i),
 //			do.MustInvoke[*auditcfg.Config](i),

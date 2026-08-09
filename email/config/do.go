@@ -12,7 +12,7 @@ import (
 
 // RegisterEmailer registers an email.Emailer with the injector.
 func RegisterEmailer(i do.Injector) {
-	do.Provide[email.Emailer](i, func(i do.Injector) (email.Emailer, error) {
+	do.Provide(i, func(i do.Injector) (email.Emailer, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err

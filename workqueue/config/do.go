@@ -22,7 +22,7 @@ import (
 // spell that Close. Close it from the same place you shut the rest of them down
 // — after ingress is gone, so a request still in flight can finish enqueueing.
 func RegisterQueue[K comparable](i do.Injector) {
-	do.Provide[*workqueue.Queue[K]](i, func(i do.Injector) (*workqueue.Queue[K], error) {
+	do.Provide(i, func(i do.Injector) (*workqueue.Queue[K], error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
