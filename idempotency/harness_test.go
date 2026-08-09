@@ -205,6 +205,27 @@ func (s *countingStore) Set(ctx context.Context, key string, value *Record[paylo
 	return s.inner.Set(ctx, key, value, opts...)
 }
 
+// SetIfPresent counts against the same budget as Set, because to these tests it
+// is a write like any other: what they fail is the nth attempt to store
+// something, and which flavor of store it was is not what they are varying.
+func (s *countingStore) SetIfPresent(
+	ctx context.Context,
+	key string,
+	value *Record[payload],
+	opts ...cache.WriteOption,
+) error {
+	s.mu.Lock()
+	s.sets++
+	n := s.sets
+	s.mu.Unlock()
+
+	if shouldFail(n, s.failSetAfter, s.setErr) {
+		return s.setErr
+	}
+
+	return s.inner.SetIfPresent(ctx, key, value, opts...)
+}
+
 func (s *countingStore) Delete(ctx context.Context, key string) error {
 	s.mu.Lock()
 	s.deletes++

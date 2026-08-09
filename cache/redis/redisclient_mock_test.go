@@ -45,6 +45,9 @@ var _ redisClient = &redisClientMock{}
 //			SetFunc: func(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd {
 //				panic("mock out the Set method")
 //			},
+//			SetArgsFunc: func(ctx context.Context, key string, value any, a redis.SetArgs) *redis.StatusCmd {
+//				panic("mock out the SetArgs method")
+//			},
 //		}
 //
 //		// use mockedredisClient in code that requires redisClient
@@ -75,6 +78,9 @@ type redisClientMock struct {
 
 	// SetFunc mocks the Set method.
 	SetFunc func(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
+
+	// SetArgsFunc mocks the SetArgs method.
+	SetArgsFunc func(ctx context.Context, key string, value any, a redis.SetArgs) *redis.StatusCmd
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -140,15 +146,27 @@ type redisClientMock struct {
 			// Expiration is the expiration argument value.
 			Expiration time.Duration
 		}
+		// SetArgs holds details about calls to the SetArgs method.
+		SetArgs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Key is the key argument value.
+			Key string
+			// Value is the value argument value.
+			Value any
+			// A is the a argument value.
+			A redis.SetArgs
+		}
 	}
-	lockClose sync.RWMutex
-	lockDel   sync.RWMutex
-	lockEval  sync.RWMutex
-	lockGet   sync.RWMutex
-	lockMGet  sync.RWMutex
-	lockPing  sync.RWMutex
-	lockScan  sync.RWMutex
-	lockSet   sync.RWMutex
+	lockClose   sync.RWMutex
+	lockDel     sync.RWMutex
+	lockEval    sync.RWMutex
+	lockGet     sync.RWMutex
+	lockMGet    sync.RWMutex
+	lockPing    sync.RWMutex
+	lockScan    sync.RWMutex
+	lockSet     sync.RWMutex
+	lockSetArgs sync.RWMutex
 }
 
 // Close calls CloseFunc.
@@ -447,5 +465,49 @@ func (mock *redisClientMock) SetCalls() []struct {
 	mock.lockSet.RLock()
 	calls = mock.calls.Set
 	mock.lockSet.RUnlock()
+	return calls
+}
+
+// SetArgs calls SetArgsFunc.
+func (mock *redisClientMock) SetArgs(ctx context.Context, key string, value any, a redis.SetArgs) *redis.StatusCmd {
+	if mock.SetArgsFunc == nil {
+		panic("redisClientMock.SetArgsFunc: method is nil but redisClient.SetArgs was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Key   string
+		Value any
+		A     redis.SetArgs
+	}{
+		Ctx:   ctx,
+		Key:   key,
+		Value: value,
+		A:     a,
+	}
+	mock.lockSetArgs.Lock()
+	mock.calls.SetArgs = append(mock.calls.SetArgs, callInfo)
+	mock.lockSetArgs.Unlock()
+	return mock.SetArgsFunc(ctx, key, value, a)
+}
+
+// SetArgsCalls gets all the calls that were made to SetArgs.
+// Check the length with:
+//
+//	len(mockedredisClient.SetArgsCalls())
+func (mock *redisClientMock) SetArgsCalls() []struct {
+	Ctx   context.Context
+	Key   string
+	Value any
+	A     redis.SetArgs
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Key   string
+		Value any
+		A     redis.SetArgs
+	}
+	mock.lockSetArgs.RLock()
+	calls = mock.calls.SetArgs
+	mock.lockSetArgs.RUnlock()
 	return calls
 }

@@ -506,6 +506,143 @@ func Test_redisCacheImpl_Set_Unit(T *testing.T) {
 	})
 }
 
+func Test_redisCacheImpl_SetIfPresent(T *testing.T) {
+	T.Parallel()
+
+	T.Run("against a real server", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		cfg := buildContainerBackedRedisConfig(t)
+		c, err := NewRedisCache[example](cfg, 0, nil)
+		must.NoError(t, err)
+
+		// Absent: refused, and not created.
+		test.ErrorIs(t, c.SetIfPresent(ctx, exampleKey, &example{Name: "after"}), cache.ErrNotFound)
+
+		_, getErr := c.Get(ctx, exampleKey)
+		test.ErrorIs(t, getErr, cache.ErrNotFound)
+
+		// Present: overwritten.
+		must.NoError(t, c.Set(ctx, exampleKey, &example{Name: "before"}))
+		must.NoError(t, c.SetIfPresent(ctx, exampleKey, &example{Name: "after"}))
+
+		got, err := c.Get(ctx, exampleKey)
+		must.NoError(t, err)
+		test.EqOp(t, "after", got.Name)
+
+		// Deleted: refused again, which is the sign-out case this exists for.
+		must.NoError(t, c.Delete(ctx, exampleKey))
+		test.ErrorIs(t, c.SetIfPresent(ctx, exampleKey, &example{Name: "revived"}), cache.ErrNotFound)
+	})
+}
+
+func Test_redisCacheImpl_SetIfPresent_Unit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("issues one SET with the XX flag", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetArgsFunc = func(_ context.Context, key string, value any, a redis.SetArgs) *redis.StatusCmd {
+			test.EqOp(t, exampleKey, key)
+			// XX is the whole guarantee: without it this is an ordinary Set that
+			// resurrects a key somebody just deleted.
+			test.EqOp(t, "XX", a.Mode)
+			test.EqOp(t, time.Minute, a.TTL)
+			test.False(t, a.KeepTTL)
+			_, isString := value.(string)
+			test.True(t, isString)
+
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetVal("OK")
+
+			return cmd
+		}
+
+		test.NoError(t, impl.SetIfPresent(ctx, exampleKey, &example{Name: t.Name()}))
+
+		test.SliceLen(t, 1, client.SetArgsCalls())
+		// Exactly one round trip. A Get here would mean the window is still open.
+		test.SliceLen(t, 0, client.GetCalls())
+		test.SliceLen(t, 1, cb.SucceededCalls())
+	})
+
+	T.Run("a refusal is ErrNotFound and does not trip the breaker", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
+
+		client.SetArgsFunc = func(context.Context, string, any, redis.SetArgs) *redis.StatusCmd {
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetErr(redis.Nil)
+
+			return cmd
+		}
+
+		// The key was absent. That is the server answering correctly, not the
+		// server being unwell — counting it as a failure would trip the breaker
+		// for every caller on an entirely healthy redis.
+		test.ErrorIs(t, impl.SetIfPresent(ctx, exampleKey, &example{Name: t.Name()}), cache.ErrNotFound)
+
+		test.SliceLen(t, 1, cb.SucceededCalls())
+		test.SliceLen(t, 0, cb.FailedCalls())
+	})
+
+	T.Run("when circuit breaker cannot proceed", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return true }
+
+		// ErrUnavailable rather than ErrNotFound. The two must not be conflated:
+		// a caller told "not found" during an outage concludes the record is
+		// gone, which for a session store means signing someone out.
+		test.ErrorIs(t, impl.SetIfPresent(ctx, exampleKey, &example{Name: t.Name()}), cache.ErrUnavailable)
+
+		test.SliceLen(t, 0, client.SetArgsCalls())
+		test.SliceLen(t, 1, cb.CannotProceedCalls())
+	})
+
+	T.Run("with redis error", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() {}
+
+		client.SetArgsFunc = func(context.Context, string, any, redis.SetArgs) *redis.StatusCmd {
+			cmd := redis.NewStatusCmd(ctx)
+			cmd.SetErr(errors.New("redis error"))
+
+			return cmd
+		}
+
+		err := impl.SetIfPresent(ctx, exampleKey, &example{Name: t.Name()})
+		test.Error(t, err)
+		// A transport failure must not masquerade as a refusal: the condition
+		// was never evaluated, so nothing is known about whether the key exists.
+		test.False(t, errors.Is(err, cache.ErrNotFound))
+
+		test.SliceLen(t, 1, client.SetArgsCalls())
+		test.SliceLen(t, 1, cb.FailedCalls())
+	})
+}
+
 func Test_redisCacheImpl_Delete(T *testing.T) {
 	T.Parallel()
 
