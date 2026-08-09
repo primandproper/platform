@@ -65,6 +65,65 @@ func TestBackend_HandleAndPathValue(T *testing.T) {
 	})
 }
 
+// TestBackend_EscapedPathDispatchLeavesTheMissPathAlone covers the half of
+// escapedPathDispatch that is easy to break: when the escaped path matches
+// nothing, httprouter must still see the request exactly as it always did, so
+// its trailing-slash redirect, 405, and OPTIONS handling — which the shared
+// middleware stack deliberately leaves to it — keep working.
+func TestBackend_EscapedPathDispatchLeavesTheMissPathAlone(T *testing.T) {
+	T.Parallel()
+
+	serve := func(t *testing.T, method, target string) *httptest.ResponseRecorder {
+		t.Helper()
+
+		b := newTestBackend(t, &Config{ServiceName: t.Name()})
+		b.Handle(http.MethodGet, "/things/{slug}", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+
+		rec := httptest.NewRecorder()
+		b.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), method, target, http.NoBody))
+
+		return rec
+	}
+
+	cases := []struct {
+		name     string
+		method   string
+		target   string
+		location string
+		expected int
+	}{
+		{
+			name: "trailing slash still redirects", method: http.MethodGet, target: "/things/plain/",
+			expected: http.StatusMovedPermanently, location: "/things/plain",
+		},
+		{
+			// The redirect is built from the request httprouter was given, which
+			// escapedPathDispatch never touched, so the Location is escaped once
+			// and not twice.
+			name: "trailing slash still redirects on an escaped path", method: http.MethodGet, target: "/things/a%2Fb/",
+			expected: http.StatusMovedPermanently, location: "/things/a%2Fb",
+		},
+		{name: "wrong verb is still a 405", method: http.MethodPost, target: "/things/plain", expected: http.StatusMethodNotAllowed},
+		{name: "wrong verb is still a 405 on an escaped path", method: http.MethodPost, target: "/things/a%2Fb", expected: http.StatusMethodNotAllowed},
+		{name: "an unregistered path is still a 404", method: http.MethodGet, target: "/nope/a%2Fb", expected: http.StatusNotFound},
+	}
+
+	for _, tc := range cases {
+		T.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := serve(t, tc.method, tc.target)
+
+			test.EqOp(t, tc.expected, rec.Code)
+			if tc.location != "" {
+				test.EqOp(t, tc.location, rec.Header().Get("Location"))
+			}
+		})
+	}
+}
+
 func TestBackend_Use(T *testing.T) {
 	T.Parallel()
 

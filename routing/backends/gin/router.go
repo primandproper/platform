@@ -3,10 +3,13 @@
 // produces are rewritten to "/users/:id" at registration. gin keeps path
 // parameters on its own *gin.Context rather than the request context, so each
 // registered handler stashes them onto the request context where PathValue can
-// read them. The shared observability, recovery, CORS, and OpenTelemetry
-// middleware stack is applied around the gin engine (which is itself an
-// http.Handler), matching the chi backend's behavior; gin's own logger and
-// recovery middleware are intentionally not installed.
+// read them. The engine is set to match on the escaped path, so a
+// percent-escaped path value survives the round trip; the decoding gin would
+// otherwise do for itself is done in PathValue instead. The shared
+// observability, recovery, CORS, and OpenTelemetry middleware stack is applied
+// around the gin engine (which is itself an http.Handler), matching the chi
+// backend's behavior; gin's own logger and recovery middleware are intentionally
+// not installed.
 package gin
 
 import (
@@ -21,6 +24,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	"github.com/primandproper/platform-go/v10/routing"
 	"github.com/primandproper/platform-go/v10/routing/backends/internal/httpmw"
+	"github.com/primandproper/platform-go/v10/routing/backends/internal/pathvalues"
 
 	"github.com/gin-gonic/gin"
 )
@@ -66,8 +70,28 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 	o11y := observability.NewObserver("router", logging.EnsureLogger(o.logger), tracerProvider)
 
 	// gin.New, not gin.Default: recovery and logging come from the shared stack.
+	engine := gin.New()
+
+	// Match on the escaped path, so a percent-escaped separator stays inside its
+	// segment instead of splitting it and routing to nothing. gin's default is
+	// URL.Path, already decoded, which is what makes "/things/a%2Fb" a 404
+	// against "/things/:slug".
+	//
+	// UseEscapedPath and not UseRawPath: the latter only takes effect when
+	// URL.RawPath happens to be set, which net/url leaves empty whenever nothing
+	// needed escaping, whereas URL.EscapedPath() always yields the escaped form —
+	// the same string net/http's ServeMux matches on. UseEscapedPath also
+	// overrides UseRawPath, so this is the only knob in play.
+	engine.UseEscapedPath = true
+
+	// Decode the captured values in PathValue rather than letting gin do it here:
+	// gin unescapes with url.QueryUnescape, which reads a literal '+' in a path
+	// segment as a space. A path is not a query, and the other backends leave it
+	// alone.
+	engine.UnescapePathValues = false
+
 	return &backend{
-		engine: gin.New(),
+		engine: engine,
 		standard: httpmw.Standard(o11y, &httpmw.StackConfig{
 			TracerProvider:         tracerProvider,
 			MeterProvider:          metrics.EnsureMetricsProvider(o.metricsProvider).MeterProvider(),
@@ -111,10 +135,11 @@ func (b *backend) Handle(method, pattern string, handler http.Handler) {
 }
 
 // PathValue returns the named path parameter from the gin params stashed on the
-// request context by Handle.
+// request context by Handle, decoded. The engine matches on the escaped path, so
+// what it captured is an escaped segment.
 func (b *backend) PathValue(req *http.Request, name string) string {
 	if params, ok := req.Context().Value(paramsCtxKey{}).(gin.Params); ok {
-		return params.ByName(name)
+		return pathvalues.Decode(params.ByName(name))
 	}
 
 	return ""

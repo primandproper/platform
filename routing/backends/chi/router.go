@@ -1,3 +1,10 @@
+// Package chi provides a routing.Backend built on go-chi/chi. chi consumes the
+// "/users/{id}" placeholder syntax directly, and already matches on the escaped
+// request path, so a percent-escaped path value reaches the right route — but it
+// stores the matched segment verbatim, so PathValue decodes it before handing it
+// back. Middleware is installed through chi.Router.Use and instrumented with
+// otelchi, which is why this backend keeps its own copy of the observability,
+// recovery, and CORS stack rather than sharing internal/httpmw with the others.
 package chi
 
 import (
@@ -11,6 +18,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	"github.com/primandproper/platform-go/v10/routing"
+	"github.com/primandproper/platform-go/v10/routing/backends/internal/pathvalues"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -155,9 +163,26 @@ func (b *backend) Handle(method, pattern string, handler http.Handler) {
 	b.mux.Method(method, pattern, handler)
 }
 
-// PathValue returns the named chi URL parameter from the request.
+// PathValue returns the named chi URL parameter from the request, decoded.
+//
+// chi matches on URL.RawPath whenever it is set, which is the half of the
+// contract that keeps an escaped separator inside its segment, but it stores the
+// matched segment verbatim and never decodes it — chi.URLParam on its own hands
+// a handler "a%2Fb" where the caller wrote "a/b", and a typed parameter then
+// fails to bind on text nobody sent.
+//
+// The decode is conditional on the same RawPath chi decided with. net/url leaves
+// RawPath empty when escaping URL.Path reproduces what arrived, and in that case
+// chi matched on the decoded path and the segment it captured is already the
+// answer. A request for "a%252Fb" is exactly that: the value is "a%2Fb", chi
+// hands back "a%2Fb", and decoding it again would quietly turn it into "a/b".
 func (b *backend) PathValue(req *http.Request, name string) string {
-	return chi.URLParam(req, name)
+	value := chi.URLParam(req, name)
+	if req.URL.RawPath == "" {
+		return value
+	}
+
+	return pathvalues.Decode(value)
 }
 
 // Handler returns the underlying chi mux.

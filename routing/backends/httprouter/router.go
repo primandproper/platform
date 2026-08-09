@@ -2,13 +2,19 @@
 // julienschmidt/httprouter, a fast radix-tree router. httprouter uses ":name"
 // path parameters, so the "/users/{id}" patterns the routing layer produces are
 // rewritten to "/users/:id" at registration; path values are read back from the
-// request context httprouter populates. The shared observability, recovery,
+// request context httprouter populates. httprouter matches on the decoded
+// request path and offers no way to change that, so the lookup for a request
+// carrying a percent-escaped path value is taken here instead — see
+// escapedPathDispatch. The shared observability, recovery,
 // CORS, and OpenTelemetry middleware stack is applied around the router,
 // matching the chi backend's behavior.
 package httprouter
 
 import (
 	"net/http"
+	"net/url"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -18,6 +24,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	"github.com/primandproper/platform-go/v10/routing"
 	"github.com/primandproper/platform-go/v10/routing/backends/internal/httpmw"
+	"github.com/primandproper/platform-go/v10/routing/backends/internal/pathvalues"
 
 	hr "github.com/julienschmidt/httprouter"
 )
@@ -91,9 +98,147 @@ func (b *backend) Handle(method, pattern string, handler http.Handler) {
 }
 
 // PathValue returns the named path parameter from the httprouter params stored
-// on the request context.
+// on the request context, decoded. A match found by escapedPathDispatch captured
+// an escaped segment; one found by httprouter itself has nothing left to decode.
 func (b *backend) PathValue(req *http.Request, name string) string {
-	return hr.ParamsFromContext(req.Context()).ByName(name)
+	return pathvalues.Decode(hr.ParamsFromContext(req.Context()).ByName(name))
+}
+
+// probeMethods stands in for httprouter's unexported allowed(), which walks the
+// method trees it holds privately. Looking a method up that was never registered
+// costs a nil map read, so probing the fixed set is equivalent. OPTIONS is left
+// out for the same reason httprouter leaves it out: it is appended to the Allow
+// header rather than probed for.
+var probeMethods = []string{
+	http.MethodGet,
+	http.MethodHead,
+	http.MethodPost,
+	http.MethodPut,
+	http.MethodPatch,
+	http.MethodDelete,
+	http.MethodConnect,
+	http.MethodTrace,
+}
+
+// escapedPathDispatch matches on the escaped path, so a percent-escaped
+// separator stays inside its segment rather than splitting it. httprouter reads
+// URL.Path — already decoded — and has no raw-path setting of any kind, so for a
+// request carrying an escaped value the routing decision has to be taken here.
+//
+// It is only the decision that moves. Lookup neither reads nor writes the
+// request, and a request with nothing escaped is handed straight to ServeHTTP,
+// so the ordinary path is byte-for-byte what it was. The escaped path then has
+// to answer for itself, because "no route" and "wrong method" are different
+// answers and a caller is owed the right one: a match runs, a trailing-slash
+// near-miss redirects, and a path that exists under another verb is a 405 with
+// an Allow header, all decided on the escaped form.
+//
+// Anything left over falls through to ServeHTTP on the decoded path, which is
+// what httprouter did before. That keeps RedirectFixedPath — its case-insensitive
+// fixup reaches through an unexported tree method, so it cannot be mirrored here,
+// and the shared middleware stack deliberately leaves path normalization to the
+// router. The cost is one asymmetry: where the escaped path matches nothing at
+// all, httprouter still gets to try the decoded one, so "/things/x%2Fy" can reach
+// a registered "/things/{a}/{b}" that the other backends refuse.
+func escapedPathDispatch(router *hr.Router) http.Handler {
+	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		// Equal whenever nothing needed escaping, which is the overwhelming
+		// majority of requests and the case this must not perturb.
+		escaped := req.URL.EscapedPath()
+		if escaped == req.URL.Path {
+			router.ServeHTTP(res, req)
+
+			return
+		}
+
+		handle, params, tsr := router.Lookup(req.Method, escaped)
+		if handle != nil {
+			handle(res, req, params)
+
+			return
+		}
+
+		if tsr && router.RedirectTrailingSlash && req.Method != http.MethodConnect && escaped != "/" {
+			if redirectTrailingSlash(res, req, escaped) {
+				return
+			}
+		}
+
+		if allow := allowedMethods(router, escaped, req.Method); allow != "" {
+			if req.Method == http.MethodOptions && router.HandleOPTIONS {
+				res.Header().Set("Allow", allow)
+
+				return
+			}
+
+			if req.Method != http.MethodOptions && router.HandleMethodNotAllowed {
+				res.Header().Set("Allow", allow)
+				http.Error(res, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+
+				return
+			}
+		}
+
+		router.ServeHTTP(res, req)
+	})
+}
+
+// redirectTrailingSlash sends the caller to escaped with its trailing slash
+// added or removed, reporting whether it wrote a response.
+//
+// httprouter builds this redirect by writing the path it routed on back into
+// req.URL.Path and calling URL.String(), which would escape an already-escaped
+// path a second time and send the caller to "%252F". Setting Path and RawPath
+// together keeps the two consistent, so String emits the escaping that arrived.
+func redirectTrailingSlash(res http.ResponseWriter, req *http.Request, escaped string) bool {
+	target, hadSlash := strings.CutSuffix(escaped, "/")
+	if !hadSlash {
+		target = escaped + "/"
+	}
+
+	decoded, err := url.PathUnescape(target)
+	if err != nil {
+		return false
+	}
+
+	// Go has no 308, which is why httprouter uses 307 for the methods where a
+	// 301 would let the client drop the body and the verb.
+	code := http.StatusTemporaryRedirect
+	if req.Method == http.MethodGet {
+		code = http.StatusMovedPermanently
+	}
+
+	location := *req.URL
+	location.Path, location.RawPath = decoded, target
+	http.Redirect(res, req, location.String(), code)
+
+	return true
+}
+
+// allowedMethods returns the Allow header for escaped, or "" if no other method
+// serves it. It mirrors httprouter's allowed(): the requested method is skipped
+// because it has already been tried, and OPTIONS is appended rather than probed.
+func allowedMethods(router *hr.Router, escaped, reqMethod string) string {
+	var allowed []string
+
+	for _, method := range probeMethods {
+		if method == reqMethod {
+			continue
+		}
+
+		if handle, _, _ := router.Lookup(method, escaped); handle != nil {
+			allowed = append(allowed, method)
+		}
+	}
+
+	if len(allowed) == 0 {
+		return ""
+	}
+
+	allowed = append(allowed, http.MethodOptions)
+	slices.Sort(allowed)
+
+	return strings.Join(allowed, ", ")
 }
 
 // Handler returns the composed http.Handler: the standard middleware stack and
@@ -105,7 +250,7 @@ func (b *backend) Handler() http.Handler {
 		all := make([]func(http.Handler) http.Handler, 0, len(b.standard)+len(b.user))
 		all = append(all, b.standard...)
 		all = append(all, b.user...)
-		b.built = httpmw.Chain(b.router, all...)
+		b.built = httpmw.Chain(escapedPathDispatch(b.router), all...)
 	})
 
 	return b.built
