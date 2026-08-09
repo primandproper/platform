@@ -131,12 +131,16 @@ That symmetry is the whole design of this part.
 
 Three different things produce that false and only one of them is a decision. A
 flag that is off answers (false, nil). A flag that was never created answers
-(false, error) — the providers here report an unresolvable flag as a resolution
-failure rather than as a default. A provider that cannot be reached answers
-(false, error) too, indistinguishably from the previous case. This package
-treats all three alike and lets the plan answer, so a flag nobody has created is
-inert, a provider nobody can reach is inert, and only a flag somebody
-deliberately turned on changes anything.
+(false, featureflags.ErrFlagNotFound). A provider that cannot be reached answers
+(false, error). This package treats all three alike and lets the plan answer, so
+a flag nobody has created is inert, a provider nobody can reach is inert, and
+only a flag somebody deliberately turned on changes anything.
+
+The last two are distinguishable — featureflags draws that line so a flag name
+shipped ahead of its flag does not score against a circuit breaker every other
+flag in the process shares — but acting on the difference here would buy
+nothing. Both mean "nobody has told me otherwise", and that is the plan's cue
+either way.
 
 The alternative — letting a false answer decide — would have an unconfigured
 flag, or a five-minute provider outage, silently revoke every entitlement in the
