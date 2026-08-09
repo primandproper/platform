@@ -139,7 +139,7 @@ func (t *Timers[K]) notify(ctx context.Context) {
 	}
 
 	if _, err := t.client.Writer().ExecContext(ctx, dialect.PostgresNotifyStatement, t.cfg.NotifyChannel); err != nil {
-		t.logger.WithValue(notifyChannelKey, t.cfg.NotifyChannel).Error("notifying timer channel", err)
+		t.o11y.Logger().WithValue(notifyChannelKey, t.cfg.NotifyChannel).Error("notifying timer channel", err)
 	}
 }
 

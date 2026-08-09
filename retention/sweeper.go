@@ -137,7 +137,6 @@ type Sweeper struct {
 	client   database.Client
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 	recorder audit.Recorder
 
 	removedCounter metrics.Int64Counter
@@ -146,6 +145,10 @@ type Sweeper struct {
 	backlogGauge   metrics.Int64Gauge
 	sweepHist      metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read s.o11y.Logger() for the logger this sweeper actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -209,7 +212,6 @@ func NewSweeper(
 	}
 
 	s.o11y = observability.NewObserver(serviceName, s.logger, s.tracerProvider)
-	s.logger = s.o11y.Logger()
 
 	if err := s.buildInstruments(); err != nil {
 		return nil, err

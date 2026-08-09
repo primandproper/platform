@@ -36,7 +36,6 @@ func NewRecorder[E any](sink Sink, opts ...Option) (*Recorder[E], error) {
 		raw:             !o.noRawRecords,
 		flushInterval:   o.flushInterval,
 		clock:           o.clock,
-		logger:          o.logger,
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
 		overflow:        o.overflow,
@@ -70,8 +69,7 @@ func NewRecorder[E any](sink Sink, opts ...Option) (*Recorder[E], error) {
 		r.observe = observe
 	}
 
-	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
-	r.logger = r.o11y.Logger()
+	r.o11y = observability.NewObserver(serviceName, o.logger, r.tracerProvider)
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 
@@ -184,7 +182,7 @@ func (r *Recorder[E]) consume(ctx context.Context, ev *E) {
 func (r *Recorder[E]) write(ctx context.Context, record any, description string) {
 	if err := r.sink.Write(record); err != nil {
 		r.errCounter.Add(ctx, 1)
-		r.logger.Error(description, err)
+		r.o11y.Logger().Error(description, err)
 
 		return
 	}
@@ -211,20 +209,20 @@ func (r *Recorder[E]) flush(ctx context.Context, now time.Time, final bool) {
 	if d := r.dropped.Load(); d > r.loggedDropped {
 		delta := d - r.loggedDropped
 		r.droppedCounter.Add(ctx, int64(delta))
-		r.logger.WithValues(map[string]any{"dropped": delta, "total": d}).Info("captured events dropped: buffer full")
+		r.o11y.Logger().WithValues(map[string]any{"dropped": delta, "total": d}).Info("captured events dropped: buffer full")
 		r.loggedDropped = d
 	}
 
 	if r.overflow != nil {
 		if ov := r.overflow(); ov > 0 {
 			r.overflowCounter.Add(ctx, int64(ov))
-			r.logger.WithValue("overflow", ov).Info("aggregation observations dropped: key bound reached")
+			r.o11y.Logger().WithValue("overflow", ov).Info("aggregation observations dropped: key bound reached")
 		}
 	}
 
 	if err := r.sink.Flush(); err != nil {
 		r.errCounter.Add(ctx, 1)
-		r.logger.Error("flushing capture sink", err)
+		r.o11y.Logger().Error("flushing capture sink", err)
 	}
 }
 
@@ -241,7 +239,7 @@ func (r *Recorder[E]) drain(ctx context.Context) {
 			r.flush(ctx, r.clock.Now(), true)
 			if err := r.sink.Close(); err != nil {
 				r.errCounter.Add(ctx, 1)
-				r.logger.Error("closing capture sink", err)
+				r.o11y.Logger().Error("closing capture sink", err)
 			}
 
 			return

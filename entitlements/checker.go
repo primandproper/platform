@@ -43,7 +43,6 @@ type PlanChecker struct {
 	flags    featureflags.FeatureFlagManager
 	cache    cache.Cache[Assignment]
 	o11y     observability.Observer
-	logger   logging.Logger
 
 	checkCounter     metrics.Int64Counter
 	deniedCounter    metrics.Int64Counter
@@ -53,6 +52,10 @@ type PlanChecker struct {
 	mismatchCounter  metrics.Int64Counter
 	checkHist        metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read c.o11y.Logger() for the logger this checker actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -112,14 +115,13 @@ func NewPlanChecker(
 	}
 
 	c.o11y = observability.NewObserver(serviceName, c.logger, c.tracerProvider)
-	c.logger = c.o11y.Logger()
 
 	if err := c.initInstruments(); err != nil {
 		return nil, err
 	}
 
 	if c.cache == nil {
-		c.logger.Info("entitlements checker has no cache; every check will resolve the account's plan")
+		c.o11y.Logger().Info("entitlements checker has no cache; every check will resolve the account's plan")
 	}
 
 	return c, nil

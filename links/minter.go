@@ -14,7 +14,6 @@ import (
 	"github.com/primandproper/platform-go/v10/distributedlock"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	"github.com/primandproper/platform-go/v10/random"
@@ -64,7 +63,6 @@ type Minter struct {
 	generator random.Generator
 	clock     clock.Clock
 	o11y      observability.Observer
-	logger    logging.Logger
 
 	actions map[Action]ActionPolicy
 
@@ -135,7 +133,6 @@ func NewMinter(
 		hasher:          o.hasher,
 		generator:       o.generator,
 		clock:           o.clock,
-		logger:          o.logger,
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
 		actions:         maps.Clone(o.actions),
@@ -149,8 +146,7 @@ func NewMinter(
 		m.keyPrefix = *o.keyPrefix
 	}
 
-	m.o11y = observability.NewObserver(serviceName, m.logger, m.tracerProvider)
-	m.logger = m.o11y.Logger()
+	m.o11y = observability.NewObserver(serviceName, o.logger, m.tracerProvider)
 
 	mp := metrics.EnsureMetricsProvider(m.metricsProvider)
 

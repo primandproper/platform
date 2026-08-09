@@ -51,9 +51,8 @@ type Message struct {
 // every Enqueue takes the caller's executor, so one Writer serves every
 // transaction in the process.
 type Writer struct {
-	clock  clock.Clock
-	o11y   observability.Observer
-	logger logging.Logger
+	clock clock.Clock
+	o11y  observability.Observer
 
 	// marshaler is pinned to JSON rather than configurable. The Relay hands
 	// these bytes to the publisher inside a json.RawMessage, so any other
@@ -64,6 +63,10 @@ type Writer struct {
 
 	enqueuedCounter metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read w.o11y.Logger() for the logger this writer actually uses; this one may
+	// be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
@@ -111,8 +114,7 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 	}
 
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
-	w.logger = w.o11y.Logger()
-	w.marshaler = encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(w.logger), encoding.WithTracerProvider(w.tracerProvider))
+	w.marshaler = encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(w.o11y.Logger()), encoding.WithTracerProvider(w.tracerProvider))
 
 	mp := metrics.EnsureMetricsProvider(w.metricsProvider)
 

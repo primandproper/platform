@@ -50,10 +50,13 @@ type sqlStore struct {
 	client database.Client
 	tables *tables
 	o11y   observability.Observer
-	logger logging.Logger
 
 	mintConflictCounter metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read s.o11y.Logger() for the logger this store actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
@@ -97,7 +100,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 	}
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
-	s.logger = s.o11y.Logger()
 
 	// One counter, and it is the one nothing above this layer can see: two
 	// replicas minting a key for the same subject at the same time. The loser

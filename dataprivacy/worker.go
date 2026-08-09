@@ -94,7 +94,6 @@ type Worker struct {
 	registry *Registry
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 	uploader uploads.UploadManager
 	notifier Notifier
 	recorder audit.Recorder
@@ -119,6 +118,10 @@ type Worker struct {
 	collectHist       metrics.Float64Histogram
 	artifactHist      metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read w.o11y.Logger() for the logger this worker actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -187,7 +190,6 @@ func NewWorker(
 	}
 
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
-	w.logger = w.o11y.Logger()
 
 	if err := w.buildInstruments(); err != nil {
 		return nil, err
@@ -293,7 +295,7 @@ func (w *Worker) cycle(ctx context.Context) {
 	claimed, err := w.store.Claim(ctx, now, w.cfg.BatchSize, now.Add(w.cfg.LeaseDuration))
 	if err != nil {
 		w.claimErrCounter.Add(ctx, 1)
-		w.logger.Error("claiming dataprivacy requests", err)
+		w.o11y.Logger().Error("claiming dataprivacy requests", err)
 
 		return
 	}
@@ -490,7 +492,7 @@ func (w *Worker) collect(ctx context.Context, req *Request) (*Document, error) {
 			if err != nil {
 				failures[key] = truncateError(err)
 				w.sectionErrCounter.Add(ctx, 1, sectionAttr(key))
-				w.logger.WithValues(map[string]any{
+				w.o11y.Logger().WithValues(map[string]any{
 					requestIDKey: req.ID,
 					sectionKey:   key,
 				}).Error("collecting dataprivacy export section", err)
@@ -832,7 +834,7 @@ func (w *Worker) recordFailure(ctx context.Context, req *Request, cause error) {
 
 	nextAttempt := w.clock.Now().UTC().Add(w.backoffFor(req.Attempts))
 
-	logger := w.logger.WithValues(map[string]any{
+	logger := w.o11y.Logger().WithValues(map[string]any{
 		requestIDKey:   req.ID,
 		requestTypeKey: string(req.Type),
 		subjectIDKey:   req.Subject.ID,
@@ -881,7 +883,7 @@ func (w *Worker) notify(ctx context.Context, req *Request) {
 
 	if err := w.notifier.Notify(ctx, notification); err != nil {
 		w.notifyErrCounter.Add(ctx, 1, requestTypeAttr(req.Type))
-		w.logger.WithValue(requestIDKey, req.ID).Error("notifying dataprivacy request subject", err)
+		w.o11y.Logger().WithValue(requestIDKey, req.ID).Error("notifying dataprivacy request subject", err)
 	}
 }
 

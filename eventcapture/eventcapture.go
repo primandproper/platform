@@ -8,7 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v10/clock"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
@@ -53,7 +52,6 @@ type Recorder[E any] struct {
 	events          chan E
 	sink            Sink
 	o11y            observability.Observer
-	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	stop            chan struct{}

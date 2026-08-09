@@ -131,7 +131,6 @@ type Scheduler struct {
 	locker distributedlock.Locker
 	clock  clock.Clock
 	o11y   observability.Observer
-	logger logging.Logger
 
 	// location is cfg.Timezone resolved once, and is handed to the schedules of
 	// registered jobs that did not settle their own zone.
@@ -151,6 +150,10 @@ type Scheduler struct {
 	overrunCounter      metrics.Int64Counter
 	latencyHist         metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read s.o11y.Logger() for the logger this scheduler actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -210,7 +213,6 @@ func NewScheduler(ctx context.Context, cfg *SchedulerConfig, locker distributedl
 	s.location = location
 
 	s.o11y = observability.NewObserver(schedulerServiceName, s.logger, s.tracerProvider)
-	s.logger = s.o11y.Logger()
 
 	if err := s.buildInstruments(); err != nil {
 		return nil, err
@@ -322,7 +324,7 @@ func (s *Scheduler) Run() {
 		go s.runJob(ctx, job)
 	}
 
-	s.logger.WithValue("job_count", len(scheduled)).Info("job scheduler started")
+	s.o11y.Logger().WithValue("job_count", len(scheduled)).Info("job scheduler started")
 
 	<-s.stop
 	s.wg.Wait()
@@ -420,7 +422,7 @@ func (s *Scheduler) runScheduled(ctx context.Context, job *Job) {
 			// left to wait for and the goroutine has to end somewhere; it is
 			// logged because the job going quiet is otherwise indistinguishable
 			// from the job never being due.
-			s.logger.WithValue(jobNameKey, job.Name).
+			s.o11y.Logger().WithValue(jobNameKey, job.Name).
 				WithValue(jobScheduleKey, describeSchedule(job.Schedule)).
 				Error("job will not fire again and is no longer scheduled", nil)
 
