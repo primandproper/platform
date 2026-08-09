@@ -16,16 +16,18 @@ about when a session ends.
 
 # What it cannot do
 
-cache.Cache has no conditional write, so Update reads before it writes rather
-than writing only if the record is still there. That check is what stops a
-request which loaded a session just before sign-out from writing it back
-afterwards — but between the read and the write the record can still be removed,
-so the window is narrowed to two adjacent round trips instead of closed. Rename
-has the same shape: the new identifier is written and the old one deleted, with
-no transaction spanning the two.
+Update is safe against a concurrent sign-out: it goes through
+cache.SetIfPresent, so the write and the check that the record still exists are
+one operation, and a request that loaded a session just before sign-out cannot
+write it back afterwards.
 
-Where a sign-out has to be enforceable rather than very-nearly enforceable, or
-where flushing the cache must not sign everybody out, use sessions/database.
+Rename is not. It writes the new identifier and deletes the old one, and no
+conditional write spans two keys — that needs a transaction, which is what
+sessions/database has and this does not. A sign-out landing mid-renewal can
+therefore still leave the renewed session alive.
+
+Where renewal has to be atomic, or where flushing the cache must not sign
+everybody out, use sessions/database.
 
 # Choosing the cache
 
