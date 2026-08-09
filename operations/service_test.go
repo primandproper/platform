@@ -55,8 +55,6 @@ func newTestService(t *testing.T, store Store, registry *Registry) *service {
 		registry: registry,
 		o11y:     observability.NewObserverForTest("operations_test"),
 	}
-	s.logger = s.o11y.Logger()
-
 	mp := metrics.EnsureMetricsProvider(nil)
 
 	var err error

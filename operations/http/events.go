@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	nethttp "net/http"
 
 	httpx "github.com/primandproper/platform-go/v10/errors/http"
@@ -26,21 +25,39 @@ const (
 	EventError = "error"
 )
 
-// mountEvents registers the server-sent-events endpoint, if there is a Watcher
-// to serve it.
+// watchOperationID is the OpenAPI operation ID of the event stream. It is named
+// once and used twice — in the document and in the Route MountEvents returns —
+// because those two are the same endpoint and a client generated from one is
+// pointed at it by the other.
+const watchOperationID = "watch_operation_events"
+
+// MountEvents registers the server-sent-events endpoint, if there is a Watcher
+// to serve it, and returns nil if there is not.
 //
 // Without one the route is not registered at all. A subscription endpoint with
 // nothing behind it would accept the connection, hold it open, and say nothing
 // forever — which a client cannot distinguish from an operation that is taking a
 // long time, and which is therefore worse than a 404.
-func (h *Handlers) mountEvents(r *routing.Router) {
+//
+// The Route comes back hand-built rather than from routing.Get, because this
+// endpoint goes on the Backend directly — see stream for why — and the untyped
+// registration has no operation to return.
+func (h *Handlers) MountEvents(r *routing.Router) *routing.Route {
 	if h.watcher == nil {
-		return
+		return nil
 	}
 
-	r.Handle(nethttp.MethodGet, h.eventsPattern(), nethttp.HandlerFunc(h.stream))
+	pattern := h.eventsPattern()
+
+	r.Handle(nethttp.MethodGet, pattern, nethttp.HandlerFunc(h.stream))
 
 	h.describeStream(r)
+
+	return &routing.Route{
+		Method:      nethttp.MethodGet,
+		Path:        pattern,
+		OperationID: watchOperationID,
+	}
 }
 
 // stream upgrades the connection and pushes a snapshot for every change until
@@ -63,7 +80,7 @@ func (h *Handlers) stream(res nethttp.ResponseWriter, req *nethttp.Request) {
 	// that opens and immediately closes.
 	if _, err := h.read(ctx, id); err != nil {
 		status, body := httpx.ToAPIResponse(err)
-		writeJSON(res, span, status, body)
+		h.writeRefusal(ctx, res, span, status, body)
 
 		return
 	}
@@ -74,7 +91,7 @@ func (h *Handlers) stream(res nethttp.ResponseWriter, req *nethttp.Request) {
 	snapshots, err := h.watcher.Watch(ctx, id)
 	if err != nil {
 		status, body := httpx.ToAPIResponse(err)
-		writeJSON(res, span, status, body)
+		h.writeRefusal(ctx, res, span, status, body)
 
 		return
 	}
@@ -124,7 +141,7 @@ func (h *Handlers) pump(
 				return
 			}
 
-			payload, err := json.Marshal(op)
+			payload, err := h.codec.Marshal(ctx, op)
 			if err != nil {
 				// Reported to the client rather than only logged. A stream that
 				// simply stopped would look to a client exactly like an
@@ -157,7 +174,7 @@ func (h *Handlers) sendError(
 	stream eventstream.EventStream,
 	message string,
 ) {
-	payload, err := json.Marshal(map[string]string{"message": message})
+	payload, err := h.codec.Marshal(ctx, map[string]string{"message": message})
 	if err != nil {
 		return
 	}
@@ -167,23 +184,32 @@ func (h *Handlers) sendError(
 	}
 }
 
-// writeJSON writes a pre-upgrade response — the refusals that happen before the
-// connection becomes a stream, and the only responses from this endpoint that
-// are ordinary HTTP rather than frames.
-func writeJSON(res nethttp.ResponseWriter, span observability.Operation, status int, body any) {
-	encoded, err := json.Marshal(body)
+// writeRefusal writes a pre-upgrade response — the refusals that happen before
+// the connection becomes a stream, and the only responses from this endpoint
+// that are ordinary HTTP rather than frames.
+//
+// The content type is read off the codec rather than written out, so the header
+// cannot claim one encoding while the body is in another.
+func (h *Handlers) writeRefusal(
+	ctx context.Context,
+	res nethttp.ResponseWriter,
+	span observability.Operation,
+	status int,
+	body any,
+) {
+	encoded, err := h.codec.Marshal(ctx, body)
 	if err != nil {
 		nethttp.Error(res, "could not encode the response", nethttp.StatusInternalServerError)
 
 		return
 	}
 
-	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Type", h.codec.ContentType())
 	res.WriteHeader(status)
 
-	// The body is JSON this package encoded from the platform's own error
-	// envelope, served under an explicit application/json content type. There is
-	// no HTML context for it to escape into.
+	// The body is the platform's own error envelope, encoded by the platform's
+	// own codec and served under the content type that codec names. There is no
+	// HTML context for it to escape into.
 	//nolint:gosec // G705: see above.
 	if _, err = res.Write(encoded); err != nil {
 		span.Acknowledge(err, "writing operation stream refusal")
@@ -211,7 +237,7 @@ func (h *Handlers) describeStream(r *routing.Router) {
 
 	op := openapi3.Operation{
 		Tags:        h.tags,
-		ID:          new("watch_operation_events"),
+		ID:          new(watchOperationID),
 		Summary:     new("Watch a long-running operation"),
 		Description: &description,
 	}

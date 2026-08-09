@@ -128,8 +128,6 @@ func newTestWorker(t *testing.T, store Store, registry *Registry) *Worker {
 		registry: registry,
 		o11y:     observability.NewObserverForTest("operations_worker_test"),
 	}
-	w.logger = w.o11y.Logger()
-
 	must.NoError(t, w.buildInstruments(metrics.EnsureMetricsProvider(nil)))
 
 	return w

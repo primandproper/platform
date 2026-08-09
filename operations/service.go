@@ -9,7 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v10/filtering"
 	"github.com/primandproper/platform-go/v10/identifiers"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/workqueue"
 
@@ -25,7 +24,6 @@ type service struct {
 	queue    *workqueue.Queue[string]
 	registry *Registry
 	o11y     observability.Observer
-	logger   logging.Logger
 
 	startedCounter   metrics.Int64Counter
 	cancelledCounter metrics.Int64Counter
@@ -94,7 +92,6 @@ func NewService(
 		registry: registry,
 		o11y:     observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}
-	s.logger = s.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
@@ -200,7 +197,7 @@ func (s *service) start(
 		return nil, span.Error(err, "starting operation")
 	}
 
-	encoded, err := bound.encode(request)
+	encoded, err := bound.encode(ctx, request)
 	if err != nil {
 		return nil, span.Error(err, "encoding operation request")
 	}
@@ -277,7 +274,7 @@ func (s *service) enqueue(ctx context.Context, op *Operation, o *startOptions) {
 		Delay:    o.delay,
 	})
 	if err != nil {
-		s.logger.WithValue(operationIDKey, op.ID).
+		s.o11y.Logger().WithValue(operationIDKey, op.ID).
 			Error("enqueuing operation; it will be recovered by the sweep", err)
 	}
 }
@@ -362,7 +359,7 @@ func (s *service) Recover(ctx context.Context) (int, error) {
 	// every cycle means processes are dying between Start's two writes, and that
 	// is worth somebody noticing rather than leaving to a dashboard nobody has
 	// built yet.
-	s.logger.WithValue(recoveredKey, len(entries)).Info("re-enqueued stranded operations")
+	s.o11y.Logger().WithValue(recoveredKey, len(entries)).Info("re-enqueued stranded operations")
 
 	return len(entries), nil
 }

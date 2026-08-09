@@ -8,7 +8,6 @@ import (
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/panicking"
 	"github.com/primandproper/platform-go/v10/workqueue"
@@ -36,7 +35,6 @@ type Worker struct {
 	queue    *workqueue.Queue[string]
 	registry *Registry
 	o11y     observability.Observer
-	logger   logging.Logger
 
 	claimedCounter   metrics.Int64Counter
 	succeededCounter metrics.Int64Counter
@@ -91,8 +89,6 @@ func NewWorker(
 		registry: registry,
 		o11y:     observability.NewObserver(workerName, o.logger, o.tracerProvider),
 	}
-	w.logger = w.o11y.Logger()
-
 	if err := w.buildInstruments(metrics.EnsureMetricsProvider(o.metricsProvider)); err != nil {
 		return nil, err
 	}
@@ -161,7 +157,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		if err != nil {
 			// Not returned: see the method comment. The wait below is what keeps
 			// a persistent failure from becoming a spin.
-			w.logger.Error("running claimed operations", err)
+			w.o11y.Logger().Error("running claimed operations", err)
 		}
 
 		if err == nil && claimed >= w.cfg.Batch {
@@ -335,7 +331,7 @@ func (w *Worker) run(
 		}
 	}
 
-	rep := newReporter(w.store, w.logger, op, w.cfg.Lease, w.cfg.ProgressInterval)
+	rep := newReporter(w.store, w.o11y.Logger(), op, w.cfg.Lease, w.cfg.ProgressInterval)
 
 	go rep.run(ctx)
 
@@ -497,7 +493,7 @@ func errorOf(opErr *Error) error {
 // against a terminal row — a duplicate claim rather than a duplicate execution.
 func (w *Worker) complete(ctx context.Context, key string) {
 	if err := w.queue.Complete(ctx, key); err != nil {
-		w.logger.WithValue(operationIDKey, key).Error("completing operation queue item", err)
+		w.o11y.Logger().WithValue(operationIDKey, key).Error("completing operation queue item", err)
 	}
 }
 

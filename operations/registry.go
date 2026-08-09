@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/primandproper/platform-go/v10/encoding"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
@@ -100,7 +101,7 @@ type runner struct {
 
 	// encode renders a caller's request value, and reports a value of the wrong
 	// type rather than encoding it into something that will decode to a zero.
-	encode func(request any) (json.RawMessage, error)
+	encode func(ctx context.Context, request any) (json.RawMessage, error)
 
 	countLabel  string
 	maxAttempts int
@@ -146,6 +147,15 @@ func Register[Req any](r *Registry, def Definition[Req]) error {
 
 	requestType := reflect.TypeFor[Req]()
 
+	// One codec per registered kind, built here rather than per call, and shared
+	// by both closures below so a request is decoded by exactly what encoded it.
+	//
+	// JSON, because the request is stored in a JSONB column and read by hand in
+	// a psql session more often than anyone plans for. The values still move as
+	// json.RawMessage for that reason: it is the column's type, not a choice
+	// about how this package turns a value into bytes.
+	codec := encoding.NewClientEncoder(encoding.ContentTypeJSON)
+
 	bound := &runner{
 		countLabel:  def.CountLabel,
 		maxAttempts: max(def.MaxAttempts, 0),
@@ -158,7 +168,7 @@ func Register[Req any](r *Registry, def Definition[Req]) error {
 			// requiring a caller to Start it with an empty struct encoded to
 			// "{}" would be ceremony over a distinction nothing observes.
 			if len(request) > 0 {
-				if err := json.Unmarshal(request, &req); err != nil {
+				if err := codec.Unmarshal(ctx, request, &req); err != nil {
 					return nil, Unretryable(WithCode(CodeInternal,
 						platformerrors.Wrapf(err, "decoding %q operation request", def.Kind)))
 				}
@@ -167,7 +177,7 @@ func Register[Req any](r *Registry, def Definition[Req]) error {
 			return def.Run(ctx, req, rep)
 		},
 
-		encode: func(request any) (json.RawMessage, error) {
+		encode: func(ctx context.Context, request any) (json.RawMessage, error) {
 			if request == nil {
 				return nil, nil
 			}
@@ -183,7 +193,7 @@ func Register[Req any](r *Registry, def Definition[Req]) error {
 					"kind %q takes %s, got %s", def.Kind, requestType, got)
 			}
 
-			encoded, err := json.Marshal(request)
+			encoded, err := codec.Marshal(ctx, request)
 			if err != nil {
 				return nil, platformerrors.Wrapf(err, "encoding %q operation request", def.Kind)
 			}

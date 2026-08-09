@@ -7,7 +7,6 @@ import (
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 )
 
@@ -138,9 +137,8 @@ func (s *subscription) finish() {
 //
 // A Watcher owns a goroutine and must be Closed.
 type Watcher struct {
-	store  Store
-	o11y   observability.Observer
-	logger logging.Logger
+	store Store
+	o11y  observability.Observer
 
 	subscriptions map[string][]*subscription
 
@@ -190,8 +188,6 @@ func NewWatcher(ctx context.Context, cfg *WatcherConfig, store Store, opts ...Wa
 		done:          make(chan struct{}),
 		o11y:          observability.NewObserver(watcherName, o.logger, o.tracerProvider),
 	}
-	w.logger = w.o11y.Logger()
-
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	var err error
@@ -391,7 +387,7 @@ func (w *Watcher) sweep(ctx context.Context) {
 		// Logged and slept off. A watcher that returned here would stop
 		// delivering to every subscriber because one read failed, and the next
 		// tick is a couple of seconds away.
-		w.logger.Error("re-reading watched operations", err)
+		w.o11y.Logger().Error("re-reading watched operations", err)
 
 		return
 	}

@@ -404,6 +404,76 @@ func TestHandlers_openAPI(T *testing.T) {
 	test.StrContains(T, document, "text/event-stream")
 }
 
+// The point of the per-route methods: a consumer mounts the reads and leaves the
+// cancellation off, and gets a router that serves the first and 405s the second.
+func TestHandlers_selectiveMount(T *testing.T) {
+	T.Parallel()
+
+	op := &operations.Operation{ID: "op1", Owner: "u1", State: operations.StateRunning}
+
+	backend := chi.NewBackend(&chi.Config{ServiceName: "operations-test"})
+	router := routing.New(backend, encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON))
+
+	handlers, err := New(serviceReturning(op), WithOwnerResolver(resolverFromContext))
+	must.NoError(T, err)
+
+	getRoute := handlers.MountGet(router)
+	handlers.MountList(router)
+
+	must.NoError(T, router.Err())
+
+	// The Route describes what was registered, so a consumer building links or
+	// tests off it is pointed at the endpoint that exists.
+	must.NotNil(T, getRoute)
+	test.EqOp(T, nethttp.MethodGet, getRoute.Method)
+	test.StrContains(T, getRoute.Path, "/operations/")
+
+	handler := asOwner("u1", router.Handler())
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
+	test.EqOp(T, nethttp.StatusOK, res.Code)
+
+	// Never mounted, so nothing answers it.
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodPost, "/operations/op1/cancel", nethttp.NoBody))
+	test.Greater(T, 399, res.Code)
+}
+
+// Mount reports every route it registered, and omits the stream when there is no
+// Watcher to serve it.
+func TestHandlers_mountReportsRoutes(T *testing.T) {
+	T.Parallel()
+
+	op := &operations.Operation{ID: "op1", Owner: "u1", State: operations.StateRunning}
+
+	backend := chi.NewBackend(&chi.Config{ServiceName: "operations-test"})
+	router := routing.New(backend, encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON))
+
+	handlers, err := New(serviceReturning(op), WithOwnerResolver(resolverFromContext))
+	must.NoError(T, err)
+
+	test.SliceLen(T, 3, handlers.Mount(router))
+	must.NoError(T, router.Err())
+
+	// And with one, the stream is the fourth.
+	watched := routing.New(
+		chi.NewBackend(&chi.Config{ServiceName: "operations-test"}),
+		encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON),
+	)
+
+	watcher, err := operations.NewWatcher(T.Context(), &operations.WatcherConfig{}, stubStore{})
+	must.NoError(T, err)
+
+	withWatcher, err := New(serviceReturning(op),
+		WithOwnerResolver(resolverFromContext),
+		WithWatcher(watcher))
+	must.NoError(T, err)
+
+	test.SliceLen(T, 4, withWatcher.Mount(watched))
+	must.NoError(T, watched.Err())
+}
+
 // Without a Watcher the endpoint is not registered at all: one that accepted a
 // connection and then said nothing forever is worse than a 404, because a client
 // cannot tell it from an operation that is taking a long time.

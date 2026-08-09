@@ -36,11 +36,14 @@ type sqlStore struct {
 	client database.Client
 	tables *tables
 	o11y   observability.Observer
-	logger logging.Logger
 
 	guardMissCounter metrics.Int64Counter
 	notifyCounter    metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read s.o11y.Logger() for the logger this store actually uses; this one may
+	// be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -85,7 +88,6 @@ func NewSQLStore(client database.Client, opts ...StoreOption) (Store, error) {
 	}
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
-	s.logger = s.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
@@ -499,7 +501,7 @@ func (s *sqlStore) notify(ctx context.Context) {
 
 	if _, err := s.client.Writer().ExecContext(ctx, dialect.PostgresNotifyStatement, s.notifyChannel); err != nil {
 		s.notifyCounter.Add(ctx, 1)
-		s.logger.WithValue(notifyKey, s.notifyChannel).Error("notifying operations channel", err)
+		s.o11y.Logger().WithValue(notifyKey, s.notifyChannel).Error("notifying operations channel", err)
 	}
 }
 

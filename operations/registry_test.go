@@ -151,7 +151,7 @@ func TestRunner_encode(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		encoded, encodeErr := bound.encode(exportRequest{SubjectID: "s1", Format: "json"})
+		encoded, encodeErr := bound.encode(t.Context(), exportRequest{SubjectID: "s1", Format: "json"})
 
 		must.NoError(t, encodeErr)
 		test.StrContains(t, string(encoded), `"subjectID":"s1"`)
@@ -162,7 +162,7 @@ func TestRunner_encode(T *testing.T) {
 
 		// "No request" and "an empty request" are the same thing, and both are
 		// a legitimate way to start work that takes no parameters.
-		encoded, encodeErr := bound.encode(nil)
+		encoded, encodeErr := bound.encode(t.Context(), nil)
 
 		must.NoError(t, encodeErr)
 		test.SliceEmpty(t, encoded)
@@ -179,7 +179,7 @@ func TestRunner_encode(T *testing.T) {
 			SubjectID string `json:"subjectID"`
 		}
 
-		_, encodeErr := bound.encode(otherRequest{SubjectID: "s1"})
+		_, encodeErr := bound.encode(t.Context(), otherRequest{SubjectID: "s1"})
 
 		must.ErrorIs(t, encodeErr, ErrRequestTypeMismatch)
 		test.StrContains(t, encodeErr.Error(), "export")
@@ -188,7 +188,7 @@ func TestRunner_encode(T *testing.T) {
 	T.Run("refuses a request past the size limit", func(t *testing.T) {
 		t.Parallel()
 
-		_, encodeErr := bound.encode(exportRequest{SubjectID: strings.Repeat("s", MaxRequestBytes+1)})
+		_, encodeErr := bound.encode(t.Context(), exportRequest{SubjectID: strings.Repeat("s", MaxRequestBytes+1)})
 
 		test.ErrorIs(t, encodeErr, ErrRequestTooLarge)
 	})

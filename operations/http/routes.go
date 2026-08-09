@@ -6,6 +6,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/primandproper/platform-go/v10/encoding"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/filtering"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -70,6 +71,18 @@ type Handlers struct {
 	resolver OwnerResolver
 	o11y     observability.Observer
 
+	// codec renders every body this package writes by hand: the event-stream
+	// frames, and the refusals that happen before the upgrade. The typed
+	// endpoints do not go through it — routing encodes those, under its own
+	// content negotiation.
+	//
+	// It is pinned to JSON rather than negotiated, and built once rather than
+	// per frame. Pinned because the stream's contract is JSON snapshots and the
+	// SSE framing is a text protocol: a client reading text/event-stream has no
+	// way to be told the payloads inside it are now CBOR, and the binary content
+	// types would not survive the newline normalization the framing does.
+	codec encoding.Codec
+
 	basePath string
 	tags     []string
 }
@@ -95,6 +108,7 @@ func New(svc operations.Service, opts ...Option) (*Handlers, error) {
 		svc:      svc,
 		watcher:  o.watcher,
 		resolver: o.resolver,
+		codec:    encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(o.logger), encoding.WithTracerProvider(o.tracerProvider)),
 		basePath: o.basePath,
 		tags:     o.tags,
 		o11y:     observability.NewObserver(o11yName, o.logger, o.tracerProvider),
@@ -126,13 +140,35 @@ type listInput struct {
 	Limit  uint16 `query:"limit"`
 }
 
-// Mount registers every route on the router.
+// Mount registers every route on the router, and is the shorthand for wanting
+// the whole surface — which is the ordinary case.
 //
-// Call it before MountOpenAPI, so the spec the router serves includes these.
-func (h *Handlers) Mount(r *routing.Router) {
-	base := h.basePath
+// A consumer that wants some of it calls the individual methods instead. There
+// is no route list to hand back for somebody else to mount: routing.Route is
+// what registration returns, not a value that can be registered, and it cannot
+// become one — routing.Get is generic over the handler's input and output types,
+// so the typed registration has to happen where those types are still known,
+// which is here. Splitting Mount is what that constraint allows.
+//
+// Call whichever of these you call before MountOpenAPI, so the spec the router
+// serves includes them.
+func (h *Handlers) Mount(r *routing.Router) []*routing.Route {
+	routes := []*routing.Route{
+		h.MountGet(r),
+		h.MountList(r),
+		h.MountCancel(r),
+	}
 
-	routing.Get(r, path.Join(base, "/{"+pathParam+"}"), h.get,
+	if events := h.MountEvents(r); events != nil {
+		routes = append(routes, events)
+	}
+
+	return routes
+}
+
+// MountGet registers the read of one operation.
+func (h *Handlers) MountGet(r *routing.Router) *routing.Route {
+	return routing.Get(r, path.Join(h.basePath, "/{"+pathParam+"}"), h.get,
 		routing.WithSummary("Read a long-running operation"),
 		routing.WithDescription(
 			"Returns the operation as it currently stands. `done` is false while it may still "+
@@ -141,13 +177,23 @@ func (h *Handlers) Mount(r *routing.Router) {
 		),
 		routing.WithTags(h.tags...),
 	)
+}
 
-	routing.Get(r, base, h.list,
+// MountList registers the collection read.
+func (h *Handlers) MountList(r *routing.Router) *routing.Route {
+	return routing.Get(r, h.basePath, h.list,
 		routing.WithSummary("List long-running operations"),
 		routing.WithTags(h.tags...),
 	)
+}
 
-	routing.Post(r, path.Join(base, "/{"+pathParam+"}", CancelSuffix), h.cancel,
+// MountCancel registers the cancellation endpoint.
+//
+// It is the one route here that is not a read, and the most likely thing for a
+// consumer to leave off: a deployment whose operations should run to completion
+// mounts the other three and does not offer this one.
+func (h *Handlers) MountCancel(r *routing.Router) *routing.Route {
+	return routing.Post(r, path.Join(h.basePath, "/{"+pathParam+"}", CancelSuffix), h.cancel,
 		routing.WithSummary("Request cancellation of a long-running operation"),
 		routing.WithDescription(
 			"Cancellation is a request rather than a kill. An operation that has not started is "+
@@ -162,8 +208,6 @@ func (h *Handlers) Mount(r *routing.Router) {
 		routing.WithResponseStatus(nethttp.StatusOK),
 		routing.WithTags(h.tags...),
 	)
-
-	h.mountEvents(r)
 }
 
 func (h *Handlers) get(ctx context.Context, in getInput) (*operations.Operation, error) {

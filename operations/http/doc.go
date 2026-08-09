@@ -15,6 +15,17 @@ over server-sent events and be pushed each state it reaches.
 
 	handlers.Mount(router)
 
+Mount registers all four routes. A consumer that wants some of them calls
+MountGet, MountList, MountCancel, and MountEvents itself and leaves out the rest
+— a deployment whose operations should run to completion is the usual reason,
+and it mounts everything but MountCancel.
+
+What this package cannot do is hand back a list of routes for somebody else to
+register. routing.Route is what a registration returns rather than something that
+can be registered, and routing.Get is generic over its handler's input and output
+types, so the typed registration has to happen where those types are still known.
+That is here, and per-route methods are the whole of the choice that leaves.
+
 # Starting is not here, and that is deliberate
 
 There is no generic POST that starts an operation, and there will not be one.
