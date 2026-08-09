@@ -29,16 +29,13 @@ func (l *countingLoader) load(_ context.Context, key string) (*example, error) {
 }
 
 // newLoadingCache builds a read-through cache over loader.
-func newLoadingCache(t *testing.T, loader Loader[example], opts ...Option) *inMemoryCacheImpl[example] {
+func newLoadingCache(t *testing.T, loader Loader[example], opts ...Option) *Cache[example] {
 	t.Helper()
 
 	c, err := NewInMemoryCache[example](time.Hour, append([]Option{WithLoader(loader)}, opts...)...)
 	must.NoError(t, err)
 
-	impl, ok := c.(*inMemoryCacheImpl[example])
-	must.True(t, ok)
-
-	return impl
+	return c
 }
 
 func TestWithLoader(T *testing.T) {
@@ -111,11 +108,9 @@ func TestWithLoader(T *testing.T) {
 		c, err := NewInMemoryCache[example](time.Hour, WithLoader[example](nil))
 		must.NoError(t, err)
 
-		impl, ok := c.(*inMemoryCacheImpl[example])
-		must.True(t, ok)
-		test.Nil(t, impl.loader)
+		test.Nil(t, c.loader)
 
-		_, err = impl.Get(t.Context(), exampleKey)
+		_, err = c.Get(t.Context(), exampleKey)
 		test.ErrorIs(t, err, cache.ErrNotFound)
 	})
 

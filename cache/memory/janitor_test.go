@@ -22,7 +22,7 @@ import (
 // what it discovers, so observing through the public surface would report the
 // lazy path's work as the janitor's and the tests would pass with no janitor at
 // all.
-func size[T any](c *inMemoryCacheImpl[T]) int {
+func size[T any](c *Cache[T]) int {
 	c.cacheMu.RLock()
 	defer c.cacheMu.RUnlock()
 
@@ -37,7 +37,7 @@ func size[T any](c *inMemoryCacheImpl[T]) int {
 // hang the test rather than leak silently. That makes "the goroutine stops when
 // its context does" a property every one of these tests exercises, not just the
 // one that names it.
-func newJanitorCache(t *testing.T, defaultExpiry, interval time.Duration) *inMemoryCacheImpl[example] {
+func newJanitorCache(t *testing.T, defaultExpiry, interval time.Duration) *Cache[example] {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -46,10 +46,7 @@ func newJanitorCache(t *testing.T, defaultExpiry, interval time.Duration) *inMem
 	c, err := NewInMemoryCache[example](defaultExpiry, WithJanitor(ctx, interval))
 	must.NoError(t, err)
 
-	impl, ok := c.(*inMemoryCacheImpl[example])
-	must.True(t, ok)
-
-	return impl
+	return c
 }
 
 func TestWithJanitor(T *testing.T) {
@@ -166,10 +163,7 @@ func TestWithJanitor(T *testing.T) {
 			c, err := NewInMemoryCache[example](time.Minute, WithJanitor(ctx, time.Second))
 			must.NoError(t, err)
 
-			impl, ok := c.(*inMemoryCacheImpl[example])
-			must.True(t, ok)
-
-			must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: t.Name()}))
+			must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
 			cancel()
 
 			// Let the janitor observe the cancellation and exit. Nothing is
@@ -178,7 +172,7 @@ func TestWithJanitor(T *testing.T) {
 			synctest.Wait()
 			time.Sleep(time.Hour)
 
-			test.EqOp(t, 1, size(impl))
+			test.EqOp(t, 1, size(c))
 		})
 	})
 
@@ -192,14 +186,12 @@ func TestWithJanitor(T *testing.T) {
 				c, err := NewInMemoryCache[example](time.Minute, WithJanitor(ctx, interval))
 				must.NoError(t, err)
 
-				impl, ok := c.(*inMemoryCacheImpl[example])
-				must.True(t, ok)
-				test.Nil(t, impl.janitor)
+				test.Nil(t, c.janitor)
 
-				must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: t.Name()}))
+				must.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
 				time.Sleep(time.Hour)
 
-				test.EqOp(t, 1, size(impl))
+				test.EqOp(t, 1, size(c))
 			}
 		})
 	})
@@ -211,9 +203,7 @@ func TestWithJanitor(T *testing.T) {
 		c, err := NewInMemoryCache[example](time.Minute, WithJanitor(nil, time.Second))
 		must.NoError(t, err)
 
-		impl, ok := c.(*inMemoryCacheImpl[example])
-		must.True(t, ok)
-		test.Nil(t, impl.janitor)
+		test.Nil(t, c.janitor)
 	})
 
 	T.Run("a nil option is ignored", func(t *testing.T) {

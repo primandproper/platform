@@ -24,8 +24,12 @@ const (
 
 // PgxAccess is an optional capability exposing the native pgx connection pools, for
 // callers that need driver features the database/sql surface cannot express —
-// CopyFrom bulk loads, pgx.Batch, native array binding, or LISTEN/NOTIFY. Obtain it
-// by asserting on a Client:
+// CopyFrom bulk loads, pgx.Batch, native array binding, or LISTEN/NOTIFY.
+//
+// A caller holding this package's *Client — what NewDatabaseClient returns — needs
+// nothing from this interface: the methods are right there. It is for a caller
+// holding the portable database.Client, who must ask whether the implementation
+// behind it happens to be this one:
 //
 //	native, ok := client.(postgres.PgxAccess)
 //
@@ -68,7 +72,7 @@ var (
 // (e.g. db_sql_latency_milliseconds_bucket in Prometheus). Native pool usage is
 // not yet traced — instrument at the call site, or thread a pgx tracer through
 // here when a consumer needs it.
-func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...Option) (database.Client, error) {
+func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...Option) (*Client, error) {
 	o := newOptions(opts)
 	o11y := observability.NewObserver(tracingName, o.logger, o.tracerProvider)
 

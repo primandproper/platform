@@ -9,10 +9,19 @@ import (
 	"github.com/samber/do/v2"
 )
 
-// RegisterDatabaseClient registers a database.Client with the injector.
-// Prerequisite: database.ClientConfig must be registered (e.g. via databasecfg.RegisterClientConfig).
+// RegisterDatabaseClient registers this implementation under two keys: its own
+// type, *Client, and database.Client. Both resolve to the same client.
+//
+// The concrete key is what lets a caller who has chosen mysql depend on the
+// thing they chose. RawAccess is a pair of methods on *Client, so reaching the
+// *sql.DB handles costs an interface assertion only for a caller who took the
+// portable database.Client instead. The interface key is an alias rather than a
+// second provider, so both callers share one client and one connection pool.
+//
+// Prerequisite: database.ClientConfig must be registered (e.g. via
+// databasecfg.RegisterClientConfig).
 func RegisterDatabaseClient(i do.Injector) {
-	do.Provide(i, func(i do.Injector) (database.Client, error) {
+	do.Provide(i, func(i do.Injector) (*Client, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
@@ -26,4 +35,8 @@ func RegisterDatabaseClient(i do.Injector) {
 			WithMetricsProvider(pillars.MetricsProvider),
 		)
 	})
+
+	// Cannot fail: *Client implements database.Client — the compiler says so at
+	// the top of mysql.go — and the service it aliases was just provided.
+	do.MustAs[*Client, database.Client](i)
 }

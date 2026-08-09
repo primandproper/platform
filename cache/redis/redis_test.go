@@ -40,7 +40,7 @@ func gobEncodeExample(t *testing.T, e *example) string {
 	return buf.String()
 }
 
-func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *circuitbreakingmock.CircuitBreakerMock, *observability.RecordingObserver) {
+func buildTestImpl(t *testing.T) (*Cache[example], *redisClientMock, *circuitbreakingmock.CircuitBreakerMock, *observability.RecordingObserver) {
 	t.Helper()
 
 	mp := metricsnoop.NewMetricsProvider()
@@ -67,7 +67,7 @@ func buildTestImpl(t *testing.T) (*redisCacheImpl[example], *redisClientMock, *c
 	cb := &circuitbreakingmock.CircuitBreakerMock{}
 	obs := observability.NewRecordingObserver()
 
-	return &redisCacheImpl[example]{
+	return &Cache[example]{
 		o11y:             obs,
 		codec:            cache.NewGobCodec[example](),
 		cacheHitCounter:  hitCounter,
@@ -267,7 +267,7 @@ func TestNewRedisCache(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Get(T *testing.T) {
+func Test_Cache_Get(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -288,7 +288,7 @@ func Test_redisCacheImpl_Get(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Get_Unit(T *testing.T) {
+func Test_Cache_Get_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -421,7 +421,7 @@ func Test_redisCacheImpl_Get_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Set(T *testing.T) {
+func Test_Cache_Set(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -438,7 +438,7 @@ func Test_redisCacheImpl_Set(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Set_Unit(T *testing.T) {
+func Test_Cache_Set_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -506,7 +506,7 @@ func Test_redisCacheImpl_Set_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_SetIfPresent(T *testing.T) {
+func Test_Cache_SetIfPresent(T *testing.T) {
 	T.Parallel()
 
 	T.Run("against a real server", func(t *testing.T) {
@@ -538,7 +538,7 @@ func Test_redisCacheImpl_SetIfPresent(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_SetIfPresent_Unit(T *testing.T) {
+func Test_Cache_SetIfPresent_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("issues one SET with the XX flag", func(t *testing.T) {
@@ -643,7 +643,7 @@ func Test_redisCacheImpl_SetIfPresent_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Delete(T *testing.T) {
+func Test_Cache_Delete(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -662,7 +662,7 @@ func Test_redisCacheImpl_Delete(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Delete_Unit(T *testing.T) {
+func Test_Cache_Delete_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -727,7 +727,7 @@ func Test_redisCacheImpl_Delete_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Ping_Unit(T *testing.T) {
+func Test_Cache_Ping_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -763,7 +763,7 @@ func Test_redisCacheImpl_Ping_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_GetMany_Unit(T *testing.T) {
+func Test_Cache_GetMany_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard with hit and miss", func(t *testing.T) {
@@ -894,7 +894,7 @@ func Test_redisCacheImpl_GetMany_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_SetMany_Unit(T *testing.T) {
+func Test_Cache_SetMany_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -1004,7 +1004,7 @@ func Test_redisCacheImpl_SetMany_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_SetMany_GetMany(T *testing.T) {
+func Test_Cache_SetMany_GetMany(T *testing.T) {
 	T.Parallel()
 
 	T.Run("round trip against a real redis", func(t *testing.T) {
@@ -1071,7 +1071,7 @@ func Test_buildRedisClient(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Set_ExpiryOptions_Unit(T *testing.T) {
+func Test_Cache_Set_ExpiryOptions_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("WithExpiry overrides the configured default", func(t *testing.T) {
@@ -1172,14 +1172,14 @@ func (brokenCodec) Encode(*example) ([]byte, error) { return nil, errCodecBroken
 
 func (brokenCodec) Decode([]byte) (*example, error) { return nil, errCodecBroken }
 
-func Test_redisCacheImpl_OpenCircuit_Unit(T *testing.T) {
+func Test_Cache_OpenCircuit_Unit(T *testing.T) {
 	T.Parallel()
 
 	// An open breaker skips the round trip on every write path and says so.
 	// It used to return nil, which reported a write that never happened — and a
 	// dropped Delete reported as success serves the stale value for the rest of
 	// its TTL.
-	openBreaker := func(t *testing.T) (*redisCacheImpl[example], *redisClientMock) {
+	openBreaker := func(t *testing.T) (*Cache[example], *redisClientMock) {
 		t.Helper()
 
 		impl, client, cb, _ := buildTestImpl(t)
@@ -1226,7 +1226,7 @@ func Test_redisCacheImpl_OpenCircuit_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
+func Test_Cache_CodecFailures_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("Get treats a nil decode as a miss", func(t *testing.T) {
@@ -1296,7 +1296,7 @@ func Test_redisCacheImpl_CodecFailures_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
+func Test_Cache_CustomCodec_Unit(T *testing.T) {
 	T.Parallel()
 
 	// Option carries no T, so a codec for another type type-checks. Keeping the
@@ -1325,9 +1325,7 @@ func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		impl, ok := c.(*redisCacheImpl[example])
-		must.True(t, ok)
-		test.EqOp(t, any(nameCodec{}), any(impl.codec))
+		test.EqOp(t, any(nameCodec{}), any(c.codec))
 	})
 
 	T.Run("Set stores the codec's bytes and Get decodes them", func(t *testing.T) {
@@ -1391,7 +1389,7 @@ func Test_redisCacheImpl_CustomCodec_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Namespace_Unit(T *testing.T) {
+func Test_Cache_Namespace_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("keys are namespaced on the wire and bare in results", func(t *testing.T) {
@@ -1429,7 +1427,7 @@ func Test_redisCacheImpl_Namespace_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Deletion_Unit(T *testing.T) {
+func Test_Cache_Deletion_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("DeleteMany issues one DEL with namespaced keys", func(t *testing.T) {
@@ -1524,7 +1522,7 @@ func Test_redisCacheImpl_Deletion_Unit(T *testing.T) {
 	})
 }
 
-func Test_redisCacheImpl_Deletion_Failures_Unit(T *testing.T) {
+func Test_Cache_Deletion_Failures_Unit(T *testing.T) {
 	T.Parallel()
 
 	T.Run("DeleteMany with no keys never reaches the client", func(t *testing.T) {
@@ -1635,7 +1633,7 @@ func TestWithScanPageSize(T *testing.T) {
 	// scanCount drives a one-page prefix deletion and reports the COUNT the
 	// cache actually handed to SCAN, so these assert the option reaches the
 	// wire rather than just landing in a struct field.
-	scanCount := func(t *testing.T, impl *redisCacheImpl[example], client *redisClientMock, cb *circuitbreakingmock.CircuitBreakerMock) int64 {
+	scanCount := func(t *testing.T, impl *Cache[example], client *redisClientMock, cb *circuitbreakingmock.CircuitBreakerMock) int64 {
 		t.Helper()
 
 		ctx := t.Context()
@@ -1697,9 +1695,7 @@ func TestWithScanPageSize(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		impl, ok := c.(*redisCacheImpl[example])
-		must.True(t, ok)
-		test.EqOp(t, int64(64), impl.scanPageSize)
+		test.EqOp(t, int64(64), c.scanPageSize)
 	})
 }
 
@@ -1735,9 +1731,7 @@ func TestWithLogger(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		impl, ok := c.(*redisCacheImpl[example])
-		must.True(t, ok)
-		test.NotNil(t, impl.logger)
+		test.NotNil(t, c.logger)
 	})
 }
 
@@ -1773,9 +1767,7 @@ func TestWithTracerProvider(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		impl, ok := c.(*redisCacheImpl[example])
-		must.True(t, ok)
-		test.NotNil(t, impl.tracerProvider)
+		test.NotNil(t, c.tracerProvider)
 	})
 }
 

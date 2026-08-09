@@ -33,7 +33,11 @@ type SecretGetter interface {
 	Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Secret, error)
 }
 
-type kubernetesSecretSource struct {
+// SecretSource reads secrets from the Kubernetes Secrets API. It is exported,
+// and returned by NewSecretSource, so a caller can depend on this source rather
+// than on the interface every provider shares — and so reason about what this
+// one alone does: reach the API server for a namespaced Secret, per lookup.
+type SecretSource struct {
 	o11y          observability.Observer
 	lookupCounter metrics.Int64Counter
 	errorCounter  metrics.Int64Counter
@@ -43,7 +47,7 @@ type kubernetesSecretSource struct {
 
 // NewSecretSource creates a SecretSource backed by Kubernetes secrets.
 // If client is nil, a new client is created using the kubeconfig path or in-cluster config.
-func NewSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts ...Option) (secrets.SecretSource, error) {
+func NewSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts ...Option) (*SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("kubernetes secret source: config is required")
 	}
@@ -70,7 +74,7 @@ func NewSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts
 	}
 
 	if client != nil {
-		return &kubernetesSecretSource{
+		return &SecretSource{
 			o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 			lookupCounter: lookupCounter,
 			errorCounter:  errorCounter,
@@ -94,7 +98,7 @@ func NewSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts
 		return nil, errors.Wrap(err, "kubernetes secret source: creating kubernetes client")
 	}
 
-	return &kubernetesSecretSource{
+	return &SecretSource{
 		o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 		lookupCounter: lookupCounter,
 		errorCounter:  errorCounter,
@@ -103,7 +107,7 @@ func NewSecretSource(ctx context.Context, cfg *Config, client SecretGetter, opts
 	}, nil
 }
 
-func (k *kubernetesSecretSource) GetSecret(ctx context.Context, name string) (string, error) {
+func (k *SecretSource) GetSecret(ctx context.Context, name string) (string, error) {
 	ctx, op := k.o11y.Begin(ctx)
 	defer op.End()
 
@@ -154,7 +158,7 @@ func (k *kubernetesSecretSource) GetSecret(ctx context.Context, name string) (st
 	return string(data), nil
 }
 
-func (k *kubernetesSecretSource) Close() error {
+func (k *SecretSource) Close() error {
 	return nil
 }
 
@@ -167,5 +171,5 @@ func resolveName(input string) (secretName, key string, err error) {
 	return before, after, nil
 }
 
-// Ensure kubernetesSecretSource implements secrets.SecretSource.
-var _ secrets.SecretSource = (*kubernetesSecretSource)(nil)
+// Ensure SecretSource implements secrets.SecretSource.
+var _ secrets.SecretSource = (*SecretSource)(nil)

@@ -671,12 +671,9 @@ func TestWorkQueue_ClaimFillsItsBatchAroundLockedRows(T *testing.T) {
 
 		must.NoError(T, q.EnqueueKeys(ctx, keys...))
 
-		raw, ok := client.(database.RawAccess)
-		must.True(T, ok)
-
 		// A competing claimer, frozen mid-claim: three rows locked and not yet
 		// released.
-		tx, err := raw.WriteDB().BeginTx(ctx, nil)
+		tx, err := client.WriteDB().BeginTx(ctx, nil)
 		must.NoError(T, err)
 		T.Cleanup(func() { _ = tx.Rollback() })
 

@@ -26,7 +26,11 @@ type GetParameterAPI interface {
 	GetParameter(ctx context.Context, params *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
 }
 
-type ssmSecretSource struct {
+// SecretSource reads secrets from AWS SSM Parameter Store. It is exported, and
+// returned by NewSecretSource, so a caller can depend on this source rather
+// than on the interface every provider shares — and so reason about what this
+// one alone does: reach one parameter prefix over the network, per lookup.
+type SecretSource struct {
 	o11y          observability.Observer
 	lookupCounter metrics.Int64Counter
 	errorCounter  metrics.Int64Counter
@@ -37,7 +41,7 @@ type ssmSecretSource struct {
 
 // NewSecretSource creates a SecretSource backed by AWS SSM Parameter Store.
 // If client is nil, a new client is created using the default credential chain.
-func NewSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, opts ...Option) (secrets.SecretSource, error) {
+func NewSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, opts ...Option) (*SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("ssm secret source: config is required")
 	}
@@ -64,7 +68,7 @@ func NewSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, o
 	}
 
 	if client != nil {
-		return &ssmSecretSource{
+		return &SecretSource{
 			o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 			lookupCounter: lookupCounter,
 			errorCounter:  errorCounter,
@@ -79,7 +83,7 @@ func NewSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, o
 		return nil, errors.Wrap(loadErr, "ssm secret source: loading aws config")
 	}
 
-	return &ssmSecretSource{
+	return &SecretSource{
 		o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 		lookupCounter: lookupCounter,
 		errorCounter:  errorCounter,
@@ -89,7 +93,7 @@ func NewSecretSource(ctx context.Context, cfg *Config, client GetParameterAPI, o
 	}, nil
 }
 
-func (s *ssmSecretSource) GetSecret(ctx context.Context, name string) (string, error) {
+func (s *SecretSource) GetSecret(ctx context.Context, name string) (string, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -134,11 +138,11 @@ func (s *ssmSecretSource) GetSecret(ctx context.Context, name string) (string, e
 	return aws.ToString(output.Parameter.Value), nil
 }
 
-func (s *ssmSecretSource) Close() error {
+func (s *SecretSource) Close() error {
 	return nil
 }
 
-func (s *ssmSecretSource) resolveName(name string) string {
+func (s *SecretSource) resolveName(name string) string {
 	if strings.HasPrefix(name, "/") {
 		return name
 	}
@@ -151,5 +155,5 @@ func (s *ssmSecretSource) resolveName(name string) string {
 	return name
 }
 
-// Ensure ssmSecretSource implements secrets.SecretSource.
-var _ secrets.SecretSource = (*ssmSecretSource)(nil)
+// Ensure SecretSource implements secrets.SecretSource.
+var _ secrets.SecretSource = (*SecretSource)(nil)

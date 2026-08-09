@@ -17,7 +17,7 @@ import (
 const serviceName = "in_memory_distributed_lock"
 
 var (
-	_ distributedlock.Locker = (*locker)(nil)
+	_ distributedlock.Locker = (*Locker)(nil)
 	_ distributedlock.Lock   = (*lock)(nil)
 )
 
@@ -27,11 +27,11 @@ type held struct {
 	token   string
 }
 
-// locker is a single-process distributedlock.Locker. It uses a sync.Mutex over an
+// Locker is a single-process distributedlock.Locker. It uses a sync.Mutex over an
 // in-memory map and lazy expiration on each Acquire — there is no background
 // goroutine. It is intended for tests, single-replica deployments, and as a clear
 // reference implementation of the lock semantics.
-type locker struct {
+type Locker struct {
 	o11y           observability.Observer
 	held           map[string]*held
 	acquireCounter metrics.Int64Counter
@@ -43,7 +43,7 @@ type locker struct {
 }
 
 // NewLocker constructs a new in-memory Locker.
-func NewLocker(opts ...Option) (distributedlock.Locker, error) {
+func NewLocker(opts ...Option) (*Locker, error) {
 	o := newOptions(opts)
 
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
@@ -69,7 +69,7 @@ func NewLocker(opts ...Option) (distributedlock.Locker, error) {
 		return nil, errors.Wrap(err, "creating latency histogram")
 	}
 
-	return &locker{
+	return &Locker{
 		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		held:           make(map[string]*held),
 		acquireCounter: acquireCounter,
@@ -81,7 +81,7 @@ func NewLocker(opts ...Option) (distributedlock.Locker, error) {
 }
 
 // Acquire implements distributedlock.Locker.
-func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
+func (l *Locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
 	ctx, op := l.o11y.Begin(ctx,
 		observability.WithValue(keys.LockKeyKey, key),
 		observability.WithValue(keys.LockTTLKey, ttl),
@@ -132,13 +132,13 @@ func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 }
 
 // Ping implements distributedlock.Locker.
-func (*locker) Ping(_ context.Context) error {
+func (*Locker) Ping(_ context.Context) error {
 	return nil
 }
 
 // Close drops all currently held locks. After Close, outstanding handles will see
 // ErrLockNotHeld on Release/Refresh.
-func (l *locker) Close() error {
+func (l *Locker) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.held = make(map[string]*held)
@@ -146,8 +146,8 @@ func (l *locker) Close() error {
 }
 
 // release is the internal release path called by lock handles. It runs under the
-// locker's mutex and verifies the token still owns the key.
-func (l *locker) release(ctx context.Context, key, token string) error {
+// Locker's mutex and verifies the token still owns the key.
+func (l *Locker) release(ctx context.Context, key, token string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -161,8 +161,8 @@ func (l *locker) release(ctx context.Context, key, token string) error {
 }
 
 // refresh is the internal refresh path called by lock handles. It runs under the
-// locker's mutex and verifies the token still owns the key before extending TTL.
-func (l *locker) refresh(ctx context.Context, key, token string, ttl time.Duration) error {
+// Locker's mutex and verifies the token still owns the key before extending TTL.
+func (l *Locker) refresh(ctx context.Context, key, token string, ttl time.Duration) error {
 	if ttl <= 0 {
 		return distributedlock.ErrInvalidTTL
 	}
@@ -180,7 +180,7 @@ func (l *locker) refresh(ctx context.Context, key, token string, ttl time.Durati
 
 // lock is the in-memory Lock handle.
 type lock struct {
-	locker *locker
+	locker *Locker
 	key    string
 	token  string
 	ttl    time.Duration

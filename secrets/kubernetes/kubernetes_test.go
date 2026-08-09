@@ -118,21 +118,18 @@ func TestNewSecretSource(T *testing.T) {
 	})
 }
 
-// newRecordingSource builds a kubernetesSecretSource with a RecordingObserver swapped in, so a
+// newRecordingSource builds a SecretSource with a RecordingObserver swapped in, so a
 // test can both drive GetSecret and assert which identifiers it observed.
-func newRecordingSource(t *testing.T, cfg *Config, client SecretGetter) (*kubernetesSecretSource, *observability.RecordingObserver) {
+func newRecordingSource(t *testing.T, cfg *Config, client SecretGetter) (*SecretSource, *observability.RecordingObserver) {
 	t.Helper()
 
 	source, err := NewSecretSource(context.Background(), cfg, client)
 	must.NoError(t, err)
 
-	k, ok := source.(*kubernetesSecretSource)
-	must.True(t, ok)
-
 	obs := observability.NewRecordingObserver()
-	k.o11y = obs
+	source.o11y = obs
 
-	return k, obs
+	return source, obs
 }
 
 func TestKubernetesSecretSource_GetSecret(T *testing.T) {

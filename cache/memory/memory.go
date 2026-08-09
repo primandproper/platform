@@ -21,7 +21,7 @@ import (
 
 const name = "in_memory_cache"
 
-var _ cache.Cache[struct{}] = (*inMemoryCacheImpl[struct{}])(nil)
+var _ cache.Cache[struct{}] = (*Cache[struct{}])(nil)
 
 // entry is one stored value; a zero expiresAt means the entry never expires.
 type entry[T any] struct {
@@ -29,7 +29,13 @@ type entry[T any] struct {
 	value     *T
 }
 
-type inMemoryCacheImpl[T any] struct {
+// Cache is the in-memory cache.Cache implementation. It is exported, and
+// returned by NewInMemoryCache, so a caller can depend on this cache rather
+// than on the interface every provider shares: nothing here is unreachable
+// without a network, nothing returns cache.ErrUnavailable, and Flush needs no
+// namespace, so code built against this type need not carry the handling those
+// possibilities force on code built against cache.Cache.
+type Cache[T any] struct {
 	o11y                      observability.Observer
 	logger                    logging.Logger
 	tracerProvider            tracing.Provider
@@ -68,7 +74,7 @@ type inMemoryCacheImpl[T any] struct {
 // The cache answers only for what has been written to it unless it is given a
 // WithLoader, which makes reads compute what they miss and collapses concurrent
 // misses on a key into one computation.
-func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (cache.Cache[T], error) {
+func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (*Cache[T], error) {
 	o := &options{}
 	for _, opt := range opts {
 		if opt != nil {
@@ -83,7 +89,7 @@ func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (cache
 		return nil, errors.Wrapf(ErrUnknownEvictionPolicy, "eviction policy %d", uint8(o.evictionPolicy))
 	}
 
-	i := &inMemoryCacheImpl[T]{
+	i := &Cache[T]{
 		clock:           clock.NewClock(),
 		cache:           make(map[string]entry[T]),
 		defaultExpiry:   defaultExpiry,
@@ -180,12 +186,12 @@ func NewInMemoryCache[T any](defaultExpiry time.Duration, opts ...Option) (cache
 
 // expired reports whether e's deadline has passed. A zero deadline never
 // expires.
-func (i *inMemoryCacheImpl[T]) expired(e entry[T]) bool {
+func (i *Cache[T]) expired(e entry[T]) bool {
 	return !e.expiresAt.IsZero() && !i.clock.Now().Before(e.expiresAt)
 }
 
 // newEntry stamps value with the deadline resolved from this call's options.
-func (i *inMemoryCacheImpl[T]) newEntry(value *T, opts []cache.WriteOption) entry[T] {
+func (i *Cache[T]) newEntry(value *T, opts []cache.WriteOption) entry[T] {
 	e := entry[T]{value: value}
 	if expiry := cache.EffectiveExpiry(i.defaultExpiry, opts...); expiry > 0 {
 		e.expiresAt = i.clock.Now().Add(expiry)
@@ -203,7 +209,7 @@ func (i *inMemoryCacheImpl[T]) newEntry(value *T, opts []cache.WriteOption) entr
 // overwrites before any read discovers it is replaced silently and never
 // counted: that is a write, not a TTL loss, and folding the two together would
 // make the counter useless for the question it exists to answer.
-func (i *inMemoryCacheImpl[T]) evictExpired(ctx context.Context, key string) {
+func (i *Cache[T]) evictExpired(ctx context.Context, key string) {
 	i.cacheMu.Lock()
 	defer i.cacheMu.Unlock()
 
@@ -222,7 +228,7 @@ func (i *inMemoryCacheImpl[T]) evictExpired(ctx context.Context, key string) {
 // read lock, which is why the promotion lives behind evictionIndex.recordRead
 // rather than an `if` here: the one method is a no-op exactly when the lock
 // held cannot support it.
-func (i *inMemoryCacheImpl[T]) readLocked(fn func()) {
+func (i *Cache[T]) readLocked(fn func()) {
 	if i.index.recordsReads() {
 		i.cacheMu.Lock()
 		defer i.cacheMu.Unlock()
@@ -235,7 +241,7 @@ func (i *inMemoryCacheImpl[T]) readLocked(fn func()) {
 }
 
 // lookup reads one key, recording the read if the policy tracks them.
-func (i *inMemoryCacheImpl[T]) lookup(key string) (entry[T], bool) {
+func (i *Cache[T]) lookup(key string) (entry[T], bool) {
 	var (
 		e  entry[T]
 		ok bool
@@ -250,7 +256,7 @@ func (i *inMemoryCacheImpl[T]) lookup(key string) (entry[T], bool) {
 	return e, ok
 }
 
-func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
+func (i *Cache[T]) Get(ctx context.Context, key string) (*T, error) {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
@@ -282,7 +288,7 @@ func (i *inMemoryCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) 
 	return nil, cache.ErrNotFound
 }
 
-func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
+func (i *Cache[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
@@ -316,7 +322,7 @@ func (i *inMemoryCacheImpl[T]) Set(ctx context.Context, key string, value *T, op
 // means the deadline, not the bookkeeping. It is left for the sweeper rather
 // than evicted here: this is a write path, and counting a TTL loss discovered
 // by a refused write would mix it in with the ones reads discover.
-func (i *inMemoryCacheImpl[T]) SetIfPresent(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
+func (i *Cache[T]) SetIfPresent(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
@@ -347,7 +353,7 @@ func (i *inMemoryCacheImpl[T]) SetIfPresent(ctx context.Context, key string, val
 	return nil
 }
 
-func (i *inMemoryCacheImpl[T]) Delete(ctx context.Context, key string) error {
+func (i *Cache[T]) Delete(ctx context.Context, key string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
@@ -366,7 +372,7 @@ func (i *inMemoryCacheImpl[T]) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-func (i *inMemoryCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
+func (i *Cache[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
 
@@ -419,7 +425,7 @@ func (i *inMemoryCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[
 	return out, nil
 }
 
-func (i *inMemoryCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
+func (i *Cache[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(items)))
 	defer op.End()
 
@@ -453,7 +459,7 @@ func (i *inMemoryCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T,
 }
 
 // DeleteMany removes the given keys; keys that are absent are not an error.
-func (i *inMemoryCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error {
+func (i *Cache[T]) DeleteMany(ctx context.Context, keys []string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
 
@@ -479,7 +485,7 @@ func (i *inMemoryCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) er
 // DeleteByPrefix removes every entry whose key begins with prefix. The memory
 // provider wholly owns its map, so an empty prefix is permitted and clears
 // everything.
-func (i *inMemoryCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
+func (i *Cache[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("prefix", prefix))
 	defer op.End()
 
@@ -504,7 +510,7 @@ func (i *inMemoryCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string
 
 // Flush removes every entry. The memory provider wholly owns its store, so no
 // namespace is needed.
-func (i *inMemoryCacheImpl[T]) Flush(ctx context.Context) error {
+func (i *Cache[T]) Flush(ctx context.Context) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
@@ -523,7 +529,7 @@ func (i *inMemoryCacheImpl[T]) Flush(ctx context.Context) error {
 	return nil
 }
 
-func (i *inMemoryCacheImpl[T]) Ping(ctx context.Context) error {
+func (i *Cache[T]) Ping(ctx context.Context) error {
 	_, op := i.o11y.Begin(ctx)
 	defer op.End()
 
@@ -536,7 +542,7 @@ func (i *inMemoryCacheImpl[T]) Ping(ctx context.Context) error {
 // map is unreachable once the cache is, and Close is not an eviction.
 //
 // It is safe to call more than once.
-func (i *inMemoryCacheImpl[T]) Close() error {
+func (i *Cache[T]) Close() error {
 	if i.stopJanitor != nil {
 		i.stopJanitor()
 	}

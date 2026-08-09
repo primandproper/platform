@@ -42,7 +42,7 @@ func WithJanitor(ctx context.Context, interval time.Duration) Option {
 //
 // Ticks come from the injected clock, so inside a testing/synctest bubble the
 // janitor advances with the bubble's fake time and needs no test double.
-func (i *inMemoryCacheImpl[T]) sweepEvery(ctx context.Context, interval time.Duration) {
+func (i *Cache[T]) sweepEvery(ctx context.Context, interval time.Duration) {
 	ticker := i.clock.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -69,7 +69,7 @@ func (i *inMemoryCacheImpl[T]) sweepEvery(ctx context.Context, interval time.Dur
 // Eviction accounting is left to evictExpired, so a swept entry counts exactly
 // like one discovered by a read: both are TTL losses, and the counter means the
 // same thing whether or not a janitor is running.
-func (i *inMemoryCacheImpl[T]) sweep(ctx context.Context) {
+func (i *Cache[T]) sweep(ctx context.Context) {
 	var expired []string
 
 	i.cacheMu.RLock()
