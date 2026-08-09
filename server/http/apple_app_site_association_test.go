@@ -132,6 +132,23 @@ func TestAppleAppSiteAssociationConfig_ValidateWithContext(T *testing.T) {
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
+	T.Run("reports the malformed field by name, in the words a consumer reads", func(t *testing.T) {
+		t.Parallel()
+
+		// These strings reach whoever is reading a validation failure at
+		// startup, so they are part of the interface and not an implementation
+		// detail of how the rule is spelled.
+		err := (&AppleAppSiteAssociationConfig{TeamID: "nope", BundleID: "com.example.ios"}).
+			ValidateWithContext(t.Context())
+		must.Error(t, err)
+		test.EqOp(t, "teamID: must be ten alphanumeric characters.", err.Error())
+
+		err = (&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com example ios"}).
+			ValidateWithContext(t.Context())
+		must.Error(t, err)
+		test.EqOp(t, "bundleID: must be a bundle identifier.", err.Error())
+	})
+
 	T.Run("a period is an ordinary bundle ID character, not a segment separator", func(t *testing.T) {
 		t.Parallel()
 

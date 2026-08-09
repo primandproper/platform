@@ -3,6 +3,7 @@ package idempotency
 import (
 	"context"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/identifiers"
 )
 
@@ -62,20 +63,30 @@ func ValidateKey(key Key, maxLength int) error {
 		return ErrKeyRequired
 	}
 
+	// The length is checked before the characters, and the order is part of the
+	// contract: a key that is both over-length and malformed reports the
+	// length, because shortening it is the thing the client has to do first.
+	// The bound also cannot move into keyCharset — it arrives per call, from
+	// the manager's configuration.
 	if maxLength > 0 && len(key) > maxLength {
 		return ErrKeyTooLong
 	}
 
-	for i := range len(key) {
-		// Bytes, not runes: the check is over the wire representation, and
-		// anything outside this range is rejected whole rather than decoded.
-		if c := key[i]; c <= ' ' || c > '~' {
-			return ErrKeyInvalid
-		}
+	if !keyCharset.ContainsAll(string(key)) {
+		return ErrKeyInvalid
 	}
 
 	return nil
 }
+
+// keyCharset is printable ASCII with the space excluded. Bytes, not runes: the
+// check is over the wire representation, and anything outside this range is
+// rejected whole rather than decoded.
+//
+// A Set rather than a charset.Checker because that is all this rule is — the
+// emptiness and length answers above are this package's own, and each has its
+// own sentinel.
+var keyCharset = charset.VisibleASCII
 
 // keyContextKey types the context value, so nothing else can collide with it.
 type keyContextKey struct{}

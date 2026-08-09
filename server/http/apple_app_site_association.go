@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"regexp"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/encoding"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 
@@ -25,12 +26,29 @@ const AppleAppSiteAssociationPath = "/.well-known/apple-app-site-association"
 const allPaths = "*"
 
 var (
-	// appleTeamIDPattern matches an Apple Developer Team ID (App ID Prefix), which is
+	// appleTeamID matches an Apple Developer Team ID (App ID Prefix), which is
 	// ten alphanumeric characters.
-	appleTeamIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{10}$`)
-	// appleBundleIDPattern matches an iOS bundle identifier, which Apple restricts to
+	appleTeamID = charset.New(charset.ASCIIAlphanumeric, charset.WithExactLength(10))
+	// appleBundleID matches an iOS bundle identifier, which Apple restricts to
 	// alphanumerics, hyphens, and periods.
-	appleBundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
+	//
+	// The periods are ordinary characters of the set and not segment separators.
+	// Apple constrains which characters may appear and says nothing about how
+	// they are arranged, so reading them as structure would reject "com..example"
+	// — a name that is odd but not one this package was given the authority to
+	// refuse.
+	appleBundleID = charset.New(
+		charset.ASCIIAlphanumeric.Union(charset.Bytes('.', '-')),
+		charset.WithFirst(charset.ASCIIAlphanumeric),
+	)
+)
+
+// The messages these rules render. They are the strings the ozzo Match rules
+// carried before, kept verbatim: they reach a consumer reading a validation
+// failure at startup, and rewording them would be a change nobody asked for.
+var (
+	errAppleTeamID   = platformerrors.New("must be ten alphanumeric characters")
+	errAppleBundleID = platformerrors.New("must be a bundle identifier")
 )
 
 type (
@@ -91,8 +109,8 @@ var _ validation.ValidatableWithContext = (*AppleAppSiteAssociationConfig)(nil)
 // skips validation serves nothing rather than a document iOS would reject.
 func (cfg *AppleAppSiteAssociationConfig) Enabled() bool {
 	return cfg != nil &&
-		appleTeamIDPattern.MatchString(cfg.TeamID) &&
-		appleBundleIDPattern.MatchString(cfg.BundleID)
+		appleTeamID.Valid(cfg.TeamID) &&
+		appleBundleID.Valid(cfg.BundleID)
 }
 
 // ValidateWithContext validates an AppleAppSiteAssociationConfig struct. An entirely
@@ -110,8 +128,23 @@ func (cfg *AppleAppSiteAssociationConfig) ValidateWithContext(ctx context.Contex
 	return validation.ValidateStructWithContext(
 		ctx,
 		cfg,
-		validation.Field(&cfg.TeamID, validation.Required, validation.Match(appleTeamIDPattern).Error("must be ten alphanumeric characters")),
-		validation.Field(&cfg.BundleID, validation.Required, validation.Match(appleBundleIDPattern).Error("must be a bundle identifier")),
+		// Required runs first and answers for an empty value, which is what kept
+		// the rules these replaced from having to: ozzo's Match treats empty as
+		// valid, and charset does not.
+		validation.Field(&cfg.TeamID, validation.Required, validation.By(func(any) error {
+			if !appleTeamID.Valid(cfg.TeamID) {
+				return errAppleTeamID
+			}
+
+			return nil
+		})),
+		validation.Field(&cfg.BundleID, validation.Required, validation.By(func(any) error {
+			if !appleBundleID.Valid(cfg.BundleID) {
+				return errAppleBundleID
+			}
+
+			return nil
+		})),
 		validation.Field(&cfg.Paths, validation.Each(validation.Required.Error("must not be blank"))),
 	)
 }
