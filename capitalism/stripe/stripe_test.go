@@ -12,6 +12,7 @@ import (
 	encodingmock "github.com/primandproper/platform-go/v10/encoding/mock"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/random"
+	"github.com/primandproper/platform-go/v10/webhooks/inbound"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -55,10 +56,106 @@ func TestNewPaymentManager(T *testing.T) {
 	})
 }
 
-func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
+// withWebhookSecret points pm's verifier at secret, standing in for the construction the
+// config path does.
+func withWebhookSecret(t *testing.T, pm *stripePaymentManager, secret string) {
+	t.Helper()
+
+	verifier, err := inbound.NewStripeVerifier(secret)
+	must.NoError(t, err)
+
+	pm.verifier = verifier
+}
+
+// signedWebhookRequest builds a request carrying event, signed under secret.
+//
+// The header comes from stripe-go's own test helper rather than from this module, which is
+// what makes these tests a cross-check: the SDK signs, webhooks/inbound verifies, and the two
+// agreeing is the evidence that the scheme extracted onto the seam is the same scheme.
+//
+// It must be called before any test swaps pm's encoder for a mock — the bytes that get signed
+// are the ones the real encoder produces.
+func signedWebhookRequest(t *testing.T, pm *stripePaymentManager, secret string, event *stripe.Event) *http.Request {
+	t.Helper()
+
+	ctx := t.Context()
+
+	signed := webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
+		Payload:   pm.encoderDecoder.MustEncode(ctx, event),
+		Secret:    secret,
+		Timestamp: time.Now(),
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader(signed.Payload))
+	must.NoError(t, err)
+	req.Header.Set(inbound.StripeSignatureHeader, signed.Header)
+
+	return req
+}
+
+// newWebhookManager builds a manager whose verifier trusts a freshly generated secret, and
+// returns both.
+func newWebhookManager(t *testing.T) (pm *stripePaymentManager, secret string) {
+	t.Helper()
+
+	secret, err := random.GenerateHexEncodedString(t.Context(), 32)
+	must.NoError(t, err)
+	must.NotEq(t, "", secret)
+
+	pmIface, err := NewPaymentManager(&Config{}, nil)
+	must.NoError(t, err)
+
+	manager, ok := pmIface.(*stripePaymentManager)
+	must.True(t, ok)
+
+	withWebhookSecret(t, manager, secret)
+
+	return manager, secret
+}
+
+// paymentIntentEvent is a payment_intent.succeeded event carrying intent.
+func paymentIntentEvent(t *testing.T, id string, intent *stripe.PaymentIntent) *stripe.Event {
+	t.Helper()
+
+	raw, err := json.Marshal(intent)
+	must.NoError(t, err)
+
+	return &stripe.Event{
+		APIVersion: stripeAPIVersion,
+		ID:         id,
+		Data:       &stripe.EventData{Raw: json.RawMessage(raw)},
+		Type:       stripe.EventTypePaymentIntentSucceeded,
+	}
+}
+
+func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newWebhookManager(t)
+
+		req := signedWebhookRequest(t, pm, secret, paymentIntentEvent(t, "evt_123", &stripe.PaymentIntent{
+			ID:       "pi_123",
+			Amount:   4200,
+			Currency: "usd",
+		}))
+
+		obs := observability.NewRecordingObserver()
+		pm.o11y = obs
+
+		test.NoError(t, pm.HandleEventWebhook(req))
+
+		obs.ObservedOperationWithData(t, map[string]any{
+			"stripe.event_id":          "evt_123",
+			"stripe.payment_intent_id": "pi_123",
+			"stripe.amount":            int64(4200),
+			"stripe.currency":          stripe.Currency("usd"),
+		})
+	})
+
+	T.Run("with no webhook secret configured", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -66,232 +163,147 @@ func Test_stripePaymentManager_HandleSubscriptionEventWebhook(T *testing.T) {
 		must.NoError(t, err)
 		pm := pmIface.(*stripePaymentManager)
 
-		paymentIntent := &stripe.PaymentIntent{
-			APIResource:      stripe.APIResource{},
-			Amount:           0,
-			AmountCapturable: 0,
-			AmountDetails:    nil,
-			AmountReceived:   0,
-			Customer:         nil,
-			ID:               "",
-			Invoice:          nil,
-			Metadata:         nil,
-			PaymentMethod:    nil,
-			ReceiptEmail:     "",
-			Status:           "",
-		}
-
-		rawMessage, err := json.Marshal(paymentIntent)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader([]byte(`{}`)))
 		must.NoError(t, err)
-		must.NotNil(t, rawMessage)
 
-		exampleInput := &stripe.Event{
-			APIResource: stripe.APIResource{},
-			Account:     "",
-			APIVersion:  stripeAPIVersion,
-			Created:     0,
-			Data: &stripe.EventData{
-				Object:             nil,
-				PreviousAttributes: nil,
-				Raw:                json.RawMessage(rawMessage),
-			},
-			ID:              "",
-			Livemode:        false,
-			Object:          "",
-			PendingWebhooks: 0,
-			Request:         nil,
-			Type:            stripe.EventTypePaymentIntentSucceeded,
-		}
-		jsonBytes := pm.encoderDecoder.MustEncode(ctx, exampleInput)
-
-		secret, err := random.GenerateHexEncodedString(ctx, 32)
-		must.NoError(t, err)
-		must.NotEq(t, "", secret)
-		pm.webhookSecret = secret
-
-		now := time.Now()
-		signedPayload := webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
-			Payload:   jsonBytes,
-			Secret:    secret,
-			Timestamp: now,
-		})
-
-		event, err := webhook.ConstructEvent(signedPayload.Payload, signedPayload.Header, signedPayload.Secret)
-		must.NoError(t, err)
-		eventPayload := pm.encoderDecoder.MustEncode(ctx, event)
-
-		encoderDecoder := &encodingmock.ServerEncoderDecoderMock{
-			DecodeBytesFunc: func(_ context.Context, _ []byte, _ any) error {
-				return nil
-			},
-		}
-		pm.encoderDecoder = encoderDecoder
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader(eventPayload))
-		must.NoError(t, err)
-		must.NotNil(t, req)
-		req.Header.Set(stripeSignatureHeaderKey, signedPayload.Header)
-
-		err = pm.HandleEventWebhook(req)
-		test.NoError(t, err)
-
-		test.SliceLen(t, 1, encoderDecoder.DecodeBytesCalls())
+		// Not a signature error: the endpoint is misconfigured, and reporting it as a bad
+		// signature would blame Stripe for a missing environment variable.
+		test.ErrorIs(t, pm.HandleEventWebhook(req), ErrWebhookSecretNotConfigured)
 	})
 
 	T.Run("with error reading body", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewPaymentManager(&Config{}, nil)
-		must.NoError(t, err)
-		pm := pmIface.(*stripePaymentManager)
+		pm, _ := newWebhookManager(t)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", http.NoBody)
 		must.NoError(t, err)
 		must.NotNil(t, req)
 		req.Body = &errReader{}
 
-		err = pm.HandleEventWebhook(req)
-		test.Error(t, err)
+		test.Error(t, pm.HandleEventWebhook(req))
 	})
 
 	T.Run("with oversized body", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewPaymentManager(&Config{}, nil)
-		must.NoError(t, err)
-		pm := pmIface.(*stripePaymentManager)
-		pm.webhookSecret = "some_secret"
+		pm, _ := newWebhookManager(t)
 
 		// A body larger than the cap must be rejected rather than read into memory.
-		oversized := bytes.Repeat([]byte("a"), (64<<10)+1)
+		oversized := bytes.Repeat([]byte("a"), maxWebhookBodyBytes+1)
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader(oversized))
 		must.NoError(t, err)
-		req.Header.Set(stripeSignatureHeaderKey, "sig")
+		req.Header.Set(inbound.StripeSignatureHeader, "sig")
 
-		err = pm.HandleEventWebhook(req)
-		test.Error(t, err)
+		test.Error(t, pm.HandleEventWebhook(req))
 	})
 
 	T.Run("with invalid signature", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewPaymentManager(&Config{}, nil)
-		must.NoError(t, err)
-		pm := pmIface.(*stripePaymentManager)
-		pm.webhookSecret = "some_secret"
+		pm, _ := newWebhookManager(t)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader([]byte(`{}`)))
 		must.NoError(t, err)
 		must.NotNil(t, req)
-		req.Header.Set(stripeSignatureHeaderKey, "invalid_signature")
+		req.Header.Set(inbound.StripeSignatureHeader, "invalid_signature")
 
-		err = pm.HandleEventWebhook(req)
-		test.Error(t, err)
+		test.ErrorIs(t, pm.HandleEventWebhook(req), inbound.ErrInvalidSignature)
 	})
 
-	T.Run("with decode error for payment intent", func(t *testing.T) {
+	T.Run("with a signature minted under a different secret", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		pmIface, err := NewPaymentManager(&Config{}, nil)
-		must.NoError(t, err)
-		pm := pmIface.(*stripePaymentManager)
+		pm, _ := newWebhookManager(t)
 
-		paymentIntent := &stripe.PaymentIntent{}
-
-		rawMessage, err := json.Marshal(paymentIntent)
+		other, err := random.GenerateHexEncodedString(t.Context(), 32)
 		must.NoError(t, err)
 
-		exampleInput := &stripe.Event{
-			APIVersion: stripeAPIVersion,
-			Data: &stripe.EventData{
-				Raw: json.RawMessage(rawMessage),
-			},
-			Type: stripe.EventTypePaymentIntentSucceeded,
-		}
-		jsonBytes := pm.encoderDecoder.MustEncode(ctx, exampleInput)
+		req := signedWebhookRequest(t, pm, other, paymentIntentEvent(t, "evt_123", &stripe.PaymentIntent{}))
 
-		secret, err := random.GenerateHexEncodedString(ctx, 32)
-		must.NoError(t, err)
-		must.NotEq(t, "", secret)
-		pm.webhookSecret = secret
+		test.ErrorIs(t, pm.HandleEventWebhook(req), inbound.ErrInvalidSignature)
+	})
 
-		signedPayload := webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
-			Payload:   jsonBytes,
-			Secret:    secret,
-			Timestamp: time.Now(),
-		})
+	T.Run("with decode error for the event", func(t *testing.T) {
+		t.Parallel()
 
-		event, err := webhook.ConstructEvent(signedPayload.Payload, signedPayload.Header, signedPayload.Secret)
-		must.NoError(t, err)
-		eventPayload := pm.encoderDecoder.MustEncode(ctx, event)
+		pm, secret := newWebhookManager(t)
+
+		req := signedWebhookRequest(t, pm, secret, paymentIntentEvent(t, "evt_123", &stripe.PaymentIntent{}))
 
 		encoderDecoder := &encodingmock.ServerEncoderDecoderMock{
-			DecodeBytesFunc: func(_ context.Context, _ []byte, _ any) error {
+			DecodeBytesFunc: func(context.Context, []byte, any) error {
 				return fmt.Errorf("decode error")
 			},
 		}
 		pm.encoderDecoder = encoderDecoder
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader(eventPayload))
-		must.NoError(t, err)
-		must.NotNil(t, req)
-		req.Header.Set(stripeSignatureHeaderKey, signedPayload.Header)
-
-		err = pm.HandleEventWebhook(req)
-		test.Error(t, err)
-
+		test.Error(t, pm.HandleEventWebhook(req))
 		test.SliceLen(t, 1, encoderDecoder.DecodeBytesCalls())
+	})
+
+	T.Run("with decode error for payment intent", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newWebhookManager(t)
+
+		req := signedWebhookRequest(t, pm, secret, paymentIntentEvent(t, "evt_123", &stripe.PaymentIntent{}))
+
+		// The envelope decodes for real and the nested object fails, which is the only way to
+		// reach the second decode at all: an envelope that decodes to nothing carries no event
+		// type, and the switch falls through to the unhandled branch.
+		passthrough := pm.encoderDecoder
+		encoderDecoder := &encodingmock.ServerEncoderDecoderMock{}
+		encoderDecoder.DecodeBytesFunc = func(ctx context.Context, content []byte, v any) error {
+			if len(encoderDecoder.DecodeBytesCalls()) == 1 {
+				return passthrough.DecodeBytes(ctx, content, v)
+			}
+
+			return fmt.Errorf("decode error")
+		}
+		pm.encoderDecoder = encoderDecoder
+
+		test.Error(t, pm.HandleEventWebhook(req))
+		test.SliceLen(t, 2, encoderDecoder.DecodeBytesCalls())
 	})
 
 	T.Run("with unhandled event type", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		pmIface, err := NewPaymentManager(&Config{}, nil)
-		must.NoError(t, err)
-		pm := pmIface.(*stripePaymentManager)
+		pm, secret := newWebhookManager(t)
+
+		req := signedWebhookRequest(t, pm, secret, &stripe.Event{
+			APIVersion: stripeAPIVersion,
+			Data:       &stripe.EventData{Raw: json.RawMessage(`{}`)},
+			Type:       stripe.EventTypeAccountUpdated,
+		})
 
 		obs := observability.NewRecordingObserver()
 		pm.o11y = obs
 
-		exampleInput := &stripe.Event{
-			APIVersion: stripeAPIVersion,
-			Data: &stripe.EventData{
-				Raw: json.RawMessage(`{}`),
-			},
-			Type: stripe.EventTypeAccountUpdated,
-		}
-		jsonBytes := pm.encoderDecoder.MustEncode(ctx, exampleInput)
-
-		secret, err := random.GenerateHexEncodedString(ctx, 32)
-		must.NoError(t, err)
-		must.NotEq(t, "", secret)
-		pm.webhookSecret = secret
-
-		signedPayload := webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
-			Payload:   jsonBytes,
-			Secret:    secret,
-			Timestamp: time.Now(),
-		})
-
-		event, err := webhook.ConstructEvent(signedPayload.Payload, signedPayload.Header, signedPayload.Secret)
-		must.NoError(t, err)
-		eventPayload := pm.encoderDecoder.MustEncode(ctx, event)
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader(eventPayload))
-		must.NoError(t, err)
-		must.NotNil(t, req)
-		req.Header.Set(stripeSignatureHeaderKey, signedPayload.Header)
-
-		err = pm.HandleEventWebhook(req)
-		test.NoError(t, err)
+		test.NoError(t, pm.HandleEventWebhook(req))
 
 		obs.ObservedOperationWithData(t, map[string]any{
 			"event_type": stripe.EventTypeAccountUpdated,
 		})
+	})
+
+	T.Run("with an event carrying no data object", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newWebhookManager(t)
+
+		// A verified delivery is still whatever its sender chose to send. Nothing here may
+		// dereference the data pointer on trust.
+		req := signedWebhookRequest(t, pm, secret, &stripe.Event{
+			APIVersion: stripeAPIVersion,
+			ID:         "evt_123",
+			Type:       stripe.EventTypeAccountUpdated,
+		})
+
+		test.NoError(t, pm.HandleEventWebhook(req))
 	})
 }

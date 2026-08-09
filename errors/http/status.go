@@ -29,6 +29,13 @@ var codeToStatus = map[ErrorCode]int{
 	// request that will fail identically for the rest of the month.
 	ErrNotEntitled:    http.StatusPaymentRequired, // E118
 	ErrQuotaExhausted: http.StatusPaymentRequired, // E119
+	// 410 rather than 404, because the four ways a link becomes unusable are all
+	// "this existed as a one-time thing and is finished" — spent, expired,
+	// revoked, or aged out of retention. Gone says that and says it is
+	// permanent, which is the one part a client must not get wrong: a 404
+	// invites a retry of a URL that will never work again, and every retry of a
+	// link is somebody clicking it a second time.
+	ErrActionLinkUnusable: http.StatusGone, // E120
 }
 
 // HTTPStatusForCode returns the HTTP status code that corresponds to an ErrorCode.

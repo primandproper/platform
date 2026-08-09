@@ -23,6 +23,7 @@ var (
 		string(ErrInvalidRequestSignature):    ErrInvalidRequestSignature,
 		string(ErrNotEntitled):                ErrNotEntitled,
 		string(ErrQuotaExhausted):             ErrQuotaExhausted,
+		string(ErrActionLinkUnusable):         ErrActionLinkUnusable,
 	}
 )
 
@@ -103,4 +104,16 @@ const (
 	// and "too much this month" does not resolve by waiting at all. Retry-After
 	// is meaningful for one of them and a month long for the other.
 	ErrQuotaExhausted ErrorCode = "E119"
+	// ErrActionLinkUnusable is returned when a magic-login, verification,
+	// reset, or unsubscribe link cannot be redeemed: it was already used, it
+	// expired, it was revoked, or there is no such link.
+	//
+	// One code for all four, because a client has the same thing to do with
+	// every one of them — ask for a new link — and because the four are not a
+	// branch a client should be writing. The distinction that matters is the
+	// one a person reads, and that is in the message, which can be specific
+	// here without disclosing anything: a link token is 256 random bits, so
+	// nobody is ever holding one they were not sent, and there is no guess for
+	// the difference between "expired" and "no such link" to be an oracle for.
+	ErrActionLinkUnusable ErrorCode = "E120"
 )

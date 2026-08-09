@@ -9,15 +9,14 @@ import (
 	"github.com/primandproper/platform-go/v10/encoding"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/webhooks/inbound"
 
 	"github.com/stripe/stripe-go/v81"
 	"github.com/stripe/stripe-go/v81/client"
-	"github.com/stripe/stripe-go/v81/webhook"
 )
 
 const (
-	stripeSignatureHeaderKey = "Stripe-Signature"
-	implementationName       = "stripe_payment_manager"
+	implementationName = "stripe_payment_manager"
 	// maxWebhookBodyBytes bounds how much of a webhook request body we read; Stripe
 	// event payloads are well under this, and it stops a hostile client from forcing
 	// an unbounded allocation on this public endpoint.
@@ -33,6 +32,15 @@ var (
 	// key. The webhook path needs only WebhookSecret, so the key is optional at construction;
 	// outbound operations require it.
 	ErrAPIKeyNotConfigured = platformerrors.New("stripe API key not configured; set the API key to use outbound operations")
+
+	// ErrWebhookSecretNotConfigured indicates an inbound webhook arrived at a manager built
+	// without one. The outbound operations need only APIKey, so the secret is optional at
+	// construction; the webhook path requires it.
+	//
+	// It is its own error because the alternative — verifying under an empty secret — rejects
+	// every delivery with a signature error, which reads as Stripe's fault rather than as a
+	// missing environment variable.
+	ErrWebhookSecretNotConfigured = platformerrors.New("stripe webhook secret not configured; set the webhook secret to receive events")
 )
 
 type (
@@ -66,12 +74,13 @@ type (
 		encoderDecoder encoding.ServerEncoderDecoder
 		client         *client.API
 		handler        EventHandler
-		webhookSecret  string
+		verifier       inbound.Verifier
 	}
 )
 
 // NewPaymentManager builds a Stripe-backed PaymentManager. When cfg.APIKey is set, an API
-// client is initialized for outbound operations; otherwise only the inbound webhook path works.
+// client is initialized for outbound operations; when cfg.WebhookSecret is set, a verifier is
+// built for the inbound webhook path. Either half works without the other.
 // handler is optional and invoked for every verified event.
 func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
 	if cfg == nil {
@@ -81,7 +90,6 @@ func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (capit
 	o := newOptions(opts)
 
 	m := &stripePaymentManager{
-		webhookSecret:  cfg.WebhookSecret,
 		encoderDecoder: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON, encoding.WithLogger(o.logger), encoding.WithTracerProvider(o.tracerProvider)),
 		o11y:           observability.NewObserver(implementationName, o.logger, o.tracerProvider),
 		handler:        handler,
@@ -93,12 +101,36 @@ func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (capit
 		m.client = sc
 	}
 
+	if cfg.WebhookSecret != "" {
+		verifier, err := inbound.NewStripeVerifier(cfg.WebhookSecret)
+		if err != nil {
+			return nil, platformerrors.Wrap(err, "building the stripe webhook verifier")
+		}
+
+		m.verifier = verifier
+	}
+
 	return m, nil
 }
 
+// HandleEventWebhook verifies an inbound Stripe delivery and hands it to the configured
+// handler.
+//
+// Verification runs through webhooks/inbound's Stripe scheme rather than through stripe-go's,
+// so this module has one implementation of the t=…,v1=… format — the same one a service that
+// receives Stripe webhooks without a PaymentManager gets from inbound.NewStripeVerifier.
+//
+// This does the work inline, on the request's goroutine, and so couples Stripe's ack deadline
+// to how long the handler takes. A service whose handler does anything slow should mount an
+// inbound.Receiver instead, which publishes the delivery and acks; this path exists for
+// handlers that are genuinely fast.
 func (s *stripePaymentManager) HandleEventWebhook(req *http.Request) error {
 	ctx, op := s.o11y.Begin(req.Context())
 	defer op.End()
+
+	if s.verifier == nil {
+		return op.Error(ErrWebhookSecretNotConfigured, "verifying webhook signature")
+	}
 
 	// Cap the body of this public, unauthenticated endpoint so a hostile client
 	// can't exhaust memory with an arbitrarily large payload.
@@ -107,18 +139,30 @@ func (s *stripePaymentManager) HandleEventWebhook(req *http.Request) error {
 		return op.Error(err, "reading webhook body")
 	}
 
-	signatureHeader := req.Header.Get(stripeSignatureHeaderKey)
-	event, err := webhook.ConstructEvent(payload, signatureHeader, s.webhookSecret)
-	if err != nil {
+	if err = s.verifier.Verify(ctx, req.Header, payload); err != nil {
 		return op.Error(err, "verifying webhook signature")
+	}
+
+	// Decoded only after verification, so nothing here ever parses bytes Stripe did not send.
+	var event stripe.Event
+	if err = s.encoderDecoder.DecodeBytes(ctx, payload, &event); err != nil {
+		return op.Error(err, "decoding webhook event")
 	}
 
 	op.Set("stripe.event_id", event.ID).Set("stripe.event_type", event.Type)
 
+	// Every Stripe event carries a data object, but the field is a pointer and this is a
+	// public endpoint: a delivery signed under the right secret can still be shaped however
+	// its sender liked, and dereferencing on trust would turn that into a panic.
+	var raw []byte
+	if event.Data != nil {
+		raw = event.Data.Raw
+	}
+
 	switch event.Type {
 	case stripe.EventTypePaymentIntentSucceeded:
 		var paymentIntent stripe.PaymentIntent
-		if decodeErr := s.encoderDecoder.DecodeBytes(ctx, event.Data.Raw, &paymentIntent); decodeErr != nil {
+		if decodeErr := s.encoderDecoder.DecodeBytes(ctx, raw, &paymentIntent); decodeErr != nil {
 			return op.Error(decodeErr, "decoding payment intent")
 		}
 
@@ -136,7 +180,7 @@ func (s *stripePaymentManager) HandleEventWebhook(req *http.Request) error {
 		if err = s.handler(ctx, &Event{
 			ID:      event.ID,
 			Type:    string(event.Type),
-			Payload: event.Data.Raw,
+			Payload: raw,
 		}); err != nil {
 			return op.Error(err, "handling stripe event")
 		}
