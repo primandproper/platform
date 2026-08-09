@@ -122,6 +122,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `distributedlock` | Distributed locking        | memory, postgres, redis |
 | `workqueue`       | Leased work queue (`SKIP LOCKED` claim/complete/expire) | postgres |
 | `timers`          | Durable one-shot scheduling (run once at time T, fleet-wide) | postgres |
+| `operations`      | Long-running operations with durable state, two-tier progress, and streamed updates | postgres |
 | `filtering`       | Query filters / pagination | —                       |
 | `qrcodes`         | QR code generation         | —                       |
 | `artifacts`       | Artifact handling          | —                       |
