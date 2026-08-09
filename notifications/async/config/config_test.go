@@ -55,6 +55,60 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		must.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
+	T.Run("self-hosted providers require a topology declaration", func(t *testing.T) {
+		t.Parallel()
+
+		// The #113 failure: a config that looks complete, loads without
+		// complaint, and silently drops notifications the moment a second
+		// replica exists. Nothing here can count replicas, so the only way to
+		// tell the correct deployment from the broken one is to make the
+		// operator say which it is.
+		for _, provider := range []string{ProviderSSE, ProviderWebSocket} {
+			cfg := &Config{Provider: provider, WebSocket: &asyncws.Config{}}
+
+			test.ErrorIs(t, cfg.ValidateWithContext(t.Context()), ErrTopologyRequired)
+
+			_, err := cfg.NewAsyncNotifier(nil)
+			test.ErrorIs(t, err, ErrTopologyRequired)
+		}
+	})
+
+	T.Run("self-hosted providers refuse a fleet", func(t *testing.T) {
+		t.Parallel()
+
+		for _, provider := range []string{ProviderSSE, ProviderWebSocket} {
+			cfg := &Config{Provider: provider, WebSocket: &asyncws.Config{}, Topology: TopologyFleet}
+
+			test.ErrorIs(t, cfg.ValidateWithContext(t.Context()), ErrFleetUnsupportedForSelfHostedProvider)
+
+			_, err := cfg.NewAsyncNotifier(nil)
+			test.ErrorIs(t, err, ErrFleetUnsupportedForSelfHostedProvider)
+		}
+	})
+
+	T.Run("hosted and noop providers ignore topology", func(t *testing.T) {
+		t.Parallel()
+
+		// A hosted broker holds the connections, so replica count is not
+		// load-bearing and an undeclared topology is not a mistake.
+		for _, topology := range []string{"", TopologySingleReplica, TopologyFleet} {
+			cfg := &Config{Provider: ProviderNoop, Topology: topology}
+			must.NoError(t, cfg.ValidateWithContext(t.Context()))
+
+			actual, err := cfg.NewAsyncNotifier(nil)
+			test.NotNil(t, actual)
+			test.NoError(t, err)
+		}
+	})
+
+	T.Run("with an unrecognized topology", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderSSE, Topology: "two_ish"}
+
+		must.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+
 	T.Run("websocket requires config", func(t *testing.T) {
 		t.Parallel()
 
@@ -75,6 +129,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 		cfg := &Config{
 			Provider:  ProviderWebSocket,
 			WebSocket: &asyncws.Config{},
+			Topology:  TopologySingleReplica,
 		}
 
 		actual, err := cfg.NewAsyncNotifier(nil)
@@ -87,6 +142,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderSSE,
+			Topology: TopologySingleReplica,
 		}
 
 		actual, err := cfg.NewAsyncNotifier(nil)
