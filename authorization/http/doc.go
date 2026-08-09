@@ -39,8 +39,13 @@ denies rather than vacuously allowing when handed an empty permission list.
 
 Cover the rest with a test over your own registrations — assert every registered
 route either carries authorization middleware or appears on an explicit
-public-routes list. The durable fix is an option inside routing, which sees
-every registration and can refuse to start; that belongs there rather than here.
+public-routes list.
+
+That test is the answer and not a stopgap. A registration option inside routing
+would see every route, but it annotates the OpenAPI operation and never sees the
+request, so it could record that a route is guarded without being able to check
+that it is — a route documented as protected while it serves anyone. Something
+has to read the registrations and refuse; a test does, and it can read yours.
 
 # Denials
 

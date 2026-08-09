@@ -10,6 +10,13 @@ import (
 
 // Spec returns the accumulated OpenAPI 3 specification. It reflects every route
 // registered so far; call it after registration (and MountOpenAPI) is complete.
+//
+// It is the live document, not a copy, so it is also where anything the Router
+// does not model gets written. Security is the case that comes up: declare the
+// schemes with SetHTTPBearerTokenSecurity, SetAPIKeySecurity, or
+// SetHTTPBasicSecurity, reach the rest through Components.SecuritySchemesEns(),
+// and put the per-operation requirements on with SetupOperation. Enforcement
+// remains a separate matter, and remains middleware.
 func (r *Router) Spec() *openapi3.Spec {
 	return r.reflector.Spec
 }
