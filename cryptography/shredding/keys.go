@@ -64,7 +64,6 @@ type keys struct {
 	cache       *keyCache
 	broadcaster Broadcaster
 	o11y        observability.Observer
-	logger      logging.Logger
 
 	// newCipher builds the per-subject Cipher. A field so that a test can
 	// observe how often one is built without reaching into the cache, and so
@@ -89,6 +88,10 @@ type keys struct {
 	droppedAttrs metric.MeasurementOption
 	absentAttrs  metric.MeasurementOption
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read k.o11y.Logger() for the logger this Keys actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -131,7 +134,6 @@ func NewKeys(store Store, wrapper encryption.KeyWrapper, opts ...Option) (Keys, 
 	}
 
 	k.o11y = observability.NewObserver(serviceName, k.logger, k.tracerProvider)
-	k.logger = k.o11y.Logger()
 	k.cache = newKeyCache(k.clock, k.ttl, k.maxCached)
 
 	if err := k.buildInstruments(); err != nil {

@@ -66,7 +66,6 @@ type Relay struct {
 	dialect dialect.Dialect
 	clock   clock.Clock
 	o11y    observability.Observer
-	logger  logging.Logger
 
 	publishers map[string]messagequeue.Publisher
 
@@ -89,6 +88,10 @@ type Relay struct {
 	cycleHist          metrics.Float64Histogram
 	publishHist        metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read r.o11y.Logger() for the logger this relay actually uses; this one may
+	// be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -144,7 +147,6 @@ func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, pro
 	}
 
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
-	r.logger = r.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 
@@ -304,7 +306,7 @@ func (r *Relay) cycle(ctx context.Context) {
 	msgs, err := r.claim(ctx)
 	if err != nil {
 		r.claimErrCounter.Add(ctx, 1)
-		r.logger.Error("claiming outbox messages", err)
+		r.o11y.Logger().Error("claiming outbox messages", err)
 
 		return
 	}
@@ -482,7 +484,7 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 	// The partition key matters here more than anywhere else: a keyed message
 	// that is failing is also holding up every later message for that key, so
 	// the log has to say which key is stalled.
-	logger := r.logger.WithValues(map[string]any{
+	logger := r.o11y.Logger().WithValues(map[string]any{
 		messageIDKey:    msg.id,
 		keys.TopicKey:   msg.topic,
 		partitionKeyKey: msg.key,

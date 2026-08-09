@@ -62,7 +62,6 @@ type Worker struct {
 	idempotency *idempotency.Manager[StepResult]
 	clock       clock.Clock
 	o11y        observability.Observer
-	logger      logging.Logger
 
 	stop chan struct{}
 	done chan struct{}
@@ -78,6 +77,10 @@ type Worker struct {
 	stepHist             metrics.Float64Histogram
 	advanceHist          metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read w.o11y.Logger() for the logger this worker actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -140,7 +143,6 @@ func NewWorker(
 	}
 
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
-	w.logger = w.o11y.Logger()
 
 	if err := w.buildInstruments(); err != nil {
 		return nil, err
@@ -252,7 +254,7 @@ func (w *Worker) cycle(ctx context.Context) {
 	claimed, err := w.store.Claim(ctx, now, w.cfg.BatchSize, now.Add(w.cfg.LeaseDuration))
 	if err != nil {
 		w.claimErrCounter.Add(ctx, 1)
-		w.logger.Error("claiming saga instances", err)
+		w.o11y.Logger().Error("claiming saga instances", err)
 
 		return
 	}
@@ -329,7 +331,7 @@ func (w *Worker) advance(ctx context.Context, inst *Record) {
 		// Everything recoverable has already been persisted by drive. What
 		// reaches here is an unwritable database or a lost lock, and the lease
 		// expiring is what makes the instance claimable again.
-		w.logger.WithValues(map[string]any{
+		w.o11y.Logger().WithValues(map[string]any{
 			instanceIDKey: inst.ID,
 			definitionKey: inst.Definition,
 		}).Error("advancing saga instance", err)
@@ -508,7 +510,7 @@ func (w *Worker) failForward(ctx context.Context, def *definition, inst *Record,
 
 	w.compensationsCounter.Add(ctx, 1, definitionAttr(inst.Definition))
 
-	w.logger.WithValues(map[string]any{
+	w.o11y.Logger().WithValues(map[string]any{
 		instanceIDKey: inst.ID,
 		definitionKey: inst.Definition,
 		stepKey:       name,
@@ -636,7 +638,7 @@ func (w *Worker) markStuck(ctx context.Context, inst *Record, cause error) error
 	// Error level, and the only Error this worker logs for a state it wrote on
 	// purpose. Something is half-done, this process has run out of ways to undo
 	// it, and nothing else in the system is going to notice.
-	w.logger.WithValues(map[string]any{
+	w.o11y.Logger().WithValues(map[string]any{
 		instanceIDKey: inst.ID,
 		definitionKey: inst.Definition,
 		stepIndexKey:  inst.CurrentStep,
@@ -654,7 +656,7 @@ func (w *Worker) reschedule(ctx context.Context, inst *Record, attempts int, pha
 
 	nextAttempt := w.clock.Now().UTC().Add(w.backoffFor(attempts, phase))
 
-	w.logger.WithValues(map[string]any{
+	w.o11y.Logger().WithValues(map[string]any{
 		instanceIDKey:  inst.ID,
 		definitionKey:  inst.Definition,
 		stepIndexKey:   inst.CurrentStep,
@@ -688,7 +690,7 @@ func (w *Worker) persist(ctx context.Context, inst *Record, nextAttempt time.Tim
 // release hands a lease back without changing anything else.
 func (w *Worker) release(ctx context.Context, inst *Record) {
 	if err := w.store.Release(ctx, inst.ID, w.clock.Now().UTC()); err != nil {
-		w.logger.WithValue(instanceIDKey, inst.ID).Error("releasing saga instance lease", err)
+		w.o11y.Logger().WithValue(instanceIDKey, inst.ID).Error("releasing saga instance lease", err)
 	}
 }
 

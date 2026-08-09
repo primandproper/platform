@@ -69,11 +69,14 @@ func (b *queueBroadcaster) Broadcast(ctx context.Context, subject Subject) error
 type invalidationHandler struct {
 	invalidator Invalidator
 	o11y        observability.Observer
-	logger      logging.Logger
 
 	receivedCounter metrics.Int64Counter
 	rejectedCounter metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read h.o11y.Logger() for the logger this handler actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 }
@@ -117,7 +120,6 @@ func NewInvalidationHandler(invalidator Invalidator, opts ...InvalidationOption)
 	}
 
 	h.o11y = observability.NewObserver(serviceName, h.logger, h.tracerProvider)
-	h.logger = h.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(h.metricsProvider)
 

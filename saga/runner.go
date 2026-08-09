@@ -12,7 +12,6 @@ import (
 	"github.com/primandproper/platform-go/v10/filtering"
 	"github.com/primandproper/platform-go/v10/identifiers"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 
@@ -35,7 +34,6 @@ type runner[T any] struct {
 	publisher EventPublisher
 	clock     clock.Clock
 	o11y      observability.Observer
-	logger    logging.Logger
 
 	startedCounter metrics.Int64Counter
 	resumedCounter metrics.Int64Counter
@@ -74,13 +72,11 @@ func NewRunner[T any](store Store, registry *Registry, opts ...RunnerOption) (Ru
 		registry:        registry,
 		publisher:       o.publisher,
 		clock:           o.clock,
-		logger:          o.logger,
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
 	}
 
-	r.o11y = observability.NewObserver(runnerName, r.logger, r.tracerProvider)
-	r.logger = r.o11y.Logger()
+	r.o11y = observability.NewObserver(runnerName, o.logger, r.tracerProvider)
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 
@@ -293,7 +289,7 @@ func (r *runner[T]) Resume(ctx context.Context, id string) (*Instance[T], error)
 
 	r.resumedCounter.Add(ctx, 1, definitionAttr(rec.Definition))
 
-	r.logger.WithValues(map[string]any{
+	r.o11y.Logger().WithValues(map[string]any{
 		instanceIDKey: id,
 		definitionKey: rec.Definition,
 		statusKey:     string(to),

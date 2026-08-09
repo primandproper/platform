@@ -7,7 +7,6 @@ import (
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/distributedlock"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
@@ -107,7 +106,6 @@ type (
 		store  cache.Cache[Record[T]]
 		locker distributedlock.ScopedLocker
 		o11y   observability.Observer
-		logger logging.Logger
 		clock  clock.Clock
 
 		recordable func(*T) bool

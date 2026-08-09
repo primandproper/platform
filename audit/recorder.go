@@ -49,7 +49,6 @@ var _ Recorder = (*recorder)(nil)
 type recorder struct {
 	clock  clock.Clock
 	o11y   observability.Observer
-	logger logging.Logger
 	tables *tables
 
 	redactions map[string]Redaction
@@ -57,6 +56,10 @@ type recorder struct {
 	recordedCounter metrics.Int64Counter
 	recordLatency   metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read r.o11y.Logger() for the logger this recorder actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
@@ -86,7 +89,6 @@ func NewRecorder(d dialect.Dialect, opts ...RecorderOption) (Recorder, error) {
 	r.tables = newTables(r.prefix)
 
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
-	r.logger = r.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 

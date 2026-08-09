@@ -95,14 +95,17 @@ var (
 
 // Resolver caches the results of an inner PolicyResolver.
 type Resolver struct {
-	inner  authorization.PolicyResolver
-	cache  cache.Cache[authorization.PermissionSet]
-	o11y   observability.Observer
-	logger logging.Logger
+	inner authorization.PolicyResolver
+	cache cache.Cache[authorization.PermissionSet]
+	o11y  observability.Observer
 
 	readFaultsCounter  metrics.Int64Counter
 	writeFaultsCounter metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read r.o11y.Logger() for the logger this resolver actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	metricsProvider metrics.Provider
 	tracerProvider  tracing.Provider
 
@@ -172,7 +175,6 @@ func NewResolver(
 	}
 
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
-	r.logger = r.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 
