@@ -185,6 +185,25 @@ An artifact encrypted at rest is only as recoverable as the key. Losing the key
 turns every unexpired artifact into garbage, and the subjects waiting on them
 have a deadline. Encryption is therefore off unless configured.
 
+# Erasure and backups
+
+Deleting a row erases it from the live database and from nowhere else. With any
+real retention window, an erasure completed today leaves the subject present in
+every snapshot taken before it — for the length of that window — and no amount
+of DELETE reaches a snapshot, because the media is not writable.
+
+WithWorkerShredder closes that, by destroying the subject's data key rather than
+only their rows: every column encrypted under that key becomes noise at once, in
+the live database and in every backup that already shipped. See
+cryptography/shredding, and read what it says about where the keys table lives
+before wiring it, because a keys table backed up alongside the data it protects
+hands everything back on the first restore.
+
+The shred runs before the erasers and outside their transaction. Both are
+deliberate and both are explained at fulfillErasure. A scoped request does not
+shred at all — a data key spans every scope its subject appears in — and says so
+in Request.Retained rather than quietly doing less than it was asked.
+
 The audit log is a hash chain, which means audit entries about a subject cannot
 simply be deleted or anonymized — either would make audit.Reader.Verify report
 tampering, for the rest of that scope's history. dataprivacy/auditerasure exists

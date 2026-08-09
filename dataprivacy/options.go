@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/compression"
 	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v10/cryptography/shredding"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
@@ -275,6 +276,32 @@ func WithWorkerEncryptor(encryptor encryption.Encryptor) WorkerOption {
 	return func(w *Worker) {
 		if encryptor != nil {
 			w.packager.encryptor = encryptor
+		}
+	}
+}
+
+// WithWorkerShredder destroys the subject's data key as part of an erasure, so
+// the erasure reaches media that deletion cannot.
+//
+// Without it an erasure deletes rows, and the rows stay in every backup taken
+// before it ran — for the whole retention window, which is the part of "we
+// erased you" that is not true. Destroying the key makes every ciphertext it
+// protected unreadable everywhere at once, including in snapshots nobody can
+// write to.
+//
+// It is not a substitute for the erasers. Only the columns an application chose
+// to encrypt under the subject's key are covered, the shred does not run inside
+// their transaction, and what it destroys it destroys whether or not they
+// succeed. See fulfillErasure's ordering, which is deliberate and stated in the
+// source.
+//
+// Setting it on a Worker whose application encrypts nothing per subject is
+// harmless and close to pointless: every erasure writes a tombstone and destroys
+// nothing, which Request.KeyShreddedAt will happily record.
+func WithWorkerShredder(shredder shredding.Shredder) WorkerOption {
+	return func(w *Worker) {
+		if shredder != nil {
+			w.shredder = shredder
 		}
 	}
 }

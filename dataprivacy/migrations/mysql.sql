@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     anonymized_rows BIGINT NOT NULL DEFAULT 0,
     failures        BLOB,
     retained        BLOB,
-    last_error      TEXT
+    last_error      TEXT,
+    key_shredded_at DATETIME(6)
 );
 
 -- MySQL has no partial indexes, so unlike the Postgres schema these cover the
