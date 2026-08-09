@@ -37,6 +37,14 @@ var ErrInvalidFilter = platformerrors.New("pgvector filter must be a string SQL 
 // callers get a clear error rather than a SQL parse failure.
 var safeIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// validIdentifier reports whether s is a bare identifier this provider will
+// interpolate. Unlike dialect.ValidIdentifier it admits no schema qualifier:
+// every name reaching it is one this package renders itself, and a dot in one
+// would mean the caller is naming a table rather than a column.
+func validIdentifier(s string) bool {
+	return safeIdentifier.MatchString(s)
+}
+
 type indexManager[T any] struct {
 	o11y              observability.Observer
 	db                database.Client
@@ -77,14 +85,14 @@ func NewIndex[T any](
 	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, platformerrors.Wrap(err, "validating pgvector config")
 	}
-	if !safeIdentifier.MatchString(indexName) {
+	if !validIdentifier(indexName) {
 		return nil, platformerrors.Wrapf(ErrInvalidIdentifier, "index name %q", indexName)
 	}
 	metaCol := cfg.MetadataColumn
 	if metaCol == "" {
 		metaCol = "metadata"
 	}
-	if !safeIdentifier.MatchString(metaCol) {
+	if !validIdentifier(metaCol) {
 		return nil, platformerrors.Wrapf(ErrInvalidIdentifier, "metadata column %q", metaCol)
 	}
 

@@ -132,6 +132,21 @@ func TestAppleAppSiteAssociationConfig_ValidateWithContext(T *testing.T) {
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
+	T.Run("a period is an ordinary bundle ID character, not a segment separator", func(t *testing.T) {
+		t.Parallel()
+
+		// Apple restricts a bundle ID to alphanumerics, hyphens and periods, and
+		// says nothing about how the periods are arranged. Reading them as
+		// separators — and so rejecting an empty run between two of them — would
+		// be this package inventing a rule Apple does not impose.
+		for _, bundleID := range []string{"com..example", "com.example.", "c", "a-b.c-d"} {
+			cfg := &AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: bundleID}
+
+			test.NoError(t, cfg.ValidateWithContext(t.Context()), test.Sprintf("bundle ID %q", bundleID))
+			test.True(t, cfg.Enabled(), test.Sprintf("bundle ID %q", bundleID))
+		}
+	})
+
 	T.Run("accepts paths and web credentials", func(t *testing.T) {
 		t.Parallel()
 
