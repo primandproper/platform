@@ -44,7 +44,11 @@ func RegisterStore(i do.Injector) {
 // rest of the fleet; its absence means cached keys expire on the TTL instead,
 // which is the guarantee either way. The subscribing half is not registered
 // here — a consumer needs somewhere to report its errors and something to keep
-// it running, neither of which belongs in a provider function.
+// it running, neither of which belongs in a provider function. Build it with
+// NewInvalidationConsumer wherever this service's other consumers are started,
+// and check shredding_invalidations_received afterwards: a container that
+// registers the publisher and never builds the consumer is the one
+// configuration that is worse than having neither.
 //
 // Prerequisites: *Config, shredding.Store (see RegisterStore), and an
 // encryption.KeyWrapper must be registered in the injector before Keys is

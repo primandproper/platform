@@ -87,14 +87,22 @@ The invalidation broadcast, which is two halves and needs both:
 	// ...
 	keys, err := shredding.NewKeys(store, wrapper, shredding.WithBroadcaster(broadcaster))
 	// ...
-	consumer, err := consumers.NewConsumer(ctx, shredding.DefaultInvalidationTopic,
-	    shredding.InvalidationHandler(keys))
+	handler, err := shredding.NewInvalidationHandler(keys)
+	// ...
+	consumer, err := consumers.NewConsumer(ctx, shredding.DefaultInvalidationTopic, handler)
 	// ...
 	go consumer.Consume(ctx, errs)
 
 A deployment that wires the publisher and forgets the subscriber gets the worst
-of both: a metric saying invalidations are being sent, and nothing acting on
-them.
+of both: shreds announced to nobody, erasure quietly completing on the TTL
+across the fleet, and a publisher-side counter that says invalidations are being
+sent. Both halves are instrumented so that the pair can be compared —
+shredding_invalidations_broadcast against shredding_invalidations_received, and
+shredding_invalidations_applied for the ones that reached a key that was still
+cached. A received count of zero against a nonzero broadcast count is the
+misconfiguration above; an applied count whose dropped=true share is zero is a
+broadcast that never arrives before the TTL, which is a slower bus than the
+guarantee assumes rather than a broken one.
 
 # Cached keys outlive the shred
 

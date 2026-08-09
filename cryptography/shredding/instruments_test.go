@@ -52,7 +52,9 @@ func TestKeys_InstrumentFailures(T *testing.T) {
 		serviceName + "_key_unwraps",
 		serviceName + "_cache_hits",
 		serviceName + "_cache_misses",
-		serviceName + "_invalidation_broadcast_failures",
+		serviceName + "_invalidations_broadcast",
+		serviceName + "_invalidations_broadcast_failures",
+		serviceName + "_invalidations_applied",
 		serviceName + "_cached_keys",
 	}
 
@@ -63,6 +65,26 @@ func TestKeys_InstrumentFailures(T *testing.T) {
 			keys, err := NewKeys(newSQLiteEnv(t).newStore(t), newTestWrapper(t),
 				WithMetricsProvider(failingInstrumentProvider(name)))
 			test.Nil(t, keys)
+			test.ErrorIs(t, err, errInstrument)
+		})
+	}
+}
+
+func TestInvalidationHandler_InstrumentFailures(T *testing.T) {
+	T.Parallel()
+
+	instruments := []string{
+		serviceName + "_invalidations_received",
+		serviceName + "_invalidations_rejected",
+	}
+
+	for _, name := range instruments {
+		T.Run("refuses to build without "+name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, err := NewInvalidationHandler(&recordingInvalidator{},
+				WithInvalidationMetricsProvider(failingInstrumentProvider(name)))
+			test.Nil(t, handler)
 			test.ErrorIs(t, err, errInstrument)
 		})
 	}

@@ -26,7 +26,7 @@ var _ shredding.Keys = &KeysMock{}
 //			EncryptFunc: func(ctx context.Context, subject shredding.Subject, plaintext []byte, associatedData []byte) ([]byte, error) {
 //				panic("mock out the Encrypt method")
 //			},
-//			InvalidateFunc: func(subject shredding.Subject)  {
+//			InvalidateFunc: func(ctx context.Context, subject shredding.Subject)  {
 //				panic("mock out the Invalidate method")
 //			},
 //			ShredFunc: func(ctx context.Context, subject shredding.Subject) (shredding.Receipt, error) {
@@ -46,7 +46,7 @@ type KeysMock struct {
 	EncryptFunc func(ctx context.Context, subject shredding.Subject, plaintext []byte, associatedData []byte) ([]byte, error)
 
 	// InvalidateFunc mocks the Invalidate method.
-	InvalidateFunc func(subject shredding.Subject)
+	InvalidateFunc func(ctx context.Context, subject shredding.Subject)
 
 	// ShredFunc mocks the Shred method.
 	ShredFunc func(ctx context.Context, subject shredding.Subject) (shredding.Receipt, error)
@@ -77,6 +77,8 @@ type KeysMock struct {
 		}
 		// Invalidate holds details about calls to the Invalidate method.
 		Invalidate []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 			// Subject is the subject argument value.
 			Subject shredding.Subject
 		}
@@ -183,19 +185,21 @@ func (mock *KeysMock) EncryptCalls() []struct {
 }
 
 // Invalidate calls InvalidateFunc.
-func (mock *KeysMock) Invalidate(subject shredding.Subject) {
+func (mock *KeysMock) Invalidate(ctx context.Context, subject shredding.Subject) {
 	if mock.InvalidateFunc == nil {
 		panic("KeysMock.InvalidateFunc: method is nil but Keys.Invalidate was just called")
 	}
 	callInfo := struct {
+		Ctx     context.Context
 		Subject shredding.Subject
 	}{
+		Ctx:     ctx,
 		Subject: subject,
 	}
 	mock.lockInvalidate.Lock()
 	mock.calls.Invalidate = append(mock.calls.Invalidate, callInfo)
 	mock.lockInvalidate.Unlock()
-	mock.InvalidateFunc(subject)
+	mock.InvalidateFunc(ctx, subject)
 }
 
 // InvalidateCalls gets all the calls that were made to Invalidate.
@@ -203,9 +207,11 @@ func (mock *KeysMock) Invalidate(subject shredding.Subject) {
 //
 //	len(mockedKeys.InvalidateCalls())
 func (mock *KeysMock) InvalidateCalls() []struct {
+	Ctx     context.Context
 	Subject shredding.Subject
 } {
 	var calls []struct {
+		Ctx     context.Context
 		Subject shredding.Subject
 	}
 	mock.lockInvalidate.RLock()

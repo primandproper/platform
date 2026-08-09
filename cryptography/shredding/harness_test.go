@@ -18,8 +18,12 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/database/sqlite"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
 
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // baseTime is the instant this suite works relative to.
@@ -164,6 +168,97 @@ func newTestKeys(t *testing.T, c clock.Clock, opts ...Option) (Keys, Store) {
 // tests that only need something non-nil to hold.
 func newTestCipher() (encryption.Cipher, error) {
 	return aes.NewCipher(rootKeyMaterial)
+}
+
+// countingMeter records what a component reported: how many times each
+// instrument was incremented, and with which attributes.
+//
+// Asserting that a component did the work and trusting that it said so is
+// exactly the gap these instruments exist to close, so the tests that care read
+// the instruments instead.
+type countingMeter struct {
+	*metricsmock.ProviderMock
+
+	counts map[string]int64
+	attrs  map[string][]attribute.Set
+	mu     sync.Mutex
+}
+
+func newCountingMeter() *countingMeter {
+	m := &countingMeter{
+		counts: map[string]int64{},
+		attrs:  map[string][]attribute.Set{},
+	}
+
+	noop := metrics.EnsureMetricsProvider(nil)
+
+	m.ProviderMock = &metricsmock.ProviderMock{
+		NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+			return &metricsmock.Int64CounterMock{
+				AddFunc: func(_ context.Context, incr int64, options ...metric.AddOption) {
+					m.record(name, incr, options)
+				},
+			}, nil
+		},
+		NewInt64GaugeFunc: noop.NewInt64Gauge,
+	}
+
+	return m
+}
+
+func (m *countingMeter) record(name string, incr int64, options []metric.AddOption) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.counts[name] += incr
+	m.attrs[name] = append(m.attrs[name], metric.NewAddConfig(options).Attributes())
+}
+
+// count reports the total an instrument was incremented by.
+func (m *countingMeter) count(name string) int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.counts[name]
+}
+
+// countWhere reports how many increments of an instrument carried a boolean
+// attribute with the given value.
+func (m *countingMeter) countWhere(name, key string, value bool) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var total int
+
+	for _, set := range m.attrs[name] {
+		if v, ok := set.Value(attribute.Key(key)); ok && v.AsBool() == value {
+			total++
+		}
+	}
+
+	return total
+}
+
+// recordingInvalidator captures what a handler dropped.
+type recordingInvalidator struct {
+	subjects []Subject
+	mu       sync.Mutex
+}
+
+var _ Invalidator = (*recordingInvalidator)(nil)
+
+func (r *recordingInvalidator) Invalidate(_ context.Context, subject Subject) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.subjects = append(r.subjects, subject)
+}
+
+func (r *recordingInvalidator) seen() []Subject {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]Subject(nil), r.subjects...)
 }
 
 // recordingBroadcaster captures what a shred announced.

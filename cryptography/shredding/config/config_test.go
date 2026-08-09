@@ -1,6 +1,7 @@
 package shreddingcfg
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/database/sqlite"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/messagequeue"
+	messagequeuemock "github.com/primandproper/platform-go/v10/messagequeue/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -221,3 +224,97 @@ func TestNewBroadcaster(T *testing.T) {
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 	})
 }
+
+func TestNewInvalidationConsumer(T *testing.T) {
+	T.Parallel()
+
+	T.Run("subscribes to the configured topic", func(t *testing.T) {
+		t.Parallel()
+
+		var subscribed string
+
+		provider := &messagequeuemock.ConsumerProviderMock{
+			NewConsumerFunc: func(_ context.Context, topic string, _ messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
+				subscribed = topic
+
+				return &messagequeuemock.ConsumerMock{}, nil
+			},
+		}
+
+		consumer, err := NewInvalidationConsumer(t.Context(),
+			&Config{InvalidationTopic: "shreds"}, provider, &noopInvalidator{})
+		must.NoError(t, err)
+		test.NotNil(t, consumer)
+
+		// The two halves are a topic name agreeing with itself. A subscriber on
+		// the wrong one is a fleet that never hears a shred and reports nothing
+		// wrong.
+		test.EqOp(t, "shreds", subscribed)
+	})
+
+	T.Run("defaults the topic", func(t *testing.T) {
+		t.Parallel()
+
+		var subscribed string
+
+		provider := &messagequeuemock.ConsumerProviderMock{
+			NewConsumerFunc: func(_ context.Context, topic string, _ messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
+				subscribed = topic
+
+				return &messagequeuemock.ConsumerMock{}, nil
+			},
+		}
+
+		_, err := NewInvalidationConsumer(t.Context(), &Config{}, provider, &noopInvalidator{})
+		must.NoError(t, err)
+		test.EqOp(t, shredding.DefaultInvalidationTopic, subscribed)
+	})
+
+	T.Run("refuses a nil consumer provider", func(t *testing.T) {
+		t.Parallel()
+
+		consumer, err := NewInvalidationConsumer(t.Context(), &Config{}, nil, &noopInvalidator{})
+		test.Nil(t, consumer)
+		test.ErrorIs(t, err, errors.ErrNilInputParameter)
+	})
+
+	T.Run("refuses a nil invalidator", func(t *testing.T) {
+		t.Parallel()
+
+		provider := &messagequeuemock.ConsumerProviderMock{}
+
+		consumer, err := NewInvalidationConsumer(t.Context(), &Config{}, provider, nil)
+		test.Nil(t, consumer)
+		test.ErrorIs(t, err, shredding.ErrNilInvalidator)
+	})
+
+	T.Run("reports a subscription failure", func(t *testing.T) {
+		t.Parallel()
+
+		sentinel := errors.New("bus is down")
+		provider := &messagequeuemock.ConsumerProviderMock{
+			NewConsumerFunc: func(context.Context, string, messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
+				return nil, sentinel
+			},
+		}
+
+		consumer, err := NewInvalidationConsumer(t.Context(), &Config{}, provider, &noopInvalidator{})
+		test.Nil(t, consumer)
+		test.ErrorIs(t, err, sentinel)
+	})
+
+	T.Run("refuses a nil config", func(t *testing.T) {
+		t.Parallel()
+
+		consumer, err := NewInvalidationConsumer(t.Context(), nil, &messagequeuemock.ConsumerProviderMock{}, &noopInvalidator{})
+		test.Nil(t, consumer)
+		test.ErrorIs(t, err, errors.ErrNilInputParameter)
+	})
+}
+
+// noopInvalidator is something non-nil for the constructor to hold.
+type noopInvalidator struct{}
+
+var _ shredding.Invalidator = (*noopInvalidator)(nil)
+
+func (*noopInvalidator) Invalidate(context.Context, shredding.Subject) {}

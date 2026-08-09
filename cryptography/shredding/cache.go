@@ -90,22 +90,34 @@ func (c *keyCache) put(subject Subject, cipher encryption.Cipher) {
 	c.entries[subject] = cacheEntry{cipher: cipher, expires: now.Add(c.ttl)}
 }
 
-// drop forgets a subject's key.
+// drop forgets a subject's key, and reports whether there was one to forget.
 //
 // This is what makes a shred take effect in this process immediately rather than
 // at the TTL. It drops the reference and nothing more: the expanded key schedule
 // inside crypto/aes is not reachable to overwrite, and a garbage collector may
 // have copied the material anyway, so the honest bound on a cached key is the
 // TTL rather than memory hygiene.
-func (c *keyCache) drop(subject Subject) {
+//
+// The return value is what separates the two things an invalidation can mean:
+// this replica was holding the key and is not anymore, or it had already
+// expired. An expired entry counts as nothing to forget, because from the
+// caller's side of the TTL it is already gone.
+func (c *keyCache) drop(subject Subject) bool {
 	if !c.enabled() {
-		return
+		return false
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	entry, ok := c.entries[subject]
+	if !ok {
+		return false
+	}
+
 	delete(c.entries, subject)
+
+	return c.clock.Now().Before(entry.expires)
 }
 
 // len reports how many keys are held, for the gauge.

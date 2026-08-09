@@ -92,6 +92,35 @@ func WithBroadcaster(broadcaster Broadcaster) Option {
 	}
 }
 
+// InvalidationOption configures the subscribing half of the invalidation
+// broadcast.
+type InvalidationOption func(*invalidationHandler)
+
+// WithInvalidationLogger attaches a logger.
+func WithInvalidationLogger(logger logging.Logger) InvalidationOption {
+	return func(h *invalidationHandler) {
+		h.logger = logger
+	}
+}
+
+// WithInvalidationTracerProvider attaches a tracer provider.
+//
+// Worth setting. The span it produces is what links a shred on one replica to
+// the cached key it dropped on another, which is otherwise two unrelated
+// operations minutes apart.
+func WithInvalidationTracerProvider(tracerProvider tracing.Provider) InvalidationOption {
+	return func(h *invalidationHandler) {
+		h.tracerProvider = tracerProvider
+	}
+}
+
+// WithInvalidationMetricsProvider attaches a metrics provider.
+func WithInvalidationMetricsProvider(metricsProvider metrics.Provider) InvalidationOption {
+	return func(h *invalidationHandler) {
+		h.metricsProvider = metricsProvider
+	}
+}
+
 // SQLStoreOption configures a SQL Store.
 type SQLStoreOption func(*sqlStore)
 

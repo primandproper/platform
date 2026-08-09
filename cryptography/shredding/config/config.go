@@ -179,14 +179,15 @@ func NewKeys(
 
 // NewBroadcaster builds the shred announcement over the configured topic.
 //
-// The subscribing half is the caller's to wire, with the same topic and
-// shredding.InvalidationHandler. A deployment that publishes and never
-// subscribes has a counter that says invalidations are being sent and nothing
-// acting on them, which is the worst of the two configurations.
+// The subscribing half is NewInvalidationConsumer, over the same topic. A
+// deployment that publishes and never subscribes has a counter that says
+// invalidations are being sent and nothing acting on them, which is the worst of
+// the two configurations.
 //
 // It takes no Option, alone among this package's constructors. A Broadcaster is
 // a publish call and a topic name; it has nothing to log, trace, or count that
-// the publisher underneath it does not already.
+// the publisher underneath it — or the Keys that counts its calls — does not
+// already.
 func NewBroadcaster(
 	ctx context.Context,
 	cfg *Config,
@@ -206,4 +207,54 @@ func NewBroadcaster(
 	}
 
 	return shredding.NewQueueBroadcaster(publisher)
+}
+
+// NewInvalidationConsumer builds the subscribing half: the consumer that hears
+// another replica's shred and drops this one's cached copy of the key.
+//
+// invalidator is normally the shredding.Keys this process encrypts through.
+//
+// It returns the consumer without running it. Consuming needs a goroutine and a
+// channel to report errors on, and a constructor that started one would own a
+// goroutine its caller cannot see:
+//
+//	consumer, err := shreddingcfg.NewInvalidationConsumer(ctx, cfg, consumers, keys, shreddingcfg.WithPillars(pillars))
+//	// ...
+//	go consumer.Consume(ctx, errs)
+//
+// The observability options matter more here than anywhere else in this package,
+// because this is the end of the broadcast with nothing else watching it. See
+// shredding.NewInvalidationHandler for what the instruments say.
+func NewInvalidationConsumer(
+	ctx context.Context,
+	cfg *Config,
+	provider messagequeue.ConsumerProvider,
+	invalidator shredding.Invalidator,
+	opts ...Option,
+) (messagequeue.Consumer, error) {
+	if err := cfg.prepare(ctx); err != nil {
+		return nil, err
+	}
+
+	if provider == nil {
+		return nil, errors.Wrap(errors.ErrNilInputParameter, "nil consumer provider")
+	}
+
+	o := newOptions(opts)
+
+	handler, err := shredding.NewInvalidationHandler(invalidator,
+		shredding.WithInvalidationLogger(o.logger),
+		shredding.WithInvalidationTracerProvider(o.tracerProvider),
+		shredding.WithInvalidationMetricsProvider(o.metricsProvider),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	consumer, err := provider.NewConsumer(ctx, cfg.InvalidationTopic, handler)
+	if err != nil {
+		return nil, errors.Wrapf(err, "creating shredding invalidation consumer for topic %q", cfg.InvalidationTopic)
+	}
+
+	return consumer, nil
 }

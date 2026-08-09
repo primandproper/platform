@@ -6,14 +6,26 @@ import (
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
 
 // DefaultInvalidationTopic is the topic a shred is announced on when a
 // deployment has no opinion about topic naming.
 const DefaultInvalidationTopic = "shredding_invalidations"
 
-// ErrNilPublisher indicates a nil messagequeue.Publisher.
-var ErrNilPublisher = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil shredding invalidation publisher")
+var (
+	// ErrNilPublisher indicates a nil messagequeue.Publisher.
+	ErrNilPublisher = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil shredding invalidation publisher")
+
+	// ErrNilInvalidator indicates a nil Invalidator. There is nothing sensible
+	// to substitute: a handler with nothing to invalidate is a subscriber that
+	// acknowledges every shred announcement and acts on none of them, which
+	// looks exactly like a working one.
+	ErrNilInvalidator = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil shredding invalidator")
+)
 
 var _ Broadcaster = (*queueBroadcaster)(nil)
 
@@ -52,32 +64,103 @@ func (b *queueBroadcaster) Broadcast(ctx context.Context, subject Subject) error
 	return b.publisher.Publish(ctx, subject)
 }
 
-// InvalidationHandler adapts an Invalidator to a messagequeue consumer, for the
-// subscribing half of the same topic:
+// invalidationHandler is the subscribing half of the broadcast: it decodes a
+// subject off the bus and hands it to an Invalidator.
+type invalidationHandler struct {
+	invalidator Invalidator
+	o11y        observability.Observer
+	logger      logging.Logger
+
+	receivedCounter metrics.Int64Counter
+	rejectedCounter metrics.Int64Counter
+
+	tracerProvider  tracing.Provider
+	metricsProvider metrics.Provider
+}
+
+// NewInvalidationHandler adapts an Invalidator to a messagequeue consumer, for
+// the subscribing half of the same topic:
 //
-//	consumer, err := consumers.NewConsumer(ctx, shredding.DefaultInvalidationTopic,
-//	    shredding.InvalidationHandler(keys))
+//	handler, err := shredding.NewInvalidationHandler(keys, shredding.WithInvalidationLogger(logger))
+//	// ...
+//	consumer, err := consumers.NewConsumer(ctx, shredding.DefaultInvalidationTopic, handler)
 //
 // A replica that does not run this consumer is not broken; its cached keys
 // expire on the TTL like they would with no broadcaster at all. It is the
 // deployment that runs the publisher and forgets the subscriber that gets the
-// worst of both: a metric saying invalidations are being sent, and nothing
-// acting on them.
-func InvalidationHandler(invalidator Invalidator) messagequeue.ConsumerFunc {
-	return func(_ context.Context, data []byte) error {
-		var subject Subject
-		if err := json.Unmarshal(data, &subject); err != nil {
-			return platformerrors.Wrap(err, "decoding shredding invalidation")
-		}
-
-		if err := subject.validate(); err != nil {
-			return platformerrors.Wrap(err, "decoding shredding invalidation")
-		}
-
-		if invalidator != nil {
-			invalidator.Invalidate(subject)
-		}
-
-		return nil
+// worst of both: keys broadcast to nobody, and erasure quietly completing on the
+// TTL everywhere while the publisher's counter says otherwise.
+//
+// Which is why this end is instrumented rather than being the two lines of
+// json.Unmarshal it otherwise is. It counts every message that arrives
+// (shredding_invalidations_received) and every one it could not turn into a
+// subject (shredding_invalidations_rejected), and the Invalidator counts what it
+// then did (shredding_invalidations_applied). Read against the publisher's
+// shredding_invalidations_broadcast, those say whether the topic is wired at
+// both ends, whether a rolling deploy has left the two halves disagreeing about
+// the wire format, and whether the broadcast is reaching replicas before their
+// TTL does the job anyway.
+//
+// Observability is optional and defaults to nothing, as everywhere else here. A
+// deployment that names none of it gets a working handler and no way to tell
+// that it is working.
+func NewInvalidationHandler(invalidator Invalidator, opts ...InvalidationOption) (messagequeue.ConsumerFunc, error) {
+	if invalidator == nil {
+		return nil, ErrNilInvalidator
 	}
+
+	h := &invalidationHandler{invalidator: invalidator}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(h)
+		}
+	}
+
+	h.o11y = observability.NewObserver(serviceName, h.logger, h.tracerProvider)
+	h.logger = h.o11y.Logger()
+
+	mp := metrics.EnsureMetricsProvider(h.metricsProvider)
+
+	var err error
+
+	if h.receivedCounter, err = mp.NewInt64Counter(serviceName + "_invalidations_received"); err != nil {
+		return nil, platformerrors.Wrap(err, "creating shredding invalidations received counter")
+	}
+
+	// Separate from the errors the consumer already logs, because this one is a
+	// statement about the topic rather than about a message: anything above zero
+	// means something is publishing to it that this build cannot read, and every
+	// one of those is a shred that will now complete on the TTL instead.
+	if h.rejectedCounter, err = mp.NewInt64Counter(serviceName + "_invalidations_rejected"); err != nil {
+		return nil, platformerrors.Wrap(err, "creating shredding invalidations rejected counter")
+	}
+
+	return h.handle, nil
+}
+
+// handle is the ConsumerFunc.
+func (h *invalidationHandler) handle(ctx context.Context, data []byte) error {
+	ctx, op := h.o11y.BeginCustom(ctx, "handle_shredding_invalidation")
+	defer op.End()
+
+	h.receivedCounter.Add(ctx, 1)
+
+	var subject Subject
+	if err := json.Unmarshal(data, &subject); err != nil {
+		h.rejectedCounter.Add(ctx, 1)
+
+		return op.Error(err, "decoding shredding invalidation")
+	}
+
+	if err := subject.validate(); err != nil {
+		h.rejectedCounter.Add(ctx, 1)
+
+		return op.Error(err, "decoding shredding invalidation")
+	}
+
+	op.Set(subjectIDKey, subject.ID).Set(subjectTypeKey, subject.Type)
+
+	h.invalidator.Invalidate(ctx, subject)
+
+	return nil
 }

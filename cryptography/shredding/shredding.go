@@ -21,6 +21,10 @@ const (
 	cacheHitKey     = "shredding.cache_hit"
 	mintedKey       = "shredding.minted"
 	rowsAffectedKey = "shredding.rows_affected"
+	// droppedKey says whether an invalidation reached a cached key or arrived
+	// after the TTL had already taken it. Both are ordinary outcomes; the ratio
+	// between them is what says whether the broadcast is doing anything.
+	droppedKey = "shredding.dropped"
 )
 
 var (
@@ -93,28 +97,6 @@ type (
 		Destroyed bool `json:"destroyed"`
 	}
 
-	// Encryptor encrypts under a subject's data key, minting one if the subject
-	// has none.
-	//
-	// associatedData behaves as it does throughout cryptography/encryption:
-	// authenticated, not encrypted, not recoverable from the ciphertext, and
-	// required to match byte for byte on the way back. Passing the row's primary
-	// key and column name binds the ciphertext to where it lives.
-	//
-	// The subject is not part of the ciphertext. It does not need to be — the
-	// row already names the subject, and the subject names the key — and putting
-	// it there would write a subject identifier in the clear into every
-	// encrypted column.
-	Encryptor interface {
-		Encrypt(ctx context.Context, subject Subject, plaintext, associatedData []byte) ([]byte, error)
-	}
-
-	// Decryptor decrypts under a subject's data key, and reports
-	// ErrSubjectShredded once that key is gone.
-	Decryptor interface {
-		Decrypt(ctx context.Context, subject Subject, ciphertext, associatedData []byte) ([]byte, error)
-	}
-
 	// Shredder destroys a subject's data key.
 	//
 	// This is the operation the package exists for, and it is the one that
@@ -131,15 +113,47 @@ type (
 	//
 	// Shred already does this locally. This is the seam for the other replicas,
 	// which learn about a shred from a Broadcaster rather than from the call.
+	//
+	// It takes a context and returns nothing, which is the right way round.
+	// Deleting from an in-process map cannot fail, so there is no error to
+	// report; but whether the drop found a live key is how a deployment learns
+	// that the broadcast is beating the TTL, and recording that needs somewhere
+	// to hang a span and a counter.
 	Invalidator interface {
-		Invalidate(subject Subject)
+		Invalidate(ctx context.Context, subject Subject)
 	}
 
-	// Keys is the whole surface: encrypt, decrypt, destroy, and drop a cached
-	// key on somebody else's say-so.
+	// Keys is the whole surface: encrypt and decrypt under a subject's data
+	// key, destroy that key, and drop a cached copy of it on somebody else's
+	// say-so.
+	//
+	// Encrypt and Decrypt are spelled out here rather than reusing
+	// encryption.Encryptor and encryption.Decryptor, because every operation
+	// names a subject and those signatures have nowhere to put one. The way to
+	// make them fit is a For(ctx, subject) returning an
+	// encryption.EncryptorDecryptor bound to one subject — which is a plaintext
+	// data key with no expiry, held somewhere this package cannot reach when the
+	// shred arrives. The TTL can only be the bound on a cached key's life if the
+	// key never leaves.
 	Keys interface {
-		Encryptor
-		Decryptor
+		// Encrypt encrypts under the subject's data key, minting one if the
+		// subject has none.
+		//
+		// associatedData behaves as it does throughout cryptography/encryption:
+		// authenticated, not encrypted, not recoverable from the ciphertext, and
+		// required to match byte for byte on the way back. Passing the row's
+		// primary key and column name binds the ciphertext to where it lives.
+		//
+		// The subject is not part of the ciphertext. It does not need to be —
+		// the row already names the subject, and the subject names the key — and
+		// putting it there would write a subject identifier in the clear into
+		// every encrypted column.
+		Encrypt(ctx context.Context, subject Subject, plaintext, associatedData []byte) ([]byte, error)
+
+		// Decrypt decrypts under the subject's data key, and reports
+		// ErrSubjectShredded once that key is gone.
+		Decrypt(ctx context.Context, subject Subject, ciphertext, associatedData []byte) ([]byte, error)
+
 		Shredder
 		Invalidator
 	}

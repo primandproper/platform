@@ -349,20 +349,51 @@ func TestKeys_Cache(T *testing.T) {
 		t.Parallel()
 
 		wrapper, unwraps := countingWrapper(t)
+		meter := newCountingMeter()
 
 		keys, err := NewKeys(newSQLiteEnv(t).newStore(t), wrapper,
-			WithClock(newStubClock()), WithKeyTTL(time.Hour))
+			WithClock(newStubClock()), WithKeyTTL(time.Hour), WithMetricsProvider(meter))
 		must.NoError(t, err)
 
 		sealed, err := keys.Encrypt(t.Context(), testSubject, []byte("home address"), nil)
 		must.NoError(t, err)
 
-		keys.Invalidate(testSubject)
+		keys.Invalidate(t.Context(), testSubject)
 
 		_, err = keys.Decrypt(t.Context(), testSubject, sealed, nil)
 		must.NoError(t, err)
 
 		test.EqOp(t, 1, *unwraps)
+
+		// Erasure finished on the broadcast rather than on the TTL, which is
+		// the distinction the attribute carries and the only thing that says
+		// the fleet-wide half is worth having.
+		test.EqOp(t, int64(1), meter.count(serviceName+"_invalidations_applied"))
+		test.EqOp(t, 1, meter.countWhere(serviceName+"_invalidations_applied", droppedKey, true))
+	})
+
+	T.Run("reports an invalidation that found nothing to drop", func(t *testing.T) {
+		t.Parallel()
+
+		meter := newCountingMeter()
+		clk := newStubClock()
+
+		keys, err := NewKeys(newSQLiteEnv(t).newStore(t), newTestWrapper(t),
+			WithClock(clk), WithKeyTTL(time.Minute), WithMetricsProvider(meter))
+		must.NoError(t, err)
+
+		_, err = keys.Encrypt(t.Context(), testSubject, []byte("home address"), nil)
+		must.NoError(t, err)
+
+		// A broadcast that arrives after the key has expired is an ordinary
+		// outcome, not a failure — but a fleet where every invalidation looks
+		// like this one has a bus slower than the guarantee assumes, and the two
+		// are only distinguishable here.
+		clk.advance(2 * time.Minute)
+		keys.Invalidate(t.Context(), testSubject)
+
+		test.EqOp(t, 1, meter.countWhere(serviceName+"_invalidations_applied", droppedKey, false))
+		test.EqOp(t, 0, meter.countWhere(serviceName+"_invalidations_applied", droppedKey, true))
 	})
 }
 

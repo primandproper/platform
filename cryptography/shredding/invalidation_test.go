@@ -71,8 +71,19 @@ func TestNewQueueBroadcaster(T *testing.T) {
 	})
 }
 
-func TestInvalidationHandler(T *testing.T) {
+func TestNewInvalidationHandler(T *testing.T) {
 	T.Parallel()
+
+	T.Run("refuses a nil invalidator", func(t *testing.T) {
+		t.Parallel()
+
+		// A handler with nothing to invalidate acknowledges every announcement
+		// and acts on none of them, which is indistinguishable from a working
+		// subscriber right up until somebody audits an erasure.
+		handler, err := NewInvalidationHandler(nil)
+		test.Nil(t, handler)
+		test.ErrorIs(t, err, ErrNilInvalidator)
+	})
 
 	T.Run("round-trips what a Broadcaster publishes", func(t *testing.T) {
 		t.Parallel()
@@ -97,40 +108,59 @@ func TestInvalidationHandler(T *testing.T) {
 		must.NoError(t, err)
 
 		invalidator := &recordingInvalidator{}
-		must.NoError(t, InvalidationHandler(invalidator)(t.Context(), encoded))
+		meter := newCountingMeter()
 
-		test.SliceLen(t, 1, invalidator.subjects)
-		test.EqOp(t, testSubject, invalidator.subjects[0])
+		handler, err := NewInvalidationHandler(invalidator, WithInvalidationMetricsProvider(meter))
+		must.NoError(t, err)
+		must.NoError(t, handler(t.Context(), encoded))
+
+		test.SliceLen(t, 1, invalidator.seen())
+		test.EqOp(t, testSubject, invalidator.seen()[0])
+
+		// The pair the publisher's own count is read against: a topic wired at
+		// one end only shows up as one of these staying at zero.
+		test.EqOp(t, int64(1), meter.count(serviceName+"_invalidations_received"))
+		test.EqOp(t, int64(0), meter.count(serviceName+"_invalidations_rejected"))
 	})
 
 	T.Run("rejects a message that is not a subject", func(t *testing.T) {
 		t.Parallel()
 
 		invalidator := &recordingInvalidator{}
+		meter := newCountingMeter()
 
-		test.Error(t, InvalidationHandler(invalidator)(t.Context(), []byte("{")))
-		test.SliceEmpty(t, invalidator.subjects)
+		handler, err := NewInvalidationHandler(invalidator, WithInvalidationMetricsProvider(meter))
+		must.NoError(t, err)
+
+		test.Error(t, handler(t.Context(), []byte("{")))
+		test.SliceEmpty(t, invalidator.seen())
+
+		// Counted rather than only returned. A rolling deploy that changes the
+		// wire format leaves both halves running and every shred completing on
+		// the TTL, and this is the number that says so.
+		test.EqOp(t, int64(1), meter.count(serviceName+"_invalidations_received"))
+		test.EqOp(t, int64(1), meter.count(serviceName+"_invalidations_rejected"))
 	})
 
 	T.Run("rejects a subject with no ID", func(t *testing.T) {
 		t.Parallel()
 
 		invalidator := &recordingInvalidator{}
+		meter := newCountingMeter()
 
-		test.ErrorIs(t,
-			InvalidationHandler(invalidator)(t.Context(), []byte(`{"type":"user"}`)),
-			ErrEmptySubjectID)
-		test.SliceEmpty(t, invalidator.subjects)
+		handler, err := NewInvalidationHandler(invalidator, WithInvalidationMetricsProvider(meter))
+		must.NoError(t, err)
+
+		test.ErrorIs(t, handler(t.Context(), []byte(`{"type":"user"}`)), ErrEmptySubjectID)
+		test.SliceEmpty(t, invalidator.seen())
+		test.EqOp(t, int64(1), meter.count(serviceName+"_invalidations_rejected"))
 	})
-}
 
-// recordingInvalidator captures what a handler dropped.
-type recordingInvalidator struct {
-	subjects []Subject
-}
+	T.Run("ignores nil options", func(t *testing.T) {
+		t.Parallel()
 
-var _ Invalidator = (*recordingInvalidator)(nil)
-
-func (r *recordingInvalidator) Invalidate(subject Subject) {
-	r.subjects = append(r.subjects, subject)
+		handler, err := NewInvalidationHandler(&recordingInvalidator{}, nil)
+		must.NoError(t, err)
+		test.NotNil(t, handler)
+	})
 }

@@ -15,6 +15,9 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -71,13 +74,20 @@ type keys struct {
 	// package's own tests.
 	random io.Reader
 
-	mintedCounter    metrics.Int64Counter
-	shreddedCounter  metrics.Int64Counter
-	unwrapCounter    metrics.Int64Counter
-	cacheHitCounter  metrics.Int64Counter
-	cacheMissCounter metrics.Int64Counter
-	broadcastErrCtr  metrics.Int64Counter
-	cachedGauge      metrics.Int64Gauge
+	mintedCounter      metrics.Int64Counter
+	shreddedCounter    metrics.Int64Counter
+	unwrapCounter      metrics.Int64Counter
+	cacheHitCounter    metrics.Int64Counter
+	cacheMissCounter   metrics.Int64Counter
+	broadcastCounter   metrics.Int64Counter
+	broadcastErrCtr    metrics.Int64Counter
+	invalidatedCounter metrics.Int64Counter
+	cachedGauge        metrics.Int64Gauge
+
+	// droppedAttrs and absentAttrs are the two readings invalidatedCounter
+	// takes, built once because they are the same two values forever.
+	droppedAttrs metric.MeasurementOption
+	absentAttrs  metric.MeasurementOption
 
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
@@ -160,16 +170,31 @@ func (k *keys) buildInstruments() error {
 		return platformerrors.Wrap(err, "creating shredding cache miss counter")
 	}
 
+	// The publishing half of the fleet-wide invalidation, and the number the
+	// subscribing half's received counter is meant to be read against. A
+	// deployment that broadcasts and never receives has wired the publisher and
+	// forgotten the consumer, which no single counter can show.
+	if k.broadcastCounter, err = mp.NewInt64Counter(serviceName + "_invalidations_broadcast"); err != nil {
+		return platformerrors.Wrap(err, "creating shredding invalidations broadcast counter")
+	}
+
 	// Worth alerting on. A broadcast that is failing means erasure has quietly
 	// gone back to completing on the TTL across the fleet, and nothing else says
 	// so.
-	if k.broadcastErrCtr, err = mp.NewInt64Counter(serviceName + "_invalidation_broadcast_failures"); err != nil {
+	if k.broadcastErrCtr, err = mp.NewInt64Counter(serviceName + "_invalidations_broadcast_failures"); err != nil {
 		return platformerrors.Wrap(err, "creating shredding broadcast failure counter")
+	}
+
+	if k.invalidatedCounter, err = mp.NewInt64Counter(serviceName + "_invalidations_applied"); err != nil {
+		return platformerrors.Wrap(err, "creating shredding invalidations applied counter")
 	}
 
 	if k.cachedGauge, err = mp.NewInt64Gauge(serviceName + "_cached_keys"); err != nil {
 		return platformerrors.Wrap(err, "creating shredding cached keys gauge")
 	}
+
+	k.droppedAttrs = metric.WithAttributes(attribute.Bool(droppedKey, true))
+	k.absentAttrs = metric.WithAttributes(attribute.Bool(droppedKey, false))
 
 	return nil
 }
@@ -253,8 +278,30 @@ func (k *keys) Shred(ctx context.Context, subject Subject) (Receipt, error) {
 	return receipt, nil
 }
 
-func (k *keys) Invalidate(subject Subject) {
-	k.cache.drop(subject)
+func (k *keys) Invalidate(ctx context.Context, subject Subject) {
+	ctx, op := k.o11y.Begin(ctx,
+		observability.WithValue(subjectIDKey, subject.ID),
+		observability.WithValue(subjectTypeKey, subject.Type),
+	)
+	defer op.End()
+
+	dropped := k.cache.drop(subject)
+
+	// Whether the drop found anything is the whole point of recording this. An
+	// invalidation that took a live key is a subject whose erasure finished on
+	// the broadcast rather than on the TTL; one that found nothing arrived after
+	// the key had expired, or at a replica that never read the subject. Only
+	// this side of the bus can tell those apart, and a fleet where the first
+	// number is always zero has a broadcast that is not arriving in time to
+	// matter.
+	attrs := k.absentAttrs
+	if dropped {
+		attrs = k.droppedAttrs
+	}
+
+	op.Set(droppedKey, dropped)
+	k.invalidatedCounter.Add(ctx, 1, attrs)
+	k.cachedGauge.Record(ctx, int64(k.cache.len()))
 }
 
 // broadcast tells the other replicas to drop the key, and does not fail the
@@ -270,6 +317,11 @@ func (k *keys) broadcast(ctx context.Context, op observability.Operation, subjec
 	if k.broadcaster == nil {
 		return
 	}
+
+	// Counted as an attempt rather than as a success, so that the failure
+	// counter is a subset of this one and the ratio between them is the
+	// bus's error rate rather than something that has to be reconstructed.
+	k.broadcastCounter.Add(ctx, 1)
 
 	if err := k.broadcaster.Broadcast(ctx, subject); err != nil {
 		k.broadcastErrCtr.Add(ctx, 1)
