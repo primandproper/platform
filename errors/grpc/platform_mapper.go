@@ -9,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
+	"github.com/primandproper/platform-go/v10/links"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 
 	"google.golang.org/grpc/codes"
@@ -69,6 +70,21 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 	case errors.Is(err, requestsigning.ErrInvalidSignature),
 		errors.Is(err, requestsigning.ErrStaleSignature):
 		return codes.Unauthenticated, true
+	// FailedPrecondition rather than NotFound, and the gap between the two is
+	// the point. NotFound invites the client to try the same URL again; a link
+	// that has been used, has expired, or has been revoked will never work
+	// again, and the retry it invites is a person clicking a dead link twice.
+	// FailedPrecondition's documented advice — change the state, then retry — is
+	// exactly right: the state to change is "hold a live link", and the way to
+	// change it is to ask for a new one.
+	case errors.Is(err, links.ErrLinkAlreadyRedeemed),
+		errors.Is(err, links.ErrLinkExpired),
+		errors.Is(err, links.ErrLinkRevoked),
+		errors.Is(err, links.ErrLinkNotFound):
+		return codes.FailedPrecondition, true
+	// A malformed token never named a link at all, which is ordinary bad input.
+	case errors.Is(err, links.ErrInvalidToken):
+		return codes.InvalidArgument, true
 	// Aborted is gRPC's concurrency-conflict code, and its documented advice —
 	// retry at a higher level — is exactly right here: the work may still
 	// succeed, and the client should ask again with the same key.

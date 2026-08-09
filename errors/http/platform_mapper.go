@@ -9,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
+	"github.com/primandproper/platform-go/v10/links"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 	"github.com/primandproper/platform-go/v10/sessions"
 )
@@ -73,6 +74,22 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrFetchingSessionContextData, "session expired", true
 	case errors.Is(err, sessions.ErrNotFound):
 		return ErrFetchingSessionContextData, "no active session", true
+	// One code for the four, and a message per outcome. The message is the half
+	// a person reads, and here it can be specific without disclosing anything —
+	// see ErrActionLinkUnusable on why an action link is not a session cookie in
+	// this respect.
+	case errors.Is(err, links.ErrLinkAlreadyRedeemed):
+		return ErrActionLinkUnusable, "this link has already been used", true
+	case errors.Is(err, links.ErrLinkExpired):
+		return ErrActionLinkUnusable, "this link has expired", true
+	case errors.Is(err, links.ErrLinkRevoked):
+		return ErrActionLinkUnusable, "this link is no longer valid", true
+	case errors.Is(err, links.ErrLinkNotFound):
+		return ErrActionLinkUnusable, "this link is not valid", true
+	// A malformed token never named a link, so it is ordinary bad input and gets
+	// a 400 rather than the 410 above.
+	case errors.Is(err, links.ErrInvalidToken):
+		return ErrValidatingRequestInput, "invalid link", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):
