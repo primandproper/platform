@@ -383,7 +383,7 @@ func (w *Worker) fulfillExport(ctx context.Context, req *Request) error {
 		return err
 	}
 
-	stored, err := w.packager.encode(ctx, doc)
+	stored, err := w.packager.encode(ctx, doc, req.ID)
 	if err != nil {
 		return err
 	}

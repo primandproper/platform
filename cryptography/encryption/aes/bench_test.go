@@ -1,32 +1,45 @@
 package aes
 
 import (
-	"strings"
+	"bytes"
 	"testing"
 
 	"github.com/shoenig/test/must"
 )
 
-func BenchmarkEncryptorDecryptor(b *testing.B) {
-	ed, err := NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+var byteSink []byte
+
+func BenchmarkCipher(b *testing.B) {
+	c, err := NewCipher([]byte("0123456789abcdef0123456789abcdef"))
 	must.NoError(b, err)
 
 	ctx := b.Context()
-	plaintext := strings.Repeat("x", 256)
+	plaintext := bytes.Repeat([]byte("x"), 256)
 
-	b.Run("Encrypt", func(b *testing.B) {
+	b.Run("Seal", func(b *testing.B) {
 		for b.Loop() {
-			strSink, _ = ed.Encrypt(ctx, plaintext)
+			byteSink, _ = c.Seal(ctx, plaintext, nil)
 		}
 	})
 
-	b.Run("Decrypt", func(b *testing.B) {
-		ciphertext, encErr := ed.Encrypt(ctx, plaintext)
-		must.NoError(b, encErr)
+	b.Run("Open", func(b *testing.B) {
+		ciphertext, sealErr := c.Seal(ctx, plaintext, nil)
+		must.NoError(b, sealErr)
+
 		for b.Loop() {
-			strSink, _ = ed.Decrypt(ctx, ciphertext)
+			byteSink, _ = c.Open(ctx, ciphertext, nil)
+		}
+	})
+
+	// Associated data is authenticated but not encrypted, so it should cost
+	// roughly a GCM update over its length and nothing else. Measured because
+	// row identity is expected on every call in the crypto-shredding design,
+	// and "does binding cost anything" should be answerable.
+	b.Run("SealWithAssociatedData", func(b *testing.B) {
+		aad := []byte("row-0123456789abcdef")
+
+		for b.Loop() {
+			byteSink, _ = c.Seal(ctx, plaintext, aad)
 		}
 	})
 }
-
-var strSink string

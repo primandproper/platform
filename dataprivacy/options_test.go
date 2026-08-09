@@ -9,7 +9,6 @@ import (
 	auditmock "github.com/primandproper/platform-go/v10/audit/mock"
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/compression"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
@@ -104,7 +103,7 @@ func TestServiceOptions(T *testing.T) {
 	T.Run("WithServiceDecryptor", func(t *testing.T) {
 		t.Parallel()
 
-		decryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		decryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
 		s := &service{}
@@ -154,7 +153,7 @@ func TestServiceOptions(T *testing.T) {
 
 		// It exists only so Download can tell that artifacts are ciphertext;
 		// the Service has no business encrypting anything.
-		_, err := encryptorPresent{}.Encrypt(t.Context(), "plaintext")
+		_, err := encryptorPresent{}.Encrypt(t.Context(), []byte("plaintext"), nil)
 		test.Error(t, err)
 	})
 }
@@ -233,7 +232,7 @@ func TestWorkerOptions(T *testing.T) {
 	T.Run("WithWorkerEncryptor", func(t *testing.T) {
 		t.Parallel()
 
-		encryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		encryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
 		w := &Worker{}
