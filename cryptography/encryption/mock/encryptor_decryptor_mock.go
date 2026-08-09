@@ -20,10 +20,10 @@ var _ encryption.EncryptorDecryptor = &EncryptorDecryptorMock{}
 //
 //		// make and configure a mocked encryption.EncryptorDecryptor
 //		mockedEncryptorDecryptor := &EncryptorDecryptorMock{
-//			DecryptFunc: func(ctx context.Context, content string) (string, error) {
+//			DecryptFunc: func(ctx context.Context, ciphertext []byte, associatedData []byte) ([]byte, error) {
 //				panic("mock out the Decrypt method")
 //			},
-//			EncryptFunc: func(ctx context.Context, content string) (string, error) {
+//			EncryptFunc: func(ctx context.Context, plaintext []byte, associatedData []byte) ([]byte, error) {
 //				panic("mock out the Encrypt method")
 //			},
 //		}
@@ -34,10 +34,10 @@ var _ encryption.EncryptorDecryptor = &EncryptorDecryptorMock{}
 //	}
 type EncryptorDecryptorMock struct {
 	// DecryptFunc mocks the Decrypt method.
-	DecryptFunc func(ctx context.Context, content string) (string, error)
+	DecryptFunc func(ctx context.Context, ciphertext []byte, associatedData []byte) ([]byte, error)
 
 	// EncryptFunc mocks the Encrypt method.
-	EncryptFunc func(ctx context.Context, content string) (string, error)
+	EncryptFunc func(ctx context.Context, plaintext []byte, associatedData []byte) ([]byte, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -45,15 +45,19 @@ type EncryptorDecryptorMock struct {
 		Decrypt []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Content is the content argument value.
-			Content string
+			// Ciphertext is the ciphertext argument value.
+			Ciphertext []byte
+			// AssociatedData is the associatedData argument value.
+			AssociatedData []byte
 		}
 		// Encrypt holds details about calls to the Encrypt method.
 		Encrypt []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Content is the content argument value.
-			Content string
+			// Plaintext is the plaintext argument value.
+			Plaintext []byte
+			// AssociatedData is the associatedData argument value.
+			AssociatedData []byte
 		}
 	}
 	lockDecrypt sync.RWMutex
@@ -61,21 +65,23 @@ type EncryptorDecryptorMock struct {
 }
 
 // Decrypt calls DecryptFunc.
-func (mock *EncryptorDecryptorMock) Decrypt(ctx context.Context, content string) (string, error) {
+func (mock *EncryptorDecryptorMock) Decrypt(ctx context.Context, ciphertext []byte, associatedData []byte) ([]byte, error) {
 	if mock.DecryptFunc == nil {
 		panic("EncryptorDecryptorMock.DecryptFunc: method is nil but EncryptorDecryptor.Decrypt was just called")
 	}
 	callInfo := struct {
-		Ctx     context.Context
-		Content string
+		Ctx            context.Context
+		Ciphertext     []byte
+		AssociatedData []byte
 	}{
-		Ctx:     ctx,
-		Content: content,
+		Ctx:            ctx,
+		Ciphertext:     ciphertext,
+		AssociatedData: associatedData,
 	}
 	mock.lockDecrypt.Lock()
 	mock.calls.Decrypt = append(mock.calls.Decrypt, callInfo)
 	mock.lockDecrypt.Unlock()
-	return mock.DecryptFunc(ctx, content)
+	return mock.DecryptFunc(ctx, ciphertext, associatedData)
 }
 
 // DecryptCalls gets all the calls that were made to Decrypt.
@@ -83,12 +89,14 @@ func (mock *EncryptorDecryptorMock) Decrypt(ctx context.Context, content string)
 //
 //	len(mockedEncryptorDecryptor.DecryptCalls())
 func (mock *EncryptorDecryptorMock) DecryptCalls() []struct {
-	Ctx     context.Context
-	Content string
+	Ctx            context.Context
+	Ciphertext     []byte
+	AssociatedData []byte
 } {
 	var calls []struct {
-		Ctx     context.Context
-		Content string
+		Ctx            context.Context
+		Ciphertext     []byte
+		AssociatedData []byte
 	}
 	mock.lockDecrypt.RLock()
 	calls = mock.calls.Decrypt
@@ -97,21 +105,23 @@ func (mock *EncryptorDecryptorMock) DecryptCalls() []struct {
 }
 
 // Encrypt calls EncryptFunc.
-func (mock *EncryptorDecryptorMock) Encrypt(ctx context.Context, content string) (string, error) {
+func (mock *EncryptorDecryptorMock) Encrypt(ctx context.Context, plaintext []byte, associatedData []byte) ([]byte, error) {
 	if mock.EncryptFunc == nil {
 		panic("EncryptorDecryptorMock.EncryptFunc: method is nil but EncryptorDecryptor.Encrypt was just called")
 	}
 	callInfo := struct {
-		Ctx     context.Context
-		Content string
+		Ctx            context.Context
+		Plaintext      []byte
+		AssociatedData []byte
 	}{
-		Ctx:     ctx,
-		Content: content,
+		Ctx:            ctx,
+		Plaintext:      plaintext,
+		AssociatedData: associatedData,
 	}
 	mock.lockEncrypt.Lock()
 	mock.calls.Encrypt = append(mock.calls.Encrypt, callInfo)
 	mock.lockEncrypt.Unlock()
-	return mock.EncryptFunc(ctx, content)
+	return mock.EncryptFunc(ctx, plaintext, associatedData)
 }
 
 // EncryptCalls gets all the calls that were made to Encrypt.
@@ -119,12 +129,14 @@ func (mock *EncryptorDecryptorMock) Encrypt(ctx context.Context, content string)
 //
 //	len(mockedEncryptorDecryptor.EncryptCalls())
 func (mock *EncryptorDecryptorMock) EncryptCalls() []struct {
-	Ctx     context.Context
-	Content string
+	Ctx            context.Context
+	Plaintext      []byte
+	AssociatedData []byte
 } {
 	var calls []struct {
-		Ctx     context.Context
-		Content string
+		Ctx            context.Context
+		Plaintext      []byte
+		AssociatedData []byte
 	}
 	mock.lockEncrypt.RLock()
 	calls = mock.calls.Encrypt

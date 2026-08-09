@@ -205,7 +205,7 @@ func TestWorker_Export(T *testing.T) {
 		stored, _ := env.uploader.get(req.ArtifactRef)
 
 		var doc Document
-		decoded, err := env.worker.packager.decode(t.Context(), stored)
+		decoded, err := env.worker.packager.decode(t.Context(), stored, testRequestID)
 		must.NoError(t, err)
 		test.NoError(t, json.Unmarshal(decoded, &doc))
 	})

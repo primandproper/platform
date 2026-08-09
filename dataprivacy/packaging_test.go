@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/compression"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -38,10 +37,10 @@ func TestPackager(T *testing.T) {
 
 		p := &packager{}
 
-		encoded, err := p.encode(t.Context(), testDocument())
+		encoded, err := p.encode(t.Context(), testDocument(), testRequestID)
 		must.NoError(t, err)
 
-		decoded, err := p.decode(t.Context(), encoded)
+		decoded, err := p.decode(t.Context(), encoded, testRequestID)
 		must.NoError(t, err)
 
 		var doc Document
@@ -57,10 +56,10 @@ func TestPackager(T *testing.T) {
 
 		p := &packager{}
 
-		first, err := p.encode(t.Context(), testDocument())
+		first, err := p.encode(t.Context(), testDocument(), testRequestID)
 		must.NoError(t, err)
 
-		second, err := p.encode(t.Context(), testDocument())
+		second, err := p.encode(t.Context(), testDocument(), testRequestID)
 		must.NoError(t, err)
 
 		// Two exports of unchanged data produce identical bytes, so a consumer
@@ -81,10 +80,10 @@ func TestPackager(T *testing.T) {
 
 		p := &packager{compressor: compressor}
 
-		encoded, err := p.encode(t.Context(), testDocument())
+		encoded, err := p.encode(t.Context(), testDocument(), testRequestID)
 		must.NoError(t, err)
 
-		decoded, err := p.decode(t.Context(), encoded)
+		decoded, err := p.decode(t.Context(), encoded, testRequestID)
 		must.NoError(t, err)
 
 		var doc Document
@@ -97,18 +96,18 @@ func TestPackager(T *testing.T) {
 	T.Run("encryption round trips and hides the plaintext", func(t *testing.T) {
 		t.Parallel()
 
-		encryptorDecryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		encryptorDecryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
 		p := &packager{encryptor: encryptorDecryptor, decryptor: encryptorDecryptor}
 
-		encoded, err := p.encode(t.Context(), testDocument())
+		encoded, err := p.encode(t.Context(), testDocument(), testRequestID)
 		must.NoError(t, err)
 
 		test.StrNotContains(t, string(encoded), "a@example.com")
 		test.True(t, p.encrypts())
 
-		decoded, err := p.decode(t.Context(), encoded)
+		decoded, err := p.decode(t.Context(), encoded, testRequestID)
 		must.NoError(t, err)
 
 		test.StrContains(t, string(decoded), "a@example.com")
@@ -120,15 +119,15 @@ func TestPackager(T *testing.T) {
 		compressor, err := compression.NewCompressor(compression.AlgorithmZstd)
 		must.NoError(t, err)
 
-		encryptorDecryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		encryptorDecryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
 		p := &packager{compressor: compressor, encryptor: encryptorDecryptor, decryptor: encryptorDecryptor}
 
-		encoded, err := p.encode(t.Context(), testDocument())
+		encoded, err := p.encode(t.Context(), testDocument(), testRequestID)
 		must.NoError(t, err)
 
-		decoded, err := p.decode(t.Context(), encoded)
+		decoded, err := p.decode(t.Context(), encoded, testRequestID)
 		must.NoError(t, err)
 
 		var doc Document
@@ -228,7 +227,7 @@ func TestPackager_MalformedFragment(T *testing.T) {
 		// The Worker validates fragments before assembly precisely so this
 		// cannot happen there; the guard here is what makes that a defense in
 		// depth rather than the only check.
-		_, err := (&packager{}).encode(t.Context(), doc)
+		_, err := (&packager{}).encode(t.Context(), doc, testRequestID)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "encoding dataprivacy export document")
 	})
