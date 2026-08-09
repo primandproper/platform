@@ -86,7 +86,13 @@ type packager struct {
 }
 
 // encode renders a document as the bytes to store.
-func (p *packager) encode(ctx context.Context, doc *Document) ([]byte, error) {
+//
+// requestID is bound into the ciphertext as associated data, so a stored
+// artifact only decrypts for the request it was produced for. Without it, an
+// artifact moved between two requests' rows — by a bug, a bad restore, or
+// someone with write access to the reference — would decrypt cleanly and hand
+// one subject another subject's export.
+func (p *packager) encode(ctx context.Context, doc *Document, requestID string) ([]byte, error) {
 	// Canonical rather than plain json.Marshal: the fragments are opaque bytes
 	// from eleven different domains, and nothing else in the pipeline would
 	// impose a stable key order on them.
@@ -102,16 +108,12 @@ func (p *packager) encode(ctx context.Context, doc *Document) ([]byte, error) {
 	}
 
 	if p.encryptor != nil {
-		// The encryption seam takes and returns a string. A Go string is a byte
-		// sequence, so binary survives the round trip intact; what it costs is
-		// the base64 the implementation applies on the way out, which is why the
-		// stored object is a third larger than the compression suggests.
-		ciphertext, encErr := p.encryptor.Encrypt(ctx, string(encoded))
+		ciphertext, encErr := p.encryptor.Encrypt(ctx, encoded, []byte(requestID))
 		if encErr != nil {
 			return nil, platformerrors.Wrap(encErr, "encrypting dataprivacy export document")
 		}
 
-		encoded = []byte(ciphertext)
+		encoded = ciphertext
 	}
 
 	return encoded, nil
@@ -119,14 +121,14 @@ func (p *packager) encode(ctx context.Context, doc *Document) ([]byte, error) {
 
 // decode reverses encode, returning the canonical JSON a subject should
 // actually receive.
-func (p *packager) decode(ctx context.Context, stored []byte) ([]byte, error) {
+func (p *packager) decode(ctx context.Context, stored []byte, requestID string) ([]byte, error) {
 	if p.decryptor != nil {
-		plaintext, err := p.decryptor.Decrypt(ctx, string(stored))
+		plaintext, err := p.decryptor.Decrypt(ctx, stored, []byte(requestID))
 		if err != nil {
 			return nil, platformerrors.Wrap(err, "decrypting dataprivacy export document")
 		}
 
-		stored = []byte(plaintext)
+		stored = plaintext
 	}
 
 	if p.compressor != nil {

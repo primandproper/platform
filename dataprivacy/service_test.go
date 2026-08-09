@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/compression"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
 	"github.com/primandproper/platform-go/v10/identifiers"
 
 	"github.com/shoenig/test"
@@ -234,7 +233,7 @@ func TestService_Artifacts(T *testing.T) {
 
 		uploader := &signingUploader{memoryUploader: newMemoryUploader()}
 
-		encryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		encryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
 		svc, req := completedExport(t, uploader.memoryUploader,
@@ -265,7 +264,7 @@ func TestService_Artifacts(T *testing.T) {
 		compressor, err := compression.NewCompressor(compression.AlgorithmZstd)
 		must.NoError(t, err)
 
-		encryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		encryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
 		uploader := newMemoryUploader()
@@ -281,7 +280,7 @@ func TestService_Artifacts(T *testing.T) {
 		stored, err := writer.encode(t.Context(), &Document{
 			Data:     map[string]json.RawMessage{"identity": json.RawMessage(`{"email":"a@example.com"}`)},
 			Manifest: Manifest{Format: DocumentFormat, RequestID: req.ID},
-		})
+		}, req.ID)
 		must.NoError(t, err)
 
 		must.NoError(t, uploader.Save(t.Context(), req.ArtifactRef, bytes.NewReader(stored)))

@@ -68,8 +68,8 @@ type ActorResolver func(ctx context.Context) audit.Actor
 // the Service holding an encryptor it would never use.
 type encryptorPresent struct{}
 
-func (encryptorPresent) Encrypt(context.Context, string) (string, error) {
-	return "", platformerrors.New("dataprivacy service does not encrypt")
+func (encryptorPresent) Encrypt(context.Context, []byte, []byte) ([]byte, error) {
+	return nil, platformerrors.New("dataprivacy service does not encrypt")
 }
 
 // NewService builds a Service.
@@ -340,7 +340,7 @@ func (s *service) Open(ctx context.Context, requestID string) (io.ReadCloser, er
 		return nil, op.Error(err, "reading dataprivacy artifact")
 	}
 
-	decoded, err := s.packager.decode(ctx, stored)
+	decoded, err := s.packager.decode(ctx, stored, req.ID)
 	if err != nil {
 		return nil, op.Error(err, "decoding dataprivacy artifact")
 	}

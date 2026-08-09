@@ -1,155 +1,235 @@
 package aes
 
 import (
-	"encoding/base64"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/keys"
-	"github.com/primandproper/platform-go/v10/random"
+	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
 
-// newRecordingEncryptor builds an aesImpl with a RecordingObserver swapped in, so
-// a test can drive Encrypt/Decrypt and assert which fields it observed.
-func newRecordingEncryptor(t *testing.T, key []byte) (*aesImpl, *observability.RecordingObserver) {
+// key is 32 bytes, which is what AES-256 wants.
+var key = []byte("0123456789abcdef0123456789abcdef")
+
+func newCipher(t *testing.T) encryption.Cipher {
 	t.Helper()
 
-	ed, err := NewEncryptorDecryptor(key)
-	must.NotNil(t, ed)
+	c, err := NewCipher(key)
 	must.NoError(t, err)
 
-	impl, ok := ed.(*aesImpl)
-	must.True(t, ok)
-
-	obs := observability.NewRecordingObserver()
-	impl.o11y = obs
-
-	return impl, obs
+	return c
 }
 
-func TestStandardEncryptor(T *testing.T) {
+func TestNewCipher(T *testing.T) {
 	T.Parallel()
 
-	T.Run("basic operation", func(t *testing.T) {
+	T.Run("builds from a 32 byte key", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		expected := t.Name()
-		secret, err := random.GenerateHexEncodedString(ctx, 16)
+		c, err := NewCipher(key)
 		must.NoError(t, err)
-
-		encryptor, err := NewEncryptorDecryptor([]byte(secret))
-		must.NotNil(t, encryptor)
-		must.NoError(t, err)
-
-		encrypted, err := encryptor.Encrypt(ctx, expected)
-		test.NoError(t, err)
-		test.NotEq(t, "", encrypted)
-
-		// The ciphertext must not be the plaintext (guards against an identity "encryptor").
-		test.NotEqOp(t, expected, encrypted)
-
-		encrypted2, err := encryptor.Encrypt(ctx, expected)
-		test.NoError(t, err)
-		test.NotEq(t, "", encrypted2)
-
-		// AES-GCM uses a fresh random nonce per call, so encrypting the same
-		// plaintext twice must produce different ciphertexts.
-		test.NotEqOp(t, encrypted, encrypted2)
-
-		actual, err := encryptor.Decrypt(ctx, encrypted)
-		test.NoError(t, err)
-		test.EqOp(t, expected, actual)
-
-		actual2, err := encryptor.Decrypt(ctx, encrypted2)
-		test.NoError(t, err)
-		test.EqOp(t, expected, actual2)
+		test.NotNil(t, c)
 	})
 
-	T.Run("decrypt rejects tampered ciphertext", func(t *testing.T) {
+	T.Run("rejects a short key", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		secret, err := random.GenerateHexEncodedString(ctx, 16)
-		must.NoError(t, err)
-
-		encryptor, err := NewEncryptorDecryptor([]byte(secret))
-		must.NoError(t, err)
-
-		encrypted, err := encryptor.Encrypt(ctx, "sensitive payload")
-		must.NoError(t, err)
-
-		raw, err := base64.URLEncoding.DecodeString(encrypted)
-		must.NoError(t, err)
-
-		// Flip a bit in the authenticated ciphertext body (past the nonce);
-		// GCM's tag check must reject it.
-		raw[len(raw)-1] ^= 0x01
-		tampered := base64.URLEncoding.EncodeToString(raw)
-
-		_, err = encryptor.Decrypt(ctx, tampered)
-		must.Error(t, err)
+		_, err := NewCipher([]byte("too short"))
+		test.ErrorIs(t, err, encryption.ErrIncorrectKeyLength)
 	})
 
-	T.Run("observes content length on encrypt", func(t *testing.T) {
+	T.Run("rejects a 16 byte key", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		expected := t.Name()
-		secret, err := random.GenerateHexEncodedString(ctx, 16)
-		must.NoError(t, err)
-
-		encryptor, obs := newRecordingEncryptor(t, []byte(secret))
-
-		encrypted, err := encryptor.Encrypt(ctx, expected)
-		must.NoError(t, err)
-		must.NotEq(t, "", encrypted)
-
-		obs.ObservedOperationWithData(t, map[string]any{
-			keys.LengthKey: len(expected),
-		})
+		// AES-128 is a valid cipher and not what this package offers. A key
+		// that is accidentally half the intended length should fail loudly
+		// rather than quietly halve the security margin.
+		_, err := NewCipher(make([]byte, 16))
+		test.ErrorIs(t, err, encryption.ErrIncorrectKeyLength)
 	})
 
-	T.Run("observes content length and records error on bad decrypt", func(t *testing.T) {
+	T.Run("rejects an empty key", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		secret, err := random.GenerateHexEncodedString(ctx, 16)
+		_, err := NewCipher(nil)
+		test.ErrorIs(t, err, encryption.ErrIncorrectKeyLength)
+	})
+}
+
+func TestCipher_RoundTrip(T *testing.T) {
+	T.Parallel()
+
+	T.Run("seals and opens", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCipher(t)
+
+		sealed, err := c.Seal(t.Context(), []byte("secret"), nil)
 		must.NoError(t, err)
 
-		encryptor, obs := newRecordingEncryptor(t, []byte(secret))
+		opened, err := c.Open(t.Context(), sealed, nil)
+		must.NoError(t, err)
 
-		// Not valid base64, so decoding fails early.
-		const badContent = "!!!not-base64!!!"
-		_, err = encryptor.Decrypt(ctx, badContent)
-		must.Error(t, err)
-
-		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.LengthKey: len(badContent),
-		})
-		must.SliceLen(t, 1, op.Errors)
+		test.Eq(t, []byte("secret"), opened)
 	})
 
-	T.Run("decrypt with ciphertext too short for nonce records error", func(t *testing.T) {
+	T.Run("binds associated data", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		secret, err := random.GenerateHexEncodedString(ctx, 16)
+		c := newCipher(t)
+
+		sealed, err := c.Seal(t.Context(), []byte("secret"), []byte("row-7"))
 		must.NoError(t, err)
 
-		encryptor, obs := newRecordingEncryptor(t, []byte(secret))
+		opened, err := c.Open(t.Context(), sealed, []byte("row-7"))
+		must.NoError(t, err)
 
-		// valid base64 that decodes to fewer than the GCM nonce size.
-		tooShort := base64.URLEncoding.EncodeToString([]byte{0, 1, 2})
-		_, err = encryptor.Decrypt(ctx, tooShort)
-		must.Error(t, err)
+		test.Eq(t, []byte("secret"), opened)
+	})
 
-		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.LengthKey: len(tooShort),
-		})
-		must.SliceLen(t, 1, op.Errors)
+	T.Run("round trips binary plaintext", func(t *testing.T) {
+		t.Parallel()
+
+		// The byte surface exists so that compressed or otherwise non-UTF-8
+		// payloads survive without an encoding step.
+		c := newCipher(t)
+
+		plaintext := []byte{0x00, 0xff, 0xfe, 0x80, 0x01}
+
+		sealed, err := c.Seal(t.Context(), plaintext, nil)
+		must.NoError(t, err)
+
+		opened, err := c.Open(t.Context(), sealed, nil)
+		must.NoError(t, err)
+
+		test.Eq(t, plaintext, opened)
+	})
+
+	T.Run("round trips an empty plaintext", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCipher(t)
+
+		sealed, err := c.Seal(t.Context(), nil, nil)
+		must.NoError(t, err)
+
+		opened, err := c.Open(t.Context(), sealed, nil)
+		must.NoError(t, err)
+
+		test.SliceEmpty(t, opened)
+	})
+
+	T.Run("a fresh nonce makes each sealing distinct", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCipher(t)
+
+		first, err := c.Seal(t.Context(), []byte("secret"), nil)
+		must.NoError(t, err)
+
+		second, err := c.Seal(t.Context(), []byte("secret"), nil)
+		must.NoError(t, err)
+
+		// Identical plaintext under identical key must not produce identical
+		// bytes, or equal values become visibly equal at rest.
+		test.NotEq(t, first, second)
+	})
+}
+
+func TestCipher_Authentication(T *testing.T) {
+	T.Parallel()
+
+	T.Run("mismatched associated data fails", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCipher(t)
+
+		sealed, err := c.Seal(t.Context(), []byte("secret"), []byte("row-7"))
+		must.NoError(t, err)
+
+		_, err = c.Open(t.Context(), sealed, []byte("row-8"))
+		test.ErrorIs(t, err, encryption.ErrAuthenticationFailed)
+	})
+
+	T.Run("omitted associated data fails", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCipher(t)
+
+		sealed, err := c.Seal(t.Context(), []byte("secret"), []byte("row-7"))
+		must.NoError(t, err)
+
+		_, err = c.Open(t.Context(), sealed, nil)
+		test.ErrorIs(t, err, encryption.ErrAuthenticationFailed)
+	})
+
+	T.Run("a tampered ciphertext fails", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCipher(t)
+
+		sealed, err := c.Seal(t.Context(), []byte("secret"), nil)
+		must.NoError(t, err)
+
+		sealed[len(sealed)-1] ^= 0xff
+
+		_, err = c.Open(t.Context(), sealed, nil)
+		test.ErrorIs(t, err, encryption.ErrAuthenticationFailed)
+	})
+
+	T.Run("the wrong key fails", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCipher(t)
+
+		sealed, err := c.Seal(t.Context(), []byte("secret"), nil)
+		must.NoError(t, err)
+
+		other, err := NewCipher([]byte("fedcba9876543210fedcba9876543210"))
+		must.NoError(t, err)
+
+		// Indistinguishable from tampering on purpose: telling the caller
+		// which one it was tells an attacker the same thing.
+		_, err = other.Open(t.Context(), sealed, nil)
+		test.ErrorIs(t, err, encryption.ErrAuthenticationFailed)
+	})
+
+	T.Run("a ciphertext shorter than a nonce is malformed", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCipher(t)
+
+		_, err := c.Open(t.Context(), []byte{0x01, 0x02}, nil)
+		test.ErrorIs(t, err, encryption.ErrMalformedCiphertext)
+	})
+}
+
+// exhaustedReader stands in for an entropy source that has stopped answering.
+type exhaustedReader struct{}
+
+func (exhaustedReader) Read([]byte) (int, error) { return 0, errNoEntropy }
+
+var errNoEntropy = errors.New("entropy source is exhausted")
+
+func TestCipher_NonceFailure(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a nonce that cannot be generated fails the seal", func(t *testing.T) {
+		t.Parallel()
+
+		// Sealing without a fresh nonce would reuse one, and nonce reuse under
+		// GCM is not a degraded mode — it leaks the authentication key. There
+		// is no sensible fallback, so this has to be a hard failure.
+		c, err := NewCipher(key)
+		must.NoError(t, err)
+
+		impl, ok := c.(*aesImpl)
+		must.True(t, ok)
+		impl.random = exhaustedReader{}
+
+		_, err = impl.Seal(t.Context(), []byte("secret"), nil)
+		test.ErrorIs(t, err, errNoEntropy)
 	})
 }

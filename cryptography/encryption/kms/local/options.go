@@ -1,11 +1,11 @@
-package salsa20
+package local
 
 import (
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
 
-// Option configures the encryptor this package constructs. The zero
+// Option configures the key wrapper this package constructs. The zero
 // configuration works: an absent logger logs nowhere and an absent tracer
 // provider traces nowhere.
 type Option func(*options)
@@ -16,14 +16,14 @@ type options struct {
 }
 
 func newOptions(opts []Option) *options {
-	cfg := &options{}
+	o := &options{}
 	for _, opt := range opts {
 		if opt != nil {
-			opt(cfg)
+			opt(o)
 		}
 	}
 
-	return cfg
+	return o
 }
 
 // WithLogger attaches a logger.
@@ -32,7 +32,7 @@ func WithLogger(logger logging.Logger) Option {
 }
 
 // WithTracerProvider attaches a tracer provider, enabling spans on every
-// operation.
+// wrap and unwrap.
 func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }

@@ -11,7 +11,6 @@ import (
 
 	"github.com/primandproper/platform-go/v10/audit"
 	"github.com/primandproper/platform-go/v10/compression"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/database/sqlite"
@@ -342,7 +341,7 @@ func TestEnsurePackaging_Supplied(T *testing.T) {
 		compressor, err := compression.NewCompressor(compression.AlgorithmZstd)
 		must.NoError(t, err)
 
-		encryptorDecryptor, err := aes.NewEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
+		encryptorDecryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
 		// The pairing is the point: an artifact written with one compressor and
