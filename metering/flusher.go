@@ -352,6 +352,8 @@ func (f *Flusher) flushOne(ctx context.Context, total *Total) (outcome flushOutc
 		subjectKey:     total.Subject,
 		meterKey:       total.Meter,
 		periodStartKey: total.PeriodStart,
+		periodEndKey:   total.PeriodEnd,
+		aggregationKey: string(total.Aggregation),
 		sequenceKey:    total.FlushSequence,
 		deltaKey:       delta,
 		attemptsKey:    total.FlushAttempts,
@@ -509,6 +511,8 @@ func (f *Flusher) fail(ctx context.Context, op observability.Operation, total *T
 			subjectKey:     total.Subject,
 			meterKey:       total.Meter,
 			periodStartKey: total.PeriodStart,
+			periodEndKey:   total.PeriodEnd,
+			aggregationKey: string(total.Aggregation),
 			attemptsKey:    total.FlushAttempts,
 		}).Error("abandoning metering flush after exhausting attempts; usage is recorded but unbilled", cause)
 	}
