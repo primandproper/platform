@@ -9,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 	"github.com/primandproper/platform-go/v10/sessions"
 )
@@ -73,6 +74,17 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrFetchingSessionContextData, "session expired", true
 	case errors.Is(err, sessions.ErrNotFound):
 		return ErrFetchingSessionContextData, "no active session", true
+	// An operation nobody may read and an operation that does not exist are the
+	// same answer on purpose. The read paths resolve an owner and return
+	// ErrOperationNotFound for a row belonging to somebody else, so that an ID
+	// somebody guessed cannot be confirmed as real by the status it comes back
+	// with.
+	case errors.Is(err, operations.ErrOperationNotFound):
+		return ErrDataNotFound, "operation not found", true
+	// A subscription refused for capacity is a retry-later, not a failure of the
+	// request: the same subscription will be accepted when somebody disconnects.
+	case errors.Is(err, operations.ErrTooManyWatchers):
+		return ErrTooManyRequests, "too many concurrent operation subscriptions", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):
