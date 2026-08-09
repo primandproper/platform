@@ -5,6 +5,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/compression"
 	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v10/cryptography/shredding"
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/dataprivacy"
 	"github.com/primandproper/platform-go/v10/internal/injection"
@@ -67,6 +68,11 @@ func RegisterService(i do.Injector) {
 // follows EnsurePackaging, and the worker's encrypted flag is derived from
 // whether an encryption.EncryptorDecryptor is registered.
 //
+// A registered shredding.Keys makes every erasure destroy the subject's data
+// key, which is what carries an erasure into backups already taken. Its absence
+// means erasure deletes rows and nothing more — the older, narrower guarantee,
+// and the right one for an application that encrypts nothing per subject.
+//
 // Prerequisites: *Config, dataprivacy.Store (see RegisterStore),
 // *dataprivacy.Registry (the application's collectors and erasers), and
 // uploads.UploadManager must be registered in the injector before the Worker
@@ -86,6 +92,15 @@ func RegisterWorker(i do.Injector) {
 		encryptorDecryptor, err := injection.InvokeOptional[encryption.EncryptorDecryptor](i)
 		if err != nil {
 			return nil, err
+		}
+
+		keys, err := injection.InvokeOptional[shredding.Keys](i)
+		if err != nil {
+			return nil, err
+		}
+
+		if keys != nil {
+			workerOpts = append(workerOpts, dataprivacy.WithWorkerShredder(keys))
 		}
 
 		return NewWorker(
