@@ -271,6 +271,7 @@ func (s *sqlStore) Total(ctx context.Context, subject, meter string, bounds Boun
 		subjectKey:     subject,
 		meterKey:       meter,
 		periodStartKey: bounds.Start,
+		periodEndKey:   bounds.End,
 	}))
 	defer op.End()
 
@@ -307,11 +308,14 @@ func (s *sqlStore) Consume(
 	at time.Time,
 ) (*Decision, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
-		subjectKey:  entry.Subject,
-		meterKey:    entry.Meter,
-		quantityKey: entry.Quantity,
-		limitKey:    limit,
-		behaviorKey: string(behavior),
+		subjectKey:     entry.Subject,
+		meterKey:       entry.Meter,
+		quantityKey:    entry.Quantity,
+		limitKey:       limit,
+		behaviorKey:    string(behavior),
+		periodStartKey: entry.Bounds.Start,
+		periodEndKey:   entry.Bounds.End,
+		aggregationKey: string(entry.Aggregation),
 	}))
 	defer op.End()
 
@@ -512,10 +516,13 @@ func (s *sqlStore) MarkFlushed(ctx context.Context, total *Total, flushed int64,
 	}
 
 	op.SetValues(map[string]any{
-		subjectKey:  total.Subject,
-		meterKey:    total.Meter,
-		sequenceKey: total.FlushSequence,
-		flushedKey:  flushed,
+		subjectKey:     total.Subject,
+		meterKey:       total.Meter,
+		sequenceKey:    total.FlushSequence,
+		flushedKey:     flushed,
+		periodStartKey: total.PeriodStart,
+		periodEndKey:   total.PeriodEnd,
+		aggregationKey: string(total.Aggregation),
 	})
 
 	query, args := s.tables.buildMarkFlushed(s.dialect, total, flushed, at)
@@ -533,9 +540,12 @@ func (s *sqlStore) ReleaseFlush(ctx context.Context, total *Total, lastErr strin
 	}
 
 	op.SetValues(map[string]any{
-		subjectKey:  total.Subject,
-		meterKey:    total.Meter,
-		sequenceKey: total.FlushSequence,
+		subjectKey:     total.Subject,
+		meterKey:       total.Meter,
+		sequenceKey:    total.FlushSequence,
+		periodStartKey: total.PeriodStart,
+		periodEndKey:   total.PeriodEnd,
+		aggregationKey: string(total.Aggregation),
 	})
 
 	query, args := s.tables.buildReleaseFlush(s.dialect, total, lastErr, nextFlush, nextFlush)

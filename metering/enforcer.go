@@ -180,6 +180,8 @@ func (e *QuotaEnforcer) Check(ctx context.Context, subject, meter string, quanti
 		return nil, op.Error(err, "resolving metering quota")
 	}
 
+	annotatePeriod(op, m.Aggregation, bounds)
+
 	used, stale, err := e.usage(ctx, op, m, subject, bounds)
 	if err != nil {
 		if !e.cfg.FailOpen {
@@ -253,6 +255,8 @@ func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, u Usage) (*Decision, e
 	if err != nil {
 		return nil, op.Error(err, "resolving metering quota")
 	}
+
+	annotatePeriod(op, m.Aggregation, bounds)
 
 	if u.OccurredAt.IsZero() {
 		u.OccurredAt = e.clock.Now().UTC()
@@ -443,6 +447,25 @@ func (e *QuotaEnforcer) observeDecision(ctx context.Context, decision *Decision)
 		// the answer is measured in the meter's unit.
 		e.overageCounter.Add(ctx, decision.Overage, attrs)
 	}
+}
+
+// annotatePeriod attaches the window a call is about, and how the meter's
+// records fold into it.
+//
+// Set after the resolve rather than at Begin because neither is known before it:
+// which window an instant falls in depends on the meter's bucketing and, for
+// PeriodBillingPeriod, on the subject.
+//
+// Both bounds, not just the start. A total's window is recoverable from its start
+// alone only for the calendar periods, and the case where it is not — a billing
+// period an application resolved per subject, or a boundary that moved — is
+// exactly the case somebody is reading a trace to understand.
+func annotatePeriod(op observability.Operation, aggregation Aggregation, bounds Bounds) {
+	op.SetValues(map[string]any{
+		periodStartKey: bounds.Start,
+		periodEndKey:   bounds.End,
+		aggregationKey: string(aggregation),
+	})
 }
 
 // annotate attaches a decision to the operation's span and logger.

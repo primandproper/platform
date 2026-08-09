@@ -13,6 +13,13 @@ type featureFlagManager struct{}
 
 // NewFeatureFlagManager returns a FeatureFlagManager that always returns the
 // supplied default values (or zero values for the boolean variant).
+//
+// Nothing here reports featureflags.ErrFlagNotFound, though every flag it is
+// asked about is, literally, one it does not have. Selecting this implementation
+// is a decision rather than an unknown: it says this process has no flag system
+// and every flag takes its default, which is a resolved answer and is reported as
+// one. A caller distinguishing a missing flag from a working provider is asking
+// about a provider, and there is none to ask about.
 func NewFeatureFlagManager() featureflags.FeatureFlagManager {
 	return &featureFlagManager{}
 }

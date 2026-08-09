@@ -62,8 +62,17 @@ type (
 		Handle(method, pattern string, handler http.Handler)
 		// Use installs global middleware, applied to every route.
 		Use(middleware ...Middleware)
-		// PathValue returns the value of the named path parameter for req, or ""
-		// if absent.
+		// PathValue returns the decoded value of the named path parameter for
+		// req, or "" if absent.
+		//
+		// Decoded, because a value carrying a reserved character travels
+		// percent-escaped: "{slug}" is one segment, so a slug of "a/b" arrives
+		// as "a%2Fb" or it addresses a different resource. An implementation
+		// therefore matches on the escaped path — so the escaped separator stays
+		// inside the segment rather than splitting it — and undoes the escaping
+		// here, handing back the value the caller wrote. Backends that do not
+		// get this from their library share
+		// routing/backends/internal/pathvalues.Decode.
 		PathValue(req *http.Request, name string) string
 		// Handler returns the composed http.Handler for serving.
 		Handler() http.Handler

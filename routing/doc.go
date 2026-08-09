@@ -40,6 +40,17 @@ Path parameters use an inline typed syntax — "/users/{id:uint64}" — which dr
 both runtime binding and the generated parameter schema. Query, header, cookie,
 and body values are bound from struct tags on the typed input.
 
+A path parameter may carry reserved characters. "{name}" is a single segment, so
+a value containing a slash goes on the wire percent-escaped — "a/b" as "a%2Fb" —
+or the URL addresses something else. Every Backend matches on the escaped path,
+which keeps the escaped separator inside the segment, and hands the handler the
+decoded value, so a route bound to such a value reads the same on every backend:
+
+	// GET /files/reports%2F2026%2Fq1.csv
+	routing.Get(r, "/files/{key}", func(ctx context.Context, in getFile) (*file, error) {
+		return store.Fetch(ctx, in.Key) // in.Key == "reports/2026/q1.csv"
+	})
+
 # Security
 
 The router does not model security, in either direction.

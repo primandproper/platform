@@ -129,7 +129,7 @@ func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker) *featureF
 	return ffm.(*featureFlagManager)
 }
 
-func buildTestManagerWithFlags(t *testing.T, flags []ldstoretypes.KeyedItemDescriptor) *featureFlagManager {
+func buildTestManagerWithFlags(t *testing.T, cb circuitbreaking.CircuitBreaker, flags []ldstoretypes.KeyedItemDescriptor) *featureFlagManager {
 	t.Helper()
 
 	ldConfig := ld.Config{
@@ -154,17 +154,20 @@ func buildTestManagerWithFlags(t *testing.T, flags []ldstoretypes.KeyedItemDescr
 	must.NoError(t, err)
 	errorCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_errors", serviceName))
 	must.NoError(t, err)
+	notFoundCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_flags_not_found", serviceName))
+	must.NoError(t, err)
 	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", serviceName))
 	must.NoError(t, err)
 
 	return &featureFlagManager{
-		ldClient:       client,
-		ofClient:       ofClient,
-		circuitBreaker: cbnoop.NewCircuitBreaker(),
-		o11y:           observability.NewObserver(serviceName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
-		evalCounter:    evalCounter,
-		errorCounter:   errorCounter,
-		latencyHist:    latencyHist,
+		ldClient:        client,
+		ofClient:        ofClient,
+		circuitBreaker:  cb,
+		o11y:            observability.NewObserver(serviceName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
+		evalCounter:     evalCounter,
+		errorCounter:    errorCounter,
+		notFoundCounter: notFoundCounter,
+		latencyHist:     latencyHist,
 	}
 }
 
@@ -367,7 +370,7 @@ func TestFeatureFlagManager_CanUseFeature(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		ffm := buildTestManagerWithFlags(t, testFlagItems())
+		ffm := buildTestManagerWithFlags(t, cbnoop.NewCircuitBreaker(), testFlagItems())
 		obs := withRecordingObserver(ffm)
 
 		result, err := ffm.CanUseFeature(ctx, "bool-flag", evalCtx("user123"))
@@ -394,11 +397,15 @@ func TestFeatureFlagManager_CanUseFeature(T *testing.T) {
 		obs := withRecordingObserver(ffm)
 
 		result, err := ffm.CanUseFeature(ctx, "nonexistent-flag", evalCtx("user123"))
-		test.Error(t, err)
+		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 		test.False(t, result)
 		test.SliceLen(t, 1, cb.CanProceedCalls())
-		test.SliceLen(t, 1, cb.FailedCalls())
-		test.SliceLen(t, 0, cb.SucceededCalls())
+
+		// The provider answered, and answering is not what a failing service does.
+		// Scoring this a failure is what let a flag name shipped ahead of its flag
+		// open the breaker every other flag in the process shares.
+		test.SliceLen(t, 0, cb.FailedCalls())
+		test.SliceLen(t, 1, cb.SucceededCalls())
 
 		// Even though evaluation failed, the values must still have been observed,
 		// and the failure itself recorded on the operation.
@@ -433,7 +440,7 @@ func TestFeatureFlagManager_GetStringValue(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		ffm := buildTestManagerWithFlags(t, testFlagItems())
+		ffm := buildTestManagerWithFlags(t, cbnoop.NewCircuitBreaker(), testFlagItems())
 		obs := withRecordingObserver(ffm)
 
 		result, err := ffm.GetStringValue(ctx, "string-flag", "fallback", evalCtx("user123"))
@@ -459,11 +466,11 @@ func TestFeatureFlagManager_GetStringValue(T *testing.T) {
 		ffm := buildTestManager(t, cb)
 
 		result, err := ffm.GetStringValue(ctx, "nonexistent-flag", "fallback", evalCtx("user123"))
-		test.Error(t, err)
+		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 		test.EqOp(t, "fallback", result)
 		test.SliceLen(t, 1, cb.CanProceedCalls())
-		test.SliceLen(t, 1, cb.FailedCalls())
-		test.SliceLen(t, 0, cb.SucceededCalls())
+		test.SliceLen(t, 0, cb.FailedCalls())
+		test.SliceLen(t, 1, cb.SucceededCalls())
 	})
 
 	T.Run("with broken circuit", func(t *testing.T) {
@@ -481,6 +488,30 @@ func TestFeatureFlagManager_GetStringValue(T *testing.T) {
 		test.EqOp(t, "fallback", result)
 		test.SliceLen(t, 1, cb.CanProceedCalls())
 	})
+
+	// The counterweight to the "flag not found" cases: only a missing flag is
+	// exempt from the breaker. Asking for a bool flag as a string resolves
+	// TYPE_MISMATCH, which is a flag the provider cannot serve as asked, and that
+	// still counts against it.
+	T.Run("with a resolution failure that is not a missing flag", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cb := &circuitbreakingmock.CircuitBreakerMock{
+			CanProceedFunc: func() bool { return true },
+			SucceededFunc:  func() {},
+			FailedFunc:     func() {},
+		}
+
+		ffm := buildTestManagerWithFlags(t, cb, testFlagItems())
+
+		result, err := ffm.GetStringValue(ctx, "bool-flag", "fallback", evalCtx("user123"))
+		test.Error(t, err)
+		test.False(t, errors.Is(err, featureflags.ErrFlagNotFound))
+		test.EqOp(t, "fallback", result)
+		test.SliceLen(t, 1, cb.FailedCalls())
+		test.SliceLen(t, 0, cb.SucceededCalls())
+	})
 }
 
 func TestFeatureFlagManager_GetInt64Value(T *testing.T) {
@@ -490,7 +521,7 @@ func TestFeatureFlagManager_GetInt64Value(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		ffm := buildTestManagerWithFlags(t, testFlagItems())
+		ffm := buildTestManagerWithFlags(t, cbnoop.NewCircuitBreaker(), testFlagItems())
 		obs := withRecordingObserver(ffm)
 
 		result, err := ffm.GetInt64Value(ctx, "int-flag", int64(0), evalCtx("user123"))
@@ -516,11 +547,11 @@ func TestFeatureFlagManager_GetInt64Value(T *testing.T) {
 		ffm := buildTestManager(t, cb)
 
 		result, err := ffm.GetInt64Value(ctx, "nonexistent-flag", int64(42), evalCtx("user123"))
-		test.Error(t, err)
+		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 		test.EqOp(t, int64(42), result)
 		test.SliceLen(t, 1, cb.CanProceedCalls())
-		test.SliceLen(t, 1, cb.FailedCalls())
-		test.SliceLen(t, 0, cb.SucceededCalls())
+		test.SliceLen(t, 0, cb.FailedCalls())
+		test.SliceLen(t, 1, cb.SucceededCalls())
 	})
 
 	T.Run("with broken circuit", func(t *testing.T) {
@@ -547,7 +578,7 @@ func TestFeatureFlagManager_GetFloat64Value(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		ffm := buildTestManagerWithFlags(t, testFlagItems())
+		ffm := buildTestManagerWithFlags(t, cbnoop.NewCircuitBreaker(), testFlagItems())
 		obs := withRecordingObserver(ffm)
 
 		result, err := ffm.GetFloat64Value(ctx, "float-flag", 0.0, evalCtx("user123"))
@@ -573,11 +604,11 @@ func TestFeatureFlagManager_GetFloat64Value(T *testing.T) {
 		ffm := buildTestManager(t, cb)
 
 		result, err := ffm.GetFloat64Value(ctx, "nonexistent-flag", 3.14, evalCtx("user123"))
-		test.Error(t, err)
+		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 		test.InDelta(t, 3.14, result, 1e-9)
 		test.SliceLen(t, 1, cb.CanProceedCalls())
-		test.SliceLen(t, 1, cb.FailedCalls())
-		test.SliceLen(t, 0, cb.SucceededCalls())
+		test.SliceLen(t, 0, cb.FailedCalls())
+		test.SliceLen(t, 1, cb.SucceededCalls())
 	})
 
 	T.Run("with broken circuit", func(t *testing.T) {
@@ -604,7 +635,7 @@ func TestFeatureFlagManager_GetObjectValue(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		ffm := buildTestManagerWithFlags(t, testFlagItems())
+		ffm := buildTestManagerWithFlags(t, cbnoop.NewCircuitBreaker(), testFlagItems())
 		obs := withRecordingObserver(ffm)
 
 		def := map[string]any{"default": true}
@@ -632,11 +663,11 @@ func TestFeatureFlagManager_GetObjectValue(T *testing.T) {
 
 		def := map[string]any{"k": "v"}
 		result, err := ffm.GetObjectValue(ctx, "nonexistent-flag", def, evalCtx("user123"))
-		test.Error(t, err)
+		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 		test.Eq[any](t, def, result)
 		test.SliceLen(t, 1, cb.CanProceedCalls())
-		test.SliceLen(t, 1, cb.FailedCalls())
-		test.SliceLen(t, 0, cb.SucceededCalls())
+		test.SliceLen(t, 0, cb.FailedCalls())
+		test.SliceLen(t, 1, cb.SucceededCalls())
 	})
 
 	T.Run("with broken circuit", func(t *testing.T) {
