@@ -35,14 +35,15 @@ var (
 type (
 	// featureFlagManager implements the feature flag interface using OpenFeature.
 	featureFlagManager struct {
-		circuitBreaker circuitbreaking.CircuitBreaker
-		o11y           observability.Observer
-		evalCounter    metrics.Int64Counter
-		errorCounter   metrics.Int64Counter
-		latencyHist    metrics.Float64Histogram
-		ldClient       *ld.LDClient
-		ofClient       *openfeature.Client
-		domain         string
+		circuitBreaker  circuitbreaking.CircuitBreaker
+		o11y            observability.Observer
+		evalCounter     metrics.Int64Counter
+		errorCounter    metrics.Int64Counter
+		notFoundCounter metrics.Int64Counter
+		latencyHist     metrics.Float64Histogram
+		ldClient        *ld.LDClient
+		ofClient        *openfeature.Client
+		domain          string
 	}
 )
 
@@ -85,6 +86,14 @@ func NewFeatureFlagManager(cfg *Config, httpClient *http.Client, circuitBreaker 
 		return nil, platformerrors.Wrap(err, "creating error counter")
 	}
 
+	// Counted apart from errors because the remedies differ: a missing flag is
+	// answered by creating the flag, an error by fixing the provider. A sustained
+	// rise here usually means a flag name shipped in code that nobody has created.
+	notFoundCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_flags_not_found", serviceName))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "creating flag-not-found counter")
+	}
+
 	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", serviceName))
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "creating latency histogram")
@@ -122,14 +131,15 @@ func NewFeatureFlagManager(cfg *Config, httpClient *http.Client, circuitBreaker 
 	ofClient := openfeature.NewClient(domain)
 
 	ffm := &featureFlagManager{
-		o11y:           o11y,
-		domain:         domain,
-		circuitBreaker: circuitBreaker,
-		ldClient:       client,
-		ofClient:       ofClient,
-		evalCounter:    evalCounter,
-		errorCounter:   errorCounter,
-		latencyHist:    latencyHist,
+		o11y:            o11y,
+		domain:          domain,
+		circuitBreaker:  circuitBreaker,
+		ldClient:        client,
+		ofClient:        ofClient,
+		evalCounter:     evalCounter,
+		errorCounter:    errorCounter,
+		notFoundCounter: notFoundCounter,
+		latencyHist:     latencyHist,
 	}
 
 	return ffm, nil
@@ -140,6 +150,33 @@ func NewFeatureFlagManager(cfg *Config, httpClient *http.Client, circuitBreaker 
 // between the platform-owned type and the OpenFeature type.
 func toOpenFeatureContext(evalCtx featureflags.EvaluationContext) openfeature.EvaluationContext {
 	return openfeature.NewEvaluationContext(evalCtx.TargetingKey, evalCtx.Attributes)
+}
+
+// evaluationError classifies a failed evaluation into the error the caller sees and
+// the verdict the circuit breaker hears.
+//
+// A flag the provider resolved as absent scores a success. The breaker exists to
+// give a failing service breathing room, and answering "no such flag" is not what a
+// failing service does — it is a correct negative answer. Counting it as a failure
+// is what let a flag name shipped ahead of its flag open a breaker that every other
+// flag in the process shares.
+//
+// Everything else is a failure the breaker should hear about. That includes the
+// SDK's pre-evaluation short circuits, which return empty resolution details and so
+// arrive here with an empty code: an unready or fatally broken provider is exactly
+// what the breaker is for.
+func (f *featureFlagManager) evaluationError(ctx context.Context, feature string, code openfeature.ErrorCode, err error) error {
+	if code == openfeature.FlagNotFoundCode {
+		f.notFoundCounter.Add(ctx, 1)
+		f.circuitBreaker.Succeeded()
+
+		return platformerrors.Wrapf(featureflags.ErrFlagNotFound, "feature flag %q", feature)
+	}
+
+	f.errorCounter.Add(ctx, 1)
+	f.circuitBreaker.Failed()
+
+	return err
 }
 
 // CanUseFeature returns whether the supplied evaluation context is permitted to use
@@ -156,19 +193,17 @@ func (f *featureFlagManager) CanUseFeature(ctx context.Context, feature string, 
 	}
 
 	startTime := time.Now()
-	result, err := f.ofClient.BooleanValue(ctx, feature, false, toOpenFeatureContext(evalCtx))
+	details, err := f.ofClient.BooleanValueDetails(ctx, feature, false, toOpenFeatureContext(evalCtx))
 	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		f.errorCounter.Add(ctx, 1)
-		f.circuitBreaker.Failed()
-		return false, op.Error(err, "checking feature flag variation")
+		return false, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag variation")
 	}
 
-	op.Set("flag.value", result)
+	op.Set("flag.value", details.Value)
 
 	f.evalCounter.Add(ctx, 1)
 	f.circuitBreaker.Succeeded()
-	return result, nil
+	return details.Value, nil
 }
 
 // GetStringValue returns the string value of a feature flag, falling back to
@@ -185,19 +220,17 @@ func (f *featureFlagManager) GetStringValue(ctx context.Context, feature, defaul
 	}
 
 	startTime := time.Now()
-	result, err := f.ofClient.StringValue(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
+	details, err := f.ofClient.StringValueDetails(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
 	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		f.errorCounter.Add(ctx, 1)
-		f.circuitBreaker.Failed()
-		return defaultValue, op.Error(err, "checking feature flag string variation")
+		return defaultValue, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag string variation")
 	}
 
-	op.Set("flag.default", defaultValue).Set("flag.value", result)
+	op.Set("flag.default", defaultValue).Set("flag.value", details.Value)
 
 	f.evalCounter.Add(ctx, 1)
 	f.circuitBreaker.Succeeded()
-	return result, nil
+	return details.Value, nil
 }
 
 // GetInt64Value returns the int64 value of a feature flag, falling back to
@@ -214,19 +247,17 @@ func (f *featureFlagManager) GetInt64Value(ctx context.Context, feature string, 
 	}
 
 	startTime := time.Now()
-	result, err := f.ofClient.IntValue(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
+	details, err := f.ofClient.IntValueDetails(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
 	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		f.errorCounter.Add(ctx, 1)
-		f.circuitBreaker.Failed()
-		return defaultValue, op.Error(err, "checking feature flag int variation")
+		return defaultValue, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag int variation")
 	}
 
-	op.Set("flag.default", defaultValue).Set("flag.value", result)
+	op.Set("flag.default", defaultValue).Set("flag.value", details.Value)
 
 	f.evalCounter.Add(ctx, 1)
 	f.circuitBreaker.Succeeded()
-	return result, nil
+	return details.Value, nil
 }
 
 // GetFloat64Value returns the float64 value of a feature flag, falling back to
@@ -243,19 +274,17 @@ func (f *featureFlagManager) GetFloat64Value(ctx context.Context, feature string
 	}
 
 	startTime := time.Now()
-	result, err := f.ofClient.FloatValue(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
+	details, err := f.ofClient.FloatValueDetails(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
 	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		f.errorCounter.Add(ctx, 1)
-		f.circuitBreaker.Failed()
-		return defaultValue, op.Error(err, "checking feature flag float variation")
+		return defaultValue, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag float variation")
 	}
 
-	op.Set("flag.default", defaultValue).Set("flag.value", result)
+	op.Set("flag.default", defaultValue).Set("flag.value", details.Value)
 
 	f.evalCounter.Add(ctx, 1)
 	f.circuitBreaker.Succeeded()
-	return result, nil
+	return details.Value, nil
 }
 
 // GetObjectValue returns the object (JSON) value of a feature flag, falling back
@@ -272,17 +301,15 @@ func (f *featureFlagManager) GetObjectValue(ctx context.Context, feature string,
 	}
 
 	startTime := time.Now()
-	result, err := f.ofClient.ObjectValue(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
+	details, err := f.ofClient.ObjectValueDetails(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
 	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		f.errorCounter.Add(ctx, 1)
-		f.circuitBreaker.Failed()
-		return defaultValue, op.Error(err, "checking feature flag object variation")
+		return defaultValue, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag object variation")
 	}
 
 	f.evalCounter.Add(ctx, 1)
 	f.circuitBreaker.Succeeded()
-	return result, nil
+	return details.Value, nil
 }
 
 // Close closes the LaunchDarkly client and detaches it from OpenFeature's
