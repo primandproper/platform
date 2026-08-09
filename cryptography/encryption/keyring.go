@@ -39,6 +39,16 @@ type (
 		ID KeyID
 	}
 
+	// ringEntry is a key's Cipher alongside its precomputed metric attributes.
+	//
+	// The attributes are built once per key rather than per operation. A key
+	// ID never changes after construction, and building the attribute set
+	// inline cost more allocations than the encryption it was measuring.
+	ringEntry struct {
+		cipher Cipher
+		attrs  metric.MeasurementOption
+	}
+
 	// Keyring is an EncryptorDecryptor over several keys at once: it encrypts
 	// with the current one and decrypts with whichever key a ciphertext names,
 	// which is what makes rotation something other than a flag day.
@@ -57,8 +67,8 @@ type (
 	// that.
 	Keyring struct {
 		o11y            observability.Observer
-		byID            map[KeyID]Cipher
-		current         Cipher
+		byID            map[KeyID]ringEntry
+		current         ringEntry
 		encryptCounter  metrics.Int64Counter
 		decryptCounter  metrics.Int64Counter
 		unknownKeyCount metrics.Int64Counter
@@ -82,7 +92,7 @@ func NewKeyring(current KeyID, ringKeys []RingKey, opts ...Option) (*Keyring, er
 
 	o := newOptions(opts)
 
-	byID := make(map[KeyID]Cipher, len(ringKeys))
+	byID := make(map[KeyID]ringEntry, len(ringKeys))
 
 	for i := range ringKeys {
 		k := &ringKeys[i]
@@ -100,10 +110,13 @@ func NewKeyring(current KeyID, ringKeys []RingKey, opts ...Option) (*Keyring, er
 			return nil, fmt.Errorf("%w: %q", ErrDuplicateKeyID, k.ID)
 		}
 
-		byID[k.ID] = k.Cipher
+		byID[k.ID] = ringEntry{
+			cipher: k.Cipher,
+			attrs:  metric.WithAttributes(attribute.String(keyIDAttribute, string(k.ID))),
+		}
 	}
 
-	currentCipher, ok := byID[current]
+	currentEntry, ok := byID[current]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q is not among the ring's keys", ErrNoCurrentKey, current)
 	}
@@ -128,7 +141,7 @@ func NewKeyring(current KeyID, ringKeys []RingKey, opts ...Option) (*Keyring, er
 	return &Keyring{
 		o11y:            observability.NewObserver(keyringName, o.logger, o.tracerProvider),
 		byID:            byID,
-		current:         currentCipher,
+		current:         currentEntry,
 		currentID:       current,
 		encryptCounter:  encryptCounter,
 		decryptCounter:  decryptCounter,
@@ -168,12 +181,12 @@ func (r *Keyring) Encrypt(ctx context.Context, plaintext, associatedData []byte)
 	// attacker could rewrite the key ID on a stored ciphertext and steer
 	// decryption at a different key; the frame would still parse and the only
 	// thing standing in the way would be that the wrong key happens to fail.
-	sealed, err := r.current.Seal(ctx, plaintext, bindHeader(header, associatedData))
+	sealed, err := r.current.cipher.Seal(ctx, plaintext, bindHeader(header, associatedData))
 	if err != nil {
 		return nil, op.Error(err, "sealing plaintext")
 	}
 
-	r.encryptCounter.Add(ctx, 1, metric.WithAttributes(attribute.String(keyIDAttribute, string(r.currentID))))
+	r.encryptCounter.Add(ctx, 1, r.current.attrs)
 
 	return append(header, sealed...), nil
 }
@@ -189,14 +202,16 @@ func (r *Keyring) Decrypt(ctx context.Context, ciphertext, associatedData []byte
 
 	op.Set(keyIDAttribute, string(keyID))
 
-	cipher, ok := r.byID[keyID]
+	entry, ok := r.byID[keyID]
 	if !ok {
+		// Built inline rather than precomputed: an unknown key ID is by
+		// definition not one of the ring's, and it is an error path.
 		r.unknownKeyCount.Add(ctx, 1, metric.WithAttributes(attribute.String(keyIDAttribute, string(keyID))))
 
 		return nil, op.Error(fmt.Errorf("%w: %q", ErrUnknownKeyID, keyID), "resolving ciphertext key")
 	}
 
-	plaintext, err := cipher.Open(ctx, body, bindHeader(header, associatedData))
+	plaintext, err := entry.cipher.Open(ctx, body, bindHeader(header, associatedData))
 	if err != nil {
 		return nil, op.Error(err, "opening ciphertext")
 	}
@@ -204,7 +219,7 @@ func (r *Keyring) Decrypt(ctx context.Context, ciphertext, associatedData []byte
 	// Counted per key rather than in aggregate, so a rotation's tail is
 	// visible: decryptions still attributed to a retired key are exactly the
 	// rows a sweep has not reached yet.
-	r.decryptCounter.Add(ctx, 1, metric.WithAttributes(attribute.String(keyIDAttribute, string(keyID))))
+	r.decryptCounter.Add(ctx, 1, entry.attrs)
 
 	return plaintext, nil
 }
