@@ -94,7 +94,6 @@ func TestRouteOptions(T *testing.T) {
 	WithResponseStatus(http.StatusAccepted)(rc)
 	WithContentType(encoding.ContentTypeXML)(rc)
 	WithEnvelope(false)(rc)
-	WithSecurity("bearer", "read")(rc)
 	WithAdditionalResponse(http.StatusNotFound, struct{}{}, "not found")(rc)
 	WithMiddleware(func(h http.Handler) http.Handler { return h })(rc)
 
@@ -106,8 +105,6 @@ func TestRouteOptions(T *testing.T) {
 	test.EqOp(T, http.StatusAccepted, rc.successStatus)
 	test.EqOp(T, encoding.ContentTypeXML, rc.contentType)
 	test.False(T, rc.envelope)
-	must.SliceLen(T, 1, rc.security)
-	test.EqOp(T, "bearer", rc.security[0].name)
 	must.SliceLen(T, 1, rc.additionalResponses)
 	test.EqOp(T, http.StatusNotFound, rc.additionalResponses[0].status)
 	test.SliceLen(T, 1, rc.middleware)
@@ -259,7 +256,6 @@ func TestRecordOperation_AllBranches(T *testing.T) {
 		WithOperationID("customOp"),
 		WithDeprecated(),
 		WithTags("things"),
-		WithSecurity("bearer", "read"),
 		WithAdditionalResponse(http.StatusNotFound, httpx.APIError{}, "not found"),
 	)
 	must.NoError(T, r.Err())
@@ -272,7 +268,6 @@ func TestRecordOperation_AllBranches(T *testing.T) {
 	must.NotNil(T, op.Deprecated)
 	test.True(T, *op.Deprecated)
 	must.NotNil(T, op.Description)
-	test.SliceLen(T, 1, op.Security)
 }
 
 type person struct {

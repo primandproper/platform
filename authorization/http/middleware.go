@@ -47,9 +47,8 @@ type DenyHandler func(res http.ResponseWriter, req *http.Request, err error)
 //
 // The consequence is that HTTP cannot fail closed on an undeclared route the
 // way gRPC does: a route registered with no Require middleware is simply
-// unguarded. Assert coverage with a test over your registered routes. The
-// eventual home for boot-time enforcement is an option inside routing, which
-// sees every registration and can refuse to start.
+// unguarded. Assert coverage with a test over your registered routes — the
+// package doc explains why that is the answer rather than a stopgap.
 type Enforcer struct {
 	extract     authorization.GrantsExtractor
 	logger      logging.Logger

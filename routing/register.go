@@ -95,9 +95,6 @@ func (r *Router) recordOperation(method, plain string, rc *routeConfig, reqStruc
 	if rc.deprecated {
 		oc.SetIsDeprecated(true)
 	}
-	for i := range rc.security {
-		oc.AddSecurity(rc.security[i].name, rc.security[i].scopes...)
-	}
 
 	oc.AddReqStructure(reqStructure)
 

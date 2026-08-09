@@ -9,11 +9,6 @@ type (
 	// operation.
 	Option func(*routeConfig)
 
-	securityRequirement struct {
-		name   string
-		scopes []string
-	}
-
 	additionalResponse struct {
 		body        any
 		description string
@@ -27,7 +22,6 @@ type (
 		summary             string
 		description         string
 		tags                []string
-		security            []securityRequirement
 		additionalResponses []additionalResponse
 		middleware          []Middleware
 		successStatus       int
@@ -85,13 +79,6 @@ func WithContentType(contentType encoding.ContentType) Option {
 // Enveloping is on by default (configurable at the Router level).
 func WithEnvelope(enabled bool) Option {
 	return func(rc *routeConfig) { rc.envelope = enabled }
-}
-
-// WithSecurity adds a security requirement (scheme name + optional scopes) to the operation.
-func WithSecurity(scheme string, scopes ...string) Option {
-	return func(rc *routeConfig) {
-		rc.security = append(rc.security, securityRequirement{name: scheme, scopes: scopes})
-	}
 }
 
 // WithAdditionalResponse documents an additional response (e.g. a 404 with an error body).

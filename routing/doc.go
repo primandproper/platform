@@ -50,5 +50,28 @@ decoded value, so a route bound to such a value reads the same on every backend:
 	routing.Get(r, "/files/{key}", func(ctx context.Context, in getFile) (*file, error) {
 		return store.Fetch(ctx, in.Key) // in.Key == "reports/2026/q1.csv"
 	})
+
+# Security
+
+The router does not model security, in either direction.
+
+Enforcement is middleware, declared where the route is registered, next to the
+handler it guards:
+
+	routing.Get(r, "/recipes/{id:uuid}", readRecipe,
+		routing.WithMiddleware(authz.Require(ReadRecipesPermission)))
+
+The generated document carries no security requirement either. A service that
+wants one writes it through Spec(), which returns the live *openapi3.Spec:
+SetHTTPBearerTokenSecurity, SetAPIKeySecurity, and SetHTTPBasicSecurity declare
+the common schemes, and Components.SecuritySchemesEns() reaches the rest.
+
+Both omissions are deliberate, and the second is why there is no route option for
+the first. A requirement recorded on an operation and a requirement enforced at
+runtime are two different statements, and a registration option can only make
+one of them: it annotates the operation and never sees the request. An option
+that made that statement while reading like it made the other would document a
+route as protected while it served anyone, which is the one documentation bug
+that costs more than no documentation at all.
 */
 package routing
