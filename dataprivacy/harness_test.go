@@ -325,7 +325,7 @@ func stringReader(content string) io.Reader {
 func decodeArtifact(t *testing.T, p *packager, stored []byte) *Document {
 	t.Helper()
 
-	decoded, err := p.decode(t.Context(), stored)
+	decoded, err := p.decode(t.Context(), stored, testRequestID)
 	must.NoError(t, err)
 
 	var doc Document

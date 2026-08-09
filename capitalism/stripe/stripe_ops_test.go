@@ -18,6 +18,7 @@ import (
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v10/random"
+	"github.com/primandproper/platform-go/v10/webhooks/inbound"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -251,20 +252,18 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 			Data:       &stripe.EventData{Raw: []byte(`{}`)},
 			Type:       stripe.EventTypePaymentIntentSucceeded,
 		}
-		jsonBytes := pm.encoderDecoder.MustEncode(ctx, event)
-
+		// Signed with stripe-go's own test helper, which is what makes this a cross-check:
+		// the header comes from the SDK and the verification comes from webhooks/inbound, so
+		// the two agreeing is evidence the extracted scheme is the same scheme.
 		signed := webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
-			Payload:   jsonBytes,
+			Payload:   pm.encoderDecoder.MustEncode(ctx, event),
 			Secret:    secret,
 			Timestamp: time.Now(),
 		})
-		constructed, err := webhook.ConstructEvent(signed.Payload, signed.Header, signed.Secret)
-		must.NoError(t, err)
-		eventPayload := pm.encoderDecoder.MustEncode(ctx, constructed)
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://example.test/webhook", bytes.NewReader(eventPayload))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://example.test/webhook", bytes.NewReader(signed.Payload))
 		must.NoError(t, err)
-		req.Header.Set(stripeSignatureHeaderKey, signed.Header)
+		req.Header.Set(inbound.StripeSignatureHeader, signed.Header)
 
 		return req
 	}

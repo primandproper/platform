@@ -3,10 +3,11 @@ package encryptioncfg
 import (
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
 
-// Option configures how NewEncryptorDecryptor assembles its encryptor.
+// Option configures how NewKeyring assembles its keyring.
 //
 // The observability dependencies are options rather than parameters because
 // every one of them is genuinely optional: an absent logger logs nowhere, an
@@ -17,8 +18,9 @@ type Option func(*options)
 
 // options collects what the options set.
 type options struct {
-	logger         logging.Logger
-	tracerProvider tracing.Provider
+	logger          logging.Logger
+	tracerProvider  tracing.Provider
+	metricsProvider metrics.Provider
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -44,15 +46,23 @@ func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }
 
-// WithPillars attaches a logger and tracer provider in one go, for the common
-// case where a caller has already built them together. A nil Pillars attaches
-// nothing. The pillars' metrics provider is ignored — see Option.
+// WithMetricsProvider attaches a metrics provider, enabling the keyring's
+// per-key encryption and decryption counters. An absent metrics provider
+// records nothing — which also means a deployment that skips it has no way to
+// see how far a rotation has gotten.
+func WithMetricsProvider(metricsProvider metrics.Provider) Option {
+	return func(o *options) { o.metricsProvider = metricsProvider }
+}
+
+// WithPillars attaches a logger, tracer provider, and metrics provider in one
+// go, for the common case where a caller has already built them together. A
+// nil Pillars attaches nothing.
 //
 // It is applied in order with the individual options, so a caller can hand over
 // its pillars and then override one of them.
 func WithPillars(p *observability.Pillars) Option {
 	return func(o *options) {
-		logger, tracerProvider, _ := p.Deps()
-		o.logger, o.tracerProvider = logger, tracerProvider
+		logger, tracerProvider, metricsProvider := p.Deps()
+		o.logger, o.tracerProvider, o.metricsProvider = logger, tracerProvider, metricsProvider
 	}
 }

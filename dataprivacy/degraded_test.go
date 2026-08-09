@@ -29,8 +29,13 @@ func (*brokenCompressor) DecompressBytes([]byte) ([]byte, error) { return nil, e
 // brokenCrypto fails in both directions.
 type brokenCrypto struct{}
 
-func (*brokenCrypto) Encrypt(context.Context, string) (string, error) { return "", errPackaging }
-func (*brokenCrypto) Decrypt(context.Context, string) (string, error) { return "", errPackaging }
+func (*brokenCrypto) Encrypt(context.Context, []byte, []byte) ([]byte, error) {
+	return nil, errPackaging
+}
+
+func (*brokenCrypto) Decrypt(context.Context, []byte, []byte) ([]byte, error) {
+	return nil, errPackaging
+}
 
 func TestPackager_CodecFailures(T *testing.T) {
 	T.Parallel()
@@ -40,7 +45,7 @@ func TestPackager_CodecFailures(T *testing.T) {
 
 		p := &packager{compressor: &brokenCompressor{}}
 
-		_, err := p.encode(t.Context(), testDocument())
+		_, err := p.encode(t.Context(), testDocument(), testRequestID)
 		must.ErrorIs(t, err, errPackaging)
 		test.StrContains(t, err.Error(), "compressing")
 	})
@@ -50,7 +55,7 @@ func TestPackager_CodecFailures(T *testing.T) {
 
 		p := &packager{encryptor: &brokenCrypto{}}
 
-		_, err := p.encode(t.Context(), testDocument())
+		_, err := p.encode(t.Context(), testDocument(), testRequestID)
 		must.ErrorIs(t, err, errPackaging)
 		test.StrContains(t, err.Error(), "encrypting")
 	})
@@ -60,7 +65,7 @@ func TestPackager_CodecFailures(T *testing.T) {
 
 		p := &packager{decryptor: &brokenCrypto{}}
 
-		_, err := p.decode(t.Context(), []byte("ciphertext"))
+		_, err := p.decode(t.Context(), []byte("ciphertext"), testRequestID)
 		must.ErrorIs(t, err, errPackaging)
 		test.StrContains(t, err.Error(), "decrypting")
 	})
@@ -70,7 +75,7 @@ func TestPackager_CodecFailures(T *testing.T) {
 
 		p := &packager{compressor: &brokenCompressor{}}
 
-		_, err := p.decode(t.Context(), []byte("compressed"))
+		_, err := p.decode(t.Context(), []byte("compressed"), testRequestID)
 		must.ErrorIs(t, err, errPackaging)
 		test.StrContains(t, err.Error(), "decompressing")
 	})

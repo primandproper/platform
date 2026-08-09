@@ -85,6 +85,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `version`       | Build/version metadata               | —                                                  |
 | `metering`      | Durable usage metering & quotas      | postgres, mysql, sqlite                            |
 | `webhooks`      | Outbound webhook delivery            | postgres, mysql, sqlite                            |
+| `webhooks/inbound` | Inbound webhook receipt: verify, publish, ack | stripe, github, generic HMAC          |
 | `clock`         | Injectable time                      | —                                                  |
 | `config`        | Config loading & env parsing         | —                                                  |
 
@@ -94,6 +95,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `authentication` | Password hashing, TOTP, tokens      | argon2, totp, tokens           |
 | `sessions`       | Server-side sessions over cookies   | cache, database (+ http)       |
 | `authorization`  | Role/permission policy, enforcement | static (default), database     |
+| `links`          | Signed, expiring, single-use action links | cache + distributedlock  |
 | `audit`          | Tamper-evident audit log            | postgres, mysql, sqlite        |
 | `cryptography`   | Cryptographic primitives            | —                              |
 | `cryptography/requestsigning` | HMAC request signing & verification | v1                             |

@@ -1,17 +1,26 @@
 package dataprivacy
 
 import (
-	"regexp"
 	"slices"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
-// validKey matches a registration key: a lowercase identifier fragment,
-// optionally dotted. Keys become object keys in the artifact and attribute
-// values in telemetry, and both are places where an arbitrary string is a
-// problem rather than a feature.
-var validKey = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
+// validKey is a registration key: a lowercase identifier fragment, optionally
+// dotted, with no bound on how many segments. Keys become object keys in the
+// artifact and attribute values in telemetry, and both are places where an
+// arbitrary string is a problem rather than a feature.
+//
+// Lowercase only, and no leading underscore — narrower than the SQL identifier
+// rule elsewhere in this module, because a key here is written by a person
+// registering a domain rather than derived from a schema, and one spelling of
+// it is enough.
+var validKey = charset.New(
+	charset.ASCIILower.Union(charset.ASCIIDigits, charset.Bytes('_')),
+	charset.WithFirst(charset.ASCIILower),
+	charset.WithSeparator('.', 0),
+)
 
 // Registry is the set of domains that know how to collect and erase.
 //
@@ -123,7 +132,7 @@ func validateKey(key string) error {
 		return platformerrors.Wrap(ErrInvalidKey, "empty dataprivacy registration key")
 	}
 
-	if !validKey.MatchString(key) {
+	if !validKey.Valid(key) {
 		return platformerrors.Wrapf(ErrInvalidKey, "dataprivacy registration key %q", key)
 	}
 

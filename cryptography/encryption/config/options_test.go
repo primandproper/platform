@@ -9,6 +9,7 @@ import (
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
 	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 func TestOptions(T *testing.T) {
@@ -79,5 +80,36 @@ func TestOptions(T *testing.T) {
 
 		test.Nil(t, o.tracerProvider)
 		test.NotNil(t, o.logger)
+	})
+}
+
+func TestWithMetricsProvider(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the metrics provider", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithMetricsProvider(metricsnoop.NewMetricsProvider())})
+
+		must.NotNil(t, o)
+		test.NotNil(t, o.metricsProvider)
+	})
+
+	T.Run("a later narrower option wins over pillars", func(t *testing.T) {
+		t.Parallel()
+
+		// Hand over pillars, then opt one component back out.
+		o := newOptions([]Option{
+			WithPillars(&observability.Pillars{
+				Logger:          loggingnoop.NewLogger(),
+				TracerProvider:  tracingnoop.NewTracerProvider(),
+				MetricsProvider: metricsnoop.NewMetricsProvider(),
+			}),
+			WithMetricsProvider(nil),
+		})
+
+		must.NotNil(t, o)
+		test.NotNil(t, o.logger)
+		test.Nil(t, o.metricsProvider)
 	})
 }

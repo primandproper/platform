@@ -2,8 +2,8 @@ package apns
 
 import (
 	"context"
-	"regexp"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
@@ -14,8 +14,11 @@ import (
 	"github.com/sideshow/apns2/token"
 )
 
-// apnsDeviceTokenHexPattern validates a 64-character hex string (32-byte token).
-var apnsDeviceTokenHexPattern = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
+// apnsDeviceToken is a 64-character hex string, which is how APNs spells the
+// 32-byte token. Either case: the token is minted by the device and arrives as
+// it was given, so rejecting one for its case would refuse a value that is not
+// wrong.
+var apnsDeviceToken = charset.New(charset.HexDigits, charset.WithExactLength(64))
 
 const (
 	o11yName = "ios_notif_sender"
@@ -96,7 +99,7 @@ func (s *Sender) Send(ctx context.Context, deviceToken, title, body string, badg
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
-	if !apnsDeviceTokenHexPattern.MatchString(deviceToken) {
+	if !apnsDeviceToken.Valid(deviceToken) {
 		return op.Error(errors.Newf("apns: invalid device token format (expected 64 hex chars, got len %d)", len(deviceToken)), "validating device token")
 	}
 
