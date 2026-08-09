@@ -10,6 +10,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
+	"github.com/primandproper/platform-go/v10/sessions"
 )
 
 // PlatformMapper maps platform-level errors to HTTP error codes and messages.
@@ -63,6 +64,15 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrInvalidRequestSignature, "request signature timestamp outside tolerance", true
 	case errors.Is(err, requestsigning.ErrInvalidSignature):
 		return ErrInvalidRequestSignature, "invalid request signature", true
+	// Ordered before ErrNotFound, which both of these wrap. Every unusable
+	// session — absent, forged, expired — resolves to the same status and a
+	// message that says nothing about which: telling a client apart "no such
+	// session" from "that one expired" is an oracle for whether a guessed
+	// identifier ever existed.
+	case errors.Is(err, sessions.ErrExpired):
+		return ErrFetchingSessionContextData, "session expired", true
+	case errors.Is(err, sessions.ErrNotFound):
+		return ErrFetchingSessionContextData, "no active session", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):
