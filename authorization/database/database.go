@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 
 	"github.com/primandproper/platform-go/v10/authorization"
@@ -42,8 +41,6 @@ const (
 	rolesTable       = "authz_roles"
 	permissionsTable = "authz_permissions"
 )
-
-var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)
 
 var _ authorization.PolicyResolver = (*Resolver)(nil)
 
@@ -106,7 +103,7 @@ func NewResolver(cfg *Config, db database.SQLQueryExecutor, opts ...Option) (*Re
 	if prefix == "" {
 		prefix = DefaultTablePrefix
 	}
-	if !validPrefix.MatchString(prefix) {
+	if !ddl.ValidNamespace(prefix) {
 		return nil, platformerrors.Wrapf(ErrInvalidTablePrefix, "prefix %q", prefix)
 	}
 

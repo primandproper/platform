@@ -78,6 +78,54 @@ func TestSchema_Identifiers(T *testing.T) {
 	})
 }
 
+func TestValidNamespace(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts a bare identifier fragment, or nothing", func(t *testing.T) {
+		t.Parallel()
+
+		for _, prefix := range []string{"", "ddb", "_", "T1", "a_b_c", "audit"} {
+			test.True(t, ValidNamespace(prefix), test.Sprintf("namespace %q", prefix))
+		}
+	})
+
+	T.Run("rejects anything that is not one", func(t *testing.T) {
+		t.Parallel()
+
+		for _, prefix := range []string{
+			"1audit",                      // leading digit
+			"ddb-1",                       // not an identifier character
+			"a b",                         // separator
+			"audit_; DROP TABLE users;--", // the reason the check exists
+			"naïve",                       // non-ASCII, however it renders
+			"a\xffb",                      // not even valid UTF-8
+			"ddb\n",                       // trailing newline
+		} {
+			test.False(t, ValidNamespace(prefix), test.Sprintf("namespace %q", prefix))
+		}
+	})
+
+	T.Run("a schema qualifier is not a namespace", func(t *testing.T) {
+		t.Parallel()
+
+		// dialect.ValidIdentifier admits one dot, because a table may be
+		// schema-qualified. A prefix may not: the dot would name a schema this
+		// module does not create.
+		test.True(t, dialect.ValidIdentifier("app.audit"))
+		test.False(t, ValidNamespace("app.audit"))
+	})
+
+	T.Run("says nothing about the names a prefix renders", func(t *testing.T) {
+		t.Parallel()
+
+		// A trailing separator and an over-long rendering are both legal
+		// character-wise; catching them needs a schema, which is
+		// Schema.ValidatePrefix's job.
+		test.True(t, ValidNamespace("ddb_"))
+		test.Error(t, testSchema.ValidatePrefix("ddb_"))
+	})
+}
+
 func TestSchema_ValidatePrefix(T *testing.T) {
 	T.Parallel()
 

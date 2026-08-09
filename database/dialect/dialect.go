@@ -12,11 +12,11 @@ between them. One shared type makes those conversions unrepresentable.
 package dialect
 
 import (
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
@@ -151,12 +151,36 @@ func (d Dialect) Placeholders(start, count int) string {
 	return strings.Join(parts, ", ")
 }
 
-// identifier matches a name safe to interpolate into query text: a bare
-// identifier, optionally qualified by exactly one schema. ASCII only, and
-// anchored at both ends. Go's regexp is RE2, where $ means end of text rather
-// than "before an optional trailing newline" as in Perl, so there is no
-// trailing-newline escape from the anchor.
-var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+// IdentifierChars and IdentifierLeadChars are the alphabet a SQL identifier is
+// drawn from, and the narrower one its first character comes from. A leading
+// digit is excluded so a bare name is never mistakable for a number.
+//
+// They are exported so that the rules built on top of an identifier — a table
+// prefix, which is an identifier fragment or nothing — can be assembled from
+// the same alphabet rather than from a second copy of it that could drift.
+//
+// ASCII only. Admitting the full Unicode letter category would let two names
+// that render identically — homoglyphs, or the same string in NFC and NFD —
+// claim to be two different tables.
+var (
+	IdentifierChars     = charset.ASCIIAlphanumeric.Union(charset.Bytes('_'))
+	IdentifierLeadChars = charset.ASCIILetters.Union(charset.Bytes('_'))
+)
+
+// identifier is a name safe to interpolate into query text: a bare identifier,
+// optionally qualified by exactly one schema.
+//
+// The whole string has to satisfy the rule, with nothing before or after it.
+// That was the load-bearing property of the anchored regexp this replaces —
+// which needed a note that Go's regexp is RE2, where $ means end of text rather
+// than "before an optional trailing newline" as in Perl, so a trailing newline
+// could not slip past. charset scans the string it is given and has no anchors
+// to get wrong.
+var identifier = charset.New(
+	IdentifierChars,
+	charset.WithFirst(IdentifierLeadChars),
+	charset.WithSeparator('.', 2),
+)
 
 // ErrInvalidIdentifier indicates a name that ValidIdentifier rejects. Packages
 // wrap it with their own context, so errors.Is works across all of them —
@@ -168,7 +192,7 @@ var ErrInvalidIdentifier = platformerrors.New("invalid SQL identifier")
 // a table name. Table names are interpolated rather than bound, so they are
 // restricted rather than escaped.
 func ValidIdentifier(s string) bool {
-	return identifier.MatchString(s)
+	return identifier.Valid(s)
 }
 
 // SplitStatements strips '--' comments from ddl and splits it into individually

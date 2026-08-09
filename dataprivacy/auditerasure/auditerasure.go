@@ -48,7 +48,6 @@ package auditerasure
 import (
 	"context"
 	"fmt"
-	"regexp"
 
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/ddl"
@@ -70,11 +69,6 @@ const DefaultKey = "audit"
 // a lawyer's mouth.
 const DefaultRetentionBasis = "audit records retained under legitimate interest and legal obligation; " +
 	"entries are cryptographically chained and cannot be removed without destroying the integrity guarantee"
-
-// validPrefix matches an audit table prefix: a bare identifier fragment, or
-// nothing. It mirrors the audit package's own rule, because the prefix is
-// interpolated into query text rather than bound.
-var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)
 
 // ErrInvalidTablePrefix indicates a prefix that is not a plain SQL identifier
 // fragment.
@@ -144,7 +138,7 @@ func New(d dialect.Dialect, prefix string, opts ...Option) (*Eraser, error) {
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "audit erasure dialect %q", d)
 	}
 
-	if !validPrefix.MatchString(prefix) {
+	if !ddl.ValidNamespace(prefix) {
 		return nil, platformerrors.Wrapf(ErrInvalidTablePrefix, "audit table prefix %q", prefix)
 	}
 
