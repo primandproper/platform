@@ -39,5 +39,39 @@ and the body while leaving serialization to the route's encoder:
 Path parameters use an inline typed syntax — "/users/{id:uint64}" — which drives
 both runtime binding and the generated parameter schema. Query, header, cookie,
 and body values are bound from struct tags on the typed input.
+
+A path parameter may carry reserved characters. "{name}" is a single segment, so
+a value containing a slash goes on the wire percent-escaped — "a/b" as "a%2Fb" —
+or the URL addresses something else. Every Backend matches on the escaped path,
+which keeps the escaped separator inside the segment, and hands the handler the
+decoded value, so a route bound to such a value reads the same on every backend:
+
+	// GET /files/reports%2F2026%2Fq1.csv
+	routing.Get(r, "/files/{key}", func(ctx context.Context, in getFile) (*file, error) {
+		return store.Fetch(ctx, in.Key) // in.Key == "reports/2026/q1.csv"
+	})
+
+# Security
+
+The router does not model security, in either direction.
+
+Enforcement is middleware, declared where the route is registered, next to the
+handler it guards:
+
+	routing.Get(r, "/recipes/{id:uuid}", readRecipe,
+		routing.WithMiddleware(authz.Require(ReadRecipesPermission)))
+
+The generated document carries no security requirement either. A service that
+wants one writes it through Spec(), which returns the live *openapi3.Spec:
+SetHTTPBearerTokenSecurity, SetAPIKeySecurity, and SetHTTPBasicSecurity declare
+the common schemes, and Components.SecuritySchemesEns() reaches the rest.
+
+Both omissions are deliberate, and the second is why there is no route option for
+the first. A requirement recorded on an operation and a requirement enforced at
+runtime are two different statements, and a registration option can only make
+one of them: it annotates the operation and never sees the request. An option
+that made that statement while reading like it made the other would document a
+route as protected while it served anyone, which is the one documentation bug
+that costs more than no documentation at all.
 */
 package routing
