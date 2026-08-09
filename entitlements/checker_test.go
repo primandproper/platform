@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/cache"
 	cachemock "github.com/primandproper/platform-go/v10/cache/mock"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/featureflags"
 	"github.com/primandproper/platform-go/v10/metering"
 	meteringmock "github.com/primandproper/platform-go/v10/metering/mock"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
@@ -260,6 +261,26 @@ func TestPlanChecker_Check_boolean(T *testing.T) {
 		test.True(t, d.Allowed)
 
 		excluded := newChecker(t, staticPlans(planFree), WithFeatureFlags(failingFlags(errFlags)))
+		d, err = excluded.Check(t.Context(), testAccount, featureSearch)
+		must.NoError(t, err)
+		test.False(t, d.Allowed)
+	})
+
+	T.Run("a flag nobody created is inert on exactly the same terms", func(t *testing.T) {
+		t.Parallel()
+
+		// featureflags tells a missing flag apart from a broken provider so that a
+		// flag name shipped ahead of its flag does not open a breaker every other
+		// flag shares. This package deliberately does not act on the difference:
+		// both mean "nobody has told me otherwise", and the plan answers either
+		// way. Asserting it here keeps that a decision rather than an oversight.
+		included := newChecker(t, staticPlans(planPro), WithFeatureFlags(failingFlags(featureflags.ErrFlagNotFound)))
+		d, err := included.Check(t.Context(), testAccount, featureSearch)
+		must.NoError(t, err)
+		test.True(t, d.Allowed)
+		test.EqOp(t, ReasonPlanIncludes, d.Reason)
+
+		excluded := newChecker(t, staticPlans(planFree), WithFeatureFlags(failingFlags(featureflags.ErrFlagNotFound)))
 		d, err = excluded.Check(t.Context(), testAccount, featureSearch)
 		must.NoError(t, err)
 		test.False(t, d.Allowed)
