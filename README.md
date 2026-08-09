@@ -99,6 +99,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `audit`          | Tamper-evident audit log            | postgres, mysql, sqlite        |
 | `cryptography`   | Cryptographic primitives            | —                              |
 | `cryptography/requestsigning` | HMAC request signing & verification | v1                             |
+| `cryptography/shredding` | Per-subject data keys that can be destroyed | postgres, mysql, sqlite |
 | `random`         | Secure randomness                   | —                              |
 | `identifiers`    | ID generation                       | —                              |
 | `dataprivacy`    | Subject access & erasure requests   | postgres, mysql, sqlite        |

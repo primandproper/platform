@@ -16,6 +16,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/audit"
 	"github.com/primandproper/platform-go/v10/clock"
+	"github.com/primandproper/platform-go/v10/cryptography/shredding"
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -80,6 +81,12 @@ var (
 // not belong in every log aggregator's index.
 const panicStackKey = "dataprivacy.panic_stack"
 
+// shredRetentionKey is the Retained entry a skipped shred is recorded under.
+//
+// It cannot collide with an eraser's entry: those are namespaced as
+// "<eraserKey>.<what>" and always contain a dot, and this deliberately does not.
+const shredRetentionKey = "encryption_keys"
+
 // Worker fulfills claimed requests. It owns a goroutine started by Run and
 // stopped by Close.
 type Worker struct {
@@ -92,6 +99,7 @@ type Worker struct {
 	notifier Notifier
 	recorder audit.Recorder
 	actor    ActorResolver
+	shredder shredding.Shredder
 	signer   func(ctx context.Context, req *Request) (string, time.Time)
 
 	packager packager
@@ -571,15 +579,41 @@ func (w *Worker) collectOne(ctx context.Context, key string, subject Subject) (j
 	return fragment, nil
 }
 
-// fulfillErasure runs every registered eraser and records the outcome, all in
-// one transaction.
+// fulfillErasure destroys the subject's data key, runs every registered eraser,
+// and records the outcome — the erasers and the bookkeeping in one transaction,
+// the shred outside it and first.
 //
-// Erasure is atomic across domains, and deliberately so. A partial erasure has
+// Erasure across domains is atomic, and deliberately so. A partial erasure has
 // no coherent meaning: a subject who is deleted from eight domains and present
 // in three has not been erased, and cannot be told they have. The alternative —
 // per-domain isolation, as collection uses — would leave the system in a state
 // no status could describe. So an eraser's error aborts the whole thing and the
 // request is retried intact.
+//
+// # Why the shred is not in that transaction, and why it goes first
+//
+// It cannot be in it. The keys are meant to live in a database of their own, on
+// a shorter backup retention than the data they protect — that separation is
+// what stops a restore resurrecting a shredded key — and there is no
+// transaction spanning two databases here.
+//
+// Given that it is separate, it goes first, because the two failure modes are
+// not equally bad. Shred-then-fail leaves ciphertext nobody can read and rows a
+// retry will delete: the subject's data is already beyond recovery, which is the
+// direction an erasure request wants to fail in. Erase-then-fail-to-shred leaves
+// the live rows gone and every backup still readable, for as long as it takes
+// the retry to succeed — the exact gap this feature exists to close, reopened at
+// the worst moment.
+//
+// The cost is real and worth stating: a request that shreds and then exhausts
+// its attempts has destroyed the key permanently while leaving rows behind.
+// Request.KeyShreddedAt records that this happened, and the request is marked
+// failed, so it is visible rather than merely true. Two-phase confirmation is
+// what keeps a mistaken request from getting this far — by the time a worker
+// claims it, somebody has confirmed it.
+//
+// It also means an Eraser must not depend on reading the subject's encrypted
+// columns. By the time it runs they are noise.
 func (w *Worker) fulfillErasure(ctx context.Context, req *Request) error {
 	ctx, op := w.o11y.Begin(ctx)
 	defer op.End()
@@ -594,11 +628,20 @@ func (w *Worker) fulfillErasure(ctx context.Context, req *Request) error {
 
 	now := w.clock.Now().UTC()
 
-	err := w.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	shredNote, err := w.shred(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	err = w.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
 		var (
 			deleted    int64
 			anonymized int64
-			retained   = map[string]string{}
+			// Seeded with whatever the shred had to say for itself, which is
+			// nothing in the ordinary case and a stated basis when a scoped
+			// request meant the key could not be destroyed. Cloned rather than
+			// used directly so an eraser's entry cannot write into it.
+			retained = maps.Clone(shredNote)
 		)
 
 		// Serially, not concurrently. Every eraser shares one transaction, and
@@ -633,11 +676,21 @@ func (w *Worker) fulfillErasure(ctx context.Context, req *Request) error {
 			return txErr
 		}
 
-		return w.record(ctx, q, req, map[string]string{
+		metadata := map[string]string{
 			"deleted":    itoa(deleted),
 			"anonymized": itoa(anonymized),
 			"retained":   itoa(int64(len(retained))),
-		})
+		}
+
+		// The one fact in this entry that cannot be established any other way
+		// afterwards. Deleted rows can be counted from what is missing; a
+		// destroyed key leaves no trace in the data it protected, because that
+		// is what destroying it did.
+		if req.KeyShreddedAt != nil {
+			metadata["key_shredded_at"] = req.KeyShreddedAt.Format(time.RFC3339Nano)
+		}
+
+		return w.record(ctx, q, req, metadata)
 	})
 	if err != nil {
 		return err
@@ -652,6 +705,71 @@ func (w *Worker) fulfillErasure(ctx context.Context, req *Request) error {
 	w.erasedGauge.Add(ctx, req.Deleted+req.Anonymized)
 
 	return nil
+}
+
+// shred destroys the subject's data key, and reports anything the erasure
+// record should say about why it did not.
+//
+// A scoped request is the case that cannot be served. Scope confines an erasure
+// to one tenant, and a data key spans every scope its subject appears in — so
+// destroying it would erase that person's data inside tenants nobody asked
+// about. Skipping the shred is the only correct answer, and saying so in
+// Retained is what keeps it from being a silent downgrade: the field already
+// exists to record what an erasure kept and on what basis, and this is exactly
+// that.
+//
+// The consequence is worth being plain about. A scoped erasure deletes rows and
+// does not reach backups, which is the pre-shredding guarantee. An application
+// that needs scoped requests to reach backups needs its keys scoped the same
+// way, which is a decision about what a Subject is and has to be made before
+// anything is encrypted.
+func (w *Worker) shred(ctx context.Context, req *Request) (map[string]string, error) {
+	// Non-nil throughout, so the caller merges one map rather than branching on
+	// whether there was anything to say.
+	retained := map[string]string{}
+
+	if w.shredder == nil {
+		return retained, nil
+	}
+
+	ctx, op := w.o11y.Begin(ctx,
+		observability.WithValue(requestIDKey, req.ID),
+		observability.WithValue(subjectIDKey, req.Subject.ID),
+		observability.WithValue(subjectScopeKey, req.Subject.Scope),
+	)
+	defer op.End()
+
+	if req.Subject.Scope != "" {
+		op.Set(shreddedKey, false)
+
+		retained[shredRetentionKey] = "encryption keys retained: this request is confined to one scope, " +
+			"and a subject's data key covers every scope they appear in, so destroying it would erase " +
+			"data outside the request; rows in scope were deleted or anonymized as recorded"
+
+		return retained, nil
+	}
+
+	receipt, err := w.shredder.Shred(ctx, shredding.Subject{
+		Type: string(req.Subject.Type),
+		ID:   req.Subject.ID,
+	})
+	if err != nil {
+		return nil, op.Error(err, "shredding dataprivacy subject key")
+	}
+
+	req.KeyShreddedAt = &receipt.ShreddedAt
+
+	// Recorded now rather than at completion. The key is gone whatever happens
+	// to the rest of this request, including if it exhausts its attempts and
+	// fails — and that outcome, a subject whose ciphertext is noise while their
+	// rows remain, is exactly the one somebody needs to be able to find.
+	if err = w.store.MarkKeyShredded(ctx, req.ID, receipt.ShreddedAt); err != nil {
+		return nil, op.Error(err, "recording dataprivacy key destruction")
+	}
+
+	op.Set(shreddedKey, true).Set(keyDestroyedKey, receipt.Destroyed)
+
+	return retained, nil
 }
 
 // eraseOne runs a single eraser, converting a panic into an error so that one

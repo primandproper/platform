@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     anonymized_rows BIGINT NOT NULL DEFAULT 0,
     failures       BYTEA,
     retained       BYTEA,
-    last_error     TEXT
+    last_error     TEXT,
+    key_shredded_at TIMESTAMPTZ
 );
 
 -- Serves the claim predicate, which only ever looks at pending rows whose next

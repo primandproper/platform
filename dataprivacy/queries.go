@@ -47,7 +47,8 @@ func (t *tables) prefix() string {
 // the SELECTs and the Scan cannot drift apart.
 const requestColumns = "id, request_type, status, subject_id, subject_type, subject_scope, " +
 	"requested_at, due_at, expires_at, completed_at, attempts, " +
-	"artifact_ref, artifact_bytes, deleted_rows, anonymized_rows, failures, retained, last_error"
+	"artifact_ref, artifact_bytes, deleted_rows, anonymized_rows, failures, retained, last_error, " +
+	"key_shredded_at"
 
 // activeStatuses are the statuses a request can still move out of. Used by the
 // overdue count, which is asking "what do we still owe somebody" and would be
@@ -70,13 +71,14 @@ func (t *tables) buildInsertRequest(d dialect.Dialect, req *Request, failures, r
 		req.RequestedAt.UTC(), req.DueAt.UTC(), nullableTime(req.ExpiresAt), req.CompletedAt,
 		req.RequestedAt.UTC(), req.Attempts,
 		req.ArtifactRef, req.ArtifactBytes, req.Deleted, req.Anonymized,
-		blobOrNil(failures), blobOrNil(retained), req.LastError,
+		blobOrNil(failures), blobOrNil(retained), req.LastError, req.KeyShreddedAt,
 	}
 
 	return fmt.Sprintf(
 		"INSERT INTO %s (id, request_type, status, subject_id, subject_type, subject_scope, "+
 			"requested_at, due_at, expires_at, completed_at, next_attempt, attempts, "+
-			"artifact_ref, artifact_bytes, deleted_rows, anonymized_rows, failures, retained, last_error) "+
+			"artifact_ref, artifact_bytes, deleted_rows, anonymized_rows, failures, retained, last_error, "+
+			"key_shredded_at) "+
 			"VALUES (%s)",
 		t.requests, d.Placeholders(1, len(args)),
 	), args
@@ -296,18 +298,33 @@ func (t *tables) buildCompleteExport(d dialect.Dialect, req *Request, failures [
 func (t *tables) buildCompleteErasure(d dialect.Dialect, req *Request, failures, retained []byte, at time.Time) (query string, args []any) {
 	args = []any{
 		string(StatusCompleted), at.UTC(), at.UTC(),
-		req.Deleted, req.Anonymized, blobOrNil(failures), blobOrNil(retained),
+		req.Deleted, req.Anonymized, blobOrNil(failures), blobOrNil(retained), req.KeyShreddedAt,
 		req.ID, string(StatusProcessing),
 	}
 
 	return fmt.Sprintf(
 		"UPDATE %s SET status = %s, completed_at = %s, next_attempt = %s, expires_at = NULL, "+
 			"deleted_rows = %s, anonymized_rows = %s, failures = %s, retained = %s, "+
-			"claimed_until = NULL, last_error = '' "+
+			"key_shredded_at = %s, claimed_until = NULL, last_error = '' "+
 			"WHERE id = %s AND status = %s",
 		t.requests, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
 		d.Placeholder(5), d.Placeholder(6), d.Placeholder(7), d.Placeholder(8), d.Placeholder(9),
+		d.Placeholder(10),
 	), args
+}
+
+// buildMarkKeyShredded renders the record of a destroyed data key.
+//
+// Guarded on the column still being null, so a retried erasure — which re-shreds
+// and is told the original destruction time — cannot move the timestamp forward
+// to the moment of the retry. The one thing this column is for is saying when
+// the key stopped existing, and that instant happened once.
+func (t *tables) buildMarkKeyShredded(d dialect.Dialect, requestID string, at time.Time) (query string, args []any) {
+	return fmt.Sprintf(
+			"UPDATE %s SET key_shredded_at = %s WHERE id = %s AND key_shredded_at IS NULL",
+			t.requests, d.Placeholder(1), d.Placeholder(2),
+		),
+		[]any{at.UTC(), requestID}
 }
 
 // buildFail renders the UPDATE applied to a request that could not be

@@ -10,6 +10,7 @@ import (
 	partitionedcfg "github.com/primandproper/platform-go/v10/circuitbreaking/partitioned/config"
 	cookiescfg "github.com/primandproper/platform-go/v10/cookies/config"
 	encryptioncfg "github.com/primandproper/platform-go/v10/cryptography/encryption/config"
+	shreddingcfg "github.com/primandproper/platform-go/v10/cryptography/shredding/config"
 	databasecfg "github.com/primandproper/platform-go/v10/database/config"
 	dataprivacycfg "github.com/primandproper/platform-go/v10/dataprivacy/config"
 	distributedlockcfg "github.com/primandproper/platform-go/v10/distributedlock/config"
@@ -188,6 +189,22 @@ func registerPlatformServices(i do.Injector, cfg *Config) {
 	if cfg.Encryption != nil {
 		do.ProvideValue(i, cfg.Encryption)
 		encryptioncfg.RegisterEncryptorDecryptor(i)
+	}
+
+	// Both registrations resolve the container's database.Client, which is to
+	// say the keys land in the same database as the data they protect unless
+	// the application arranges otherwise. That is the one thing about
+	// crypto-shredding that cannot be fixed later — see the shredding package
+	// documentation — so a deployment that means it registers a
+	// shredding.Store of its own instead of letting this build one.
+	//
+	// An encryption.KeyWrapper is required and is not built from configuration:
+	// which KMS wraps the root key is Go wiring, the same way the Keyset above
+	// is.
+	if cfg.Shredding != nil {
+		do.ProvideValue(i, cfg.Shredding)
+		shreddingcfg.RegisterStore(i)
+		shreddingcfg.RegisterKeys(i)
 	}
 
 	if cfg.EventStream != nil {
