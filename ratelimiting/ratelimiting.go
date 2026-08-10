@@ -4,8 +4,10 @@ import (
 	"context"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -34,15 +36,40 @@ var (
 )
 
 type inMemoryRateLimiter struct {
-	o11y            observability.Observer
-	allowedCounter  metrics.Int64Counter
-	rejectedCounter metrics.Int64Counter
-	limiters        sync.Map
-	requestsPerSec  float64
-	burstSize       int
+	o11y                   observability.Observer
+	clock                  clock.Clock
+	allowedCounter         metrics.Int64Counter
+	rejectedCounter        metrics.Int64Counter
+	idleEvictedCounter     metrics.Int64Counter
+	capacityEvictedCounter metrics.Int64Counter
+	limitersGauge          metrics.Int64Gauge
+	stop                   chan struct{}
+	done                   chan struct{}
+	limiters               sync.Map
+	// tracked is how many keys limiters holds. sync.Map cannot be asked its
+	// size, and the bound has to be checked on the insert that crosses it
+	// rather than at the next sweep — a burst of distinct keys inside one
+	// window is exactly the case the bound exists for.
+	tracked        atomic.Int64
+	requestsPerSec float64
+	burstSize      int
+	maxLimiters    int
+	idleTTL        time.Duration
+	sweepInterval  time.Duration
+	stopOnce       sync.Once
+	// evicting admits one capacity eviction at a time. A pass is a full scan,
+	// and a caller that finds one already running has nothing to add by
+	// starting a second: the running pass will free the same slots.
+	evicting sync.Mutex
 }
 
-// NewInMemoryRateLimiter returns a RateLimiter that uses per-key limiters in memory.
+// NewInMemoryRateLimiter returns a RateLimiter that uses per-key limiters in
+// memory.
+//
+// The returned limiter owns a goroutine that reclaims the limiters of keys that
+// have stopped arriving, so Close is not optional: a limiter that is never
+// closed keeps that goroutine, and itself, alive for the life of the process.
+// See the package documentation for what is retained and for how long.
 func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Option) (RateLimiter, error) {
 	o := newOptions(opts)
 
@@ -58,13 +85,52 @@ func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Optio
 		return nil, errors.Wrap(err, "creating rejected counter")
 	}
 
-	return &inMemoryRateLimiter{
-		o11y:            observability.NewObserver(inMemoryName, o.logger, o.tracerProvider),
-		requestsPerSec:  requestsPerSec,
-		burstSize:       burstSize,
-		allowedCounter:  allowedCounter,
-		rejectedCounter: rejectedCounter,
-	}, nil
+	// Two eviction counters rather than one, because they mean opposite things.
+	// An idle eviction reclaims a bucket that had refilled anyway and changes no
+	// decision; a capacity eviction forgives a bucket that had not, so a
+	// non-zero rate on it says the bound is being hit and some keys are getting
+	// their allowance back early.
+	idleEvictedCounter, err := mp.NewInt64Counter(inMemoryName + "_limiters_evicted_idle")
+	if err != nil {
+		return nil, errors.Wrap(err, "creating idle eviction counter")
+	}
+
+	capacityEvictedCounter, err := mp.NewInt64Counter(inMemoryName + "_limiters_evicted_capacity")
+	if err != nil {
+		return nil, errors.Wrap(err, "creating capacity eviction counter")
+	}
+
+	limitersGauge, err := mp.NewInt64Gauge(inMemoryName + "_limiters")
+	if err != nil {
+		return nil, errors.Wrap(err, "creating tracked limiters gauge")
+	}
+
+	window := limiterWindow(requestsPerSec, burstSize)
+
+	r := &inMemoryRateLimiter{
+		o11y:                   observability.NewObserver(inMemoryName, o.logger, o.tracerProvider),
+		clock:                  o.clock,
+		requestsPerSec:         requestsPerSec,
+		burstSize:              burstSize,
+		maxLimiters:            o.maxLimiters,
+		idleTTL:                2 * window,
+		sweepInterval:          max(window, minSweepInterval),
+		allowedCounter:         allowedCounter,
+		rejectedCounter:        rejectedCounter,
+		idleEvictedCounter:     idleEvictedCounter,
+		capacityEvictedCounter: capacityEvictedCounter,
+		limitersGauge:          limitersGauge,
+		stop:                   make(chan struct{}),
+		done:                   make(chan struct{}),
+	}
+
+	// Started last, so the sweep cannot observe a half-built limiter. Its
+	// lifetime is the limiter's rather than any caller context's: eviction is
+	// not something a caller opts into, and Close is already the lifecycle hook
+	// the interface gives them.
+	go r.sweepEvery()
+
+	return r, nil
 }
 
 func (r *inMemoryRateLimiter) Allow(ctx context.Context, key string) (bool, error) {
@@ -88,18 +154,20 @@ func (r *inMemoryRateLimiter) Allow(ctx context.Context, key string) (bool, erro
 // come back would itself push the answer further out, and a refused caller that
 // asked twice would be told to wait longer for having asked.
 //
+// It does not count as touching the key either: this is the refusal path, so
+// the Allow that produced the refusal has already stamped the key, and a hint
+// that kept a bucket resident would let a client hold a limiter open by asking
+// when it may return.
+//
 // A key with no bucket yet reports no hint rather than zero: the caller is
 // about to be allowed, so there is nothing to wait for and nothing to say.
 func (r *inMemoryRateLimiter) RetryAfter(_ context.Context, key string) (time.Duration, bool) {
-	value, ok := r.limiters.Load(key)
+	entry, ok := r.lookup(key)
 	if !ok {
 		return 0, false
 	}
 
-	limiter, ok := value.(*rate.Limiter)
-	if !ok {
-		return 0, false
-	}
+	limiter := entry.limiter
 
 	// A bucket that cannot hold a token never fills, so no wait would make the
 	// next attempt succeed. Saying nothing is the honest answer.
@@ -120,25 +188,58 @@ func (r *inMemoryRateLimiter) RetryAfter(_ context.Context, key string) (time.Du
 	return time.Duration(deficit / limit * float64(time.Second)), true
 }
 
-func (r *inMemoryRateLimiter) getOrCreateLimiter(_ context.Context, key string) *rate.Limiter {
-	if v, ok := r.limiters.Load(key); ok {
-		if x, ok2 := v.(*rate.Limiter); ok2 {
-			return x
-		}
+// lookup returns key's entry without stamping it.
+func (r *inMemoryRateLimiter) lookup(key string) (*limiterEntry, bool) {
+	value, ok := r.limiters.Load(key)
+	if !ok {
+		return nil, false
 	}
 
-	limiter := rate.NewLimiter(rate.Limit(r.requestsPerSec), r.burstSize)
-	if v, loaded := r.limiters.LoadOrStore(key, limiter); loaded {
-		if x, ok2 := v.(*rate.Limiter); ok2 {
-			return x
-		}
-	}
+	entry, ok := value.(*limiterEntry)
 
-	return limiter
+	return entry, ok
 }
 
+func (r *inMemoryRateLimiter) getOrCreateLimiter(ctx context.Context, key string) *rate.Limiter {
+	now := r.clock.Now()
+
+	if entry, ok := r.lookup(key); ok {
+		entry.touch(now)
+
+		return entry.limiter
+	}
+
+	fresh := newLimiterEntry(rate.NewLimiter(rate.Limit(r.requestsPerSec), r.burstSize), now)
+
+	if value, loaded := r.limiters.LoadOrStore(key, fresh); loaded {
+		if entry, ok := value.(*limiterEntry); ok {
+			entry.touch(now)
+
+			return entry.limiter
+		}
+
+		return fresh.limiter
+	}
+
+	// This call is the one that added the key, so it is the one that counts it
+	// and the one that has to answer for the bound.
+	r.tracked.Add(1)
+	r.evictOverflow(ctx)
+
+	return fresh.limiter
+}
+
+// Close stops the sweeper and drops every per-key limiter.
+//
+// It is safe to call more than once, and it waits for the sweeper to exit, so a
+// caller that closes a limiter holds no goroutine of ours afterwards.
 func (r *inMemoryRateLimiter) Close() error {
+	r.stopOnce.Do(func() { close(r.stop) })
+	<-r.done
+
 	// Drop every per-key limiter so the map doesn't retain memory past shutdown.
 	r.limiters.Clear()
+	r.tracked.Store(0)
+
 	return nil
 }
