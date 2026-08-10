@@ -38,6 +38,12 @@ type Config struct {
 	Redis          redisrl.Config `env:",init"            envPrefix:"REDIS_"                 json:"redis,omitzero"              yaml:"redis,omitempty"`
 	RequestsPerSec float64        `env:"REQUESTS_PER_SEC" json:"requestsPerSecond,omitempty" yaml:"requestsPerSecond,omitempty"`
 	BurstSize      int            `env:"BURST_SIZE"       json:"burstSize,omitempty"         yaml:"burstSize,omitempty"`
+	// MaxLimiters caps how many per-key limiters the memory provider holds at
+	// once. Zero takes ratelimiting.DefaultMaxLimiters; negative removes the
+	// bound, which is only safe where the key space is known to be small. It is
+	// ignored by the other providers, which keep no per-key state in this
+	// process.
+	MaxLimiters int `env:"MAX_LIMITERS" json:"maxLimiters,omitempty" yaml:"maxLimiters,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
@@ -100,10 +106,26 @@ func NewRateLimiter(
 	case ProviderNoop:
 		return noop.NewRateLimiter(), nil
 	case ProviderMemory:
-		return ratelimiting.NewInMemoryRateLimiter(cfg.RequestsPerSec, cfg.BurstSize,
+		memoryOpts := []ratelimiting.Option{
 			ratelimiting.WithLogger(logger),
 			ratelimiting.WithTracerProvider(tracerProvider),
-			ratelimiting.WithMetricsProvider(metricsProvider))
+			ratelimiting.WithMetricsProvider(metricsProvider),
+		}
+
+		// Passed only when the config says something, so the default lives in
+		// one place — the package that has to honor it — rather than being
+		// copied into EnsureDefaults where it would drift.
+		if cfg.MaxLimiters != 0 {
+			memoryOpts = append(memoryOpts, ratelimiting.WithMaxLimiters(cfg.MaxLimiters))
+		}
+
+		// The in-memory limiter's eviction sweep runs on a context of its own,
+		// deliberately: this one bounds construction, and a sweep tied to it
+		// would stop reclaiming keys the moment startup finished. What ends the
+		// sweep is Close.
+		//
+		//nolint:contextcheck // the sweep outlives this ctx by design; see above.
+		return ratelimiting.NewInMemoryRateLimiter(cfg.RequestsPerSec, cfg.BurstSize, memoryOpts...)
 	case ProviderRedis:
 		return redisrl.NewRedisRateLimiter(cfg.Redis, cfg.RequestsPerSec, cfg.BurstSize,
 			redisrl.WithLogger(logger),
