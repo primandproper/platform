@@ -107,7 +107,7 @@ func (p *errorAtCallProvider) NewFloat64Histogram(name string, options ...metric
 }
 
 // buildSqlmockClient builds a testDBClient backed by go-sqlmock so unit tests
-// can drive the locker without spinning up a real postgres.
+// can drive the Locker without spinning up a real postgres.
 func buildSqlmockClient(t *testing.T) (*testDBClient, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
@@ -123,21 +123,18 @@ func newTestLockerWithCB(t *testing.T, client database.Client, cb circuitbreakin
 	return l
 }
 
-// newRecordingLocker builds a locker with a RecordingObserver swapped in, so a
+// newRecordingLocker builds a Locker with a RecordingObserver swapped in, so a
 // test can both drive it and assert which operations it observed.
-func newRecordingLocker(t *testing.T, client database.Client) (*locker, *observability.RecordingObserver) {
+func newRecordingLocker(t *testing.T, client database.Client) (*Locker, *observability.RecordingObserver) {
 	t.Helper()
 	l, err := NewPostgresLocker(&Config{}, client, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
 	must.NotNil(t, l)
 
-	concrete, ok := l.(*locker)
-	must.True(t, ok)
-
 	obs := observability.NewRecordingObserver()
-	concrete.o11y = obs
+	l.o11y = obs
 
-	return concrete, obs
+	return l, obs
 }
 
 func TestNewPostgresLocker(T *testing.T) {
@@ -785,7 +782,7 @@ func TestPostgresLocker_Container(T *testing.T) {
 			must.NoError(t, lock.Release(ctx))
 		})
 
-		T.Run("Acquire contended on the same locker returns ErrLockNotAcquired", func(t *testing.T) {
+		T.Run("Acquire contended on the same Locker returns ErrLockNotAcquired", func(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 			l := newTestLocker(t, client)
@@ -895,7 +892,7 @@ func TestPostgresLocker_Container(T *testing.T) {
 			must.NoError(t, err)
 			must.NoError(t, l.Close())
 
-			// Both keys are acquirable again from a fresh locker.
+			// Both keys are acquirable again from a fresh Locker.
 			l2 := newTestLocker(t, client)
 			t.Cleanup(func() { _ = l2.Close() })
 

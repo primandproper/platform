@@ -610,11 +610,8 @@ func TestClient_PgxAccess(T *testing.T) {
 			must.NoError(t, client.Close())
 		})
 
-		native, ok := client.(PgxAccess)
-		must.True(t, ok)
-
-		must.NotNil(t, native.ReadPool())
-		test.EqOp(t, native.ReadPool(), native.WritePool())
+		must.NotNil(t, client.ReadPool())
+		test.EqOp(t, client.ReadPool(), client.WritePool())
 	})
 
 	T.Run("split connections get distinct pools", func(t *testing.T) {
@@ -632,12 +629,9 @@ func TestClient_PgxAccess(T *testing.T) {
 			must.NoError(t, client.Close())
 		})
 
-		native, ok := client.(PgxAccess)
-		must.True(t, ok)
-
-		must.NotNil(t, native.ReadPool())
-		must.NotNil(t, native.WritePool())
-		test.NotEqOp(t, native.ReadPool(), native.WritePool())
+		must.NotNil(t, client.ReadPool())
+		must.NotNil(t, client.WritePool())
+		test.NotEqOp(t, client.ReadPool(), client.WritePool())
 	})
 
 	T.Run("pool config mirrors the client config", func(t *testing.T) {
@@ -654,10 +648,7 @@ func TestClient_PgxAccess(T *testing.T) {
 			must.NoError(t, client.Close())
 		})
 
-		native, ok := client.(PgxAccess)
-		must.True(t, ok)
-
-		cfg := native.WritePool().Config()
+		cfg := client.WritePool().Config()
 		test.EqOp(t, int32(exampleConfig.GetMaxOpenConns()), cfg.MaxConns)
 		test.EqOp(t, exampleConfig.GetConnMaxLifetime(), cfg.MaxConnLifetime)
 	})

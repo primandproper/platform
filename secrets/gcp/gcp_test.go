@@ -19,22 +19,19 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// newRecordingSource builds a gcpSecretSource with a RecordingObserver swapped in, so a
+// newRecordingSource builds a SecretSource with a RecordingObserver swapped in, so a
 // test can both drive GetSecret and assert which fields it observed.
-func newRecordingSource(t *testing.T, cfg *Config, mc *mockGCPClient) (*gcpSecretSource, *observability.RecordingObserver) {
+func newRecordingSource(t *testing.T, cfg *Config, mc *mockGCPClient) (*SecretSource, *observability.RecordingObserver) {
 	t.Helper()
 
 	source, err := NewSecretSource(context.Background(), cfg, mc)
 	must.NoError(t, err)
 	must.NotNil(t, source)
 
-	g, ok := source.(*gcpSecretSource)
-	must.True(t, ok)
-
 	obs := observability.NewRecordingObserver()
-	g.o11y = obs
+	source.o11y = obs
 
-	return g, obs
+	return source, obs
 }
 
 func TestNewSecretSource(T *testing.T) {

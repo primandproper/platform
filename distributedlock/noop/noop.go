@@ -8,36 +8,36 @@ import (
 )
 
 var (
-	_ distributedlock.Locker = (*locker)(nil)
+	_ distributedlock.Locker = (*Locker)(nil)
 	_ distributedlock.Lock   = (*lock)(nil)
 )
 
-// locker is a no-op distributedlock.Locker. Acquire always succeeds, Release and
+// Locker is a no-op distributedlock.Locker. Acquire always succeeds, Release and
 // Refresh are no-ops, Ping returns nil. Use this when distributed locking is not
 // needed in a given deployment (single replica, dev environments, etc.).
-type locker struct{}
+type Locker struct{}
 
 // NewLocker returns a no-op Locker.
-func NewLocker() distributedlock.Locker {
-	return &locker{}
+func NewLocker() *Locker {
+	return &Locker{}
 }
 
 // Acquire always returns a trivial lock handle.
-func (*locker) Acquire(_ context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
+func (*Locker) Acquire(_ context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
 	return &lock{key: key, ttl: ttl}, nil
 }
 
 // Ping is a no-op that always succeeds.
-func (*locker) Ping(_ context.Context) error {
+func (*Locker) Ping(_ context.Context) error {
 	return nil
 }
 
 // Close is a no-op.
-func (*locker) Close() error {
+func (*Locker) Close() error {
 	return nil
 }
 
-// lock is a trivial Lock implementation paired with the noop locker.
+// lock is a trivial Lock implementation paired with the noop Locker.
 type lock struct {
 	key string
 	ttl time.Duration
@@ -64,24 +64,24 @@ func (l *lock) Refresh(_ context.Context, ttl time.Duration) error {
 	return nil
 }
 
-var _ distributedlock.ScopedLocker = (*scopedLocker)(nil)
+var _ distributedlock.ScopedLocker = (*ScopedLocker)(nil)
 
-// scopedLocker is a no-op distributedlock.ScopedLocker: fn always runs, as if
+// ScopedLocker is a no-op distributedlock.ScopedLocker: fn always runs, as if
 // the lock were acquired immediately. Use it where scoped locking is wired but
 // a deployment has nothing to coordinate with (single replica, dev).
-type scopedLocker struct{}
+type ScopedLocker struct{}
 
 // NewScopedLocker returns a no-op ScopedLocker.
-func NewScopedLocker() distributedlock.ScopedLocker {
-	return &scopedLocker{}
+func NewScopedLocker() *ScopedLocker {
+	return &ScopedLocker{}
 }
 
 // WithLock runs fn immediately.
-func (*scopedLocker) WithLock(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
+func (*ScopedLocker) WithLock(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
 	return fn(ctx)
 }
 
 // TryWithLock runs fn immediately, always reporting the lock as acquired.
-func (*scopedLocker) TryWithLock(ctx context.Context, _ string, fn func(ctx context.Context) error) (bool, error) {
+func (*ScopedLocker) TryWithLock(ctx context.Context, _ string, fn func(ctx context.Context) error) (bool, error) {
 	return true, fn(ctx)
 }

@@ -73,7 +73,7 @@ func WithLoader[T any](loader Loader[T]) Option {
 // misses and the write that fills: every caller arriving in that window would
 // otherwise miss too, and the window is exactly as wide as the computation is
 // slow — the more expensive the loader, the more callers pile into it.
-func (i *inMemoryCacheImpl[T]) load(ctx context.Context, key string) (*T, error) {
+func (i *Cache[T]) load(ctx context.Context, key string) (*T, error) {
 	loadCtx := context.WithoutCancel(ctx)
 
 	ch := i.flight.DoChan(key, func() (any, error) {
@@ -133,7 +133,7 @@ func (i *inMemoryCacheImpl[T]) load(ctx context.Context, key string) (*T, error)
 // that a missing key is a miss. Any other error fails the whole call — a
 // partial map indistinguishable from a partial miss is precisely what GetMany's
 // callers cannot detect.
-func (i *inMemoryCacheImpl[T]) loadMany(ctx context.Context, keys []string) (map[string]*T, error) {
+func (i *Cache[T]) loadMany(ctx context.Context, keys []string) (map[string]*T, error) {
 	var (
 		mu     sync.Mutex
 		loaded = make(map[string]*T, len(keys))

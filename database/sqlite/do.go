@@ -18,12 +18,21 @@ func RegisterDatabaseClient(i do.Injector) {
 			return nil, err
 		}
 
-		return NewDatabaseClient(
+		// Built into a variable and returned only once its error is known to be
+		// nil: NewDatabaseClient returns *Client, so returning it straight
+		// through would convert a nil pointer into a non-nil database.Client on
+		// the error path.
+		client, err := NewDatabaseClient(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[database.ClientConfig](i),
 			WithLogger(pillars.Logger),
 			WithTracerProvider(pillars.TracerProvider),
 			WithMetricsProvider(pillars.MetricsProvider),
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		return client, nil
 	})
 }

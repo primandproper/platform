@@ -11,8 +11,11 @@ var _ cache.Cache[any] = (*Cache[any])(nil)
 // Cache is a no-op Cache.
 type Cache[T any] struct{}
 
-// NewCache returns a no-op Cache.
-func NewCache[T any]() cache.Cache[T] {
+// NewCache returns a no-op Cache. It returns the concrete type so a caller who
+// deliberately wants no cache can say so in their own signatures, rather than
+// naming the interface and leaving every reader to wonder which provider is
+// behind it.
+func NewCache[T any]() *Cache[T] {
 	return &Cache[T]{}
 }
 

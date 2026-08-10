@@ -461,20 +461,17 @@ func TestNewDatabaseClient(T *testing.T) {
 		actual, err := NewDatabaseClient(ctx, exampleConfig)
 		must.NoError(t, err)
 
-		c, ok := actual.(*Client)
-		must.True(t, ok)
-
-		_, err = c.writeDB.ExecContext(ctx, `CREATE TABLE parent (id INTEGER PRIMARY KEY)`)
+		_, err = actual.writeDB.ExecContext(ctx, `CREATE TABLE parent (id INTEGER PRIMARY KEY)`)
 		must.NoError(t, err)
-		_, err = c.writeDB.ExecContext(ctx, `CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id))`)
+		_, err = actual.writeDB.ExecContext(ctx, `CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id))`)
 		must.NoError(t, err)
 
 		// Drop idle connections so the next Exec runs on a connection that never served the
 		// old one-off pool PRAGMA. It must still reject the dangling foreign key — which only
 		// holds if foreign_keys is enforced per-connection (via the DSN).
-		c.writeDB.SetMaxIdleConns(0)
+		actual.writeDB.SetMaxIdleConns(0)
 
-		_, err = c.writeDB.ExecContext(ctx, `INSERT INTO child (id, parent_id) VALUES (1, 999)`)
+		_, err = actual.writeDB.ExecContext(ctx, `INSERT INTO child (id, parent_id) VALUES (1, 999)`)
 		test.Error(t, err)
 	})
 }

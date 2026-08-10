@@ -324,3 +324,48 @@ func TestNewCache_observabilityOptions(T *testing.T) {
 		test.SliceEmpty(t, mp.NewInt64CounterCalls())
 	})
 }
+
+// TestNewCache_nilInterfaceOnError guards the narrowing from a provider's own
+// concrete type back to cache.Cache. Returning a constructor's result straight
+// through — `return memory.NewInMemoryCache[T](...)` — converts a nil
+// *memory.Cache[T] into a non-nil cache.Cache[T], so a caller that checks the
+// returned interface against nil gets a value that panics on first use. The
+// error is correct either way, which is what makes this invisible without a
+// test.
+//
+// The assertion has to be `c == nil` rather than test.Nil: test.Nil falls back
+// to reflect.Value.IsNil for pointer kinds, which reports a nil pointer boxed in
+// a non-nil interface as nil, and so passes against the very bug under test.
+func TestNewCache_nilInterfaceOnError(T *testing.T) {
+	T.Parallel()
+
+	T.Run("memory provider", func(t *testing.T) {
+		t.Parallel()
+
+		// A failing counter registration is the only way to fail the memory
+		// constructor itself from here: an unparseable eviction policy is caught
+		// by this package before the constructor is ever reached, so it would
+		// exercise the wrong return.
+		mp := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				return nil, errors.New("counter init failure")
+			},
+		}
+
+		c, err := NewCache[example](t.Context(), &Config{Provider: ProviderMemory}, WithMetricsProvider(mp))
+		must.Error(t, err)
+		test.True(t, c == nil, test.Sprintf("expected a nil cache.Cache, got a non-nil interface holding %T", c))
+	})
+
+	T.Run("redis provider", func(t *testing.T) {
+		t.Parallel()
+
+		// No addresses fails inside the redis constructor.
+		c, err := NewCache[example](t.Context(), &Config{
+			Provider: ProviderRedis,
+			Redis:    &redis.Config{},
+		})
+		must.Error(t, err)
+		test.True(t, c == nil, test.Sprintf("expected a nil cache.Cache, got a non-nil interface holding %T", c))
+	})
+}

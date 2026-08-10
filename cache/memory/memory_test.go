@@ -26,17 +26,16 @@ type example struct {
 // newRecordingCache builds an in-memory cache with a RecordingObserver swapped
 // in, so a test can drive a method and assert that it opened and ended an
 // operation.
-func newRecordingCache(t *testing.T) (*inMemoryCacheImpl[example], *observability.RecordingObserver) {
+func newRecordingCache(t *testing.T) (*Cache[example], *observability.RecordingObserver) {
 	t.Helper()
 
 	c, err := NewInMemoryCache[example](0)
 	must.NoError(t, err)
 
 	obs := observability.NewRecordingObserver()
-	impl := c.(*inMemoryCacheImpl[example])
-	impl.o11y = obs
+	c.o11y = obs
 
-	return impl, obs
+	return c, obs
 }
 
 func Test_newInMemoryCache(T *testing.T) {
@@ -51,7 +50,7 @@ func Test_newInMemoryCache(T *testing.T) {
 	})
 }
 
-func Test_inMemoryCacheImpl_Get(T *testing.T) {
+func Test_Cache_Get(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -89,7 +88,7 @@ func Test_inMemoryCacheImpl_Get(T *testing.T) {
 	})
 }
 
-func Test_inMemoryCacheImpl_Set(T *testing.T) {
+func Test_Cache_Set(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -99,13 +98,13 @@ func Test_inMemoryCacheImpl_Set(T *testing.T) {
 		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
-		test.MapLen(t, 0, c.(*inMemoryCacheImpl[example]).cache)
+		test.MapLen(t, 0, c.cache)
 		test.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
-		test.MapLen(t, 1, c.(*inMemoryCacheImpl[example]).cache)
+		test.MapLen(t, 1, c.cache)
 	})
 }
 
-func Test_inMemoryCacheImpl_SetIfPresent(T *testing.T) {
+func Test_Cache_SetIfPresent(T *testing.T) {
 	T.Parallel()
 
 	T.Run("overwrites an entry that is there", func(t *testing.T) {
@@ -135,7 +134,7 @@ func Test_inMemoryCacheImpl_SetIfPresent(T *testing.T) {
 		// The refusal has to leave the map alone. A conditional write that
 		// creates on miss is just Set with extra steps, and the caller reaching
 		// for it is relying on the absence being preserved.
-		test.MapLen(t, 0, c.(*inMemoryCacheImpl[example]).cache)
+		test.MapLen(t, 0, c.cache)
 	})
 
 	T.Run("refuses an entry whose deadline has passed", func(t *testing.T) {
@@ -153,7 +152,7 @@ func Test_inMemoryCacheImpl_SetIfPresent(T *testing.T) {
 
 			// Still in the map — nothing has swept it — but expired, and the
 			// caller asking "is it still there" means the deadline.
-			test.MapLen(t, 1, c.(*inMemoryCacheImpl[example]).cache)
+			test.MapLen(t, 1, c.cache)
 			test.ErrorIs(t, c.SetIfPresent(ctx, exampleKey, &example{Name: "after"}), cache.ErrNotFound)
 		})
 	})
@@ -206,7 +205,7 @@ func Test_inMemoryCacheImpl_SetIfPresent(T *testing.T) {
 	})
 }
 
-func Test_inMemoryCacheImpl_Delete(T *testing.T) {
+func Test_Cache_Delete(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -216,15 +215,15 @@ func Test_inMemoryCacheImpl_Delete(T *testing.T) {
 		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
-		test.MapLen(t, 0, c.(*inMemoryCacheImpl[example]).cache)
+		test.MapLen(t, 0, c.cache)
 		test.NoError(t, c.Set(ctx, exampleKey, &example{Name: t.Name()}))
-		test.MapLen(t, 1, c.(*inMemoryCacheImpl[example]).cache)
+		test.MapLen(t, 1, c.cache)
 		test.NoError(t, c.Delete(ctx, exampleKey))
-		test.MapLen(t, 0, c.(*inMemoryCacheImpl[example]).cache)
+		test.MapLen(t, 0, c.cache)
 	})
 }
 
-func Test_inMemoryCacheImpl_GetMany(T *testing.T) {
+func Test_Cache_GetMany(T *testing.T) {
 	T.Parallel()
 
 	T.Run("returns only hits", func(t *testing.T) {
@@ -237,7 +236,7 @@ func Test_inMemoryCacheImpl_GetMany(T *testing.T) {
 		hit := &example{Name: t.Name()}
 		test.NoError(t, c.Set(ctx, "hit", hit))
 
-		bc := c.(*inMemoryCacheImpl[example])
+		bc := c
 		out, getErr := bc.GetMany(ctx, []string{"hit", "miss"})
 		test.NoError(t, getErr)
 		test.MapLen(t, 1, out)
@@ -250,13 +249,13 @@ func Test_inMemoryCacheImpl_GetMany(T *testing.T) {
 		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
-		out, getErr := c.(*inMemoryCacheImpl[example]).GetMany(t.Context(), nil)
+		out, getErr := c.GetMany(t.Context(), nil)
 		test.NoError(t, getErr)
 		test.MapLen(t, 0, out)
 	})
 }
 
-func Test_inMemoryCacheImpl_SetMany(T *testing.T) {
+func Test_Cache_SetMany(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -266,7 +265,7 @@ func Test_inMemoryCacheImpl_SetMany(T *testing.T) {
 		c, err := NewInMemoryCache[example](0)
 		must.NoError(t, err)
 
-		bc := c.(*inMemoryCacheImpl[example])
+		bc := c
 		test.MapLen(t, 0, bc.cache)
 
 		test.NoError(t, bc.SetMany(ctx, map[string]*example{
@@ -277,7 +276,7 @@ func Test_inMemoryCacheImpl_SetMany(T *testing.T) {
 	})
 }
 
-func Test_inMemoryCacheImpl_Ping(T *testing.T) {
+func Test_Cache_Ping(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -292,16 +291,13 @@ func Test_inMemoryCacheImpl_Ping(T *testing.T) {
 // newExpiryCache builds a cache with the given default expiry. The expiry
 // tests run inside a synctest bubble, where the production clock reads the
 // bubble's fake time, so time.Sleep moves expiry forward without a real wait.
-func newExpiryCache(t *testing.T, defaultExpiry time.Duration) *inMemoryCacheImpl[example] {
+func newExpiryCache(t *testing.T, defaultExpiry time.Duration) *Cache[example] {
 	t.Helper()
 
 	c, err := NewInMemoryCache[example](defaultExpiry)
 	must.NoError(t, err)
 
-	impl, ok := c.(*inMemoryCacheImpl[example])
-	must.True(t, ok)
-
-	return impl
+	return c
 }
 
 func TestInMemoryCache_Expiry(T *testing.T) {
@@ -464,7 +460,7 @@ func (c *countingCounter) Total() int64 {
 
 // newEvictionCountingCache builds an expiry cache with its eviction counter
 // swapped for one the test can read back.
-func newEvictionCountingCache(t *testing.T, defaultExpiry time.Duration) (*inMemoryCacheImpl[example], *countingCounter) {
+func newEvictionCountingCache(t *testing.T, defaultExpiry time.Duration) (*Cache[example], *countingCounter) {
 	t.Helper()
 
 	c := newExpiryCache(t, defaultExpiry)

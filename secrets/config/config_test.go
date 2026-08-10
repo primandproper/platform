@@ -378,3 +378,52 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
 	})
 }
+
+// TestNewSecretSource_nilInterfaceOnError guards the narrowing from a provider's
+// own concrete type back to secrets.SecretSource. Returning a constructor's
+// result straight through — `return env.NewSecretSource(...)` — converts a nil
+// *env.SecretSource into a non-nil secrets.SecretSource, so a caller that checks
+// the returned interface against nil gets a value that panics on first use. The
+// error is correct either way, which is what makes this invisible without a
+// test.
+//
+// The assertion has to be `s == nil` rather than test.Nil: test.Nil falls back
+// to reflect.Value.IsNil for pointer kinds, which reports a nil pointer boxed in
+// a non-nil interface as nil, and so passes against the very bug under test.
+func TestNewSecretSource_nilInterfaceOnError(T *testing.T) {
+	T.Parallel()
+
+	failingProvider := func() *metricsmock.ProviderMock {
+		return &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				return nil, errors.New("counter init failure")
+			},
+		}
+	}
+
+	T.Run("env provider via the package function", func(t *testing.T) {
+		t.Parallel()
+
+		s, err := NewSecretSource(t.Context(), &Config{Provider: ProviderEnv}, WithMetricsProvider(failingProvider()))
+		must.Error(t, err)
+		test.True(t, s == nil, test.Sprintf("expected a nil secrets.SecretSource, got a non-nil interface holding %T", s))
+	})
+
+	T.Run("nil config falls back to env", func(t *testing.T) {
+		t.Parallel()
+
+		s, err := NewSecretSource(t.Context(), nil, WithMetricsProvider(failingProvider()))
+		must.Error(t, err)
+		test.True(t, s == nil, test.Sprintf("expected a nil secrets.SecretSource, got a non-nil interface holding %T", s))
+	})
+
+	T.Run("gcp provider via the config method", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderGCP, GCP: &gcp.Config{ProjectID: "p"}, GCPClient: &mockGCPClient{}}
+
+		s, err := cfg.NewSecretSource(t.Context(), WithMetricsProvider(failingProvider()))
+		must.Error(t, err)
+		test.True(t, s == nil, test.Sprintf("expected a nil secrets.SecretSource, got a non-nil interface holding %T", s))
+	})
+}

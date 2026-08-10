@@ -24,15 +24,15 @@ const scopedServiceName = "postgres_scoped_lock"
 // cannot be mistaken for a contended acquisition.
 var errScopedNotAcquired = platformerrors.New("scoped advisory lock contended")
 
-var _ distributedlock.ScopedLocker = (*scopedLocker)(nil)
+var _ distributedlock.ScopedLocker = (*ScopedLocker)(nil)
 
-// scopedLocker implements distributedlock.ScopedLocker with transaction-scoped
+// ScopedLocker implements distributedlock.ScopedLocker with transaction-scoped
 // advisory locks. Each call opens a throwaway transaction that exists only to
 // hold the lock while fn runs: the lock dies with the transaction on return,
 // on error, on panic, or — crucially — with the connection if the process
 // crashes mid-fn. There is no session pinning, no outstanding-lock
 // bookkeeping, and no TTL: the lock is held exactly as long as fn runs.
-type scopedLocker struct {
+type ScopedLocker struct {
 	o11y           observability.Observer
 	db             database.Client
 	circuitBreaker circuitbreaking.CircuitBreaker
@@ -58,7 +58,7 @@ func NewPostgresScopedLocker(
 	db database.Client,
 	cb circuitbreaking.CircuitBreaker,
 	opts ...Option,
-) (distributedlock.ScopedLocker, error) {
+) (*ScopedLocker, error) {
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
 	}
@@ -87,7 +87,7 @@ func NewPostgresScopedLocker(
 		return nil, platformerrors.Wrap(err, "creating latency histogram")
 	}
 
-	return &scopedLocker{
+	return &ScopedLocker{
 		o11y:           observability.NewObserver(scopedServiceName, o.logger, o.tracerProvider),
 		db:             db,
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
@@ -102,7 +102,7 @@ func NewPostgresScopedLocker(
 // WithLock implements distributedlock.ScopedLocker. The wait happens in the
 // database: pg_advisory_xact_lock blocks until the lock is granted, and a
 // canceled ctx aborts the wait through the driver.
-func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
+func (s *ScopedLocker) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(keys.LockKeyKey, key))
 	defer op.End()
 
@@ -147,7 +147,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 }
 
 // TryWithLock implements distributedlock.ScopedLocker without waiting.
-func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
+func (s *ScopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(keys.LockKeyKey, key))
 	defer op.End()
 

@@ -21,21 +21,18 @@ func newTestLocker(t *testing.T) distributedlock.Locker {
 	return l
 }
 
-// newRecordingLocker builds a locker with a RecordingObserver swapped in, so a
-// test can both drive the locker and assert which fields it observed.
-func newRecordingLocker(t *testing.T) (*locker, *observability.RecordingObserver) {
+// newRecordingLocker builds a Locker with a RecordingObserver swapped in, so a
+// test can both drive the Locker and assert which fields it observed.
+func newRecordingLocker(t *testing.T) (*Locker, *observability.RecordingObserver) {
 	t.Helper()
 	l, err := NewLocker()
 	must.NoError(t, err)
 	must.NotNil(t, l)
 
-	concrete, ok := l.(*locker)
-	must.True(t, ok)
-
 	obs := observability.NewRecordingObserver()
-	concrete.o11y = obs
+	l.o11y = obs
 
-	return concrete, obs
+	return l, obs
 }
 
 func TestNewLocker(T *testing.T) {
