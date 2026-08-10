@@ -25,6 +25,10 @@ type fakeStore struct {
 	// watcher test makes a read fail without a database.
 	getManyErr error
 
+	// getErr, when set, is what Get returns instead of a row. It is how a test
+	// makes the duplicate path's read fail the way a database blinking would.
+	getErr error
+
 	ops map[string]*Operation
 
 	// recorded is every Progress the store was handed, in order.
@@ -133,6 +137,14 @@ func (s *fakeStore) Insert(_ context.Context, _ database.SQLQueryExecutor, op *O
 }
 
 func (s *fakeStore) Get(_ context.Context, id string) (*Operation, error) {
+	s.mu.Lock()
+	getErr := s.getErr
+	s.mu.Unlock()
+
+	if getErr != nil {
+		return nil, getErr
+	}
+
 	if op := s.snapshot(id); op != nil {
 		return op, nil
 	}

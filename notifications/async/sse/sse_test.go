@@ -89,9 +89,9 @@ func TestNotifier_Publish(T *testing.T) {
 		// Publish observes the channel, event type, and payload length.
 		must.SliceLen(t, 1, obs.Operations)
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.TopicKey:  "test-channel",
-			"event.type":   event.Type,
-			keys.LengthKey: len(event.Data),
+			keys.ChannelKey:   "test-channel",
+			keys.EventTypeKey: event.Type,
+			keys.LengthKey:    len(event.Data),
 		})
 		test.True(t, op.Ended)
 	})
@@ -164,8 +164,8 @@ func TestNotifier_AcceptConnection(T *testing.T) {
 		// and the failure must still be recorded on an ended operation.
 		must.SliceLen(t, 1, obs.Operations)
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.TopicKey: "test-channel",
-			"member_id":   "member-1",
+			keys.ChannelKey:  "test-channel",
+			keys.MemberIDKey: "member-1",
 		})
 		test.True(t, op.Ended)
 		must.SliceLen(t, 1, op.Errors)

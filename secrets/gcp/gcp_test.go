@@ -147,7 +147,7 @@ func TestGCPSecretSource_GetSecret(T *testing.T) {
 		test.EqOp(t, "my-secret-value", got)
 
 		obs.ObservedOperationWithData(t, map[string]any{
-			keys.NameKey: "MY_SECRET",
+			keys.SecretNameKey: "MY_SECRET",
 		})
 	})
 
@@ -165,7 +165,7 @@ func TestGCPSecretSource_GetSecret(T *testing.T) {
 		// Even though the lookup failed, the secret key must still have been
 		// observed, and the failure itself recorded on the operation.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.NameKey: "MY_SECRET",
+			keys.SecretNameKey: "MY_SECRET",
 		})
 		must.SliceLen(t, 1, op.Errors)
 	})
@@ -183,7 +183,7 @@ func TestGCPSecretSource_GetSecret(T *testing.T) {
 		test.EqOp(t, "", got)
 
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.NameKey: "MISSING_SECRET",
+			keys.SecretNameKey: "MISSING_SECRET",
 		})
 		must.SliceLen(t, 1, op.Errors)
 	})

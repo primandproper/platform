@@ -41,6 +41,18 @@ var (
 	// row.
 	ErrEmptyKey = platformerrors.New("empty work queue key")
 
+	// ErrKeyContainsControlCharacter indicates a key whose encoded form contains
+	// a NUL, a newline, or a carriage return. Postgres accepts all three in a
+	// primary key, and every one of them is a key built by concatenating
+	// unvalidated input — which makes every log line and every psql session that
+	// touches the row unreadable.
+	//
+	// It is separate from ErrEmptyKey rather than a shade of it. A caller that
+	// branches on "the key came out empty" and gets this instead reaches for the
+	// wrong fix: a key with a newline in it is not missing, it is malformed, and
+	// nothing about defaulting an unset key addresses it.
+	ErrKeyContainsControlCharacter = platformerrors.New("work queue key contains a control character")
+
 	// ErrKeyCodecTypeMismatch indicates WithKeyCodec was given a codec for a
 	// type other than the Queue's. Option carries no type parameter, so the
 	// compiler cannot catch this; New reports it instead, at construction.

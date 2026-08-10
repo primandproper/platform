@@ -47,7 +47,7 @@ func sameSiteMode(s string) http.SameSite {
 // NewCookieManager returns a new Manager.
 func NewCookieManager(cfg *Config, opts ...Option) (Manager, error) {
 	if cfg == nil {
-		return nil, perrors.ErrNilInputProvided
+		return nil, perrors.ErrNilInputParameter
 	}
 
 	o := newOptions(opts)

@@ -73,7 +73,7 @@ type Sweeper struct {
 // ctx is used to validate the config and is not retained.
 func NewSweeper(ctx context.Context, cfg *SweeperConfig, store Store, opts ...SweeperOption) (*Sweeper, error) {
 	if cfg == nil {
-		return nil, platformerrors.New("nil dataprivacy sweeper config provided")
+		return nil, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil dataprivacy sweeper config")
 	}
 
 	if store == nil {

@@ -437,8 +437,14 @@ func (m *Manager[T]) load(
 			return nil, false, nil
 		}
 
+		// Joined rather than wrapped by message: the caller gets
+		// ErrStoreUnavailable to branch on, and errors.Is/errors.As still reach
+		// whatever the store actually returned — a cache sentinel, a context
+		// deadline, a driver error. Wrapping err.Error() put all of that in a
+		// string, where the only thing a caller could do with it was print it,
+		// which is a poor trade on the one path that exists to be branched on.
 		return nil, false, platformerrors.Wrap(
-			platformerrors.Wrap(ErrStoreUnavailable, err.Error()),
+			platformerrors.Join(ErrStoreUnavailable, err),
 			"reading idempotency record",
 		)
 	}

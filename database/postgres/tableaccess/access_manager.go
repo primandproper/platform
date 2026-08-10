@@ -3,11 +3,14 @@ package tableaccess
 import (
 	"context"
 	"database/sql"
+	stderrors "errors"
 	"fmt"
 	"strings"
 
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Privilege string
@@ -62,13 +65,31 @@ func quoteLiteral(s string) string {
 	return `'` + strings.ReplaceAll(s, `'`, `''`) + `'`
 }
 
+// duplicateObject is the SQLSTATE Postgres raises for CREATE USER against a
+// role that already exists. There is no CREATE USER IF NOT EXISTS to lean on, so
+// the code is the only thing that separates "somebody already made this user"
+// from a connection that dropped mid-statement.
+const duplicateObject = "42710"
+
 // CreateUser issues a CREATE USER with a safely-quoted password literal.
+//
+// A username already in use comes back wrapping database.ErrUserAlreadyExists,
+// which errors/http and errors/grpc map to a conflict rather than a 500. The
+// driver's own error is preserved underneath it: the SQLSTATE is what identified
+// the failure, and a caller that wants the detail should not have to re-run the
+// statement to get it.
 func (p *manager) CreateUser(ctx context.Context, username, password string) error {
 	_, err := p.db.ExecContext(ctx, fmt.Sprintf(
 		"CREATE USER %s WITH PASSWORD %s",
 		quoteIdent(username),
 		quoteLiteral(password),
 	))
+
+	var pgErr *pgconn.PgError
+	if stderrors.As(err, &pgErr) && pgErr.Code == duplicateObject {
+		return errors.Join(database.ErrUserAlreadyExists, err)
+	}
+
 	return err
 }
 

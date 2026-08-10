@@ -15,6 +15,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/secrets"
 
@@ -123,7 +124,7 @@ func (k *SecretSource) GetSecret(ctx context.Context, name string) (string, erro
 	}
 
 	// Only the identifiers are observed here; secret values are never attached.
-	op.Set("secret.name", secretName).Set("secret.key", key)
+	op.Set(keys.SecretNameKey, secretName).Set(keys.SecretEntryKey, key)
 
 	secret, err := k.client.Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {

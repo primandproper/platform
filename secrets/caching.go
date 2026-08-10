@@ -13,6 +13,7 @@ import (
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/panicking"
 
@@ -20,10 +21,6 @@ import (
 )
 
 const cachingSourceName = "caching_secret_source"
-
-// secretKeyKey names the lookup key on spans and log lines. Only the key is
-// ever observed, never the value.
-const secretKeyKey = "secret_key"
 
 var (
 	// ErrInvalidCacheTTL indicates NewCachingSource was given a non-positive
@@ -223,7 +220,7 @@ func (c *cachingSource) GetSecret(ctx context.Context, name string) (string, err
 	ctx, op := c.o11y.Begin(ctx)
 	defer op.End()
 
-	op.Set(secretKeyKey, name)
+	op.Set(keys.SecretNameKey, name)
 
 	if entry, ok := c.lookup(name); ok && !c.expired(entry) {
 		c.hitCounter.Add(ctx, 1)
@@ -435,7 +432,7 @@ func (c *cachingSource) notify(name, oldValue, newValue string) {
 	hooks := slices.Collect(maps.Values(c.hooks[name]))
 	c.hooksMu.RUnlock()
 
-	logger := c.o11y.Logger().WithValue(secretKeyKey, name)
+	logger := c.o11y.Logger().WithValue(keys.SecretNameKey, name)
 
 	for _, hook := range hooks {
 		go func() {

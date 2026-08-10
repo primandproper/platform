@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/notifications/async"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 
 	"github.com/shoenig/test"
@@ -90,8 +91,8 @@ func TestNotifier_Publish(T *testing.T) {
 		test.EqOp(t, "greeting", capturedEvent)
 
 		obs.ObservedOperationWithData(t, map[string]any{
-			"pusher.channel":    "my-channel",
-			"pusher.event_type": "greeting",
+			keys.ChannelKey:   "my-channel",
+			keys.EventTypeKey: "greeting",
 		})
 	})
 
@@ -112,8 +113,8 @@ func TestNotifier_Publish(T *testing.T) {
 		// Even though the publish failed, the values must still have been observed,
 		// and the failure itself recorded on the operation.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			"pusher.channel":    "my-channel",
-			"pusher.event_type": "test",
+			keys.ChannelKey:   "my-channel",
+			keys.EventTypeKey: "test",
 		})
 		must.SliceLen(t, 1, op.Errors)
 	})
