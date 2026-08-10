@@ -85,6 +85,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `version`       | Build/version metadata               | —                                                  |
 | `metering`      | Durable usage metering & quotas      | postgres, mysql, sqlite                            |
 | `webhooks`      | Outbound webhook delivery            | postgres, mysql, sqlite                            |
+| `webhooks/inbound` | Inbound webhook receipt: verify, publish, ack | stripe, github, generic HMAC          |
 | `clock`         | Injectable time                      | —                                                  |
 | `config`        | Config loading & env parsing         | —                                                  |
 
@@ -94,9 +95,11 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `authentication` | Password hashing, TOTP, tokens      | argon2, totp, tokens           |
 | `sessions`       | Server-side sessions over cookies   | cache, database (+ http)       |
 | `authorization`  | Role/permission policy, enforcement | static (default), database     |
+| `links`          | Signed, expiring, single-use action links | cache + distributedlock  |
 | `audit`          | Tamper-evident audit log            | postgres, mysql, sqlite        |
 | `cryptography`   | Cryptographic primitives            | —                              |
 | `cryptography/requestsigning` | HMAC request signing & verification | v1                             |
+| `cryptography/shredding` | Per-subject data keys that can be destroyed | postgres, mysql, sqlite |
 | `random`         | Secure randomness                   | —                              |
 | `identifiers`    | ID generation                       | —                              |
 | `dataprivacy`    | Subject access & erasure requests   | postgres, mysql, sqlite        |
@@ -119,6 +122,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `distributedlock` | Distributed locking        | memory, postgres, redis |
 | `workqueue`       | Leased work queue (`SKIP LOCKED` claim/complete/expire) | postgres |
 | `timers`          | Durable one-shot scheduling (run once at time T, fleet-wide) | postgres |
+| `operations`      | Long-running operations with durable state, two-tier progress, and streamed updates | postgres |
 | `filtering`       | Query filters / pagination | —                       |
 | `qrcodes`         | QR code generation         | —                       |
 | `artifacts`       | Artifact handling          | —                       |

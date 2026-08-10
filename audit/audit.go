@@ -1,9 +1,9 @@
 package audit
 
 import (
-	"regexp"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/database/ddl"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
@@ -87,10 +87,6 @@ var (
 	ErrInvalidTablePrefix = platformerrors.New("invalid audit table prefix")
 )
 
-// validPrefix matches a table prefix safe to interpolate into query text: a
-// bare identifier fragment, or nothing.
-var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)
-
 // ValidateTablePrefix reports whether a prefix is safe to interpolate into this
 // package's query text, wrapping ErrInvalidTablePrefix when it is not.
 //
@@ -100,7 +96,7 @@ var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)
 // from one configuration field should be able to refuse a bad value once,
 // before any of them is built.
 func ValidateTablePrefix(prefix string) error {
-	if !validPrefix.MatchString(prefix) {
+	if !ddl.ValidNamespace(prefix) {
 		return platformerrors.Wrapf(ErrInvalidTablePrefix, "audit table prefix %q", prefix)
 	}
 

@@ -378,6 +378,37 @@ func TestEncodeVector(T *testing.T) {
 	})
 }
 
+func TestSafeIdentifier(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts a bare identifier", func(t *testing.T) {
+		t.Parallel()
+
+		for _, name := range []string{"metadata", "_meta", "Meta1", "a", "_", "col_2_b"} {
+			test.True(t, validIdentifier(name), test.Sprintf("identifier %q", name))
+		}
+	})
+
+	T.Run("rejects anything that is not one", func(t *testing.T) {
+		t.Parallel()
+
+		for _, name := range []string{
+			"",                      // no name at all
+			"1col",                  // leading digit
+			"a-b",                   // not an identifier character
+			"a b",                   // separator
+			"a.b",                   // qualified, which this provider does not take
+			`a"b`,                   // the quoting character itself
+			"a;DROP TABLE users;--", // the reason the check exists
+			"naïve",                 // non-ASCII, however it renders
+			"a\xffb",                // not even valid UTF-8
+			"metadata\n",            // trailing newline
+		} {
+			test.False(t, validIdentifier(name), test.Sprintf("identifier %q", name))
+		}
+	})
+}
+
 func TestQuoteIdent(T *testing.T) {
 	T.Parallel()
 

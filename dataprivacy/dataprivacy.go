@@ -38,6 +38,8 @@ const (
 	deletedKey      = "dataprivacy.deleted"
 	anonymizedKey   = "dataprivacy.anonymized"
 	retainedKey     = "dataprivacy.retained"
+	shreddedKey     = "dataprivacy.key_shredded"
+	keyDestroyedKey = "dataprivacy.key_destroyed"
 	claimedKey      = "dataprivacy.claimed"
 	expiredKey      = "dataprivacy.expired"
 	overdueKey      = "dataprivacy.overdue"
@@ -259,6 +261,18 @@ type Request struct {
 	// CompletedAt is when the request reached a terminal state. Nil until it
 	// does.
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
+
+	// KeyShreddedAt is when this subject's data key was destroyed, for an
+	// erasure fulfilled by a Worker with a shredder configured. Nil otherwise,
+	// which covers three different situations worth telling apart: no shredder
+	// is wired, the request is scoped and therefore cannot shred, or the erasure
+	// has not run yet. Retained says which of the first two it was.
+	//
+	// It is set even when there was no key to destroy. The claim it records is
+	// not "bytes were overwritten" but "as of this instant no key exists for
+	// this subject and none can be minted", which is the property the erasure
+	// rests on either way.
+	KeyShreddedAt *time.Time `json:"keyShreddedAt,omitempty"`
 
 	// Failures records the collector or eraser keys that errored, against the
 	// rendered error. A completed export with a non-empty Failures is a partial

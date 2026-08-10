@@ -83,7 +83,6 @@ type Pool struct {
 	policy   retry.Policy
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 
 	// workerCtx is the context every handler attempt derives from. It is not
 	// the consumer's context and not a request context: it is canceled only
@@ -120,6 +119,10 @@ type Pool struct {
 	messageHist        metrics.Float64Histogram
 	waitHist           metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read p.o11y.Logger() for the logger this pool actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -177,7 +180,6 @@ func NewPool(ctx context.Context, cfg *PoolConfig, provider messagequeue.Consume
 	// what puts it on the pool's spans as well as its log lines.
 	p.o11y = observability.NewObserverWithValues(poolServiceName, p.logger, p.tracerProvider,
 		map[string]any{keys.TopicKey: p.cfg.Topic})
-	p.logger = p.o11y.Logger()
 
 	if p.policy == nil {
 		p.policy = retrycfg.NewExponentialBackoffPolicy(p.cfg.Retry)
@@ -260,7 +262,7 @@ func (p *Pool) Run() {
 		go p.worker()
 	}
 
-	p.logger.WithValue(concurrencyKey, p.cfg.Concurrency).Info("job pool started")
+	p.o11y.Logger().WithValue(concurrencyKey, p.cfg.Concurrency).Info("job pool started")
 
 	errs := make(chan error, p.cfg.Concurrency)
 
@@ -326,7 +328,7 @@ func (p *Pool) Run() {
 // reportConsumerError records a transport-level failure the consumer surfaced.
 func (p *Pool) reportConsumerError(err error) {
 	p.consumerErrCounter.Add(p.workerCtx, 1, p.topicAttr)
-	p.logger.Error("consuming messages", err)
+	p.o11y.Logger().Error("consuming messages", err)
 }
 
 // Close stops the consumer, waits for the in-flight messages to finish, and

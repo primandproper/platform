@@ -75,6 +75,19 @@ type Store interface {
 	// so it commits with the deletions it describes.
 	CompleteErasure(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error
 
+	// MarkKeyShredded records that the subject's data key was destroyed, on its
+	// own and before the erasure it belongs to has finished.
+	//
+	// It is separate from CompleteErasure because the destruction is separate.
+	// It is irreversible, it happens before any row is deleted, and a request
+	// that then exhausts its attempts has still destroyed the key — so writing
+	// it only at completion would leave the one fact about an erasure that
+	// nothing else can reconstruct recorded nowhere.
+	//
+	// It is idempotent. A retried erasure re-shreds, gets the original
+	// destruction time back, and must not overwrite the record with a later one.
+	MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error
+
 	// Fail releases a request's lease. terminal moves it to StatusFailed;
 	// otherwise it returns to StatusPending, claimable again at nextAttempt.
 	Fail(ctx context.Context, requestID string, attempts int, nextAttempt time.Time, lastErr string, terminal bool) error

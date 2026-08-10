@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
@@ -207,28 +208,26 @@ func validateDefinition[T any](def Definition[T]) error {
 // this; 64 leaves the rest of that budget to the caller's prefix.
 const maxStepNameLength = 64
 
-// validStepName reports whether a step name is usable as part of an idempotency
-// key.
+// stepName is the rule for a step name usable as part of an idempotency key.
 //
 // The key is restricted rather than escaped, on the same terms as
 // idempotency.ValidateKey: printable ASCII with no spaces. That admits every
 // name anyone actually writes — charge_card, reserve-inventory, NotifyPartner —
-// while excluding the control characters and separators that would make one
-// step's key parse as another's.
+// while excluding the control characters that would make one step's key parse
+// as another's. ':' comes out on top of that because it is this package's own
+// separator within the key.
+//
+// charset counts bytes, which is what this rule wants: the check is over the
+// key's wire representation, not over the characters it spells.
+var stepName = charset.New(
+	charset.VisibleASCII.Without(charset.Bytes(':')),
+	charset.WithMaxLength(maxStepNameLength),
+)
+
+// validStepName reports whether a step name is usable as part of an idempotency
+// key.
 func validStepName(name string) bool {
-	if name == "" || len(name) > maxStepNameLength {
-		return false
-	}
-
-	for i := range len(name) {
-		// Bytes, not runes: the check is over the key's wire representation,
-		// and ':' is this package's own separator within it.
-		if c := name[i]; c <= ' ' || c > '~' || c == ':' {
-			return false
-		}
-	}
-
-	return true
+	return stepName.Valid(name)
 }
 
 // lookup returns the bound definition registered under name.

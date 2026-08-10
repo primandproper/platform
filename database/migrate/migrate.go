@@ -46,7 +46,10 @@ const (
 // Migrator applies embedded goose SQL migrations. Construct with New; the
 // zero value is not usable.
 type Migrator struct {
-	o11y                observability.Observer
+	o11y observability.Observer
+	// What the options wrote, kept only until the observer is built from it.
+	// Read m.o11y.Logger() for the logger this migrator actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
 	logger              logging.Logger
 	tracerProvider      tracing.Provider
 	metricsProvider     metrics.Provider
@@ -229,7 +232,6 @@ func New(d dialect.Dialect, migrations fs.FS, opts ...Option) (*Migrator, error)
 	}
 
 	m.o11y = observability.NewObserver(serviceName, m.logger, m.tracerProvider)
-	m.logger = m.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(m.metricsProvider)
 

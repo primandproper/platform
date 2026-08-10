@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
+	"github.com/primandproper/platform-go/v10/links"
 	"github.com/primandproper/platform-go/v10/sessions"
 
 	"github.com/shoenig/test"
@@ -87,6 +88,43 @@ func TestPlatformMapper_Map(T *testing.T) {
 		_, msg, ok = PlatformMapper.Map(sessions.ErrNotFound)
 		test.True(t, ok)
 		test.EqOp(t, "no active session", msg)
+	})
+
+	T.Run("every unusable action link maps to one code and a 410", func(t *testing.T) {
+		t.Parallel()
+		for err, expected := range map[error]string{
+			links.ErrLinkAlreadyRedeemed: "this link has already been used",
+			links.ErrLinkExpired:         "this link has expired",
+			links.ErrLinkRevoked:         "this link is no longer valid",
+			links.ErrLinkNotFound:        "this link is not valid",
+		} {
+			code, msg, ok := PlatformMapper.Map(err)
+			test.True(t, ok)
+			test.EqOp(t, ErrActionLinkUnusable, code)
+			test.EqOp(t, http.StatusGone, HTTPStatusForCode(code))
+			// One code, four messages: the distinction that matters is the one
+			// a person reads, not one a client branches on.
+			test.EqOp(t, expected, msg)
+		}
+	})
+
+	// A malformed token never named a link, so it is bad input rather than a
+	// link outcome, and gets a 400 instead of the 410 above.
+	T.Run("ErrInvalidToken maps to ErrValidatingRequestInput", func(t *testing.T) {
+		t.Parallel()
+		code, _, ok := PlatformMapper.Map(links.ErrInvalidToken)
+		test.True(t, ok)
+		test.EqOp(t, ErrValidatingRequestInput, code)
+		test.EqOp(t, http.StatusBadRequest, HTTPStatusForCode(code))
+	})
+
+	// The Minter wraps its sentinels on the way out, so the mapper has to match
+	// through the wrapping rather than on identity.
+	T.Run("maps a wrapped links sentinel", func(t *testing.T) {
+		t.Parallel()
+		code, _, ok := PlatformMapper.Map(platformerrors.Wrap(links.ErrLinkExpired, "redeeming action link"))
+		test.True(t, ok)
+		test.EqOp(t, ErrActionLinkUnusable, code)
 	})
 
 	T.Run("ErrInFlight maps to ErrIdempotencyKeyInFlight", func(t *testing.T) {

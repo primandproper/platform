@@ -33,7 +33,6 @@ type service struct {
 	store    Store
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 	uploader uploads.UploadManager
 	recorder audit.Recorder
 	actor    ActorResolver
@@ -45,6 +44,10 @@ type service struct {
 	cancelledCounter metrics.Int64Counter
 	downloadCounter  metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read s.o11y.Logger() for the logger this service actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -68,8 +71,8 @@ type ActorResolver func(ctx context.Context) audit.Actor
 // the Service holding an encryptor it would never use.
 type encryptorPresent struct{}
 
-func (encryptorPresent) Encrypt(context.Context, string) (string, error) {
-	return "", platformerrors.New("dataprivacy service does not encrypt")
+func (encryptorPresent) Encrypt(context.Context, []byte, []byte) ([]byte, error) {
+	return nil, platformerrors.New("dataprivacy service does not encrypt")
 }
 
 // NewService builds a Service.
@@ -105,7 +108,6 @@ func NewService(ctx context.Context, cfg *ServiceConfig, store Store, opts ...Se
 	}
 
 	s.o11y = observability.NewObserver(serviceName, s.logger, s.tracerProvider)
-	s.logger = s.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
@@ -340,7 +342,7 @@ func (s *service) Open(ctx context.Context, requestID string) (io.ReadCloser, er
 		return nil, op.Error(err, "reading dataprivacy artifact")
 	}
 
-	decoded, err := s.packager.decode(ctx, stored)
+	decoded, err := s.packager.decode(ctx, stored, req.ID)
 	if err != nil {
 		return nil, op.Error(err, "decoding dataprivacy artifact")
 	}

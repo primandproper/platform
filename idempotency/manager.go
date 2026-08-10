@@ -51,7 +51,6 @@ func NewManager[T any](
 		store:              store,
 		locker:             locker,
 		clock:              o.clock,
-		logger:             o.logger,
 		tracerProvider:     o.tracerProvider,
 		metricsProvider:    o.metricsProvider,
 		keyPrefix:          DefaultKeyPrefix,
@@ -85,8 +84,7 @@ func NewManager[T any](
 		return nil, ErrInvalidTTL
 	}
 
-	m.o11y = observability.NewObserver(serviceName, m.logger, m.tracerProvider)
-	m.logger = m.o11y.Logger()
+	m.o11y = observability.NewObserver(serviceName, o.logger, m.tracerProvider)
 
 	mp := metrics.EnsureMetricsProvider(m.metricsProvider)
 

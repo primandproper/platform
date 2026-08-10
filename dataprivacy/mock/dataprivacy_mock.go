@@ -54,6 +54,9 @@ var _ dataprivacy.Store = &StoreMock{}
 //			MarkExpiredFunc: func(ctx context.Context, requestID string, at time.Time) error {
 //				panic("mock out the MarkExpired method")
 //			},
+//			MarkKeyShreddedFunc: func(ctx context.Context, requestID string, at time.Time) error {
+//				panic("mock out the MarkKeyShredded method")
+//			},
 //			ReapFunc: func(ctx context.Context, before time.Time, limit int) (int64, error) {
 //				panic("mock out the Reap method")
 //			},
@@ -102,6 +105,9 @@ type StoreMock struct {
 
 	// MarkExpiredFunc mocks the MarkExpired method.
 	MarkExpiredFunc func(ctx context.Context, requestID string, at time.Time) error
+
+	// MarkKeyShreddedFunc mocks the MarkKeyShredded method.
+	MarkKeyShreddedFunc func(ctx context.Context, requestID string, at time.Time) error
 
 	// ReapFunc mocks the Reap method.
 	ReapFunc func(ctx context.Context, before time.Time, limit int) (int64, error)
@@ -215,6 +221,15 @@ type StoreMock struct {
 			// At is the at argument value.
 			At time.Time
 		}
+		// MarkKeyShredded holds details about calls to the MarkKeyShredded method.
+		MarkKeyShredded []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// RequestID is the requestID argument value.
+			RequestID string
+			// At is the at argument value.
+			At time.Time
+		}
 		// Reap holds details about calls to the Reap method.
 		Reap []struct {
 			// Ctx is the ctx argument value.
@@ -266,6 +281,7 @@ type StoreMock struct {
 	lockLapseUnconfirmed  sync.RWMutex
 	lockList              sync.RWMutex
 	lockMarkExpired       sync.RWMutex
+	lockMarkKeyShredded   sync.RWMutex
 	lockReap              sync.RWMutex
 	lockSave              sync.RWMutex
 	lockTransition        sync.RWMutex
@@ -685,6 +701,46 @@ func (mock *StoreMock) MarkExpiredCalls() []struct {
 	mock.lockMarkExpired.RLock()
 	calls = mock.calls.MarkExpired
 	mock.lockMarkExpired.RUnlock()
+	return calls
+}
+
+// MarkKeyShredded calls MarkKeyShreddedFunc.
+func (mock *StoreMock) MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error {
+	if mock.MarkKeyShreddedFunc == nil {
+		panic("StoreMock.MarkKeyShreddedFunc: method is nil but Store.MarkKeyShredded was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		RequestID string
+		At        time.Time
+	}{
+		Ctx:       ctx,
+		RequestID: requestID,
+		At:        at,
+	}
+	mock.lockMarkKeyShredded.Lock()
+	mock.calls.MarkKeyShredded = append(mock.calls.MarkKeyShredded, callInfo)
+	mock.lockMarkKeyShredded.Unlock()
+	return mock.MarkKeyShreddedFunc(ctx, requestID, at)
+}
+
+// MarkKeyShreddedCalls gets all the calls that were made to MarkKeyShredded.
+// Check the length with:
+//
+//	len(mockedStore.MarkKeyShreddedCalls())
+func (mock *StoreMock) MarkKeyShreddedCalls() []struct {
+	Ctx       context.Context
+	RequestID string
+	At        time.Time
+} {
+	var calls []struct {
+		Ctx       context.Context
+		RequestID string
+		At        time.Time
+	}
+	mock.lockMarkKeyShredded.RLock()
+	calls = mock.calls.MarkKeyShredded
+	mock.lockMarkKeyShredded.RUnlock()
 	return calls
 }
 

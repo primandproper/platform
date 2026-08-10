@@ -668,8 +668,8 @@ func TestBuildCompleteErasure(T *testing.T) {
 
 		query, args := testTables.buildCompleteErasure(dialect.Postgres, testRequest(), nil, nil, baseTime)
 
-		test.StrHasSuffix(t, "WHERE id = $8 AND status = $9", query)
-		test.EqOp(t, "processing", args[8])
+		test.StrHasSuffix(t, "WHERE id = $9 AND status = $10", query)
+		test.EqOp(t, "processing", args[9])
 	})
 }
 

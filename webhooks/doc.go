@@ -2,6 +2,9 @@
 Package webhooks delivers outbound webhooks: signed, retried, ordered, and
 replayable.
 
+Its mirror is webhooks/inbound, which receives them: verify the provider's
+signature, publish, ack.
+
 Everything here is a guarantee rather than an opinion. What an event means, when
 it fires, and what its payload contains are the application's; that a subscriber
 can authenticate the payload, that a delivery is not lost when the process dies,

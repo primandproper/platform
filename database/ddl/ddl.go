@@ -46,6 +46,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
@@ -78,6 +79,35 @@ var ErrPrefixTooLong = platformerrors.New("table prefix renders an over-long SQL
 // supplies the separator, so a namespace carrying one too renders a doubled
 // separator — legal SQL, and a table nobody meant to name.
 var ErrPrefixTrailingSeparator = platformerrors.New("table prefix must not end in '_'")
+
+// namespace is a table prefix on its own terms: a bare SQL identifier fragment,
+// or nothing at all.
+//
+// It is not dialect.ValidIdentifier. That one admits a schema qualifier and
+// refuses the empty string, and a namespace is the other way around on both
+// counts — a dot in one would name a schema this module does not create, and
+// empty is the ordinary case rather than a missing value.
+//
+// The alphabet is dialect's, not a second copy of it, so the two rules cannot
+// come to disagree about which characters a name may hold.
+var namespace = charset.New(
+	dialect.IdentifierChars,
+	charset.WithFirst(dialect.IdentifierLeadChars),
+	charset.AllowEmpty(),
+)
+
+// ValidNamespace reports whether namespace is a legal table prefix on its own —
+// a bare identifier fragment, or empty.
+//
+// It answers only the character question. Whether the prefix renders legal
+// names, and names short enough, is Schema.ValidatePrefix, which needs a schema
+// to know. This exists because four packages outside this one ask the character
+// question first, each so it can report its own sentinel before the shared one:
+// audit, audit/migrations, authorization/database and dataprivacy/auditerasure
+// all carried an identical copy of the rule to do it.
+func ValidNamespace(prefix string) bool {
+	return namespace.Valid(prefix)
+}
 
 // Qualify renders the namespace portion of an identifier: empty for an empty
 // namespace, and the namespace with a single trailing '_' otherwise.

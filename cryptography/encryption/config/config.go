@@ -7,23 +7,26 @@ import (
 
 	"github.com/primandproper/platform-go/v10/cryptography/encryption"
 	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption/salsa20"
 	perrors "github.com/primandproper/platform-go/v10/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 const (
-	// ProviderAES is the AES-GCM encryption provider.
+	// ProviderAES is the AES-256-GCM encryption provider.
 	ProviderAES = "aes"
-	// ProviderSalsa20 is the Salsa20 encryption provider.
-	ProviderSalsa20 = "salsa20"
 )
 
 type (
-	// Config is the configuration for the encryption provider.
+	// Config is the configuration for the encryption keyring.
 	Config struct {
+		// Provider names the cipher every key in the ring uses.
 		Provider string `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
+		// CurrentKeyID names the key new ciphertexts are written under. It has
+		// to be one of the keys supplied to NewKeyring, and it is required:
+		// rotation works by changing this value, so there is no sensible
+		// default and inferring one would make the choice invisible.
+		CurrentKeyID string `env:"CURRENT_KEY_ID" json:"currentKeyID,omitempty" yaml:"currentKeyID,omitempty"`
 	}
 )
 
@@ -31,7 +34,7 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // providers are every provider this package implements. Validation and the
 // dispatch switch both read it, so they cannot drift apart.
-var providers = []string{ProviderAES, ProviderSalsa20}
+var providers = []string{ProviderAES}
 
 // normalize canonicalizes a provider name the way the dispatch switch does.
 func normalize(provider string) string {
@@ -52,28 +55,62 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 			return nil
 		})),
+		validation.Field(&cfg.CurrentKeyID, validation.Required),
 	)
 }
 
-// NewEncryptorDecryptor provides an EncryptorDecryptor based on the configured provider.
-func NewEncryptorDecryptor(
+// NewKeyring builds an encryption.Keyring over keys, using the configured
+// provider for every one of them.
+//
+// One provider governs the whole ring rather than one per key. A ciphertext
+// names its key, and the key determines its cipher, so a mixed ring is
+// expressible — but nothing has ever wanted one, and offering it would mean
+// every deployment configuring an algorithm per key forever.
+func NewKeyring(
 	ctx context.Context,
 	cfg *Config,
-	key []byte,
+	keys encryption.Keyset,
 	opts ...Option,
 ) (encryption.EncryptorDecryptor, error) {
-	o := newOptions(opts)
-	logger, tracerProvider := o.logger, o.tracerProvider
-
 	if cfg == nil {
 		return nil, perrors.ErrNilInputProvided
 	}
 
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, perrors.Wrap(err, "encryption keyring")
+	}
+
+	if len(keys) == 0 {
+		return nil, encryption.ErrEmptyKeyring
+	}
+
+	o := newOptions(opts)
+
+	ringKeys := make([]encryption.RingKey, 0, len(keys))
+
+	for id, material := range keys {
+		cipher, err := newCipher(cfg, material, o)
+		if err != nil {
+			return nil, perrors.Wrapf(err, "building cipher for key %q", id)
+		}
+
+		ringKeys = append(ringKeys, encryption.RingKey{ID: id, Cipher: cipher})
+	}
+
+	return encryption.NewKeyring(
+		encryption.KeyID(cfg.CurrentKeyID),
+		ringKeys,
+		encryption.WithLogger(o.logger),
+		encryption.WithTracerProvider(o.tracerProvider),
+		encryption.WithMetricsProvider(o.metricsProvider),
+	)
+}
+
+// newCipher dispatches on the configured provider.
+func newCipher(cfg *Config, material encryption.MasterKey, o *options) (encryption.Cipher, error) {
 	switch normalize(cfg.Provider) {
 	case ProviderAES:
-		return aes.NewEncryptorDecryptor(key, aes.WithLogger(logger), aes.WithTracerProvider(tracerProvider))
-	case ProviderSalsa20:
-		return salsa20.NewEncryptorDecryptor(key, salsa20.WithLogger(logger), salsa20.WithTracerProvider(tracerProvider))
+		return aes.NewCipher(material, aes.WithLogger(o.logger), aes.WithTracerProvider(o.tracerProvider))
 	default:
 		return nil, perrors.Wrapf(perrors.ErrUnknownProvider, "encryption provider %q", cfg.Provider)
 	}

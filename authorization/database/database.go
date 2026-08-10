@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 
 	"github.com/primandproper/platform-go/v10/authorization"
@@ -43,8 +42,6 @@ const (
 	permissionsTable = "authz_permissions"
 )
 
-var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)
-
 var _ authorization.PolicyResolver = (*Resolver)(nil)
 
 // Resolver resolves role names against policy stored in SQL tables.
@@ -59,13 +56,16 @@ var _ authorization.PolicyResolver = (*Resolver)(nil)
 // of roles, so a cache keyed by role names has a hit rate near one and is
 // shared across every principal, rather than per-principal.
 type Resolver struct {
-	db     database.SQLQueryExecutor
-	o11y   observability.Observer
-	logger logging.Logger
+	db   database.SQLQueryExecutor
+	o11y observability.Observer
 
 	resolutionsCounter metrics.Int64Counter
 	errorsCounter      metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read r.o11y.Logger() for the logger this resolver actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	metricsProvider metrics.Provider
 	tracerProvider  tracing.Provider
 	dialect         dialect.Dialect
@@ -106,7 +106,7 @@ func NewResolver(cfg *Config, db database.SQLQueryExecutor, opts ...Option) (*Re
 	if prefix == "" {
 		prefix = DefaultTablePrefix
 	}
-	if !validPrefix.MatchString(prefix) {
+	if !ddl.ValidNamespace(prefix) {
 		return nil, platformerrors.Wrapf(ErrInvalidTablePrefix, "prefix %q", prefix)
 	}
 
@@ -123,7 +123,6 @@ func NewResolver(cfg *Config, db database.SQLQueryExecutor, opts ...Option) (*Re
 	}
 
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
-	r.logger = r.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 

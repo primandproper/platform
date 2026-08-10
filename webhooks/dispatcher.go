@@ -35,7 +35,6 @@ type dispatcher struct {
 	store    Store
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 	catalog  Catalog
 	checkURL URLChecker
 
@@ -43,6 +42,10 @@ type dispatcher struct {
 	fanoutHist        metrics.Float64Histogram
 	replayedCounter   metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read d.o11y.Logger() for the logger this dispatcher actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 }
@@ -66,7 +69,6 @@ func NewDispatcher(store Store, opts ...DispatcherOption) (Dispatcher, error) {
 	}
 
 	d.o11y = observability.NewObserver(serviceName, d.logger, d.tracerProvider)
-	d.logger = d.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(d.metricsProvider)
 

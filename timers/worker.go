@@ -201,7 +201,7 @@ func (w *Worker[K]) Run(ctx context.Context) error {
 		if err != nil {
 			// Not returned: see the method comment. The wait below is what keeps
 			// a persistent failure from becoming a spin.
-			w.timers.logger.Error("firing due timers", err)
+			w.timers.o11y.Logger().Error("firing due timers", err)
 		}
 
 		// A full batch means more is owed right now. Anything less — including a
@@ -242,14 +242,14 @@ func (w *Worker[K]) pass(ctx context.Context) (int, error) {
 			// Not fatal, and not returned: the handlers ran. The lease lapses and
 			// the firings come back, which is a duplicate rather than a loss, and
 			// saying so here is more useful than failing a pass that worked.
-			w.timers.logger.Error("completing fired timers", completeErr)
+			w.timers.o11y.Logger().Error("completing fired timers", completeErr)
 		}
 	}
 
 	for i := range failed {
 		if releaseErr := w.timers.
 			Release(writeCtx, w.cfg.RetryDelay, failed[i].cause, failed[i].due...); releaseErr != nil {
-			w.timers.logger.Error("releasing failed timers", releaseErr)
+			w.timers.o11y.Logger().Error("releasing failed timers", releaseErr)
 		}
 	}
 

@@ -65,7 +65,6 @@ type Worker struct {
 	client   *http.Client
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 	breaker  CircuitBreakerFactory
 	checkURL URLChecker
 
@@ -86,6 +85,10 @@ type Worker struct {
 	cycleHist         metrics.Float64Histogram
 	batchHist         metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read w.o11y.Logger() for the logger this worker actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -132,13 +135,12 @@ func NewWorker(ctx context.Context, cfg *WorkerConfig, store Store, opts ...Work
 	}
 
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
-	w.logger = w.o11y.Logger()
 
 	if w.client == nil {
 		client, err := httpclient.NewHTTPClient(
 			httpclient.WithTimeout(w.cfg.RequestTimeout),
 			httpclient.WithTracing(true),
-			httpclient.WithLogger(w.logger),
+			httpclient.WithLogger(w.o11y.Logger()),
 			httpclient.WithTracerProvider(w.tracerProvider),
 			httpclient.WithMetricsProvider(w.metricsProvider),
 		)
@@ -269,7 +271,7 @@ func (w *Worker) cycle(ctx context.Context) {
 	claimed, err := w.store.Claim(ctx, now, w.cfg.BatchSize, now.Add(w.cfg.LeaseDuration))
 	if err != nil {
 		w.claimErrCounter.Add(ctx, 1)
-		w.logger.Error("claiming webhook dispatches", err)
+		w.o11y.Logger().Error("claiming webhook dispatches", err)
 
 		return
 	}
@@ -320,7 +322,7 @@ func (w *Worker) handle(ctx context.Context, dispatch *ClaimedDispatch) {
 	// without a record of it.
 	if attempt != nil {
 		if recordErr := w.store.RecordAttempt(ctx, attempt); recordErr != nil {
-			w.logger.WithValue(deliveryIDKey, dispatch.DeliveryID).
+			w.o11y.Logger().WithValue(deliveryIDKey, dispatch.DeliveryID).
 				Error("recording webhook delivery attempt", recordErr)
 		}
 	}
@@ -332,7 +334,7 @@ func (w *Worker) handle(ctx context.Context, dispatch *ClaimedDispatch) {
 			// The subscriber has the payload but the row still looks pending.
 			// The next cycle redelivers it — this is precisely the at-least-once
 			// window the package documentation describes.
-			w.logger.WithValue(dispatchIDKey, dispatch.ID).
+			w.o11y.Logger().WithValue(dispatchIDKey, dispatch.ID).
 				Error("marking webhook dispatch delivered", markErr)
 		}
 
@@ -547,7 +549,7 @@ func (w *Worker) recordFailure(ctx context.Context, dispatch *ClaimedDispatch, c
 		nextAttempt = w.clock.Now().UTC().Add(w.cfg.CircuitOpenRetryDelay)
 	}
 
-	logger := w.logger.WithValues(map[string]any{
+	logger := w.o11y.Logger().WithValues(map[string]any{
 		dispatchIDKey:  dispatch.ID,
 		deliveryIDKey:  dispatch.DeliveryID,
 		endpointIDKey:  dispatch.EndpointID,

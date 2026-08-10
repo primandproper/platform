@@ -45,10 +45,13 @@ type sqlStore struct {
 	client database.Client
 	tables *tables
 	o11y   observability.Observer
-	logger logging.Logger
 
 	guardMissCounter metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read s.o11y.Logger() for the logger this store actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
@@ -89,7 +92,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 	}
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
-	s.logger = s.o11y.Logger()
 
 	// One counter, and only one. The Worker and Sweeper already own the business
 	// totals — claimed, completed, failed, lapsed, reaped, expired — and a second
@@ -426,6 +428,30 @@ func (s *sqlStore) CompleteErasure(ctx context.Context, q database.SQLQueryExecu
 	return s.execExpectingRow(ctx, op, q, query, args, req.ID, "erasure", "completing dataprivacy erasure")
 }
 
+func (s *sqlStore) MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
+	defer op.End()
+
+	query, args := s.tables.buildMarkKeyShredded(s.dialect, requestID, at)
+
+	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	if err != nil {
+		return op.Error(err, "recording dataprivacy key destruction")
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return op.Error(err, "recording dataprivacy key destruction")
+	}
+
+	// Zero rows is not a guard miss worth counting. It means a retry re-shredded
+	// a key that was already destroyed and already recorded, which is the normal
+	// shape of a retried erasure rather than a lost race.
+	op.Set(rowsAffectedKey, affected)
+
+	return nil
+}
+
 func (s *sqlStore) Fail(
 	ctx context.Context,
 	requestID string,
@@ -691,15 +717,16 @@ func scanRequests(ctx context.Context, q database.SQLQueryExecutor, query string
 // scanRequest reads one row of requestColumns.
 func scanRequest(scanner database.Scanner) (*Request, error) {
 	var (
-		req         Request
-		requestType string
-		status      string
-		subjectType string
-		expiresAt   sql.NullTime
-		completedAt sql.NullTime
-		failures    []byte
-		retained    []byte
-		lastError   sql.NullString
+		req           Request
+		requestType   string
+		status        string
+		subjectType   string
+		expiresAt     sql.NullTime
+		completedAt   sql.NullTime
+		failures      []byte
+		retained      []byte
+		lastError     sql.NullString
+		keyShreddedAt sql.NullTime
 	)
 
 	if err := scanner.Scan(
@@ -707,7 +734,7 @@ func scanRequest(scanner database.Scanner) (*Request, error) {
 		&req.Subject.ID, &subjectType, &req.Subject.Scope,
 		&req.RequestedAt, &req.DueAt, &expiresAt, &completedAt, &req.Attempts,
 		&req.ArtifactRef, &req.ArtifactBytes, &req.Deleted, &req.Anonymized,
-		&failures, &retained, &lastError,
+		&failures, &retained, &lastError, &keyShreddedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -719,6 +746,7 @@ func scanRequest(scanner database.Scanner) (*Request, error) {
 	req.DueAt = req.DueAt.UTC()
 	req.ExpiresAt = database.TimeFromNullTime(expiresAt).UTC()
 	req.CompletedAt = database.TimePointerFromNullTime(completedAt)
+	req.KeyShreddedAt = database.TimePointerFromNullTime(keyShreddedAt)
 	req.LastError = database.StringFromNullString(lastError)
 
 	if req.CompletedAt != nil {

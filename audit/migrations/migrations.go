@@ -44,7 +44,6 @@ package migrations
 import (
 	_ "embed"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/primandproper/platform-go/v10/database/ddl"
@@ -74,13 +73,6 @@ var schema = ddl.Schema{
 	MySQL:     mysqlDDL,
 	SQLite:    sqliteDDL,
 }
-
-// validPrefix matches a prefix safe to interpolate into DDL: a bare identifier
-// fragment, or nothing. Prefixes are interpolated rather than bound, so they
-// are restricted rather than escaped. It is duplicated from the audit package
-// rather than imported because this package cannot import its parent without
-// closing a cycle through the parent's tests.
-var validPrefix = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)?$`)
 
 // ErrInvalidPrefix indicates a prefix that is not a plain SQL identifier
 // fragment.
@@ -202,7 +194,7 @@ func AppendOnlyStatements(d dialect.Dialect, prefix string) ([]string, error) {
 // ValidatePrefix reports whether prefix yields a legal SQL identifier for every
 // table and index this package creates.
 func ValidatePrefix(prefix string) error {
-	if !validPrefix.MatchString(prefix) {
+	if !ddl.ValidNamespace(prefix) {
 		return platformerrors.Wrapf(ErrInvalidPrefix, "audit table prefix %q", prefix)
 	}
 

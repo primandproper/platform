@@ -785,6 +785,16 @@ func TestValidateKey(T *testing.T) {
 			test.ErrorIs(t, ValidateKey(key, DefaultMaxKeyLength), ErrKeyInvalid)
 		}
 	})
+
+	T.Run("a key that is both too long and malformed reports the length", func(t *testing.T) {
+		t.Parallel()
+
+		// The two failures are checked in a fixed order, and the order is the
+		// answer the client can act on: shortening the key is a thing they can
+		// do, and it is what they have to do first. Reporting the character
+		// instead would send them to fix the smaller of two problems.
+		test.ErrorIs(t, ValidateKey("has space", 4), ErrKeyTooLong)
+	})
 }
 
 func TestKeyContext(T *testing.T) {

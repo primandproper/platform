@@ -61,6 +61,7 @@ import (
 	partitionedcfg "github.com/primandproper/platform-go/v10/circuitbreaking/partitioned/config"
 	"github.com/primandproper/platform-go/v10/cookies"
 	encryptioncfg "github.com/primandproper/platform-go/v10/cryptography/encryption/config"
+	shreddingcfg "github.com/primandproper/platform-go/v10/cryptography/shredding/config"
 	databasecfg "github.com/primandproper/platform-go/v10/database/config"
 	dataprivacycfg "github.com/primandproper/platform-go/v10/dataprivacy/config"
 	distributedlockcfg "github.com/primandproper/platform-go/v10/distributedlock/config"
@@ -130,6 +131,7 @@ type Config struct {
 	Embeddings           *embeddingscfg.Config      `env:",init" envPrefix:"EMBEDDINGS_"             json:"embeddings,omitempty"           yaml:"embeddings,omitempty"`
 	Encoding             *encoding.Config           `env:",init" envPrefix:"ENCODING_"               json:"encoding,omitempty"             yaml:"encoding,omitempty"`
 	Encryption           *encryptioncfg.Config      `env:",init" envPrefix:"ENCRYPTION_"             json:"encryption,omitempty"           yaml:"encryption,omitempty"`
+	Shredding            *shreddingcfg.Config       `env:",init" envPrefix:"SHREDDING_"              json:"shredding,omitempty"            yaml:"shredding,omitempty"`
 	EventStream          *eventstreamcfg.Config     `env:",init" envPrefix:"EVENT_STREAM_"           json:"eventStream,omitempty"          yaml:"eventStream,omitempty"`
 	FeatureFlags         *featureflagscfg.Config    `env:",init" envPrefix:"FEATURE_FLAGS_"          json:"featureFlags,omitempty"         yaml:"featureFlags,omitempty"`
 	GRPCServer           *grpcserver.Config         `env:",init" envPrefix:"GRPC_SERVER_"            json:"grpcServer,omitempty"           yaml:"grpcServer,omitempty"`

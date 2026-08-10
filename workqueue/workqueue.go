@@ -11,7 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -122,7 +121,6 @@ type Queue[K comparable] struct {
 	client   database.Client
 	codec    KeyCodec[K]
 	o11y     observability.Observer
-	logger   logging.Logger
 
 	enqueuedCounter  metrics.Int64Counter
 	claimedCounter   metrics.Int64Counter
@@ -208,7 +206,6 @@ func New[K comparable](
 		cfg:    *cfg,
 		client: client,
 		codec:  DefaultKeyCodec[K](),
-		logger: o.logger,
 		wakeup: o.wakeup,
 		attrs:  metric.WithAttributes(attribute.String(queueNameKey, cfg.Name)),
 	}
@@ -229,9 +226,8 @@ func New[K comparable](
 
 	// Every operation this queue performs is about this one queue, so the name
 	// is stated once here instead of at each Begin below.
-	q.o11y = observability.NewObserverWithValues(serviceName, q.logger, o.tracerProvider,
+	q.o11y = observability.NewObserverWithValues(serviceName, o.logger, o.tracerProvider,
 		map[string]any{queueNameKey: cfg.Name})
-	q.logger = q.o11y.Logger()
 
 	if err := q.buildInstruments(o.metricsProvider); err != nil {
 		return nil, err
@@ -799,7 +795,7 @@ func (q *Queue[K]) withRetries(ctx context.Context, label string, fn func() erro
 		}
 
 		q.retryCounter.Add(ctx, 1, q.attrs)
-		q.logger.WithValues(map[string]any{
+		q.o11y.Logger().WithValues(map[string]any{
 			attemptKey:  attempt,
 			"operation": label,
 		}).Info("retrying work queue write after a serialization failure")

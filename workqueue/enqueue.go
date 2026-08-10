@@ -150,7 +150,7 @@ func (q *Queue[K]) notify(ctx context.Context) {
 	}
 
 	if _, err := q.client.Writer().ExecContext(ctx, dialect.PostgresNotifyStatement, q.cfg.NotifyChannel); err != nil {
-		q.logger.WithValue(notifyChannelKey, q.cfg.NotifyChannel).Error("notifying work queue channel", err)
+		q.o11y.Logger().WithValue(notifyChannelKey, q.cfg.NotifyChannel).Error("notifying work queue channel", err)
 	}
 }
 

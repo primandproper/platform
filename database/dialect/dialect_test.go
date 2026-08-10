@@ -195,6 +195,10 @@ func TestValidIdentifier(T *testing.T) {
 		for _, name := range []string{
 			"", "1table", "a.b.c", "a-b", "a b", "a;drop table b", "a.", ".a",
 			"outbox_messages\n", "naïve",
+			// Not valid UTF-8 at all. A byte that decodes to nothing is still a
+			// byte that reaches the query text, so it has to be refused on its
+			// own terms rather than on whether it names a character.
+			"a\xffb", "\xff", "tab\xc3le",
 		} {
 			test.False(t, ValidIdentifier(name), test.Sprintf("identifier %q", name))
 		}
