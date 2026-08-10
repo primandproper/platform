@@ -328,6 +328,12 @@ func TestFulfillment_Postgres(T *testing.T) {
 			must.NotNil(t, op.Error)
 			test.EqOp(t, operations.CodeAttemptsExhausted, op.Error.Code)
 
+			// The kind's budget, not the worker's: registration carries
+			// FulfillerConfig.MaxAttempts, and a privacy request is not a
+			// webhook replay — one attempt is a fan-out over every registered
+			// domain.
+			test.EqOp(t, DefaultMaxAttempts, op.Attempts)
+
 			// The row is marked on the final attempt and not before, which is
 			// the only moment at which "nobody is getting an answer" is true.
 			read, err := env.svc.Get(t.Context(), req.ID)
@@ -340,6 +346,95 @@ func TestFulfillment_Postgres(T *testing.T) {
 			// request is not still owed in the sense that gauge measures.
 			test.False(t, read.Overdue(read.DueAt.Add(time.Hour)))
 		})
+
+		// The retry itself, which is the half of the old poll loop that moved
+		// rather than being deleted. The worker retries and the row survives the
+		// gap, both of which used to be one package's business and are now two.
+		T.Run("a transient failure is retried and the row survives the gap", func(t *testing.T) {
+			t.Parallel()
+
+			collector := newGatedCollector(`{"email":"a@example.com"}`, 1)
+
+			env := newFulfillmentEnv(t, client, func(r *Registry) {
+				must.NoError(t, r.RegisterCollector("identity", collector))
+			})
+
+			req, err := env.svc.Submit(t.Context(), testSubject, RequestExport)
+			must.NoError(t, err)
+
+			// The second attempt is held inside the collector, so what follows
+			// reads a retry in flight rather than inferring one afterwards from
+			// a request that happens to have succeeded.
+			collector.awaitEntry(t)
+
+			mid, err := env.svc.Get(t.Context(), req.ID)
+			must.NoError(t, err)
+
+			// This is the row a subject's status page reads between a failure
+			// and the retry that fixes it. Marked failed here, it is one the
+			// sweeper reaps and the overdue gauge stops counting, for a
+			// fulfillment that is still coming.
+			test.EqOp(t, StatusInProgress, mid.Status)
+			test.EqOp(t, "", mid.LastError)
+			test.Nil(t, mid.CompletedAt)
+
+			inFlight, err := env.ops.Get(t.Context(), req.OperationID)
+			must.NoError(t, err)
+
+			// Charged on claim, so the second attempt is already counted while
+			// it runs — which is what makes Final knowable from inside Run.
+			test.EqOp(t, 2, inFlight.Attempts)
+			test.False(t, inFlight.Terminal())
+
+			collector.release()
+
+			op := env.drain(t, req.OperationID)
+
+			test.EqOp(t, operations.StateSucceeded, op.State)
+			test.EqOp(t, 2, op.Attempts)
+			test.EqOp(t, int64(2), collector.calls.Load())
+
+			// And the transient failure left no residue on the record that
+			// outlives the operation by years.
+			read, err := env.svc.Get(t.Context(), req.ID)
+			must.NoError(t, err)
+			test.EqOp(t, StatusCompleted, read.Status)
+			test.EqOp(t, "", read.LastError)
+			test.StrNotEqFold(t, "", read.ArtifactRef)
+		})
+
+		T.Run("an unretryable failure gives up on the first attempt", func(t *testing.T) {
+			t.Parallel()
+
+			env := newFulfillmentEnv(t, client, func(r *Registry) {
+				must.NoError(t, r.RegisterCollector("identity",
+					staticCollector(`{"padding":"aaaaaaaaaaaaaaaaaaaa"}`)))
+			}, WithFulfillerMaxDocumentBytes(8))
+
+			req, err := env.svc.Submit(t.Context(), testSubject, RequestExport)
+			must.NoError(t, err)
+
+			op := env.drain(t, req.OperationID)
+
+			test.EqOp(t, operations.StateFailed, op.State)
+
+			// One attempt rather than the budget: the document is the same size
+			// every time, and spending the rest of it to discover that delays
+			// the moment the subject is told by however long the backoff is.
+			test.EqOp(t, 1, op.Attempts)
+			must.NotNil(t, op.Error)
+			test.False(t, op.Error.Retryable)
+
+			read, err := env.svc.Get(t.Context(), req.ID)
+			must.NoError(t, err)
+			test.EqOp(t, StatusFailed, read.Status)
+			test.StrContains(t, read.LastError, "exceeds configured maximum")
+			must.NotNil(t, read.CompletedAt)
+
+			// And nothing reached the bucket, which is the point of checking the
+			// size before the write rather than after it.
+			test.SliceEmpty(t, env.uploader.paths())
+		})
 	})
 }
 
@@ -347,9 +442,10 @@ func TestFulfillment_Postgres(T *testing.T) {
 // store and service, an operations store, queue, service, and worker, and a
 // fulfiller registered into the registry the worker runs from.
 type fulfillmentEnv struct {
-	svc    Service
-	worker *operations.Worker
-	ops    operations.Service
+	svc      Service
+	worker   *operations.Worker
+	ops      operations.Service
+	uploader *memoryUploader
 }
 
 // fulfillmentCounter names a fresh table namespace and queue per subtest.
@@ -358,14 +454,28 @@ type fulfillmentEnv struct {
 // a kind its registry does not have.
 var fulfillmentCounter atomic.Uint64
 
-// fulfillmentOption customizes what newFulfillmentEnv assembles. There are two,
-// and neither is a dataprivacy option — they configure the assembly rather than
-// any one part of it.
-type fulfillmentOption func(*ServiceConfig)
+// fulfillmentConfigs are the two configs newFulfillmentEnv assembles from. They
+// are set before anything is constructed rather than poked afterwards, because
+// the worker goroutine reads the fulfiller's config on every attempt.
+type fulfillmentConfigs struct {
+	fulfiller FulfillerConfig
+	svc       ServiceConfig
+}
+
+// fulfillmentOption customizes what newFulfillmentEnv assembles. None of these
+// is a dataprivacy option — they configure the assembly rather than any one part
+// of it.
+type fulfillmentOption func(*fulfillmentConfigs)
 
 // WithFulfillerConfirmationWindow holds erasures for confirmation.
 func WithFulfillerConfirmationWindow(window time.Duration) fulfillmentOption {
-	return func(cfg *ServiceConfig) { cfg.ConfirmationWindow = window }
+	return func(c *fulfillmentConfigs) { c.svc.ConfirmationWindow = window }
+}
+
+// WithFulfillerMaxDocumentBytes caps the assembled export, so the unretryable
+// path can be reached without collecting half a gigabyte to reach it.
+func WithFulfillerMaxDocumentBytes(limit int64) fulfillmentOption {
+	return func(c *fulfillmentConfigs) { c.fulfiller.MaxDocumentBytes = limit }
 }
 
 func newFulfillmentEnv(
@@ -403,7 +513,12 @@ func newFulfillmentEnv(
 
 	uploader := newMemoryUploader()
 
-	fulfiller, err := NewFulfiller(t.Context(), &FulfillerConfig{}, store, domains,
+	configs := &fulfillmentConfigs{}
+	for _, opt := range opts {
+		opt(configs)
+	}
+
+	fulfiller, err := NewFulfiller(t.Context(), &configs.fulfiller, store, domains,
 		WithFulfillerUploadManager(uploader))
 	must.NoError(t, err)
 
@@ -425,23 +540,24 @@ func newFulfillmentEnv(
 	must.NoError(t, err)
 
 	worker, err := operations.NewWorker(t.Context(), &operations.WorkerConfig{
+		// Far below the package default of five seconds, which is a sensible
+		// cadence for a fleet and a floor on how long every subtest here takes:
+		// a retry costs two of these and an exhausted budget costs three.
+		Poll:             50 * time.Millisecond,
 		Lease:            10 * time.Second,
 		ProgressInterval: 100 * time.Millisecond,
 		Batch:            4,
 		Concurrency:      2,
-		// Two rather than the package default, so the failure subtest exhausts
-		// a budget in a couple of passes rather than in five.
+		// The floor for a kind that does not set its own, which is not the case
+		// here: both dataprivacy kinds register FulfillerConfig.MaxAttempts, and
+		// a kind's own ceiling wins outright rather than being clamped by this.
+		// The budget these subtests actually spend is DefaultMaxAttempts.
 		MaxAttempts: 2,
 		RetryDelay:  10 * time.Millisecond,
 	}, opsStore, queue, kinds)
 	must.NoError(t, err)
 
-	cfg := &ServiceConfig{}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	svc, err := NewService(t.Context(), cfg, store, opsSvc, WithServiceUploadManager(uploader))
+	svc, err := NewService(t.Context(), &configs.svc, store, opsSvc, WithServiceUploadManager(uploader))
 	must.NoError(t, err)
 
 	// The real loop, stopped by cancelling its context — which is how an
@@ -451,8 +567,72 @@ func newFulfillmentEnv(
 
 	go func() { _ = worker.Run(workerCtx) }()
 
-	return &fulfillmentEnv{svc: svc, worker: worker, ops: opsSvc}
+	return &fulfillmentEnv{svc: svc, worker: worker, ops: opsSvc, uploader: uploader}
 }
+
+// gatedCollector fails its first calls outright and holds the ones after that
+// until the test lets them go.
+//
+// It exists so a retry can be read while it is in flight. Every other way of
+// observing one infers it from what it left behind, and the row between a
+// failure and the retry that fixes it is exactly the state this package moved
+// out of its own hands and into the operations worker's.
+type gatedCollector struct {
+	entered  chan struct{}
+	released chan struct{}
+	fragment string
+	failures int64
+	calls    atomic.Int64
+}
+
+var _ Collector = (*gatedCollector)(nil)
+
+func newGatedCollector(fragment string, failures int64) *gatedCollector {
+	return &gatedCollector{
+		fragment: fragment,
+		failures: failures,
+		entered:  make(chan struct{}),
+		released: make(chan struct{}),
+	}
+}
+
+// Collect implements Collector.
+func (c *gatedCollector) Collect(ctx context.Context, _ Subject) (json.RawMessage, error) {
+	// A whole-export failure rather than one section's: this is the only
+	// collector registered, and an export where every collector failed is a
+	// retryable failure of the export itself.
+	if n := c.calls.Add(1); n <= c.failures {
+		return nil, platformerrors.Newf("the collector is down (call %d)", n)
+	}
+
+	select {
+	case c.entered <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	select {
+	case <-c.released:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	return json.RawMessage(c.fragment), nil
+}
+
+// awaitEntry blocks until the collector reports that it has been called again.
+func (c *gatedCollector) awaitEntry(t *testing.T) {
+	t.Helper()
+
+	select {
+	case <-c.entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the collector was never called again")
+	}
+}
+
+// release lets every gated call through, this one and any after it.
+func (c *gatedCollector) release() { close(c.released) }
 
 // drain polls the operation until it reaches a terminal state.
 //
