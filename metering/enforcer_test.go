@@ -23,18 +23,18 @@ type enforcerEnv struct {
 }
 
 // newTestEnforcer builds an enforcer over a fresh store and an in-memory cache.
-func newTestEnforcer(t *testing.T, behavior QuotaBehavior, limit int64, opts ...EnforcerOption) *enforcerEnv {
-	t.Helper()
+func newTestEnforcer(tb testing.TB, behavior QuotaBehavior, limit int64, opts ...EnforcerOption) *enforcerEnv {
+	tb.Helper()
 
-	store := newSQLiteEnv(t).newStore(t)
+	store := newSQLiteEnv(tb).newStore(tb)
 	c := newStubClock()
 
 	totals := newStubCache(c)
 
-	enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{},
-		store, newTestRegistry(t, behavior, limit),
+	enforcer, err := NewQuotaEnforcer(tb.Context(), &EnforcerConfig{},
+		store, newTestRegistry(tb, behavior, limit),
 		append([]EnforcerOption{WithEnforcerClock(c), WithEnforcerCache(totals)}, opts...)...)
-	must.NoError(t, err)
+	must.NoError(tb, err)
 
 	return &enforcerEnv{enforcer: enforcer, store: store, totals: totals, clock: c}
 }

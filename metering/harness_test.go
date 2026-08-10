@@ -113,44 +113,44 @@ type storeEnv struct {
 // newSQLiteEnv builds a SQLite-backed environment. SQLite exercises the real SQL
 // — placeholder rendering, the conflict clauses, the row-value IN lists, the
 // partial indexes — without a container.
-func newSQLiteEnv(t *testing.T) *storeEnv {
-	t.Helper()
+func newSQLiteEnv(tb testing.TB) *storeEnv {
+	tb.Helper()
 
-	client, err := sqlite.NewDatabaseClient(t.Context(),
-		&testClientConfig{connectionString: filepath.Join(t.TempDir(), "metering.db")})
-	must.NoError(t, err)
-	t.Cleanup(func() { _ = client.Close() })
+	client, err := sqlite.NewDatabaseClient(tb.Context(),
+		&testClientConfig{connectionString: filepath.Join(tb.TempDir(), "metering.db")})
+	must.NoError(tb, err)
+	tb.Cleanup(func() { _ = client.Close() })
 
 	return &storeEnv{client: client, dialect: dialect.SQLite}
 }
 
 // newStore migrates a uniquely prefixed table pair and returns a Store over it.
-func (e *storeEnv) newStore(t *testing.T) Store {
-	t.Helper()
+func (e *storeEnv) newStore(tb testing.TB) Store {
+	tb.Helper()
 
-	store, _ := e.newStoreWithPrefix(t)
+	store, _ := e.newStoreWithPrefix(tb)
 
 	return store
 }
 
 // newStoreWithPrefix is newStore, also handing back the prefix so a test can
 // query the tables directly.
-func (e *storeEnv) newStoreWithPrefix(t *testing.T) (store Store, prefix string) {
-	t.Helper()
+func (e *storeEnv) newStoreWithPrefix(tb testing.TB) (store Store, prefix string) {
+	tb.Helper()
 
 	prefix = fmt.Sprintf("mtr_%d", prefixCounter.Add(1))
 
 	stmts, err := migrations.Statements(e.dialect, prefix)
-	must.NoError(t, err)
-	must.SliceNotEmpty(t, stmts)
+	must.NoError(tb, err)
+	must.SliceNotEmpty(tb, stmts)
 
 	for _, stmt := range stmts {
-		_, execErr := e.client.Writer().ExecContext(t.Context(), stmt)
-		must.NoError(t, execErr, must.Sprintf("executing %q", stmt))
+		_, execErr := e.client.Writer().ExecContext(tb.Context(), stmt)
+		must.NoError(tb, execErr, must.Sprintf("executing %q", stmt))
 	}
 
 	store, err = NewSQLStore(e.client, WithTablePrefix(prefix))
-	must.NoError(t, err)
+	must.NoError(tb, err)
 
 	return store, prefix
 }
@@ -162,18 +162,18 @@ const testMeter = "api_requests"
 const testSubject = "account-1"
 
 // newTestRegistry builds a registry with one sum meter and one quota over it.
-func newTestRegistry(t *testing.T, behavior QuotaBehavior, limit int64) *Registry {
-	t.Helper()
+func newTestRegistry(tb testing.TB, behavior QuotaBehavior, limit int64) *Registry {
+	tb.Helper()
 
 	registry := NewRegistry()
 
-	must.NoError(t, registry.RegisterMeter(Meter{
+	must.NoError(tb, registry.RegisterMeter(Meter{
 		Name:        testMeter,
 		Unit:        "requests",
 		Aggregation: AggregationSum,
 		Period:      PeriodMonth,
 	}))
-	must.NoError(t, registry.RegisterQuota(Quota{
+	must.NoError(tb, registry.RegisterQuota(Quota{
 		Meter:    testMeter,
 		Limit:    limit,
 		Behavior: behavior,
