@@ -50,7 +50,7 @@ func TestSQLStore_Observability(T *testing.T) {
 		recorder.ObservedOperationWithData(t, map[string]any{
 			requestIDKey:   req.ID,
 			requestTypeKey: string(RequestExport),
-			statusKey:      string(StatusPending),
+			statusKey:      string(StatusInProgress),
 			subjectIDKey:   testSubject.ID,
 		})
 	})
@@ -79,14 +79,14 @@ func TestSQLStore_Observability(T *testing.T) {
 		store, recorder := recordingStore(t, env)
 
 		req := newRequest(identifiers.New(), RequestErasure, testSubject, baseTime)
-		req.Status = StatusPending
+		req.Status = StatusInProgress
 		saveRequest(t, store, req)
 
 		// Guarded on a status the request is not in — the shape of a subject
 		// confirming an erasure twice, or confirming one the sweep just lapsed.
 		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 			_, transitionErr := store.Transition(
-				t.Context(), q, req.ID, []Status{StatusAwaitingConfirmation}, StatusPending, baseTime,
+				t.Context(), q, req.ID, []Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime,
 			)
 
 			return transitionErr
@@ -98,7 +98,8 @@ func TestSQLStore_Observability(T *testing.T) {
 		recorder.ObservedOperationWithData(t, map[string]any{
 			requestIDKey:    req.ID,
 			fromStatusKey:   string(StatusAwaitingConfirmation),
-			statusKey:       string(StatusPending),
+			statusKey:       string(StatusInProgress),
+			operationIDKey:  "op-1",
 			rowsAffectedKey: int64(0),
 			guardMissedKey:  true,
 		})
@@ -116,7 +117,7 @@ func TestSQLStore_Observability(T *testing.T) {
 
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 			_, transitionErr := store.Transition(
-				t.Context(), q, req.ID, []Status{StatusAwaitingConfirmation}, StatusPending, baseTime,
+				t.Context(), q, req.ID, []Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime,
 			)
 
 			return transitionErr
@@ -167,7 +168,7 @@ func TestSQLStore_Observability(T *testing.T) {
 		store, recorder := recordingStore(t, env)
 
 		req := newRequest(identifiers.New(), RequestErasure, testSubject, baseTime)
-		req.Status = StatusProcessing
+		req.Status = StatusInProgress
 		saveRequest(t, store, req)
 
 		req.Deleted = 7
@@ -186,28 +187,28 @@ func TestSQLStore_Observability(T *testing.T) {
 		})
 	})
 
-	T.Run("a claim records what it selected and what it got", func(t *testing.T) {
+	T.Run("a failure that matched no row records the miss", func(t *testing.T) {
 		t.Parallel()
 
 		env := newSQLiteEnv(t)
 		store, recorder := recordingStore(t, env)
 
-		for range 3 {
-			saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime))
-		}
+		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
+		req.Status = StatusCancelled
+		saveRequest(t, store, req)
 
-		claimed, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
+		// The row left StatusInProgress before the final attempt gave up:
+		// cancelled, or completed by a duplicate execution that got there first.
+		// Recorded rather than returned, because in both of those the row
+		// already says something truer than "failed" would.
+		failed, err := store.Fail(t.Context(), req.ID, "boom", baseTime)
 		must.NoError(t, err)
-		must.SliceLen(t, 3, claimed)
+		test.False(t, failed)
 
-		// Both numbers, because the interesting case is when they differ:
-		// buildClaim repeats the pending guard precisely so a request cancelled
-		// between the select and the update is dropped, and until these were
-		// recorded the batch simply came back smaller with nothing to say why.
 		recorder.ObservedOperationWithData(t, map[string]any{
-			limitKey:    10,
-			selectedKey: 3,
-			claimedKey:  3,
+			requestIDKey:    req.ID,
+			rowsAffectedKey: int64(0),
+			guardMissedKey:  true,
 		})
 	})
 

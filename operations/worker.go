@@ -331,7 +331,14 @@ func (w *Worker) run(
 		}
 	}
 
-	rep := newReporter(w.store, w.o11y.Logger(), op, w.cfg.Lease, w.cfg.ProgressInterval)
+	// item.Attempts is the queue's count, incremented by the claim before this
+	// attempt began — so it is how many attempts have been made, this one
+	// included, which is the same number the retry decision below compares.
+	rep := newReporter(w.store, w.o11y.Logger(), op, w.cfg.Lease, w.cfg.ProgressInterval, Attempt{
+		ID:     op.ID,
+		Number: item.Attempts,
+		Final:  item.Attempts >= w.maxAttempts(bound),
+	})
 
 	go rep.run(ctx)
 

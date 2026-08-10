@@ -17,6 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/uploads"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -30,12 +31,13 @@ var _ Service = (*service)(nil)
 
 // service is the request state machine.
 type service struct {
-	store    Store
-	clock    clock.Clock
-	o11y     observability.Observer
-	uploader uploads.UploadManager
-	recorder audit.Recorder
-	actor    ActorResolver
+	store      Store
+	operations operations.Service
+	clock      clock.Clock
+	o11y       observability.Observer
+	uploader   uploads.UploadManager
+	recorder   audit.Recorder
+	actor      ActorResolver
 
 	packager packager
 
@@ -77,8 +79,25 @@ func (encryptorPresent) Encrypt(context.Context, []byte, []byte) ([]byte, error)
 
 // NewService builds a Service.
 //
+// ops is where the work goes. It is a required argument rather than an option
+// because a Service without one would record requests that nothing ever
+// fulfills — which looks exactly like a working Service until a subject's
+// statutory window runs out.
+//
+// It must be an operations Service whose registry has this package's kinds
+// registered, which is what Fulfiller.Register does. That is true even on a
+// process that only submits: operations.Service.Start resolves the kind at
+// submission so that an unrunnable operation is refused there rather than
+// discovered in a worker an hour later.
+//
 // ctx is used to validate the config and is not retained.
-func NewService(ctx context.Context, cfg *ServiceConfig, store Store, opts ...ServiceOption) (Service, error) {
+func NewService(
+	ctx context.Context,
+	cfg *ServiceConfig,
+	store Store,
+	ops operations.Service,
+	opts ...ServiceOption,
+) (Service, error) {
 	if cfg == nil {
 		return nil, platformerrors.New("nil dataprivacy service config provided")
 	}
@@ -87,12 +106,17 @@ func NewService(ctx context.Context, cfg *ServiceConfig, store Store, opts ...Se
 		return nil, ErrNilStore
 	}
 
+	if ops == nil {
+		return nil, ErrNilOperations
+	}
+
 	cfg.EnsureDefaults()
 
 	s := &service{
-		cfg:   *cfg,
-		store: store,
-		clock: clock.NewClock(),
+		cfg:        *cfg,
+		store:      store,
+		operations: ops,
+		clock:      clock.NewClock(),
 		actor: func(context.Context) audit.Actor {
 			return audit.Actor{ID: serviceName, Type: audit.ActorSystem}
 		},
@@ -151,7 +175,7 @@ func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*
 		ID:          identifiers.New(),
 		Type:        t,
 		Subject:     subject,
-		Status:      StatusPending,
+		Status:      StatusInProgress,
 		RequestedAt: now,
 		DueAt:       now.Add(s.cfg.responseWindow(t)),
 	}
@@ -159,14 +183,31 @@ func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*
 	// Only erasure is ever held for confirmation. An export is reversible in
 	// the only sense that matters — it can be expired and re-run — so making a
 	// subject confirm one buys nothing and costs them a round trip.
-	if t == RequestErasure && s.cfg.ConfirmationWindow > 0 {
+	held := t == RequestErasure && s.cfg.ConfirmationWindow > 0
+	if held {
 		req.Status = StatusAwaitingConfirmation
 		req.ExpiresAt = now.Add(s.cfg.ConfirmationWindow)
 	}
 
 	op.Set(requestIDKey, req.ID).Set(statusKey, string(req.Status))
 
+	var started *operations.Operation
+
 	if err := s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		// Started inside the request's own transaction, so a process that dies
+		// between the two leaves neither. The alternative — record the request,
+		// commit, then start — produces a request nothing is fulfilling, which
+		// is the shape of bug that is discovered by a subject rather than by a
+		// deploy.
+		if !held {
+			var startErr error
+			if started, startErr = s.start(ctx, q, req); startErr != nil {
+				return startErr
+			}
+
+			req.OperationID = started.ID
+		}
+
 		if err := s.store.Save(ctx, q, req); err != nil {
 			return err
 		}
@@ -176,9 +217,57 @@ func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*
 		return nil, op.Error(err, "submitting dataprivacy request")
 	}
 
+	s.enqueue(ctx, started)
+
+	op.Set(operationIDKey, req.OperationID)
 	s.submittedCounter.Add(ctx, 1, requestTypeAttr(t))
 
 	return req, nil
+}
+
+// start records the operation that will fulfill a request, in the caller's
+// transaction.
+//
+// The operation's request payload is a Job carrying the request ID and nothing
+// else — see Job — and its owner is the subject, which is what lets
+// operations/http scope a status read to the person it is about.
+func (s *service) start(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	req *Request,
+) (*operations.Operation, error) {
+	kind, ok := KindFor(req.Type)
+	if !ok {
+		return nil, platformerrors.Wrapf(ErrUnknownRequestType, "dataprivacy request type %q", req.Type)
+	}
+
+	started, err := s.operations.StartInTransaction(ctx, q, kind, Job{RequestID: req.ID},
+		operations.WithOwner(req.Subject.ID))
+	if err != nil {
+		return nil, platformerrors.Wrapf(err, "starting the %s operation", kind)
+	}
+
+	return started, nil
+}
+
+// enqueue offers a started operation to the work queue, after the transaction
+// that recorded it has committed.
+//
+// It cannot be inside that transaction — an enqueue is a batched upsert shared
+// between callers and joins nobody's transaction — so it happens here, and a
+// failure is logged rather than returned. The operation is durable either way:
+// the operations recovery sweep picks up anything that was recorded and never
+// queued, and returning an error would tell a subject their request was not
+// accepted when the row says it was.
+func (s *service) enqueue(ctx context.Context, started *operations.Operation) {
+	if started == nil {
+		return
+	}
+
+	if err := s.operations.Enqueue(ctx, started.ID); err != nil {
+		s.o11y.Logger().WithValue(operationIDKey, started.ID).
+			Error("enqueuing a dataprivacy operation; it will be recovered by the operations sweep", err)
+	}
 }
 
 func (s *service) Get(ctx context.Context, requestID string) (*Request, error) {
@@ -217,20 +306,78 @@ func (s *service) List(
 }
 
 func (s *service) Confirm(ctx context.Context, requestID string) (*Request, error) {
-	req, err := s.transition(ctx, requestID, StatusPending, audit.EventUpdated, map[string]string{"reason": "confirmed"})
-	if err != nil {
-		return nil, err
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
+	defer op.End()
+
+	var (
+		req     *Request
+		started *operations.Operation
+	)
+
+	// The status change and the operation that acts on it commit together, for
+	// the reason Submit does the same: a confirmation recorded without the work
+	// it authorized is a request that will sit in progress until the statutory
+	// window closes.
+	if err := s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		// Read first, because the operation has to be started with the request's
+		// own type and subject and the transition does not know them. The guard
+		// is still the transition's — this read decides nothing.
+		existing, err := s.store.Get(ctx, requestID)
+		if err != nil {
+			return err
+		}
+
+		if started, err = s.start(ctx, q, existing); err != nil {
+			return err
+		}
+
+		if req, err = s.store.Transition(ctx, q, requestID,
+			[]Status{StatusAwaitingConfirmation}, StatusInProgress, started.ID, s.clock.Now().UTC()); err != nil {
+			return err
+		}
+
+		return s.record(ctx, q, req, audit.EventUpdated, map[string]string{"reason": "confirmed"})
+	}); err != nil {
+		return nil, op.Error(s.notAwaitingConfirmation(requestID, err), "confirming dataprivacy request")
 	}
 
+	s.enqueue(ctx, started)
+
+	op.Set(operationIDKey, req.OperationID)
 	s.confirmedCounter.Add(ctx, 1, requestTypeAttr(req.Type))
 
 	return req, nil
 }
 
 func (s *service) Cancel(ctx context.Context, requestID string) (*Request, error) {
-	req, err := s.transition(ctx, requestID, StatusCancelled, audit.EventUpdated, map[string]string{"reason": "cancelled by request"})
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
+	defer op.End()
+
+	existing, err := s.store.Get(ctx, requestID)
 	if err != nil {
-		return nil, err
+		return nil, op.Error(err, "reading dataprivacy request")
+	}
+
+	// A request already in progress is stopped through its operation rather than
+	// through this row. The runner is the only thing that knows what a
+	// half-finished fan-out has left behind, and it marks this row when it
+	// stops — see Fulfiller and Service.Cancel's contract.
+	if existing.Status == StatusInProgress {
+		return s.cancelInFlight(ctx, op, existing)
+	}
+
+	var req *Request
+
+	if err = s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		var txErr error
+		if req, txErr = s.store.Transition(ctx, q, requestID,
+			[]Status{StatusAwaitingConfirmation}, StatusCancelled, "", s.clock.Now().UTC()); txErr != nil {
+			return txErr
+		}
+
+		return s.record(ctx, q, req, audit.EventUpdated, map[string]string{"reason": "cancelled by request"})
+	}); err != nil {
+		return nil, op.Error(s.notAwaitingConfirmation(requestID, err), "cancelling dataprivacy request")
 	}
 
 	s.cancelledCounter.Add(ctx, 1, requestTypeAttr(req.Type))
@@ -238,49 +385,51 @@ func (s *service) Cancel(ctx context.Context, requestID string) (*Request, error
 	return req, nil
 }
 
-// transition drives Confirm and Cancel, which differ only in destination.
+// cancelInFlight asks a running request's operation to stop.
 //
-// Both are guarded on StatusAwaitingConfirmation and both run with their audit
-// entry in one transaction, so a confirmation that commits without a record of
-// who confirmed it is not a state this package can reach.
-func (s *service) transition(
+// The row is left in StatusInProgress, and that is the honest reading: the work
+// has not stopped yet. It stops when its runner next looks, at a point the
+// runner can describe, and the runner is what moves this row — so a caller that
+// wants to know whether it worked watches the operation, which is where a
+// cancellation has always been a request rather than a fact.
+func (s *service) cancelInFlight(
 	ctx context.Context,
-	requestID string,
-	to Status,
-	event audit.EventType,
-	metadata map[string]string,
+	op observability.Operation,
+	req *Request,
 ) (*Request, error) {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(requestIDKey, requestID),
-		observability.WithValue(statusKey, string(to)),
-	)
-	defer op.End()
+	op.Set(operationIDKey, req.OperationID)
 
-	var req *Request
-
-	if err := s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
-		var err error
-		if req, err = s.store.Transition(ctx, q, requestID, []Status{StatusAwaitingConfirmation}, to, s.clock.Now().UTC()); err != nil {
-			return err
-		}
-
-		return s.record(ctx, q, req, event, metadata)
-	}); err != nil {
-		// A transition that matched no row means the request was not awaiting
-		// confirmation — it was already confirmed, already cancelled, or its
-		// window lapsed while the subject was reading the mail. The caller is
-		// told which of those it is, not merely that something did not happen.
-		if errors.Is(err, ErrRequestNotFound) {
-			return nil, op.Error(
-				platformerrors.Wrapf(ErrNotAwaitingConfirmation, "dataprivacy request %q", requestID),
-				"transitioning dataprivacy request",
-			)
-		}
-
-		return nil, op.Error(err, "transitioning dataprivacy request")
+	// A request in progress with no operation is the gap Submit's transaction
+	// exists to close, so reaching it means somebody wrote the row by hand.
+	// Reported rather than ignored: there is nothing to cancel and nothing
+	// running, and saying "cancelled" would be false.
+	if req.OperationID == "" {
+		return nil, platformerrors.Wrapf(ErrNotAwaitingConfirmation,
+			"dataprivacy request %q is in progress and names no operation", req.ID)
 	}
 
+	if _, err := s.operations.Cancel(ctx, req.OperationID); err != nil {
+		return nil, platformerrors.Wrapf(err, "cancelling the operation fulfilling dataprivacy request %q", req.ID)
+	}
+
+	s.cancelledCounter.Add(ctx, 1, requestTypeAttr(req.Type))
+
 	return req, nil
+}
+
+// notAwaitingConfirmation rewrites a guard miss into the answer the caller
+// actually asked about.
+//
+// A transition that matched no row means the request was not awaiting
+// confirmation — it was already confirmed, already cancelled, or its window
+// lapsed while the subject was reading the mail. The caller is told which of
+// those it is, not merely that something did not happen.
+func (s *service) notAwaitingConfirmation(requestID string, err error) error {
+	if errors.Is(err, ErrRequestNotFound) {
+		return platformerrors.Wrapf(ErrNotAwaitingConfirmation, "dataprivacy request %q", requestID)
+	}
+
+	return err
 }
 
 func (s *service) Download(ctx context.Context, requestID string) (string, error) {

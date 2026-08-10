@@ -24,9 +24,6 @@ var _ dataprivacy.Store = &StoreMock{}
 //
 //		// make and configure a mocked dataprivacy.Store
 //		mockedStore := &StoreMock{
-//			ClaimFunc: func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*dataprivacy.Request, error) {
-//				panic("mock out the Claim method")
-//			},
 //			CompleteErasureFunc: func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request, at time.Time) error {
 //				panic("mock out the CompleteErasure method")
 //			},
@@ -39,7 +36,7 @@ var _ dataprivacy.Store = &StoreMock{}
 //			ExpiringArtifactsFunc: func(ctx context.Context, now time.Time, limit int) ([]*dataprivacy.Request, error) {
 //				panic("mock out the ExpiringArtifacts method")
 //			},
-//			FailFunc: func(ctx context.Context, requestID string, attempts int, nextAttempt time.Time, lastErr string, terminal bool) error {
+//			FailFunc: func(ctx context.Context, requestID string, lastErr string, at time.Time) (bool, error) {
 //				panic("mock out the Fail method")
 //			},
 //			GetFunc: func(ctx context.Context, requestID string) (*dataprivacy.Request, error) {
@@ -63,7 +60,7 @@ var _ dataprivacy.Store = &StoreMock{}
 //			SaveFunc: func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request) error {
 //				panic("mock out the Save method")
 //			},
-//			TransitionFunc: func(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, at time.Time) (*dataprivacy.Request, error) {
+//			TransitionFunc: func(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error) {
 //				panic("mock out the Transition method")
 //			},
 //			WithTransactionFunc: func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
@@ -76,9 +73,6 @@ var _ dataprivacy.Store = &StoreMock{}
 //
 //	}
 type StoreMock struct {
-	// ClaimFunc mocks the Claim method.
-	ClaimFunc func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*dataprivacy.Request, error)
-
 	// CompleteErasureFunc mocks the CompleteErasure method.
 	CompleteErasureFunc func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request, at time.Time) error
 
@@ -92,7 +86,7 @@ type StoreMock struct {
 	ExpiringArtifactsFunc func(ctx context.Context, now time.Time, limit int) ([]*dataprivacy.Request, error)
 
 	// FailFunc mocks the Fail method.
-	FailFunc func(ctx context.Context, requestID string, attempts int, nextAttempt time.Time, lastErr string, terminal bool) error
+	FailFunc func(ctx context.Context, requestID string, lastErr string, at time.Time) (bool, error)
 
 	// GetFunc mocks the Get method.
 	GetFunc func(ctx context.Context, requestID string) (*dataprivacy.Request, error)
@@ -116,24 +110,13 @@ type StoreMock struct {
 	SaveFunc func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request) error
 
 	// TransitionFunc mocks the Transition method.
-	TransitionFunc func(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, at time.Time) (*dataprivacy.Request, error)
+	TransitionFunc func(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error)
 
 	// WithTransactionFunc mocks the WithTransaction method.
 	WithTransactionFunc func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// Claim holds details about calls to the Claim method.
-		Claim []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Now is the now argument value.
-			Now time.Time
-			// Limit is the limit argument value.
-			Limit int
-			// LeaseUntil is the leaseUntil argument value.
-			LeaseUntil time.Time
-		}
 		// CompleteErasure holds details about calls to the CompleteErasure method.
 		CompleteErasure []struct {
 			// Ctx is the ctx argument value.
@@ -178,14 +161,10 @@ type StoreMock struct {
 			Ctx context.Context
 			// RequestID is the requestID argument value.
 			RequestID string
-			// Attempts is the attempts argument value.
-			Attempts int
-			// NextAttempt is the nextAttempt argument value.
-			NextAttempt time.Time
 			// LastErr is the lastErr argument value.
 			LastErr string
-			// Terminal is the terminal argument value.
-			Terminal bool
+			// At is the at argument value.
+			At time.Time
 		}
 		// Get holds details about calls to the Get method.
 		Get []struct {
@@ -260,6 +239,8 @@ type StoreMock struct {
 			From []dataprivacy.Status
 			// To is the to argument value.
 			To dataprivacy.Status
+			// OperationID is the operationID argument value.
+			OperationID string
 			// At is the at argument value.
 			At time.Time
 		}
@@ -271,7 +252,6 @@ type StoreMock struct {
 			Fn func(q database.SQLQueryExecutor) error
 		}
 	}
-	lockClaim             sync.RWMutex
 	lockCompleteErasure   sync.RWMutex
 	lockCompleteExport    sync.RWMutex
 	lockCountOverdue      sync.RWMutex
@@ -286,50 +266,6 @@ type StoreMock struct {
 	lockSave              sync.RWMutex
 	lockTransition        sync.RWMutex
 	lockWithTransaction   sync.RWMutex
-}
-
-// Claim calls ClaimFunc.
-func (mock *StoreMock) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*dataprivacy.Request, error) {
-	if mock.ClaimFunc == nil {
-		panic("StoreMock.ClaimFunc: method is nil but Store.Claim was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Now        time.Time
-		Limit      int
-		LeaseUntil time.Time
-	}{
-		Ctx:        ctx,
-		Now:        now,
-		Limit:      limit,
-		LeaseUntil: leaseUntil,
-	}
-	mock.lockClaim.Lock()
-	mock.calls.Claim = append(mock.calls.Claim, callInfo)
-	mock.lockClaim.Unlock()
-	return mock.ClaimFunc(ctx, now, limit, leaseUntil)
-}
-
-// ClaimCalls gets all the calls that were made to Claim.
-// Check the length with:
-//
-//	len(mockedStore.ClaimCalls())
-func (mock *StoreMock) ClaimCalls() []struct {
-	Ctx        context.Context
-	Now        time.Time
-	Limit      int
-	LeaseUntil time.Time
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Now        time.Time
-		Limit      int
-		LeaseUntil time.Time
-	}
-	mock.lockClaim.RLock()
-	calls = mock.calls.Claim
-	mock.lockClaim.RUnlock()
-	return calls
 }
 
 // CompleteErasure calls CompleteErasureFunc.
@@ -497,29 +433,25 @@ func (mock *StoreMock) ExpiringArtifactsCalls() []struct {
 }
 
 // Fail calls FailFunc.
-func (mock *StoreMock) Fail(ctx context.Context, requestID string, attempts int, nextAttempt time.Time, lastErr string, terminal bool) error {
+func (mock *StoreMock) Fail(ctx context.Context, requestID string, lastErr string, at time.Time) (bool, error) {
 	if mock.FailFunc == nil {
 		panic("StoreMock.FailFunc: method is nil but Store.Fail was just called")
 	}
 	callInfo := struct {
-		Ctx         context.Context
-		RequestID   string
-		Attempts    int
-		NextAttempt time.Time
-		LastErr     string
-		Terminal    bool
+		Ctx       context.Context
+		RequestID string
+		LastErr   string
+		At        time.Time
 	}{
-		Ctx:         ctx,
-		RequestID:   requestID,
-		Attempts:    attempts,
-		NextAttempt: nextAttempt,
-		LastErr:     lastErr,
-		Terminal:    terminal,
+		Ctx:       ctx,
+		RequestID: requestID,
+		LastErr:   lastErr,
+		At:        at,
 	}
 	mock.lockFail.Lock()
 	mock.calls.Fail = append(mock.calls.Fail, callInfo)
 	mock.lockFail.Unlock()
-	return mock.FailFunc(ctx, requestID, attempts, nextAttempt, lastErr, terminal)
+	return mock.FailFunc(ctx, requestID, lastErr, at)
 }
 
 // FailCalls gets all the calls that were made to Fail.
@@ -527,20 +459,16 @@ func (mock *StoreMock) Fail(ctx context.Context, requestID string, attempts int,
 //
 //	len(mockedStore.FailCalls())
 func (mock *StoreMock) FailCalls() []struct {
-	Ctx         context.Context
-	RequestID   string
-	Attempts    int
-	NextAttempt time.Time
-	LastErr     string
-	Terminal    bool
+	Ctx       context.Context
+	RequestID string
+	LastErr   string
+	At        time.Time
 } {
 	var calls []struct {
-		Ctx         context.Context
-		RequestID   string
-		Attempts    int
-		NextAttempt time.Time
-		LastErr     string
-		Terminal    bool
+		Ctx       context.Context
+		RequestID string
+		LastErr   string
+		At        time.Time
 	}
 	mock.lockFail.RLock()
 	calls = mock.calls.Fail
@@ -825,29 +753,31 @@ func (mock *StoreMock) SaveCalls() []struct {
 }
 
 // Transition calls TransitionFunc.
-func (mock *StoreMock) Transition(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, at time.Time) (*dataprivacy.Request, error) {
+func (mock *StoreMock) Transition(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error) {
 	if mock.TransitionFunc == nil {
 		panic("StoreMock.TransitionFunc: method is nil but Store.Transition was just called")
 	}
 	callInfo := struct {
-		Ctx       context.Context
-		Q         database.SQLQueryExecutor
-		RequestID string
-		From      []dataprivacy.Status
-		To        dataprivacy.Status
-		At        time.Time
+		Ctx         context.Context
+		Q           database.SQLQueryExecutor
+		RequestID   string
+		From        []dataprivacy.Status
+		To          dataprivacy.Status
+		OperationID string
+		At          time.Time
 	}{
-		Ctx:       ctx,
-		Q:         q,
-		RequestID: requestID,
-		From:      from,
-		To:        to,
-		At:        at,
+		Ctx:         ctx,
+		Q:           q,
+		RequestID:   requestID,
+		From:        from,
+		To:          to,
+		OperationID: operationID,
+		At:          at,
 	}
 	mock.lockTransition.Lock()
 	mock.calls.Transition = append(mock.calls.Transition, callInfo)
 	mock.lockTransition.Unlock()
-	return mock.TransitionFunc(ctx, q, requestID, from, to, at)
+	return mock.TransitionFunc(ctx, q, requestID, from, to, operationID, at)
 }
 
 // TransitionCalls gets all the calls that were made to Transition.
@@ -855,20 +785,22 @@ func (mock *StoreMock) Transition(ctx context.Context, q database.SQLQueryExecut
 //
 //	len(mockedStore.TransitionCalls())
 func (mock *StoreMock) TransitionCalls() []struct {
-	Ctx       context.Context
-	Q         database.SQLQueryExecutor
-	RequestID string
-	From      []dataprivacy.Status
-	To        dataprivacy.Status
-	At        time.Time
+	Ctx         context.Context
+	Q           database.SQLQueryExecutor
+	RequestID   string
+	From        []dataprivacy.Status
+	To          dataprivacy.Status
+	OperationID string
+	At          time.Time
 } {
 	var calls []struct {
-		Ctx       context.Context
-		Q         database.SQLQueryExecutor
-		RequestID string
-		From      []dataprivacy.Status
-		To        dataprivacy.Status
-		At        time.Time
+		Ctx         context.Context
+		Q           database.SQLQueryExecutor
+		RequestID   string
+		From        []dataprivacy.Status
+		To          dataprivacy.Status
+		OperationID string
+		At          time.Time
 	}
 	mock.lockTransition.RLock()
 	calls = mock.calls.Transition

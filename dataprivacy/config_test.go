@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/operations"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -55,22 +57,19 @@ func TestServiceConfig(T *testing.T) {
 	})
 }
 
-func TestWorkerConfig(T *testing.T) {
+func TestFulfillerConfig(T *testing.T) {
 	T.Parallel()
 
 	T.Run("fills defaults", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &WorkerConfig{}
+		cfg := &FulfillerConfig{}
 		cfg.EnsureDefaults()
 
-		test.EqOp(t, DefaultPollInterval, cfg.PollInterval)
-		test.EqOp(t, DefaultBatchSize, cfg.BatchSize)
-		test.EqOp(t, DefaultConcurrency, cfg.Concurrency)
 		test.EqOp(t, DefaultCollectorConcurrency, cfg.CollectorConcurrency)
 		test.EqOp(t, DefaultCollectorTimeout, cfg.CollectorTimeout)
 		test.EqOp(t, DefaultFulfillmentTimeout, cfg.FulfillmentTimeout)
-		test.EqOp(t, DefaultLeaseDuration, cfg.LeaseDuration)
+		test.EqOp(t, DefaultMaxAttempts, cfg.MaxAttempts)
 		test.EqOp(t, DefaultArtifactTTL, cfg.ArtifactTTL)
 		test.EqOp(t, DefaultArtifactPathPrefix, cfg.ArtifactPathPrefix)
 		test.EqOp(t, DefaultMaxDocumentBytes, cfg.MaxDocumentBytes)
@@ -78,26 +77,37 @@ func TestWorkerConfig(T *testing.T) {
 		test.NoError(t, cfg.ValidateWithContext(t.Context()))
 	})
 
-	T.Run("the default lease outlasts the default fulfillment timeout", func(t *testing.T) {
+	T.Run("the default attempt is bounded and lower than the operations worker's", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &WorkerConfig{}
+		cfg := &FulfillerConfig{}
 		cfg.EnsureDefaults()
 
-		// Otherwise a request would become claimable by a second worker while
-		// the first was still fulfilling it.
-		test.Greater(t, cfg.FulfillmentTimeout, cfg.LeaseDuration)
+		// One attempt is a fan-out over every registered domain, and a request
+		// that is going to fail is worth failing while there is still time
+		// inside the statutory window to fix the cause.
+		test.Greater(t, 0, cfg.MaxAttempts)
+		test.Less(t, operations.DefaultWorkerMaxAttempts, cfg.MaxAttempts)
 	})
 
-	T.Run("rejects a lease that does not outlast the fulfillment timeout", func(t *testing.T) {
+	T.Run("the default attempt outlasts one collector", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &WorkerConfig{FulfillmentTimeout: time.Hour, LeaseDuration: time.Minute}
+		cfg := &FulfillerConfig{}
+		cfg.EnsureDefaults()
+
+		test.Greater(t, cfg.CollectorTimeout, cfg.FulfillmentTimeout)
+	})
+
+	T.Run("rejects a collector timeout that outlasts the whole attempt", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &FulfillerConfig{FulfillmentTimeout: time.Minute, CollectorTimeout: time.Hour}
 		cfg.EnsureDefaults()
 
 		err := cfg.ValidateWithContext(t.Context())
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), "must exceed fulfillment timeout")
+		test.StrContains(t, err.Error(), "must exceed collector timeout")
 	})
 }
 

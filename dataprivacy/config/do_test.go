@@ -10,6 +10,7 @@ import (
 	databasecfg "github.com/primandproper/platform-go/v10/database/config"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/dataprivacy"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/uploads"
 	uploadsnoop "github.com/primandproper/platform-go/v10/uploads/noop"
 
@@ -65,17 +66,48 @@ func TestRegisterService(T *testing.T) {
 		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue[database.Client](i, testDBClient(t))
 		do.ProvideValue(i, testConfig())
+		do.ProvideValue[operations.Service](i, stubOperations())
+		do.ProvideValue(i, operations.NewRegistry())
+
+		domains := dataprivacy.NewRegistry()
+		must.NoError(t, domains.RegisterCollector("example", dataprivacy.CollectorFunc(
+			func(context.Context, dataprivacy.Subject) (json.RawMessage, error) {
+				return json.RawMessage(`{}`), nil
+			},
+		)))
+		do.ProvideValue(i, domains)
+		do.ProvideValue[uploads.UploadManager](i, uploadsnoop.NewUploadManager())
 
 		RegisterStore(i)
+		RegisterFulfiller(i)
 		RegisterService(i)
 
 		service, err := do.Invoke[dataprivacy.Service](i)
 		must.NoError(t, err)
 		test.NotNil(t, service)
 	})
+
+	// The Service depends on the Fulfiller to be ordered rather than used: the
+	// Fulfiller registers the kinds, and starting an operation resolves its kind
+	// at submission.
+	T.Run("without a fulfiller", func(t *testing.T) {
+		t.Parallel()
+
+		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
+		do.ProvideValue[database.Client](i, testDBClient(t))
+		do.ProvideValue(i, testConfig())
+		do.ProvideValue[operations.Service](i, stubOperations())
+
+		RegisterStore(i)
+		RegisterService(i)
+
+		_, err := do.Invoke[dataprivacy.Service](i)
+		test.Error(t, err)
+	})
 }
 
-func TestRegisterWorker(T *testing.T) {
+func TestRegisterFulfiller(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -86,21 +118,28 @@ func TestRegisterWorker(T *testing.T) {
 		do.ProvideValue[database.Client](i, testDBClient(t))
 		do.ProvideValue(i, testConfig())
 
-		registry := dataprivacy.NewRegistry()
-		must.NoError(t, registry.RegisterCollector("example", dataprivacy.CollectorFunc(
+		domains := dataprivacy.NewRegistry()
+		must.NoError(t, domains.RegisterCollector("example", dataprivacy.CollectorFunc(
 			func(context.Context, dataprivacy.Subject) (json.RawMessage, error) {
 				return json.RawMessage(`{}`), nil
 			},
 		)))
-		do.ProvideValue(i, registry)
+		do.ProvideValue(i, domains)
 		do.ProvideValue[uploads.UploadManager](i, uploadsnoop.NewUploadManager())
 
-		RegisterStore(i)
-		RegisterWorker(i)
+		kinds := operations.NewRegistry()
+		do.ProvideValue(i, kinds)
 
-		worker, err := do.Invoke[*dataprivacy.Worker](i)
+		RegisterStore(i)
+		RegisterFulfiller(i)
+
+		fulfiller, err := do.Invoke[*dataprivacy.Fulfiller](i)
 		must.NoError(t, err)
-		test.NotNil(t, worker)
+		test.NotNil(t, fulfiller)
+
+		// Registered as it was built, so an operations.Worker over the same
+		// registry can run it.
+		test.Eq(t, []string{dataprivacy.KindExport}, kinds.Kinds())
 	})
 }
 

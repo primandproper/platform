@@ -68,6 +68,7 @@ import (
 	emailcfg "github.com/primandproper/platform-go/v10/email/config"
 	embeddingscfg "github.com/primandproper/platform-go/v10/embeddings/config"
 	"github.com/primandproper/platform-go/v10/encoding"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	eventstreamcfg "github.com/primandproper/platform-go/v10/eventstream/config"
 	featureflagscfg "github.com/primandproper/platform-go/v10/featureflags/config"
 	"github.com/primandproper/platform-go/v10/httpclient"
@@ -79,6 +80,7 @@ import (
 	asyncnotifcfg "github.com/primandproper/platform-go/v10/notifications/async/config"
 	mobilenotifcfg "github.com/primandproper/platform-go/v10/notifications/mobile/config"
 	"github.com/primandproper/platform-go/v10/observability"
+	operationscfg "github.com/primandproper/platform-go/v10/operations/config"
 	outboxcfg "github.com/primandproper/platform-go/v10/outbox/config"
 	ratelimitingcfg "github.com/primandproper/platform-go/v10/ratelimiting/config"
 	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
@@ -144,6 +146,7 @@ type Config struct {
 	MessageQueue         *messagequeuecfg.Config    `env:",init" envPrefix:"MESSAGE_QUEUE_"          json:"messageQueue,omitempty"         yaml:"messageQueue,omitempty"`
 	Metering             *meteringcfg.Config        `env:",init" envPrefix:"METERING_"               json:"metering,omitempty"             yaml:"metering,omitempty"`
 	MobileNotifications  *mobilenotifcfg.Config     `env:",init" envPrefix:"MOBILE_NOTIFICATIONS_"   json:"mobileNotifications,omitempty"  yaml:"mobileNotifications,omitempty"`
+	Operations           *operationscfg.Config      `env:",init" envPrefix:"OPERATIONS_"             json:"operations,omitempty"           yaml:"operations,omitempty"`
 	Outbox               *outboxcfg.Config          `env:",init" envPrefix:"OUTBOX_"                 json:"outbox,omitempty"               yaml:"outbox,omitempty"`
 	RateLimiting         *ratelimitingcfg.Config    `env:",init" envPrefix:"RATE_LIMITING_"          json:"rateLimiting,omitempty"         yaml:"rateLimiting,omitempty"`
 	Retry                *retrycfg.Config           `env:",init" envPrefix:"RETRY_"                  json:"retry,omitempty"                yaml:"retry,omitempty"`
@@ -267,7 +270,21 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Capitalism),
 		validation.Field(&cfg.CircuitBreaking),
 		validation.Field(&cfg.Cookies),
-		validation.Field(&cfg.DataPrivacy),
+		// The one cross-subsystem rule in this list, and it earns the exception
+		// because the alternative is silence. dataprivacy runs its exports and
+		// erasures as operations, so a service configured for privacy requests
+		// and not for operations resolves a Service that accepts a subject's
+		// request, records it, and has nothing anywhere that will ever fulfill
+		// it — discovered thirty days later by the subject rather than at boot.
+		validation.Field(&cfg.DataPrivacy, validation.By(func(any) error {
+			if cfg.DataPrivacy != nil && cfg.Operations == nil {
+				return platformerrors.New(
+					"dataprivacy is configured but operations is not; dataprivacy requests are fulfilled " +
+						"as operations, so both are needed")
+			}
+
+			return nil
+		})),
 		validation.Field(&cfg.Database),
 		validation.Field(&cfg.DistributedLock),
 		validation.Field(&cfg.Email),
@@ -286,6 +303,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.MessageQueue),
 		validation.Field(&cfg.Metering),
 		validation.Field(&cfg.MobileNotifications),
+		validation.Field(&cfg.Operations),
 		validation.Field(&cfg.Outbox),
 		validation.Field(&cfg.RateLimiting),
 		validation.Field(&cfg.Retry),

@@ -22,7 +22,7 @@ type Notification struct {
 	// encrypted artifact or a provider that cannot sign.
 	//
 	// It is minted at notification time rather than at completion so that its
-	// short expiry starts when the subject is told, not when the worker
+	// short expiry starts when the subject is told, not when the runner
 	// finished. A URL that expired before the mail was delivered is a support
 	// ticket the subject opens on day 29.
 	DownloadURL string

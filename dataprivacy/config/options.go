@@ -29,10 +29,10 @@ type options struct {
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
-	store   []dataprivacy.SQLStoreOption
-	service []dataprivacy.ServiceOption
-	worker  []dataprivacy.WorkerOption
-	sweeper []dataprivacy.SweeperOption
+	store     []dataprivacy.SQLStoreOption
+	service   []dataprivacy.ServiceOption
+	fulfiller []dataprivacy.FulfillerOption
+	sweeper   []dataprivacy.SweeperOption
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -88,11 +88,11 @@ func WithServiceOptions(opts ...dataprivacy.ServiceOption) Option {
 	return func(o *options) { o.service = append(o.service, opts...) }
 }
 
-// WithWorkerOptions passes opts to NewWorker, which applies them after the options it
+// WithFulfillerOptions passes opts to NewFulfiller, which applies them after the options it
 // derives from configuration — so a caller can override anything. The other
 // constructors ignore them.
-func WithWorkerOptions(opts ...dataprivacy.WorkerOption) Option {
-	return func(o *options) { o.worker = append(o.worker, opts...) }
+func WithFulfillerOptions(opts ...dataprivacy.FulfillerOption) Option {
+	return func(o *options) { o.fulfiller = append(o.fulfiller, opts...) }
 }
 
 // WithSweeperOptions passes opts to NewSweeper, which applies them after the options it

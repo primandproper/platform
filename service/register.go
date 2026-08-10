@@ -31,6 +31,7 @@ import (
 	metricscfg "github.com/primandproper/platform-go/v10/observability/metrics/config"
 	profilingcfg "github.com/primandproper/platform-go/v10/observability/profiling/config"
 	tracingcfg "github.com/primandproper/platform-go/v10/observability/tracing/config"
+	operationscfg "github.com/primandproper/platform-go/v10/operations/config"
 	outboxcfg "github.com/primandproper/platform-go/v10/outbox/config"
 	ratelimitingcfg "github.com/primandproper/platform-go/v10/ratelimiting/config"
 	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
@@ -253,11 +254,25 @@ func registerDurableWorkflows(i do.Injector, cfg *Config) {
 		// auditcfg.NewRetentionPolicy.
 	}
 
+	// Operations is registered before DataPrivacy because DataPrivacy is built
+	// on it: the fulfiller registers its kinds into the operations registry and
+	// the service starts operations through the operations service. The ordering
+	// here is documentation rather than mechanism — do resolves lazily — but the
+	// two belong next to each other for the same reason they are validated
+	// together in Config.
+	if cfg.Operations != nil {
+		do.ProvideValue(i, cfg.Operations)
+		operationscfg.RegisterStore(i)
+		operationscfg.RegisterQueue(i)
+		operationscfg.RegisterService(i)
+		operationscfg.RegisterWorker(i)
+	}
+
 	if cfg.DataPrivacy != nil {
 		do.ProvideValue(i, cfg.DataPrivacy)
 		dataprivacycfg.RegisterStore(i)
+		dataprivacycfg.RegisterFulfiller(i)
 		dataprivacycfg.RegisterService(i)
-		dataprivacycfg.RegisterWorker(i)
 		dataprivacycfg.RegisterSweeper(i)
 	}
 

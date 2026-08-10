@@ -42,9 +42,9 @@ type SweepResult struct {
 // The artifact expiry is the one that matters. Everything else here is
 // housekeeping; that one is the difference between an export being a temporary
 // artifact and being a permanent object in a bucket containing everything an
-// application knows about a person. A deployment that runs the Worker and not
-// the Sweeper accumulates those forever, which is why this is a separate,
-// named, schedulable thing rather than a flag on the Worker.
+// application knows about a person. A deployment that fulfills requests and
+// does not run the Sweeper accumulates those forever, which is why this is a
+// separate, named, schedulable thing rather than a flag on the Fulfiller.
 type Sweeper struct {
 	store    Store
 	clock    clock.Clock

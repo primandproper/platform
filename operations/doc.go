@@ -233,11 +233,19 @@ handed to somebody else; both run. That is inherent to lease-based recovery and
 this package does not pretend otherwise — the alternative is fencing tokens and
 heartbeats, and the same trade-off is discussed at more length in workqueue.
 
-The cost is bounded and the tools are there: Operation.Attempts is above one on a
-retry, the operation ID is stable across attempts and makes a natural idempotency
-key, and operations_worker_leases_lost counts the times a Runner was still
-working when the row was taken away — which is the number that says the lease is
-mis-sized rather than the work being unlucky.
+The cost is bounded and the tools are there. Reporter.Attempt hands the Runner
+the operation ID — stable across attempts, and so a natural idempotency key —
+along with which attempt this is and whether it is the last one. And
+operations_worker_leases_lost counts the times a Runner was still working when
+the row was taken away, which is the number that says the lease is mis-sized
+rather than the work being unlucky.
+
+Attempt.Final is there for work that owes somebody an answer either way. The
+worker records a permanent failure on the row and stops; it has no notion of who
+was waiting. A Runner that has to send that person a message — dataprivacy's
+statutory deadlines are the case this was added for — needs to know which attempt
+is the last one, and cannot work it out: the ceiling is WorkerConfig.MaxAttempts
+unless its own Definition overrode it, and neither is visible from inside Run.
 
 # Postgres only
 

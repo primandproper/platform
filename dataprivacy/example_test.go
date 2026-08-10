@@ -7,6 +7,9 @@ import (
 
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/dataprivacy"
+	dataprivacymock "github.com/primandproper/platform-go/v10/dataprivacy/mock"
+	"github.com/primandproper/platform-go/v10/operations"
+	uploadsnoop "github.com/primandproper/platform-go/v10/uploads/noop"
 )
 
 // A Collector returns one domain's view of a subject as already-encoded JSON.
@@ -101,4 +104,49 @@ func ExampleManifest() {
 	// Output:
 	// false
 	// context deadline exceeded
+}
+
+// Both halves of the package run as operations. The Fulfiller supplies the two
+// runners and registers them; an operations Worker over the same registry is
+// what claims, leases, retries, and reports on them.
+func ExampleFulfiller_Register() {
+	domains := dataprivacy.NewRegistry()
+
+	if err := domains.RegisterCollector("identity", dataprivacy.CollectorFunc(
+		func(context.Context, dataprivacy.Subject) (json.RawMessage, error) {
+			return json.RawMessage(`{}`), nil
+		},
+	)); err != nil {
+		panic(err)
+	}
+
+	if err := domains.RegisterEraser("identity", dataprivacy.EraserFunc(
+		func(context.Context, database.SQLQueryExecutor, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
+			return dataprivacy.ErasureOutcome{}, nil
+		},
+	)); err != nil {
+		panic(err)
+	}
+
+	// In a real assembly the store is a dataprivacy.NewSQLStore and the uploader
+	// is real storage; the registration below is the whole of the wiring this
+	// example is about.
+	fulfiller, err := dataprivacy.NewFulfiller(
+		context.Background(), &dataprivacy.FulfillerConfig{}, &dataprivacymock.StoreMock{}, domains,
+		dataprivacy.WithFulfillerUploadManager(uploadsnoop.NewUploadManager()),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	kinds := operations.NewRegistry()
+	if err = fulfiller.Register(kinds); err != nil {
+		panic(err)
+	}
+
+	// A process that only submits registers these too: operations resolves a
+	// kind at Start, so an unrunnable operation is refused there rather than
+	// discovered in a worker an hour later.
+	fmt.Println(kinds.Kinds())
+	// Output: [dataprivacy.erasure dataprivacy.export]
 }

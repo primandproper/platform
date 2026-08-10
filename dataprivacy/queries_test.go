@@ -40,11 +40,11 @@ func testRequest() *Request {
 		ArtifactRef:   "exports/req_1.json.gz",
 		Subject:       Subject{ID: "user_1", Scope: "acct_1", Type: SubjectUser},
 		Type:          RequestExport,
-		Status:        StatusPending,
+		Status:        StatusInProgress,
 		ArtifactBytes: 4096,
 		Deleted:       3,
 		Anonymized:    2,
-		Attempts:      1,
+		OperationID:   "op_1",
 	}
 }
 
@@ -63,7 +63,6 @@ func everyQuery(testTables *tables, d dialect.Dialect) []builtQuery {
 	var (
 		req      = testRequest()
 		subject  = req.Subject
-		ids      = []string{"req_1", "req_2"}
 		failures = []byte(`{"identity":"boom"}`)
 		retained = []byte(`{"invoices":"tax law"}`)
 		out      []builtQuery
@@ -88,23 +87,13 @@ func everyQuery(testTables *tables, d dialect.Dialect) []builtQuery {
 	query, args = testTables.buildCountRequests(d, subject)
 	add("buildCountRequests", query, args)
 
-	query, args = testTables.buildTransition(d, req.ID, []Status{StatusAwaitingConfirmation}, StatusPending, baseTime)
-	add("buildTransition/non-terminal", query, args)
+	query, args = testTables.buildTransition(d, req.ID,
+		[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op_1", baseTime)
+	add("buildTransition/non-terminal+operation", query, args)
 
-	query, args = testTables.buildTransition(d, req.ID, []Status{StatusAwaitingConfirmation, StatusPending}, StatusCancelled, baseTime)
+	query, args = testTables.buildTransition(d, req.ID,
+		[]Status{StatusAwaitingConfirmation, StatusInProgress}, StatusCancelled, "", baseTime)
 	add("buildTransition/terminal", query, args)
-
-	query, args = testTables.buildSelectClaimable(d, baseTime, 10, true)
-	add("buildSelectClaimable/locked", query, args)
-
-	query, args = testTables.buildSelectClaimable(d, baseTime, 10, false)
-	add("buildSelectClaimable/unlocked", query, args)
-
-	query, args = testTables.buildClaim(d, ids, baseTime, baseTime)
-	add("buildClaim", query, args)
-
-	query, args = testTables.buildFetchByIDs(d, ids, StatusProcessing)
-	add("buildFetchByIDs", query, args)
 
 	query, args = testTables.buildCompleteExport(d, req, failures, baseTime)
 	add("buildCompleteExport", query, args)
@@ -112,11 +101,8 @@ func everyQuery(testTables *tables, d dialect.Dialect) []builtQuery {
 	query, args = testTables.buildCompleteErasure(d, req, failures, retained, baseTime)
 	add("buildCompleteErasure", query, args)
 
-	query, args = testTables.buildFail(d, req.ID, 2, baseTime, "boom", false)
-	add("buildFail/retryable", query, args)
-
-	query, args = testTables.buildFail(d, req.ID, 2, baseTime, "boom", true)
-	add("buildFail/terminal", query, args)
+	query, args = testTables.buildFail(d, req.ID, "boom", baseTime)
+	add("buildFail", query, args)
 
 	query, args = testTables.buildSelectExpiringArtifacts(d, baseTime, 10)
 	add("buildSelectExpiringArtifacts", query, args)
@@ -258,16 +244,17 @@ func TestBuildInsertRequest(T *testing.T) {
 		}
 	})
 
-	T.Run("seeds next_attempt with the requested time", func(t *testing.T) {
+	T.Run("records the operation fulfilling the request", func(t *testing.T) {
 		t.Parallel()
 
 		req := testRequest()
-		_, args := testTables.buildInsertRequest(dialect.Postgres, req, nil, nil)
+		query, args := testTables.buildInsertRequest(dialect.Postgres, req, nil, nil)
 
-		// A new request is claimable immediately; a zero next_attempt would work
-		// only because year 1 is in the past, and a future one would silently
-		// delay every submission.
-		test.Eq(t, any(req.RequestedAt.UTC()), args[10])
+		// Written by the same insert as the row, because Submit records both in
+		// one transaction — a request in progress with nothing to watch is the
+		// failure that transaction exists to prevent.
+		test.StrContains(t, query, "operation_id")
+		test.EqOp(t, any(req.OperationID), args[3])
 	})
 
 	T.Run("maps a zero expiry and absent blobs to NULL", func(t *testing.T) {
@@ -280,9 +267,9 @@ func TestBuildInsertRequest(T *testing.T) {
 
 		// A zero time bound as a value reads back as year 1, which the expiry
 		// sweeps would treat as long overdue.
-		test.Nil(t, args[8])
+		test.Nil(t, args[9])
+		test.Nil(t, args[15])
 		test.Nil(t, args[16])
-		test.Nil(t, args[17])
 	})
 }
 
@@ -416,22 +403,22 @@ func TestBuildTransition(T *testing.T) {
 		t.Parallel()
 
 		query, args := testTables.buildTransition(
-			dialect.Postgres, "req_1", []Status{StatusAwaitingConfirmation}, StatusPending, baseTime,
+			dialect.Postgres, "req_1", []Status{StatusAwaitingConfirmation}, StatusCancelled, "", baseTime,
 		)
 
 		// The guard being in the WHERE rather than in a read-then-write is what
 		// makes Confirm safe: a subject clicking twice, or clicking as the sweeper
 		// cancels the request, has the second writer match no rows and be told so,
-		// instead of both succeeding and queueing the erasure twice.
+		// instead of both succeeding and starting the erasure twice.
 		test.StrContains(t, query, "AND status IN ($4)")
-		test.Eq(t, []any{"pending", baseTime.UTC(), "req_1", "awaiting_confirmation"}, args)
+		test.Eq(t, []any{"cancelled", baseTime.UTC(), "req_1", "awaiting_confirmation"}, args)
 	})
 
 	T.Run("accepts several origins", func(t *testing.T) {
 		t.Parallel()
 
 		query, args := testTables.buildTransition(
-			dialect.Postgres, "req_1", []Status{StatusAwaitingConfirmation, StatusPending}, StatusCancelled, baseTime,
+			dialect.Postgres, "req_1", []Status{StatusAwaitingConfirmation, StatusInProgress}, StatusCancelled, "", baseTime,
 		)
 
 		test.StrContains(t, query, "AND status IN ($4, $5)")
@@ -442,24 +429,36 @@ func TestBuildTransition(T *testing.T) {
 		t.Parallel()
 
 		query, _ := testTables.buildTransition(
-			dialect.Postgres, "req_1", []Status{StatusAwaitingConfirmation}, StatusCancelled, baseTime,
+			dialect.Postgres, "req_1", []Status{StatusAwaitingConfirmation}, StatusCancelled, "", baseTime,
 		)
 
 		test.StrContains(t, query, "completed_at = $2")
-		test.StrNotContains(t, query, "next_attempt")
 	})
 
-	T.Run("makes a non-terminal destination claimable now", func(t *testing.T) {
+	T.Run("records the operation as the row becomes in progress", func(t *testing.T) {
 		t.Parallel()
 
-		query, _ := testTables.buildTransition(
-			dialect.Postgres, "req_1", []Status{StatusAwaitingConfirmation}, StatusPending, baseTime,
+		query, args := testTables.buildTransition(
+			dialect.Postgres, "req_1", []Status{StatusAwaitingConfirmation}, StatusInProgress, "op_1", baseTime,
 		)
 
-		// The confirmation it was waiting for has arrived; making it wait another
-		// poll interval is latency spent for nothing.
-		test.StrContains(t, query, "next_attempt = $2")
+		// One statement, so the row cannot become in progress without saying what
+		// is doing the work.
+		test.StrContains(t, query, "operation_id = $2")
 		test.StrNotContains(t, query, "completed_at")
+		test.Eq(t, []any{"in_progress", "op_1", "req_1", "awaiting_confirmation"}, args)
+	})
+
+	T.Run("leaves the operation alone when none is supplied", func(t *testing.T) {
+		t.Parallel()
+
+		// A cancellation must not blank the pointer to an operation that is
+		// still running: the runner is what will move this row when it stops.
+		query, _ := testTables.buildTransition(
+			dialect.Postgres, "req_1", []Status{StatusInProgress}, StatusCancelled, "", baseTime,
+		)
+
+		test.StrNotContains(t, query, "operation_id")
 	})
 
 	T.Run("always leaves the confirmation window behind", func(t *testing.T) {
@@ -467,113 +466,13 @@ func TestBuildTransition(T *testing.T) {
 
 		// Either the window was satisfied or it lapsed. A stale expires_at would
 		// have the lapse sweep pick the row back up after it had already moved.
-		for _, to := range []Status{StatusPending, StatusCancelled} {
+		for _, to := range []Status{StatusInProgress, StatusCancelled} {
 			query, _ := testTables.buildTransition(
-				dialect.SQLite, "req_1", []Status{StatusAwaitingConfirmation}, to, baseTime,
+				dialect.SQLite, "req_1", []Status{StatusAwaitingConfirmation}, to, "", baseTime,
 			)
 
 			test.StrContains(t, query, "expires_at = NULL", test.Sprintf("destination %q", to))
-			test.StrContains(t, query, "claimed_until = NULL", test.Sprintf("destination %q", to))
 		}
-	})
-}
-
-func TestBuildSelectClaimable(T *testing.T) {
-	T.Parallel()
-
-	T.Run("takes the row lock where the dialect has one", func(t *testing.T) {
-		t.Parallel()
-
-		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL} {
-			query, _ := testTables.buildSelectClaimable(d, baseTime, 10, true)
-
-			// Without it, every worker in the fleet selects the same batch and
-			// contends on the claim UPDATE instead of dividing the work.
-			test.StrHasSuffix(t, " FOR UPDATE SKIP LOCKED", query, test.Sprintf("dialect %q", d))
-		}
-	})
-
-	T.Run("omits the lock on SQLite, which has none", func(t *testing.T) {
-		t.Parallel()
-
-		query, _ := testTables.buildSelectClaimable(dialect.SQLite, baseTime, 10, true)
-		test.StrNotContains(t, query, "FOR UPDATE")
-	})
-
-	T.Run("omits the lock when not asked for one", func(t *testing.T) {
-		t.Parallel()
-
-		for _, d := range allDialects {
-			query, _ := testTables.buildSelectClaimable(d, baseTime, 10, false)
-			test.StrNotContains(t, query, "FOR UPDATE", test.Sprintf("dialect %q", d))
-		}
-	})
-
-	T.Run("takes due work that is pending or abandoned mid-flight", func(t *testing.T) {
-		t.Parallel()
-
-		query, args := testTables.buildSelectClaimable(dialect.Postgres, baseTime, 10, false)
-
-		// The processing-with-an-expired-lease arm is what reclaims a crashed
-		// worker's request. Without it those rows were never candidates at all,
-		// so the claimed_until predicate could never fire and an erasure request
-		// sat in "processing" forever.
-		test.StrContains(t, query, "next_attempt <= $1")
-		test.StrContains(t, query, "(status = $2 OR (status = $3 AND claimed_until IS NOT NULL AND claimed_until <= $4))")
-		test.Eq(t, []any{baseTime.UTC(), "pending", "processing", baseTime.UTC(), 10}, args)
-	})
-
-	T.Run("serves the oldest request first", func(t *testing.T) {
-		t.Parallel()
-
-		query, _ := testTables.buildSelectClaimable(dialect.Postgres, baseTime, 10, false)
-
-		// The statutory clock started at requested_at, so the request closest to
-		// its deadline is the one to work on next.
-		test.StrContains(t, query, "ORDER BY requested_at, id")
-	})
-}
-
-func TestBuildClaim(T *testing.T) {
-	T.Parallel()
-
-	T.Run("charges an attempt as it leases", func(t *testing.T) {
-		t.Parallel()
-
-		query, _ := testTables.buildClaim(dialect.Postgres, []string{"req_1"}, baseTime, baseTime)
-
-		// Incrementing here rather than on failure is what bounds a request whose
-		// collector reliably kills the worker: it consumes attempts even when
-		// nothing gets far enough to record a failure.
-		test.StrContains(t, query, "attempts = attempts + 1")
-	})
-
-	T.Run("re-checks the statuses it just selected on", func(t *testing.T) {
-		t.Parallel()
-
-		query, args := testTables.buildClaim(dialect.Postgres, []string{"req_1", "req_2"}, baseTime, baseTime)
-
-		// Between the SELECT and this UPDATE a subject may have cancelled, or
-		// another worker may have claimed the same expired lease — so the reclaim
-		// arm requires the lease to still be expired, and exactly one of two
-		// racing workers wins.
-		test.StrContains(t, query, "WHERE id IN ($3, $4) AND (status = $5 OR (status = $6 AND claimed_until IS NOT NULL AND claimed_until <= $7))")
-		test.Eq(t, []any{"processing", baseTime.UTC(), "req_1", "req_2", "pending", "processing", baseTime.UTC()}, args)
-	})
-}
-
-func TestBuildFetchByIDs(T *testing.T) {
-	T.Parallel()
-
-	T.Run("projects the claimed batch in a stable order", func(t *testing.T) {
-		t.Parallel()
-
-		query, args := testTables.buildFetchByIDs(dialect.Postgres, []string{"req_1", "req_2"}, StatusProcessing)
-
-		test.StrContains(t, query, requestColumns)
-		test.StrContains(t, query, "WHERE id IN ($1, $2) AND status = $3")
-		test.StrHasSuffix(t, "ORDER BY requested_at, id", query)
-		test.Eq(t, []any{"req_1", "req_2", "processing"}, args)
 	})
 }
 
@@ -586,31 +485,32 @@ func TestBuildCompleteExport(T *testing.T) {
 		req := testRequest()
 		query, args := testTables.buildCompleteExport(dialect.Postgres, req, nil, baseTime)
 
-		test.StrContains(t, query, "artifact_ref = $5")
-		test.StrContains(t, query, "artifact_bytes = $6")
-		test.Eq(t, any(req.ExpiresAt.UTC()), args[3])
-		test.EqOp(t, any(req.ArtifactRef), args[4])
-		test.EqOp(t, any(req.ArtifactBytes), args[5])
+		test.StrContains(t, query, "artifact_ref = $4")
+		test.StrContains(t, query, "artifact_bytes = $5")
+		test.Eq(t, any(req.ExpiresAt.UTC()), args[2])
+		test.EqOp(t, any(req.ArtifactRef), args[3])
+		test.EqOp(t, any(req.ArtifactBytes), args[4])
 	})
 
-	T.Run("cannot resurrect a request that left processing", func(t *testing.T) {
+	T.Run("cannot resurrect a request that left the in-progress state", func(t *testing.T) {
 		t.Parallel()
 
 		query, args := testTables.buildCompleteExport(dialect.Postgres, testRequest(), nil, baseTime)
 
-		// Exactly what a long export racing the lapse sweep would otherwise do.
-		test.StrHasSuffix(t, "WHERE id = $8 AND status = $9", query)
-		test.EqOp(t, "processing", args[8])
+		// Exactly what a long export racing a cancellation would otherwise do,
+		// and what makes a duplicate execution safe: the second runner's
+		// completion matches no row.
+		test.StrHasSuffix(t, "WHERE id = $7 AND status = $8", query)
+		test.EqOp(t, "in_progress", args[7])
 	})
 
-	T.Run("releases the lease and clears the previous error", func(t *testing.T) {
+	T.Run("clears the previous error", func(t *testing.T) {
 		t.Parallel()
 
 		query, _ := testTables.buildCompleteExport(dialect.Postgres, testRequest(), nil, baseTime)
 
 		// A retry that succeeds must not leave the error from the attempt before
 		// it sitting in the row a subject is shown.
-		test.StrContains(t, query, "claimed_until = NULL")
 		test.StrContains(t, query, "last_error = ''")
 	})
 
@@ -618,7 +518,7 @@ func TestBuildCompleteExport(T *testing.T) {
 		t.Parallel()
 
 		_, args := testTables.buildCompleteExport(dialect.Postgres, testRequest(), nil, baseTime)
-		test.Nil(t, args[6])
+		test.Nil(t, args[5])
 	})
 }
 
@@ -633,12 +533,12 @@ func TestBuildCompleteErasure(T *testing.T) {
 
 		query, args := testTables.buildCompleteErasure(dialect.Postgres, req, nil, retained, baseTime)
 
-		test.StrContains(t, query, "deleted_rows = $4")
-		test.StrContains(t, query, "anonymized_rows = $5")
-		test.StrContains(t, query, "retained = $7")
-		test.EqOp(t, any(req.Deleted), args[3])
-		test.EqOp(t, any(req.Anonymized), args[4])
-		test.Eq(t, any(retained), args[6])
+		test.StrContains(t, query, "deleted_rows = $3")
+		test.StrContains(t, query, "anonymized_rows = $4")
+		test.StrContains(t, query, "retained = $6")
+		test.EqOp(t, any(req.Deleted), args[2])
+		test.EqOp(t, any(req.Anonymized), args[3])
+		test.Eq(t, any(retained), args[5])
 	})
 
 	T.Run("clears the expiry rather than setting one", func(t *testing.T) {
@@ -663,66 +563,41 @@ func TestBuildCompleteErasure(T *testing.T) {
 		test.StrNotContains(t, query, "artifact_bytes =")
 	})
 
-	T.Run("guards on processing like the export path", func(t *testing.T) {
+	T.Run("guards on the in-progress state like the export path", func(t *testing.T) {
 		t.Parallel()
 
 		query, args := testTables.buildCompleteErasure(dialect.Postgres, testRequest(), nil, nil, baseTime)
 
-		test.StrHasSuffix(t, "WHERE id = $9 AND status = $10", query)
-		test.EqOp(t, "processing", args[9])
+		test.StrHasSuffix(t, "WHERE id = $8 AND status = $9", query)
+		test.EqOp(t, "in_progress", args[8])
 	})
 }
 
 func TestBuildFail(T *testing.T) {
 	T.Parallel()
 
-	T.Run("returns a retryable failure to pending", func(t *testing.T) {
+	T.Run("records the failure against an in-progress row", func(t *testing.T) {
 		t.Parallel()
 
-		next := baseTime.Add(time.Minute)
-		query, args := testTables.buildFail(dialect.Postgres, "req_1", 2, next, "boom", false)
+		query, args := testTables.buildFail(dialect.Postgres, "req_1", "boom", baseTime)
 
-		test.EqOp(t, "pending", args[0])
-		test.StrNotContains(t, query, "completed_at")
-		test.StrHasSuffix(t, "WHERE id = $5 AND status = $6", query)
-		test.Eq(t, []any{"pending", 2, next.UTC(), "boom", "req_1", "processing"}, args)
-	})
-
-	T.Run("gives up and stamps completed_at when terminal", func(t *testing.T) {
-		t.Parallel()
-
-		query, args := testTables.buildFail(dialect.Postgres, "req_1", 3, baseTime, "boom", true)
-
+		// There is no retry branch any more, and its absence is the point: the
+		// retry schedule and the attempt budget belong to the operation, so the
+		// only failure this table records is the last one.
 		test.EqOp(t, "failed", args[0])
-		test.StrContains(t, query, "completed_at = $5")
-
-		// The extra SET shifts the guard's markers along by one; getting this
-		// wrong binds the request ID to the status column.
-		test.StrHasSuffix(t, "WHERE id = $6 AND status = $7", query)
-		test.EqOp(t, "req_1", args[5])
-		test.EqOp(t, "processing", args[6])
+		test.StrContains(t, query, "completed_at = $3")
+		test.StrHasSuffix(t, "WHERE id = $4 AND status = $5", query)
+		test.Eq(t, []any{"failed", "boom", baseTime.UTC(), "req_1", "in_progress"}, args)
 	})
 
-	T.Run("writes the attempt count it was given", func(t *testing.T) {
+	T.Run("clears the confirmation window", func(t *testing.T) {
 		t.Parallel()
 
-		_, args := testTables.buildFail(dialect.Postgres, "req_1", 1, baseTime, "boom", false)
+		query, _ := testTables.buildFail(dialect.SQLite, "req_1", "boom", baseTime)
 
-		// Written rather than left as the claim incremented it, so a caller can
-		// decline to charge an attempt for a failure the request never caused.
-		test.EqOp(t, 1, args[1])
-	})
-
-	T.Run("always releases the lease", func(t *testing.T) {
-		t.Parallel()
-
-		for _, terminal := range []bool{false, true} {
-			query, _ := testTables.buildFail(dialect.SQLite, "req_1", 1, baseTime, "boom", terminal)
-
-			// A failure that kept the lease would leave the request unclaimable
-			// until the lease expired, on top of having failed.
-			test.StrContains(t, query, "claimed_until = NULL", test.Sprintf("terminal %t", terminal))
-		}
+		// A failed erasure that kept its window would be picked up and cancelled
+		// by the lapse sweep, overwriting the record of why it failed.
+		test.StrContains(t, query, "expires_at = NULL")
 	})
 }
 
@@ -831,8 +706,8 @@ func TestBuildCountOverdue(T *testing.T) {
 		// A request that completed after its deadline is late, not overdue.
 		// Including the terminal statuses would make the gauge climb forever and
 		// never come back down.
-		test.StrContains(t, query, "status IN ($1, $2, $3) AND due_at < $4")
-		test.Eq(t, []any{"awaiting_confirmation", "pending", "processing", baseTime.UTC()}, args)
+		test.StrContains(t, query, "status IN ($1, $2) AND due_at < $3")
+		test.Eq(t, []any{"awaiting_confirmation", "in_progress", baseTime.UTC()}, args)
 	})
 
 	T.Run("breaks the gauge down by request type", func(t *testing.T) {
@@ -908,7 +783,7 @@ func TestStatusSets(T *testing.T) {
 		}
 
 		for _, s := range []Status{
-			StatusAwaitingConfirmation, StatusPending, StatusProcessing,
+			StatusAwaitingConfirmation, StatusInProgress, StatusInProgress,
 			StatusCompleted, StatusFailed, StatusExpired, StatusCancelled,
 		} {
 			test.EqOp(t, 1, seen[s], test.Sprintf("status %q", s))

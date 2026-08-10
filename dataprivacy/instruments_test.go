@@ -55,7 +55,7 @@ func failingInstrumentProvider(failing string) *metricsmock.ProviderMock {
 	}
 }
 
-func TestWorker_InstrumentFailures(T *testing.T) {
+func TestFulfiller_InstrumentFailures(T *testing.T) {
 	T.Parallel()
 
 	instruments := []string{
@@ -65,7 +65,7 @@ func TestWorker_InstrumentFailures(T *testing.T) {
 		serviceName + "_section_failures",
 		serviceName + "_exports_partial",
 		serviceName + "_notification_failures",
-		serviceName + "_claim_errors",
+		serviceName + "_requests_stopped",
 		serviceName + "_rows_erased",
 		serviceName + "_fulfillment_latency_ms",
 		serviceName + "_collector_latency_ms",
@@ -81,8 +81,8 @@ func TestWorker_InstrumentFailures(T *testing.T) {
 			registry := NewRegistry()
 			must.NoError(t, registry.RegisterEraser("identity", countingEraser(0, 0, nil, nil)))
 
-			_, err := NewWorker(t.Context(), &WorkerConfig{}, env.newStore(t), registry,
-				WithWorkerMetricsProvider(failingInstrumentProvider(instrument)))
+			_, err := NewFulfiller(t.Context(), &FulfillerConfig{}, env.newStore(t), registry,
+				WithFulfillerMetricsProvider(failingInstrumentProvider(instrument)))
 
 			must.ErrorIs(t, err, errInstrument)
 			test.StrContains(t, err.Error(), "creating")
@@ -106,7 +106,7 @@ func TestService_InstrumentFailures(T *testing.T) {
 
 			env := newSQLiteEnv(t)
 
-			_, err := NewService(t.Context(), &ServiceConfig{}, env.newStore(t),
+			_, err := NewService(t.Context(), &ServiceConfig{}, env.newStore(t), newStubOperations(),
 				WithServiceMetricsProvider(failingInstrumentProvider(instrument)))
 
 			must.ErrorIs(t, err, errInstrument)

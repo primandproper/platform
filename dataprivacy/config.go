@@ -5,7 +5,6 @@ import (
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -38,18 +37,6 @@ const (
 	// under.
 	DefaultArtifactPathPrefix = "dataprivacy/exports"
 
-	// DefaultPollInterval is how often the Worker looks for pending requests.
-	DefaultPollInterval = 10 * time.Second
-
-	// DefaultBatchSize is how many requests one Worker cycle claims. Small,
-	// because one request is a fan-out over every registered domain and a batch
-	// of fifty would be a thundering herd against the application's own
-	// database.
-	DefaultBatchSize = 5
-
-	// DefaultConcurrency is how many claimed requests a Worker fulfills at once.
-	DefaultConcurrency = 2
-
 	// DefaultCollectorConcurrency is how many of one request's collectors run at
 	// once.
 	DefaultCollectorConcurrency = 4
@@ -59,19 +46,25 @@ const (
 	// entire reason collection is per-key.
 	DefaultCollectorTimeout = 30 * time.Second
 
-	// DefaultFulfillmentTimeout bounds one whole request.
+	// DefaultFulfillmentTimeout bounds one whole attempt at one request.
 	DefaultFulfillmentTimeout = 10 * time.Minute
 
-	// DefaultLeaseDuration is how long a claimed request stays leased. It must
-	// exceed DefaultFulfillmentTimeout, or a second worker starts a request the
-	// first is still fulfilling.
-	DefaultLeaseDuration = 15 * time.Minute
+	// DefaultMaxAttempts is how many times an operation fulfilling a privacy
+	// request may be claimed before it is failed.
+	//
+	// Three, which is lower than the operations worker's own default of five,
+	// and lower on purpose. One attempt here is a fan-out over every registered
+	// domain against the application's own database, so the attempts are
+	// expensive; and a request that is going to fail is worth failing early,
+	// while there is still time inside the statutory window for somebody to fix
+	// the cause and for the subject to be served.
+	DefaultMaxAttempts = 3
 
 	// DefaultMaxDocumentBytes caps the assembled export before it is written.
 	//
 	// A collector that answers a bad subject ID with its entire table is a bug
 	// that presents as an out-of-memory kill in the worker, taking every other
-	// in-flight request with it. Failing the one request loudly is better.
+	// in-flight operation with it. Failing the one request loudly is better.
 	DefaultMaxDocumentBytes int64 = 512 << 20 // 512 MiB
 
 	// DefaultSweepInterval is the recommended cadence for running the Sweeper.
@@ -155,24 +148,24 @@ func (cfg *ServiceConfig) responseWindow(t RequestType) time.Duration {
 	return cfg.ExportResponseWindow
 }
 
-// WorkerConfig configures the fulfillment loop.
-type WorkerConfig struct {
+// FulfillerConfig configures the two operation runners.
+//
+// It is most of what it used to be minus a whole category of knob. The poll
+// interval, the batch size, the request concurrency, the lease, and the backoff
+// schedule are the operations worker's now — one worker, one set of numbers,
+// shared with every other long-running thing in the application — and this is
+// left with the settings that are genuinely about privacy requests.
+type FulfillerConfig struct {
 	// ArtifactPathPrefix is the storage prefix artifacts are written under.
 	// Defaults to DefaultArtifactPathPrefix.
 	ArtifactPathPrefix string `env:"ARTIFACT_PATH_PREFIX" json:"artifactPathPrefix,omitempty" yaml:"artifactPathPrefix,omitempty"`
 
-	// Backoff schedules the retry of a request that failed for a reason worth
-	// retrying.
-	Backoff retrycfg.Config `env:",init" envPrefix:"BACKOFF_" json:"backoff,omitzero" yaml:"backoff,omitempty"`
-
-	// PollInterval is how often the Worker looks for pending requests.
-	PollInterval time.Duration `env:"POLL_INTERVAL" json:"pollInterval,omitempty" yaml:"pollInterval,omitempty"`
-
-	// LeaseDuration is how long a claimed request stays leased. It must exceed
-	// FulfillmentTimeout — see ValidateWithContext.
-	LeaseDuration time.Duration `env:"LEASE_DURATION" json:"leaseDuration,omitempty" yaml:"leaseDuration,omitempty"`
-
-	// FulfillmentTimeout bounds one whole request.
+	// FulfillmentTimeout bounds one whole attempt at one request.
+	//
+	// It matters more than it looks now that the operation's lease is extended
+	// by every progress flush: the lease no longer bounds anything, so this is
+	// what stands between a wedged domain and an operation that never reaches a
+	// terminal state.
 	FulfillmentTimeout time.Duration `env:"FULFILLMENT_TIMEOUT" json:"fulfillmentTimeout,omitempty" yaml:"fulfillmentTimeout,omitempty"`
 
 	// CollectorTimeout bounds one collector, so one slow domain costs its own
@@ -180,19 +173,24 @@ type WorkerConfig struct {
 	CollectorTimeout time.Duration `env:"COLLECTOR_TIMEOUT" json:"collectorTimeout,omitempty" yaml:"collectorTimeout,omitempty"`
 
 	// ArtifactTTL is how long an export artifact survives after completion,
-	// stamped onto the request as ExpiresAt when the Worker writes it. Defaults
-	// to DefaultArtifactTTL.
+	// stamped onto the request as ExpiresAt when the export is recorded.
+	// Defaults to DefaultArtifactTTL.
 	ArtifactTTL time.Duration `env:"ARTIFACT_TTL" json:"artifactTTL,omitempty" yaml:"artifactTTL,omitempty"`
 
 	// MaxDocumentBytes caps the assembled export. Defaults to
 	// DefaultMaxDocumentBytes.
 	MaxDocumentBytes int64 `env:"MAX_DOCUMENT_BYTES" json:"maxDocumentBytes,omitempty" yaml:"maxDocumentBytes,omitempty"`
 
-	// BatchSize is how many requests one cycle claims.
-	BatchSize int `env:"BATCH_SIZE" json:"batchSize,omitempty" yaml:"batchSize,omitempty"`
-
-	// Concurrency is how many claimed requests are fulfilled at once.
-	Concurrency int `env:"CONCURRENCY" json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
+	// MaxAttempts is how many times an operation of either kind may be claimed
+	// before it is failed. It becomes operations.Definition.MaxAttempts, and
+	// zero means the operations worker's own ceiling.
+	//
+	// It is set here rather than left to that ceiling because a privacy request
+	// is not a webhook replay: one attempt is a fan-out over every registered
+	// domain, and the default is deliberately low so that a request which is
+	// going to fail says so within the statutory window rather than at the end
+	// of it. See DefaultMaxAttempts.
+	MaxAttempts int `env:"MAX_ATTEMPTS" json:"maxAttempts,omitempty" yaml:"maxAttempts,omitempty"`
 
 	// CollectorConcurrency is how many of one request's collectors run at once.
 	//
@@ -202,16 +200,10 @@ type WorkerConfig struct {
 	CollectorConcurrency int `env:"COLLECTOR_CONCURRENCY" json:"collectorConcurrency,omitempty" yaml:"collectorConcurrency,omitempty"`
 }
 
-var _ validation.ValidatableWithContext = (*WorkerConfig)(nil)
+var _ validation.ValidatableWithContext = (*FulfillerConfig)(nil)
 
 // EnsureDefaults fills unset knobs with the package defaults.
-func (cfg *WorkerConfig) EnsureDefaults() {
-	if cfg.PollInterval <= 0 {
-		cfg.PollInterval = DefaultPollInterval
-	}
-	if cfg.LeaseDuration <= 0 {
-		cfg.LeaseDuration = DefaultLeaseDuration
-	}
+func (cfg *FulfillerConfig) EnsureDefaults() {
 	if cfg.FulfillmentTimeout <= 0 {
 		cfg.FulfillmentTimeout = DefaultFulfillmentTimeout
 	}
@@ -227,45 +219,36 @@ func (cfg *WorkerConfig) EnsureDefaults() {
 	if cfg.MaxDocumentBytes <= 0 {
 		cfg.MaxDocumentBytes = DefaultMaxDocumentBytes
 	}
-	if cfg.BatchSize <= 0 {
-		cfg.BatchSize = DefaultBatchSize
-	}
-	if cfg.Concurrency <= 0 {
-		cfg.Concurrency = DefaultConcurrency
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = DefaultMaxAttempts
 	}
 	if cfg.CollectorConcurrency <= 0 {
 		cfg.CollectorConcurrency = DefaultCollectorConcurrency
 	}
-
-	cfg.Backoff.EnsureDefaults()
 }
 
-// ValidateWithContext validates a WorkerConfig.
-func (cfg *WorkerConfig) ValidateWithContext(ctx context.Context) error {
+// ValidateWithContext validates a FulfillerConfig.
+func (cfg *FulfillerConfig) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.PollInterval, validation.Required),
-		validation.Field(&cfg.BatchSize, validation.Required, validation.Min(1)),
-		validation.Field(&cfg.Concurrency, validation.Required, validation.Min(1)),
 		validation.Field(&cfg.CollectorConcurrency, validation.Required, validation.Min(1)),
 		validation.Field(&cfg.CollectorTimeout, validation.Required),
-		validation.Field(&cfg.FulfillmentTimeout, validation.Required),
-		validation.Field(&cfg.ArtifactTTL, validation.Required),
-		validation.Field(&cfg.ArtifactPathPrefix, validation.Required),
-		validation.Field(&cfg.LeaseDuration, validation.Required, validation.By(func(any) error {
-			// A lease that expires while the work it covers is still running is
-			// not a lease. Erasure is the case that makes this load-bearing:
-			// two workers running the same erasure concurrently means two sets
-			// of deletes racing inside two transactions, and whichever loses
-			// reports a failure for work that did happen.
-			if cfg.LeaseDuration <= cfg.FulfillmentTimeout {
+		validation.Field(&cfg.FulfillmentTimeout, validation.Required, validation.By(func(any) error {
+			// One collector must be able to finish inside the bound on the whole
+			// request. The reverse ordering produces an export that times out
+			// while its first domain is still within its own allowance, which
+			// reads as a broken collector rather than a mis-sized config.
+			if cfg.FulfillmentTimeout <= cfg.CollectorTimeout {
 				return platformerrors.Newf(
-					"dataprivacy lease duration %s must exceed fulfillment timeout %s",
-					cfg.LeaseDuration, cfg.FulfillmentTimeout,
+					"dataprivacy fulfillment timeout %s must exceed collector timeout %s",
+					cfg.FulfillmentTimeout, cfg.CollectorTimeout,
 				)
 			}
 
 			return nil
 		})),
+		validation.Field(&cfg.ArtifactTTL, validation.Required),
+		validation.Field(&cfg.ArtifactPathPrefix, validation.Required),
+		validation.Field(&cfg.MaxAttempts, validation.Required, validation.Min(1)),
 	)
 }
 

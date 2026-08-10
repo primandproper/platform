@@ -17,6 +17,8 @@ import (
 	"github.com/primandproper/platform-go/v10/dataprivacy"
 	"github.com/primandproper/platform-go/v10/dataprivacy/auditerasure"
 	"github.com/primandproper/platform-go/v10/dataprivacy/migrations"
+	"github.com/primandproper/platform-go/v10/operations"
+	operationsmock "github.com/primandproper/platform-go/v10/operations/mock"
 	"github.com/primandproper/platform-go/v10/uploads/noop"
 
 	"github.com/shoenig/test"
@@ -66,11 +68,11 @@ func TestConfig(T *testing.T) {
 		// ozzo dereferences a struct-value field before checking
 		// ValidatableWithContext, so these are reached through By closures — a
 		// regression here would silently stop validating them.
-		cfg.Worker.LeaseDuration = cfg.Worker.FulfillmentTimeout
+		cfg.Fulfiller.CollectorTimeout = cfg.Fulfiller.FulfillmentTimeout
 
 		err := cfg.ValidateWithContext(t.Context())
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), "must exceed fulfillment timeout")
+		test.StrContains(t, err.Error(), "must exceed collector timeout")
 	})
 }
 
@@ -144,10 +146,10 @@ func TestConstructors(T *testing.T) {
 		_, err := NewStore(t.Context(), nil, nil)
 		test.Error(t, err)
 
-		_, err = NewService(t.Context(), nil, nil)
+		_, err = NewService(t.Context(), nil, nil, nil)
 		test.Error(t, err)
 
-		_, err = NewWorker(t.Context(), nil, nil, nil, nil, false)
+		_, err = NewFulfiller(t.Context(), nil, nil, nil, nil, nil, false)
 		test.Error(t, err)
 
 		_, err = NewSweeper(t.Context(), nil, nil, nil)
@@ -172,27 +174,36 @@ func TestConstructors(T *testing.T) {
 			t.Context(),
 			cfg,
 			store,
+			stubOperations(),
 		)
 		must.NoError(t, err)
 		must.NotNil(t, svc)
 
-		registry := dataprivacy.NewRegistry()
-		must.NoError(t, registry.RegisterEraser("identity", dataprivacy.EraserFunc(
+		domains := dataprivacy.NewRegistry()
+		must.NoError(t, domains.RegisterEraser("identity", dataprivacy.EraserFunc(
 			func(context.Context, database.SQLQueryExecutor, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
 				return dataprivacy.ErasureOutcome{}, nil
 			},
 		)))
 
-		worker, err := NewWorker(
+		kinds := operations.NewRegistry()
+
+		fulfiller, err := NewFulfiller(
 			t.Context(),
 			cfg,
 			store,
-			registry,
+			domains,
+			kinds,
 			nil,
 			false,
 		)
 		must.NoError(t, err)
-		must.NotNil(t, worker)
+		must.NotNil(t, fulfiller)
+
+		// Registering as it builds is what keeps the two halves of the wiring
+		// from drifting: a Fulfiller nobody registered is a set of runners
+		// nothing calls.
+		test.Eq(t, []string{dataprivacy.KindErasure}, kinds.Kinds())
 
 		sweeper, err := NewSweeper(
 			t.Context(),
@@ -204,7 +215,7 @@ func TestConstructors(T *testing.T) {
 		must.NotNil(t, sweeper)
 
 		// The whole point of one Config: the prefix the Service writes to is by
-		// construction the one the Worker claims from.
+		// construction the one the Fulfiller reads from.
 		req, err := svc.Submit(t.Context(), dataprivacy.Subject{ID: "user-1"}, dataprivacy.RequestErasure)
 		must.NoError(t, err)
 
@@ -222,17 +233,17 @@ func TestConstructors(T *testing.T) {
 		_, err := NewStore(t.Context(), cfg, env.client)
 		test.Error(t, err)
 
-		_, err = NewService(t.Context(), cfg, nil)
+		_, err = NewService(t.Context(), cfg, nil, stubOperations())
 		test.Error(t, err)
 
-		_, err = NewWorker(t.Context(), cfg, nil, dataprivacy.NewRegistry(), nil, false)
+		_, err = NewFulfiller(t.Context(), cfg, nil, dataprivacy.NewRegistry(), operations.NewRegistry(), nil, false)
 		test.Error(t, err)
 
 		_, err = NewSweeper(t.Context(), cfg, nil, nil)
 		test.Error(t, err)
 	})
 
-	T.Run("a worker with an uploader gets a URL signer", func(t *testing.T) {
+	T.Run("a fulfiller with an uploader gets a URL signer", func(t *testing.T) {
 		t.Parallel()
 
 		env := newConfigEnv(t)
@@ -245,18 +256,19 @@ func TestConstructors(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		registry := dataprivacy.NewRegistry()
-		must.NoError(t, registry.RegisterCollector("identity", dataprivacy.CollectorFunc(
+		domains := dataprivacy.NewRegistry()
+		must.NoError(t, domains.RegisterCollector("identity", dataprivacy.CollectorFunc(
 			func(context.Context, dataprivacy.Subject) (json.RawMessage, error) {
 				return json.RawMessage(`{}`), nil
 			},
 		)))
 
-		// Supplying the uploader is what satisfies the export worker's storage
+		// Supplying the uploader is what satisfies the export runner's storage
 		// requirement and wires the signer in one step.
-		worker, err := NewWorker(t.Context(), cfg, store, registry, noop.NewUploadManager(), false)
+		fulfiller, err := NewFulfiller(t.Context(), cfg, store, domains, operations.NewRegistry(),
+			noop.NewUploadManager(), false)
 		must.NoError(t, err)
-		test.NotNil(t, worker)
+		test.NotNil(t, fulfiller)
 	})
 }
 
@@ -364,4 +376,26 @@ func TestEnsurePackaging_Supplied(T *testing.T) {
 		test.SliceLen(t, 1, workerOpts)
 		test.SliceLen(t, 1, serviceOpts)
 	})
+}
+
+// stubOperations is an operations.Service that records nothing and runs nothing.
+//
+// A real one cannot be built here: operations is Postgres-only, and this suite
+// is SQLite. What these tests are about is that one Config assembles four parts
+// against one table, and the operations service is a dependency of that
+// assembly rather than a subject of it — the end-to-end run through a real
+// worker is in dataprivacy's container tests.
+func stubOperations() operations.Service {
+	return &operationsmock.ServiceMock{
+		StartInTransactionFunc: func(
+			_ context.Context,
+			_ database.SQLQueryExecutor,
+			kind string,
+			_ any,
+			_ ...operations.StartOption,
+		) (*operations.Operation, error) {
+			return &operations.Operation{ID: "op-1", Kind: kind, State: operations.StatePending}, nil
+		},
+		EnqueueFunc: func(context.Context, string, ...operations.StartOption) error { return nil },
+	}
 }

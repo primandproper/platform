@@ -8,7 +8,6 @@ import (
 
 	"github.com/primandproper/platform-go/v10/analytics"
 	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/dataprivacy"
 	"github.com/primandproper/platform-go/v10/distributedlock"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/featureflags"
@@ -20,6 +19,7 @@ import (
 	async "github.com/primandproper/platform-go/v10/notifications/async"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/outbox"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 	"github.com/primandproper/platform-go/v10/saga"
@@ -251,7 +251,7 @@ func (s *Service) resolveRunners(r *resolver) {
 	resolve(r, func(sch *jobs.Scheduler) { s.addRunner("jobs scheduler", sch) })
 	resolve(r, func(w *saga.Worker) { s.addRunner("saga worker", w) })
 	resolve(r, func(w *webhooks.Worker) { s.addRunner("webhooks worker", w) })
-	resolve(r, func(w *dataprivacy.Worker) { s.addRunner("dataprivacy worker", w) })
+	resolve(r, func(w *operations.Worker) { s.addRunner("operations worker", newOperationsRunner(w)) })
 }
 
 // resolveFlushes collects the drains that have no loop of their own and have to

@@ -89,7 +89,7 @@ func newAuditServiceEnv(t *testing.T, cfg *ServiceConfig, opts ...ServiceOption)
 		}),
 	}
 
-	svc, err := NewService(t.Context(), cfg, store, append(base, opts...)...)
+	svc, err := NewService(t.Context(), cfg, store, newStubOperations(), append(base, opts...)...)
 	must.NoError(t, err)
 
 	return &auditServiceEnv{svc: svc, store: store, recorder: recorder, uploader: uploader}
@@ -156,7 +156,7 @@ func TestService_AuditRecording(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store := env.newStore(t)
 
-		svc, err := NewService(t.Context(), &ServiceConfig{}, store, WithServiceClock(newStubClock()))
+		svc, err := NewService(t.Context(), &ServiceConfig{}, store, newStubOperations(), WithServiceClock(newStubClock()))
 		must.NoError(t, err)
 
 		_, err = svc.Submit(t.Context(), testSubject, RequestExport)
@@ -199,7 +199,7 @@ func TestService_AuditRecording(T *testing.T) {
 		must.NotNil(t, entry)
 		test.EqOp(t, audit.EventUpdated, entry.EventType)
 		test.EqOp(t, "confirmed", entry.Metadata["reason"])
-		test.EqOp(t, string(StatusPending), entry.Metadata["status"])
+		test.EqOp(t, string(StatusInProgress), entry.Metadata["status"])
 
 		cancelled, err := env.svc.Submit(t.Context(), testSubject, RequestErasure)
 		must.NoError(t, err)
@@ -289,7 +289,7 @@ func TestService_AuditRecording(T *testing.T) {
 		store := env.newStore(t)
 		recorder := newRecordingAudit()
 
-		svc, err := NewService(t.Context(), &ServiceConfig{}, store,
+		svc, err := NewService(t.Context(), &ServiceConfig{}, store, newStubOperations(),
 			WithServiceClock(newStubClock()),
 			WithServiceAuditRecorder(recorder),
 		)
@@ -308,7 +308,7 @@ func TestService_AuditRecording(T *testing.T) {
 	})
 }
 
-func TestWorker_AuditRecording(T *testing.T) {
+func TestFulfiller_AuditRecording(T *testing.T) {
 	T.Parallel()
 
 	T.Run("a completed export is recorded with what it disclosed", func(t *testing.T) {
@@ -316,10 +316,10 @@ func TestWorker_AuditRecording(T *testing.T) {
 
 		recorder := newRecordingAudit()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterCollector("identity", staticCollector(`{"email":"a@example.com"}`)))
 			must.NoError(t, r.RegisterCollector("billing", failingCollector(platformerrors.New("down"))))
-		}, WithWorkerAuditRecorder(recorder))
+		}, WithFulfillerAuditRecorder(recorder))
 
 		req := env.submitAndRun(t, RequestExport)
 		must.EqOp(t, StatusCompleted, req.Status)
@@ -342,10 +342,10 @@ func TestWorker_AuditRecording(T *testing.T) {
 
 		recorder := newRecordingAudit()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("identity",
 				countingEraser(9, 2, map[string]string{"invoices": "tax law"}, nil)))
-		}, WithWorkerAuditRecorder(recorder))
+		}, WithFulfillerAuditRecorder(recorder))
 
 		req := env.submitAndRun(t, RequestErasure)
 		must.EqOp(t, StatusCompleted, req.Status)
@@ -364,27 +364,27 @@ func TestWorker_AuditRecording(T *testing.T) {
 		recorder := newRecordingAudit()
 		recorder.err = platformerrors.New("audit chain is locked")
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("identity", countingEraser(9, 0, nil, nil)))
-		}, WithWorkerAuditRecorder(recorder))
+		}, WithFulfillerAuditRecorder(recorder))
 
 		req := env.submitAndRun(t, RequestErasure)
 
 		// The erasure and its record share one transaction, so an unrecordable
 		// erasure does not happen at all.
-		test.EqOp(t, StatusPending, req.Status)
+		test.EqOp(t, StatusFailed, req.Status)
 		test.EqOp(t, int64(0), req.Deleted)
 		test.StrContains(t, req.LastError, "audit chain is locked")
 	})
 
-	T.Run("the worker's default actor is the system", func(t *testing.T) {
+	T.Run("the fulfiller's default actor is the system", func(t *testing.T) {
 		t.Parallel()
 
 		recorder := newRecordingAudit()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("identity", countingEraser(1, 0, nil, nil)))
-		}, WithWorkerAuditRecorder(recorder))
+		}, WithFulfillerAuditRecorder(recorder))
 
 		env.submitAndRun(t, RequestErasure)
 
@@ -402,11 +402,11 @@ func TestWorker_AuditRecording(T *testing.T) {
 
 		recorder := newRecordingAudit()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("identity", countingEraser(1, 0, nil, nil)))
 		},
-			WithWorkerAuditRecorder(recorder),
-			WithWorkerActorResolver(func(context.Context) audit.Actor {
+			WithFulfillerAuditRecorder(recorder),
+			WithFulfillerActorResolver(func(context.Context) audit.Actor {
 				return audit.Actor{ID: "erasure-worker-3", Type: audit.ActorService}
 			}),
 		)

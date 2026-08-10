@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     id              TEXT PRIMARY KEY,
     request_type    TEXT NOT NULL,
     status          TEXT NOT NULL,
+    operation_id    TEXT NOT NULL DEFAULT '',
     subject_id      TEXT NOT NULL,
     subject_type    TEXT NOT NULL DEFAULT '',
     subject_scope   TEXT NOT NULL DEFAULT '',
@@ -13,9 +14,6 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     due_at          DATETIME NOT NULL,
     expires_at      DATETIME,
     completed_at    DATETIME,
-    next_attempt    DATETIME NOT NULL,
-    claimed_until   DATETIME,
-    attempts        INTEGER NOT NULL DEFAULT 0,
     artifact_ref    TEXT NOT NULL DEFAULT '',
     artifact_bytes  INTEGER NOT NULL DEFAULT 0,
     deleted_rows    INTEGER NOT NULL DEFAULT 0,
@@ -25,14 +23,6 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     last_error      TEXT,
     key_shredded_at DATETIME
 );
-
--- Serves the claim predicate, which only ever looks at pending rows whose next
--- attempt has come round. Partial, so the index grows with the backlog rather
--- than with the history of every request ever made — the table this indexes is
--- append-mostly and is meant to be kept for years.
-CREATE INDEX IF NOT EXISTS {{PREFIX}}dataprivacy_requests_claim_idx
-    ON {{PREFIX}}dataprivacy_requests (next_attempt, requested_at, id)
-    WHERE status = 'pending';
 
 -- "What has been asked in this person's name." Leading with the subject rather
 -- than the time is what makes List a range scan instead of a filter over every

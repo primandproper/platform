@@ -11,6 +11,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/filtering"
 	"github.com/primandproper/platform-go/v10/identifiers"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/uploads"
 
 	"github.com/shoenig/test"
@@ -77,7 +78,7 @@ func TestSQLStore_UnreadableRowCounts(T *testing.T) {
 		store := newUncountableStore(t)
 
 		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
-			_, txErr := store.Transition(t.Context(), q, "r", []Status{StatusPending}, StatusCancelled, baseTime)
+			_, txErr := store.Transition(t.Context(), q, "r", []Status{StatusInProgress}, StatusCancelled, "", baseTime)
 
 			return txErr
 		})
@@ -150,43 +151,45 @@ func (*unsignableUploader) SignedURL(context.Context, string, *uploads.SignedURL
 	return "", platformerrors.New("signing key is unavailable")
 }
 
-func TestWorker_DegradedStorage(T *testing.T) {
+func TestFulfiller_DegradedStorage(T *testing.T) {
 	T.Parallel()
 
 	T.Run("an unwritable bucket fails the export", func(t *testing.T) {
 		t.Parallel()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterCollector("identity", staticCollector(`{"ok":true}`)))
 		})
 
-		env.worker.uploader = &failingSaveUploader{memoryUploader: env.uploader}
+		env.fulfiller.uploader = &failingSaveUploader{memoryUploader: env.uploader}
 
 		req := env.submitAndRun(t, RequestExport)
 
-		test.EqOp(t, StatusPending, req.Status)
+		// Retryable — the bucket may come back — so the row only says so on the
+		// final attempt, which is the one submitAndRun runs.
+		test.EqOp(t, StatusFailed, req.Status)
 		test.StrContains(t, req.LastError, "storing dataprivacy export artifact")
 	})
 
 	T.Run("an unknown request type fails terminally", func(t *testing.T) {
 		t.Parallel()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterCollector("identity", staticCollector(`{"ok":true}`)))
 		})
 
-		// A row written by a newer build than this worker.
+		// A row written by a newer build than this one, reached by the export
+		// runner because that is the kind its operation names.
 		req := newRequest(identifiers.New(), RequestType("rectification"), testSubject, env.clock.read())
 		saveRequest(t, env.store, req)
 
-		env.worker.cycle(t.Context())
+		_, err := env.run(t, req.ID, RequestExport, newRecordingReporter(
+			operations.Attempt{ID: "op-1", Number: 1}))
 
-		read, err := env.store.Get(t.Context(), req.ID)
-		must.NoError(t, err)
-
-		// Unretryable: it will not become implemented by waiting.
-		test.EqOp(t, StatusFailed, read.Status)
-		test.StrContains(t, read.LastError, "unknown dataprivacy request type")
+		// Unretryable: the row and the kind disagree, and no retry resolves it.
+		must.Error(t, err)
+		test.True(t, operations.IsUnretryable(err))
+		test.StrContains(t, err.Error(), "started as a")
 	})
 
 	T.Run("a signer that refuses yields a notification with no link", func(t *testing.T) {
@@ -204,16 +207,20 @@ func TestWorker_DegradedStorage(T *testing.T) {
 		test.True(t, expiresAt.IsZero())
 	})
 
-	T.Run("backoff never schedules a zeroth attempt", func(t *testing.T) {
+	T.Run("an operation naming no request fails terminally", func(t *testing.T) {
 		t.Parallel()
 
-		env := newWorkerEnv(t, func(r *Registry) {
-			must.NoError(t, r.RegisterEraser("identity", countingEraser(0, 0, nil, nil)))
+		env := newFulfillerEnv(t, func(r *Registry) {
+			must.NoError(t, r.RegisterCollector("identity", staticCollector(`{"ok":true}`)))
 		})
 
-		// A dispatch that somehow reports no attempts still waits, rather than
-		// becoming immediately claimable and spinning on the same failure.
-		test.Greater(t, time.Duration(0), env.worker.backoffFor(0))
+		// An empty Job decodes from an absent request payload, which is what an
+		// operation started without one leaves behind.
+		_, err := env.run(t, "", RequestExport, newRecordingReporter(
+			operations.Attempt{ID: "op-1", Number: 1}))
+
+		must.Error(t, err)
+		test.True(t, operations.IsUnretryable(err))
 	})
 }
 
@@ -224,13 +231,13 @@ func TestService_DegradedDependencies(T *testing.T) {
 	// ServiceConfig.EnsureDefaults replaces every non-positive field with its
 	// default, so ValidateWithContext cannot currently fail through NewService.
 	// The call is kept as insurance for a future field that defaults cannot
-	// rescue — WorkerConfig already has one, in the lease/timeout cross-check —
+	// rescue — FulfillerConfig already has one, in the timeout cross-check —
 	// but contriving a test to reach it today would assert nothing real.
 
 	T.Run("a failing store surfaces through every read and write", func(t *testing.T) {
 		t.Parallel()
 
-		svc, err := NewService(t.Context(), &ServiceConfig{}, newFailingStore(t),
+		svc, err := NewService(t.Context(), &ServiceConfig{}, newFailingStore(t), newStubOperations(),
 			WithServiceClock(newStubClock()),
 			WithServiceUploadManager(newMemoryUploader()),
 		)
@@ -255,7 +262,7 @@ func TestService_DegradedDependencies(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store := env.newStore(t)
 
-		svc, err := NewService(t.Context(), &ServiceConfig{}, store, WithServiceClock(newStubClock()))
+		svc, err := NewService(t.Context(), &ServiceConfig{}, store, newStubOperations(), WithServiceClock(newStubClock()))
 		must.NoError(t, err)
 
 		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
@@ -276,7 +283,7 @@ func TestService_DegradedDependencies(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store := env.newStore(t)
 
-		svc, err := NewService(t.Context(), &ServiceConfig{}, store,
+		svc, err := NewService(t.Context(), &ServiceConfig{}, store, newStubOperations(),
 			WithServiceClock(newStubClock()),
 			WithServiceUploadManager(newMemoryUploader()),
 		)
