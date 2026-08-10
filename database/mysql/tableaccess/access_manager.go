@@ -62,14 +62,75 @@ func quoteLiteral(s string) string {
 	return `'` + s + `'`
 }
 
-// CreateUser issues a CREATE USER with a safely-quoted password literal.
-func (m *manager) CreateUser(ctx context.Context, username, password string) error {
-	_, err := m.db.ExecContext(ctx, fmt.Sprintf(
-		"CREATE USER %s@'%%' IDENTIFIED BY %s",
-		quoteLiteral(username),
-		quoteLiteral(password),
-	))
-	return err
+// The statements CreateUser sends, in order. Every one of them is a constant:
+// the name and the password arrive as bind parameters on the first and are
+// referred to by variable thereafter, so neither is ever spelled out in
+// statement text. QUOTE is MySQL's own string-literal quoting — what
+// quoteLiteral does here, done server-side where the credential already is.
+const (
+	bindCreateUserArgs   = `SELECT ?, ? INTO @tableaccess_cu_username, @tableaccess_cu_password`
+	buildCreateUserSQL   = `SET @tableaccess_cu_sql = CONCAT('CREATE USER ', QUOTE(@tableaccess_cu_username), '@''%'' IDENTIFIED BY ', QUOTE(@tableaccess_cu_password))`
+	prepareCreateUser    = `PREPARE tableaccess_cu FROM @tableaccess_cu_sql`
+	executeCreateUser    = `EXECUTE tableaccess_cu`
+	deallocateCreateUser = `DEALLOCATE PREPARE tableaccess_cu`
+	clearCreateUserArgs  = `SET @tableaccess_cu_username = NULL, @tableaccess_cu_password = NULL, @tableaccess_cu_sql = NULL`
+)
+
+// CreateUser creates a user with the given password.
+//
+// The password never appears in statement text. CREATE USER accepts no bind
+// parameters, so the direct spelling has to interpolate the credential into the
+// SQL — and otelsql copies statement text onto the db.statement span attribute
+// whenever LOG_QUERIES is on, which puts a live credential on a span that may
+// well be exported to a third party. Binding the arguments into session
+// variables and assembling the statement server-side means every statement that
+// goes over the wire is a constant.
+//
+// Session variables outlive a statement, which is why this pins one connection
+// for the whole sequence and clears them before handing it back to the pool.
+// MySQL has no transactional DDL to lean on the way the Postgres twin does.
+func (m *manager) CreateUser(ctx context.Context, username, password string) (err error) {
+	conn, err := m.db.Conn(ctx)
+	if err != nil {
+		return errors.Wrap(err, "acquiring connection for create user")
+	}
+
+	defer func() {
+		// However this ended, the connection goes back to the pool holding no
+		// credential — a session variable outlives the statement that set it, and
+		// the next caller to get this connection can read it.
+		if _, clearErr := conn.ExecContext(ctx, clearCreateUserArgs); clearErr != nil {
+			err = errors.Join(err, errors.Wrap(clearErr, "clearing create user arguments"))
+		}
+
+		if closeErr := conn.Close(); closeErr != nil {
+			err = errors.Join(err, errors.Wrap(closeErr, "releasing create user connection"))
+		}
+	}()
+
+	if _, err = conn.ExecContext(ctx, bindCreateUserArgs, username, password); err != nil {
+		return errors.Wrap(err, "binding create user arguments")
+	}
+
+	if _, err = conn.ExecContext(ctx, buildCreateUserSQL); err != nil {
+		return errors.Wrap(err, "building create user statement")
+	}
+
+	if _, err = conn.ExecContext(ctx, prepareCreateUser); err != nil {
+		return errors.Wrap(err, "preparing create user statement")
+	}
+
+	// Registered only now that there is something to deallocate: MySQL errors on
+	// a handler it never issued, which would turn every earlier failure into two.
+	defer func() {
+		if _, deallocErr := conn.ExecContext(ctx, deallocateCreateUser); deallocErr != nil {
+			err = errors.Join(err, errors.Wrap(deallocErr, "deallocating create user statement"))
+		}
+	}()
+
+	_, err = conn.ExecContext(ctx, executeCreateUser)
+
+	return errors.Wrap(err, "creating user")
 }
 
 func (m *manager) DeleteUser(ctx context.Context, username string) error {

@@ -117,56 +117,6 @@ func TestQuoteIdent(T *testing.T) {
 	}
 }
 
-func TestQuoteLiteral(T *testing.T) {
-	T.Parallel()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple string",
-			input:    "password",
-			expected: `'password'`,
-		},
-		{
-			name:     "string with single quotes",
-			input:    "user's password",
-			expected: `'user''s password'`,
-		},
-		{
-			name:     "string with multiple single quotes",
-			input:    "user''s password",
-			expected: `'user''''s password'`,
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: `''`,
-		},
-		{
-			name:     "string with special characters",
-			input:    "p@ssw0rd!@#$%",
-			expected: `'p@ssw0rd!@#$%'`,
-		},
-		{
-			name:  "string with newlines",
-			input: "pass\nword",
-			expected: `'pass
-word'`,
-		},
-	}
-
-	for _, tt := range tests {
-		T.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			result := quoteLiteral(tt.input)
-			test.EqOp(t, tt.expected, result)
-		})
-	}
-}
-
 func TestIsValidPrivilege(T *testing.T) {
 	T.Parallel()
 

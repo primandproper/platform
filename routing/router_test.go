@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -310,6 +311,45 @@ func TestRouter_MountOpenAPI(T *testing.T) {
 		docsRec := doRequest(t, r, http.MethodGet, "/docs", "")
 		test.EqOp(t, http.StatusOK, docsRec.Code)
 		test.StrContains(t, docsRec.Header().Get("Content-Type"), "text/html")
+	})
+
+	T.Run("docs page pins its CDN assets with subresource integrity", func(t *testing.T) {
+		t.Parallel()
+
+		r := buildTestRouter(t)
+		r.MountOpenAPI("/openapi.json", "/docs")
+		must.NoError(t, r.Err())
+
+		body := doRequest(t, r, http.MethodGet, "/docs", "").Body.String()
+
+		tags := regexp.MustCompile(`<(?:link|script)\b[^>]*>`).FindAllString(body, -1)
+		must.SliceNotEmpty(t, tags)
+
+		// Every asset the page pulls off a CDN carries a digest, so a substituted
+		// one fails to execute rather than executing with this origin's privileges.
+		// The comment on docsPage promises exactly this, and once promised it in
+		// markup that did not deliver it — which a reader had no way to notice.
+		// Whatever else changes about the page, this is the part that has to stay
+		// true, so it is asserted rather than described.
+		var fromCDN int
+
+		for _, tag := range tags {
+			if !strings.Contains(tag, "//unpkg.com/") {
+				continue
+			}
+
+			fromCDN++
+
+			test.StrContains(t, tag, `integrity="sha384-`,
+				test.Sprintf("CDN asset carries no digest: %s", tag))
+
+			// Without CORS the browser will not even attempt the comparison, so
+			// the digest above would be decorative.
+			test.StrContains(t, tag, `crossorigin="anonymous"`,
+				test.Sprintf("digest is unenforceable without CORS: %s", tag))
+		}
+
+		must.Positive(t, fromCDN)
 	})
 }
 
