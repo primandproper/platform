@@ -92,15 +92,16 @@ func TestPackager_CodecFailures(T *testing.T) {
 	T.Run("an export whose packaging fails is not stored", func(t *testing.T) {
 		t.Parallel()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterCollector("identity", staticCollector(`{"ok":true}`)))
-		}, WithWorkerCompressor(&brokenCompressor{}))
+		}, WithFulfillerCompressor(&brokenCompressor{}))
 
 		req := env.submitAndRun(t, RequestExport)
 
-		// A half-packaged artifact must not reach the bucket, and the request
-		// stays retryable rather than reporting a completed export.
-		test.EqOp(t, StatusPending, req.Status)
+		// A half-packaged artifact must not reach the bucket. The failure is
+		// retryable, so the row only records it on the final attempt — which is
+		// the one submitAndRun runs.
+		test.EqOp(t, StatusFailed, req.Status)
 		test.StrContains(t, req.LastError, "compressing")
 		test.SliceEmpty(t, env.uploader.paths())
 	})
@@ -122,8 +123,8 @@ type failingFailStore struct {
 	Store
 }
 
-func (s *failingFailStore) Fail(context.Context, string, int, time.Time, string, bool) error {
-	return platformerrors.New("the write replica is unreachable")
+func (s *failingFailStore) Fail(context.Context, string, string, time.Time) (bool, error) {
+	return false, platformerrors.New("the write replica is unreachable")
 }
 
 // failingMarkExpiredStore deletes fine but cannot update the row.
@@ -135,20 +136,22 @@ func (s *failingMarkExpiredStore) MarkExpired(context.Context, string, time.Time
 	return platformerrors.New("the write replica is unreachable")
 }
 
-func TestWorker_StoreFailurePaths(T *testing.T) {
+func TestFulfiller_StoreFailurePaths(T *testing.T) {
 	T.Parallel()
 
 	T.Run("a failed completion leaves the artifact for a retry to overwrite", func(t *testing.T) {
 		t.Parallel()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterCollector("identity", staticCollector(`{"ok":true}`)))
 		})
 
 		req := saveRequest(t, env.store, newRequest(identifiers.New(), RequestExport, testSubject, env.clock.read()))
 
-		env.worker.store = &failingCompletionStore{Store: env.store}
-		env.worker.cycle(t.Context())
+		env.fulfiller.store = &failingCompletionStore{Store: env.store}
+
+		_, err := env.run(t, req.ID, RequestExport, newFinalReporter())
+		must.Error(t, err)
 
 		// The object is written even though the row was never updated. The
 		// reference is derived from the request ID rather than random, so the
@@ -161,17 +164,20 @@ func TestWorker_StoreFailurePaths(T *testing.T) {
 	T.Run("a failure that cannot itself be recorded is survivable", func(t *testing.T) {
 		t.Parallel()
 
-		env := newWorkerEnv(t, func(r *Registry) {
+		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterCollector("identity", failingCollector(platformerrors.New("down"))))
 		})
 
-		saveRequest(t, env.store, newRequest(identifiers.New(), RequestExport, testSubject, env.clock.read()))
+		req := saveRequest(t, env.store, newRequest(identifiers.New(), RequestExport, testSubject, env.clock.read()))
 
-		// The lease still expires on its own, so the request is retried
-		// regardless — just later than intended. What must not happen is a
-		// panic taking the whole batch down.
-		env.worker.store = &failingFailStore{Store: env.store}
-		env.worker.cycle(t.Context())
+		// The operation records the failure on its own row regardless, so what
+		// is lost is only this package's copy of it. What must not happen is a
+		// panic, or the runner swallowing the cause it was about to return.
+		env.fulfiller.store = &failingFailStore{Store: env.store}
+
+		_, err := env.run(t, req.ID, RequestExport, newFinalReporter())
+		must.Error(t, err)
+		test.ErrorIs(t, err, ErrEverySectionFailed)
 	})
 }
 
@@ -315,7 +321,7 @@ func TestRegistry_EraserValidation(T *testing.T) {
 	})
 }
 
-func TestNewWorker_NilArguments(T *testing.T) {
+func TestNewFulfiller_NilArguments(T *testing.T) {
 	T.Parallel()
 
 	T.Run("refuses a nil config, store, and registry", func(t *testing.T) {
@@ -324,13 +330,23 @@ func TestNewWorker_NilArguments(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store := env.newStore(t)
 
-		_, err := NewWorker(t.Context(), nil, store, NewRegistry())
+		_, err := NewFulfiller(t.Context(), nil, store, NewRegistry())
 		test.Error(t, err)
 
-		_, err = NewWorker(t.Context(), &WorkerConfig{}, nil, NewRegistry())
+		_, err = NewFulfiller(t.Context(), &FulfillerConfig{}, nil, NewRegistry())
 		test.ErrorIs(t, err, ErrNilStore)
 
-		_, err = NewWorker(t.Context(), &WorkerConfig{}, store, nil)
+		_, err = NewFulfiller(t.Context(), &FulfillerConfig{}, store, nil)
 		test.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
+	})
+
+	T.Run("refuses to register into a nil operations registry", func(t *testing.T) {
+		t.Parallel()
+
+		env := newFulfillerEnv(t, func(r *Registry) {
+			must.NoError(t, r.RegisterCollector("identity", staticCollector(`{}`)))
+		})
+
+		test.ErrorIs(t, env.fulfiller.Register(nil), platformerrors.ErrNilInputParameter)
 	})
 }

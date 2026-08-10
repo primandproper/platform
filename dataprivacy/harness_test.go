@@ -21,6 +21,8 @@ import (
 	"github.com/primandproper/platform-go/v10/database/sqlite"
 	"github.com/primandproper/platform-go/v10/dataprivacy/migrations"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/operations"
+	operationsmock "github.com/primandproper/platform-go/v10/operations/mock"
 	"github.com/primandproper/platform-go/v10/uploads"
 
 	"github.com/shoenig/test/must"
@@ -145,16 +147,222 @@ func saveRequest(t *testing.T, store Store, req *Request) *Request {
 	return req
 }
 
-// newRequest builds a pending request of the given type.
+// newRequest builds an in-progress request of the given type, as Submit leaves
+// one: an operation exists and is fulfilling it.
 func newRequest(id string, t RequestType, subject Subject, at time.Time) *Request {
 	return &Request{
 		ID:          id,
 		Type:        t,
 		Subject:     subject,
-		Status:      StatusPending,
+		Status:      StatusInProgress,
+		OperationID: "op-" + id,
 		RequestedAt: at,
 		DueAt:       at.Add(DefaultResponseWindow),
 	}
+}
+
+// recordingReporter is a Reporter that records what a Runner said.
+//
+// It is hand-written rather than generated for the reason operations/mock gives:
+// a test of a Runner wants to observe what the Runner reported, and the honest
+// way to do that is a small recording implementation of methods that only
+// append.
+type recordingReporter struct {
+	cancelled chan struct{}
+
+	units    []string
+	messages []string
+
+	attempt operations.Attempt
+
+	mu sync.Mutex
+
+	count     int64
+	total     int
+	unitsDone int
+	totalSet  bool
+}
+
+var _ operations.Reporter = (*recordingReporter)(nil)
+
+func newRecordingReporter(attempt operations.Attempt) *recordingReporter {
+	return &recordingReporter{cancelled: make(chan struct{}), attempt: attempt}
+}
+
+// newFinalReporter is the reporter for a test that wants a failure recorded
+// rather than retried, which is most of them: the retry path writes nothing to
+// the request row, so a non-final attempt leaves nothing to assert on.
+func newFinalReporter() *recordingReporter {
+	return newRecordingReporter(operations.Attempt{ID: "op-1", Number: DefaultMaxAttempts, Final: true})
+}
+
+func (r *recordingReporter) SetUnits(total int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.total, r.totalSet = total, true
+}
+
+func (r *recordingReporter) StartUnit(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.units = append(r.units, name)
+}
+
+func (r *recordingReporter) FinishUnit() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.unitsDone++
+}
+
+func (r *recordingReporter) Advance(n int64) {
+	if n <= 0 {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.count += n
+}
+
+func (r *recordingReporter) Sayf(format string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.messages = append(r.messages, fmt.Sprintf(format, args...))
+}
+
+func (r *recordingReporter) Cancelled() <-chan struct{} { return r.cancelled }
+
+func (r *recordingReporter) Attempt() operations.Attempt { return r.attempt }
+
+// cancel asks the runner to stop, as a flush that observed the row's
+// cancellation flag would.
+func (r *recordingReporter) cancel() { close(r.cancelled) }
+
+// progress reads the tiers back under the lock.
+func (r *recordingReporter) progress() (total int, totalSet bool, unitsDone int, count int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.total, r.totalSet, r.unitsDone, r.count
+}
+
+// startedUnits reports the units a runner opened, sorted, since a concurrent
+// fan-out opens them in whatever order the pool hands out slots.
+func (r *recordingReporter) startedUnits() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return slices.Sorted(slices.Values(r.units))
+}
+
+// stubOperations is an operations.Service that records what was started and
+// hands back plausible operations.
+//
+// The dataprivacy Service only ever asks it to start, enqueue, and cancel, so
+// the rest of the interface is left to the generated mock's nil funcs — which
+// panic if anything reaches them, which is the point.
+type stubOperations struct {
+	*operationsmock.ServiceMock
+
+	startErr    error
+	enqueueErr  error
+	cancelErr   error
+	started     []startedOperation
+	enqueued    []string
+	cancelled   []string
+	nextIDIndex atomic.Int64
+
+	mu sync.Mutex
+}
+
+// startedOperation is one call to StartInTransaction.
+//
+// It records the kind and the request and not the options, because a
+// StartOption is an opaque closure over an unexported struct and there is no
+// honest way to read one back. That the operation's owner is the subject is
+// asserted where a real operations Service is wired, in the container tests.
+type startedOperation struct {
+	request any
+	kind    string
+}
+
+func newStubOperations() *stubOperations {
+	s := &stubOperations{ServiceMock: &operationsmock.ServiceMock{}}
+
+	s.StartInTransactionFunc = func(
+		_ context.Context,
+		_ database.SQLQueryExecutor,
+		kind string,
+		request any,
+		_ ...operations.StartOption,
+	) (*operations.Operation, error) {
+		if s.startErr != nil {
+			return nil, s.startErr
+		}
+
+		op := &operations.Operation{
+			ID:    fmt.Sprintf("op-%d", s.nextIDIndex.Add(1)),
+			Kind:  kind,
+			State: operations.StatePending,
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		s.started = append(s.started, startedOperation{kind: kind, request: request})
+
+		return op, nil
+	}
+
+	s.EnqueueFunc = func(_ context.Context, id string, _ ...operations.StartOption) error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		s.enqueued = append(s.enqueued, id)
+
+		return s.enqueueErr
+	}
+
+	s.CancelFunc = func(_ context.Context, id string) (*operations.Operation, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		s.cancelled = append(s.cancelled, id)
+
+		if s.cancelErr != nil {
+			return nil, s.cancelErr
+		}
+
+		return &operations.Operation{ID: id, State: operations.StateCancelled}, nil
+	}
+
+	return s
+}
+
+func (s *stubOperations) startedOperations() []startedOperation {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.started)
+}
+
+func (s *stubOperations) enqueuedIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.enqueued)
+}
+
+func (s *stubOperations) cancelledIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.cancelled)
 }
 
 // testSubject is the subject most of this suite is about.
@@ -294,16 +502,6 @@ func countingEraser(deleted, anonymized int64, retained map[string]string, ran *
 
 		return ErasureOutcome{Deleted: deleted, Anonymized: anonymized, Retained: retained}, nil
 	})
-}
-
-// failingClaimStore fails every Claim, so a cycle's error path is reachable.
-// Embedding the real Store means only the one method under test is a double.
-type failingClaimStore struct {
-	Store
-}
-
-func (s *failingClaimStore) Claim(context.Context, time.Time, int, time.Time) ([]*Request, error) {
-	return nil, platformerrors.New("the database is unreachable")
 }
 
 // failingOverdueStore fails only the overdue count, so a sweep's other chores

@@ -1,14 +1,20 @@
 /*
 Package dataprivacycfg assembles the data privacy machinery from environment
 configuration: the Store every part shares, the Service applications submit
-through, the Worker that fulfills, and the Sweeper that expires.
+through, the Fulfiller that does the work, and the Sweeper that expires.
 
 All four read one Config, so the dialect and table prefix the Service writes to
-are by construction the ones the Worker claims from and the Sweeper expires.
+are by construction the ones the Fulfiller reads and the Sweeper expires.
 
-The registry is not configured here. Which domains hold data about a person is
-Go code — a set of interface implementations — and there is no useful way to
-express it in the environment. It is passed explicitly to NewWorker.
+There is no worker here, and that is the point of the port onto operations. The
+loop that used to claim, lease, retry, and back off privacy requests is an
+operations.Worker now, configured in operations/config and shared with every
+other long-running thing in the application. What this package builds is the two
+runners that worker calls, and the Service that starts operations for it.
+
+The registry is not configured here either. Which domains hold data about a
+person is Go code — a set of interface implementations — and there is no useful
+way to express it in the environment. It is passed explicitly to NewFulfiller.
 */
 package dataprivacycfg
 
@@ -23,12 +29,13 @@ import (
 	"github.com/primandproper/platform-go/v10/dataprivacy"
 	"github.com/primandproper/platform-go/v10/dataprivacy/auditerasure"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/uploads"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-// Config assembles a dataprivacy Store, Service, Worker, and Sweeper.
+// Config assembles a dataprivacy Store, Service, Fulfiller, and Sweeper.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
@@ -43,8 +50,8 @@ type Config struct {
 	// AuditErasure configures the audit log's own eraser.
 	AuditErasure AuditErasureConfig `env:",init" envPrefix:"AUDIT_ERASURE_" json:"auditErasure,omitzero" yaml:"auditErasure,omitempty"`
 
-	// Worker carries the fulfillment loop's knobs.
-	Worker dataprivacy.WorkerConfig `env:",init" envPrefix:"WORKER_" json:"worker,omitzero" yaml:"worker,omitempty"`
+	// Fulfiller carries the two runners' knobs.
+	Fulfiller dataprivacy.FulfillerConfig `env:",init" envPrefix:"FULFILLER_" json:"fulfiller,omitzero" yaml:"fulfiller,omitempty"`
 
 	// Service carries the request state machine's timings.
 	Service dataprivacy.ServiceConfig `env:",init" envPrefix:"SERVICE_" json:"service,omitzero" yaml:"service,omitempty"`
@@ -103,7 +110,7 @@ func (cfg *Config) EnsureDefaults() {
 	}
 
 	cfg.Service.EnsureDefaults()
-	cfg.Worker.EnsureDefaults()
+	cfg.Fulfiller.EnsureDefaults()
 	cfg.Sweeper.EnsureDefaults()
 }
 
@@ -124,8 +131,8 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Service, validation.By(func(any) error {
 			return cfg.Service.ValidateWithContext(ctx)
 		})),
-		validation.Field(&cfg.Worker, validation.By(func(any) error {
-			return cfg.Worker.ValidateWithContext(ctx)
+		validation.Field(&cfg.Fulfiller, validation.By(func(any) error {
+			return cfg.Fulfiller.ValidateWithContext(ctx)
 		})),
 		validation.Field(&cfg.Sweeper, validation.By(func(any) error {
 			return cfg.Sweeper.ValidateWithContext(ctx)
@@ -184,12 +191,17 @@ func NewStore(
 
 // NewService builds the Service applications submit through.
 //
+// ops must be an operations Service over a registry this package's kinds are
+// registered in — see NewFulfiller and dataprivacy.Fulfiller.Register — because
+// starting an operation resolves its kind at submission.
+//
 // Explicit options run after the config-derived ones, so a caller can still
 // override anything.
 func NewService(
 	ctx context.Context,
 	cfg *Config,
 	store dataprivacy.Store,
+	ops operations.Service,
 	opts ...Option,
 ) (dataprivacy.Service, error) {
 	o := newOptions(opts)
@@ -210,30 +222,34 @@ func NewService(
 		base = append(base, dataprivacy.WithServiceMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewService(ctx, &cfg.Service, store, append(base, o.service...)...)
+	return dataprivacy.NewService(ctx, &cfg.Service, store, ops, append(base, o.service...)...)
 }
 
-// NewWorker builds the Worker that fulfills requests.
+// NewFulfiller builds the Fulfiller behind this package's operation kinds, and
+// registers them into registry so an operations.Worker over the same registry
+// can run them.
 //
-// The registry is a required argument rather than a config field: which domains
-// hold data about a person is Go code. A worker with an empty registry is
-// refused by dataprivacy.NewWorker, which is the correct failure but a
-// confusing one to debug, so it is passed explicitly here.
+// Registering here rather than leaving it to the caller is what keeps the two
+// halves of the wiring from drifting: a Fulfiller nobody registered is a set of
+// runners nothing calls, and the symptom is a queue of operations failing with
+// operations.CodeUnknownKind.
 //
-// uploader may be nil for an erasure-only worker. encrypted must say whether
-// artifacts are written encrypted — it decides whether a notification can carry
-// a download link at all, and it is a bool rather than the encryptor itself
-// because this constructor never encrypts anything, it only needs to know.
-// Pass the encryptor through EnsurePackaging.
-func NewWorker(
+// domains is a required argument rather than a config field: which domains hold
+// data about a person is Go code. uploader may be nil for an erasure-only
+// deployment. encrypted must say whether artifacts are written encrypted — it
+// decides whether a notification can carry a download link at all, and it is a
+// bool rather than the encryptor itself because this constructor never encrypts
+// anything, it only needs to know. Pass the encryptor through EnsurePackaging.
+func NewFulfiller(
 	ctx context.Context,
 	cfg *Config,
 	store dataprivacy.Store,
-	registry *dataprivacy.Registry,
+	domains *dataprivacy.Registry,
+	registry *operations.Registry,
 	uploader uploads.UploadManager,
 	encrypted bool,
 	opts ...Option,
-) (*dataprivacy.Worker, error) {
+) (*dataprivacy.Fulfiller, error) {
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
@@ -241,30 +257,39 @@ func NewWorker(
 		return nil, err
 	}
 
-	var base []dataprivacy.WorkerOption
+	var base []dataprivacy.FulfillerOption
 	if uploader != nil {
 		// Wired here so a completion notification carries a working link
 		// without the caller assembling the signer by hand — and so its TTL is
 		// by construction the one Service.Download would have used.
 		base = append(base,
-			dataprivacy.WithWorkerUploadManager(uploader),
-			dataprivacy.WithWorkerURLSigner(dataprivacy.NewArtifactURLSigner(
+			dataprivacy.WithFulfillerUploadManager(uploader),
+			dataprivacy.WithFulfillerURLSigner(dataprivacy.NewArtifactURLSigner(
 				uploader, cfg.Service.SignedURLTTL, encrypted,
 			)),
 		)
 	}
 
 	if logger != nil {
-		base = append(base, dataprivacy.WithWorkerLogger(logger))
+		base = append(base, dataprivacy.WithFulfillerLogger(logger))
 	}
 	if tracerProvider != nil {
-		base = append(base, dataprivacy.WithWorkerTracerProvider(tracerProvider))
+		base = append(base, dataprivacy.WithFulfillerTracerProvider(tracerProvider))
 	}
 	if metricsProvider != nil {
-		base = append(base, dataprivacy.WithWorkerMetricsProvider(metricsProvider))
+		base = append(base, dataprivacy.WithFulfillerMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewWorker(ctx, &cfg.Worker, store, registry, append(base, o.worker...)...)
+	fulfiller, err := dataprivacy.NewFulfiller(ctx, &cfg.Fulfiller, store, domains, append(base, o.fulfiller...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = fulfiller.Register(registry); err != nil {
+		return nil, err
+	}
+
+	return fulfiller, nil
 }
 
 // NewSweeper builds the Sweeper. Register its Job with a jobs.Scheduler; see
@@ -336,8 +361,8 @@ func RegisterAuditEraser(
 	return true, nil
 }
 
-// EnsurePackaging returns the compressor and encryptor pair the Worker writes
-// artifacts with and the Service reads them with.
+// EnsurePackaging returns the compressor and encryptor pair the Fulfiller
+// writes artifacts with and the Service reads them with.
 //
 // It exists so the two cannot be configured apart. An artifact written with one
 // compressor and read with another is unreadable, and the failure surfaces at
@@ -345,16 +370,16 @@ func RegisterAuditEraser(
 func EnsurePackaging(
 	compressor compression.Compressor,
 	encryptorDecryptor encryption.EncryptorDecryptor,
-) (workerOpts []dataprivacy.WorkerOption, serviceOpts []dataprivacy.ServiceOption) {
+) (fulfillerOpts []dataprivacy.FulfillerOption, serviceOpts []dataprivacy.ServiceOption) {
 	if compressor != nil {
-		workerOpts = append(workerOpts, dataprivacy.WithWorkerCompressor(compressor))
+		fulfillerOpts = append(fulfillerOpts, dataprivacy.WithFulfillerCompressor(compressor))
 		serviceOpts = append(serviceOpts, dataprivacy.WithServiceCompressor(compressor))
 	}
 
 	if encryptorDecryptor != nil {
-		workerOpts = append(workerOpts, dataprivacy.WithWorkerEncryptor(encryptorDecryptor))
+		fulfillerOpts = append(fulfillerOpts, dataprivacy.WithFulfillerEncryptor(encryptorDecryptor))
 		serviceOpts = append(serviceOpts, dataprivacy.WithServiceDecryptor(encryptorDecryptor))
 	}
 
-	return workerOpts, serviceOpts
+	return fulfillerOpts, serviceOpts
 }

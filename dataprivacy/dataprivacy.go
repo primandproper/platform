@@ -40,10 +40,17 @@ const (
 	retainedKey     = "dataprivacy.retained"
 	shreddedKey     = "dataprivacy.key_shredded"
 	keyDestroyedKey = "dataprivacy.key_destroyed"
-	claimedKey      = "dataprivacy.claimed"
 	expiredKey      = "dataprivacy.expired"
 	overdueKey      = "dataprivacy.overdue"
 	sweptKey        = "dataprivacy.swept"
+	finalKey        = "dataprivacy.final_attempt"
+
+	// operationIDKey is namespaced to this package rather than reusing the
+	// operations. prefix, because on a dataprivacy span it answers "which
+	// operation is fulfilling this request" — a fact about the request. The
+	// operations spans carry their own, and a trace that spans both wants to see
+	// the same value from two vantage points rather than one attribute set twice.
+	operationIDKey = "dataprivacy.operation_id"
 
 	// Store-layer keys. The database client traces the statement, but with the
 	// SQL text suppressed by default — so without these a trace shows an
@@ -52,14 +59,11 @@ const (
 	fromStatusKey   = "dataprivacy.from_status"
 	rowsAffectedKey = "dataprivacy.rows_affected"
 	guardMissedKey  = "dataprivacy.guard_missed"
-	selectedKey     = "dataprivacy.selected"
 	resultCountKey  = "dataprivacy.result_count"
 	resultTotalKey  = "dataprivacy.result_total"
 	limitKey        = "dataprivacy.limit"
 	lapsedKey       = "dataprivacy.lapsed"
 	reapedKey       = "dataprivacy.reaped"
-	attemptsKey     = "dataprivacy.attempts"
-	terminalKey     = "dataprivacy.terminal"
 )
 
 var (
@@ -77,6 +81,22 @@ var (
 
 	// ErrNilRequest indicates a nil *Request.
 	ErrNilRequest = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil dataprivacy request")
+
+	// ErrNilOperations indicates a Service built without an operations.Service.
+	//
+	// It has no default. A Service that could not start operations would record
+	// requests nothing ever fulfills, which looks exactly like a working Service
+	// until a subject's statutory window runs out.
+	ErrNilOperations = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil dataprivacy operations service")
+
+	// ErrNotInProgress indicates a runner whose request row is not in
+	// StatusInProgress.
+	//
+	// It means the request left the state the runner was started for while the
+	// operation was queued or running: cancelled, already completed by an
+	// earlier attempt, or reaped. It is unretryable — none of those become
+	// StatusInProgress again by waiting.
+	ErrNotInProgress = platformerrors.New("dataprivacy request is not in progress")
 
 	// ErrEmptySubjectID indicates a Subject with no ID. Every request is about
 	// somebody, and a request about nobody would fan out over every collector
@@ -202,31 +222,50 @@ func (t RequestType) Valid() bool {
 //
 // The transitions between these are diagrammed in the package overview.
 //
-// expired is reachable only from completed, and only for an export: it is the
-// state in which the artifact has been deleted and the record of the request
-// survives. It is the state people forget, and it is the one that decides
-// whether a file containing everything you know about a person is a temporary
-// artifact or a permanent object in a bucket.
+// It is not the operation's state and does not mirror it. The operation says how
+// the current attempt is going — pending, running, how many units in, which
+// attempt — and is reaped on its own retention. This says what the request is,
+// as the statutory record of it: whether somebody still has to confirm it,
+// whether it was fulfilled, and whether the artifact it produced still exists.
+// Those are different questions with different lifetimes, and collapsing them
+// into one column would have the record of a request somebody made three years
+// ago disappear along with the progress bar.
+//
+// The one state to dwell on is expired. It is reachable only from completed, and
+// only for an export, and it is the state people forget. An export artifact
+// contains everything an application knows about a person; without an expiry it
+// is a permanent object in a bucket.
 type Status string
 
 const (
 	// StatusAwaitingConfirmation is an erasure that has been submitted but not
-	// yet confirmed. Reachable only when a confirmation window is configured.
+	// yet confirmed. Reachable only when a confirmation window is configured,
+	// and the one state in which no operation exists yet.
 	StatusAwaitingConfirmation Status = "awaiting_confirmation"
-	// StatusPending is a request waiting to be claimed.
-	StatusPending Status = "pending"
-	// StatusProcessing is a request a worker has leased and is fulfilling.
-	StatusProcessing Status = "processing"
+	// StatusInProgress is a request an operation is fulfilling.
+	//
+	// It covers what used to be two states, pending and processing, because the
+	// difference between them is now the operation's to record and this row
+	// genuinely does not know it: whether a worker has picked the operation up,
+	// which attempt it is on, and how far through the domains it has got are all
+	// answers Request.OperationID points at.
+	StatusInProgress Status = "in_progress"
 	// StatusCompleted is a request that was fulfilled. An export in this state
 	// has an ArtifactRef; it may also have Failures, which is what a partial
 	// export looks like.
 	StatusCompleted Status = "completed"
-	// StatusFailed is a request that could not be fulfilled at all.
+	// StatusFailed is a request whose operation gave up: it exhausted its
+	// attempts, or failed for a reason no retry would fix.
+	//
+	// It is written by the runner on its final attempt rather than by the
+	// operations worker, which knows the operation failed and has no notion of
+	// the request behind it. See operations.Attempt.
 	StatusFailed Status = "failed"
 	// StatusExpired is a completed export whose artifact has been deleted.
 	StatusExpired Status = "expired"
-	// StatusCancelled is an erasure that was never confirmed — withdrawn by the
-	// subject, or left to sit until its confirmation window lapsed.
+	// StatusCancelled is a request that was withdrawn: an erasure nobody
+	// confirmed before its window lapsed, one the subject cancelled, or one
+	// stopped mid-flight through the operation's cancellation.
 	StatusCancelled Status = "cancelled"
 )
 
@@ -235,8 +274,19 @@ func (s Status) Terminal() bool {
 	switch s {
 	case StatusCompleted, StatusFailed, StatusExpired, StatusCancelled:
 		return true
-	case StatusAwaitingConfirmation, StatusPending, StatusProcessing:
+	case StatusAwaitingConfirmation, StatusInProgress:
 		return false
+	default:
+		return false
+	}
+}
+
+// Valid reports whether s is a status this package writes.
+func (s Status) Valid() bool {
+	switch s {
+	case StatusAwaitingConfirmation, StatusInProgress,
+		StatusCompleted, StatusFailed, StatusExpired, StatusCancelled:
+		return true
 	default:
 		return false
 	}
@@ -263,7 +313,7 @@ type Request struct {
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 
 	// KeyShreddedAt is when this subject's data key was destroyed, for an
-	// erasure fulfilled by a Worker with a shredder configured. Nil otherwise,
+	// erasure fulfilled by a Fulfiller with a shredder configured. Nil otherwise,
 	// which covers three different situations worth telling apart: no shredder
 	// is wired, the request is scoped and therefore cannot shred, or the erasure
 	// has not run yet. Retained says which of the first two it was.
@@ -291,6 +341,17 @@ type Request struct {
 	// ID identifies the request.
 	ID string `json:"id"`
 
+	// OperationID names the operation fulfilling this request, and is what a
+	// client polls for progress. Empty only while an erasure awaits
+	// confirmation, because until somebody confirms it there is nothing running.
+	//
+	// It is a separate identifier rather than the request's own, and the two are
+	// deliberately not made equal. They are different objects with different
+	// lifetimes: the operation is reaped on operations.Config.Retention — weeks —
+	// and this record is kept for years, so an ID that meant both would go on
+	// resolving to one of them long after it stopped resolving to the other.
+	OperationID string `json:"operationID,omitempty"`
+
 	// ArtifactRef is the uploads path of the export artifact. Empty for an
 	// erasure, for an incomplete export, and for an expired one — the path is
 	// cleared when the object is deleted, so a stale reference cannot outlive
@@ -298,6 +359,11 @@ type Request struct {
 	ArtifactRef string `json:"artifactRef,omitempty"`
 
 	// LastError is why a failed request failed, rendered. Empty otherwise.
+	//
+	// The operation carries the same failure in a shape a client can branch on,
+	// and carries it better — a stable code rather than a string. This is the
+	// copy that survives the operation being reaped, for the record that has to
+	// last three years.
 	LastError string `json:"lastError,omitempty"`
 
 	// Subject is who the request is about.
@@ -316,11 +382,6 @@ type Request struct {
 	// Deleted and Anonymized are the erasure totals summed across every eraser.
 	Deleted    int64 `json:"deleted,omitempty"`
 	Anonymized int64 `json:"anonymized,omitempty"`
-
-	// Attempts is how many times a worker has claimed this request. It is
-	// incremented at claim rather than at failure, so a request that reliably
-	// kills its worker eventually fails instead of being reclaimed forever.
-	Attempts int `json:"attempts"`
 }
 
 // Partial reports whether a completed request left something uncollected or
@@ -343,6 +404,92 @@ func (r *Request) Overdue(now time.Time) bool {
 	return now.After(r.DueAt)
 }
 
+// The operation kinds this package registers. They are written into every
+// operation row this package starts, so they are stable by contract: renaming
+// one strands every operation already queued under the old name, which the
+// operations worker fails with operations.CodeUnknownKind.
+const (
+	// KindExport is the operations kind that collects, packages, and delivers a
+	// subject access request.
+	KindExport = "dataprivacy.export"
+
+	// KindErasure is the operations kind that shreds and erases.
+	KindErasure = "dataprivacy.erasure"
+)
+
+// KindFor names the operation kind that fulfills a request type, and reports
+// whether there is one.
+func KindFor(t RequestType) (string, bool) {
+	switch t {
+	case RequestExport:
+		return KindExport, true
+	case RequestErasure:
+		return KindErasure, true
+	default:
+		return "", false
+	}
+}
+
+// Job is the operation request both of this package's kinds are started with.
+//
+// It carries the request ID and nothing else, and that is deliberate. The
+// operation row stores its request encoded in a column, and everything else
+// about a privacy request — who it is about, what scope it covers — is exactly
+// the material this package works hardest to keep out of places it does not need
+// to be. The runner reads the request row, which is the one place that data has
+// to live.
+//
+// It also means there is one source of truth for what the request says. A
+// subject copied into the operation at submission and read back an hour later
+// would be a second copy that nothing keeps current.
+type Job struct {
+	// RequestID names the dataprivacy request this operation fulfills.
+	RequestID string `json:"requestID"`
+}
+
+// ExportSummary is what a completed export records in operations.Result.Detail,
+// beside the artifact's key in Result.URI.
+//
+// It is deliberately narrower than Manifest, in two ways. It omits the subject,
+// because the manifest travels inside the artifact — which is delivered to that
+// person — and this travels in the operations table, read by a status endpoint
+// that already knows who is asking. And it omits the section list, because the
+// artifact's own manifest is the authority on what is in it.
+//
+// What is left is exactly what the request row holds, and that is the property
+// worth having: a duplicate execution that finds the export already recorded can
+// rebuild this summary from the row rather than reporting a thinner one than the
+// attempt that did the work.
+type ExportSummary struct {
+	// GeneratedAt is when the artifact was assembled.
+	GeneratedAt time.Time `json:"generatedAt"`
+
+	// Failures maps a section name to why it is missing. Absent when the export
+	// was complete, present — and the reason this type is worth having — when it
+	// is a partial export that was delivered anyway.
+	Failures map[string]string `json:"failures,omitempty"`
+
+	// Bytes is the stored size of the artifact, after compression and
+	// encryption.
+	Bytes int64 `json:"bytes"`
+}
+
+// ErasureSummary is what a completed erasure records in
+// operations.Result.Detail. There is no Result.URI: an erasure produces no
+// artifact, which is the whole of what distinguishes it from an export here.
+type ErasureSummary struct {
+	// KeyShreddedAt is when the subject's data key was destroyed, or nil when no
+	// shredder was configured or the request was scoped. Retained says which.
+	KeyShreddedAt *time.Time `json:"keyShreddedAt,omitempty"`
+
+	// Retained records, per eraser key, what was kept and why.
+	Retained map[string]string `json:"retained,omitempty"`
+
+	// Deleted and Anonymized are the totals summed across every eraser.
+	Deleted    int64 `json:"deleted"`
+	Anonymized int64 `json:"anonymized"`
+}
+
 // Collector produces one domain's view of a subject.
 //
 // Collect returns already-encoded JSON rather than a value to be marshaled, and
@@ -363,7 +510,7 @@ func (r *Request) Overdue(now time.Time) bool {
 //
 // There is deliberately no as-of time in this signature, and it is worth being
 // clear about what that means. A fragment is the domain's state at the instant
-// Collect ran, which is when a Worker got to the request — not when the subject
+// Collect ran, which is when a worker got to the operation — not when the subject
 // asked. The two differ by the queue depth plus any retries, and because
 // collectors run concurrently they differ from each other as well: an artifact
 // is a smear across the collection window rather than a snapshot at any one
@@ -439,12 +586,26 @@ type ErasureOutcome struct {
 // Fulfillment is deliberately not on this interface. A Submit that collected
 // eleven domains inline would tie a regulatory obligation to the lifetime of an
 // HTTP request, and the one guarantee a subject access request needs is that it
-// survives the process that accepted it. Submit writes a row; a Worker
-// fulfills it.
+// survives the process that accepted it. Submit writes a row and starts an
+// operation; an operations Worker runs it.
+//
+// There is no status endpoint here either, and there deliberately is not one.
+// "How far along is my export" is answered by operations/http against
+// Request.OperationID — the same endpoint, the same shape, and the same event
+// stream every other long-running thing in the application already uses.
 type Service interface {
-	// Submit records a new request and returns it. An erasure submitted to a
-	// Service with a confirmation window returns StatusAwaitingConfirmation and
-	// does nothing further until Confirm.
+	// Submit records a new request, starts the operation that fulfills it, and
+	// returns the request with Request.OperationID set.
+	//
+	// The row and the operation are written in one transaction, so a process
+	// that dies between them leaves neither. The enqueue that follows is not,
+	// and cannot be — see operations.Service.StartInTransaction — so a request
+	// submitted at exactly the wrong moment waits for the operations recovery
+	// sweep rather than for a worker. It is recorded and readable throughout.
+	//
+	// An erasure submitted to a Service with a confirmation window returns
+	// StatusAwaitingConfirmation and an empty OperationID, and nothing runs
+	// until Confirm.
 	Submit(ctx context.Context, subject Subject, t RequestType) (*Request, error)
 
 	// Get reads one request. It returns an error wrapping ErrRequestNotFound
@@ -460,12 +621,25 @@ type Service interface {
 	// generated identifiers is submission order.
 	List(ctx context.Context, subject Subject, f *filtering.QueryFilter) (*filtering.QueryFilteredResult[Request], error)
 
-	// Confirm moves an erasure out of StatusAwaitingConfirmation and queues it.
+	// Confirm moves an erasure out of StatusAwaitingConfirmation and starts the
+	// operation that fulfills it, returning the request with OperationID set.
 	// It returns an error wrapping ErrNotAwaitingConfirmation for a request in
 	// any other state, including one whose window has already lapsed.
 	Confirm(ctx context.Context, requestID string) (*Request, error)
 
-	// Cancel withdraws an unconfirmed erasure.
+	// Cancel withdraws a request.
+	//
+	// An unconfirmed erasure is cancelled outright: nothing has begun and there
+	// is nothing to unwind. A request already in progress has its operation
+	// asked to stop, which is a request rather than a kill — the runner stops
+	// between domains, at a point it can describe, and marks this row cancelled
+	// when it does. So Cancel on an in-progress request returns it still
+	// StatusInProgress, and the operation is where the answer arrives.
+	//
+	// An erasure that has begun erasing may finish anyway, and that is the
+	// honest outcome rather than a gap: the erasers share one transaction and
+	// the shred that precedes them cannot be undone, so the last moment at which
+	// stopping means anything is before either has run.
 	Cancel(ctx context.Context, requestID string) (*Request, error)
 
 	// Download mints a time-limited URL for a completed export's artifact,

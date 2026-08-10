@@ -47,15 +47,20 @@ type Store interface {
 	// wrapping ErrRequestNotFound when no row matched — which covers both "no
 	// such request" and "the request was not in a state this transition applies
 	// to", so callers wrap it into whichever of the two their API means.
-	Transition(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []Status, to Status, at time.Time) (*Request, error)
-
-	// Claim leases the next batch of pending requests, moving them to
-	// StatusProcessing and incrementing their attempt counts.
 	//
-	// The attempt count is incremented here rather than on failure, so a request
-	// that reliably kills its worker — a collector that panics on one subject's
-	// data — eventually fails rather than being reclaimed forever.
-	Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*Request, error)
+	// operationID is recorded alongside the new status when it is non-empty,
+	// because the one transition that sets it — a confirmation, which starts the
+	// operation as it moves the row — must not be able to commit the status
+	// without the pointer to the thing now doing the work.
+	Transition(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		requestID string,
+		from []Status,
+		to Status,
+		operationID string,
+		at time.Time,
+	) (*Request, error)
 
 	// CompleteExport records a fulfilled export using the caller's executor: its
 	// artifact, that artifact's expiry, and any per-section failures.
@@ -88,9 +93,22 @@ type Store interface {
 	// destruction time back, and must not overwrite the record with a later one.
 	MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error
 
-	// Fail releases a request's lease. terminal moves it to StatusFailed;
-	// otherwise it returns to StatusPending, claimable again at nextAttempt.
-	Fail(ctx context.Context, requestID string, attempts int, nextAttempt time.Time, lastErr string, terminal bool) error
+	// Fail moves an in-progress request to StatusFailed, recording why, and
+	// reports whether it moved anything.
+	//
+	// It is called only on an operation's final attempt — see
+	// operations.Attempt — because that is the only moment at which "this
+	// request will not be fulfilled" is a true thing to write. Every earlier
+	// failure leaves the row in StatusInProgress, which is what it is: the
+	// operation is going to try again.
+	//
+	// False with a nil error means the row was not in StatusInProgress: it was
+	// cancelled, or completed by a duplicate execution that got there first. It
+	// is not an error, because in both of those the row already says something
+	// truer than "failed" — but the caller has to know, because telling a
+	// subject their request failed when it was cancelled is worse than telling
+	// them nothing.
+	Fail(ctx context.Context, requestID, lastErr string, at time.Time) (bool, error)
 
 	// ExpiringArtifacts returns completed exports whose artifacts are due for
 	// deletion. The sweeper deletes each object before calling MarkExpired, so

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/dataprivacy"
 	"github.com/primandproper/platform-go/v10/eventcapture"
 	"github.com/primandproper/platform-go/v10/jobs"
 	"github.com/primandproper/platform-go/v10/outbox"
@@ -63,8 +62,11 @@ type (
 // eventcapture.Recorder is generic, so Service cannot resolve one from an
 // injector — it joins through WithRunners like any application-owned loop. The
 // assertion is here anyway, because the convention it satisfies is the same.
+// operations.Worker is the exception, and the one this list would have hidden.
+// Its Run takes a context and returns an error, so it joins through
+// operationsRunner rather than directly — see that type for why neither side is
+// wrong about its shape.
 var (
-	_ Runner = (*dataprivacy.Worker)(nil)
 	_ Runner = (*eventcapture.Recorder[struct{}])(nil)
 	_ Runner = (*jobs.Pool)(nil)
 	_ Runner = (*jobs.Scheduler)(nil)

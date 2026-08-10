@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     id              VARCHAR(64) NOT NULL PRIMARY KEY,
     request_type    VARCHAR(32) NOT NULL,
     status          VARCHAR(32) NOT NULL,
+    operation_id    VARCHAR(64) NOT NULL DEFAULT '',
     subject_id      VARCHAR(255) NOT NULL,
     subject_type    VARCHAR(64) NOT NULL DEFAULT '',
     subject_scope   VARCHAR(255) NOT NULL DEFAULT '',
@@ -13,9 +14,6 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     due_at          DATETIME(6) NOT NULL,
     expires_at      DATETIME(6),
     completed_at    DATETIME(6),
-    next_attempt    DATETIME(6) NOT NULL,
-    claimed_until   DATETIME(6),
-    attempts        INT NOT NULL DEFAULT 0,
     artifact_ref    TEXT NOT NULL,
     artifact_bytes  BIGINT NOT NULL DEFAULT 0,
     deleted_rows    BIGINT NOT NULL DEFAULT 0,
@@ -26,12 +24,10 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     key_shredded_at DATETIME(6)
 );
 
--- MySQL has no partial indexes, so unlike the Postgres schema these cover the
--- whole table and the predicate columns lead. Every query these serve filters
--- on status first, so putting it in front keeps the index selective for the
--- same queries the partial clauses serve elsewhere.
-CREATE INDEX {{PREFIX}}dataprivacy_requests_claim_idx
-    ON {{PREFIX}}dataprivacy_requests (status, next_attempt, requested_at, id);
+-- MySQL has no partial indexes, so unlike the Postgres schema the ones below
+-- cover the whole table and the predicate columns lead. Every query they serve
+-- filters on status first, so putting it in front keeps the index selective for
+-- the same queries the partial clauses serve elsewhere.
 
 -- "What has been asked in this person's name." Leading with the subject rather
 -- than the time is what makes List a range scan instead of a filter over every

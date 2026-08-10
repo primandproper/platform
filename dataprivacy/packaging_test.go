@@ -152,7 +152,7 @@ func TestRequest_Overdue(T *testing.T) {
 	T.Run("an unfulfilled request past its deadline is overdue", func(t *testing.T) {
 		t.Parallel()
 
-		req := &Request{Status: StatusPending, DueAt: baseTime}
+		req := &Request{Status: StatusInProgress, DueAt: baseTime}
 
 		test.True(t, req.Overdue(baseTime.Add(time.Second)))
 		test.False(t, req.Overdue(baseTime.Add(-time.Second)))
@@ -171,7 +171,7 @@ func TestRequest_Overdue(T *testing.T) {
 	T.Run("a request with no deadline is never overdue", func(t *testing.T) {
 		t.Parallel()
 
-		req := &Request{Status: StatusPending}
+		req := &Request{Status: StatusInProgress}
 		test.False(t, req.Overdue(baseTime))
 	})
 
@@ -195,7 +195,7 @@ func TestStatus_Terminal(T *testing.T) {
 			test.True(t, status.Terminal(), test.Sprintf("status %s", status))
 		}
 
-		live := []Status{StatusAwaitingConfirmation, StatusPending, StatusProcessing}
+		live := []Status{StatusAwaitingConfirmation, StatusInProgress, StatusInProgress}
 		for _, status := range live {
 			test.False(t, status.Terminal(), test.Sprintf("status %s", status))
 		}

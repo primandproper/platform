@@ -25,7 +25,6 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 	t.Helper()
 
 	suiteSaveAndGet(t, env)
-	suiteClaim(t, env)
 	suiteTransition(t, env)
 	suiteCompletion(t, env)
 	suiteFail(t, env)
@@ -57,7 +56,6 @@ func suiteSaveAndGet(t *testing.T, env *storeEnv) {
 		req.ArtifactBytes = 4096
 		req.Deleted = 7
 		req.Anonymized = 3
-		req.Attempts = 2
 		req.LastError = "something went wrong"
 		req.Failures = map[string]string{"billing": "timed out"}
 		req.Retained = map[string]string{"invoices": "tax law"}
@@ -77,7 +75,7 @@ func suiteSaveAndGet(t *testing.T, env *storeEnv) {
 		test.EqOp(t, int64(4096), read.ArtifactBytes)
 		test.EqOp(t, int64(7), read.Deleted)
 		test.EqOp(t, int64(3), read.Anonymized)
-		test.EqOp(t, 2, read.Attempts)
+		test.EqOp(t, req.OperationID, read.OperationID)
 		test.EqOp(t, "something went wrong", read.LastError)
 		test.Eq(t, req.Failures, read.Failures)
 		test.Eq(t, req.Retained, read.Retained)
@@ -122,73 +120,6 @@ func suiteSaveAndGet(t *testing.T, env *storeEnv) {
 	})
 }
 
-func suiteClaim(t *testing.T, env *storeEnv) {
-	t.Helper()
-
-	t.Run("claims pending and increments attempts", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-
-		req := saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime))
-
-		claimed, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-		must.SliceLen(t, 1, claimed)
-
-		test.EqOp(t, req.ID, claimed[0].ID)
-		test.EqOp(t, StatusProcessing, claimed[0].Status)
-
-		// Read back through the claim rather than projected from before it: a
-		// worker deciding whether it has exhausted its budget from a
-		// pre-increment count would grant one attempt more than configured.
-		test.EqOp(t, 1, claimed[0].Attempts)
-	})
-
-	t.Run("a leased request is not re-claimed", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-
-		saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime))
-
-		first, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-		must.SliceLen(t, 1, first)
-
-		second, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-		test.SliceEmpty(t, second)
-	})
-
-	t.Run("awaiting confirmation is never claimed", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-
-		req := newRequest(identifiers.New(), RequestErasure, testSubject, baseTime)
-		req.Status = StatusAwaitingConfirmation
-		req.ExpiresAt = baseTime.Add(72 * time.Hour)
-		saveRequest(t, store, req)
-
-		claimed, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-		test.SliceEmpty(t, claimed)
-	})
-
-	t.Run("a request not yet due is not claimed", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-
-		saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime.Add(time.Hour)))
-
-		claimed, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-		test.SliceEmpty(t, claimed)
-	})
-}
-
 func suiteTransition(t *testing.T, env *storeEnv) {
 	t.Helper()
 
@@ -207,12 +138,16 @@ func suiteTransition(t *testing.T, env *storeEnv) {
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 			var err error
 			moved, err = store.Transition(t.Context(), q, req.ID,
-				[]Status{StatusAwaitingConfirmation}, StatusPending, baseTime)
+				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-9", baseTime)
 
 			return err
 		}))
 
-		test.EqOp(t, StatusPending, moved.Status)
+		test.EqOp(t, StatusInProgress, moved.Status)
+
+		// The operation is recorded by the same statement, so the row cannot
+		// become in progress without saying what is doing the work.
+		test.EqOp(t, "op-9", moved.OperationID)
 
 		// The confirmation window is cleared, or the lapse sweep would pick the
 		// row back up and cancel a request that was just confirmed.
@@ -228,7 +163,7 @@ func suiteTransition(t *testing.T, env *storeEnv) {
 
 		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 			_, txErr := store.Transition(t.Context(), q, req.ID,
-				[]Status{StatusAwaitingConfirmation}, StatusPending, baseTime)
+				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-9", baseTime)
 
 			return txErr
 		})
@@ -240,25 +175,28 @@ func suiteTransition(t *testing.T, env *storeEnv) {
 func suiteCompletion(t *testing.T, env *storeEnv) {
 	t.Helper()
 
-	t.Run("an export completion is guarded on processing", func(t *testing.T) {
+	t.Run("an export completion is guarded on the row being in progress", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
 
-		req := saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime))
-		req.ArtifactRef = "x.json"
-		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
+		cancelled := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
+		cancelled.Status = StatusCancelled
+		saveRequest(t, store, cancelled)
+		cancelled.ArtifactRef = "x.json"
+		cancelled.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 
-		// Still pending, never claimed: a completion here would resurrect a
-		// request the worker does not hold.
+		// A completion against a row that moved on would resurrect a request
+		// somebody withdrew — which is exactly what a long export racing a
+		// cancellation would otherwise do.
 		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
-			return store.CompleteExport(t.Context(), q, req, baseTime)
+			return store.CompleteExport(t.Context(), q, cancelled, baseTime)
 		})
 		test.True(t, errors.Is(err, ErrRequestNotFound))
 
-		claimed, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-		must.SliceLen(t, 1, claimed)
+		req := saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime))
+		req.ArtifactRef = "x.json"
+		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 			return store.CompleteExport(t.Context(), q, req, baseTime)
@@ -276,10 +214,6 @@ func suiteCompletion(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 
 		req := saveRequest(t, store, newRequest(identifiers.New(), RequestErasure, testSubject, baseTime))
-
-		claimed, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-		must.SliceLen(t, 1, claimed)
 
 		req.Deleted = 12
 		req.Anonymized = 4
@@ -301,51 +235,45 @@ func suiteCompletion(t *testing.T, env *storeEnv) {
 func suiteFail(t *testing.T, env *storeEnv) {
 	t.Helper()
 
-	t.Run("a retryable failure returns the request to pending", func(t *testing.T) {
+	t.Run("a failure is terminal and stamps completion", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
 
 		req := saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime))
 
-		_, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
+		// There is no retryable branch any more. The retry schedule and the
+		// attempt budget are the operation's, so the only failure this table
+		// records is the last one.
+		failed, err := store.Fail(t.Context(), req.ID, "fatal", baseTime)
 		must.NoError(t, err)
-
-		retryAt := baseTime.Add(time.Minute)
-		must.NoError(t, store.Fail(t.Context(), req.ID, 1, retryAt, "boom", false))
-
-		read, err := store.Get(t.Context(), req.ID)
-		must.NoError(t, err)
-		test.EqOp(t, StatusPending, read.Status)
-		test.EqOp(t, "boom", read.LastError)
-		test.Nil(t, read.CompletedAt)
-
-		// Not claimable until the backoff has elapsed.
-		claimed, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-		test.SliceEmpty(t, claimed)
-
-		claimed, err = store.Claim(t.Context(), retryAt, 10, retryAt.Add(time.Minute))
-		must.NoError(t, err)
-		test.SliceLen(t, 1, claimed)
-	})
-
-	t.Run("a terminal failure stamps completion", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-
-		req := saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime))
-
-		_, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
-		must.NoError(t, err)
-
-		must.NoError(t, store.Fail(t.Context(), req.ID, 3, baseTime, "fatal", true))
+		test.True(t, failed)
 
 		read, err := store.Get(t.Context(), req.ID)
 		must.NoError(t, err)
 		test.EqOp(t, StatusFailed, read.Status)
+		test.EqOp(t, "fatal", read.LastError)
 		must.NotNil(t, read.CompletedAt)
+	})
+
+	t.Run("a failure against a row that moved on writes nothing", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
+		req.Status = StatusCancelled
+		saveRequest(t, store, req)
+
+		// Cancelled, or completed by a duplicate execution that got there
+		// first: in both, the row already says something truer than "failed".
+		failed, err := store.Fail(t.Context(), req.ID, "fatal", baseTime)
+		must.NoError(t, err)
+		test.False(t, failed)
+
+		read, err := store.Get(t.Context(), req.ID)
+		must.NoError(t, err)
+		test.EqOp(t, StatusCancelled, read.Status)
 	})
 }
 

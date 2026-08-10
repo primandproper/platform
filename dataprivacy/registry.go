@@ -32,7 +32,7 @@ var validKey = charset.New(
 // what it gets, so adding one touches one call site and nothing else.
 //
 // A Registry is built during startup and read concurrently thereafter. It is
-// not safe to register into one that a Worker is already running against, and
+// not safe to register into one that a Fulfiller is already running against, and
 // nothing here pretends otherwise: registration is a wiring-time activity, and
 // a mutex would only make an ordering bug quieter.
 type Registry struct {

@@ -56,6 +56,16 @@ type Reporter interface {
 	// parsed and nothing branches on it.
 	Sayf(format string, args ...any)
 
+	// Attempt describes the execution this Runner is in: which operation, which
+	// attempt, and whether it is the last one. It is fixed for the life of the
+	// Runner.
+	//
+	// It is on this interface rather than a fourth parameter to Run because it
+	// is the same kind of thing as Cancelled — a fact about the execution rather
+	// than about the work — and because a Runner that does not care about
+	// retries should not have to name it in its signature.
+	Attempt() Attempt
+
 	// Cancelled closes when somebody has asked this operation to stop.
 	//
 	// A Runner is under no obligation to consult it, and one that does not
@@ -87,6 +97,10 @@ type reporter struct {
 
 	id string
 
+	// attempt is fixed at construction and read without a lock: nothing writes
+	// it after the reporter exists.
+	attempt Attempt
+
 	// progress is the buffer. Guarded by mu because a Runner may report from
 	// several goroutines — fanning out over units concurrently is exactly the
 	// shape this package is for — while the flush loop reads it.
@@ -112,9 +126,17 @@ type reporter struct {
 	// still its business.
 	lost bool
 
-	// started tracks whether a unit is currently open, so FinishUnit called
-	// twice, or without a StartUnit, does not inflate the numerator.
-	unitOpen bool
+	// unitsOpen counts the units currently started and not yet finished, so
+	// FinishUnit called twice, or without a StartUnit, does not inflate the
+	// numerator.
+	//
+	// It is a count rather than a flag because a Runner may have several units
+	// open at once — fanning out over them concurrently is a shape this package
+	// invites, and dataprivacy's collectors are the first thing to do it. With a
+	// flag, the first FinishUnit of an overlapping pair cleared it and the second
+	// counted nothing, so a nine-domain export with four running at a time
+	// reported about a third of the units it finished.
+	unitsOpen int
 }
 
 var _ Reporter = (*reporter)(nil)
@@ -126,17 +148,28 @@ var _ Reporter = (*reporter)(nil)
 // that started from nothing would flush a count lower than the one the row
 // holds — which the GREATEST in the write would then discard, leaving the count
 // frozen for the rest of the run.
-func newReporter(store Store, logger logging.Logger, op *Operation, lease, interval time.Duration) *reporter {
+func newReporter(
+	store Store,
+	logger logging.Logger,
+	op *Operation,
+	lease, interval time.Duration,
+	attempt Attempt,
+) *reporter {
 	return &reporter{
 		store:     store,
 		logger:    logger,
 		id:        op.ID,
+		attempt:   attempt,
 		progress:  op.Progress,
 		lease:     lease,
 		interval:  interval,
 		cancelled: make(chan struct{}),
 		done:      make(chan struct{}),
 	}
+}
+
+func (r *reporter) Attempt() Attempt {
+	return r.attempt
 }
 
 func (r *reporter) SetUnits(total int) {
@@ -149,10 +182,16 @@ func (r *reporter) SetUnits(total int) {
 	r.mu.Unlock()
 }
 
+// StartUnit names the unit now in progress.
+//
+// Under a concurrent fan-out several units are open at once and Progress.Unit
+// names whichever started most recently. The numerator is still exact — see
+// unitsOpen — and the flapping name is the honest rendering of work that
+// genuinely has four domains in flight.
 func (r *reporter) StartUnit(name string) {
 	r.mu.Lock()
 	r.progress.Unit = name
-	r.unitOpen = true
+	r.unitsOpen++
 	r.mu.Unlock()
 
 	// Flushed rather than merely marked dirty. A unit boundary is the one moment
@@ -164,11 +203,17 @@ func (r *reporter) StartUnit(name string) {
 
 func (r *reporter) FinishUnit() {
 	r.mu.Lock()
-	if r.unitOpen {
+	if r.unitsOpen > 0 {
 		r.progress.UnitsDone++
-		r.unitOpen = false
+		r.unitsOpen--
 	}
-	r.progress.Unit = ""
+
+	// Cleared only once nothing is left open. Under a concurrent fan-out the
+	// first unit to finish must not blank a name three others are still working
+	// under.
+	if r.unitsOpen == 0 {
+		r.progress.Unit = ""
+	}
 	r.mu.Unlock()
 
 	r.flush(context.Background())

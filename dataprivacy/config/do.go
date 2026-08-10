@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/dataprivacy"
 	"github.com/primandproper/platform-go/v10/internal/injection"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/uploads"
 
 	"github.com/samber/do/v2"
@@ -40,7 +41,15 @@ func RegisterStore(i do.Injector) {
 // and/or encryption.EncryptorDecryptor is applied, and their absence means
 // uncompressed, unencrypted packages.
 //
-// Prerequisites: *Config and dataprivacy.Store (see RegisterStore) must be
+// It depends on *dataprivacy.Fulfiller rather than only on the operations
+// Service, and the dependency is there to be ordered rather than used: the
+// Fulfiller is what registers this package's kinds, and starting an operation
+// resolves its kind at submission. Without the ordering, a container that
+// happened to build the Service first would refuse every submission with
+// operations.ErrUnknownKind.
+//
+// Prerequisites: *Config, dataprivacy.Store (see RegisterStore),
+// *dataprivacy.Fulfiller (see RegisterFulfiller), and operations.Service must be
 // registered in the injector before the Service is invoked.
 func RegisterService(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (dataprivacy.Service, error) {
@@ -54,19 +63,23 @@ func RegisterService(i do.Injector) {
 			return nil, err
 		}
 
+		do.MustInvoke[*dataprivacy.Fulfiller](i)
+
 		return NewService(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			do.MustInvoke[dataprivacy.Store](i),
+			do.MustInvoke[operations.Service](i),
 			WithPillars(pillars),
 			WithServiceOptions(serviceOpts...),
 		)
 	})
 }
 
-// RegisterWorker registers a *dataprivacy.Worker with the injector. Packaging
-// follows EnsurePackaging, and the worker's encrypted flag is derived from
-// whether an encryption.EncryptorDecryptor is registered.
+// RegisterFulfiller registers a *dataprivacy.Fulfiller with the injector, which
+// registers this package's operation kinds into the *operations.Registry as it
+// is built. Packaging follows EnsurePackaging, and the encrypted flag is derived
+// from whether an encryption.EncryptorDecryptor is registered.
 //
 // A registered shredding.Keys makes every erasure destroy the subject's data
 // key, which is what carries an erasure into backups already taken. Its absence
@@ -74,17 +87,17 @@ func RegisterService(i do.Injector) {
 // and the right one for an application that encrypts nothing per subject.
 //
 // Prerequisites: *Config, dataprivacy.Store (see RegisterStore),
-// *dataprivacy.Registry (the application's collectors and erasers), and
-// uploads.UploadManager must be registered in the injector before the Worker
-// is invoked.
-func RegisterWorker(i do.Injector) {
-	do.Provide(i, func(i do.Injector) (*dataprivacy.Worker, error) {
+// *dataprivacy.Registry (the application's collectors and erasers),
+// *operations.Registry, and uploads.UploadManager must be registered in the
+// injector before the Fulfiller is invoked.
+func RegisterFulfiller(i do.Injector) {
+	do.Provide(i, func(i do.Injector) (*dataprivacy.Fulfiller, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
 		}
 
-		workerOpts, _, err := invokePackaging(i)
+		fulfillerOpts, _, err := invokePackaging(i)
 		if err != nil {
 			return nil, err
 		}
@@ -100,18 +113,19 @@ func RegisterWorker(i do.Injector) {
 		}
 
 		if keys != nil {
-			workerOpts = append(workerOpts, dataprivacy.WithWorkerShredder(keys))
+			fulfillerOpts = append(fulfillerOpts, dataprivacy.WithFulfillerShredder(keys))
 		}
 
-		return NewWorker(
+		return NewFulfiller(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			do.MustInvoke[dataprivacy.Store](i),
 			do.MustInvoke[*dataprivacy.Registry](i),
+			do.MustInvoke[*operations.Registry](i),
 			do.MustInvoke[uploads.UploadManager](i),
 			encryptorDecryptor != nil,
 			WithPillars(pillars),
-			WithWorkerOptions(workerOpts...),
+			WithFulfillerOptions(fulfillerOpts...),
 		)
 	})
 }
@@ -139,8 +153,8 @@ func RegisterSweeper(i do.Injector) {
 }
 
 // invokePackaging resolves the optional packaging dependencies and turns them
-// into worker and service options via EnsurePackaging.
-func invokePackaging(i do.Injector) ([]dataprivacy.WorkerOption, []dataprivacy.ServiceOption, error) {
+// into fulfiller and service options via EnsurePackaging.
+func invokePackaging(i do.Injector) ([]dataprivacy.FulfillerOption, []dataprivacy.ServiceOption, error) {
 	compressor, err := injection.InvokeOptional[compression.Compressor](i)
 	if err != nil {
 		return nil, nil, err
@@ -151,7 +165,7 @@ func invokePackaging(i do.Injector) ([]dataprivacy.WorkerOption, []dataprivacy.S
 		return nil, nil, err
 	}
 
-	workerOpts, serviceOpts := EnsurePackaging(compressor, encryptorDecryptor)
+	fulfillerOpts, serviceOpts := EnsurePackaging(compressor, encryptorDecryptor)
 
-	return workerOpts, serviceOpts, nil
+	return fulfillerOpts, serviceOpts, nil
 }

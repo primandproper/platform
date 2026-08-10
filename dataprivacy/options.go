@@ -62,8 +62,8 @@ func WithServiceMetricsProvider(metricsProvider metrics.Provider) ServiceOption 
 
 // WithServiceUploadManager supplies the storage artifacts are read from.
 //
-// It must be the same storage, and the same path prefix, that the Worker writes
-// to. Nothing here can check that, and a mismatch surfaces as an artifact that
+// It must be the same storage, and the same path prefix, that the Fulfiller
+// writes to. Nothing here can check that, and a mismatch surfaces as an artifact that
 // exists in the bucket and cannot be found by the service that promised it.
 func WithServiceUploadManager(manager uploads.UploadManager) ServiceOption {
 	return func(s *service) {
@@ -74,7 +74,7 @@ func WithServiceUploadManager(manager uploads.UploadManager) ServiceOption {
 }
 
 // WithServiceCompressor supplies the compressor artifacts were written with. It
-// must match the Worker's, or Open returns garbage.
+// must match the Fulfiller's, or Open returns garbage.
 func WithServiceCompressor(compressor compression.Compressor) ServiceOption {
 	return func(s *service) {
 		if compressor != nil {
@@ -84,7 +84,7 @@ func WithServiceCompressor(compressor compression.Compressor) ServiceOption {
 }
 
 // WithServiceDecryptor supplies the decryptor for artifacts written encrypted.
-// It must match the Worker's encryptor.
+// It must match the Fulfiller's encryptor.
 //
 // Setting it also disables Download: see ErrArtifactEncrypted.
 func WithServiceDecryptor(decryptor encryption.Decryptor) ServiceOption {
@@ -92,9 +92,9 @@ func WithServiceDecryptor(decryptor encryption.Decryptor) ServiceOption {
 		if decryptor != nil {
 			s.packager.decryptor = decryptor
 			// Recorded so Download can refuse rather than hand out a link to
-			// ciphertext. The Service never encrypts — only the Worker does —
-			// but a configured decryptor is proof that the Worker encrypts, and
-			// is the only evidence of that available on this side.
+			// ciphertext. The Service never encrypts — only the Fulfiller does
+			// — but a configured decryptor is proof that it does, and is the
+			// only evidence of that available on this side.
 			s.packager.encryptor = encryptorPresent{}
 		}
 	}
@@ -193,7 +193,7 @@ func WithSweeperMetricsProvider(metricsProvider metrics.Provider) SweeperOption 
 }
 
 // WithSweeperUploadManager supplies the storage artifacts are deleted from. It
-// must be the same storage the Worker writes to.
+// must be the same storage the Fulfiller writes to.
 //
 // Without it the Sweeper refuses to expire artifacts at all rather than marking
 // rows expired against objects it cannot delete — a row that says the artifact
@@ -207,80 +207,82 @@ func WithSweeperUploadManager(manager uploads.UploadManager) SweeperOption {
 	}
 }
 
-// WorkerOption configures a Worker.
-type WorkerOption func(*Worker)
+// FulfillerOption configures a Fulfiller.
+type FulfillerOption func(*Fulfiller)
 
-// WithWorkerClock swaps the clock driving the poll loop, leases, and backoff.
-func WithWorkerClock(c clock.Clock) WorkerOption {
-	return func(w *Worker) {
+// WithFulfillerClock swaps the clock stamping completions, artifact expiry, and
+// audit entries.
+func WithFulfillerClock(c clock.Clock) FulfillerOption {
+	return func(f *Fulfiller) {
 		if c != nil {
-			w.clock = c
+			f.clock = c
 		}
 	}
 }
 
-// WithWorkerLogger attaches a logger. A failing collector is reported through
+// WithFulfillerLogger attaches a logger. A failing collector is reported through
 // it and nowhere else — there is no caller to return it to — so without one a
 // domain that has been failing to collect for a week is visible only in
 // metrics.
-func WithWorkerLogger(logger logging.Logger) WorkerOption {
-	return func(w *Worker) {
-		w.logger = logger
+func WithFulfillerLogger(logger logging.Logger) FulfillerOption {
+	return func(f *Fulfiller) {
+		f.logger = logger
 	}
 }
 
-// WithWorkerTracerProvider attaches a tracer provider. Cycles that claim
-// nothing are not traced — a root span every poll interval is noise.
-func WithWorkerTracerProvider(tracerProvider tracing.Provider) WorkerOption {
-	return func(w *Worker) {
-		w.tracerProvider = tracerProvider
+// WithFulfillerTracerProvider attaches a tracer provider. The spans it produces
+// hang under the operations worker's, so a slow export reads as one trace from
+// the claim through to the domain that took the time.
+func WithFulfillerTracerProvider(tracerProvider tracing.Provider) FulfillerOption {
+	return func(f *Fulfiller) {
+		f.tracerProvider = tracerProvider
 	}
 }
 
-// WithWorkerMetricsProvider attaches a metrics provider.
-func WithWorkerMetricsProvider(metricsProvider metrics.Provider) WorkerOption {
-	return func(w *Worker) {
-		w.metricsProvider = metricsProvider
+// WithFulfillerMetricsProvider attaches a metrics provider.
+func WithFulfillerMetricsProvider(metricsProvider metrics.Provider) FulfillerOption {
+	return func(f *Fulfiller) {
+		f.metricsProvider = metricsProvider
 	}
 }
 
-// WithWorkerUploadManager supplies the storage artifacts are written to.
-// Required for exports; an erasure-only Worker does not need it.
-func WithWorkerUploadManager(manager uploads.UploadManager) WorkerOption {
-	return func(w *Worker) {
+// WithFulfillerUploadManager supplies the storage artifacts are written to.
+// Required for exports; an erasure-only Fulfiller does not need it.
+func WithFulfillerUploadManager(manager uploads.UploadManager) FulfillerOption {
+	return func(f *Fulfiller) {
 		if manager != nil {
-			w.uploader = manager
+			f.uploader = manager
 		}
 	}
 }
 
-// WithWorkerCompressor compresses artifacts before they are stored.
+// WithFulfillerCompressor compresses artifacts before they are stored.
 //
 // Worth setting. An export is JSON assembled from every domain in an
 // application, which is the most compressible shape there is — and the artifact
 // is written once and read at most once, so the compression is nearly free.
-func WithWorkerCompressor(compressor compression.Compressor) WorkerOption {
-	return func(w *Worker) {
+func WithFulfillerCompressor(compressor compression.Compressor) FulfillerOption {
+	return func(f *Fulfiller) {
 		if compressor != nil {
-			w.packager.compressor = compressor
+			f.packager.compressor = compressor
 		}
 	}
 }
 
-// WithWorkerEncryptor encrypts artifacts at rest.
+// WithFulfillerEncryptor encrypts artifacts at rest.
 //
 // It changes what delivery is possible: an encrypted artifact cannot be handed
 // out as a signed URL, because the subject would receive ciphertext. See
 // ErrArtifactEncrypted. Configure the Service with the matching decryptor.
-func WithWorkerEncryptor(encryptor encryption.Encryptor) WorkerOption {
-	return func(w *Worker) {
+func WithFulfillerEncryptor(encryptor encryption.Encryptor) FulfillerOption {
+	return func(f *Fulfiller) {
 		if encryptor != nil {
-			w.packager.encryptor = encryptor
+			f.packager.encryptor = encryptor
 		}
 	}
 }
 
-// WithWorkerShredder destroys the subject's data key as part of an erasure, so
+// WithFulfillerShredder destroys the subject's data key as part of an erasure, so
 // the erasure reaches media that deletion cannot.
 //
 // Without it an erasure deletes rows, and the rows stay in every backup taken
@@ -292,62 +294,62 @@ func WithWorkerEncryptor(encryptor encryption.Encryptor) WorkerOption {
 // It is not a substitute for the erasers. Only the columns an application chose
 // to encrypt under the subject's key are covered, the shred does not run inside
 // their transaction, and what it destroys it destroys whether or not they
-// succeed. See fulfillErasure's ordering, which is deliberate and stated in the
+// succeed. See Fulfiller.erase's ordering, which is deliberate and stated in the
 // source.
 //
-// Setting it on a Worker whose application encrypts nothing per subject is
+// Setting it on a Fulfiller whose application encrypts nothing per subject is
 // harmless and close to pointless: every erasure writes a tombstone and destroys
 // nothing, which Request.KeyShreddedAt will happily record.
-func WithWorkerShredder(shredder shredding.Shredder) WorkerOption {
-	return func(w *Worker) {
+func WithFulfillerShredder(shredder shredding.Shredder) FulfillerOption {
+	return func(f *Fulfiller) {
 		if shredder != nil {
-			w.shredder = shredder
+			f.shredder = shredder
 		}
 	}
 }
 
-// WithWorkerNotifier supplies who to tell when a request finishes.
-func WithWorkerNotifier(notifier Notifier) WorkerOption {
-	return func(w *Worker) {
+// WithFulfillerNotifier supplies who to tell when a request finishes.
+func WithFulfillerNotifier(notifier Notifier) FulfillerOption {
+	return func(f *Fulfiller) {
 		if notifier != nil {
-			w.notifier = notifier
+			f.notifier = notifier
 		}
 	}
 }
 
-// WithWorkerAuditRecorder attaches the audit log completions are recorded in.
+// WithFulfillerAuditRecorder attaches the audit log completions are recorded in.
 //
 // The completion entry is the one that says what was actually disclosed or
 // destroyed, and it is written in the same transaction as the state change it
 // describes.
-func WithWorkerAuditRecorder(recorder audit.Recorder) WorkerOption {
-	return func(w *Worker) {
+func WithFulfillerAuditRecorder(recorder audit.Recorder) FulfillerOption {
+	return func(f *Fulfiller) {
 		if recorder != nil {
-			w.recorder = recorder
+			f.recorder = recorder
 		}
 	}
 }
 
-// WithWorkerActorResolver supplies the principal recorded in audit entries.
-func WithWorkerActorResolver(resolver ActorResolver) WorkerOption {
-	return func(w *Worker) {
+// WithFulfillerActorResolver supplies the principal recorded in audit entries.
+func WithFulfillerActorResolver(resolver ActorResolver) FulfillerOption {
+	return func(f *Fulfiller) {
 		if resolver != nil {
-			w.actor = resolver
+			f.actor = resolver
 		}
 	}
 }
 
-// WithWorkerURLSigner supplies how a notification's download URL is minted.
+// WithFulfillerURLSigner supplies how a notification's download URL is minted.
 //
-// It exists so the Worker can hand the subject a link without holding a
+// It exists so the Fulfiller can hand the subject a link without holding a
 // Service — which would be circular, since a Service is the thing that reads
-// what this Worker writes. The signer returns the URL and its expiry; an empty
-// URL means the notification carries no link, which is correct for encrypted
-// artifacts and for providers that cannot sign.
-func WithWorkerURLSigner(signer func(ctx context.Context, req *Request) (url string, expiresAt time.Time)) WorkerOption {
-	return func(w *Worker) {
+// what this Fulfiller writes. The signer returns the URL and its expiry; an
+// empty URL means the notification carries no link, which is correct for
+// encrypted artifacts and for providers that cannot sign.
+func WithFulfillerURLSigner(signer func(ctx context.Context, req *Request) (url string, expiresAt time.Time)) FulfillerOption {
+	return func(f *Fulfiller) {
 		if signer != nil {
-			w.signer = signer
+			f.signer = signer
 		}
 	}
 }

@@ -114,6 +114,74 @@ func TestWorker_maxAttempts(T *testing.T) {
 	test.EqOp(T, 2, w.maxAttempts(&runner{maxAttempts: 2}))
 }
 
+// The Runner is handed the attempt the worker is on, and Final agrees with the
+// budget the retry decision below uses — the two reading the same number is the
+// whole point, since a Runner that reported "we have given up" on an attempt
+// that then retried would tell somebody the wrong thing.
+func TestWorker_runHandsTheRunnerItsAttempt(T *testing.T) {
+	T.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		attempts int
+		final    bool
+	}{
+		{name: "first of three", attempts: 1, final: false},
+		{name: "last of three", attempts: 3, final: true},
+	} {
+		T.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var seen Attempt
+
+			registry := NewRegistry()
+			must.NoError(t, Register(registry, Definition[exportRequest]{
+				Kind: "export",
+				Run: func(_ context.Context, _ exportRequest, rep Reporter) (*Result, error) {
+					seen = rep.Attempt()
+
+					return nil, nil
+				},
+			}))
+
+			op := &Operation{ID: "op1", Kind: "export", State: StateRunning}
+			w := newTestWorker(t, newFakeStore(op), registry)
+
+			runOnce(t, w, op, tc.attempts)
+
+			test.EqOp(t, "op1", seen.ID)
+			test.EqOp(t, tc.attempts, seen.Number)
+			test.EqOp(t, tc.final, seen.Final)
+		})
+	}
+
+	// The kind's own ceiling wins, so a Runner registered with a shorter budget
+	// than the worker's learns it is final sooner.
+	T.Run("the kind's own ceiling decides", func(t *testing.T) {
+		t.Parallel()
+
+		var seen Attempt
+
+		registry := NewRegistry()
+		must.NoError(t, Register(registry, Definition[exportRequest]{
+			Kind:        "export",
+			MaxAttempts: 1,
+			Run: func(_ context.Context, _ exportRequest, rep Reporter) (*Result, error) {
+				seen = rep.Attempt()
+
+				return nil, nil
+			},
+		}))
+
+		op := &Operation{ID: "op1", Kind: "export", State: StateRunning}
+		w := newTestWorker(t, newFakeStore(op), registry)
+
+		runOnce(t, w, op, 1)
+
+		test.True(t, seen.Final)
+	})
+}
+
 // newTestWorker builds a worker with no queue, for the tests that exercise run
 // rather than the claim loop.
 func newTestWorker(t *testing.T, store Store, registry *Registry) *Worker {

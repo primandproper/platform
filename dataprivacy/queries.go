@@ -15,7 +15,7 @@ import (
 // against another such value. Postgres and MySQL store these as real temporal
 // types and compare them as such. SQLite does not: modernc's driver stores a
 // bound time.Time as Go's own String() rendering — "2026-07-30 12:00:00 +0000
-// UTC" — so `next_attempt <= ?` there is a string comparison.
+// UTC" — so `expires_at <= ?` there is a string comparison.
 //
 // That is still correct, because the rendering begins with a fixed-width
 // "YYYY-MM-DD HH:MM:SS" prefix and everything is UTC, so lexical order is
@@ -45,15 +45,15 @@ func (t *tables) prefix() string {
 
 // requestColumns is the projection every request read scans. Declared once so
 // the SELECTs and the Scan cannot drift apart.
-const requestColumns = "id, request_type, status, subject_id, subject_type, subject_scope, " +
-	"requested_at, due_at, expires_at, completed_at, attempts, " +
+const requestColumns = "id, request_type, status, operation_id, subject_id, subject_type, subject_scope, " +
+	"requested_at, due_at, expires_at, completed_at, " +
 	"artifact_ref, artifact_bytes, deleted_rows, anonymized_rows, failures, retained, last_error, " +
 	"key_shredded_at"
 
 // activeStatuses are the statuses a request can still move out of. Used by the
 // overdue count, which is asking "what do we still owe somebody" and would be
 // answered wrongly by including requests that have already been served.
-var activeStatuses = []Status{StatusAwaitingConfirmation, StatusPending, StatusProcessing}
+var activeStatuses = []Status{StatusAwaitingConfirmation, StatusInProgress}
 
 // terminalStatuses are the statuses retention may reap.
 var terminalStatuses = []Status{StatusCompleted, StatusFailed, StatusExpired, StatusCancelled}
@@ -66,17 +66,16 @@ var terminalStatuses = []Status{StatusCompleted, StatusFailed, StatusExpired, St
 // this table a regulator is most likely to ask about.
 func (t *tables) buildInsertRequest(d dialect.Dialect, req *Request, failures, retained []byte) (query string, args []any) {
 	args = []any{
-		req.ID, string(req.Type), string(req.Status),
+		req.ID, string(req.Type), string(req.Status), req.OperationID,
 		req.Subject.ID, string(req.Subject.Type), req.Subject.Scope,
 		req.RequestedAt.UTC(), req.DueAt.UTC(), nullableTime(req.ExpiresAt), req.CompletedAt,
-		req.RequestedAt.UTC(), req.Attempts,
 		req.ArtifactRef, req.ArtifactBytes, req.Deleted, req.Anonymized,
 		blobOrNil(failures), blobOrNil(retained), req.LastError, req.KeyShreddedAt,
 	}
 
 	return fmt.Sprintf(
-		"INSERT INTO %s (id, request_type, status, subject_id, subject_type, subject_scope, "+
-			"requested_at, due_at, expires_at, completed_at, next_attempt, attempts, "+
+		"INSERT INTO %s (id, request_type, status, operation_id, subject_id, subject_type, subject_scope, "+
+			"requested_at, due_at, expires_at, completed_at, "+
 			"artifact_ref, artifact_bytes, deleted_rows, anonymized_rows, failures, retained, last_error, "+
 			"key_shredded_at) "+
 			"VALUES (%s)",
@@ -158,21 +157,32 @@ func (t *tables) buildCountRequests(d dialect.Dialect, subject Subject) (query s
 // cleared unconditionally: every transition this builds leaves the confirmation
 // window behind, either by satisfying it or by lapsing it, and a stale window
 // would have the lapse sweep pick the row back up.
-func (t *tables) buildTransition(d dialect.Dialect, requestID string, from []Status, to Status, at time.Time) (query string, args []any) {
-	args = make([]any, 0, len(from)+3)
+//
+// operationID is written only when non-empty, so a cancellation cannot blank the
+// pointer to an operation that is still running. It is the confirmation path
+// that supplies one, and it supplies it here rather than in a second statement
+// so the row cannot become in-progress without saying what is doing the work.
+func (t *tables) buildTransition(
+	d dialect.Dialect,
+	requestID string,
+	from []Status,
+	to Status,
+	operationID string,
+	at time.Time,
+) (query string, args []any) {
+	args = make([]any, 0, len(from)+4)
 	args = append(args, string(to))
 
-	set := "status = " + d.Placeholder(1) + ", expires_at = NULL, claimed_until = NULL"
+	set := "status = " + d.Placeholder(1) + ", expires_at = NULL"
+
+	if operationID != "" {
+		args = append(args, operationID)
+		set += ", operation_id = " + d.Placeholder(len(args))
+	}
 
 	if to.Terminal() {
 		args = append(args, at.UTC())
 		set += ", completed_at = " + d.Placeholder(len(args))
-	} else {
-		// A request entering a non-terminal state is claimable now: the
-		// confirmation it was waiting for has arrived, and making it wait
-		// another poll interval is latency spent for nothing.
-		args = append(args, at.UTC())
-		set += ", next_attempt = " + d.Placeholder(len(args))
 	}
 
 	args = append(args, requestID)
@@ -189,103 +199,28 @@ func (t *tables) buildTransition(d dialect.Dialect, requestID string, from []Sta
 	return fmt.Sprintf("UPDATE %s SET %s WHERE %s", t.requests, set, where), args
 }
 
-// buildSelectClaimable renders the query picking the next batch of request IDs
-// to claim: due, and either pending or abandoned mid-flight.
-//
-// The second case is what reclaims a row whose worker died. A crash leaves the
-// request in StatusProcessing with a lease that then quietly expires, and while
-// this query matched only StatusPending nothing ever looked at those rows again
-// — so the claimed_until predicate, which exists precisely to find them, could
-// never fire. A subject's erasure request sat in "processing" forever, which is
-// both a broken promise and, in most jurisdictions, a missed legal deadline.
-//
-// Attempts are still incremented by the claim, so a request that reliably kills
-// its worker exhausts its attempts and fails rather than being reclaimed until
-// the end of time.
-func (t *tables) buildSelectClaimable(d dialect.Dialect, now time.Time, limit int, skipLocked bool) (query string, args []any) {
-	query = fmt.Sprintf(
-		"SELECT id FROM %s "+
-			"WHERE next_attempt <= %s "+
-			"AND (status = %s OR (status = %s AND claimed_until IS NOT NULL AND claimed_until <= %s)) "+
-			"ORDER BY requested_at, id LIMIT %s",
-		t.requests,
-		d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4), d.Placeholder(5),
-	)
-
-	if skipLocked && d.SupportsSkipLocked() {
-		query += " FOR UPDATE SKIP LOCKED"
-	}
-
-	return query, []any{now.UTC(), string(StatusPending), string(StatusProcessing), now.UTC(), limit}
-}
-
-// buildClaim renders the UPDATE that leases the selected rows.
-//
-// The attempt count is incremented here rather than on failure: a worker that
-// crashes mid-fulfillment has still consumed an attempt, so a request whose
-// collector reliably kills the process eventually fails rather than being
-// reclaimed forever.
-//
-// The guard is repeated even though the rows were just selected, because between
-// the SELECT and this UPDATE a subject may have cancelled, or another worker may
-// have claimed the same expired lease. It admits both statuses the selection
-// admits, and for the reclaim case requires the lease to still be expired — so
-// of two workers racing on the same abandoned row, exactly one wins.
-func (t *tables) buildClaim(d dialect.Dialect, ids []string, now, claimedUntil time.Time) (query string, args []any) {
-	args = make([]any, 0, len(ids)+5)
-	args = append(args, string(StatusProcessing), claimedUntil.UTC())
-
-	for _, id := range ids {
-		args = append(args, id)
-	}
-
-	args = append(args, string(StatusPending), string(StatusProcessing), now.UTC())
-
-	return fmt.Sprintf(
-		"UPDATE %s SET status = %s, claimed_until = %s, attempts = attempts + 1 "+
-			"WHERE id IN (%s) "+
-			"AND (status = %s OR (status = %s AND claimed_until IS NOT NULL AND claimed_until <= %s))",
-		t.requests, d.Placeholder(1), d.Placeholder(2),
-		d.Placeholders(3, len(ids)),
-		d.Placeholder(len(args)-2), d.Placeholder(len(args)-1), d.Placeholder(len(args)),
-	), args
-}
-
-// buildFetchByIDs renders the projection of a claimed batch.
-func (t *tables) buildFetchByIDs(d dialect.Dialect, ids []string, status Status) (query string, args []any) {
-	args = make([]any, 0, len(ids)+1)
-	for _, id := range ids {
-		args = append(args, id)
-	}
-
-	args = append(args, string(status))
-
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE id IN (%s) AND status = %s ORDER BY requested_at, id",
-		requestColumns, t.requests, d.Placeholders(1, len(ids)), d.Placeholder(len(args)),
-	), args
-}
-
 // buildCompleteExport renders the UPDATE recording a fulfilled export: where the
 // artifact went, how big it was, when it expires, and which sections are missing
 // from it.
 //
-// The status guard is on processing, so a completion cannot resurrect a request
-// that expired or was cancelled while the worker was busy — which is exactly
-// what a long export racing the lapse sweep would otherwise do.
+// The status guard is on in_progress, so a completion cannot resurrect a request
+// that was cancelled while the runner was busy — which is exactly what a long
+// export racing a cancellation would otherwise do. It is also what makes a
+// duplicate execution safe: two runners on the same request produce the same
+// artifact at the same key, and the second one's completion matches no row.
 func (t *tables) buildCompleteExport(d dialect.Dialect, req *Request, failures []byte, at time.Time) (query string, args []any) {
 	args = []any{
-		string(StatusCompleted), at.UTC(), at.UTC(),
+		string(StatusCompleted), at.UTC(),
 		req.ExpiresAt.UTC(), req.ArtifactRef, req.ArtifactBytes, blobOrNil(failures),
-		req.ID, string(StatusProcessing),
+		req.ID, string(StatusInProgress),
 	}
 
 	return fmt.Sprintf(
-		"UPDATE %s SET status = %s, completed_at = %s, next_attempt = %s, expires_at = %s, "+
-			"artifact_ref = %s, artifact_bytes = %s, failures = %s, claimed_until = NULL, last_error = '' "+
+		"UPDATE %s SET status = %s, completed_at = %s, expires_at = %s, "+
+			"artifact_ref = %s, artifact_bytes = %s, failures = %s, last_error = '' "+
 			"WHERE id = %s AND status = %s",
 		t.requests, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
-		d.Placeholder(5), d.Placeholder(6), d.Placeholder(7), d.Placeholder(8), d.Placeholder(9),
+		d.Placeholder(5), d.Placeholder(6), d.Placeholder(7), d.Placeholder(8),
 	), args
 }
 
@@ -297,19 +232,18 @@ func (t *tables) buildCompleteExport(d dialect.Dialect, req *Request, failures [
 // the lapse sweep cancel a request that has already run.
 func (t *tables) buildCompleteErasure(d dialect.Dialect, req *Request, failures, retained []byte, at time.Time) (query string, args []any) {
 	args = []any{
-		string(StatusCompleted), at.UTC(), at.UTC(),
+		string(StatusCompleted), at.UTC(),
 		req.Deleted, req.Anonymized, blobOrNil(failures), blobOrNil(retained), req.KeyShreddedAt,
-		req.ID, string(StatusProcessing),
+		req.ID, string(StatusInProgress),
 	}
 
 	return fmt.Sprintf(
-		"UPDATE %s SET status = %s, completed_at = %s, next_attempt = %s, expires_at = NULL, "+
+		"UPDATE %s SET status = %s, completed_at = %s, expires_at = NULL, "+
 			"deleted_rows = %s, anonymized_rows = %s, failures = %s, retained = %s, "+
-			"key_shredded_at = %s, claimed_until = NULL, last_error = '' "+
+			"key_shredded_at = %s, last_error = '' "+
 			"WHERE id = %s AND status = %s",
 		t.requests, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
 		d.Placeholder(5), d.Placeholder(6), d.Placeholder(7), d.Placeholder(8), d.Placeholder(9),
-		d.Placeholder(10),
 	), args
 }
 
@@ -327,35 +261,28 @@ func (t *tables) buildMarkKeyShredded(d dialect.Dialect, requestID string, at ti
 		[]any{at.UTC(), requestID}
 }
 
-// buildFail renders the UPDATE applied to a request that could not be
-// fulfilled: release the lease, record why, and either schedule the retry or
-// give up.
+// buildFail renders the UPDATE recording that a request will not be fulfilled.
 //
-// attempts is written rather than left as the claim incremented it, so a caller
-// can decline to charge an attempt for a failure the request never caused.
-func (t *tables) buildFail(d dialect.Dialect, requestID string, attempts int, nextAttempt time.Time, lastErr string, terminal bool) (query string, args []any) {
-	status := StatusPending
-	if terminal {
-		status = StatusFailed
+// There is no retry branch here any more, and its absence is the point. The
+// retry schedule, the attempt budget, and the lease all belong to the operation
+// now, so the only failure this table records is the last one — the moment at
+// which "nobody is going to get an answer" becomes true, which is the only claim
+// this row was ever in a position to make.
+//
+// expires_at is cleared for the same reason every other terminal transition
+// clears it: a failed erasure that kept its confirmation window would be picked
+// up and cancelled by the lapse sweep, overwriting the record of why it failed.
+func (t *tables) buildFail(d dialect.Dialect, requestID, lastErr string, at time.Time) (query string, args []any) {
+	args = []any{
+		string(StatusFailed), lastErr, at.UTC(),
+		requestID, string(StatusInProgress),
 	}
-
-	args = []any{string(status), attempts, nextAttempt.UTC(), lastErr}
-
-	set := fmt.Sprintf(
-		"status = %s, attempts = %s, next_attempt = %s, last_error = %s, claimed_until = NULL",
-		d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
-	)
-
-	if terminal {
-		args = append(args, nextAttempt.UTC())
-		set += ", completed_at = " + d.Placeholder(len(args))
-	}
-
-	args = append(args, requestID, string(StatusProcessing))
 
 	return fmt.Sprintf(
-		"UPDATE %s SET %s WHERE id = %s AND status = %s",
-		t.requests, set, d.Placeholder(len(args)-1), d.Placeholder(len(args)),
+		"UPDATE %s SET status = %s, last_error = %s, completed_at = %s, expires_at = NULL "+
+			"WHERE id = %s AND status = %s",
+		t.requests, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
+		d.Placeholder(4), d.Placeholder(5),
 	), args
 }
 

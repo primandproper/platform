@@ -16,35 +16,73 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// newTestService builds a Service over a live store and the stub clock.
+// newTestService builds a Service over a live store, the stub clock, and an
+// operations service that records what was started rather than running it.
 func newTestService(t *testing.T, cfg *ServiceConfig, opts ...ServiceOption) (Service, Store, *stubClock) {
+	t.Helper()
+
+	svc, store, stub, _ := newTestServiceWithOperations(t, cfg, opts...)
+
+	return svc, store, stub
+}
+
+// newTestServiceWithOperations is newTestService for the tests that care what
+// reached the operations service.
+func newTestServiceWithOperations(
+	t *testing.T,
+	cfg *ServiceConfig,
+	opts ...ServiceOption,
+) (Service, Store, *stubClock, *stubOperations) {
 	t.Helper()
 
 	env := newSQLiteEnv(t)
 	store := env.newStore(t)
 	stub := newStubClock()
+	ops := newStubOperations()
 
-	svc, err := NewService(t.Context(), cfg, store, append([]ServiceOption{WithServiceClock(stub)}, opts...)...)
+	svc, err := NewService(t.Context(), cfg, store, ops, append([]ServiceOption{WithServiceClock(stub)}, opts...)...)
 	must.NoError(t, err)
 
-	return svc, store, stub
+	return svc, store, stub, ops
 }
 
 func TestService_Submit(T *testing.T) {
 	T.Parallel()
 
-	T.Run("an export is queued immediately", func(t *testing.T) {
+	T.Run("an export starts an operation immediately", func(t *testing.T) {
 		t.Parallel()
 
-		svc, _, _ := newTestService(t, &ServiceConfig{})
+		svc, store, _, ops := newTestServiceWithOperations(t, &ServiceConfig{})
 
 		req, err := svc.Submit(t.Context(), testSubject, RequestExport)
 		must.NoError(t, err)
 
-		test.EqOp(t, StatusPending, req.Status)
+		test.EqOp(t, StatusInProgress, req.Status)
 		test.EqOp(t, RequestExport, req.Type)
 		test.True(t, req.RequestedAt.Equal(baseTime))
 		test.True(t, req.DueAt.Equal(baseTime.Add(DefaultResponseWindow)))
+
+		// The operation is what the caller polls, so its ID has to come back and
+		// has to be on the row — a request in progress with nothing to watch is
+		// the failure this transaction exists to prevent.
+		must.StrNotEqFold(t, "", req.OperationID)
+
+		read, err := store.Get(t.Context(), req.ID)
+		must.NoError(t, err)
+		test.EqOp(t, req.OperationID, read.OperationID)
+
+		started := ops.startedOperations()
+		must.SliceLen(t, 1, started)
+		test.EqOp(t, KindExport, started[0].kind)
+
+		// The operation carries the request ID and nothing else about the
+		// subject: the runner reads the rest from the row, which is the one
+		// place that data has to live.
+		job, ok := started[0].request.(Job)
+		must.True(t, ok)
+		test.EqOp(t, req.ID, job.RequestID)
+
+		test.Eq(t, []string{req.OperationID}, ops.enqueuedIDs())
 	})
 
 	T.Run("an erasure is queued when no confirmation window is set", func(t *testing.T) {
@@ -56,8 +94,9 @@ func TestService_Submit(T *testing.T) {
 		must.NoError(t, err)
 
 		// Zero window is the default; Confirm is never needed.
-		test.EqOp(t, StatusPending, req.Status)
+		test.EqOp(t, StatusInProgress, req.Status)
 		test.True(t, req.ExpiresAt.IsZero())
+		must.StrNotEqFold(t, "", req.OperationID)
 	})
 
 	T.Run("an erasure waits for confirmation when a window is set", func(t *testing.T) {
@@ -70,6 +109,11 @@ func TestService_Submit(T *testing.T) {
 
 		test.EqOp(t, StatusAwaitingConfirmation, req.Status)
 		test.True(t, req.ExpiresAt.Equal(baseTime.Add(72*time.Hour)))
+
+		// No operation yet: until somebody confirms it, there is nothing to run.
+		// Folding this state into the operation would have meant an operation
+		// that exists in order to not run.
+		test.EqOp(t, "", req.OperationID)
 	})
 
 	T.Run("an export is never held for confirmation", func(t *testing.T) {
@@ -83,7 +127,7 @@ func TestService_Submit(T *testing.T) {
 		req, err := svc.Submit(t.Context(), testSubject, RequestExport)
 		must.NoError(t, err)
 
-		test.EqOp(t, StatusPending, req.Status)
+		test.EqOp(t, StatusInProgress, req.Status)
 	})
 
 	T.Run("the response window differs per request type", func(t *testing.T) {
@@ -128,18 +172,25 @@ func TestService_Submit(T *testing.T) {
 func TestService_Confirmation(T *testing.T) {
 	T.Parallel()
 
-	T.Run("confirm queues the erasure", func(t *testing.T) {
+	T.Run("confirm starts the erasure's operation", func(t *testing.T) {
 		t.Parallel()
 
-		svc, _, _ := newTestService(t, &ServiceConfig{ConfirmationWindow: 72 * time.Hour})
+		svc, _, _, ops := newTestServiceWithOperations(t, &ServiceConfig{ConfirmationWindow: 72 * time.Hour})
 
 		submitted, err := svc.Submit(t.Context(), testSubject, RequestErasure)
 		must.NoError(t, err)
+		must.SliceEmpty(t, ops.startedOperations())
 
 		confirmed, err := svc.Confirm(t.Context(), submitted.ID)
 		must.NoError(t, err)
 
-		test.EqOp(t, StatusPending, confirmed.Status)
+		test.EqOp(t, StatusInProgress, confirmed.Status)
+		must.StrNotEqFold(t, "", confirmed.OperationID)
+
+		started := ops.startedOperations()
+		must.SliceLen(t, 1, started)
+		test.EqOp(t, KindErasure, started[0].kind)
+		test.Eq(t, []string{confirmed.OperationID}, ops.enqueuedIDs())
 	})
 
 	T.Run("cancel withdraws the erasure", func(t *testing.T) {
@@ -200,7 +251,7 @@ func TestService_Artifacts(T *testing.T) {
 
 		base := []ServiceOption{WithServiceClock(stub), WithServiceUploadManager(uploader)}
 
-		svc, err := NewService(t.Context(), &ServiceConfig{}, store, append(base, opts...)...)
+		svc, err := NewService(t.Context(), &ServiceConfig{}, store, newStubOperations(), append(base, opts...)...)
 		must.NoError(t, err)
 
 		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
@@ -302,7 +353,7 @@ func TestService_Artifacts(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store := env.newStore(t)
 
-		svc, err := NewService(t.Context(), &ServiceConfig{}, store,
+		svc, err := NewService(t.Context(), &ServiceConfig{}, store, newStubOperations(),
 			WithServiceUploadManager(newMemoryUploader()))
 		must.NoError(t, err)
 
@@ -323,7 +374,7 @@ func TestService_Artifacts(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store := env.newStore(t)
 
-		svc, err := NewService(t.Context(), &ServiceConfig{}, store,
+		svc, err := NewService(t.Context(), &ServiceConfig{}, store, newStubOperations(),
 			WithServiceUploadManager(newMemoryUploader()))
 		must.NoError(t, err)
 
@@ -355,7 +406,7 @@ func TestNewService(T *testing.T) {
 	T.Run("refuses a nil store", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewService(t.Context(), &ServiceConfig{}, nil)
+		_, err := NewService(t.Context(), &ServiceConfig{}, nil, newStubOperations())
 		test.ErrorIs(t, err, ErrNilStore)
 	})
 
@@ -364,7 +415,7 @@ func TestNewService(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 
-		_, err := NewService(t.Context(), nil, env.newStore(t))
+		_, err := NewService(t.Context(), nil, env.newStore(t), newStubOperations())
 		test.Error(t, err)
 	})
 }

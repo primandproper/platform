@@ -110,6 +110,43 @@ func (s State) Valid() bool {
 	}
 }
 
+// Attempt describes the execution a Runner is in: which operation it is
+// running, which attempt this is, and whether it is the last one.
+//
+// It exists because the package's advice on duplicate execution — the operation
+// ID is a stable idempotency key, and Attempts is above one on a retry — was
+// advice a Runner had no way to act on. Everything a Runner was handed described
+// the work; nothing described the attempt.
+//
+// Final is the part that cannot be derived. A Runner can count its own retries
+// only by writing them down somewhere, and it cannot know the ceiling at all:
+// the ceiling is WorkerConfig.MaxAttempts unless the kind overrode it, and
+// neither is visible from inside Run. Without it, work that has to tell somebody
+// it has given up — a subject with a statutory deadline is the case that
+// prompted this — has no moment at which to say so.
+type Attempt struct {
+	// ID is the operation's ID, stable across every attempt. It is the
+	// idempotency key a Runner would otherwise have to invent, and it is what an
+	// operator needs in any line the Runner logs.
+	ID string
+
+	// Number is which attempt this is, counting from one. It is charged on
+	// claim, so it is the number of attempts *made* including this one, rather
+	// than the number that failed before it.
+	Number int
+
+	// Final reports that no further attempt will be made if this one fails.
+	//
+	// A Runner that has an obligation to report a permanent failure — rather
+	// than only to return one — does it here. Nothing else in the package will:
+	// the worker records the failure on the row and has no notion of who was
+	// waiting for it.
+	//
+	// It says nothing about whether this attempt *will* fail, and a Runner that
+	// treats it as a reason to try less hard has read it backwards.
+	Final bool
+}
+
 // Progress is how far along an operation is, in two tiers, neither of which is
 // required.
 //

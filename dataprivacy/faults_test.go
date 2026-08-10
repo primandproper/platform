@@ -133,17 +133,10 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 
 		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 			_, txErr := store.Transition(t.Context(), q, "r",
-				[]Status{StatusAwaitingConfirmation}, StatusPending, baseTime)
+				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime)
 
 			return txErr
 		})
-		test.ErrorIs(t, err, errDatabase)
-	})
-
-	T.Run("Claim", func(t *testing.T) {
-		t.Parallel()
-
-		_, err := newFailingStore(t).Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
 		test.ErrorIs(t, err, errDatabase)
 	})
 
@@ -172,7 +165,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 	T.Run("Fail", func(t *testing.T) {
 		t.Parallel()
 
-		err := newFailingStore(t).Fail(t.Context(), "r", 1, baseTime, "boom", false)
+		_, err := newFailingStore(t).Fail(t.Context(), "r", "boom", baseTime)
 		test.ErrorIs(t, err, errDatabase)
 	})
 
@@ -212,9 +205,9 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 }
 
 // A limit of zero or less is a no-op rather than an unbounded statement. The
-// distinction matters: an unbounded Reap or Claim against a large table is a
-// lock held for minutes, and a caller that computed a batch size of zero should
-// get nothing rather than everything.
+// distinction matters: an unbounded Reap or expiry sweep against a large table
+// is a lock held for minutes, and a caller that computed a batch size of zero
+// should get nothing rather than everything.
 func TestSQLStore_NonPositiveLimits(T *testing.T) {
 	T.Parallel()
 
@@ -222,10 +215,6 @@ func TestSQLStore_NonPositiveLimits(T *testing.T) {
 		t.Parallel()
 
 		store := newFailingStore(t)
-
-		claimed, err := store.Claim(t.Context(), baseTime, 0, baseTime)
-		test.NoError(t, err)
-		test.SliceEmpty(t, claimed)
 
 		expiring, err := store.ExpiringArtifacts(t.Context(), baseTime, 0)
 		test.NoError(t, err)
@@ -255,19 +244,19 @@ func TestSQLStore_RejectsNilArguments(T *testing.T) {
 		test.ErrorIs(t, store.CompleteErasure(t.Context(), nil, nil, baseTime), ErrNilExecutor)
 		test.ErrorIs(t, store.CompleteExport(t.Context(), nil, nil, baseTime), ErrNilExecutor)
 
-		_, err := store.Transition(t.Context(), nil, "r", []Status{StatusPending}, StatusFailed, baseTime)
+		_, err := store.Transition(t.Context(), nil, "r", []Status{StatusInProgress}, StatusFailed, "", baseTime)
 		test.ErrorIs(t, err, ErrNilExecutor)
 
 		// An empty source-status set would render `status IN ()`, which is a
 		// syntax error in every dialect rather than a transition that matches
 		// nothing.
-		_, err = store.Transition(t.Context(), &failingExecutor{}, "r", nil, StatusFailed, baseTime)
+		_, err = store.Transition(t.Context(), &failingExecutor{}, "r", nil, StatusFailed, "", baseTime)
 		test.ErrorIs(t, err, platformerrors.ErrEmptyInputParameter)
 	})
 }
 
-// The sweeper and worker sit on top of the store, and a store failure has to
-// reach their telemetry rather than being mistaken for "nothing to do".
+// The sweeper and the runners sit on top of the store, and a store failure has
+// to reach their telemetry rather than being mistaken for "nothing to do".
 func TestSweeper_PropagatesStoreFailures(T *testing.T) {
 	T.Parallel()
 

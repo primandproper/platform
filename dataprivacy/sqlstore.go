@@ -235,12 +235,14 @@ func (s *sqlStore) Transition(
 	requestID string,
 	from []Status,
 	to Status,
+	operationID string,
 	at time.Time,
 ) (*Request, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
-		requestIDKey:  requestID,
-		statusKey:     string(to),
-		fromStatusKey: statusStrings(from),
+		requestIDKey:   requestID,
+		statusKey:      string(to),
+		fromStatusKey:  statusStrings(from),
+		operationIDKey: operationID,
 	}))
 	defer op.End()
 
@@ -252,7 +254,7 @@ func (s *sqlStore) Transition(
 		return nil, op.Error(platformerrors.ErrEmptyInputParameter, "no source statuses for dataprivacy transition")
 	}
 
-	query, args := s.tables.buildTransition(s.dialect, requestID, from, to, at)
+	query, args := s.tables.buildTransition(s.dialect, requestID, from, to, operationID, at)
 
 	result, err := q.ExecContext(ctx, query, args...)
 	if err != nil {
@@ -290,74 +292,6 @@ func (s *sqlStore) Transition(
 	}
 
 	return req, nil
-}
-
-func (s *sqlStore) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*Request, error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
-	defer op.End()
-
-	if limit <= 0 {
-		return nil, nil
-	}
-
-	var (
-		claimed  []*Request
-		selected int
-	)
-
-	// The select and the update run in one transaction so that FOR UPDATE SKIP
-	// LOCKED means anything. Without it the lock is released before the update,
-	// and two workers select the same rows.
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
-		selectQuery, selectArgs := s.tables.buildSelectClaimable(s.dialect, now, limit, true)
-
-		ids, err := scanIDs(ctx, q, selectQuery, selectArgs)
-		if err != nil {
-			return op.Error(err, "selecting claimable dataprivacy requests")
-		}
-
-		selected = len(ids)
-		op.Set(selectedKey, selected)
-
-		if len(ids) == 0 {
-			return nil
-		}
-
-		claimQuery, claimArgs := s.tables.buildClaim(s.dialect, ids, now, leaseUntil)
-		if _, err = q.ExecContext(ctx, claimQuery, claimArgs...); err != nil {
-			return op.Error(err, "claiming dataprivacy requests")
-		}
-
-		// Re-read rather than project from the select, so the attempt counts the
-		// worker sees are the ones the claim just wrote. A worker deciding
-		// whether it has exhausted its budget from a pre-increment count would
-		// grant every request one attempt more than configured.
-		fetchQuery, fetchArgs := s.tables.buildFetchByIDs(s.dialect, ids, StatusProcessing)
-
-		if claimed, err = scanRequests(ctx, q, fetchQuery, fetchArgs); err != nil {
-			return op.Error(err, "reading claimed dataprivacy requests")
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	op.Set(claimedKey, len(claimed))
-
-	// Selected as pending, gone by the time the guarded UPDATE ran. buildClaim
-	// repeats the status guard for exactly this case, and until now it absorbed
-	// the difference silently: the batch simply came back smaller than the one
-	// that was selected, with nothing to say a subject had cancelled in between.
-	if selected != len(claimed) {
-		op.Logger().WithValues(map[string]any{
-			selectedKey: selected,
-			claimedKey:  len(claimed),
-		}).Info("dataprivacy requests left the claimable set mid-claim")
-	}
-
-	return claimed, nil
 }
 
 func (s *sqlStore) CompleteExport(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error {
@@ -450,28 +384,35 @@ func (s *sqlStore) MarkKeyShredded(ctx context.Context, requestID string, at tim
 	return nil
 }
 
-func (s *sqlStore) Fail(
-	ctx context.Context,
-	requestID string,
-	attempts int,
-	nextAttempt time.Time,
-	lastErr string,
-	terminal bool,
-) error {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
-		requestIDKey: requestID,
-		attemptsKey:  attempts,
-		terminalKey:  terminal,
-	}))
+func (s *sqlStore) Fail(ctx context.Context, requestID, lastErr string, at time.Time) (bool, error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
-	query, args := s.tables.buildFail(s.dialect, requestID, attempts, nextAttempt, lastErr, terminal)
+	query, args := s.tables.buildFail(s.dialect, requestID, lastErr, at)
 
-	if _, err := s.client.Writer().ExecContext(ctx, query, args...); err != nil {
-		return op.Error(err, "recording dataprivacy request failure")
+	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	if err != nil {
+		return false, op.Error(err, "recording dataprivacy request failure")
 	}
 
-	return nil
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, op.Error(err, "reading dataprivacy request failure result")
+	}
+
+	op.Set(rowsAffectedKey, affected)
+
+	// Zero rows is reported rather than returned as an error. The request left
+	// StatusInProgress before the final attempt gave up — cancelled, or
+	// completed by a duplicate execution that got there first — and in both of
+	// those the row already says something truer than "failed" would.
+	if affected == 0 {
+		op.Set(guardMissedKey, true)
+
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (s *sqlStore) ExpiringArtifacts(ctx context.Context, now time.Time, limit int) ([]*Request, error) {
@@ -664,30 +605,6 @@ func (s *sqlStore) execExpectingRow(
 	return nil
 }
 
-// scanIDs drains a single-column ID projection.
-func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (ids []string, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing dataprivacy request ID rows")
-		}
-	}()
-
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-
-		ids = append(ids, id)
-	}
-
-	return ids, rows.Err()
-}
-
 // scanRequests drains a request projection.
 func scanRequests(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (requests []*Request, err error) {
 	rows, err := q.QueryContext(ctx, query, args...)
@@ -728,9 +645,9 @@ func scanRequest(scanner database.Scanner) (*Request, error) {
 	)
 
 	if err := scanner.Scan(
-		&req.ID, &requestType, &status,
+		&req.ID, &requestType, &status, &req.OperationID,
 		&req.Subject.ID, &subjectType, &req.Subject.Scope,
-		&req.RequestedAt, &req.DueAt, &expiresAt, &completedAt, &req.Attempts,
+		&req.RequestedAt, &req.DueAt, &expiresAt, &completedAt,
 		&req.ArtifactRef, &req.ArtifactBytes, &req.Deleted, &req.Anonymized,
 		&failures, &retained, &lastError, &keyShreddedAt,
 	); err != nil {

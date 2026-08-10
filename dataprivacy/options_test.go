@@ -158,140 +158,140 @@ func TestServiceOptions(T *testing.T) {
 	})
 }
 
-func TestWorkerOptions(T *testing.T) {
+func TestFulfillerOptions(T *testing.T) {
 	T.Parallel()
 
-	T.Run("WithWorkerClock", func(t *testing.T) {
+	T.Run("WithFulfillerClock", func(t *testing.T) {
 		t.Parallel()
 
 		original := clock.NewClock()
-		w := &Worker{clock: original}
+		w := &Fulfiller{clock: original}
 
 		replacement := clock.NewClock()
-		WithWorkerClock(replacement)(w)
+		WithFulfillerClock(replacement)(w)
 		test.True(t, w.clock == replacement)
 
-		WithWorkerClock(nil)(w)
+		WithFulfillerClock(nil)(w)
 		test.True(t, w.clock == replacement)
 	})
 
-	T.Run("WithWorkerLogger", func(t *testing.T) {
+	T.Run("WithFulfillerLogger", func(t *testing.T) {
 		t.Parallel()
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerLogger(loggingnoop.NewLogger())(w)
+		WithFulfillerLogger(loggingnoop.NewLogger())(w)
 		test.NotNil(t, w.logger)
 	})
 
-	T.Run("WithWorkerTracerProvider", func(t *testing.T) {
+	T.Run("WithFulfillerTracerProvider", func(t *testing.T) {
 		t.Parallel()
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerTracerProvider(tracingnoop.NewTracerProvider())(w)
+		WithFulfillerTracerProvider(tracingnoop.NewTracerProvider())(w)
 		test.NotNil(t, w.tracerProvider)
 	})
 
-	T.Run("WithWorkerMetricsProvider", func(t *testing.T) {
+	T.Run("WithFulfillerMetricsProvider", func(t *testing.T) {
 		t.Parallel()
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerMetricsProvider(metrics.EnsureMetricsProvider(nil))(w)
+		WithFulfillerMetricsProvider(metrics.EnsureMetricsProvider(nil))(w)
 		test.NotNil(t, w.metricsProvider)
 	})
 
-	T.Run("WithWorkerUploadManager", func(t *testing.T) {
+	T.Run("WithFulfillerUploadManager", func(t *testing.T) {
 		t.Parallel()
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerUploadManager(newMemoryUploader())(w)
+		WithFulfillerUploadManager(newMemoryUploader())(w)
 		test.NotNil(t, w.uploader)
 
-		WithWorkerUploadManager(nil)(w)
+		WithFulfillerUploadManager(nil)(w)
 		test.NotNil(t, w.uploader)
 	})
 
-	T.Run("WithWorkerCompressor", func(t *testing.T) {
+	T.Run("WithFulfillerCompressor", func(t *testing.T) {
 		t.Parallel()
 
 		compressor, err := compression.NewCompressor(compression.AlgorithmZstd)
 		must.NoError(t, err)
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerCompressor(compressor)(w)
+		WithFulfillerCompressor(compressor)(w)
 		test.NotNil(t, w.packager.compressor)
 
-		WithWorkerCompressor(nil)(w)
+		WithFulfillerCompressor(nil)(w)
 		test.NotNil(t, w.packager.compressor)
 	})
 
-	T.Run("WithWorkerEncryptor", func(t *testing.T) {
+	T.Run("WithFulfillerEncryptor", func(t *testing.T) {
 		t.Parallel()
 
 		encryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerEncryptor(encryptor)(w)
+		WithFulfillerEncryptor(encryptor)(w)
 		test.True(t, w.packager.encrypts())
 
 		// Clearing it would silently start writing plaintext exports to a
 		// bucket an operator believes is encrypted.
-		WithWorkerEncryptor(nil)(w)
+		WithFulfillerEncryptor(nil)(w)
 		test.True(t, w.packager.encrypts())
 	})
 
-	T.Run("WithWorkerNotifier", func(t *testing.T) {
+	T.Run("WithFulfillerNotifier", func(t *testing.T) {
 		t.Parallel()
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerNotifier(NotifierFunc(func(context.Context, *Notification) error { return nil }))(w)
+		WithFulfillerNotifier(NotifierFunc(func(context.Context, *Notification) error { return nil }))(w)
 		test.NotNil(t, w.notifier)
 
-		WithWorkerNotifier(nil)(w)
+		WithFulfillerNotifier(nil)(w)
 		test.NotNil(t, w.notifier)
 	})
 
-	T.Run("WithWorkerAuditRecorder", func(t *testing.T) {
+	T.Run("WithFulfillerAuditRecorder", func(t *testing.T) {
 		t.Parallel()
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerAuditRecorder(&auditmock.RecorderMock{})(w)
+		WithFulfillerAuditRecorder(&auditmock.RecorderMock{})(w)
 		test.NotNil(t, w.recorder)
 
-		WithWorkerAuditRecorder(nil)(w)
+		WithFulfillerAuditRecorder(nil)(w)
 		test.NotNil(t, w.recorder)
 	})
 
-	T.Run("WithWorkerActorResolver", func(t *testing.T) {
+	T.Run("WithFulfillerActorResolver", func(t *testing.T) {
 		t.Parallel()
 
-		w := &Worker{actor: func(context.Context) audit.Actor {
+		w := &Fulfiller{actor: func(context.Context) audit.Actor {
 			return audit.Actor{ID: "original"}
 		}}
 
-		WithWorkerActorResolver(func(context.Context) audit.Actor {
+		WithFulfillerActorResolver(func(context.Context) audit.Actor {
 			return audit.Actor{ID: "replacement"}
 		})(w)
 		test.EqOp(t, "replacement", w.actor(t.Context()).ID)
 
-		WithWorkerActorResolver(nil)(w)
+		WithFulfillerActorResolver(nil)(w)
 		test.EqOp(t, "replacement", w.actor(t.Context()).ID)
 	})
 
-	T.Run("WithWorkerURLSigner", func(t *testing.T) {
+	T.Run("WithFulfillerURLSigner", func(t *testing.T) {
 		t.Parallel()
 
-		w := &Worker{}
+		w := &Fulfiller{}
 
-		WithWorkerURLSigner(func(context.Context, *Request) (string, time.Time) {
+		WithFulfillerURLSigner(func(context.Context, *Request) (string, time.Time) {
 			return "https://example/x", time.Time{}
 		})(w)
 		must.NotNil(t, w.signer)
@@ -299,7 +299,7 @@ func TestWorkerOptions(T *testing.T) {
 		url, _ := w.signer(t.Context(), &Request{})
 		test.EqOp(t, "https://example/x", url)
 
-		WithWorkerURLSigner(nil)(w)
+		WithFulfillerURLSigner(nil)(w)
 		must.NotNil(t, w.signer)
 	})
 }

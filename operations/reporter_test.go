@@ -30,7 +30,25 @@ func newTestReporter(store Store, op *Operation) *reporter {
 		op = &Operation{ID: "op1"}
 	}
 
-	return newReporter(store, logging.EnsureLogger(nil), op, time.Minute, time.Hour)
+	return newReporter(store, logging.EnsureLogger(nil), op, time.Minute, time.Hour,
+		Attempt{ID: op.ID, Number: 1})
+}
+
+func TestReporter_attemptIsWhatTheWorkerHandedIt(t *testing.T) {
+	t.Parallel()
+
+	attempt := Attempt{ID: "op1", Number: 3, Final: true}
+
+	rep := newReporter(newFakeStore(), logging.EnsureLogger(nil), &Operation{ID: "op1"},
+		time.Minute, time.Hour, attempt)
+
+	test.EqOp(t, attempt, rep.Attempt())
+
+	// Fixed for the reporter's life: a flush moves progress, not this.
+	rep.Advance(10)
+	rep.flush(t.Context())
+
+	test.EqOp(t, attempt, rep.Attempt())
 }
 
 func TestReporter_units(T *testing.T) {
@@ -77,6 +95,54 @@ func TestReporter_units(T *testing.T) {
 		rep.FinishUnit()
 
 		test.SliceLen(t, 2, store.recordedProgress())
+	})
+
+	// The numerator has to survive overlapping units, because fanning out over
+	// them is a shape this package invites. A flag would have the first
+	// FinishUnit of an overlapping pair clear it and the second count nothing.
+	T.Run("overlapping units all count", func(t *testing.T) {
+		t.Parallel()
+
+		store := newRecordingStore(Ack{Held: true}, nil)
+		rep := newTestReporter(store, nil)
+
+		rep.SetUnits(4)
+
+		// Interleaved rather than nested, which is what a bounded worker pool
+		// running four domains at a time actually produces.
+		rep.StartUnit("identity")
+		rep.StartUnit("webhooks")
+		rep.FinishUnit()
+		rep.StartUnit("billing")
+
+		// A unit is still open, so the name is not blanked out from under it.
+		test.NotEq(t, "", store.lastProgress().Unit)
+
+		rep.FinishUnit()
+		rep.FinishUnit()
+
+		rep.close(t.Context())
+
+		final := store.lastProgress()
+		test.EqOp(t, 3, final.UnitsDone)
+		test.EqOp(t, "", final.Unit)
+	})
+
+	T.Run("a unit left open is not counted", func(t *testing.T) {
+		t.Parallel()
+
+		store := newRecordingStore(Ack{Held: true}, nil)
+		rep := newTestReporter(store, nil)
+
+		rep.StartUnit("identity")
+		rep.StartUnit("webhooks")
+		rep.FinishUnit()
+
+		rep.close(t.Context())
+
+		// A Runner that abandoned a unit rather than finishing it must not have
+		// it counted, however many others it opened.
+		test.EqOp(t, 1, store.lastProgress().UnitsDone)
 	})
 
 	T.Run("FinishUnit without a StartUnit counts nothing", func(t *testing.T) {
@@ -282,7 +348,8 @@ func TestReporter_runFlushesWithNothingNewToSay(t *testing.T) {
 	t.Parallel()
 
 	store := newRecordingStore(Ack{Held: true}, nil)
-	rep := newReporter(store, logging.EnsureLogger(nil), &Operation{ID: "op1"}, time.Minute, 5*time.Millisecond)
+	rep := newReporter(store, logging.EnsureLogger(nil), &Operation{ID: "op1"}, time.Minute, 5*time.Millisecond,
+		Attempt{ID: "op1", Number: 1})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

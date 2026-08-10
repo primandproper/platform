@@ -8,7 +8,6 @@ import (
 	analyticsmock "github.com/primandproper/platform-go/v10/analytics/mock"
 	"github.com/primandproper/platform-go/v10/database"
 	databasemock "github.com/primandproper/platform-go/v10/database/mock"
-	"github.com/primandproper/platform-go/v10/dataprivacy"
 	"github.com/primandproper/platform-go/v10/distributedlock"
 	distributedlockmock "github.com/primandproper/platform-go/v10/distributedlock/mock"
 	"github.com/primandproper/platform-go/v10/featureflags"
@@ -18,6 +17,7 @@ import (
 	messagequeuemock "github.com/primandproper/platform-go/v10/messagequeue/mock"
 	"github.com/primandproper/platform-go/v10/metering"
 	asyncnoop "github.com/primandproper/platform-go/v10/notifications/async/noop"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/outbox"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 	"github.com/primandproper/platform-go/v10/saga"
@@ -80,7 +80,7 @@ func TestNew_ordering(T *testing.T) {
 		do.ProvideValue(i, &jobs.Scheduler{})
 		do.ProvideValue(i, &saga.Worker{})
 		do.ProvideValue(i, &webhooks.Worker{})
-		do.ProvideValue(i, &dataprivacy.Worker{})
+		do.ProvideValue(i, &operations.Worker{})
 
 		do.ProvideValue(i, &metering.Flusher{})
 
@@ -112,7 +112,7 @@ func TestNew_ordering(T *testing.T) {
 			"jobs scheduler",
 			"saga worker",
 			"webhooks worker",
-			"dataprivacy worker",
+			"operations worker",
 		}, names(svc.runners))
 
 		test.Eq(t, []string{"metering flusher"}, names(svc.flushes))

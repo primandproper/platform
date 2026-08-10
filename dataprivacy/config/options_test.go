@@ -94,7 +94,7 @@ func TestOptions(T *testing.T) {
 		// accessor appends to, not what the underlying option does.
 		test.SliceLen(t, 1, newOptions([]Option{WithStoreOptions(nil)}).store)
 		test.SliceLen(t, 1, newOptions([]Option{WithServiceOptions(nil)}).service)
-		test.SliceLen(t, 1, newOptions([]Option{WithWorkerOptions(nil)}).worker)
+		test.SliceLen(t, 1, newOptions([]Option{WithFulfillerOptions(nil)}).fulfiller)
 		test.SliceLen(t, 1, newOptions([]Option{WithSweeperOptions(nil)}).sweeper)
 	})
 }
