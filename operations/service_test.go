@@ -1,8 +1,10 @@
 package operations
 
 import (
+	"errors"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
@@ -179,4 +181,60 @@ func TestService_List(T *testing.T) {
 
 	must.NoError(T, err)
 	must.NotNil(T, results)
+}
+
+func TestService_start_duplicate(T *testing.T) {
+	T.Parallel()
+
+	newRegistry := func(t *testing.T) *Registry {
+		t.Helper()
+
+		r := NewRegistry()
+		must.NoError(t, Register(r, Definition[exportRequest]{
+			Kind: "export",
+			Run:  noopRun[exportRequest],
+		}))
+
+		return r
+	}
+
+	T.Run("returns the existing operation when the read succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		store := newFakeStore(&Operation{ID: "fixed", Kind: "export", State: StateRunning})
+		svc := newTestService(t, store, newRegistry(t))
+
+		_, span := svc.o11y.Begin(t.Context())
+		defer span.End()
+
+		existing, err := svc.start(t.Context(), span, nil, "export", exportRequest{}, []StartOption{WithID("fixed")})
+
+		must.NoError(t, err)
+		must.NotNil(t, existing)
+		test.EqOp(t, "fixed", existing.ID)
+	})
+
+	T.Run("reports the read's own failure, not the duplicate sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		// A transient database failure on the duplicate path used to come back as
+		// ErrDuplicateOperation, so an operator debugging a database that blinked
+		// was told the record already existed — and the caller, believing it,
+		// stopped retrying.
+		unreachable := platformerrors.New("the read replica is unreachable")
+
+		store := newFakeStore(&Operation{ID: "fixed", Kind: "export", State: StateRunning})
+		store.getErr = unreachable
+
+		svc := newTestService(t, store, newRegistry(t))
+
+		_, span := svc.o11y.Begin(t.Context())
+		defer span.End()
+
+		_, err := svc.start(t.Context(), span, nil, "export", exportRequest{}, []StartOption{WithID("fixed")})
+
+		must.Error(t, err)
+		test.ErrorIs(t, err, unreachable)
+		test.False(t, errors.Is(err, ErrDuplicateOperation))
+	})
 }

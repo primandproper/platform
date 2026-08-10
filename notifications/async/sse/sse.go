@@ -41,8 +41,8 @@ func NewNotifier(_ *Config, opts ...Option) (*Notifier, error) {
 // Publish sends an event to all connected clients on the given channel.
 func (n *Notifier) Publish(ctx context.Context, channel string, event *async.Event) error {
 	ctx, op := n.o11y.Begin(ctx,
-		observability.WithValue(keys.TopicKey, channel),
-		observability.WithValue("event.type", event.Type),
+		observability.WithValue(keys.ChannelKey, channel),
+		observability.WithValue(keys.EventTypeKey, event.Type),
 		observability.WithValue(keys.LengthKey, len(event.Data)),
 	)
 	defer op.End()
@@ -64,7 +64,7 @@ func (n *Notifier) AcceptConnection(w http.ResponseWriter, r *http.Request, chan
 	ctx, op := n.o11y.Begin(r.Context())
 	defer op.End()
 
-	op.Set(keys.TopicKey, channel).Set("member_id", memberID)
+	op.Set(keys.ChannelKey, channel).Set(keys.MemberIDKey, memberID)
 
 	stream, err := n.upgrader.UpgradeToEventStream(w, r)
 	if err != nil {

@@ -128,7 +128,7 @@ func encodeKey[K comparable](codec KeyCodec[K], key K) (string, error) {
 	// looks like, and it makes every log line and every psql session that
 	// touches the row unreadable.
 	if strings.ContainsAny(encoded, "\x00\n\r") {
-		return "", platformerrors.Wrapf(ErrEmptyKey, "encoded key %q contains a control character", encoded)
+		return "", platformerrors.Wrapf(ErrKeyContainsControlCharacter, "encoded key %q", encoded)
 	}
 
 	return encoded, nil

@@ -31,7 +31,7 @@ func RunInTransaction(
 	fn func(tx SQLQueryExecutor) error,
 ) error {
 	if writeDB == nil || rollback == nil || fn == nil {
-		return platformerrors.ErrNilInputProvided
+		return platformerrors.ErrNilInputParameter
 	}
 
 	tx, err := writeDB.BeginTx(ctx, nil)

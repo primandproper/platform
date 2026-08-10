@@ -1087,4 +1087,27 @@ func TestManager_FailClosed_treatsAnUnavailableStoreAsUnavailable(T *testing.T) 
 		test.ErrorIs(t, err, ErrStoreUnavailable)
 		test.False(t, ran)
 	})
+
+	T.Run("the store's own error survives alongside the sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		// Both directions matter. ErrStoreUnavailable is what a caller branches
+		// on; the cache sentinel underneath is how an operator tells a tripped
+		// circuit breaker from a decode failure from a context that expired. The
+		// path used to render the cause with err.Error() and wrap that string,
+		// which left errors.Is reaching only the first of the two.
+		store := newCountingStore(t)
+		store.getErr = cache.ErrUnavailable
+		store.failGetAfter = 0
+
+		m := newManagerOver(t, store)
+
+		_, err := m.Do(t.Context(), testKey, testFingerprint, func(context.Context) (*payload, error) {
+			return &payload{}, nil
+		})
+
+		must.Error(t, err)
+		test.ErrorIs(t, err, ErrStoreUnavailable)
+		test.ErrorIs(t, err, cache.ErrUnavailable)
+	})
 }

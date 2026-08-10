@@ -59,6 +59,17 @@ var (
 	// row.
 	ErrEmptyKey = platformerrors.New("empty timer key")
 
+	// ErrKeyContainsControlCharacter indicates a key whose encoded form contains
+	// a NUL, a newline, or a carriage return. Postgres accepts all three in a
+	// primary key, and every one of them is a key built by concatenating
+	// unvalidated input — which makes every log line and every psql session that
+	// touches the row unreadable.
+	//
+	// It is separate from ErrEmptyKey rather than a shade of it: a key with a
+	// newline in it is not missing, it is malformed, and a caller told the former
+	// reaches for a fix that does nothing about the latter.
+	ErrKeyContainsControlCharacter = platformerrors.New("timer key contains a control character")
+
 	// ErrPayloadTooLarge indicates a payload over MaxPayloadSize. The limit is
 	// this package's rather than the column's: BYTEA would take a gigabyte
 	// happily, and a timer table is read by a poller on an interval, so one

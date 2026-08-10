@@ -99,7 +99,7 @@ func NewService(
 	opts ...ServiceOption,
 ) (Service, error) {
 	if cfg == nil {
-		return nil, platformerrors.New("nil dataprivacy service config provided")
+		return nil, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil dataprivacy service config")
 	}
 
 	if store == nil {
