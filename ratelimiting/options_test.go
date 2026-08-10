@@ -3,6 +3,7 @@ package ratelimiting
 import (
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/clock"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 
 	"github.com/shoenig/test"
@@ -12,13 +13,19 @@ import (
 func TestNewOptions(T *testing.T) {
 	T.Parallel()
 
-	T.Run("no options leaves every field unset", func(t *testing.T) {
+	T.Run("no options leaves the observability seams unset and the rest defaulted", func(t *testing.T) {
 		t.Parallel()
 
 		o := newOptions(nil)
 
 		must.NotNil(t, o)
 		test.Nil(t, o.metricsProvider)
+
+		// Absent means noop for observability, and means the documented default
+		// for the two knobs that keep the limiter's memory bounded — neither has
+		// a sensible "off".
+		test.NotNil(t, o.clock)
+		test.EqOp(t, DefaultMaxLimiters, o.maxLimiters)
 	})
 
 	T.Run("skips nil options", func(t *testing.T) {
@@ -35,10 +42,14 @@ func TestNewOptions(T *testing.T) {
 
 		o := newOptions([]Option{
 			WithMetricsProvider(metricsnoop.NewMetricsProvider()),
+			WithClock(clock.NewClock()),
+			WithMaxLimiters(7),
 		})
 
 		must.NotNil(t, o)
 		test.NotNil(t, o.metricsProvider)
+		test.NotNil(t, o.clock)
+		test.EqOp(t, 7, o.maxLimiters)
 	})
 }
 

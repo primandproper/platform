@@ -147,7 +147,7 @@ func TestSSMSecretSource_GetSecret(T *testing.T) {
 		test.EqOp(t, "my-param-value", got)
 
 		obs.ObservedOperationWithData(t, map[string]any{
-			keys.NameKey: "MY_PARAM",
+			keys.SecretNameKey: "MY_PARAM",
 		})
 	})
 
@@ -164,7 +164,7 @@ func TestSSMSecretSource_GetSecret(T *testing.T) {
 		// Even though the lookup failed, the parameter name must still have been
 		// observed, and the failure itself recorded on the operation.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.NameKey: "MY_PARAM",
+			keys.SecretNameKey: "MY_PARAM",
 		})
 		must.SliceLen(t, 1, op.Errors)
 	})
@@ -181,7 +181,7 @@ func TestSSMSecretSource_GetSecret(T *testing.T) {
 		test.EqOp(t, "", got)
 
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			keys.NameKey: "MISSING_PARAM",
+			keys.SecretNameKey: "MISSING_PARAM",
 		})
 		must.SliceLen(t, 1, op.Errors)
 	})

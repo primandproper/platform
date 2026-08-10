@@ -10,6 +10,12 @@ import (
 )
 
 // RegisterRateLimiter registers a RateLimiter with the injector.
+//
+// The memory provider owns a goroutine — the sweep that reclaims the limiters
+// of keys that have stopped arriving — and the injector will not stop it: do
+// recognizes a Shutdown method, and this module's background components spell
+// that Close. Close it from the same place you shut the rest of them down,
+// after ingress is gone.
 func RegisterRateLimiter(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (ratelimiting.RateLimiter, error) {
 		pillars, err := observability.InvokePillars(i)

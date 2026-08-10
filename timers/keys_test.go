@@ -77,13 +77,17 @@ func TestEncodeKey(T *testing.T) {
 		test.True(t, stderrors.Is(err, ErrEmptyKey))
 	})
 
+	// The sentinel matters as much as the rejection. A key with a newline in it
+	// is malformed, not missing, and reporting it as ErrEmptyKey sent a caller
+	// looking for an unset field that was never unset.
 	T.Run("rejects control characters", func(t *testing.T) {
 		t.Parallel()
 
 		for _, key := range []string{"a\nb", "a\x00b", "a\rb"} {
 			_, err := encodeKey(codec, key)
 
-			test.True(t, stderrors.Is(err, ErrEmptyKey), test.Sprintf("key %q", key))
+			test.True(t, stderrors.Is(err, ErrKeyContainsControlCharacter), test.Sprintf("key %q", key))
+			test.False(t, stderrors.Is(err, ErrEmptyKey), test.Sprintf("key %q", key))
 		}
 	})
 

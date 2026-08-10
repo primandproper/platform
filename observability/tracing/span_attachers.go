@@ -108,9 +108,29 @@ var sensitiveHeaders = map[string]struct{}{
 	"X-Csrf-Token":        {},
 }
 
+// recording reports whether span will keep anything attached to it.
+//
+// AttachToSpan makes this check too, but per attribute and therefore too late
+// for the composite attachers below: by the time it runs they have already
+// formatted a key, parsed a user agent, or stringified a URL to produce the
+// value it is about to discard. Asking once, before any of that, is what makes
+// a non-recording span actually free rather than merely silent.
+//
+// The distinction matters most where it is least visible. A sampled-out span is
+// not recording, so on a service sampling at ten percent this guard is the
+// difference between doing this work on every request and doing it on one in
+// ten.
+func recording(span trace.Span) bool {
+	return span != nil && span.IsRecording()
+}
+
 // attachHeadersToSpan attaches HTTP headers to a span, redacting the values of any
 // sensitive headers (credentials, cookies, API keys) while still recording their presence.
 func attachHeadersToSpan(span trace.Span, prefix string, header http.Header) {
+	if !recording(span) {
+		return
+	}
+
 	for k, v := range header {
 		key := fmt.Sprintf("%s.%s", prefix, k)
 		if _, sensitive := sensitiveHeaders[http.CanonicalHeaderKey(k)]; sensitive {
@@ -124,7 +144,7 @@ func attachHeadersToSpan(span trace.Span, prefix string, header http.Header) {
 
 // AttachRequestToSpan attaches a given HTTP request to a span.
 func AttachRequestToSpan(span trace.Span, req *http.Request) {
-	if req != nil {
+	if req != nil && recording(span) {
 		AttachToSpan(span, keys.RequestURIKey, req.URL.String())
 		AttachToSpan(span, keys.RequestMethodKey, req.Method)
 		AttachUserAgentDataToSpan(span, req)
@@ -135,13 +155,9 @@ func AttachRequestToSpan(span trace.Span, req *http.Request) {
 
 // AttachResponseToSpan attaches a given *http.Response to a span.
 func AttachResponseToSpan(span trace.Span, res *http.Response) {
-	if res != nil {
+	if res != nil && recording(span) {
 		AttachRequestToSpan(span, res.Request)
-		// Guard the direct SetAttributes call the same way AttachToSpan does, so a nil
-		// (or non-recording) span doesn't panic.
-		if span != nil && span.IsRecording() {
-			span.SetAttributes(attribute.Int(keys.ResponseStatusKey, res.StatusCode))
-		}
+		span.SetAttributes(attribute.Int(keys.ResponseStatusKey, res.StatusCode))
 
 		attachHeadersToSpan(span, keys.ResponseHeadersKey, res.Header)
 	}
@@ -197,6 +213,12 @@ func AttachQueryFilterToSpan(span trace.Span, filter *filtering.QueryFilter) {
 
 // AttachUserAgentDataToSpan attaches a request's user-agent details to a span.
 func AttachUserAgentDataToSpan(span trace.Span, req *http.Request) {
+	// Checked before the parse, not after: useragent.New does real work to
+	// produce values a non-recording span would drop.
+	if !recording(span) {
+		return
+	}
+
 	header := req.Header.Get("User-Agent")
 	ua := useragent.New(header)
 

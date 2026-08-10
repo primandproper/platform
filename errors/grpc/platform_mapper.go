@@ -7,16 +7,24 @@ import (
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
 	"github.com/primandproper/platform-go/v10/links"
+	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
+	"github.com/primandproper/platform-go/v10/sessions"
 
 	"google.golang.org/grpc/codes"
 )
 
 // PlatformMapper maps platform-level errors to gRPC codes.
 // It does not depend on any domain.
+//
+// It covers the same sentinel set as the HTTP mapper, and deliberately so: a
+// service exposing both transports would otherwise answer the same failure with
+// a considered status on one and codes.Unknown on the other, and which one a
+// client got would depend on how it happened to connect.
 var PlatformMapper GRPCErrorMapper = platformMapper{}
 
 type platformMapper struct{}
@@ -85,6 +93,36 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 	// A malformed token never named a link at all, which is ordinary bad input.
 	case errors.Is(err, links.ErrInvalidToken):
 		return codes.InvalidArgument, true
+	// Unauthenticated for every unusable session — absent, forged, expired.
+	// ErrNotFound alone covers all of them, since ErrExpired and the two timeout
+	// errors wrap it, and nothing is lost by collapsing them: gRPC has one code
+	// for "we do not know who you are", and telling a client apart "no such
+	// session" from "that one expired" is an oracle for whether a guessed
+	// identifier ever existed. The HTTP mapper splits the two only to vary the
+	// message a person reads; the status is the same there too.
+	case errors.Is(err, sessions.ErrNotFound):
+		return codes.Unauthenticated, true
+	// An operation nobody may read and an operation that does not exist are the
+	// same answer, for the same reason the HTTP mapper gives.
+	case errors.Is(err, operations.ErrOperationNotFound):
+		return codes.NotFound, true
+	// ResourceExhausted rather than Unavailable: nothing is down, the fleet is
+	// simply at its subscription ceiling, and the client should back off and
+	// retry rather than fail over to an instance with the same ceiling.
+	case errors.Is(err, operations.ErrTooManyWatchers):
+		return codes.ResourceExhausted, true
+	case errors.Is(err, dataprivacy.ErrRequestNotFound):
+		return codes.NotFound, true
+	// FailedPrecondition for both: the request exists and the caller may see it,
+	// but it is not in the state the call needs. The state has to change —
+	// somebody confirms the request, or the export finishes — before a retry can
+	// succeed, which is exactly what FailedPrecondition tells a client.
+	case errors.Is(err, dataprivacy.ErrNotAwaitingConfirmation),
+		errors.Is(err, dataprivacy.ErrArtifactUnavailable):
+		return codes.FailedPrecondition, true
+	case errors.Is(err, dataprivacy.ErrEmptySubjectID),
+		errors.Is(err, dataprivacy.ErrUnknownRequestType):
+		return codes.InvalidArgument, true
 	// Aborted is gRPC's concurrency-conflict code, and its documented advice —
 	// retry at a higher level — is exactly right here: the work may still
 	// succeed, and the client should ask again with the same key.
@@ -97,9 +135,9 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 		return codes.InvalidArgument, true
 	case errors.Is(err, platformerrors.ErrNilInputParameter),
 		errors.Is(err, platformerrors.ErrEmptyInputParameter),
-		errors.Is(err, platformerrors.ErrNilInputProvided),
 		errors.Is(err, platformerrors.ErrInvalidIDProvided),
-		errors.Is(err, platformerrors.ErrEmptyInputProvided):
+		errors.Is(err, platformerrors.ErrEmptyInputProvided),
+		errors.Is(err, platformerrors.ErrUnrecognizedInputValue):
 		return codes.InvalidArgument, true
 	default:
 		return codes.Unknown, false

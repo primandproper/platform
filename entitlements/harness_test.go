@@ -49,11 +49,11 @@ const (
 
 // newRegistry builds a metering registry holding the meter the quota feature in
 // these tests counts against.
-func newRegistry(t *testing.T) *metering.Registry {
-	t.Helper()
+func newRegistry(tb testing.TB) *metering.Registry {
+	tb.Helper()
 
 	r := metering.NewRegistry()
-	must.NoError(t, r.RegisterMeter(metering.Meter{
+	must.NoError(tb, r.RegisterMeter(metering.Meter{
 		Name:        testMeter,
 		Unit:        "tokens",
 		Aggregation: metering.AggregationSum,
@@ -67,48 +67,48 @@ func newRegistry(t *testing.T) *metering.Registry {
 // feature with both flags, one quota feature with a kill flag, and three plans —
 // one that includes everything with a limit, one that includes the quota feature
 // without one, and one that includes nothing.
-func newCatalog(t *testing.T) *Catalog {
-	t.Helper()
+func newCatalog(tb testing.TB) *Catalog {
+	tb.Helper()
 
 	c := NewCatalog()
-	must.NoError(t, c.RegisterFeature(Feature{
+	must.NoError(tb, c.RegisterFeature(Feature{
 		Key:       featureSearch,
 		Kind:      KindBoolean,
 		GrantFlag: flagSearchGrant,
 		KillFlag:  flagSearchKill,
 	}))
-	must.NoError(t, c.RegisterFeature(Feature{
+	must.NoError(tb, c.RegisterFeature(Feature{
 		Key:      featureTokens,
 		Kind:     KindQuota,
 		Meter:    testMeter,
 		KillFlag: flagTokensKill,
 	}))
 
-	must.NoError(t, c.RegisterPlan(Plan{
+	must.NoError(tb, c.RegisterPlan(Plan{
 		Name: planPro,
 		Includes: []Grant{
 			{Feature: featureSearch},
 			{Feature: featureTokens, Limit: 1000},
 		},
 	}))
-	must.NoError(t, c.RegisterPlan(Plan{
+	must.NoError(tb, c.RegisterPlan(Plan{
 		Name:     planEnterprise,
 		Includes: []Grant{{Feature: featureSearch}, {Feature: featureTokens, Unlimited: true}},
 	}))
-	must.NoError(t, c.RegisterPlan(Plan{Name: planFree}))
+	must.NoError(tb, c.RegisterPlan(Plan{Name: planFree}))
 
 	return c
 }
 
 // newBooleanCatalog builds a catalog with no quota features, for the tests that
 // assert a Checker needs no enforcer without them.
-func newBooleanCatalog(t *testing.T) *Catalog {
-	t.Helper()
+func newBooleanCatalog(tb testing.TB) *Catalog {
+	tb.Helper()
 
 	c := NewCatalog()
-	must.NoError(t, c.RegisterFeature(Feature{Key: featureSearch, Kind: KindBoolean}))
-	must.NoError(t, c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{{Feature: featureSearch}}}))
-	must.NoError(t, c.RegisterPlan(Plan{Name: planFree}))
+	must.NoError(tb, c.RegisterFeature(Feature{Key: featureSearch, Kind: KindBoolean}))
+	must.NoError(tb, c.RegisterPlan(Plan{Name: planPro, Includes: []Grant{{Feature: featureSearch}}}))
+	must.NoError(tb, c.RegisterPlan(Plan{Name: planFree}))
 
 	return c
 }
@@ -208,12 +208,12 @@ func staticEnforcer(decision *metering.Decision, err error) metering.Enforcer {
 }
 
 // newAssignmentCache builds the in-memory cache the read-through tests use.
-func newAssignmentCache(t *testing.T) cache.Cache[Assignment] {
-	t.Helper()
+func newAssignmentCache(tb testing.TB) cache.Cache[Assignment] {
+	tb.Helper()
 
 	c, err := memory.NewInMemoryCache[Assignment](time.Minute)
-	must.NoError(t, err)
-	t.Cleanup(func() { _ = c.Close() })
+	must.NoError(tb, err)
+	tb.Cleanup(func() { _ = c.Close() })
 
 	return c
 }
@@ -221,16 +221,16 @@ func newAssignmentCache(t *testing.T) cache.Cache[Assignment] {
 // newChecker builds a checker over the standard catalog with a noop logger, so a
 // test that trips the "no cache" or "fault" paths does not print to the suite's
 // output.
-func newChecker(t *testing.T, plans PlanSource, opts ...CheckerOption) *PlanChecker {
-	t.Helper()
+func newChecker(tb testing.TB, plans PlanSource, opts ...CheckerOption) *PlanChecker {
+	tb.Helper()
 
 	base := []CheckerOption{
 		WithLogger(loggingnoop.NewLogger()),
 		WithEnforcer(staticEnforcer(&metering.Decision{Allowed: true, Limit: 1000}, nil)),
 	}
 
-	c, err := NewPlanChecker(t.Context(), &CheckerConfig{}, newCatalog(t), plans, append(base, opts...)...)
-	must.NoError(t, err)
+	c, err := NewPlanChecker(tb.Context(), &CheckerConfig{}, newCatalog(tb), plans, append(base, opts...)...)
+	must.NoError(tb, err)
 
 	return c
 }

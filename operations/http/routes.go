@@ -261,7 +261,7 @@ func (h *Handlers) list(
 		state := operations.State(in.State)
 		if !state.Valid() {
 			return nil, span.Error(
-				platformerrors.Wrapf(platformerrors.ErrEmptyInputProvided, "unknown operation state %q", in.State),
+				platformerrors.Wrapf(platformerrors.ErrUnrecognizedInputValue, "unknown operation state %q", in.State),
 				"listing operations",
 			)
 		}

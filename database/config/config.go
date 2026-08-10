@@ -2,7 +2,6 @@ package databasecfg
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net"
 	"net/url"
@@ -19,11 +18,8 @@ import (
 	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
-	"github.com/XSAM/otelsql"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	mysqldriver "github.com/go-sql-driver/mysql"
-	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 const (
@@ -223,43 +219,6 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // LoadConnectionDetailsFromURL wraps an inner function.
 func (cfg *Config) LoadConnectionDetailsFromURL(u string) error {
 	return cfg.ReadConnection.LoadFromURL(u)
-}
-
-func (cfg *Config) driverName() string {
-	switch cfgnorm.Provider(cfg.Provider) {
-	case ProviderMySQL:
-		return "mysql"
-	case ProviderSQLite:
-		return "sqlite"
-	default:
-		return "pgx"
-	}
-}
-
-func (cfg *Config) connectToDatabase(connStr string) (*sql.DB, error) {
-	db, err := otelsql.Open(cfg.driverName(), connStr, otelsql.WithAttributes(
-		attribute.KeyValue{
-			Key:   semconv.ServiceNameKey,
-			Value: attribute.StringValue("database"),
-		},
-	))
-	if err != nil {
-		return nil, errors.Wrapf(err, "connecting to %s database", cfg.Provider)
-	}
-
-	db.SetMaxIdleConns(cfg.GetMaxIdleConns())
-	db.SetMaxOpenConns(cfg.GetMaxOpenConns())
-	db.SetConnMaxLifetime(cfg.GetConnMaxLifetime())
-
-	return db, nil
-}
-
-func (cfg *Config) ConnectToReadDatabase() (*sql.DB, error) {
-	return cfg.connectToDatabase(cfg.GetReadConnectionString())
-}
-
-func (cfg *Config) ConnectToWriteDatabase() (*sql.DB, error) {
-	return cfg.connectToDatabase(cfg.GetWriteConnectionString())
 }
 
 // ValidateWithContext validates an DatabaseSettings struct.

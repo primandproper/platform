@@ -103,7 +103,7 @@ func (s *SecretSource) GetSecret(ctx context.Context, name string) (string, erro
 	}()
 
 	paramName := s.resolveName(name)
-	op.Set(keys.NameKey, paramName)
+	op.Set(keys.SecretNameKey, paramName)
 
 	input := &ssm.GetParameterInput{
 		Name:           aws.String(paramName),
