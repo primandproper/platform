@@ -2,9 +2,10 @@ package asynccfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v10/notifications/async"
 	"github.com/primandproper/platform-go/v10/notifications/async/ably"
 	"github.com/primandproper/platform-go/v10/notifications/async/noop"
@@ -51,7 +52,7 @@ const (
 // selfHosted reports whether a provider holds its client connections in this
 // process's memory, which is what makes replica count load-bearing.
 func selfHosted(provider string) bool {
-	switch cleanProvider(provider) {
+	switch cfgnorm.Provider(provider) {
 	case ProviderSSE, ProviderWebSocket:
 		return true
 	default:
@@ -59,9 +60,9 @@ func selfHosted(provider string) bool {
 	}
 }
 
-func cleanProvider(provider string) string {
-	return strings.TrimSpace(strings.ToLower(provider))
-}
+// providers are every provider this package implements, plus the empty string,
+// which selects the noop notifier. Validation and NewAsyncNotifier both read it.
+var providers = []string{"", ProviderPusher, ProviderAbly, ProviderWebSocket, ProviderSSE, ProviderNoop}
 
 var (
 	// ErrTopologyRequired is returned when a self-hosted provider is selected
@@ -114,7 +115,7 @@ func (cfg *Config) validateTopology() error {
 		return nil
 	}
 
-	switch cfg.Topology {
+	switch cfgnorm.Provider(cfg.Topology) {
 	case TopologySingleReplica:
 		return nil
 	case TopologyFleet:
@@ -135,12 +136,32 @@ func (cfg *Config) validateTopology() error {
 // validation.When guard alone stops the Required rule and nothing else, so
 // Pusher's and Ably's credentials were required at once and no config could load.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	provider := cfgnorm.Provider(cfg.Provider)
+
 	if err := validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderPusher, ProviderAbly, ProviderWebSocket, ProviderSSE, ProviderNoop, "")),
-		validation.Field(&cfg.Topology, validation.In(TopologySingleReplica, TopologyFleet, "")),
-		validation.Field(&cfg.Pusher, validation.Skip.When(cfg.Provider != ProviderPusher), validation.Required),
-		validation.Field(&cfg.Ably, validation.Skip.When(cfg.Provider != ProviderAbly), validation.Required),
-		validation.Field(&cfg.WebSocket, validation.Skip.When(cfg.Provider != ProviderWebSocket), validation.Required),
+		validation.Field(&cfg.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "Pusher" and " ably " while NewAsyncNotifier built them.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "async notifications provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
+		// Normalized for the same reason, and because validateTopology reads it
+		// the same way: a "Fleet" that reached the constructor was refused there
+		// and accepted here.
+		validation.Field(&cfg.Topology, validation.By(func(any) error {
+			switch cfgnorm.Provider(cfg.Topology) {
+			case "", TopologySingleReplica, TopologyFleet:
+				return nil
+			default:
+				return errors.Newf("unknown topology %q", cfg.Topology)
+			}
+		})),
+		validation.Field(&cfg.Pusher, validation.Skip.When(provider != ProviderPusher), validation.Required),
+		validation.Field(&cfg.Ably, validation.Skip.When(provider != ProviderAbly), validation.Required),
+		validation.Field(&cfg.WebSocket, validation.Skip.When(provider != ProviderWebSocket), validation.Required),
 	); err != nil {
 		return err
 	}
@@ -150,17 +171,28 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 
 // NewAsyncNotifier provides an AsyncNotifier based on configuration.
 //
-// A self-hosted provider without an agreeing Topology is refused here as well
-// as in ValidateWithContext, since this is reachable without it.
-func (cfg *Config) NewAsyncNotifier(opts ...Option) (async.AsyncNotifier, error) {
-	if err := cfg.validateTopology(); err != nil {
+// It takes a context so that the whole config goes through
+// ValidateWithContext, of which the topology agreement was previously the only
+// part this path ran — a pusher deployment with no credentials got as far as
+// its first publish.
+func (cfg *Config) NewAsyncNotifier(ctx context.Context, opts ...Option) (async.AsyncNotifier, error) {
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "async notifications provider")
+	if err != nil {
 		return nil, err
+	}
+
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating async notifications config")
 	}
 
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
-	switch cleanProvider(cfg.Provider) {
+	switch provider {
 	case ProviderPusher:
 		return pusher.NewNotifier(cfg.Pusher, pusher.WithLogger(logger), pusher.WithTracerProvider(tracerProvider), pusher.WithMetricsProvider(metricsProvider))
 	case ProviderAbly:
@@ -172,6 +204,6 @@ func (cfg *Config) NewAsyncNotifier(opts ...Option) (async.AsyncNotifier, error)
 	case "", ProviderNoop:
 		return noop.NewAsyncNotifier()
 	default:
-		return nil, errors.Newf("unknown async notifications provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "async notifications provider %q", cfg.Provider)
 	}
 }

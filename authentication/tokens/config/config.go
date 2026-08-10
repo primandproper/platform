@@ -3,12 +3,13 @@ package tokenscfg
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/authentication/tokens"
 	"github.com/primandproper/platform-go/v10/authentication/tokens/jwt"
 	"github.com/primandproper/platform-go/v10/authentication/tokens/paseto"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -30,6 +31,14 @@ type (
 	}
 )
 
+// providers are every provider this package implements. Validation and
+// NewTokenIssuer both read it.
+var providers = []string{ProviderJWT, ProviderPASETO}
+
+// signingKeyLength is how many bytes both signers need, and is fixed by the
+// algorithms rather than chosen here.
+const signingKeyLength = 32
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config.
@@ -37,33 +46,71 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(
 		ctx,
 		cfg,
-		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderJWT, ProviderPASETO)),
+		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "JWT" and " paseto " while NewTokenIssuer built them.
+			if !slices.Contains(providers, cfgnorm.Provider(cfg.Provider)) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "token issuer provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
 		validation.Field(&cfg.Issuer, validation.Required),
 		validation.Field(&cfg.Audience, validation.Required),
-		validation.Field(&cfg.Base64EncodedSigningKey, validation.Required),
+		// Checked as a decoded length rather than as a non-empty string,
+		// because that is what both signers need and what NewTokenIssuer
+		// refuses without. A key that was Required here and the wrong size
+		// there passed config validation and failed to build.
+		validation.Field(&cfg.Base64EncodedSigningKey, validation.Required, validation.By(func(any) error {
+			key, err := base64.URLEncoding.DecodeString(cfg.Base64EncodedSigningKey)
+			if err != nil {
+				return errors.Wrap(err, "decoding the signing key")
+			}
+
+			if len(key) != signingKeyLength {
+				return errors.Newf("signing key must decode to %d bytes, got %d", signingKeyLength, len(key))
+			}
+
+			return nil
+		})),
 	)
 }
 
 // NewTokenIssuer provides a token issuer.
-func (cfg *Config) NewTokenIssuer(opts ...Option) (tokens.Issuer, error) {
+//
+// It takes a context so that the config it is handed goes through the same
+// ValidateWithContext a composition root would run — the issuer, audience and
+// signing key are what every token carries, and none of those rules were
+// reachable from here before.
+func (cfg *Config) NewTokenIssuer(ctx context.Context, opts ...Option) (tokens.Issuer, error) {
 	o := newOptions(opts)
 	logger, tracerProvider := o.logger, o.tracerProvider
 
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "token issuer provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating token issuer config")
+	}
+
+	// Cannot fail: validation decoded the same string and checked its length.
 	decryptedSigningKey, err := base64.URLEncoding.DecodeString(cfg.Base64EncodedSigningKey)
 	if err != nil {
-		return nil, fmt.Errorf("decoding json web token signing key: %w", err)
+		return nil, errors.Wrap(err, "decoding the token signing key")
 	}
 
-	if len(decryptedSigningKey) != 32 {
-		return nil, fmt.Errorf("decoding json web token signing key must be 32 bytes")
-	}
-
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	switch provider {
 	case ProviderJWT:
 		return jwt.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, jwt.WithLogger(logger), jwt.WithTracerProvider(tracerProvider))
 	case ProviderPASETO:
 		return paseto.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, paseto.WithLogger(logger), paseto.WithTracerProvider(tracerProvider))
 	default:
-		return nil, fmt.Errorf("unknown token issuer provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "token issuer provider %q", cfg.Provider)
 	}
 }

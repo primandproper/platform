@@ -13,6 +13,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/healthcheck"
 	messagequeuecfg "github.com/primandproper/platform-go/v10/messagequeue/config"
+	"github.com/primandproper/platform-go/v10/routing/backends/chi"
 	routingcfg "github.com/primandproper/platform-go/v10/routing/config"
 	httpserver "github.com/primandproper/platform-go/v10/server/http"
 
@@ -217,7 +218,7 @@ func TestWithHealthChecks(T *testing.T) {
 			Database:     sqliteConfig(t),
 			MessageQueue: &queue,
 			Encoding:     &encoding.Config{ContentType: string(encoding.ContentTypeJSON)},
-			Routing:      &routingcfg.Config{Provider: routingcfg.ProviderChi},
+			Routing:      &routingcfg.Config{Provider: routingcfg.ProviderChi, Chi: &chi.Config{ServiceName: "example"}},
 			HTTPServer:   &httpserver.Config{Port: 8080, StartupDeadline: time.Second},
 		}
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))

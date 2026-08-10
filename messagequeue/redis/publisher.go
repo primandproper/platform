@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/encoding"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
@@ -121,7 +122,16 @@ type publisherProvider struct {
 }
 
 // NewRedisPublisherProvider returns a PublisherProvider for a given address.
-func NewRedisPublisherProvider(cfg Config, opts ...Option) messagequeue.PublisherProvider {
+//
+// It takes a context and reports an error so that the config's own
+// ValidateWithContext runs here. Without it, a config with no QueueAddresses
+// fell through both branches below and the provider came back holding a nil
+// client — which nothing noticed until the first Publish panicked.
+func NewRedisPublisherProvider(ctx context.Context, cfg Config, opts ...Option) (messagequeue.PublisherProvider, error) {
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, platformerrors.Wrap(err, "validating redis publisher config")
+	}
+
 	o := newOptions(opts)
 	o11y := observability.NewObserver("redis_publisher_provider", o.logger, o.tracerProvider)
 	logger := o11y.Logger().WithValue("queue_addresses", cfg.QueueAddresses).
@@ -129,6 +139,8 @@ func NewRedisPublisherProvider(cfg Config, opts ...Option) messagequeue.Publishe
 		WithValue("password_empty", cfg.Password == "")
 	logger.Info("setting up redis publisher")
 
+	// Validation guarantees at least one address, so these two branches cover
+	// every config that reaches here.
 	var redisClient messagePublisher
 	if len(cfg.QueueAddresses) > 1 {
 		redisClient = redis.NewClusterClient(&redis.ClusterOptions{
@@ -138,7 +150,7 @@ func NewRedisPublisherProvider(cfg Config, opts ...Option) messagequeue.Publishe
 			DialTimeout:  1 * time.Second,
 			WriteTimeout: 1 * time.Second,
 		})
-	} else if len(cfg.QueueAddresses) == 1 {
+	} else {
 		redisClient = redis.NewClient(&redis.Options{
 			Addr:         cfg.QueueAddresses[0],
 			Username:     cfg.Username,
@@ -156,7 +168,7 @@ func NewRedisPublisherProvider(cfg Config, opts ...Option) messagequeue.Publishe
 		publisherCache:  map[string]messagequeue.Publisher{},
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
-	}
+	}, nil
 }
 
 // NewPublisher returns a Publisher for a given topic.

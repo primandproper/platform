@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database/postgres"
 	"github.com/primandproper/platform-go/v10/database/sqlite"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
 	"github.com/XSAM/otelsql"
@@ -29,6 +31,11 @@ const (
 	ProviderMySQL    = "mysql"
 	ProviderSQLite   = "sqlite"
 )
+
+// providers are every provider this package implements. Validation and
+// NewDatabase both read it. The empty string is absent because EnsureDefaults
+// has already turned it into ProviderPostgres by the time either looks.
+var providers = []string{ProviderPostgres, ProviderMySQL, ProviderSQLite}
 
 type (
 	// Config represents our database configuration.
@@ -112,7 +119,7 @@ func (cfg *Config) GetWriteConnectionString() string {
 }
 
 func (cfg *Config) connectionStringForProvider(cd ConnectionDetails) string {
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	switch cfgnorm.Provider(cfg.Provider) {
 	case ProviderMySQL:
 		return cd.MySQLDSN()
 	case ProviderSQLite:
@@ -176,8 +183,24 @@ func (cfg *Config) GetLogQueries() bool {
 // write connection), while Postgres and MySQL require a fully specified read
 // connection. A write connection, when supplied, is validated regardless of
 // provider.
+//
+// The provider is checked normalized, matching dispatch, and against the same
+// list NewDatabase reads — an unrecognized one used to reach the connection
+// rules, pass them, and be refused only once a client was being built.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
-	if strings.TrimSpace(strings.ToLower(cfg.Provider)) == ProviderSQLite {
+	// An unset provider reads as postgres, which is what EnsureDefaults and the
+	// envDefault tag both make it: a parent validating a sub-config it did not
+	// default should not be told the library's own default is unknown.
+	provider := cfgnorm.Provider(cfg.Provider)
+	if provider == "" {
+		provider = ProviderPostgres
+	}
+
+	if !slices.Contains(providers, provider) {
+		return errors.Wrapf(errors.ErrUnknownProvider, "database provider %q", cfg.Provider)
+	}
+
+	if provider == ProviderSQLite {
 		if cfg.ReadConnection.Database == "" && cfg.WriteConnection.Database == "" {
 			return errors.New("sqlite requires a database file path on the read or write connection")
 		}
@@ -203,7 +226,7 @@ func (cfg *Config) LoadConnectionDetailsFromURL(u string) error {
 }
 
 func (cfg *Config) driverName() string {
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	switch cfgnorm.Provider(cfg.Provider) {
 	case ProviderMySQL:
 		return "mysql"
 	case ProviderSQLite:
@@ -352,12 +375,30 @@ func NewDatabase(
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	// Defaults first: a hand-built Config leaves Provider empty, and postgres is
+	// the documented default rather than a validation failure. Only deployments
+	// that parse the environment got that for free, from the envDefault tag.
+	cfg.EnsureDefaults()
+
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "database provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating database config")
+	}
+
 	var dbMetricsProvider metrics.Provider
 	if cfg.EnableDatabaseMetrics && metricsProvider != nil {
 		dbMetricsProvider = metricsProvider
 	}
 
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	switch provider {
 	case ProviderPostgres:
 		client, err = postgres.NewDatabaseClient(ctx, cfg,
 			postgres.WithLogger(logger),
@@ -374,7 +415,7 @@ func NewDatabase(
 			sqlite.WithTracerProvider(tracerProvider),
 			sqlite.WithMetricsProvider(dbMetricsProvider))
 	default:
-		return nil, errors.Newf("invalid database provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "database provider %q", cfg.Provider)
 	}
 
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -770,8 +772,7 @@ func TestNewDatabase(T *testing.T) {
 
 		client, err := NewDatabase(t.Context(), cfg, nil)
 		test.Nil(t, client)
-		test.Error(t, err)
-		test.StrContains(t, err.Error(), "invalid database provider")
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 
 	T.Run("postgres lazy open", func(t *testing.T) {

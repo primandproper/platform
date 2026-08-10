@@ -2,7 +2,7 @@ package mobilecfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
@@ -57,6 +57,10 @@ type (
 	}
 )
 
+// providers are every provider this package implements. Validation and
+// NewPushSender both read it.
+var providers = []string{ProviderAPNs, ProviderFCM, ProviderAPNsFCM, ProviderNoop}
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 var _ validation.ValidatableWithContext = (*APNsConfig)(nil)
@@ -79,7 +83,7 @@ func (cfg *APNsConfig) ValidateWithContext(ctx context.Context) error {
 // empty FCM block mean "use Application Default Credentials" rather than
 // "Android is off".
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
-	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	provider := cfgnorm.Provider(cfg.Provider)
 
 	// Release an APNs block env parsing's ",init" allocated and nothing filled in,
 	// so a deployment that selected FCM alone is not asked for iOS credentials by
@@ -89,7 +93,18 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(
 		ctx,
 		cfg,
-		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderAPNs, ProviderFCM, ProviderAPNsFCM, ProviderNoop)),
+		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "APNS" and " apns_fcm " while NewPushSender built them —
+			// and, worse, the When guard below keys on the same normalized
+			// value, so a mixed-case selection skipped its credential check
+			// entirely on the way to being rejected for the spelling.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "push notification provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
 		validation.Field(&cfg.APNs, validation.When(
 			provider == ProviderAPNs || provider == ProviderAPNsFCM,
 			validation.Required,
@@ -109,7 +124,18 @@ func (cfg *Config) NewPushSender(
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
-	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "push notification provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating push notification config")
+	}
 
 	switch provider {
 	case ProviderAPNs, ProviderFCM, ProviderAPNsFCM:
@@ -126,9 +152,9 @@ func (cfg *Config) NewPushSender(
 				BundleID:    cfg.APNs.BundleID,
 				Production:  cfg.APNs.Production,
 			}
-			s, err := apns.NewSender(apnsCfg, apns.WithTracerProvider(tracerProvider), apns.WithLogger(logger), apns.WithMetricsProvider(metricsProvider))
-			if err != nil {
-				return nil, errors.Wrap(err, "initializing APNs sender")
+			s, senderErr := apns.NewSender(apnsCfg, apns.WithTracerProvider(tracerProvider), apns.WithLogger(logger), apns.WithMetricsProvider(metricsProvider))
+			if senderErr != nil {
+				return nil, errors.Wrap(senderErr, "initializing APNs sender")
 			}
 			apnsSender = s
 		}
@@ -142,9 +168,9 @@ func (cfg *Config) NewPushSender(
 				fcmCfg.CredentialsPath = cfg.FCM.CredentialsPath
 			}
 
-			s, err := fcm.NewSender(ctx, fcmCfg, fcm.WithTracerProvider(tracerProvider), fcm.WithLogger(logger), fcm.WithMetricsProvider(metricsProvider))
-			if err != nil {
-				return nil, errors.Wrap(err, "initializing FCM sender")
+			s, senderErr := fcm.NewSender(ctx, fcmCfg, fcm.WithTracerProvider(tracerProvider), fcm.WithLogger(logger), fcm.WithMetricsProvider(metricsProvider))
+			if senderErr != nil {
+				return nil, errors.Wrap(senderErr, "initializing FCM sender")
 			}
 			fcmSender = s
 		}

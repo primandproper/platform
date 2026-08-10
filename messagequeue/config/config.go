@@ -2,9 +2,10 @@ package messagequeuecfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/messagequeue/kafka"
 	"github.com/primandproper/platform-go/v10/messagequeue/noop"
@@ -31,8 +32,9 @@ const (
 	ProviderNoop provider = "noop"
 )
 
-// providers are every provider this package implements, for validation.
-var providers = []any{
+// providers are every provider this package implements. Validation and both
+// factories read it.
+var providers = []string{
 	string(ProviderRedis),
 	string(ProviderSQS),
 	string(ProviderPubSub),
@@ -73,22 +75,65 @@ var (
 )
 
 // ValidateWithContext validates a MessageQueueConfig struct.
+//
+// The selected provider's own block is validated and the others are skipped.
+// Naming the provider used to be the whole of it, which left every leaf
+// provider's rules unreachable: a redis queue with no addresses, a kafka one
+// with no brokers and a pubsub one with no project all validated clean and
+// then failed — or, for redis, did not fail, and returned a provider holding a
+// nil client.
+//
+// The sub-configs here are values rather than pointers, and each is validated
+// through an explicit validation.By rather than left to ozzo. ValidateStruct
+// dereferences the field pointer it is handed before looking for a Validatable,
+// so `validation.Field(&c.Kafka)` offers ozzo a kafka.Config value — and every
+// ValidateWithContext in this module has a pointer receiver, which a value does
+// not satisfy. Naming the field was therefore indistinguishable from not naming
+// it. The pointer sub-configs elsewhere in this module do not have the problem,
+// because dereferencing a **Config leaves a *Config.
 func (c *MessageQueueConfig) ValidateWithContext(ctx context.Context) error {
+	provider := cfgnorm.Provider(string(c.Provider))
+
+	// selected returns a rule that validates sub, for the one provider that
+	// names it, and does nothing for the rest.
+	selected := func(name string, sub validation.ValidatableWithContext) validation.Rule {
+		return validation.By(func(any) error {
+			if provider != name {
+				return nil
+			}
+
+			return sub.ValidateWithContext(ctx)
+		})
+	}
+
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.Required, validation.In(providers...)),
+		validation.Field(&c.Provider, validation.Required, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "Redis" and " kafka " while the factories built them.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "messagequeue provider %q", c.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&c.Redis, selected(string(ProviderRedis), &c.Redis)),
+		validation.Field(&c.SQS, selected(string(ProviderSQS), &c.SQS)),
+		validation.Field(&c.PubSub, selected(string(ProviderPubSub), &c.PubSub)),
+		validation.Field(&c.Kafka, selected(string(ProviderKafka), &c.Kafka)),
 	)
 }
 
 // ValidateWithContext validates a Config struct.
+//
+// Both halves are invoked explicitly, for the reason MessageQueueConfig's own
+// validation gives: naming a struct-valued field to ozzo is indistinguishable
+// from not naming it, because it dereferences the field pointer before looking
+// for the pointer-receiver Validatable. A zero Config validated clean.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Consumer),
-		validation.Field(&c.Publisher),
+		validation.Field(&c.Consumer, validation.By(func(any) error { return c.Consumer.ValidateWithContext(ctx) })),
+		validation.Field(&c.Publisher, validation.By(func(any) error { return c.Publisher.ValidateWithContext(ctx) })),
 	)
-}
-
-func cleanString(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
 }
 
 // NewConsumerProvider provides a ConsumerProvider.
@@ -100,19 +145,28 @@ func NewConsumerProvider(ctx context.Context, c *Config, opts ...Option) (messag
 		return nil, ErrNilConfig
 	}
 
-	switch cleanString(string(c.Consumer.Provider)) {
+	provider, err := cfgnorm.SelectProvider(string(c.Consumer.Provider), providers, "messagequeue consumer provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = c.Consumer.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating messagequeue consumer config")
+	}
+
+	switch provider {
 	case string(ProviderRedis):
-		return redis.NewRedisConsumerProvider(c.Consumer.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider)), nil
+		return redis.NewRedisConsumerProvider(ctx, c.Consumer.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider))
 	case string(ProviderSQS):
 		return sqs.NewSQSConsumerProvider(ctx, c.Consumer.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
 	case string(ProviderKafka):
 		return kafka.NewKafkaConsumerProvider(c.Consumer.Kafka, kafka.WithLogger(logger), kafka.WithTracerProvider(tracerProvider), kafka.WithMetricsProvider(metricsProvider)), nil
 	case string(ProviderPubSub):
-		client, err := ps.NewClientWithConfig(ctx, c.Consumer.PubSub.ProjectID, &ps.ClientConfig{
+		client, clientErr := ps.NewClientWithConfig(ctx, c.Consumer.PubSub.ProjectID, &ps.ClientConfig{
 			EnableOpenTelemetryTracing: true,
 		})
-		if err != nil {
-			return nil, errors.Wrap(err, "establishing PubSub client")
+		if clientErr != nil {
+			return nil, errors.Wrap(clientErr, "establishing PubSub client")
 		}
 
 		return pubsub.NewPubSubConsumerProvider(client, pubsub.WithLogger(logger), pubsub.WithTracerProvider(tracerProvider), pubsub.WithMetricsProvider(metricsProvider)), nil
@@ -132,19 +186,28 @@ func NewPublisherProvider(ctx context.Context, c *Config, opts ...Option) (messa
 		return nil, ErrNilConfig
 	}
 
-	switch cleanString(string(c.Publisher.Provider)) {
+	provider, err := cfgnorm.SelectProvider(string(c.Publisher.Provider), providers, "messagequeue publisher provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = c.Publisher.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating messagequeue publisher config")
+	}
+
+	switch provider {
 	case string(ProviderRedis):
-		return redis.NewRedisPublisherProvider(c.Publisher.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider)), nil
+		return redis.NewRedisPublisherProvider(ctx, c.Publisher.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider))
 	case string(ProviderSQS):
 		return sqs.NewSQSPublisherProvider(ctx, c.Publisher.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
 	case string(ProviderKafka):
 		return kafka.NewKafkaPublisherProvider(c.Publisher.Kafka, kafka.WithLogger(logger), kafka.WithTracerProvider(tracerProvider), kafka.WithMetricsProvider(metricsProvider)), nil
 	case string(ProviderPubSub):
-		client, err := ps.NewClientWithConfig(ctx, c.Publisher.PubSub.ProjectID, &ps.ClientConfig{
+		client, clientErr := ps.NewClientWithConfig(ctx, c.Publisher.PubSub.ProjectID, &ps.ClientConfig{
 			EnableOpenTelemetryTracing: true,
 		})
-		if err != nil {
-			return nil, errors.Wrap(err, "establishing PubSub client")
+		if clientErr != nil {
+			return nil, errors.Wrap(clientErr, "establishing PubSub client")
 		}
 
 		return pubsub.NewPubSubPublisherProvider(client, c.Publisher.PubSub.ProjectID, pubsub.WithLogger(logger), pubsub.WithTracerProvider(tracerProvider), pubsub.WithMetricsProvider(metricsProvider)), nil

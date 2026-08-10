@@ -3,9 +3,9 @@ package ratelimitingcfg
 import (
 	"context"
 	"slices"
-	"strings"
 
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 	"github.com/primandproper/platform-go/v10/ratelimiting/noop"
 	redisrl "github.com/primandproper/platform-go/v10/ratelimiting/redis"
@@ -56,7 +56,7 @@ func (cfg *Config) EnsureDefaults() {
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
-			if !slices.Contains(providers, strings.TrimSpace(strings.ToLower(cfg.Provider))) {
+			if !slices.Contains(providers, cfgnorm.Provider(cfg.Provider)) {
 				return errors.Wrapf(errors.ErrUnknownProvider, "rate limiter provider %q", cfg.Provider)
 			}
 
@@ -88,15 +88,16 @@ func NewRateLimiter(
 
 	// Checked before the rest of the config so an unrecognized provider reports
 	// ErrUnknownProvider rather than a downstream consequence of it.
-	if !slices.Contains(providers, strings.TrimSpace(strings.ToLower(cfg.Provider))) {
-		return nil, errors.Wrapf(errors.ErrUnknownProvider, "rate limiter provider %q", cfg.Provider)
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "rate limiter provider")
+	if err != nil {
+		return nil, err
 	}
 
-	if err := cfg.ValidateWithContext(ctx); err != nil {
+	if err = cfg.ValidateWithContext(ctx); err != nil {
 		return nil, errors.Wrap(err, "validating rate limiter config")
 	}
 
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	switch provider {
 	case ProviderNoop:
 		return noop.NewRateLimiter(), nil
 	case ProviderMemory:
@@ -105,7 +106,7 @@ func NewRateLimiter(
 			ratelimiting.WithTracerProvider(tracerProvider),
 			ratelimiting.WithMetricsProvider(metricsProvider))
 	case ProviderRedis:
-		return redisrl.NewRedisRateLimiter(cfg.Redis, cfg.RequestsPerSec, cfg.BurstSize,
+		return redisrl.NewRedisRateLimiter(ctx, cfg.Redis, cfg.RequestsPerSec, cfg.BurstSize,
 			redisrl.WithLogger(logger),
 			redisrl.WithTracerProvider(tracerProvider),
 			redisrl.WithMetricsProvider(metricsProvider))

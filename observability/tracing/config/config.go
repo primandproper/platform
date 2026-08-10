@@ -2,7 +2,7 @@ package tracingcfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
@@ -40,28 +40,47 @@ type (
 	}
 )
 
+// providers are every provider this package implements, plus the empty string,
+// which selects no tracing — the deliberate opt-out. Validation and
+// NewTracerProvider both read it.
+var providers = []string{"", ProviderNoop, ProviderOtel, ProviderCloudTrace}
+
 // NewTracerProvider provides a TracerProvider.
 func (c *Config) NewTracerProvider(ctx context.Context, opts ...Option) (tracing.Provider, error) {
+	if c == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
 	// EnsureLogger, not the raw option: the logger is optional now, and every
 	// branch below logs what it configured.
 	logger := logging.EnsureLogger(newOptions(opts).logger).WithValue("tracing_provider", c.Provider)
 
-	p := strings.TrimSpace(strings.ToLower(c.Provider))
+	p, err := cfgnorm.SelectProvider(c.Provider, providers, "tracing provider")
+	if err != nil {
+		return nil, err
+	}
+
+	// Validated here because the sub-config is what SetupOtelGRPC and
+	// SetupCloudTrace dereference: naming otelgrpc with no otelgrpc block used
+	// to reach a nil pointer read rather than a startup error.
+	if err = c.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating tracing config")
+	}
 
 	switch p {
 	case ProviderOtel:
 		logger.WithValue("otel", c.Otel).Info("configuring otelgrpc provider")
-		tp, err := oteltrace.SetupOtelGRPC(ctx, c.ServiceName, c.SpanCollectionProbability, c.Otel)
-		if err != nil {
-			return nil, errors.Wrap(err, "configuring otelgrpc provider")
+		tp, setupErr := oteltrace.SetupOtelGRPC(ctx, c.ServiceName, c.SpanCollectionProbability, c.Otel)
+		if setupErr != nil {
+			return nil, errors.Wrap(setupErr, "configuring otelgrpc provider")
 		}
 
 		return tp, nil
 	case ProviderCloudTrace:
 		logger.Info("configuring cloud trace provider")
-		tp, err := cloudtrace.SetupCloudTrace(ctx, c.ServiceName, c.SpanCollectionProbability, c.CloudTrace)
-		if err != nil {
-			return nil, errors.Wrap(err, "configuring cloud trace provider")
+		tp, setupErr := cloudtrace.SetupCloudTrace(ctx, c.ServiceName, c.SpanCollectionProbability, c.CloudTrace)
+		if setupErr != nil {
+			return nil, errors.Wrap(setupErr, "configuring cloud trace provider")
 		}
 
 		return tp, nil
@@ -93,15 +112,25 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 	cfgnorm.ZeroToNil(&c.Otel)
 	cfgnorm.ZeroToNil(&c.CloudTrace)
 
+	provider := cfgnorm.Provider(c.Provider)
+
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.In("", ProviderNoop, ProviderOtel, ProviderCloudTrace)),
-		validation.Field(&c.Otel, validation.When(c.Provider == ProviderOtel, validation.Required).Else(validation.Nil)),
-		validation.Field(&c.CloudTrace, validation.When(c.Provider == ProviderCloudTrace, validation.Required).Else(validation.Nil)),
+		validation.Field(&c.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "CloudTrace" while NewTracerProvider built it.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "tracing provider %q", c.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&c.Otel, validation.When(provider == ProviderOtel, validation.Required).Else(validation.Nil)),
+		validation.Field(&c.CloudTrace, validation.When(provider == ProviderCloudTrace, validation.Required).Else(validation.Nil)),
 		// ServiceName is only meaningful when a real provider is configured; requiring
 		// it (and the probability) on the noop/default path is wrong. SpanCollectionProbability
 		// is a 0–1 fraction, so a 0.0 ("sample nothing") is valid and must not be rejected
 		// by Required.
-		validation.Field(&c.ServiceName, validation.When(c.Provider != "" && c.Provider != ProviderNoop, validation.Required)),
+		validation.Field(&c.ServiceName, validation.When(provider != "" && provider != ProviderNoop, validation.Required)),
 		validation.Field(&c.SpanCollectionProbability, validation.Min(0.0), validation.Max(1.0)),
 	)
 }
