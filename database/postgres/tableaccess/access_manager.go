@@ -9,6 +9,8 @@ import (
 
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Privilege string
@@ -77,6 +79,16 @@ BEGIN
 END
 $do$`
 
+// duplicateObject is the SQLSTATE Postgres raises for CREATE USER against a
+// role that already exists. There is no CREATE USER IF NOT EXISTS to lean on, so
+// the code is the only thing that separates "somebody already made this user"
+// from a connection that dropped mid-statement.
+//
+// A DO block does not swallow it: nothing here catches the exception, so
+// PL/pgSQL re-raises it with its SQLSTATE intact and the driver still hands back
+// a *pgconn.PgError carrying this code.
+const duplicateObject = "42710"
+
 // CreateUser creates a role with the given password.
 //
 // The password never appears in statement text. CREATE USER is a utility
@@ -91,6 +103,12 @@ $do$`
 // to it, so they are gone whether it commits or rolls back, and no later caller
 // on a pooled connection can read them. CREATE ROLE is transactional in Postgres,
 // so the role and the settings share one unit of work.
+//
+// A username already in use comes back wrapping database.ErrUserAlreadyExists,
+// which errors/http and errors/grpc map to a conflict rather than a 500. The
+// driver's own error is preserved underneath it: the SQLSTATE is what identified
+// the failure, and a caller that wants the detail should not have to re-run the
+// statement to get it.
 func (p *manager) CreateUser(ctx context.Context, username, password string) (err error) {
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -111,6 +129,11 @@ func (p *manager) CreateUser(ctx context.Context, username, password string) (er
 	}
 
 	if _, err = tx.ExecContext(ctx, createUserFromSettings); err != nil {
+		var pgErr *pgconn.PgError
+		if stderrors.As(err, &pgErr) && pgErr.Code == duplicateObject {
+			return errors.Join(database.ErrUserAlreadyExists, errors.Wrap(err, "creating user"))
+		}
+
 		return errors.Wrap(err, "creating user")
 	}
 

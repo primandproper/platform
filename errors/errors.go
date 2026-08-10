@@ -12,7 +12,18 @@ var (
 	Errorf = crdberrors.Errorf
 	Wrap   = crdberrors.Wrap
 	Wrapf  = crdberrors.Wrapf
-	Join   = crdberrors.Join
+
+	// Join is also how a failure is reported as a sentinel without losing what
+	// caused it. Join(sentinel, cause) matches both under errors.Is, and
+	// errors.As still reaches into cause; Wrap(sentinel, cause.Error()) matches
+	// only the sentinel, having put everything else somewhere only a human can
+	// read it. Reach for it wherever a caller is owed something to branch on and
+	// an operator is owed the reason.
+	//
+	// Note that crdberrors.Mark, which looks like it does this, does not: its
+	// mark is visible to cockroachdb's own matcher and not to std errors.Is,
+	// which is what this module uses everywhere.
+	Join = crdberrors.Join
 
 	EncodeError = crdberrors.EncodeError
 	DecodeError = crdberrors.DecodeError
@@ -25,12 +36,24 @@ var (
 	// ErrEmptyInputParameter is returned when an input parameter is empty.
 	ErrEmptyInputParameter = crdberrors.New("provided input parameter is empty")
 
-	// ErrNilInputProvided indicates nil input was provided in an unacceptable context.
-	ErrNilInputProvided = crdberrors.New("nil input provided")
 	// ErrInvalidIDProvided indicates a required ID was passed in empty.
 	ErrInvalidIDProvided = crdberrors.New("required ID provided is empty")
 	// ErrEmptyInputProvided indicates a required input was passed in empty.
 	ErrEmptyInputProvided = crdberrors.New("input provided is empty")
+
+	// ErrUnrecognizedInputValue indicates an input that was supplied, is not
+	// empty, and is not one of the values the callee accepts — an enum member
+	// from a newer client, a misspelled state, a provider name with a typo.
+	//
+	// It exists because the alternative in practice was to reach for
+	// ErrEmptyInputProvided, which says the opposite of what happened. A caller
+	// that branches on "they left it out" and gets it for "they sent something I
+	// do not know" writes the wrong remedy, and an operator reading the log is
+	// told a field was missing while the request plainly carried it.
+	//
+	// Like every sentinel here its message reaches clients verbatim, so it names
+	// no value; wrap it with the offending one.
+	ErrUnrecognizedInputValue = crdberrors.New("input provided is not a recognized value")
 
 	// ErrPermissionDenied indicates the requester lacks the authority to perform
 	// the action. It lives here rather than in the authorization package so that
@@ -90,3 +113,14 @@ var (
 	// incident that looks like a healthy process.
 	ErrUnknownProvider = crdberrors.New("unknown provider")
 )
+
+// ErrNilInputProvided is ErrNilInputParameter under its other name.
+//
+// The two were distinct values naming one condition, and which one a package
+// returned was a coin flip — cookies returned this one, circuitbreaking's config
+// returned the other, and a caller wanting to catch "something was nil" had to
+// test for both or pick wrong. They are now the same value, so either name
+// matches whichever a package happens to return.
+//
+// Deprecated: use ErrNilInputParameter.
+var ErrNilInputProvided = ErrNilInputParameter

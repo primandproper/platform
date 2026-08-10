@@ -156,4 +156,34 @@ const (
 	// component's own configuration rather than from the caller, so it is bounded
 	// and safe as a metric attribute.
 	SignatureSchemeKey = "signature.scheme"
+	// SecretNameKey is the standard key for referring to the secret a source was
+	// asked for. Every secrets provider attaches it under this name — the four
+	// of them previously used three between them — so a query for "who read this
+	// secret" does not have to know which backend served it.
+	//
+	// The value is the name, never the secret. Providers that address a secret in
+	// two parts attach SecretEntryKey alongside it.
+	SecretNameKey = "secret.name"
+	// SecretEntryKey is the standard key for referring to the entry within a
+	// secret, for the providers whose secrets are maps rather than values — a
+	// Kubernetes Secret's data key, for instance. It names the field, not its
+	// contents.
+	SecretEntryKey = "secret.entry"
+	// EmbeddingModelKey is the standard key for referring to the model an
+	// embedding was requested from. Comparing latency or cost across providers is
+	// the ordinary reason to look, and a key that differed by a letter between
+	// them made that a join nobody could write.
+	EmbeddingModelKey = "embedding.model"
+	// ChannelKey is the standard key for referring to the channel an async
+	// notification was published to. It is distinct from TopicKey, which names a
+	// message queue's topic: a channel is a fan-out address a client subscribes
+	// to, and a service commonly has both.
+	ChannelKey = "notification.channel"
+	// EventTypeKey is the standard key for referring to the type of an async
+	// notification's event. It is bounded by the publishing service's own
+	// vocabulary, so it is safe as a metric attribute.
+	EventTypeKey = "notification.event_type"
+	// MemberIDKey is the standard key for referring to one subscriber of an async
+	// notification channel.
+	MemberIDKey = "notification.member" + idSuffix
 )

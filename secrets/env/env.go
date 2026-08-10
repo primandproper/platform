@@ -8,6 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/secrets"
 )
@@ -54,7 +55,7 @@ func (e *SecretSource) GetSecret(ctx context.Context, name string) (string, erro
 	defer op.End()
 
 	// NOTE: only the secret's lookup key is observed, never its value.
-	op.Set("secret_key", name)
+	op.Set(keys.SecretNameKey, name)
 
 	startTime := time.Now()
 	defer func() {

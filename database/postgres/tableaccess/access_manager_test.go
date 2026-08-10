@@ -3,13 +3,16 @@ package tableaccess
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/testutils/containers/pgtest"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -232,7 +235,20 @@ func TestManager_CreateUser(T *testing.T) {
 
 			// Try to create same user again
 			err = mgr.CreateUser(ctx, username, password)
-			test.Error(t, err)
+			must.Error(t, err)
+
+			// The sentinel, not just any error: errors/http and errors/grpc both
+			// map it to a conflict, and until CreateUser returned it nothing in
+			// the module ever did — the sentinel and both its mappings described
+			// a failure no code produced.
+			test.ErrorIs(t, err, database.ErrUserAlreadyExists)
+
+			// And the driver's error underneath it, because the SQLSTATE is what
+			// identified the failure and a caller should not have to re-run the
+			// statement to see it.
+			var pgErr *pgconn.PgError
+			must.True(t, errors.As(err, &pgErr))
+			test.EqOp(t, duplicateObject, pgErr.Code)
 		})
 	})
 

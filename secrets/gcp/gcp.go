@@ -125,7 +125,7 @@ func (g *SecretSource) GetSecret(ctx context.Context, name string) (string, erro
 		g.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	}()
 
-	op.Set(keys.NameKey, name)
+	op.Set(keys.SecretNameKey, name)
 
 	resourceName := g.resolveName(name)
 	req := &secretmanagerpb.AccessSecretVersionRequest{

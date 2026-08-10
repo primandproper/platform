@@ -103,7 +103,7 @@ func TestNewKeyring(T *testing.T) {
 		t.Parallel()
 
 		_, err := NewKeyring(t.Context(), nil, encryption.Keyset{"k1": keyOne})
-		test.ErrorIs(t, err, perrors.ErrNilInputProvided)
+		test.ErrorIs(t, err, perrors.ErrNilInputParameter)
 	})
 
 	T.Run("rejects an invalid config", func(t *testing.T) {
