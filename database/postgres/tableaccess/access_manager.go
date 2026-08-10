@@ -56,41 +56,88 @@ func quoteIdent(id string) string {
 	return `"` + strings.ReplaceAll(id, `"`, `""`) + `"`
 }
 
-// quoteLiteral safely wraps a Postgres string literal in single‑quotes,
-// doubling any embedded single‑quotes per the SQL spec. This is safe only under
-// standard_conforming_strings=on (the Postgres default since 9.1), where backslash
-// is an ordinary character rather than an escape and therefore cannot break out of
-// the literal.
-func quoteLiteral(s string) string {
-	return `'` + strings.ReplaceAll(s, `'`, `''`) + `'`
-}
+// bindCreateUserArgs stashes the new role's name and password in transaction-local
+// settings. Both travel as bind parameters, so neither reaches the statement text.
+//
+// The setting names are two-part on purpose: Postgres accepts a custom setting
+// only under an "extension.name" spelling, and rejects anything with more or
+// fewer dots.
+const bindCreateUserArgs = `SELECT set_config('tableaccess.create_user_username', $1, true),
+       set_config('tableaccess.create_user_password', $2, true)`
+
+// createUserFromSettings reads those settings back and quotes them server-side.
+// format's %I and %L are Postgres' own identifier and literal quoting — the same
+// job quoteIdent does here, done where the credential does not have to be spelled
+// out to get there.
+const createUserFromSettings = `DO $do$
+BEGIN
+	EXECUTE format(
+		'CREATE USER %I WITH PASSWORD %L',
+		current_setting('tableaccess.create_user_username'),
+		current_setting('tableaccess.create_user_password')
+	);
+END
+$do$`
 
 // duplicateObject is the SQLSTATE Postgres raises for CREATE USER against a
 // role that already exists. There is no CREATE USER IF NOT EXISTS to lean on, so
 // the code is the only thing that separates "somebody already made this user"
 // from a connection that dropped mid-statement.
+//
+// A DO block does not swallow it: nothing here catches the exception, so
+// PL/pgSQL re-raises it with its SQLSTATE intact and the driver still hands back
+// a *pgconn.PgError carrying this code.
 const duplicateObject = "42710"
 
-// CreateUser issues a CREATE USER with a safely-quoted password literal.
+// CreateUser creates a role with the given password.
+//
+// The password never appears in statement text. CREATE USER is a utility
+// statement and accepts no bind parameters, so the direct spelling has to
+// interpolate the credential into the SQL — and otelsql copies statement text
+// onto the db.statement span attribute whenever LOG_QUERIES is on, which puts a
+// live credential on a span that may well be exported to a third party. Binding
+// the arguments into settings and letting the server do the quoting means every
+// statement that goes over the wire is a constant.
+//
+// The transaction is what scopes the settings: set_config's local flag ties them
+// to it, so they are gone whether it commits or rolls back, and no later caller
+// on a pooled connection can read them. CREATE ROLE is transactional in Postgres,
+// so the role and the settings share one unit of work.
 //
 // A username already in use comes back wrapping database.ErrUserAlreadyExists,
 // which errors/http and errors/grpc map to a conflict rather than a 500. The
 // driver's own error is preserved underneath it: the SQLSTATE is what identified
 // the failure, and a caller that wants the detail should not have to re-run the
 // statement to get it.
-func (p *manager) CreateUser(ctx context.Context, username, password string) error {
-	_, err := p.db.ExecContext(ctx, fmt.Sprintf(
-		"CREATE USER %s WITH PASSWORD %s",
-		quoteIdent(username),
-		quoteLiteral(password),
-	))
-
-	var pgErr *pgconn.PgError
-	if stderrors.As(err, &pgErr) && pgErr.Code == duplicateObject {
-		return errors.Join(database.ErrUserAlreadyExists, err)
+func (p *manager) CreateUser(ctx context.Context, username, password string) (err error) {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return errors.Wrap(err, "beginning create user transaction")
 	}
 
-	return err
+	defer func() {
+		// Rolling back an already-committed transaction is ErrTxDone and means
+		// only that the happy path happened; anything else is a connection in a
+		// state the caller should hear about.
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !stderrors.Is(rollbackErr, sql.ErrTxDone) {
+			err = errors.Join(err, errors.Wrap(rollbackErr, "rolling back create user transaction"))
+		}
+	}()
+
+	if _, err = tx.ExecContext(ctx, bindCreateUserArgs, username, password); err != nil {
+		return errors.Wrap(err, "binding create user arguments")
+	}
+
+	if _, err = tx.ExecContext(ctx, createUserFromSettings); err != nil {
+		var pgErr *pgconn.PgError
+		if stderrors.As(err, &pgErr) && pgErr.Code == duplicateObject {
+			return errors.Join(database.ErrUserAlreadyExists, errors.Wrap(err, "creating user"))
+		}
+
+		return errors.Wrap(err, "creating user")
+	}
+
+	return errors.Wrap(tx.Commit(), "committing create user transaction")
 }
 
 func (p *manager) DeleteUser(ctx context.Context, username string) error {
