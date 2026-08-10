@@ -35,7 +35,6 @@ type DurableRecorder struct {
 	resolver  PeriodResolver
 	clock     clock.Clock
 	o11y      observability.Observer
-	logger    logging.Logger
 	analytics analytics.EventReporter
 
 	recordedCounter  metrics.Int64Counter
@@ -44,6 +43,10 @@ type DurableRecorder struct {
 	quantityCounter  metrics.Int64Counter
 	latencyHist      metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read r.o11y.Logger() for the logger this recorder actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -92,7 +95,6 @@ func NewDurableRecorder(
 	}
 
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
-	r.logger = r.o11y.Logger()
 
 	if err := r.initInstruments(); err != nil {
 		return nil, err
@@ -220,7 +222,7 @@ func (r *DurableRecorder) prepare(ctx context.Context, usages []Usage, now time.
 			}
 
 			r.droppedCounter.Add(ctx, 1, meterAttr(u.Meter))
-			r.logger.WithValues(map[string]any{
+			r.o11y.Logger().WithValues(map[string]any{
 				meterKey:   u.Meter,
 				subjectKey: u.Subject,
 			}).Info("dropping metering usage for an unregistered meter")
@@ -280,7 +282,7 @@ func (r *DurableRecorder) observe(ctx context.Context, chunk []Entry, result Rec
 			// Logged and swallowed. Analytics is a side channel: an ingest path
 			// that failed because a warehouse was unreachable would be a metering
 			// outage caused by a system nobody bills from.
-			r.logger.WithValue(meterKey, entry.Meter).
+			r.o11y.Logger().WithValue(meterKey, entry.Meter).
 				Error("reporting metering usage to analytics", err)
 		}
 	}

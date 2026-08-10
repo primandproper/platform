@@ -93,7 +93,6 @@ type Flusher struct {
 	reporter capitalism.UsageReporter
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 
 	flushedCounter  metrics.Int64Counter
 	skippedCounter  metrics.Int64Counter
@@ -105,6 +104,10 @@ type Flusher struct {
 	postHist        metrics.Float64Histogram
 	passHist        metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read f.o11y.Logger() for the logger this flusher actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -163,7 +166,6 @@ func NewFlusher(
 	}
 
 	f.o11y = observability.NewObserver(serviceName, f.logger, f.tracerProvider)
-	f.logger = f.o11y.Logger()
 
 	if err := f.initInstruments(); err != nil {
 		return nil, err
@@ -507,7 +509,7 @@ func (f *Flusher) fail(ctx context.Context, op observability.Operation, total *T
 		// fixed. The claim predicate excludes it from now on, so it stops costing
 		// a provider call every interval.
 		f.abandonCounter.Add(ctx, 1, meterAttr(total.Meter))
-		f.logger.WithValues(map[string]any{
+		f.o11y.Logger().WithValues(map[string]any{
 			subjectKey:     total.Subject,
 			meterKey:       total.Meter,
 			periodStartKey: total.PeriodStart,

@@ -48,7 +48,6 @@ type QuotaEnforcer struct {
 	totals   cache.Cache[CachedTotal]
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 
 	checkCounter    metrics.Int64Counter
 	consumeCounter  metrics.Int64Counter
@@ -60,6 +59,10 @@ type QuotaEnforcer struct {
 	checkHist       metrics.Float64Histogram
 	consumeHist     metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read e.o11y.Logger() for the logger this enforcer actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -109,14 +112,13 @@ func NewQuotaEnforcer(
 	}
 
 	e.o11y = observability.NewObserver(serviceName, e.logger, e.tracerProvider)
-	e.logger = e.o11y.Logger()
 
 	if err := e.initInstruments(); err != nil {
 		return nil, err
 	}
 
 	if e.totals == nil {
-		e.logger.Info("metering enforcer has no cache; every Check will read the durable total")
+		e.o11y.Logger().Info("metering enforcer has no cache; every Check will read the durable total")
 	}
 
 	return e, nil

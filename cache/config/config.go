@@ -87,6 +87,13 @@ func validEvictionPolicy(value any) error {
 }
 
 // NewCache provides a Cache.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil, rather than returned straight from the constructor. The
+// provider constructors return their own concrete types, so `return
+// memory.NewInMemoryCache[T](...)` would convert a nil *memory.Cache[T] into a
+// non-nil cache.Cache[T] on the error path, and a caller testing the returned
+// interface against nil would find a cache that panics on first use.
 func NewCache[T any](ctx context.Context, cfg *Config, opts ...Option) (cache.Cache[T], error) {
 	o := newOptions(opts)
 
@@ -112,7 +119,12 @@ func NewCache[T any](ctx context.Context, cfg *Config, opts ...Option) (cache.Ca
 			memoryOpts = append(memoryOpts, memory.WithMaxEntries(cfg.MaxEntries, policy))
 		}
 
-		return memory.NewInMemoryCache[T](cfg.Expiry, memoryOpts...)
+		c, err := memory.NewInMemoryCache[T](cfg.Expiry, memoryOpts...)
+		if err != nil {
+			return nil, err
+		}
+
+		return c, nil
 	case ProviderRedis:
 		cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx,
 			circuitbreakingcfg.WithLogger(o.logger),
@@ -120,10 +132,15 @@ func NewCache[T any](ctx context.Context, cfg *Config, opts ...Option) (cache.Ca
 		if err != nil {
 			return nil, errors.Wrap(err, "initializing cache circuit breaker")
 		}
-		return redis.NewRedisCache[T](cfg.Redis, cfg.Expiry, cb,
+		c, err := redis.NewRedisCache[T](cfg.Redis, cfg.Expiry, cb,
 			redis.WithLogger(o.logger),
 			redis.WithTracerProvider(o.tracerProvider),
 			redis.WithMetricsProvider(o.metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return c, nil
 	default:
 		return nil, errors.Newf("invalid cache provider: %q", cfg.Provider)
 	}

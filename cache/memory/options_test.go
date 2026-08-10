@@ -15,17 +15,14 @@ import (
 // newTestCache builds a cache with opts and hands back the concrete
 // implementation, so a test can read the fields the options set. The options
 // are applied by NewInMemoryCache itself, which is the loop under test.
-func newTestCache(t *testing.T, opts ...Option) *inMemoryCacheImpl[string] {
+func newTestCache(t *testing.T, opts ...Option) *Cache[string] {
 	t.Helper()
 
 	c, err := NewInMemoryCache[string](time.Minute, opts...)
 	must.NoError(t, err)
 	must.NotNil(t, c)
 
-	impl, ok := c.(*inMemoryCacheImpl[string])
-	must.True(t, ok)
-
-	return impl
+	return c
 }
 
 func TestOptions(T *testing.T) {

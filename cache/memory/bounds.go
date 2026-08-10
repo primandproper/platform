@@ -245,7 +245,7 @@ func (x *evictionIndex) evictOverflow() []string {
 // Capacity evictions are counted separately from expiry evictions. They answer
 // different questions — "is the bound too small" against "is the TTL too short"
 // — and a single counter that moved for both would answer neither.
-func (i *inMemoryCacheImpl[T]) evictOverflowLocked(ctx context.Context) {
+func (i *Cache[T]) evictOverflowLocked(ctx context.Context) {
 	for _, key := range i.index.evictOverflow() {
 		delete(i.cache, key)
 		i.cacheCapacityEvictCounter.Add(ctx, 1)

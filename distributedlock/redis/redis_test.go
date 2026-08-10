@@ -56,7 +56,7 @@ func directRedisClient(t *testing.T, cfg *Config) *redis.Client {
 // --------- unit tests (no container) ---------
 
 // fakeRedisClient is a hand-written stand-in for the redisClient interface so
-// the locker logic can be exercised without a real Redis. Each command kind has
+// the Locker logic can be exercised without a real Redis. Each command kind has
 // a configurable result + error, and call counts are recorded for assertions.
 type fakeRedisClient struct {
 	setNXErr    error
@@ -151,9 +151,9 @@ func (p *errorAtCallProvider) NewFloat64Histogram(name string, options ...metric
 	return p.Provider.NewFloat64Histogram(name, options...)
 }
 
-// newUnitLocker constructs a *locker directly with a fake client so unit tests
+// newUnitLocker constructs a *Locker directly with a fake client so unit tests
 // can exercise the per-method logic without going through buildRedisClient.
-func newUnitLocker(t *testing.T, client redisClient, cb circuitbreaking.CircuitBreaker) *locker {
+func newUnitLocker(t *testing.T, client redisClient, cb circuitbreaking.CircuitBreaker) *Locker {
 	t.Helper()
 	mp := metricsnoop.NewMetricsProvider()
 	acquireCounter, err := mp.NewInt64Counter("redis_distributed_lock_acquires")
@@ -171,7 +171,7 @@ func newUnitLocker(t *testing.T, client redisClient, cb circuitbreaking.CircuitB
 	if cb == nil {
 		cb = cbnoop.NewCircuitBreaker()
 	}
-	return &locker{
+	return &Locker{
 		o11y:           observability.NewObserver("test", loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
 		client:         client,
 		circuitBreaker: cb,
@@ -185,10 +185,10 @@ func newUnitLocker(t *testing.T, client redisClient, cb circuitbreaking.CircuitB
 	}
 }
 
-// newRecordingLocker builds a *locker with a RecordingObserver swapped in, so a
+// newRecordingLocker builds a *Locker with a RecordingObserver swapped in, so a
 // test can drive a method and assert that its operation ran (and recorded errors
 // on failure paths).
-func newRecordingLocker(t *testing.T, client redisClient, cb circuitbreaking.CircuitBreaker) (*locker, *observability.RecordingObserver) {
+func newRecordingLocker(t *testing.T, client redisClient, cb circuitbreaking.CircuitBreaker) (*Locker, *observability.RecordingObserver) {
 	t.Helper()
 	l := newUnitLocker(t, client, cb)
 	obs := observability.NewRecordingObserver()

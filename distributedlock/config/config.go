@@ -113,22 +113,41 @@ func NewLocker(
 		return nil, errors.Wrap(err, "initializing distributedlock circuit breaker")
 	}
 
+	// Each provider is built into a variable and returned only once its error is
+	// known to be nil. The provider constructors return their own concrete types,
+	// so returning one straight from the constructor would convert a nil *Locker
+	// into a non-nil distributedlock.Locker on the error path.
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case RedisProvider:
-		return redislock.NewRedisLocker(cfg.Redis, circuitBreaker,
+		l, lockerErr := redislock.NewRedisLocker(cfg.Redis, circuitBreaker,
 			redislock.WithLogger(logger),
 			redislock.WithTracerProvider(tracerProvider),
 			redislock.WithMetricsProvider(metricsProvider))
+		if lockerErr != nil {
+			return nil, lockerErr
+		}
+
+		return l, nil
 	case PostgresProvider:
-		return pglock.NewPostgresLocker(cfg.Postgres, db, circuitBreaker,
+		l, lockerErr := pglock.NewPostgresLocker(cfg.Postgres, db, circuitBreaker,
 			pglock.WithLogger(logger),
 			pglock.WithTracerProvider(tracerProvider),
 			pglock.WithMetricsProvider(metricsProvider))
+		if lockerErr != nil {
+			return nil, lockerErr
+		}
+
+		return l, nil
 	case MemoryProvider:
-		return memory.NewLocker(
+		l, lockerErr := memory.NewLocker(
 			memory.WithLogger(logger),
 			memory.WithTracerProvider(tracerProvider),
 			memory.WithMetricsProvider(metricsProvider))
+		if lockerErr != nil {
+			return nil, lockerErr
+		}
+
+		return l, nil
 	case NoopProvider:
 		return noop.NewLocker(), nil
 	default:
@@ -172,10 +191,19 @@ func NewScopedLocker(
 			return nil, errors.Wrap(err, "initializing distributedlock circuit breaker")
 		}
 
-		return pglock.NewPostgresScopedLocker(cfg.Postgres, db, circuitBreaker,
+		// Built into a variable and returned only once its error is known to be
+		// nil: NewPostgresScopedLocker returns *pglock.ScopedLocker, so returning
+		// it straight through would convert a nil pointer into a non-nil
+		// distributedlock.ScopedLocker on the error path.
+		l, err := pglock.NewPostgresScopedLocker(cfg.Postgres, db, circuitBreaker,
 			pglock.WithLogger(logger),
 			pglock.WithTracerProvider(tracerProvider),
 			pglock.WithMetricsProvider(metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return l, nil
 	case RedisProvider, MemoryProvider:
 		locker, err := NewLocker(ctx, cfg, db,
 			WithLogger(logger),

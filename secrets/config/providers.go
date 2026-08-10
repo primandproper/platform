@@ -13,7 +13,16 @@ func NewSecretSource(ctx context.Context, cfg *Config, opts ...Option) (secrets.
 	if cfg == nil {
 		o := newOptions(opts)
 
-		return env.NewSecretSource(env.WithLogger(o.logger), env.WithTracerProvider(o.tracerProvider), env.WithMetricsProvider(o.metricsProvider))
+		// Built into a variable and returned only once its error is known to be
+		// nil: env.NewSecretSource returns *env.SecretSource, so returning it
+		// straight through would convert a nil pointer into a non-nil
+		// secrets.SecretSource on the error path.
+		s, err := env.NewSecretSource(env.WithLogger(o.logger), env.WithTracerProvider(o.tracerProvider), env.WithMetricsProvider(o.metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return s, nil
 	}
 
 	source, err := cfg.NewSecretSource(ctx, opts...)

@@ -11,7 +11,6 @@ import (
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -172,7 +171,6 @@ type Timers[K comparable] struct {
 	client database.Client
 	codec  KeyCodec[K]
 	o11y   observability.Observer
-	logger logging.Logger
 
 	scheduledCounter metrics.Int64Counter
 	claimedCounter   metrics.Int64Counter
@@ -255,7 +253,6 @@ func New[K comparable](
 		client: client,
 		clock:  clock.NewClock(),
 		codec:  DefaultKeyCodec[K](),
-		logger: o.logger,
 		wakeup: o.wakeup,
 		attrs:  metric.WithAttributes(attribute.String(setNameKey, cfg.Name)),
 	}
@@ -280,9 +277,8 @@ func New[K comparable](
 
 	// Every operation this set performs is about this one set, so the name is
 	// stated once here instead of at each Begin below.
-	t.o11y = observability.NewObserverWithValues(serviceName, t.logger, o.tracerProvider,
+	t.o11y = observability.NewObserverWithValues(serviceName, o.logger, o.tracerProvider,
 		map[string]any{setNameKey: cfg.Name})
-	t.logger = t.o11y.Logger()
 
 	if err := t.buildInstruments(o.metricsProvider); err != nil {
 		return nil, err
@@ -467,7 +463,7 @@ func (t *Timers[K]) sleepFor(ctx context.Context, poll time.Duration) time.Durat
 	// whose Claim is about to report the same thing with a caller to tell.
 	next, found, err := t.NextDue(ctx)
 	if err != nil {
-		t.logger.Error("reading the next due timer, sleeping for the poll interval instead", err)
+		t.o11y.Logger().Error("reading the next due timer, sleeping for the poll interval instead", err)
 	} else if found {
 		sleep = min(sleep, next)
 	}
@@ -930,7 +926,7 @@ func (t *Timers[K]) withRetries(ctx context.Context, label string, fn func() err
 		}
 
 		t.retryCounter.Add(ctx, 1, t.attrs)
-		t.logger.WithValues(map[string]any{
+		t.o11y.Logger().WithValues(map[string]any{
 			attemptKey:  attempt,
 			"operation": label,
 		}).Info("retrying timer write after a serialization failure")

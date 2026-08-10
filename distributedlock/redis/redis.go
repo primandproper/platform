@@ -42,7 +42,7 @@ end
 `
 
 // redisClient is the subset of go-redis we depend on. Defining it as an interface
-// keeps the locker testable without requiring a real Redis for unit tests.
+// keeps the Locker testable without requiring a real Redis for unit tests.
 type redisClient interface {
 	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
 	Eval(ctx context.Context, script string, keys []string, args ...any) *redis.Cmd
@@ -51,11 +51,11 @@ type redisClient interface {
 }
 
 var (
-	_ distributedlock.Locker = (*locker)(nil)
+	_ distributedlock.Locker = (*Locker)(nil)
 	_ distributedlock.Lock   = (*lock)(nil)
 )
 
-type locker struct {
+type Locker struct {
 	o11y           observability.Observer
 	client         redisClient
 	circuitBreaker circuitbreaking.CircuitBreaker
@@ -73,7 +73,7 @@ func NewRedisLocker(
 	cfg *Config,
 	cb circuitbreaking.CircuitBreaker,
 	opts ...Option,
-) (distributedlock.Locker, error) {
+) (*Locker, error) {
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
 	}
@@ -111,7 +111,7 @@ func NewRedisLocker(
 		return nil, platformerrors.Wrap(err, "creating latency histogram")
 	}
 
-	return &locker{
+	return &Locker{
 		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		client:         buildRedisClient(cfg),
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
@@ -126,7 +126,7 @@ func NewRedisLocker(
 }
 
 // Acquire implements distributedlock.Locker.
-func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
+func (l *Locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
 	ctx, op := l.o11y.Begin(ctx,
 		observability.WithValue(keys.LockKeyKey, key),
 		observability.WithValue(keys.LockTTLKey, ttl),
@@ -176,17 +176,17 @@ func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 }
 
 // Ping implements distributedlock.Locker.
-func (l *locker) Ping(ctx context.Context) error {
+func (l *Locker) Ping(ctx context.Context) error {
 	return l.client.Ping(ctx).Err()
 }
 
 // Close implements distributedlock.Locker.
-func (l *locker) Close() error {
+func (l *Locker) Close() error {
 	return l.client.Close()
 }
 
 // release runs the compare-and-delete release script and translates the result.
-func (l *locker) release(ctx context.Context, fullKey, token string) error {
+func (l *Locker) release(ctx context.Context, fullKey, token string) error {
 	ctx, op := l.o11y.Begin(ctx, observability.WithValue("lock.full_key", fullKey))
 	defer op.End()
 
@@ -215,7 +215,7 @@ func (l *locker) release(ctx context.Context, fullKey, token string) error {
 }
 
 // refresh runs the compare-and-pexpire refresh script and translates the result.
-func (l *locker) refresh(ctx context.Context, fullKey, token string, ttl time.Duration) error {
+func (l *Locker) refresh(ctx context.Context, fullKey, token string, ttl time.Duration) error {
 	ctx, op := l.o11y.Begin(ctx,
 		observability.WithValue("lock.full_key", fullKey),
 		observability.WithValue(keys.LockTTLKey, ttl),
@@ -251,7 +251,7 @@ func (l *locker) refresh(ctx context.Context, fullKey, token string, ttl time.Du
 
 // lock is the redis-backed Lock handle.
 type lock struct {
-	locker  *locker
+	locker  *Locker
 	key     string
 	fullKey string
 	token   string

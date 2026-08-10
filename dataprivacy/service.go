@@ -35,7 +35,6 @@ type service struct {
 	operations operations.Service
 	clock      clock.Clock
 	o11y       observability.Observer
-	logger     logging.Logger
 	uploader   uploads.UploadManager
 	recorder   audit.Recorder
 	actor      ActorResolver
@@ -47,6 +46,10 @@ type service struct {
 	cancelledCounter metrics.Int64Counter
 	downloadCounter  metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read s.o11y.Logger() for the logger this service actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -129,7 +132,6 @@ func NewService(
 	}
 
 	s.o11y = observability.NewObserver(serviceName, s.logger, s.tracerProvider)
-	s.logger = s.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
@@ -263,7 +265,7 @@ func (s *service) enqueue(ctx context.Context, started *operations.Operation) {
 	}
 
 	if err := s.operations.Enqueue(ctx, started.ID); err != nil {
-		s.logger.WithValue(operationIDKey, started.ID).
+		s.o11y.Logger().WithValue(operationIDKey, started.ID).
 			Error("enqueuing a dataprivacy operation; it will be recovered by the operations sweep", err)
 	}
 }

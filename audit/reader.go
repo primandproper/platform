@@ -121,12 +121,15 @@ var _ Reader = (*reader)(nil)
 type reader struct {
 	client database.Client
 	o11y   observability.Observer
-	logger logging.Logger
 	tables *tables
 
 	verificationsCounter metrics.Int64Counter
 	breaksCounter        metrics.Int64Counter
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read r.o11y.Logger() for the logger this reader actually uses; this one
+	// may be nil, because supplying none is how a caller asks for no logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
@@ -162,7 +165,6 @@ func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {
 	r.tables = newTables(r.prefix)
 
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
-	r.logger = r.o11y.Logger()
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 

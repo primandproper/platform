@@ -124,7 +124,7 @@ func TestNewResolver(T *testing.T) {
 		r, err := NewResolver(&countingResolver{}, newMemoryCache(t), WithLogger(nil))
 
 		must.NoError(t, err)
-		test.NotNil(t, r.logger)
+		test.NotNil(t, r.o11y.Logger())
 	})
 }
 

@@ -14,14 +14,21 @@ import (
 
 const name = "env_secret_source"
 
-type envSecretSource struct {
+var _ secrets.SecretSource = (*SecretSource)(nil)
+
+// SecretSource reads secrets from this process's environment. It is exported,
+// and returned by NewSecretSource, so a caller can depend on this source rather
+// than on the interface every provider shares — and so face only what this one
+// can do, which is read a variable that is already in memory: no network, no
+// credentials, no per-lookup cost worth caching.
+type SecretSource struct {
 	o11y          observability.Observer
 	lookupCounter metrics.Int64Counter
 	latencyHist   metrics.Float64Histogram
 }
 
 // NewSecretSource returns a SecretSource that reads from environment variables.
-func NewSecretSource(opts ...Option) (secrets.SecretSource, error) {
+func NewSecretSource(opts ...Option) (*SecretSource, error) {
 	o := newOptions(opts)
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
@@ -35,14 +42,14 @@ func NewSecretSource(opts ...Option) (secrets.SecretSource, error) {
 		return nil, errors.Wrap(err, "creating latency histogram")
 	}
 
-	return &envSecretSource{
+	return &SecretSource{
 		o11y:          observability.NewObserver(name, o.logger, o.tracerProvider),
 		lookupCounter: lookupCounter,
 		latencyHist:   latencyHist,
 	}, nil
 }
 
-func (e *envSecretSource) GetSecret(ctx context.Context, name string) (string, error) {
+func (e *SecretSource) GetSecret(ctx context.Context, name string) (string, error) {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -64,7 +71,7 @@ func (e *envSecretSource) GetSecret(ctx context.Context, name string) (string, e
 	return value, nil
 }
 
-func (e *envSecretSource) Close() error {
+func (e *SecretSource) Close() error {
 	e.o11y.Logger().Debug("closing env secret source")
 	return nil
 }

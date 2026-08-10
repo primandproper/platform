@@ -142,7 +142,6 @@ type Fulfiller struct {
 	registry *Registry
 	clock    clock.Clock
 	o11y     observability.Observer
-	logger   logging.Logger
 	uploader uploads.UploadManager
 	notifier Notifier
 	recorder audit.Recorder
@@ -164,6 +163,11 @@ type Fulfiller struct {
 	collectHist       metrics.Float64Histogram
 	artifactHist      metrics.Float64Histogram
 
+	// What the options wrote, kept only until the observer is built from it.
+	// Read f.o11y.Logger() for the logger this fulfiller actually uses; this
+	// one may be nil, because supplying none is how a caller asks for no
+	// logging.
+	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
@@ -228,7 +232,6 @@ func NewFulfiller(
 	}
 
 	f.o11y = observability.NewObserver(serviceName, f.logger, f.tracerProvider)
-	f.logger = f.o11y.Logger()
 
 	if err := f.buildInstruments(); err != nil {
 		return nil, err
@@ -647,7 +650,7 @@ func (f *Fulfiller) collect(ctx context.Context, req *Request, rep operations.Re
 			if err != nil {
 				failures[key] = truncateError(err)
 				f.sectionErrCounter.Add(ctx, 1, sectionAttr(key))
-				f.logger.WithValues(map[string]any{
+				f.o11y.Logger().WithValues(map[string]any{
 					requestIDKey: req.ID,
 					sectionKey:   key,
 				}).Error("collecting dataprivacy export section", err)
@@ -1052,7 +1055,7 @@ func (f *Fulfiller) stop(ctx context.Context, req *Request, format string, args 
 		// Logged rather than returned. The operation is going to be recorded as
 		// cancelled either way, and replacing that with a database error would
 		// tell the client the work failed when what happened is that it stopped.
-		f.logger.WithValue(requestIDKey, req.ID).
+		f.o11y.Logger().WithValue(requestIDKey, req.ID).
 			Error("marking a cancelled dataprivacy request", err)
 	}
 
@@ -1071,7 +1074,7 @@ func (f *Fulfiller) stop(ctx context.Context, req *Request, format string, args 
 func (f *Fulfiller) recordFailure(ctx context.Context, req *Request, attempt operations.Attempt, cause error) error {
 	f.failedCounter.Add(ctx, 1, requestTypeAttr(req.Type))
 
-	logger := f.logger.WithValues(map[string]any{
+	logger := f.o11y.Logger().WithValues(map[string]any{
 		requestIDKey:   req.ID,
 		requestTypeKey: string(req.Type),
 		subjectIDKey:   req.Subject.ID,
@@ -1133,7 +1136,7 @@ func (f *Fulfiller) notify(ctx context.Context, req *Request) {
 
 	if err := f.notifier.Notify(ctx, notification); err != nil {
 		f.notifyErrCounter.Add(ctx, 1, requestTypeAttr(req.Type))
-		f.logger.WithValue(requestIDKey, req.ID).Error("notifying dataprivacy request subject", err)
+		f.o11y.Logger().WithValue(requestIDKey, req.ID).Error("notifying dataprivacy request subject", err)
 	}
 }
 

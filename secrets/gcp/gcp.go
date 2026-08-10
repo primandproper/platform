@@ -33,7 +33,13 @@ type SecretVersionAccessor interface {
 	Close() error
 }
 
-type gcpSecretSource struct {
+var _ secrets.SecretSource = (*SecretSource)(nil)
+
+// SecretSource reads secrets from GCP Secret Manager. It is exported, and
+// returned by NewSecretSource, so a caller can depend on this source rather
+// than on the interface every provider shares — and so reason about what this
+// one alone does: reach one project over the network, per lookup.
+type SecretSource struct {
 	o11y          observability.Observer
 	lookupCounter metrics.Int64Counter
 	errorCounter  metrics.Int64Counter
@@ -44,7 +50,7 @@ type gcpSecretSource struct {
 
 // NewSecretSource creates a SecretSource backed by GCP Secret Manager.
 // If client is nil, a new client is created using Application Default Credentials.
-func NewSecretSource(ctx context.Context, cfg *Config, client SecretVersionAccessor, opts ...Option) (secrets.SecretSource, error) {
+func NewSecretSource(ctx context.Context, cfg *Config, client SecretVersionAccessor, opts ...Option) (*SecretSource, error) {
 	if cfg == nil {
 		return nil, errors.New("gcp secret source: config is required")
 	}
@@ -76,7 +82,7 @@ func NewSecretSource(ctx context.Context, cfg *Config, client SecretVersionAcces
 	}
 
 	if client != nil {
-		return &gcpSecretSource{
+		return &SecretSource{
 			o11y:          o11y,
 			lookupCounter: lookupCounter,
 			errorCounter:  errorCounter,
@@ -91,7 +97,7 @@ func NewSecretSource(ctx context.Context, cfg *Config, client SecretVersionAcces
 		return nil, errors.Wrap(smErr, "gcp secret source: creating client")
 	}
 
-	return &gcpSecretSource{
+	return &SecretSource{
 		o11y:          o11y,
 		lookupCounter: lookupCounter,
 		errorCounter:  errorCounter,
@@ -110,7 +116,7 @@ func (a *secretManagerClientAdapter) AccessSecretVersion(ctx context.Context, re
 	return a.Client.AccessSecretVersion(ctx, req)
 }
 
-func (g *gcpSecretSource) GetSecret(ctx context.Context, name string) (string, error) {
+func (g *SecretSource) GetSecret(ctx context.Context, name string) (string, error) {
 	ctx, op := g.o11y.Begin(ctx)
 	defer op.End()
 
@@ -152,11 +158,11 @@ func (g *gcpSecretSource) GetSecret(ctx context.Context, name string) (string, e
 	return string(resp.Payload.Data), nil
 }
 
-func (g *gcpSecretSource) Close() error {
+func (g *SecretSource) Close() error {
 	return g.client.Close()
 }
 
-func (g *gcpSecretSource) resolveName(name string) string {
+func (g *SecretSource) resolveName(name string) string {
 	if strings.HasPrefix(name, projectsPrefix) {
 		return name
 	}

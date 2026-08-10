@@ -12,21 +12,18 @@ import (
 
 // newBoundedCache builds a cache bounded to maxEntries under policy, with a
 // default expiry long enough that nothing under test expires on its own.
-func newBoundedCache(t *testing.T, maxEntries int, policy EvictionPolicy) *inMemoryCacheImpl[example] {
+func newBoundedCache(t *testing.T, maxEntries int, policy EvictionPolicy) *Cache[example] {
 	t.Helper()
 
 	c, err := NewInMemoryCache[example](time.Hour, WithMaxEntries(maxEntries, policy))
 	must.NoError(t, err)
 
-	impl, ok := c.(*inMemoryCacheImpl[example])
-	must.True(t, ok)
-
-	return impl
+	return c
 }
 
 // resident reports which of keys the cache still holds, so a test can name the
 // survivors rather than counting them.
-func resident(t *testing.T, c *inMemoryCacheImpl[example], keys ...string) []string {
+func resident(t *testing.T, c *Cache[example], keys ...string) []string {
 	t.Helper()
 
 	var out []string
@@ -99,15 +96,13 @@ func TestWithMaxEntries(T *testing.T) {
 			c, err := NewInMemoryCache[example](time.Hour, WithMaxEntries(maxEntries, EvictLeastRecentlyUsed))
 			must.NoError(t, err)
 
-			impl, ok := c.(*inMemoryCacheImpl[example])
-			must.True(t, ok)
-			test.Nil(t, impl.index)
+			test.Nil(t, c.index)
 
 			for _, key := range []string{"a", "b", "c"} {
-				must.NoError(t, impl.Set(ctx, key, &example{Name: key}))
+				must.NoError(t, c.Set(ctx, key, &example{Name: key}))
 			}
 
-			test.EqOp(t, 3, size(impl))
+			test.EqOp(t, 3, size(c))
 		}
 	})
 
@@ -287,7 +282,7 @@ func TestBoundedCache_IndexStaysInSyncWithTheMap(T *testing.T) {
 	// Every route out of the map has to take the entry out of the order too. An
 	// order holding keys the map no longer has silently shrinks the cache: the
 	// bound counts ghosts, and real entries are evicted to make room for them.
-	fill := func(t *testing.T, c *inMemoryCacheImpl[example], keys ...string) {
+	fill := func(t *testing.T, c *Cache[example], keys ...string) {
 		t.Helper()
 
 		for _, key := range keys {
@@ -339,19 +334,16 @@ func TestBoundedCache_IndexStaysInSyncWithTheMap(T *testing.T) {
 		c, err := NewInMemoryCache[example](time.Hour, WithMaxEntries(4, EvictOldestWritten))
 		must.NoError(t, err)
 
-		impl, ok := c.(*inMemoryCacheImpl[example])
-		must.True(t, ok)
-
-		must.NoError(t, impl.Set(ctx, "a", &example{Name: "a"}, cache.WithExpiry(time.Nanosecond)))
-		must.NoError(t, impl.Set(ctx, "b", &example{Name: "b"}))
+		must.NoError(t, c.Set(ctx, "a", &example{Name: "a"}, cache.WithExpiry(time.Nanosecond)))
+		must.NoError(t, c.Set(ctx, "b", &example{Name: "b"}))
 
 		time.Sleep(time.Millisecond)
 
-		_, err = impl.Get(ctx, "a")
+		_, err = c.Get(ctx, "a")
 		test.ErrorIs(t, err, cache.ErrNotFound)
 
-		test.EqOp(t, 1, impl.index.order.Len())
-		test.MapLen(t, 1, impl.index.elements)
+		test.EqOp(t, 1, c.index.order.Len())
+		test.MapLen(t, 1, c.index.elements)
 	})
 }
 

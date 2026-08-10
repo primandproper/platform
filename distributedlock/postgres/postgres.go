@@ -25,11 +25,11 @@ import (
 const serviceName = "postgres_distributed_lock"
 
 var (
-	_ distributedlock.Locker = (*locker)(nil)
+	_ distributedlock.Locker = (*Locker)(nil)
 	_ distributedlock.Lock   = (*lock)(nil)
 )
 
-type locker struct {
+type Locker struct {
 	o11y            observability.Observer
 	readDB          *sql.DB
 	writeDB         *sql.DB
@@ -52,7 +52,7 @@ func NewPostgresLocker(
 	db database.Client,
 	cb circuitbreaking.CircuitBreaker,
 	opts ...Option,
-) (distributedlock.Locker, error) {
+) (*Locker, error) {
 	if cfg == nil {
 		return nil, distributedlock.ErrNilConfig
 	}
@@ -100,7 +100,7 @@ func NewPostgresLocker(
 		return nil, platformerrors.Wrap(err, "creating latency histogram")
 	}
 
-	return &locker{
+	return &Locker{
 		o11y:            observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		readDB:          raw.ReadDB(),
 		writeDB:         raw.WriteDB(),
@@ -118,7 +118,7 @@ func NewPostgresLocker(
 }
 
 // Acquire implements distributedlock.Locker.
-func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
+func (l *Locker) Acquire(ctx context.Context, key string, ttl time.Duration) (distributedlock.Lock, error) {
 	ctx, op := l.o11y.Begin(ctx,
 		observability.WithValue(keys.LockKeyKey, key),
 		observability.WithValue(keys.LockTTLKey, ttl),
@@ -209,13 +209,13 @@ func (l *locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 }
 
 // Ping implements distributedlock.Locker by pinging the underlying read DB.
-func (l *locker) Ping(ctx context.Context) error {
+func (l *Locker) Ping(ctx context.Context) error {
 	return l.readDB.PingContext(ctx)
 }
 
 // Close releases all outstanding locks held by this Locker. After Close, individual
 // Lock handles will see ErrLockNotHeld on Release/Refresh.
-func (l *locker) Close() error {
+func (l *Locker) Close() error {
 	l.mu.Lock()
 	outstanding := l.outstanding
 	l.outstanding = make(map[string]*lock)
@@ -231,8 +231,8 @@ func (l *locker) Close() error {
 }
 
 // release runs the unlock SQL on the dedicated conn and returns it to the pool.
-// It removes the handle from the locker's outstanding map.
-func (l *locker) release(ctx context.Context, h *lock) error {
+// It removes the handle from the Locker's outstanding map.
+func (l *Locker) release(ctx context.Context, h *lock) error {
 	ctx, op := l.o11y.Begin(ctx,
 		observability.WithValue(keys.LockKeyKey, h.key),
 		observability.WithValue(keys.LockIDKey, h.lockID),
@@ -283,7 +283,7 @@ func (l *locker) release(ctx context.Context, h *lock) error {
 // refresh validates that the underlying conn is still alive. Postgres advisory
 // locks have no native TTL; refreshing is purely a liveness check that lets the
 // caller bump their local TTL bookkeeping.
-func (l *locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error {
+func (l *Locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error {
 	ctx, op := l.o11y.Begin(ctx,
 		observability.WithValue(keys.LockKeyKey, h.key),
 		observability.WithValue(keys.LockIDKey, h.lockID),
@@ -338,7 +338,7 @@ func (l *locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error 
 
 // lock is the postgres-backed Lock handle. Each handle owns a dedicated *sql.Conn.
 type lock struct {
-	locker    *locker
+	locker    *Locker
 	conn      *sql.Conn
 	expiresAt time.Time
 	key       string
@@ -377,7 +377,7 @@ func (l *lock) Refresh(ctx context.Context, ttl time.Duration) error {
 }
 
 // releaseLocked runs the unlock SQL and returns the conn to the pool. It does not
-// touch the locker's outstanding map — the caller must do that under the locker
+// touch the Locker's outstanding map — the caller must do that under the Locker
 // mutex before calling this method.
 func (l *lock) releaseLocked(ctx context.Context) (err error) {
 	defer func() {

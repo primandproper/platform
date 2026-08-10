@@ -43,7 +43,7 @@ end
 return #KEYS
 `
 
-var _ cache.Cache[struct{}] = (*redisCacheImpl[struct{}])(nil)
+var _ cache.Cache[struct{}] = (*Cache[struct{}])(nil)
 
 // ErrCodecTypeMismatch indicates WithCodec was given a codec for a type other
 // than the cache's. Option carries no type parameter, so the compiler cannot
@@ -71,7 +71,11 @@ type redisClient interface {
 	Close() error
 }
 
-type redisCacheImpl[T any] struct {
+// Cache is the redis-backed cache.Cache implementation. It is exported, and
+// returned by NewRedisCache, so a caller can depend on this cache rather than
+// on the interface every provider shares — and so face only the failures this
+// provider actually has, rather than the union of every provider's.
+type Cache[T any] struct {
 	o11y             observability.Observer
 	logger           logging.Logger
 	tracerProvider   tracing.Provider
@@ -102,7 +106,7 @@ type redisCacheImpl[T any] struct {
 // Entries carry no record of the codec that wrote them, so pointing a cache
 // with one codec at a store warmed by another produces decode errors until the
 // old entries expire; give the new codec its own cfg.Namespace when switching.
-func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreaking.CircuitBreaker, opts ...Option) (cache.Cache[T], error) {
+func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreaking.CircuitBreaker, opts ...Option) (*Cache[T], error) {
 	if cfg == nil || len(cfg.Addresses) == 0 {
 		return nil, fmt.Errorf("at least one redis address is required")
 	}
@@ -114,7 +118,7 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreak
 		}
 	}
 
-	impl := &redisCacheImpl[T]{
+	impl := &Cache[T]{
 		codec:           cache.NewCBORCodec[T](),
 		circuitBreaker:  circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		namespace:       cfg.Namespace,
@@ -186,11 +190,11 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreak
 // key returns the stored form of a caller key: the configured namespace
 // prepended. Every operation goes through this, so callers only ever see bare
 // keys.
-func (i *redisCacheImpl[T]) key(k string) string {
+func (i *Cache[T]) key(k string) string {
 	return i.namespace + k
 }
 
-func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
+func (i *Cache[T]) Get(ctx context.Context, key string) (*T, error) {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
@@ -235,7 +239,7 @@ func (i *redisCacheImpl[T]) Get(ctx context.Context, key string) (*T, error) {
 	return x, nil
 }
 
-func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
+func (i *Cache[T]) Set(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
@@ -278,7 +282,7 @@ func (i *redisCacheImpl[T]) Set(ctx context.Context, key string, value *T, opts 
 // and is translated to ErrNotFound. Like a read miss it is a healthy answer
 // rather than an infrastructure failure, so it feeds the breaker a success: the
 // server responded, correctly, that the condition did not hold.
-func (i *redisCacheImpl[T]) SetIfPresent(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
+func (i *Cache[T]) SetIfPresent(ctx context.Context, key string, value *T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
@@ -327,7 +331,7 @@ func (i *redisCacheImpl[T]) SetIfPresent(ctx context.Context, key string, value 
 	return nil
 }
 
-func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
+func (i *Cache[T]) Delete(ctx context.Context, key string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
@@ -355,7 +359,7 @@ func (i *redisCacheImpl[T]) Delete(ctx context.Context, key string) error {
 // DeleteMany removes the given keys. In cluster mode a multi-key DEL requires
 // every key to share a hash slot, so the keys are bucketed by slot and
 // deleted one DEL per slot; a single-node client deletes them in one DEL.
-func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error {
+func (i *Cache[T]) DeleteMany(ctx context.Context, keys []string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
 
@@ -401,7 +405,7 @@ func (i *redisCacheImpl[T]) DeleteMany(ctx context.Context, keys []string) error
 // prefix, via a cursor SCAN over the namespaced pattern. Without a configured
 // namespace an empty prefix is refused with cache.ErrNamespaceRequired —
 // matching every key in a possibly shared database is not ownership.
-func (i *redisCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
+func (i *Cache[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("prefix", prefix))
 	defer op.End()
 
@@ -437,7 +441,7 @@ func (i *redisCacheImpl[T]) DeleteByPrefix(ctx context.Context, prefix string) e
 // namespace; without one this cache cannot distinguish its entries in a
 // possibly shared database, and Flush returns cache.ErrNamespaceRequired
 // rather than reach for FLUSHDB.
-func (i *redisCacheImpl[T]) Flush(ctx context.Context) error {
+func (i *Cache[T]) Flush(ctx context.Context) error {
 	if i.namespace == "" {
 		return cache.ErrNamespaceRequired
 	}
@@ -448,7 +452,7 @@ func (i *redisCacheImpl[T]) Flush(ctx context.Context) error {
 // deleteByPattern scans for pattern and deletes what it finds. SCAN is
 // per-node, so in cluster mode every master is scanned; on a single node the
 // cache's own client is scanned directly.
-func (i *redisCacheImpl[T]) deleteByPattern(ctx context.Context, pattern string) (int64, error) {
+func (i *Cache[T]) deleteByPattern(ctx context.Context, pattern string) (int64, error) {
 	if clusterClient, ok := i.client.(*redis.ClusterClient); ok && i.isCluster {
 		var total int64
 		err := clusterClient.ForEachMaster(ctx, func(ctx context.Context, master *redis.Client) error {
@@ -466,7 +470,7 @@ func (i *redisCacheImpl[T]) deleteByPattern(ctx context.Context, pattern string)
 // scanAndDelete drives one client's cursor SCAN over pattern, deleting each
 // page. Pages are slot-grouped before DEL so cluster masters never see a
 // cross-slot multi-key command.
-func (i *redisCacheImpl[T]) scanAndDelete(ctx context.Context, c scanDelClient, pattern string) (int64, error) {
+func (i *Cache[T]) scanAndDelete(ctx context.Context, c scanDelClient, pattern string) (int64, error) {
 	var (
 		deleted int64
 		cursor  uint64
@@ -497,7 +501,7 @@ func (i *redisCacheImpl[T]) scanAndDelete(ctx context.Context, c scanDelClient, 
 	}
 }
 
-func (i *redisCacheImpl[T]) Ping(ctx context.Context) error {
+func (i *Cache[T]) Ping(ctx context.Context) error {
 	return i.client.Ping(ctx).Err()
 }
 
@@ -505,7 +509,7 @@ func (i *redisCacheImpl[T]) Ping(ctx context.Context) error {
 // cluster mode MGET requires every key to share a hash slot, so the keys are
 // bucketed by slot and fetched one MGET per slot; a single-node client fetches
 // them all in one MGET. Results are keyed by the caller's bare keys.
-func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
+func (i *Cache[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, error) {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
 
@@ -574,7 +578,7 @@ func (i *redisCacheImpl[T]) GetMany(ctx context.Context, keys []string) (map[str
 // (see batchSetScript), which is both atomic and a single round trip. In cluster
 // mode EVAL requires every key to share a hash slot, so the batch is split per
 // slot.
-func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
+func (i *Cache[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cache.WriteOption) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(items)))
 	defer op.End()
 
@@ -632,7 +636,7 @@ func (i *redisCacheImpl[T]) SetMany(ctx context.Context, items map[string]*T, op
 // MGET/EVAL/DEL. A single-node client has no hash-slot restriction, so all
 // keys go in one group; a cluster client requires every key in a call to map
 // to the same slot, so the keys are bucketed by slot.
-func (i *redisCacheImpl[T]) slotGroups(keys []string) [][]string {
+func (i *Cache[T]) slotGroups(keys []string) [][]string {
 	if !i.isCluster {
 		return [][]string{keys}
 	}
@@ -679,7 +683,7 @@ func escapeGlob(s string) string {
 }
 
 // encode runs the configured codec, yielding the string form stored in Redis.
-func (i *redisCacheImpl[T]) encode(value *T) (string, error) {
+func (i *Cache[T]) encode(value *T) (string, error) {
 	b, err := i.codec.Encode(value)
 	if err != nil {
 		return "", errors.Wrap(err, "encoding for cache")
@@ -689,7 +693,7 @@ func (i *redisCacheImpl[T]) encode(value *T) (string, error) {
 }
 
 // decode reverses encode through the configured codec.
-func (i *redisCacheImpl[T]) decode(s string) (*T, error) {
+func (i *Cache[T]) decode(s string) (*T, error) {
 	x, err := i.codec.Decode([]byte(s))
 	if err != nil {
 		return nil, errors.Wrap(err, "decoding from cache")
@@ -728,7 +732,7 @@ func buildRedisClient(cfg *Config) redisClient {
 // live in redis and outlive any one client.
 //
 // It is safe to call more than once — go-redis's Close is idempotent.
-func (c *redisCacheImpl[T]) Close() error {
+func (c *Cache[T]) Close() error {
 	if c.client == nil {
 		return nil
 	}
