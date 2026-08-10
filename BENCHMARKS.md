@@ -1,6 +1,6 @@
 # Benchmarks
 
-_Generated 2026-08-09 by `make bench`. Do not edit by hand — re-run to refresh._
+_Generated 2026-08-10 by `make bench`. Do not edit by hand — re-run to refresh._
 
 **Environment:** goos `darwin` · goarch `arm64` · cpu `Apple M4 Max`
 
@@ -10,362 +10,530 @@ Times are nanoseconds per operation; lower is better. Run with `make bench` (set
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| CanonicalImage | 4,331,134 | 269.2 | 600 | 15 |
-| Diff | 1,635,501 | 753.1 | 688 | 4 |
-| EncodeAndHash | 217,962 | 5403 | 7174 | 132 |
+| CanonicalImage | 4,559,313 | 267.4 | 600 | 15 |
+| Diff | 1,588,705 | 768.9 | 688 | 4 |
+| EncodeAndHash | 265,152 | 4477 | 6365 | 94 |
 
 ## authentication/argon2
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Argon2Authenticator/HashPassword | 265 | 4336923 | 67130252 | 130 |
-| Argon2Authenticator/PasswordMatches | 270 | 4338797 | 67128459 | 128 |
+| Argon2Authenticator/HashPassword | 278 | 4353473 | 67130215 | 130 |
+| Argon2Authenticator/PasswordMatches | 285 | 4190846 | 67128424 | 128 |
 
 ## authentication/tokens/jwt
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| JWTSigner/IssueToken | 356,394 | 2983 | 4048 | 67 |
-| JWTSigner/ParseToken | 395,712 | 3104 | 3336 | 75 |
+| JWTSigner/IssueToken | 372,787 | 2946 | 4048 | 67 |
+| JWTSigner/ParseToken | 391,039 | 3133 | 3336 | 75 |
 
 ## authentication/totp
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Verifier_Verify | 1,440,573 | 790.0 | 704 | 14 |
+| Verifier_Verify | 1,626,052 | 739.9 | 704 | 14 |
 
 ## authorization
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| ExpandInheritance | 113,216 | 10240 | 22904 | 158 |
-| Grants_Construction/NewGrants_keeps_both_sets | 90,873,807 | 13.33 | 16 | 1 |
-| Grants_Construction/materialized_union | 34,707 | 33754 | 81968 | 10 |
-| Grants_Evaluate | 12,285,714 | 96.80 | 256 | 2 |
-| Grants_Has/hit_in_first_set | 191,880,432 | 6.201 | 0 | 0 |
-| Grants_Has/hit_in_second_set | 100,000,000 | 10.27 | 0 | 0 |
-| Grants_Has/miss | 122,367,645 | 9.807 | 0 | 0 |
-| Grants_Has/single_set | 199,592,622 | 5.935 | 0 | 0 |
+| ExpandInheritance | 120,109 | 10304 | 22904 | 158 |
+| Grants_Construction/NewGrants_keeps_both_sets | 94,817,938 | 13.31 | 16 | 1 |
+| Grants_Construction/materialized_union | 34,635 | 34229 | 81968 | 10 |
+| Grants_Evaluate | 12,495,709 | 97.17 | 256 | 2 |
+| Grants_Has/hit_in_first_set | 190,188,730 | 6.091 | 0 | 0 |
+| Grants_Has/hit_in_second_set | 100,000,000 | 10.40 | 0 | 0 |
+| Grants_Has/miss | 124,630,344 | 9.493 | 0 | 0 |
+| Grants_Has/single_set | 198,942,276 | 5.981 | 0 | 0 |
 
 ## bitmask
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Bitmask/Count | 706,112,013 | 1.761 | 0 | 0 |
-| Bitmask/Has | 626,624,762 | 1.809 | 0 | 0 |
-| Bitmask/Set | 585,310,533 | 1.796 | 0 | 0 |
+| Bitmask/Count | 624,533,901 | 1.830 | 0 | 0 |
+| Bitmask/Has | 629,676,111 | 1.794 | 0 | 0 |
+| Bitmask/Set | 616,939,882 | 1.812 | 0 | 0 |
 
 ## cache
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| CBORCodec/Decode/16B | 1,222,585 | 976.2 | 576 | 16 |
-| CBORCodec/Decode/256B | 1,674,849 | 731.9 | 816 | 16 |
-| CBORCodec/Decode/4096B | 1,000,000 | 1220 | 4656 | 16 |
-| CBORCodec/Encode/16B | 3,596,964 | 352.6 | 112 | 1 |
-| CBORCodec/Encode/256B | 2,836,862 | 381.2 | 352 | 1 |
-| CBORCodec/Encode/4096B | 1,415,132 | 850.3 | 4879 | 1 |
-| CodecSize/CBOR | 5,491,443 | 207.6 | 216 | 3 |
-| CodecSize/Gob | 727,839 | 1616 | 2104 | 24 |
-| GobCodec/Decode/16B | 136,108 | 7926 | 8744 | 201 |
-| GobCodec/Decode/256B | 142,129 | 7935 | 9240 | 201 |
-| GobCodec/Decode/4096B | 130,980 | 8983 | 17592 | 201 |
-| GobCodec/Encode/16B | 668,926 | 1824 | 2016 | 26 |
-| GobCodec/Encode/256B | 609,970 | 2090 | 3136 | 28 |
-| GobCodec/Encode/4096B | 413,322 | 3000 | 11424 | 27 |
+| CBORCodec/Decode/16B | 1,768,989 | 689.5 | 576 | 16 |
+| CBORCodec/Decode/256B | 1,668,165 | 734.9 | 816 | 16 |
+| CBORCodec/Decode/4096B | 1,000,000 | 1189 | 4656 | 16 |
+| CBORCodec/Encode/16B | 5,093,794 | 241.3 | 112 | 1 |
+| CBORCodec/Encode/256B | 4,299,258 | 278.1 | 352 | 1 |
+| CBORCodec/Encode/4096B | 1,540,798 | 762.0 | 4879 | 1 |
+| CodecSize/CBOR | 6,045,732 | 205.7 | 216 | 3 |
+| CodecSize/Gob | 751,731 | 1622 | 2104 | 24 |
+| GobCodec/Decode/16B | 141,478 | 8038 | 8744 | 201 |
+| GobCodec/Decode/256B | 156,468 | 7605 | 9240 | 201 |
+| GobCodec/Decode/4096B | 126,928 | 8998 | 17592 | 201 |
+| GobCodec/Encode/16B | 720,638 | 1699 | 2016 | 26 |
+| GobCodec/Encode/256B | 631,746 | 1903 | 3136 | 28 |
+| GobCodec/Encode/4096B | 441,078 | 2920 | 11424 | 27 |
 
 ## cache/memory
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| InMemoryCache/Get | 4,615,377 | 265.0 | 152 | 5 |
-| InMemoryCache/Set | 4,616,695 | 272.5 | 160 | 6 |
-| InMemoryCache_Bound/LeastRecentlyUsed | 2,897,432 | 450.8 | 154 | 5 |
-| InMemoryCache_Bound/OldestWritten | 9,756,229 | 154.2 | 154 | 5 |
-| InMemoryCache_Bound/Unbounded | 8,819,710 | 159.0 | 154 | 5 |
-| InMemoryCache_Janitor/Off | 3,707,629 | 324.3 | 167 | 6 |
-| InMemoryCache_Janitor/On | 3,421,291 | 340.1 | 167 | 6 |
-| InMemoryCache_Loader/Hit | 4,501,300 | 268.0 | 152 | 5 |
-| InMemoryCache_Loader/Miss | 362,092 | 3462 | 880 | 25 |
+| InMemoryCache/Get | 4,534,074 | 263.4 | 152 | 5 |
+| InMemoryCache/Set | 4,437,367 | 266.2 | 160 | 6 |
+| InMemoryCache_Bound/LeastRecentlyUsed | 2,631,871 | 424.4 | 154 | 5 |
+| InMemoryCache_Bound/OldestWritten | 7,495,910 | 159.3 | 154 | 5 |
+| InMemoryCache_Bound/Unbounded | 8,752,276 | 159.0 | 154 | 5 |
+| InMemoryCache_Janitor/Off | 3,502,219 | 330.5 | 167 | 6 |
+| InMemoryCache_Janitor/On | 3,365,048 | 345.0 | 167 | 6 |
+| InMemoryCache_Loader/Hit | 4,553,253 | 264.6 | 152 | 5 |
+| InMemoryCache_Loader/Miss | 363,864 | 3371 | 880 | 25 |
 
 ## cache/redis/slots
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| SlotForKey/hashtag | 130,194,058 | 9.299 | 0 | 0 |
-| SlotForKey/plain | 202,413,200 | 5.931 | 0 | 0 |
+| SlotForKey/hashtag | 123,962,988 | 9.767 | 0 | 0 |
+| SlotForKey/plain | 197,397,518 | 5.987 | 0 | 0 |
 
 ## charset
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Checker/Valid/fixedWidthToken | 36,883,686 | 30.54 | 0 | 0 |
-| Checker/Valid/identifier | 94,105,555 | 12.62 | 0 | 0 |
-| Checker/Valid/prefix | 647,658,633 | 1.832 | 0 | 0 |
-| Checker/Valid/qualified | 78,726,163 | 15.79 | 0 | 0 |
-| Checker/Valid/rejected | 124,851,175 | 9.524 | 0 | 0 |
-| CheckerVersusRegexp/charset/accepted | 76,297,528 | 15.91 | 0 | 0 |
-| CheckerVersusRegexp/charset/rejected | 129,264,272 | 9.463 | 0 | 0 |
-| CheckerVersusRegexp/regexp/accepted | 6,052,687 | 197.5 | 0 | 0 |
-| CheckerVersusRegexp/regexp/rejected | 39,726,657 | 29.04 | 0 | 0 |
-| Set/ContainsAll | 59,761,202 | 16.75 | 0 | 0 |
-| Set/String | 4,832,271 | 248.6 | 24 | 2 |
-| Set/Union | 181,513,527 | 6.697 | 0 | 0 |
+| Checker/Valid/fixedWidthToken | 38,836,154 | 30.76 | 0 | 0 |
+| Checker/Valid/identifier | 89,835,488 | 12.60 | 0 | 0 |
+| Checker/Valid/prefix | 537,586,839 | 1.952 | 0 | 0 |
+| Checker/Valid/qualified | 69,607,251 | 19.78 | 0 | 0 |
+| Checker/Valid/rejected | 100,000,000 | 11.35 | 0 | 0 |
+| CheckerVersusRegexp/charset/accepted | 75,187,776 | 17.63 | 0 | 0 |
+| CheckerVersusRegexp/charset/rejected | 100,000,000 | 11.18 | 0 | 0 |
+| CheckerVersusRegexp/regexp/accepted | 5,011,088 | 237.9 | 0 | 0 |
+| CheckerVersusRegexp/regexp/rejected | 35,052,444 | 29.08 | 0 | 0 |
+| Set/ContainsAll | 69,749,362 | 16.76 | 0 | 0 |
+| Set/String | 4,789,410 | 254.7 | 24 | 2 |
+| Set/Union | 173,293,362 | 6.921 | 0 | 0 |
 
 ## circuitbreaking/partitioned
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| KeyedCircuitBreaker/For_dedicated | 179,251,453 | 6.645 | 0 | 0 |
-| KeyedCircuitBreaker/For_global | 148,126,606 | 8.211 | 0 | 0 |
+| KeyedCircuitBreaker/For_dedicated | 180,280,008 | 6.672 | 0 | 0 |
+| KeyedCircuitBreaker/For_global | 145,219,479 | 8.300 | 0 | 0 |
 
 ## compression
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Compressor/s2/Compress | 49,887 | 20775 | 2108604 | 15 |
-| Compressor/s2/Decompress | 17,835 | 65116 | 1100665 | 12 |
-| Compressor/zstd/Compress | 7,420 | 168452 | 2347102 | 49 |
-| Compressor/zstd/Decompress | 56,083 | 22180 | 70662 | 45 |
+| Compressor/s2/Compress | 46,644 | 23347 | 2108605 | 15 |
+| Compressor/s2/Decompress | 21,950 | 56264 | 1100664 | 12 |
+| Compressor/zstd/Compress | 8,187 | 145016 | 2347102 | 49 |
+| Compressor/zstd/Decompress | 55,287 | 22989 | 70720 | 45 |
+
+## cookies
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| Manager/BuildCookie | 344,859 | 3730 | 6473 | 48 |
+| Manager/Decode | 143,602 | 8381 | 10248 | 199 |
+| Manager/Decode/rejected | 623,406 | 1805 | 2228 | 29 |
+| Manager/Encode | 349,022 | 3405 | 6280 | 47 |
+| Serializers/gob(default)/Decode | 150,462 | 8219 | 10096 | 194 |
+| Serializers/gob(default)/Encode | 315,446 | 3239 | 6128 | 42 |
+| Serializers/json/Decode | 628,674 | 2005 | 3032 | 28 |
+| Serializers/json/Encode | 628,700 | 1602 | 3549 | 21 |
 
 ## cryptography/encryption
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Keyring/Decrypt | 2,082,405 | 572.8 | 608 | 15 |
-| Keyring/DecryptRetiredKeyInEightKeyRing | 2,071,705 | 574.5 | 608 | 15 |
-| Keyring/Encrypt | 1,385,808 | 840.4 | 936 | 16 |
+| Keyring/Decrypt | 2,027,653 | 592.3 | 608 | 15 |
+| Keyring/DecryptRetiredKeyInEightKeyRing | 2,107,616 | 577.8 | 608 | 15 |
+| Keyring/Encrypt | 1,490,212 | 815.1 | 936 | 16 |
 
 ## cryptography/encryption/aes
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Cipher/Open | 4,053,465 | 291.5 | 400 | 6 |
-| Cipher/Seal | 2,287,872 | 521.6 | 448 | 7 |
-| Cipher/SealWithAssociatedData | 2,146,224 | 534.3 | 448 | 7 |
+| Cipher/Open | 4,129,642 | 305.0 | 400 | 6 |
+| Cipher/Seal | 2,283,822 | 520.7 | 448 | 7 |
+| Cipher/SealWithAssociatedData | 2,346,534 | 512.9 | 448 | 7 |
 
 ## cryptography/hashing/adler32
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Adler32Hasher_Hash/16B | 81,648,854 | 12.48 | 8 | 1 |
-| Adler32Hasher_Hash/256B | 18,446,236 | 67.26 | 8 | 1 |
-| Adler32Hasher_Hash/4096B | 1,089,669 | 1124 | 8 | 1 |
+| Adler32Hasher_Hash/16B | 93,912,019 | 12.71 | 8 | 1 |
+| Adler32Hasher_Hash/256B | 18,027,085 | 67.47 | 8 | 1 |
+| Adler32Hasher_Hash/4096B | 1,000,000 | 1117 | 8 | 1 |
 
 ## cryptography/hashing/canonical
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Marshal/flat | 745,922 | 1438 | 1929 | 41 |
-| Marshal/map-10 | 386,616 | 3074 | 3843 | 78 |
-| Marshal/map-100 | 35,163 | 32621 | 31919 | 718 |
-| Marshal/nested | 95,768 | 13220 | 13260 | 301 |
-| Sum/flat | 639,999 | 1590 | 2089 | 44 |
-| Sum/map-10 | 347,175 | 3328 | 4003 | 81 |
-| Sum/map-100 | 35,559 | 33690 | 32076 | 721 |
-| Sum/nested | 79,810 | 13436 | 13421 | 304 |
+| Marshal/flat | 1,219,333 | 985.1 | 1609 | 24 |
+| Marshal/map-10 | 499,495 | 2505 | 3218 | 56 |
+| Marshal/map-100 | 44,232 | 27186 | 26087 | 513 |
+| Marshal/nested | 130,771 | 9493 | 10158 | 165 |
+| Sum/flat | 1,000,000 | 1147 | 1769 | 27 |
+| Sum/map-10 | 464,914 | 2644 | 3378 | 59 |
+| Sum/map-100 | 41,689 | 27887 | 26249 | 516 |
+| Sum/nested | 123,427 | 9684 | 10318 | 168 |
 
 ## cryptography/hashing/crc64
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| CRC64Hasher_Hash/16B | 53,148,330 | 22.40 | 8 | 1 |
-| CRC64Hasher_Hash/256B | 9,328,064 | 126.7 | 8 | 1 |
-| CRC64Hasher_Hash/4096B | 638,031 | 1954 | 8 | 1 |
-| ChecksumISO/16B | 100,000,000 | 11.94 | 0 | 0 |
-| ChecksumISO/256B | 10,412,180 | 124.8 | 0 | 0 |
-| ChecksumISO/4096B | 542,924 | 1899 | 0 | 0 |
+| CRC64Hasher_Hash/16B | 50,046,657 | 21.93 | 8 | 1 |
+| CRC64Hasher_Hash/256B | 9,618,010 | 129.3 | 8 | 1 |
+| CRC64Hasher_Hash/4096B | 622,810 | 1961 | 8 | 1 |
+| ChecksumISO/16B | 100,000,000 | 11.89 | 0 | 0 |
+| ChecksumISO/256B | 10,258,418 | 120.4 | 0 | 0 |
+| ChecksumISO/4096B | 628,132 | 1940 | 0 | 0 |
 
 ## cryptography/hashing/fnv
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| FNVHasher_Hash/128a/16B | 27,639,128 | 43.90 | 16 | 1 |
-| FNVHasher_Hash/128a/256B | 1,644,610 | 721.0 | 16 | 1 |
-| FNVHasher_Hash/128a/4096B | 109,245 | 11495 | 16 | 1 |
-| FNVHasher_Hash/64a/16B | 69,153,428 | 16.98 | 8 | 1 |
-| FNVHasher_Hash/64a/256B | 5,571,394 | 220.1 | 8 | 1 |
-| FNVHasher_Hash/64a/4096B | 312,969 | 3946 | 8 | 1 |
-| Sum64a/16B | 212,986,764 | 5.899 | 0 | 0 |
-| Sum64a/256B | 5,672,314 | 207.7 | 0 | 0 |
-| Sum64a/4096B | 280,312 | 4065 | 0 | 0 |
+| FNVHasher_Hash/128a/16B | 27,705,414 | 45.63 | 16 | 1 |
+| FNVHasher_Hash/128a/256B | 1,590,444 | 747.0 | 16 | 1 |
+| FNVHasher_Hash/128a/4096B | 100,641 | 12252 | 16 | 1 |
+| FNVHasher_Hash/64a/16B | 64,699,764 | 16.61 | 8 | 1 |
+| FNVHasher_Hash/64a/256B | 5,360,290 | 226.3 | 8 | 1 |
+| FNVHasher_Hash/64a/4096B | 254,126 | 4195 | 8 | 1 |
+| Sum64a/16B | 203,205,796 | 5.777 | 0 | 0 |
+| Sum64a/256B | 5,329,542 | 215.6 | 0 | 0 |
+| Sum64a/4096B | 294,607 | 4231 | 0 | 0 |
 
 ## cryptography/hashing/sha256
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| SHA256Hasher_Hash/16B | 22,619,025 | 52.99 | 32 | 1 |
-| SHA256Hasher_Hash/256B | 11,698,371 | 108.8 | 32 | 1 |
-| SHA256Hasher_Hash/4096B | 914,428 | 1333 | 32 | 1 |
+| SHA256Hasher_Hash/16B | 22,979,077 | 52.85 | 32 | 1 |
+| SHA256Hasher_Hash/256B | 10,187,841 | 113.0 | 32 | 1 |
+| SHA256Hasher_Hash/4096B | 868,220 | 1426 | 32 | 1 |
 
 ## cryptography/hashing/sha512
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| SHA512Hasher_Hash/16B | 9,964,624 | 116.1 | 64 | 1 |
-| SHA512Hasher_Hash/256B | 4,901,470 | 247.4 | 64 | 1 |
-| SHA512Hasher_Hash/4096B | 452,311 | 2541 | 64 | 1 |
+| SHA512Hasher_Hash/16B | 10,069,612 | 120.1 | 64 | 1 |
+| SHA512Hasher_Hash/256B | 4,413,889 | 264.2 | 64 | 1 |
+| SHA512Hasher_Hash/4096B | 420,764 | 2636 | 64 | 1 |
 
 ## database/sqlite
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| SQLiteClient/Exec | 197,768 | 5839 | 1656 | 24 |
-| SQLiteClient/QueryRow | 171,913 | 6570 | 3533 | 52 |
+| SQLiteClient/Exec | 233,876 | 5231 | 1656 | 24 |
+| SQLiteClient/QueryRow | 201,072 | 6032 | 3508 | 51 |
 
 ## distributedlock
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| ScopedLocker/TryWithLock/free | 1,490,319 | 808.2 | 504 | 16 |
-| ScopedLocker/TryWithLock/held | 1,816,989 | 652.3 | 368 | 12 |
-| ScopedLocker/WithLock | 1,442,366 | 838.0 | 504 | 16 |
+| ScopedLocker/TryWithLock/free | 1,466,820 | 823.1 | 504 | 16 |
+| ScopedLocker/TryWithLock/held | 1,794,759 | 666.8 | 368 | 12 |
+| ScopedLocker/WithLock | 1,439,266 | 852.1 | 504 | 16 |
 
 ## distributedlock/memory
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Locker_AcquireRelease | 1,203,790 | 992.2 | 336 | 10 |
+| Locker_AcquireRelease | 1,116,928 | 1070 | 336 | 10 |
 
 ## encoding
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| ContentTypes/application/cbor/Marshal | 3,062,112 | 383.7 | 296 | 5 |
-| ContentTypes/application/cbor/Unmarshal | 1,734,354 | 684.7 | 408 | 13 |
-| ContentTypes/application/emoji/Marshal | 345,996 | 3642 | 4368 | 39 |
-| ContentTypes/application/emoji/Unmarshal | 123,492 | 10057 | 9144 | 247 |
-| ContentTypes/application/json/Marshal | 2,239,620 | 530.1 | 320 | 4 |
-| ContentTypes/application/json/Unmarshal | 904,303 | 1377 | 664 | 18 |
-| ContentTypes/application/toml/Marshal | 343,802 | 3675 | 5886 | 74 |
-| ContentTypes/application/toml/Unmarshal | 237,501 | 5139 | 5176 | 82 |
-| ContentTypes/application/xml/Marshal | 566,104 | 1785 | 4960 | 14 |
-| ContentTypes/application/xml/Unmarshal | 232,504 | 4483 | 3520 | 90 |
-| ContentTypes/application/yaml/Marshal | 215,127 | 5584 | 17312 | 57 |
-| ContentTypes/application/yaml/Unmarshal | 154,971 | 7503 | 10288 | 115 |
-| ServerEncoderDecoder/DecodeBytes | 1,708,155 | 692.6 | 1136 | 13 |
-| ServerEncoderDecoder/EncodeJSON | 4,456,864 | 267.6 | 112 | 3 |
+| ContentTypes/application/cbor/Marshal | 3,058,614 | 411.3 | 296 | 5 |
+| ContentTypes/application/cbor/Unmarshal | 1,770,709 | 693.0 | 408 | 13 |
+| ContentTypes/application/emoji/Marshal | 332,977 | 3669 | 4368 | 39 |
+| ContentTypes/application/emoji/Unmarshal | 123,062 | 10068 | 9144 | 247 |
+| ContentTypes/application/json/Marshal | 2,241,187 | 536.6 | 320 | 4 |
+| ContentTypes/application/json/Unmarshal | 862,917 | 1428 | 664 | 18 |
+| ContentTypes/application/toml/Marshal | 305,823 | 3717 | 5886 | 74 |
+| ContentTypes/application/toml/Unmarshal | 207,082 | 5079 | 5176 | 82 |
+| ContentTypes/application/xml/Marshal | 692,334 | 1731 | 4960 | 14 |
+| ContentTypes/application/xml/Unmarshal | 266,761 | 4514 | 3520 | 90 |
+| ContentTypes/application/yaml/Marshal | 176,187 | 5813 | 17312 | 57 |
+| ContentTypes/application/yaml/Unmarshal | 163,480 | 7496 | 10288 | 115 |
+| ServerEncoderDecoder/DecodeBytes | 1,740,898 | 700.0 | 1136 | 13 |
+| ServerEncoderDecoder/EncodeJSON | 4,591,150 | 265.6 | 112 | 3 |
+
+## entitlements
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| PlanChecker_Check/allowed/cached | 867,992 | 1284 | 1560 | 31 |
+| PlanChecker_Check/allowed/uncached | 613,100 | 2032 | 1943 | 41 |
+| PlanChecker_Check/denied/cached | 439,664 | 2751 | 1867 | 36 |
+| PlanChecker_CheckQuantity/quantity=1 | 778,390 | 1313 | 1560 | 31 |
+| PlanChecker_CheckQuantity/quantity=100 | 804,824 | 1324 | 1560 | 31 |
+| PlanChecker_Permissions | 1,376,559 | 870.6 | 768 | 22 |
+
+## errors/grpc
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| MapToGRPC/nil | 631,381,915 | 1.851 | 0 | 0 |
+| MapToGRPC/platformSentinel | 46,086,856 | 25.55 | 0 | 0 |
+| MapToGRPC/unrecognized | 12,430,353 | 95.47 | 0 | 0 |
+| MapToGRPC/wrappedSentinel | 11,906,266 | 101.4 | 0 | 0 |
+
+## errors/http
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| ErrorForCode | 247,885,377 | 4.904 | 0 | 0 |
+| HTTPStatusForCode/mapped | 259,656,564 | 4.682 | 0 | 0 |
+| HTTPStatusForCode/unmapped | 209,819,080 | 5.689 | 0 | 0 |
+| ToAPIError/nil | 666,364,333 | 1.818 | 0 | 0 |
+| ToAPIError/platformSentinel | 47,420,443 | 26.12 | 0 | 0 |
+| ToAPIError/unrecognized | 10,922,851 | 111.1 | 0 | 0 |
+| ToAPIError/wrappedSentinel | 12,265,266 | 101.7 | 0 | 0 |
+| ToAPIResponse/platformSentinel | 20,064,960 | 59.89 | 96 | 2 |
+| ToAPIResponse/unrecognized | 7,809,379 | 152.6 | 96 | 2 |
+| ToAPIResponse/wrappedSentinel | 9,232,795 | 131.9 | 96 | 2 |
 
 ## eventcapture
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Aggregator_Observe/hit | 47,037,073 | 24.47 | 0 | 0 |
-| Aggregator_Observe/overflow | 97,483,701 | 12.79 | 0 | 0 |
-| Recorder_Record/buffered | 90,979,447 | 14.37 | 3 | 0 |
-| Recorder_Record/buffered-parallel | 36,920,768 | 36.02 | 0 | 0 |
-| Recorder_Record/full | 440,434,315 | 2.770 | 0 | 0 |
+| Aggregator_Observe/hit | 46,296,817 | 24.46 | 0 | 0 |
+| Aggregator_Observe/overflow | 95,879,191 | 13.14 | 0 | 0 |
+| Recorder_Record/buffered | 90,079,377 | 15.03 | 3 | 0 |
+| Recorder_Record/buffered-parallel | 34,463,817 | 42.49 | 0 | 0 |
+| Recorder_Record/full | 442,156,218 | 2.714 | 0 | 0 |
 
 ## eventcapture/jsonl
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Sink_Write/16B | 6,868,564 | 158.7 | 64 | 1 |
-| Sink_Write/256B | 2,091,192 | 528.1 | 320 | 1 |
-| Sink_Write/4096B | 198,213 | 5862 | 4878 | 1 |
+| Sink_Write/16B | 7,509,844 | 157.0 | 64 | 1 |
+| Sink_Write/256B | 2,287,129 | 511.1 | 320 | 1 |
+| Sink_Write/4096B | 186,013 | 6201 | 4879 | 1 |
+
+## filtering
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| QueryFilter_ExtractFromRequest/full | 1,000,000 | 1094 | 838 | 23 |
+| QueryFilter_ExtractFromRequest/noQuery | 18,537,554 | 66.31 | 130 | 4 |
+| QueryFilter_ExtractFromRequest/typical | 4,430,298 | 272.4 | 516 | 8 |
+| QueryFilter_FromParams/empty | 31,264,519 | 37.49 | 80 | 2 |
+| QueryFilter_FromParams/full | 4,384,532 | 267.2 | 180 | 8 |
+| QueryFilter_FromParams/typical | 11,416,140 | 93.68 | 82 | 3 |
+| QueryFilter_ToPagination | 229,691,776 | 5.121 | 0 | 0 |
+| QueryFilter_ToValues/default | 9,375,936 | 115.0 | 432 | 4 |
+| QueryFilter_ToValues/full | 3,559,334 | 345.8 | 659 | 15 |
+| QueryFilter_ToValues/nilReceiver | 11,454,999 | 106.5 | 432 | 4 |
 
 ## idempotency
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Manager_Do/Execute | 234,324 | 5121 | 2866 | 85 |
-| Manager_Do/InFlight | 649,984 | 1882 | 1090 | 27 |
-| Manager_Do/Replay | 1,577,068 | 745.3 | 480 | 16 |
-| ValidateKey | 59,075,590 | 21.51 | 0 | 0 |
+| Manager_Do/Execute | 240,596 | 5321 | 2881 | 85 |
+| Manager_Do/InFlight | 622,485 | 1944 | 1090 | 27 |
+| Manager_Do/Replay | 1,567,250 | 758.7 | 480 | 16 |
+| ValidateKey | 57,660,081 | 21.11 | 0 | 0 |
 
 ## idempotency/grpc
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| ClientInterceptor/Keyed | 9,650,325 | 123.1 | 264 | 6 |
-| ClientInterceptor/Unkeyed | 30,746,401 | 38.95 | 128 | 2 |
-| Fingerprint/1024KiB | 2,952 | 397598 | 1056939 | 5 |
-| Fingerprint/1KiB | 1,835,070 | 626.8 | 1316 | 5 |
-| Fingerprint/64KiB | 42,823 | 28485 | 73893 | 5 |
-| Interceptor/Execute | 202,648 | 6337 | 4496 | 104 |
-| Interceptor/NoKey | 35,578,836 | 33.06 | 96 | 2 |
-| Interceptor/Replay | 621,645 | 1833 | 1688 | 31 |
+| ClientInterceptor/Keyed | 10,315,470 | 119.9 | 264 | 6 |
+| ClientInterceptor/Unkeyed | 34,007,098 | 36.21 | 128 | 2 |
+| Fingerprint/1024KiB | 2,695 | 429751 | 1056939 | 5 |
+| Fingerprint/1KiB | 1,820,688 | 661.2 | 1316 | 5 |
+| Fingerprint/64KiB | 40,213 | 29482 | 73893 | 5 |
+| Interceptor/Execute | 202,132 | 6308 | 4497 | 104 |
+| Interceptor/NoKey | 34,487,053 | 33.85 | 96 | 2 |
+| Interceptor/Replay | 643,250 | 1824 | 1688 | 31 |
 
 ## idempotency/http
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Fingerprint/1024KiB | 3,770 | 342260 | 608 | 9 |
-| Fingerprint/1KiB | 1,653,930 | 733.5 | 608 | 9 |
-| Fingerprint/64KiB | 53,274 | 21424 | 608 | 9 |
-| Middleware/Execute | 154,892 | 7977 | 11702 | 129 |
-| Middleware/Replay | 378,219 | 3223 | 8449 | 52 |
-| Middleware_NoKey/Baseline | 911,792 | 1311 | 6191 | 21 |
-| Middleware_NoKey/Wrapped | 944,900 | 1323 | 6191 | 21 |
+| Fingerprint/1024KiB | 3,412 | 357111 | 608 | 9 |
+| Fingerprint/1KiB | 1,566,656 | 782.3 | 608 | 9 |
+| Fingerprint/64KiB | 53,264 | 23328 | 608 | 9 |
+| Middleware/Execute | 153,066 | 8055 | 11704 | 129 |
+| Middleware/Replay | 376,354 | 3204 | 8449 | 52 |
+| Middleware_NoKey/Baseline | 928,515 | 1279 | 6191 | 21 |
+| Middleware_NoKey/Wrapped | 800,934 | 1297 | 6191 | 21 |
 
 ## identifiers
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| New | 25,959,392 | 46.89 | 24 | 1 |
-| Validate | 100,000,000 | 11.46 | 0 | 0 |
+| New | 26,262,610 | 47.06 | 24 | 1 |
+| Validate | 100,000,000 | 11.56 | 0 | 0 |
 
 ## links
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Minter/Inspect | 968,404 | 1224 | 648 | 14 |
-| Minter/Mint | 480,428 | 2568 | 1985 | 38 |
-| Minter/Redeem | 217,167 | 5827 | 2000 | 48 |
-| Minter/Redeem/spent | 379,784 | 3151 | 2160 | 48 |
+| Minter/Inspect | 957,955 | 1240 | 648 | 14 |
+| Minter/Mint | 492,015 | 2510 | 1988 | 38 |
+| Minter/Redeem | 226,387 | 5668 | 2000 | 48 |
+| Minter/Redeem/spent | 379,538 | 3096 | 2160 | 48 |
+
+## metering
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| DurableRecorder_Record/batch=10 | 4,741 | 218260 | 34511 | 571 |
+| DurableRecorder_Record/batch=100 | 872 | 1319059 | 282494 | 4801 |
+| DurableRecorder_Record/duplicate | 76,521 | 15022 | 6025 | 93 |
+| DurableRecorder_Record/single | 12,925 | 90904 | 9973 | 158 |
+| QuotaEnforcer_Check/allowed | 763,809 | 1497 | 2208 | 36 |
+| QuotaEnforcer_Check/denied | 795,872 | 1548 | 2232 | 37 |
+| QuotaEnforcer_Check/unknownMeter | 452,166 | 2735 | 1858 | 35 |
 
 ## numbers
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Numbers/RoundToDecimalPlaces | 161,591,100 | 6.934 | 0 | 0 |
-| Numbers/Scale | 164,057,142 | 7.210 | 0 | 0 |
-| Numbers/ScaleToYield | 163,364,000 | 7.355 | 0 | 0 |
+| Numbers/RoundToDecimalPlaces | 174,818,966 | 6.835 | 0 | 0 |
+| Numbers/Scale | 161,182,010 | 7.385 | 0 | 0 |
+| Numbers/ScaleToYield | 162,305,860 | 7.373 | 0 | 0 |
+
+## observability
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| EnsureLogger/nil | 684,921,897 | 1.801 | 0 | 0 |
+| EnsureLogger/present | 688,253,121 | 1.770 | 0 | 0 |
+| NewObserver/Begin/seededObserver | 6,274,722 | 194.0 | 80 | 2 |
+| NewObserver/NewObserver | 30,846,345 | 38.79 | 80 | 3 |
+| NewObserver/NewObserverWithValues | 25,355,013 | 42.10 | 80 | 3 |
+| Observer_Begin/noopTracer/noValues | 8,065,504 | 151.8 | 80 | 2 |
+| Observer_Begin/noopTracer/oneValue | 6,860,817 | 188.2 | 136 | 4 |
+| Observer_Begin/noopTracer/threeValues | 5,257,458 | 233.7 | 248 | 6 |
+| Observer_Begin/noopTracer/withValuesMap | 5,461,281 | 221.3 | 104 | 4 |
+| Observer_Begin/recordingTracer/noValues | 3,162,322 | 375.5 | 560 | 3 |
+| Observer_Begin/recordingTracer/oneValue | 2,527,944 | 466.5 | 744 | 7 |
+| Observer_Begin/recordingTracer/threeValues | 1,722,016 | 694.0 | 1368 | 13 |
+| Observer_Begin/recordingTracer/withValuesMap | 1,798,447 | 680.8 | 1224 | 11 |
+| Observer_BeginVersusBeginCustom/noopTracer/Begin | 7,868,820 | 154.1 | 80 | 2 |
+| Observer_BeginVersusBeginCustom/noopTracer/BeginCustom | 24,048,818 | 50.64 | 80 | 2 |
+| Observer_BeginVersusBeginCustom/recordingTracer/Begin | 3,271,801 | 378.4 | 560 | 3 |
+| Observer_BeginVersusBeginCustom/recordingTracer/BeginCustom | 4,454,841 | 263.8 | 560 | 3 |
+| Operation/noopTracer/LogOnly | 598,952,458 | 1.926 | 0 | 0 |
+| Operation/noopTracer/Set | 164,969,882 | 7.297 | 0 | 0 |
+| Operation/noopTracer/SpanOnly | 270,926,407 | 4.185 | 0 | 0 |
+| Operation/recordingTracer/LogOnly | 585,959,552 | 1.952 | 0 | 0 |
+| Operation/recordingTracer/Set | 19,003,264 | 57.52 | 115 | 1 |
+| Operation/recordingTracer/SpanOnly | 19,338,372 | 57.98 | 115 | 1 |
 
 ## observability/logging/slog
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| SlogLogger/Chained | 948,978 | 1321 | 1025 | 23 |
-| SlogLogger/Error | 1,484,649 | 797.1 | 0 | 0 |
-| SlogLogger/Info | 1,601,336 | 734.3 | 0 | 0 |
-| SlogLogger/WithValue | 1,321,162 | 901.5 | 304 | 8 |
-| SlogLogger/WithValues | 957,678 | 1306 | 933 | 20 |
+| SlogLogger/Chained | 827,652 | 1345 | 1025 | 23 |
+| SlogLogger/Error | 1,541,679 | 778.6 | 0 | 0 |
+| SlogLogger/Info | 1,729,950 | 697.6 | 0 | 0 |
+| SlogLogger/WithValue | 1,329,951 | 907.9 | 304 | 8 |
+| SlogLogger/WithValues | 946,879 | 1315 | 933 | 20 |
 
 ## observability/logging/zap
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| ZapLogger/Chained | 1,276,910 | 963.4 | 4362 | 24 |
-| ZapLogger/Error | 14,803,620 | 82.24 | 70 | 1 |
-| ZapLogger/Info | 22,501,690 | 53.14 | 2 | 0 |
-| ZapLogger/WithValue | 3,367,774 | 359.0 | 1455 | 8 |
-| ZapLogger/WithValues | 1,221,787 | 979.1 | 4313 | 22 |
+| ZapLogger/Chained | 1,251,500 | 949.4 | 4362 | 24 |
+| ZapLogger/Error | 14,617,352 | 81.68 | 70 | 1 |
+| ZapLogger/Info | 21,245,204 | 51.26 | 2 | 0 |
+| ZapLogger/WithValue | 3,261,992 | 355.6 | 1455 | 8 |
+| ZapLogger/WithValues | 1,243,665 | 976.9 | 4313 | 22 |
 
 ## observability/logging/zerolog
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| ZerologLogger/Chained | 1,182,528 | 1004 | 2147 | 10 |
-| ZerologLogger/Error | 1,465,254 | 823.8 | 360 | 3 |
-| ZerologLogger/Info | 2,346,048 | 517.7 | 0 | 0 |
-| ZerologLogger/WithValue | 1,669,060 | 693.8 | 753 | 4 |
-| ZerologLogger/WithValues | 1,000,000 | 1124 | 2516 | 11 |
+| ZerologLogger/Chained | 970,630 | 1108 | 2147 | 10 |
+| ZerologLogger/Error | 1,485,741 | 820.7 | 360 | 3 |
+| ZerologLogger/Info | 2,358,270 | 503.9 | 0 | 0 |
+| ZerologLogger/WithValue | 1,577,581 | 754.1 | 753 | 4 |
+| ZerologLogger/WithValues | 1,000,000 | 1135 | 2516 | 11 |
 
 ## observability/metrics
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Float64Histogram/Record | 34,357,372 | 36.13 | 0 | 0 |
-| Float64Histogram/RecordWithAttributes | 23,668,988 | 54.03 | 16 | 1 |
-| Int64Counter/Add | 38,685,661 | 30.20 | 0 | 0 |
-| Int64Counter/AddWithAttributes | 27,346,270 | 44.50 | 16 | 1 |
-| NoopProvider/Add | 609,156,894 | 1.987 | 0 | 0 |
+| Float64Histogram/Record | 26,803,687 | 37.42 | 0 | 0 |
+| Float64Histogram/RecordWithAttributes | 22,436,022 | 53.00 | 16 | 1 |
+| Int64Counter/Add | 39,959,839 | 29.73 | 0 | 0 |
+| Int64Counter/AddWithAttributes | 27,641,674 | 44.16 | 16 | 1 |
+| NoopProvider/Add | 583,826,899 | 2.027 | 0 | 0 |
+
+## observability/tracing
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| AttachRequestToSpan/noopSpan | 491,245,257 | 2.453 | 0 | 0 |
+| AttachRequestToSpan/recordingSpan | 766,818 | 1559 | 1681 | 35 |
+| AttachToSpan/noopSpan/int | 517,094,458 | 2.297 | 0 | 0 |
+| AttachToSpan/noopSpan/string | 404,434,682 | 3.001 | 0 | 0 |
+| AttachToSpan/noopSpan/struct | 470,708,218 | 2.457 | 0 | 0 |
+| AttachToSpan/recordingSpan/int | 24,947,203 | 48.87 | 115 | 1 |
+| AttachToSpan/recordingSpan/string | 19,926,961 | 59.83 | 131 | 2 |
+| AttachToSpan/recordingSpan/struct | 6,862,413 | 178.6 | 163 | 3 |
+| GetCallerName/cached | 12,217,102 | 90.96 | 0 | 0 |
+| GetCallerName/uncached | 1,757,821 | 657.6 | 80 | 3 |
+| StartSpan/noopProvider/StartCustomSpan | 42,010,126 | 29.54 | 48 | 1 |
+| StartSpan/noopProvider/StartSpan | 9,469,668 | 128.1 | 48 | 1 |
+| StartSpan/recordingProvider/StartCustomSpan | 5,421,988 | 224.2 | 528 | 2 |
+| StartSpan/recordingProvider/StartSpan | 3,660,068 | 332.8 | 528 | 2 |
 
 ## random
 
 | Benchmark | Runs | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Generator/HexEncodedString16 | 3,038,836 | 403.6 | 184 | 6 |
-| Generator/RawBytes32 | 3,069,668 | 394.2 | 168 | 5 |
+| Generator/HexEncodedString16 | 2,811,211 | 421.6 | 184 | 6 |
+| Generator/RawBytes32 | 3,028,182 | 388.5 | 168 | 5 |
+
+## ratelimiting
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| InMemoryRateLimiter_Allow/everyKeyNew | 2,353,210 | 570.1 | 294 | 6 |
+| InMemoryRateLimiter_Allow/keys=100 | 4,878,274 | 228.6 | 80 | 2 |
+| InMemoryRateLimiter_Allow/keys=10000 | 4,518,690 | 252.5 | 83 | 2 |
+| InMemoryRateLimiter_Allow/parallel/manyKeys | 31,552,446 | 40.24 | 82 | 2 |
+| InMemoryRateLimiter_Allow/parallel/singleKey | 5,032,759 | 244.1 | 80 | 2 |
+| InMemoryRateLimiter_Allow/singleKey | 5,297,276 | 217.3 | 80 | 2 |
+| InMemoryRateLimiter_Rejected/Allow | 5,237,924 | 225.6 | 80 | 2 |
+| InMemoryRateLimiter_Rejected/RetryAfterFor | 17,683,030 | 59.71 | 0 | 0 |
+| InMemoryRateLimiter_Rejected/RetryAfterFor/unknownKey | 154,702,088 | 7.791 | 0 | 0 |
+
+## routing
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| Router_Harness | 1,000,000 | 1091 | 5694 | 16 |
+| Router_NotFound | 236,564 | 5405 | 12760 | 102 |
+| Router_RouteScale/routes=1 | 180,681 | 6671 | 14451 | 115 |
+| Router_RouteScale/routes=10 | 177,350 | 6931 | 14457 | 115 |
+| Router_RouteScale/routes=100 | 170,626 | 7478 | 14457 | 115 |
+| Router_Typed/GET/badPathParam | 157,149 | 7589 | 14878 | 128 |
+| Router_Typed/GET/pathAndQuery | 178,993 | 6922 | 14876 | 117 |
+| Router_Typed/GET/pathParam | 166,747 | 6779 | 14465 | 115 |
+| Router_Typed/POST/withBody | 152,146 | 7962 | 15579 | 126 |
+| Router_Untyped/GET | 206,835 | 5706 | 13807 | 103 |
+
+## sessions
+
+| Benchmark | Runs | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| NewID | 2,819,007 | 426.7 | 264 | 7 |
+| Policy/Deadline | 164,942,888 | 7.298 | 0 | 0 |
+| Policy/Expiry | 154,542,933 | 7.729 | 0 | 0 |
+| Policy/ShouldTouch | 223,439,778 | 5.271 | 0 | 0 |
+| Policy/TTL | 141,112,333 | 8.467 | 0 | 0 |
+| Store_Get/missing | 1,000,000 | 1148 | 680 | 13 |
+| Store_Get/withTouch | 2,281,633 | 505.3 | 584 | 12 |
+| Store_Get/withoutTouch | 2,878,820 | 413.5 | 456 | 10 |
+| Store_Lifecycle/Delete | 862,106 | 1286 | 248 | 6 |
+| Store_Lifecycle/New | 981,440 | 1181 | 1044 | 19 |
+| Store_Lifecycle/Renew | 480,627 | 2976 | 877 | 18 |
+| Store_Lifecycle/Save | 2,642,090 | 460.0 | 512 | 12 |
 
