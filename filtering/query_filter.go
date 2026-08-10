@@ -138,34 +138,64 @@ func (qf *QueryFilter) AttachToLogger(logger logging.Logger) logging.Logger {
 	return l
 }
 
+// parseTimestamp reads one RFC3339Nano timestamp parameter, returning nil when
+// the parameter is absent or unparseable.
+//
+// The absence check is not redundant with the parse: an absent parameter reads
+// as "", which time.Parse rejects by allocating a *time.ParseError that this
+// function then discards. Four of those per call, on every list request, for
+// filters the overwhelming majority of requests do not send — checking first
+// costs a comparison and skips all of it.
+func parseTimestamp(params url.Values, key string) *time.Time {
+	raw := params.Get(key)
+	if raw == "" {
+		return nil
+	}
+
+	t, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return nil
+	}
+
+	return &t
+}
+
 // FromParams overrides the core QueryFilter values with values retrieved from url.Params.
+//
+// Every field is optional, and each is left untouched when its parameter is
+// absent or malformed — a bad filter is ignored rather than refused, so one
+// unparseable timestamp does not fail a list request outright.
 func (qf *QueryFilter) FromParams(params url.Values) {
 	if i := params.Get(QueryKeyCursor); i != "" {
 		qf.Cursor = &i
 	}
 
-	if i, err := strconv.ParseUint(params.Get(QueryKeyLimit), 10, 64); err == nil {
-		qf.MaxResponseSize = new(uint16(math.Min(math.Max(float64(i), 0), MaxQueryFilterLimit)))
+	if raw := params.Get(QueryKeyLimit); raw != "" {
+		if i, err := strconv.ParseUint(raw, 10, 64); err == nil {
+			qf.MaxResponseSize = new(uint16(math.Min(math.Max(float64(i), 0), MaxQueryFilterLimit)))
+		}
 	}
 
-	if t, err := time.Parse(time.RFC3339Nano, params.Get(QueryKeyCreatedBefore)); err == nil {
-		qf.CreatedBefore = &t
+	if t := parseTimestamp(params, QueryKeyCreatedBefore); t != nil {
+		qf.CreatedBefore = t
 	}
 
-	if t, err := time.Parse(time.RFC3339Nano, params.Get(QueryKeyCreatedAfter)); err == nil {
-		qf.CreatedAfter = &t
+	if t := parseTimestamp(params, QueryKeyCreatedAfter); t != nil {
+		qf.CreatedAfter = t
 	}
 
-	if t, err := time.Parse(time.RFC3339Nano, params.Get(QueryKeyUpdatedBefore)); err == nil {
-		qf.UpdatedBefore = &t
+	if t := parseTimestamp(params, QueryKeyUpdatedBefore); t != nil {
+		qf.UpdatedBefore = t
 	}
 
-	if t, err := time.Parse(time.RFC3339Nano, params.Get(QueryKeyUpdatedAfter)); err == nil {
-		qf.UpdatedAfter = &t
+	if t := parseTimestamp(params, QueryKeyUpdatedAfter); t != nil {
+		qf.UpdatedAfter = t
 	}
 
-	if i, err := strconv.ParseBool(params.Get(QueryKeyIncludeArchived)); err == nil {
-		qf.IncludeArchived = &i
+	if raw := params.Get(QueryKeyIncludeArchived); raw != "" {
+		if i, err := strconv.ParseBool(raw); err == nil {
+			qf.IncludeArchived = &i
+		}
 	}
 
 	switch strings.ToLower(params.Get(QueryKeySortBy)) {
