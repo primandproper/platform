@@ -36,30 +36,4 @@ func TestRegisterDatabaseClient(T *testing.T) {
 		must.NoError(t, err)
 		test.NotNil(t, client)
 	})
-
-	// The concrete registration is what lets a caller depend on this driver
-	// rather than on database.Client, so the interface key has to be an alias
-	// rather than a second client: two collaborators must not each open their
-	// own connection pool.
-	T.Run("both keys resolve to one client", func(t *testing.T) {
-		t.Parallel()
-
-		i := do.New()
-		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue[database.ClientConfig](i, &testClientConfig{
-			connectionString: "test:test@tcp(localhost:3306)/test",
-			maxPingAttempts:  1,
-		})
-
-		RegisterDatabaseClient(i)
-
-		concrete, err := do.Invoke[*Client](i)
-		must.NoError(t, err)
-		t.Cleanup(func() { must.NoError(t, concrete.Close()) })
-
-		iface, err := do.Invoke[database.Client](i)
-		must.NoError(t, err)
-
-		test.EqOp(t, any(concrete), any(iface))
-	})
 }

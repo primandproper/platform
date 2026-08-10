@@ -131,7 +131,12 @@ func (cfg *Config) NewSecretSource(ctx context.Context, opts ...Option) (secrets
 	o := newOptions(opts)
 
 	if cfg == nil {
-		return env.NewSecretSource(env.WithLogger(o.logger), env.WithTracerProvider(o.tracerProvider), env.WithMetricsProvider(o.metricsProvider))
+		s, err := env.NewSecretSource(env.WithLogger(o.logger), env.WithTracerProvider(o.tracerProvider), env.WithMetricsProvider(o.metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return s, nil
 	}
 
 	source, err := cfg.newProviderSource(ctx, o)
@@ -143,30 +148,60 @@ func (cfg *Config) NewSecretSource(ctx context.Context, opts ...Option) (secrets
 }
 
 // newProviderSource builds the undecorated source the Provider names.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight from the constructor would convert a nil
+// *SecretSource into a non-nil secrets.SecretSource on the error path, and a
+// caller testing the returned interface against nil would find a source that
+// panics on first use. noop.NewSecretSource cannot fail and needs no such care.
 func (cfg *Config) newProviderSource(ctx context.Context, o *options) (secrets.SecretSource, error) {
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
 	provider := normalizeProvider(cfg.Provider)
 	switch provider {
 	case "", ProviderEnv:
-		return env.NewSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
+		s, err := env.NewSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return s, nil
 	case ProviderNoop:
 		return noop.NewSecretSource(), nil
 	case ProviderGCP:
 		if cfg.GCP == nil {
 			return nil, errors.New("gcp provider requires gcp config")
 		}
-		return gcp.NewSecretSource(ctx, cfg.GCP, cfg.GCPClient, gcp.WithLogger(logger), gcp.WithTracerProvider(tracerProvider), gcp.WithMetricsProvider(metricsProvider))
+
+		s, err := gcp.NewSecretSource(ctx, cfg.GCP, cfg.GCPClient, gcp.WithLogger(logger), gcp.WithTracerProvider(tracerProvider), gcp.WithMetricsProvider(metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return s, nil
 	case ProviderSSM:
 		if cfg.SSM == nil {
 			return nil, errors.New("ssm provider requires ssm config")
 		}
-		return ssm.NewSecretSource(ctx, cfg.SSM, cfg.SSMClient, ssm.WithLogger(logger), ssm.WithTracerProvider(tracerProvider), ssm.WithMetricsProvider(metricsProvider))
+
+		s, err := ssm.NewSecretSource(ctx, cfg.SSM, cfg.SSMClient, ssm.WithLogger(logger), ssm.WithTracerProvider(tracerProvider), ssm.WithMetricsProvider(metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return s, nil
 	case ProviderKubernetes:
 		if cfg.Kubernetes == nil {
 			return nil, errors.New("kubernetes provider requires kubernetes config")
 		}
-		return kubernetes.NewSecretSource(ctx, cfg.Kubernetes, cfg.KubernetesClient, kubernetes.WithLogger(logger), kubernetes.WithTracerProvider(tracerProvider), kubernetes.WithMetricsProvider(metricsProvider))
+
+		s, err := kubernetes.NewSecretSource(ctx, cfg.Kubernetes, cfg.KubernetesClient, kubernetes.WithLogger(logger), kubernetes.WithTracerProvider(tracerProvider), kubernetes.WithMetricsProvider(metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return s, nil
 	default:
 		return nil, errors.Newf("unknown secret source provider: %q", cfg.Provider)
 	}

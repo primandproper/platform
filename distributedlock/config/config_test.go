@@ -3,8 +3,10 @@ package distributedlockcfg
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -355,5 +357,44 @@ func TestNewScopedLocker(T *testing.T) {
 		must.Error(t, err)
 		test.Nil(t, s)
 		test.StrContains(t, err.Error(), "distributedlock circuit breaker")
+	})
+}
+
+// TestNewLocker_nilInterfaceOnError guards the narrowing from a provider's own
+// concrete type back to distributedlock.Locker. Returning a constructor's result
+// straight through — `return memory.NewLocker(...)` — converts a nil
+// *memory.Locker into a non-nil distributedlock.Locker, so a caller that checks
+// the returned interface against nil gets a value that panics on first use. The
+// error is correct either way, which is what makes this invisible without a
+// test.
+//
+// The assertion has to be `l == nil` rather than test.Nil: test.Nil falls back
+// to reflect.Value.IsNil for pointer kinds, which reports a nil pointer boxed in
+// a non-nil interface as nil, and so passes against the very bug under test.
+func TestNewLocker_nilInterfaceOnError(T *testing.T) {
+	T.Parallel()
+
+	T.Run("memory provider", func(t *testing.T) {
+		t.Parallel()
+
+		// The circuit breaker is built before the provider and registers a
+		// counter of its own, so failing every counter would stop ahead of the
+		// locker at this package's own explicit `return nil, err`. Only the
+		// locker's counters fail, which puts the failure inside memory.NewLocker
+		// where the narrowing happens.
+		noop := metrics.EnsureMetricsProvider(nil)
+		mp := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(name string, opts ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				if strings.Contains(name, "circuit_breaker") {
+					return noop.NewInt64Counter(name, opts...)
+				}
+
+				return nil, errors.New("counter init failure")
+			},
+		}
+
+		l, err := NewLocker(t.Context(), &Config{Provider: MemoryProvider}, nil, WithMetricsProvider(mp))
+		must.Error(t, err)
+		test.True(t, l == nil, test.Sprintf("expected a nil distributedlock.Locker, got a non-nil interface holding %T", l))
 	})
 }
