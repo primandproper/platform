@@ -57,16 +57,25 @@ func hashStringToNumber(s string) uint64 {
 func runWithTestMySQL(t *testing.T, fn func(ctx context.Context, adminDB *sql.DB)) {
 	t.Helper()
 
-	dbUsername := fmt.Sprintf("u%d", hashStringToNumber(t.Name()))
-	dbPassword := reverseString(dbUsername)
-	dbName := splitReverseConcat(dbUsername)
-
-	mysqltest.Run(t, func(ctx context.Context, my *mysqltest.Instance) {
+	runWithTestMySQLInstance(t, func(ctx context.Context, my *mysqltest.Instance) {
 		// Connect as root for admin operations (CREATE USER, GRANT, etc.).
 		adminDB := my.Open(t, my.RootConnectionString(t, "allowCleartextPasswords=true", "multiStatements=true"))
 
 		fn(ctx, adminDB)
-	},
+	})
+}
+
+// runWithTestMySQLInstance is runWithTestMySQL without the root connection, for
+// the tests that need the container itself — to open a pool of their own
+// instrumentation, or to connect as a user they just created.
+func runWithTestMySQLInstance(t *testing.T, fn func(ctx context.Context, my *mysqltest.Instance)) {
+	t.Helper()
+
+	dbUsername := fmt.Sprintf("u%d", hashStringToNumber(t.Name()))
+	dbPassword := reverseString(dbUsername)
+	dbName := splitReverseConcat(dbUsername)
+
+	mysqltest.Run(t, fn,
 		mysqltest.WithImage(defaultMySQLImage),
 		mysqltest.WithCredentials(dbName, dbUsername, dbPassword),
 	)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/links"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -247,5 +248,54 @@ func TestStreamErrorEncodingInterceptor(T *testing.T) {
 		st, ok := status.FromError(err)
 		must.True(t, ok)
 		test.EqOp(t, "not authed", st.Message())
+	})
+}
+
+func TestClientMessage_linkOutcomes(T *testing.T) {
+	T.Parallel()
+
+	// All four redemption failures share codes.FailedPrecondition, so without a
+	// client-safe message a gRPC client is told only "FailedPrecondition" for a
+	// link that was used, one that expired, and one that was revoked — three
+	// different things to tell the person holding the link. HTTP has always
+	// distinguished them.
+	for _, sentinel := range []error{
+		links.ErrLinkNotFound,
+		links.ErrLinkAlreadyRedeemed,
+		links.ErrLinkExpired,
+		links.ErrLinkRevoked,
+		links.ErrInvalidToken,
+	} {
+		T.Run(sentinel.Error(), func(t *testing.T) {
+			t.Parallel()
+
+			code, ok := PlatformMapper.Map(sentinel)
+			must.True(t, ok)
+
+			// Wrapped, because that is how one arrives from a handler.
+			msg := clientMessage(code, platformerrors.Wrap(sentinel, "redeeming action link"))
+
+			test.EqOp(t, sentinel.Error(), msg)
+			test.NotEqOp(t, code.String(), msg)
+		})
+	}
+
+	T.Run("the four outcomes do not collapse into one message", func(t *testing.T) {
+		t.Parallel()
+
+		seen := map[string]struct{}{}
+
+		for _, sentinel := range []error{
+			links.ErrLinkNotFound,
+			links.ErrLinkAlreadyRedeemed,
+			links.ErrLinkExpired,
+			links.ErrLinkRevoked,
+		} {
+			code, ok := PlatformMapper.Map(sentinel)
+			must.True(t, ok)
+			seen[clientMessage(code, sentinel)] = struct{}{}
+		}
+
+		test.MapLen(t, 4, seen)
 	})
 }

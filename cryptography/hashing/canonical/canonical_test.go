@@ -1,11 +1,11 @@
 package canonical
 
 import (
-	"bytes"
 	"encoding/json"
 	"math"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/primandproper/platform-go/v10/cryptography/hashing/fnv"
 	"github.com/primandproper/platform-go/v10/cryptography/hashing/sha256"
@@ -276,40 +276,145 @@ func TestWriteCanonical(T *testing.T) {
 
 	// The default arm is unreachable through Marshal — json.Decoder with
 	// UseNumber only ever produces the handled types — so these drive
-	// writeCanonical directly. The point is that a future decoder change fails
+	// appendCanonical directly. The point is that a future decoder change fails
 	// loudly instead of silently mis-hashing, including from inside a nested
 	// array or object, where the error has to propagate back out.
 	T.Run("an unexpected type is refused", func(t *testing.T) {
 		t.Parallel()
 
-		var buf bytes.Buffer
-		test.Error(t, writeCanonical(&buf, struct{}{}))
+		_, err := appendCanonical(nil, struct{}{})
+		test.Error(t, err)
 	})
 
 	T.Run("an unexpected type inside an array propagates", func(t *testing.T) {
 		t.Parallel()
 
-		var buf bytes.Buffer
-		test.Error(t, writeCanonical(&buf, []any{json.Number("1"), struct{}{}}))
+		_, err := appendCanonical(nil, []any{json.Number("1"), struct{}{}})
+		test.Error(t, err)
 	})
 
 	T.Run("an unexpected type inside an object propagates", func(t *testing.T) {
 		t.Parallel()
 
-		var buf bytes.Buffer
-		test.Error(t, writeCanonical(&buf, map[string]any{"bad": struct{}{}}))
+		_, err := appendCanonical(nil, map[string]any{"bad": struct{}{}})
+		test.Error(t, err)
 	})
 
-	T.Run("Marshal surfaces a writeCanonical failure", func(t *testing.T) {
+	T.Run("Marshal surfaces an appendCanonical failure", func(t *testing.T) {
 		t.Parallel()
 
 		// json.RawMessage decodes back to a plain parsed value, so the only way
-		// to reach Marshal's writeCanonical error path is a decoder that yields
-		// something unexpected — which is why the guard exists at all. Assert
-		// the wiring through the buffer instead.
-		var buf bytes.Buffer
-		err := writeCanonical(&buf, map[string]any{"nested": []any{struct{}{}}})
+		// to reach Marshal's appendCanonical error path is a decoder that
+		// yields something unexpected — which is why the guard exists at all.
+		// Assert the wiring directly instead.
+		_, err := appendCanonical(nil, map[string]any{"nested": []any{struct{}{}}})
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "unexpected parsed JSON type")
+	})
+}
+
+// appendJSONString must produce exactly what encoding/json.Marshal produces for
+// a string. The tests below hold the two against each other rather than against
+// a table of hand-written expectations: the contract is equivalence with the
+// standard library, so the standard library is the oracle. A future change to
+// encoding/json's escaping surfaces here, as a failing test, instead of in a
+// consumer whose stored digests no longer reproduce.
+
+// jsonMarshalString is the oracle: encoding/json's own encoding of one string.
+func jsonMarshalString(t *testing.T, s string) []byte {
+	t.Helper()
+
+	encoded, err := json.Marshal(s)
+	must.NoError(t, err)
+
+	return encoded
+}
+
+func TestAppendJSONString_matchesEncodingJSON(T *testing.T) {
+	T.Parallel()
+
+	T.Run("over strings that exercise every escape rule", func(t *testing.T) {
+		t.Parallel()
+
+		for _, s := range []string{
+			"",
+			"plain",
+			"with spaces",
+			`a "quoted" word`,
+			`a\backslash`,
+			"tab\there",
+			"newline\nhere",
+			"carriage\rreturn",
+			"\x00\x01\x02\x1f",
+			"<script>alert('xss')&</script>",
+			"héllo",
+			"\u4e16\u754c", // CJK, escaped so the source stays ASCII
+			"🎉 emoji 🎉",
+			"line separator",
+			"paragraph separator",
+			"� already replacement",
+			"trailing backslash\\",
+			`{"nested":"json"}`,
+		} {
+			test.EqOp(t, string(jsonMarshalString(t, s)), string(appendJSONString(nil, s)))
+		}
+	})
+
+	// Every single byte, which is the cheapest way to cover both the control
+	// characters and the bytes that are not valid UTF-8 on their own.
+	T.Run("over every single byte", func(t *testing.T) {
+		t.Parallel()
+
+		for b := range 256 {
+			s := string([]byte{byte(b)})
+			test.EqOp(t, string(jsonMarshalString(t, s)), string(appendJSONString(nil, s)))
+		}
+	})
+
+	// Every rune in the basic multilingual plane, which covers U+2028/U+2029
+	// and the multi-byte encodings around them.
+	T.Run("over every rune in the BMP", func(t *testing.T) {
+		t.Parallel()
+
+		for r := rune(0); r <= 0xFFFF; r++ {
+			if !utf8.ValidRune(r) {
+				continue
+			}
+
+			s := string(r)
+			if got := string(appendJSONString(nil, s)); got != string(jsonMarshalString(t, s)) {
+				t.Fatalf("rune %U: got %s, want %s", r, got, jsonMarshalString(t, s))
+			}
+		}
+	})
+
+	// Appending must respect a non-empty destination rather than assuming it
+	// owns the slice, which is how it is called from within an object or array.
+	T.Run("appends to an existing buffer", func(t *testing.T) {
+		t.Parallel()
+
+		got := appendJSONString([]byte("prefix:"), "value")
+		test.EqOp(t, `prefix:"value"`, string(got))
+	})
+}
+
+// FuzzAppendJSONString drives the same equivalence over arbitrary input,
+// including byte sequences that are not valid UTF-8. It costs nothing in an
+// ordinary test run — only the seed corpus executes — but is here so the
+// equivalence can be fuzzed on demand with -fuzz.
+func FuzzAppendJSONString(f *testing.F) {
+	for _, s := range []string{"", "plain", `"`, "\x00", "<&>", "héllo", " ", "\xff\xfe"} {
+		f.Add(s)
+	}
+
+	f.Fuzz(func(t *testing.T, s string) {
+		want, err := json.Marshal(s)
+		if err != nil {
+			t.Skip()
+		}
+
+		if got := string(appendJSONString(nil, s)); got != string(want) {
+			t.Fatalf("appendJSONString(%q) = %s, want %s", s, got, want)
+		}
 	})
 }

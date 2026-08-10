@@ -152,7 +152,7 @@ func (e *embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 		}
 	}
 
-	op.Set("embedding.model", model).Set(keys.LengthKey, len(inputs))
+	op.Set(keys.EmbeddingModelKey, model).Set(keys.LengthKey, len(inputs))
 
 	reqBody := embeddingRequest{
 		Model: model,

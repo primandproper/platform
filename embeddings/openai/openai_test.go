@@ -13,6 +13,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/embeddings"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
@@ -150,7 +151,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		test.False(t, result.GeneratedAt.IsZero())
 
 		obs.ObservedOperationWithData(t, map[string]any{
-			"embeddings.model": "text-embedding-3-small",
+			keys.EmbeddingModelKey: "text-embedding-3-small",
 		})
 	})
 
@@ -212,7 +213,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		// Even though the request failed, the model must still have been observed,
 		// and the failure recorded on the operation.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			"embeddings.model": "text-embedding-3-small",
+			keys.EmbeddingModelKey: "text-embedding-3-small",
 		})
 		must.SliceLen(t, 1, op.Errors)
 	})

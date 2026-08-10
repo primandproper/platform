@@ -238,9 +238,13 @@ func (s *service) start(
 			// committed row. The one case it cannot see is two Starts racing on
 			// the same ID, where the loser reads before the winner commits —
 			// which is reported as the duplicate it is rather than invented.
+			// The read's own failure is the one reported. Returning the duplicate
+			// sentinel here would tell a caller whose database blinked that their
+			// operation already exists — an answer they would act on, and a
+			// transient failure they would never see.
 			existing, getErr := s.store.Get(ctx, op.ID)
 			if getErr != nil {
-				return nil, span.Error(err, "reading existing operation")
+				return nil, span.Error(getErr, "reading existing operation")
 			}
 
 			span.Set(stateKey, string(existing.State))

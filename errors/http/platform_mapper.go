@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
 	"github.com/primandproper/platform-go/v10/links"
@@ -102,6 +103,25 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 	// request: the same subscription will be accepted when somebody disconnects.
 	case errors.Is(err, operations.ErrTooManyWatchers):
 		return ErrTooManyRequests, "too many concurrent operation subscriptions", true
+	// The privacy-request sentinels, mapped for the same reasons as the
+	// operations ones directly above: a subject asking after their own export or
+	// erasure is a client, and "request not found" reaching them as a 500 tells
+	// them the service is broken when the answer is that the ID is not one of
+	// theirs.
+	case errors.Is(err, dataprivacy.ErrRequestNotFound):
+		return ErrDataNotFound, "privacy request not found", true
+	// A conflict rather than a not-found: the request exists and the caller may
+	// see it, it is simply not in the state the call needs. The remedy is a state
+	// change somebody else makes — a confirmation arrives, an export finishes —
+	// not a corrected request.
+	case errors.Is(err, dataprivacy.ErrNotAwaitingConfirmation):
+		return ErrResourceConflict, "privacy request is not awaiting confirmation", true
+	case errors.Is(err, dataprivacy.ErrArtifactUnavailable):
+		return ErrResourceConflict, "privacy request has no downloadable artifact", true
+	case errors.Is(err, dataprivacy.ErrEmptySubjectID):
+		return ErrValidatingRequestInput, "privacy request requires a subject", true
+	case errors.Is(err, dataprivacy.ErrUnknownRequestType):
+		return ErrValidatingRequestInput, "unknown privacy request type", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):
@@ -114,9 +134,9 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrValidatingRequestInput, "invalid idempotency key", true
 	case errors.Is(err, platformerrors.ErrNilInputParameter),
 		errors.Is(err, platformerrors.ErrEmptyInputParameter),
-		errors.Is(err, platformerrors.ErrNilInputProvided),
 		errors.Is(err, platformerrors.ErrInvalidIDProvided),
-		errors.Is(err, platformerrors.ErrEmptyInputProvided):
+		errors.Is(err, platformerrors.ErrEmptyInputProvided),
+		errors.Is(err, platformerrors.ErrUnrecognizedInputValue):
 		return ErrValidatingRequestInput, "invalid input", true
 	default:
 		return "", "", false

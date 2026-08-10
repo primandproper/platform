@@ -54,8 +54,8 @@ func (f *fakeBackend) serve(t *testing.T, method, pattern string, req *http.Requ
 	return rec
 }
 
-func newTestRouter(t *testing.T, backend Backend, opts ...RouterOption) *Router {
-	t.Helper()
+func newTestRouter(tb testing.TB, backend Backend, opts ...RouterOption) *Router {
+	tb.Helper()
 
 	logger := loggingnoop.NewLogger()
 	tp := tracingnoop.NewTracerProvider()
