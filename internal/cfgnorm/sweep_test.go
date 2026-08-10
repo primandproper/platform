@@ -34,6 +34,7 @@ import (
 	llmanthropic "github.com/primandproper/platform-go/v10/llm/anthropic"
 	llmcfg "github.com/primandproper/platform-go/v10/llm/config"
 	llmopenai "github.com/primandproper/platform-go/v10/llm/openai"
+	messagequeuecfg "github.com/primandproper/platform-go/v10/messagequeue/config"
 	asyncably "github.com/primandproper/platform-go/v10/notifications/async/ably"
 	asyncnotifcfg "github.com/primandproper/platform-go/v10/notifications/async/config"
 	asyncpusher "github.com/primandproper/platform-go/v10/notifications/async/pusher"
@@ -48,6 +49,10 @@ import (
 	tracingcloudtrace "github.com/primandproper/platform-go/v10/observability/tracing/cloudtrace"
 	tracingcfg "github.com/primandproper/platform-go/v10/observability/tracing/config"
 	tracingoteltrace "github.com/primandproper/platform-go/v10/observability/tracing/oteltrace"
+	routingchi "github.com/primandproper/platform-go/v10/routing/backends/chi"
+	routinggin "github.com/primandproper/platform-go/v10/routing/backends/gin"
+	routinghttprouter "github.com/primandproper/platform-go/v10/routing/backends/httprouter"
+	routingstdlib "github.com/primandproper/platform-go/v10/routing/backends/stdlib"
 	routingcfg "github.com/primandproper/platform-go/v10/routing/config"
 	textsearchalgolia "github.com/primandproper/platform-go/v10/search/text/algolia"
 	textsearchcfg "github.com/primandproper/platform-go/v10/search/text/config"
@@ -140,6 +145,13 @@ func TestSelectedProviderMustBeConfigured(T *testing.T) {
 		{name: "embeddings/cohere", provider: embeddingscfg.ProviderCohere, cfg: &embeddingscfg.Config{Provider: embeddingscfg.ProviderCohere}},
 		{name: "featureflags/launchdarkly", provider: featureflagscfg.ProviderLaunchDarkly, cfg: &featureflagscfg.Config{Provider: featureflagscfg.ProviderLaunchDarkly}},
 		{name: "featureflags/posthog", provider: featureflagscfg.ProviderPostHog, cfg: &featureflagscfg.Config{Provider: featureflagscfg.ProviderPostHog}},
+		{name: "routing/chi", provider: routingcfg.ProviderChi, cfg: &routingcfg.Config{Provider: routingcfg.ProviderChi}},
+		{name: "routing/stdlib", provider: routingcfg.ProviderStdlib, cfg: &routingcfg.Config{Provider: routingcfg.ProviderStdlib}},
+		{name: "routing/httprouter", provider: routingcfg.ProviderHTTPRouter, cfg: &routingcfg.Config{Provider: routingcfg.ProviderHTTPRouter}},
+		{name: "routing/gin", provider: routingcfg.ProviderGin, cfg: &routingcfg.Config{Provider: routingcfg.ProviderGin}},
+		{name: "messagequeue/redis", provider: string(messagequeuecfg.ProviderRedis), cfg: &messagequeuecfg.MessageQueueConfig{Provider: messagequeuecfg.ProviderRedis}},
+		{name: "messagequeue/kafka", provider: string(messagequeuecfg.ProviderKafka), cfg: &messagequeuecfg.MessageQueueConfig{Provider: messagequeuecfg.ProviderKafka}},
+		{name: "messagequeue/pubsub", provider: string(messagequeuecfg.ProviderPubSub), cfg: &messagequeuecfg.MessageQueueConfig{Provider: messagequeuecfg.ProviderPubSub}},
 		{name: "llm/openai", provider: llmcfg.ProviderOpenAI, cfg: &llmcfg.Config{Provider: llmcfg.ProviderOpenAI}},
 		{name: "llm/anthropic", provider: llmcfg.ProviderAnthropic, cfg: &llmcfg.Config{Provider: llmcfg.ProviderAnthropic}},
 		{name: "notifications-async/pusher", provider: asyncnotifcfg.ProviderPusher, cfg: &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderPusher}},
@@ -386,7 +398,7 @@ func TestUnselectedProvidersAreNotEnforced(T *testing.T) {
 			name: "featureflags/posthog",
 			cfg: &featureflagscfg.Config{
 				Provider: featureflagscfg.ProviderPostHog,
-				PostHog:  &featureflagsposthog.Config{ProjectAPIKey: "key"},
+				PostHog:  &featureflagsposthog.Config{ProjectAPIKey: "key", PersonalAPIKey: "personal"},
 			},
 		},
 
@@ -588,19 +600,19 @@ func TestUnselectedProvidersAreNotEnforced(T *testing.T) {
 		// routing
 		{
 			name: "routing/chi",
-			cfg:  &routingcfg.Config{Provider: routingcfg.ProviderChi},
+			cfg:  &routingcfg.Config{Provider: routingcfg.ProviderChi, Chi: &routingchi.Config{ServiceName: "svc"}},
 		},
 		{
 			name: "routing/stdlib",
-			cfg:  &routingcfg.Config{Provider: routingcfg.ProviderStdlib},
+			cfg:  &routingcfg.Config{Provider: routingcfg.ProviderStdlib, Stdlib: &routingstdlib.Config{ServiceName: "svc"}},
 		},
 		{
 			name: "routing/httprouter",
-			cfg:  &routingcfg.Config{Provider: routingcfg.ProviderHTTPRouter},
+			cfg:  &routingcfg.Config{Provider: routingcfg.ProviderHTTPRouter, HTTPRouter: &routinghttprouter.Config{ServiceName: "svc"}},
 		},
 		{
 			name: "routing/gin",
-			cfg:  &routingcfg.Config{Provider: routingcfg.ProviderGin},
+			cfg:  &routingcfg.Config{Provider: routingcfg.ProviderGin, Gin: &routinggin.Config{ServiceName: "svc"}},
 		},
 
 		// search/text

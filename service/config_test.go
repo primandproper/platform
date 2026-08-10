@@ -164,7 +164,10 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		err := cfg.ValidateWithContext(t.Context())
 		must.Error(t, err)
-		test.StrContains(t, err.Error(), "Name")
+		// The field as ozzo names it, from the json tag. Asserting on "Name"
+		// used to pass on a coincidence: the logging pillar required a
+		// serviceName of every config, so every failure mentioned one.
+		test.StrContains(t, err.Error(), "name: cannot be blank")
 	})
 }
 

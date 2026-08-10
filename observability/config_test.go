@@ -39,9 +39,10 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		// A missing logging ServiceName is invalid; root validation must surface it
+		// An unknown logging provider is invalid; root validation must surface it
 		// rather than silently passing (the pointer-receiver/value-field trap).
 		cfg := &Config{
+			Logging: loggingcfg.Config{Provider: "not-a-logger"},
 			Tracing: tracingcfg.Config{
 				ServiceName:               t.Name(),
 				SpanCollectionProbability: 1,

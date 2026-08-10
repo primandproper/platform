@@ -2,7 +2,7 @@ package loggingcfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
@@ -31,6 +31,11 @@ const (
 	// logging silently and looked exactly like the opt-out.
 	ProviderNoop = "noop"
 )
+
+// providers are every provider this package implements, plus the empty string,
+// which selects the noop logger — the deliberate opt-out. Validation and
+// NewLogger both read it.
+var providers = []string{"", ProviderNoop, ProviderZerolog, ProviderZap, ProviderSlog, ProviderOtelSlog}
 
 type (
 	// Config configures a Logger.
@@ -61,11 +66,25 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	// do the same for theirs.
 	cfgnorm.ZeroToNil(&cfg.OtelSlog)
 
+	provider := cfgnorm.Provider(cfg.Provider)
+
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.ServiceName, validation.Required),
+		// Required only for the provider that sends it anywhere. It was
+		// unconditional, and unreachable, until NewLogger started calling this;
+		// reachable and unconditional would have made a service that logs to
+		// stdout with zerolog name a service to nobody.
+		validation.Field(&cfg.ServiceName, validation.Required.When(provider == ProviderOtelSlog)),
 		validation.Field(&cfg.Level, validation.By(validateLevel)),
-		validation.Field(&cfg.Provider, validation.In("", ProviderNoop, ProviderZerolog, ProviderZap, ProviderSlog, ProviderOtelSlog)),
-		validation.Field(&cfg.OtelSlog, validation.Skip.When(cfg.Provider != ProviderOtelSlog), validation.Required),
+		validation.Field(&cfg.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "Zerolog" and " slog " while NewLogger built them.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "logging provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&cfg.OtelSlog, validation.Skip.When(provider != ProviderOtelSlog), validation.Required),
 	)
 }
 
@@ -82,7 +101,20 @@ func validateLevel(value any) error {
 
 // NewLogger builds a logger according to the provided config.
 func (cfg *Config) NewLogger(ctx context.Context) (logger logging.Logger, err error) {
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "logging provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating logging config")
+	}
+
+	switch provider {
 	case ProviderZerolog:
 		logger = zerolog.NewZerologLogger(cfg.Level)
 	case ProviderZap:

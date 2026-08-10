@@ -25,7 +25,7 @@ func RegisterLocker(i do.Injector) {
 		cfg := do.MustInvoke[*Config](i)
 
 		var db database.Client
-		if cfg.Provider == PostgresProvider {
+		if cfg.RequiresDatabase() {
 			client, clientErr := do.Invoke[database.Client](i)
 			if clientErr != nil {
 				return nil, clientErr
@@ -58,7 +58,7 @@ func RegisterScopedLocker(i do.Injector) {
 		cfg := do.MustInvoke[*Config](i)
 
 		var db database.Client
-		if cfg.Provider == PostgresProvider {
+		if cfg.RequiresDatabase() {
 			client, clientErr := do.Invoke[database.Client](i)
 			if clientErr != nil {
 				return nil, clientErr

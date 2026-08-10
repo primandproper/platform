@@ -18,6 +18,7 @@ func newContainerBackedLimiter(t *testing.T, requestsPerSec float64, burstSize i
 	container := redistest.Start(t)
 
 	limiter, err := NewRedisRateLimiter(
+		t.Context(),
 		Config{Addresses: []string{redistest.Address(t, container)}},
 		requestsPerSec,
 		burstSize,

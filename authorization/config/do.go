@@ -6,6 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v10/authorization"
 	"github.com/primandproper/platform-go/v10/cache"
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v10/internal/injection"
 	"github.com/primandproper/platform-go/v10/observability"
 
@@ -34,7 +35,7 @@ func RegisterPolicyResolver(i do.Injector) {
 		// The database resolver both reads and archives roles, so it gets the
 		// writer rather than a read replica that would reject its mutations.
 		var db database.SQLQueryExecutor
-		if normalize(cfg.Provider) == ProviderDatabase {
+		if cfgnorm.Provider(cfg.Provider) == ProviderDatabase {
 			client, clientErr := do.Invoke[database.Client](i)
 			if clientErr != nil {
 				return nil, clientErr

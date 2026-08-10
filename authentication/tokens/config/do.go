@@ -1,15 +1,22 @@
 package tokenscfg
 
 import (
+	"context"
+
 	"github.com/primandproper/platform-go/v10/authentication/tokens"
+	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/samber/do/v2"
 )
 
 // NewTokenIssuer provides a tokens.Issuer from a config.
-func NewTokenIssuer(cfg *Config, opts ...Option) (tokens.Issuer, error) {
-	return cfg.NewTokenIssuer(opts...)
+func NewTokenIssuer(ctx context.Context, cfg *Config, opts ...Option) (tokens.Issuer, error) {
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	return cfg.NewTokenIssuer(ctx, opts...)
 }
 
 // RegisterTokenIssuer registers the token issuer with the injector.
@@ -21,6 +28,7 @@ func RegisterTokenIssuer(i do.Injector) {
 		}
 
 		return NewTokenIssuer(
+			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			WithPillars(pillars),
 		)

@@ -13,6 +13,12 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
+// ErrNilConfig indicates SetupCloudTrace was called with no config. It is a
+// named error rather than the nil pointer read that used to happen at
+// cfg.ProjectID, which is what a deployment naming "cloudtrace" and supplying
+// no cloudtrace block got.
+var ErrNilConfig = errors.New("nil config")
+
 type errorHandler struct {
 	logger logging.Logger
 }
@@ -23,6 +29,10 @@ func (h errorHandler) Handle(err error) {
 
 // SetupCloudTrace creates a new trace provider instance and registers it as global trace provider.
 func SetupCloudTrace(ctx context.Context, serviceName string, spanCollectionProbability float64, cfg *Config) (tracing.Provider, error) {
+	if cfg == nil {
+		return nil, ErrNilConfig
+	}
+
 	exporter, err := texporter.New(texporter.WithProjectID(cfg.ProjectID))
 	if err != nil {
 		return nil, errors.Wrap(err, "setting up trace exporter")
