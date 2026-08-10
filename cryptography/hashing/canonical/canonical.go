@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/primandproper/platform-go/v10/cryptography/hashing"
 	"github.com/primandproper/platform-go/v10/cryptography/hashing/sha256"
@@ -90,75 +91,167 @@ func Marshal(v any, opts ...Option) ([]byte, error) {
 		}
 	}
 
-	var buf bytes.Buffer
-	if err = writeCanonical(&buf, parsed); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
+	// The canonical form differs from raw only by key order and whitespace, so
+	// raw's length is a close upper bound and one allocation covers the whole
+	// emission in the common case.
+	return appendCanonical(make([]byte, 0, len(raw)), parsed)
 }
 
-// writeCanonical emits one parsed JSON value in canonical form.
-func writeCanonical(buf *bytes.Buffer, v any) error {
+// appendCanonical appends one parsed JSON value's canonical form to dst.
+//
+// It appends rather than writing to a bytes.Buffer so that strings can be
+// encoded in place. Routing them through json.Marshal instead would allocate a
+// throwaway slice for every object key and every string value — the dominant
+// cost of canonicalizing anything string-heavy, and one paid per string rather
+// than per document.
+func appendCanonical(dst []byte, v any) ([]byte, error) {
 	switch t := v.(type) {
 	case nil:
-		buf.WriteString("null")
+		return append(dst, "null"...), nil
 	case bool:
 		if t {
-			buf.WriteString("true")
-		} else {
-			buf.WriteString("false")
+			return append(dst, "true"...), nil
 		}
+
+		return append(dst, "false"...), nil
 	case json.Number:
-		buf.WriteString(t.String())
+		return append(dst, t.String()...), nil
 	case string:
-		encoded, err := json.Marshal(t)
-		if err != nil {
-			return errors.Wrap(err, "encoding string")
-		}
-		buf.Write(encoded)
+		return appendJSONString(dst, t), nil
 	case []any:
-		buf.WriteByte('[')
+		var err error
+
+		dst = append(dst, '[')
+
 		for i, elem := range t {
 			if i > 0 {
-				buf.WriteByte(',')
+				dst = append(dst, ',')
 			}
-			if err := writeCanonical(buf, elem); err != nil {
-				return err
+
+			if dst, err = appendCanonical(dst, elem); err != nil {
+				return nil, err
 			}
 		}
-		buf.WriteByte(']')
+
+		return append(dst, ']'), nil
 	case map[string]any:
+		var err error
+
 		keys := make([]string, 0, len(t))
 		for k := range t {
 			keys = append(keys, k)
 		}
 		slices.Sort(keys)
 
-		buf.WriteByte('{')
+		dst = append(dst, '{')
+
 		for i, k := range keys {
 			if i > 0 {
-				buf.WriteByte(',')
+				dst = append(dst, ',')
 			}
 
-			encodedKey, err := json.Marshal(k)
-			if err != nil {
-				return errors.Wrap(err, "encoding object key")
-			}
-			buf.Write(encodedKey)
-			buf.WriteByte(':')
+			dst = appendJSONString(dst, k)
+			dst = append(dst, ':')
 
-			if err = writeCanonical(buf, t[k]); err != nil {
-				return err
+			if dst, err = appendCanonical(dst, t[k]); err != nil {
+				return nil, err
 			}
 		}
-		buf.WriteByte('}')
+
+		return append(dst, '}'), nil
 	default:
 		// Unreachable: json.Decoder with UseNumber produces only the types
 		// above. Guarded so a future decoder change fails loudly, not
 		// silently mis-hashes.
-		return errors.Newf("unexpected parsed JSON type %T", v)
+		return nil, errors.Newf("unexpected parsed JSON type %T", v)
+	}
+}
+
+// hexDigits indexes the lowercase hex nibbles used by \uXXXX escapes.
+const hexDigits = "0123456789abcdef"
+
+// appendJSONString appends s to dst as a JSON string literal, producing bytes
+// identical to encoding/json.Marshal of the same string — including its HTML
+// escaping of <, > and &, its  /  escaping, and its replacement of
+// invalid UTF-8 with �.
+//
+// That equivalence is the whole contract, and it is not a matter of taste: this
+// package's digests are stable identifiers, so any divergence from what
+// json.Marshal would have emitted silently changes every hash computed over a
+// string containing the affected byte. TestAppendJSONStringMatchesEncodingJSON
+// holds the two implementations against each other rather than against a table
+// of expectations, so a future change to encoding/json's escaping is caught
+// here instead of in a consumer's mismatched digest.
+func appendJSONString(dst []byte, s string) []byte {
+	dst = append(dst, '"')
+
+	// start marks the beginning of the run of bytes that need no escaping, so
+	// unescaped spans are copied in bulk rather than a byte at a time.
+	start := 0
+
+	for i := 0; i < len(s); {
+		if b := s[i]; b < utf8.RuneSelf {
+			// <, > and & are escaped because encoding/json escapes them by
+			// default, so that output is safe to embed in HTML.
+			if b >= ' ' && b != '"' && b != '\\' && b != '<' && b != '>' && b != '&' {
+				i++
+
+				continue
+			}
+
+			dst = append(dst, s[start:i]...)
+
+			switch b {
+			case '\\', '"':
+				dst = append(dst, '\\', b)
+			case '\b':
+				dst = append(dst, '\\', 'b')
+			case '\f':
+				dst = append(dst, '\\', 'f')
+			case '\n':
+				dst = append(dst, '\\', 'n')
+			case '\r':
+				dst = append(dst, '\\', 'r')
+			case '\t':
+				dst = append(dst, '\\', 't')
+			default:
+				dst = append(dst, '\\', 'u', '0', '0', hexDigits[b>>4], hexDigits[b&0xF])
+			}
+
+			i++
+			start = i
+
+			continue
+		}
+
+		c, size := utf8.DecodeRuneInString(s[i:])
+
+		// Invalid UTF-8 becomes the escaped replacement character, matching
+		// encoding/json, so that a canonical form is always valid UTF-8.
+		if c == utf8.RuneError && size == 1 {
+			dst = append(dst, s[start:i]...)
+			dst = append(dst, '\\', 'u', 'f', 'f', 'f', 'd')
+			i += size
+			start = i
+
+			continue
+		}
+
+		// U+2028 and U+2029 are valid JSON but not valid JavaScript string
+		// content; encoding/json escapes them, so this must too.
+		if c == ' ' || c == ' ' {
+			dst = append(dst, s[start:i]...)
+			dst = append(dst, '\\', 'u', '2', '0', '2', hexDigits[c&0xF])
+			i += size
+			start = i
+
+			continue
+		}
+
+		i += size
 	}
 
-	return nil
+	dst = append(dst, s[start:]...)
+
+	return append(dst, '"')
 }

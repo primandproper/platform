@@ -230,14 +230,14 @@ func (b *fakeBackend[T]) ids() []string {
 }
 
 // newTestStore builds a store over a fresh fake backend and clock.
-func newTestStore(t *testing.T, opts ...Option) (Store[principal], *fakeBackend[principal], *fakeClock) {
-	t.Helper()
+func newTestStore(tb testing.TB, opts ...Option) (Store[principal], *fakeBackend[principal], *fakeClock) {
+	tb.Helper()
 
 	c := newFakeClock()
 	backend := newFakeBackend[principal](c)
 
 	store, err := NewStore[principal](backend, append([]Option{WithClock(c)}, opts...)...)
-	must.NoError(t, err)
+	must.NoError(tb, err)
 
 	return store, backend, c
 }

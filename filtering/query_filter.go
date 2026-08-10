@@ -169,6 +169,15 @@ func (qf *QueryFilter) FromParams(params url.Values) error {
 		)
 	}
 
+	// parseTime reads one RFC3339Nano parameter, recording an error only when the
+	// parameter was supplied and would not parse.
+	//
+	// The absence check is not redundant with the parse: an absent parameter reads
+	// as "", which time.Parse rejects by allocating a *time.ParseError. Four of
+	// those per call, on every list request, for filters the overwhelming majority
+	// of requests do not send — checking first costs a comparison and skips all of
+	// it. It is also what keeps an unsent filter from being reported as an
+	// unreadable one.
 	parseTime := func(key string, into **time.Time) {
 		raw := params.Get(key)
 		if raw == "" {

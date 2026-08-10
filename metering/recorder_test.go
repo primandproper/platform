@@ -15,16 +15,16 @@ import (
 )
 
 // newTestRecorder builds a recorder over a fresh store, with a stub clock.
-func newTestRecorder(t *testing.T, opts ...RecorderOption) (*DurableRecorder, Store, *stubClock) {
-	t.Helper()
+func newTestRecorder(tb testing.TB, opts ...RecorderOption) (*DurableRecorder, Store, *stubClock) {
+	tb.Helper()
 
-	store := newSQLiteEnv(t).newStore(t)
+	store := newSQLiteEnv(tb).newStore(tb)
 	c := newStubClock()
 
-	recorder, err := NewDurableRecorder(t.Context(), &RecorderConfig{},
-		store, newTestRegistry(t, BehaviorBlock, 1000),
+	recorder, err := NewDurableRecorder(tb.Context(), &RecorderConfig{},
+		store, newTestRegistry(tb, BehaviorBlock, 1000),
 		append([]RecorderOption{WithRecorderClock(c)}, opts...)...)
-	must.NoError(t, err)
+	must.NoError(tb, err)
 
 	return recorder, store, c
 }
