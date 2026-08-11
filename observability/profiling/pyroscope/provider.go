@@ -10,15 +10,18 @@ import (
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/profiling"
-	profilingnoop "github.com/primandproper/platform-go/v10/observability/profiling/noop"
 
 	"github.com/grafana/pyroscope-go"
 )
 
 // NewProfilingProvider creates a Pyroscope-based profiling provider.
+//
+// A nil Config is an error rather than a noop. Asking this package for a
+// provider is asking for Pyroscope, and handing back something that profiles
+// nothing would hide the misconfiguration for the life of the process.
 func NewProfilingProvider(ctx context.Context, logger logging.Logger, serviceName string, cfg *Config) (profiling.Provider, error) {
 	if cfg == nil {
-		return profilingnoop.NewProvider(), nil
+		return nil, errors.Wrap(errors.ErrNilInputParameter, "nil pyroscope config")
 	}
 
 	if cfg.EnableMutexProfile {

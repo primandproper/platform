@@ -1,13 +1,11 @@
 package zap
 
 import (
-	"fmt"
 	"net/http"
-	"os"
 
+	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -22,7 +20,13 @@ type zapLogger struct {
 }
 
 // NewZapLogger builds a new zapLogger.
-func NewZapLogger(lvl logging.Level) logging.Logger {
+//
+// It returns an error rather than degrading to a noop logger with a warning on
+// stderr. A service that asked for zap and silently got nothing logs nothing
+// for its whole life, and the one line saying so scrolls past in the first
+// second of startup — which is the same failure the config packages refuse when
+// they will not substitute a provider nobody named.
+func NewZapLogger(lvl logging.Level) (logging.Logger, error) {
 	atomicLevel := zap.NewAtomicLevel()
 
 	var cfg zap.Config
@@ -46,11 +50,10 @@ func NewZapLogger(lvl logging.Level) logging.Logger {
 
 	l, err := cfg.Build(zap.AddCallerSkip(1))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: failed to create zap logger, falling back to noop: %v\n", err)
-		return loggingnoop.NewLogger()
+		return nil, errors.Wrap(err, "building zap logger")
 	}
 
-	return &zapLogger{logger: l, atomicLevel: atomicLevel}
+	return &zapLogger{logger: l, atomicLevel: atomicLevel}, nil
 }
 
 // WithName is our obligatory contract fulfillment function.

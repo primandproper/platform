@@ -118,7 +118,7 @@ func (cfg *Config) NewLogger(ctx context.Context) (logger logging.Logger, err er
 	case ProviderZerolog:
 		logger = zerolog.NewZerologLogger(cfg.Level)
 	case ProviderZap:
-		logger = zap.NewZapLogger(cfg.Level)
+		logger, err = zap.NewZapLogger(cfg.Level)
 	case ProviderSlog:
 		logger = slog.NewSlogLogger(cfg.Level)
 	case ProviderOtelSlog:

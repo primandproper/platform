@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v10/cache/memory"
 	"github.com/primandproper/platform-go/v10/cache/redis"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
@@ -189,7 +190,7 @@ func TestNewCache(T *testing.T) {
 
 		_, err := NewCache[example](t.Context(), &Config{})
 
-		test.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 
 	T.Run("bounded memory provider", func(t *testing.T) {

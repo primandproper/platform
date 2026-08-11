@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 
 	"github.com/shoenig/test"
@@ -13,11 +14,11 @@ import (
 func TestNewProfilingProvider(T *testing.T) {
 	T.Parallel()
 
-	T.Run("nil config returns noop", func(t *testing.T) {
+	T.Run("nil config is an error, not a noop", func(t *testing.T) {
 		t.Parallel()
 		p, err := NewProfilingProvider(context.Background(), loggingnoop.NewLogger(), nil)
-		must.NoError(t, err)
-		test.NotNil(t, p)
+		test.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
+		test.Nil(t, p)
 	})
 
 	T.Run("zero port uses default", func(t *testing.T) {

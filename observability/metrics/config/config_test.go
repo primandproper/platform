@@ -151,3 +151,49 @@ func TestNewMetricsProvider(T *testing.T) {
 		test.NotNil(t, metricsProvider)
 	})
 }
+
+func TestConfig_NewMetricsProvider_disabled(T *testing.T) {
+	T.Parallel()
+
+	// Enabled=false used to short-circuit ahead of the provider switch, so a
+	// typo'd name validated, built a noop, and only failed the day somebody
+	// turned metrics on.
+	T.Run("disabled with unknown provider is still an error", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Enabled:  false,
+			Provider: "unknown",
+		}
+
+		metricsProvider, err := cfg.NewMetricsProvider(t.Context())
+
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+		test.Nil(t, metricsProvider)
+	})
+
+	T.Run("disabled with unknown provider fails validation", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Enabled:  false,
+			Provider: "unknown",
+		}
+
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("disabled with a known provider is a noop", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Enabled:  false,
+			Provider: ProviderOtel,
+		}
+
+		metricsProvider, err := cfg.NewMetricsProvider(t.Context())
+
+		test.NoError(t, err)
+		test.NotNil(t, metricsProvider)
+	})
+}

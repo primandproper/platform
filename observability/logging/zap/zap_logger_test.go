@@ -16,31 +16,51 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// mustZapLogger builds a zap logger or fails the test. NewZapLogger reports a
+// zap build failure rather than degrading to a noop, so every test that only
+// wants a working logger says so once here.
+func mustZapLogger(t *testing.T, lvl logging.Level) logging.Logger {
+	t.Helper()
+
+	l, err := NewZapLogger(lvl)
+	must.NoError(t, err)
+
+	return l
+}
+
 func TestNewLogger(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewZapLogger(logging.DebugLevel))
+		l, err := NewZapLogger(logging.DebugLevel)
+		test.NoError(t, err)
+		test.NotNil(t, l)
 	})
 
 	T.Run("with info level", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewZapLogger(logging.InfoLevel))
+		l, err := NewZapLogger(logging.InfoLevel)
+		test.NoError(t, err)
+		test.NotNil(t, l)
 	})
 
 	T.Run("with warn level", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewZapLogger(logging.WarnLevel))
+		l, err := NewZapLogger(logging.WarnLevel)
+		test.NoError(t, err)
+		test.NotNil(t, l)
 	})
 
 	T.Run("with error level", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, NewZapLogger(logging.ErrorLevel))
+		l, err := NewZapLogger(logging.ErrorLevel)
+		test.NoError(t, err)
+		test.NotNil(t, l)
 	})
 }
 
@@ -50,7 +70,7 @@ func Test_zapLogger_WithName(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		test.NotNil(t, l.WithName(t.Name()))
 	})
@@ -62,7 +82,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with info level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZapLogger(logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
 		must.True(t, ok)
 
 		l.SetLevel(logging.InfoLevel)
@@ -71,7 +91,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with debug level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZapLogger(logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
 		must.True(t, ok)
 
 		l.SetLevel(logging.DebugLevel)
@@ -80,7 +100,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with warn level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZapLogger(logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
 		must.True(t, ok)
 
 		l.SetLevel(logging.WarnLevel)
@@ -89,7 +109,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with error level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZapLogger(logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
 		must.True(t, ok)
 
 		l.SetLevel(logging.ErrorLevel)
@@ -98,7 +118,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with nil level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZapLogger(logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
 		must.True(t, ok)
 
 		l.SetLevel("")
@@ -111,7 +131,7 @@ func Test_zapLogger_SetRequestIDFunc(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		l.SetRequestIDFunc(func(*http.Request) string {
 			return ""
@@ -121,7 +141,7 @@ func Test_zapLogger_SetRequestIDFunc(T *testing.T) {
 	T.Run("with nil function", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		l.SetRequestIDFunc(nil)
 	})
@@ -133,7 +153,7 @@ func Test_zapLogger_Info(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		l.Info(t.Name())
 	})
@@ -145,7 +165,7 @@ func Test_zapLogger_Debug(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		l.Debug(t.Name())
 	})
@@ -157,7 +177,7 @@ func Test_zapLogger_Error(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		l.Error(t.Name(), errors.New("blah"))
 	})
@@ -165,7 +185,7 @@ func Test_zapLogger_Error(T *testing.T) {
 	T.Run("with nil error", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		l.Error(t.Name(), nil)
 	})
@@ -177,7 +197,7 @@ func Test_zapLogger_Clone(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		test.NotNil(t, l.Clone())
 	})
@@ -189,7 +209,7 @@ func Test_zapLogger_WithValue(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		test.NotNil(t, l.WithValue("name", t.Name()))
 	})
@@ -201,7 +221,7 @@ func Test_zapLogger_WithValues(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		test.NotNil(t, l.WithValues(map[string]any{"name": t.Name()}))
 	})
@@ -213,7 +233,7 @@ func Test_zapLogger_WithError(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		test.NotNil(t, l.WithError(errors.New("blah")))
 	})
@@ -226,7 +246,7 @@ func Test_zapLogger_WithSpan(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		span := trace.SpanFromContext(ctx)
 
@@ -240,7 +260,7 @@ func Test_zapLogger_WithRequest(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZapLogger(logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
 		must.True(t, ok)
 
 		l.requestIDFunc = func(*http.Request) string {
@@ -258,7 +278,7 @@ func Test_zapLogger_WithRequest(T *testing.T) {
 	T.Run("with nil request", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		test.NotNil(t, l.WithRequest(nil))
 	})
@@ -270,7 +290,7 @@ func Test_zapLogger_WithResponse(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		test.NotNil(t, l.WithResponse(&http.Response{}))
 	})
@@ -278,7 +298,7 @@ func Test_zapLogger_WithResponse(T *testing.T) {
 	T.Run("with nil response", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewZapLogger(logging.DebugLevel)
+		l := mustZapLogger(t, logging.DebugLevel)
 
 		test.NotNil(t, l.WithResponse(nil))
 	})
@@ -311,7 +331,7 @@ func Test_zapLogger_NewZapLoggerLevelMapping(T *testing.T) {
 	T.Run("warn level maps to warn", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZapLogger(logging.WarnLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.WarnLevel).(*zapLogger)
 		must.True(t, ok)
 
 		test.EqOp(t, zap.WarnLevel, l.atomicLevel.Level())
@@ -320,7 +340,7 @@ func Test_zapLogger_NewZapLoggerLevelMapping(T *testing.T) {
 	T.Run("error level maps to error", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZapLogger(logging.ErrorLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.ErrorLevel).(*zapLogger)
 		must.True(t, ok)
 
 		test.EqOp(t, zap.ErrorLevel, l.atomicLevel.Level())
