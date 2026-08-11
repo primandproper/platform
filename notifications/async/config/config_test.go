@@ -8,9 +8,13 @@ import (
 	"github.com/primandproper/platform-go/v10/notifications/async/ably"
 	"github.com/primandproper/platform-go/v10/notifications/async/pusher"
 	asyncws "github.com/primandproper/platform-go/v10/notifications/async/websocket"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 func TestConfig_ValidateWithContext(T *testing.T) {
@@ -78,7 +82,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 			test.ErrorIs(t, cfg.ValidateWithContext(t.Context()), ErrTopologyRequired)
 
-			_, err := cfg.NewAsyncNotifier(nil)
+			_, err := cfg.NewAsyncNotifier(t.Context())
 			test.ErrorIs(t, err, ErrTopologyRequired)
 		}
 	})
@@ -91,7 +95,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 			test.ErrorIs(t, cfg.ValidateWithContext(t.Context()), ErrFleetUnsupportedForSelfHostedProvider)
 
-			_, err := cfg.NewAsyncNotifier(nil)
+			_, err := cfg.NewAsyncNotifier(t.Context())
 			test.ErrorIs(t, err, ErrFleetUnsupportedForSelfHostedProvider)
 		}
 	})
@@ -105,7 +109,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			cfg := &Config{Provider: ProviderNoop, Topology: topology}
 			must.NoError(t, cfg.ValidateWithContext(t.Context()))
 
-			actual, err := cfg.NewAsyncNotifier(nil)
+			actual, err := cfg.NewAsyncNotifier(t.Context())
 			test.NotNil(t, actual)
 			test.NoError(t, err)
 		}
@@ -142,7 +146,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			Topology:  TopologySingleReplica,
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -155,7 +159,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			Topology: TopologySingleReplica,
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -173,7 +177,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			},
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -188,7 +192,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			},
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -202,7 +206,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 				Provider: provider,
 			}
 
-			actual, err := cfg.NewAsyncNotifier(nil)
+			actual, err := cfg.NewAsyncNotifier(t.Context())
 			test.NotNil(t, actual)
 			test.NoError(t, err)
 		})
@@ -215,7 +219,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.Nil(t, actual)
 		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 	})
@@ -223,7 +227,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 	T.Run("with unset provider", func(t *testing.T) {
 		t.Parallel()
 
-		actual, err := (&Config{}).NewAsyncNotifier(nil)
+		actual, err := (&Config{}).NewAsyncNotifier(t.Context())
 		test.Nil(t, actual)
 		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 	})
@@ -231,12 +235,32 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 	T.Run("a failed provider yields a nil interface, not a typed nil", func(t *testing.T) {
 		t.Parallel()
 
+		// The config is complete and the metrics provider is what fails, so
+		// this reaches pusher.NewNotifier and fails inside it. A config that is
+		// merely incomplete would be refused by ValidateWithContext first and
+		// never exercise the conversion this is about.
+		cfg := &Config{
+			Provider: ProviderPusher,
+			Pusher: &pusher.Config{
+				AppID:   "123",
+				Key:     "key",
+				Secret:  "secret",
+				Cluster: "us2",
+			},
+		}
+
+		mp := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(_ string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				return metricstest.Int64Counter(t, "x"), errors.New("arbitrary")
+			},
+		}
+
 		// Compared against nil directly rather than with test.Nil, which is
 		// satisfied by a nil pointer inside a non-nil interface — the exact
 		// value this asserts is absent. Returning pusher.NewNotifier's
 		// (*Notifier, error) straight through produced one, and a caller's
 		// `if n != nil` accepted it and panicked on the first publish.
-		actual, err := (&Config{Provider: ProviderPusher}).NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context(), WithMetricsProvider(mp))
 		test.Error(t, err)
 		test.True(t, actual == nil)
 	})

@@ -2,9 +2,10 @@ package llmcfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v10/llm"
 	"github.com/primandproper/platform-go/v10/llm/anthropic"
 	llmnoop "github.com/primandproper/platform-go/v10/llm/noop"
@@ -32,6 +33,10 @@ type Config struct {
 	Provider  string            `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 }
 
+// providers are every provider this package implements. Validation and
+// NewLLMProvider both read it.
+var providers = []string{ProviderOpenAI, ProviderAnthropic, ProviderNoop}
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates the config.
@@ -42,19 +47,53 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // validation.When guard alone stops the Required rule and nothing else, so both
 // providers' API keys were required at once and no config could load.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
+	provider := cfgnorm.Provider(c.Provider)
+
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.Required, validation.In(ProviderOpenAI, ProviderAnthropic, ProviderNoop)),
-		validation.Field(&c.OpenAI, validation.Skip.When(c.Provider != ProviderOpenAI), validation.Required),
-		validation.Field(&c.Anthropic, validation.Skip.When(c.Provider != ProviderAnthropic), validation.Required),
+		validation.Field(&c.Provider, validation.Required, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "OpenAI" and " openai " while NewLLMProvider built them.
+			//
+			// The sentinel is wrapped for its text, not for errors.Is:
+			// ozzo's validation.Errors is a map with no Unwrap, so what
+			// reaches the caller from here is a string. NewLLMProvider
+			// checks the same list before this runs, which is what makes
+			// errors.Is(err, ErrUnknownProvider) hold for a constructor.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "llm provider %q", c.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&c.OpenAI, validation.Skip.When(provider != ProviderOpenAI), validation.Required),
+		validation.Field(&c.Anthropic, validation.Skip.When(provider != ProviderAnthropic), validation.Required),
 	)
 }
 
 // NewLLMProvider provides an LLM provider based on config.
-func (c *Config) NewLLMProvider(_ context.Context, opts ...Option) (llm.Provider, error) {
+//
+// The config is validated here rather than trusted to have been validated
+// upstream: the provider sub-configs are what carry the API keys, and skipping
+// their rules meant a deployment that named openai and supplied nothing got as
+// far as its first completion before finding out.
+func (c *Config) NewLLMProvider(ctx context.Context, opts ...Option) (llm.Provider, error) {
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
-	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
+	if c == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	provider, err := cfgnorm.SelectProvider(c.Provider, providers, "llm provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = c.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating llm config")
+	}
+
+	switch provider {
 	case ProviderOpenAI:
 		return openai.NewProvider(c.OpenAI, openai.WithLogger(logger), openai.WithTracerProvider(tracerProvider), openai.WithMetricsProvider(metricsProvider))
 	case ProviderAnthropic:

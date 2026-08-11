@@ -2,7 +2,7 @@ package cachecfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/cache"
@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/cache/redis"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -52,6 +53,12 @@ type (
 	}
 )
 
+// providers are every provider this package implements. Validation and NewCache
+// both read it. The empty string is absent deliberately: a cache is either in
+// this process or in Redis, and which one is not a question the library can
+// answer for a deployment.
+var providers = []string{ProviderMemory, ProviderRedis}
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct.
@@ -62,11 +69,24 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // validation.When guard alone stops the Required rule and nothing else, so
 // Redis' own rules were enforced and the memory provider could not load.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	provider := cfgnorm.Provider(cfg.Provider)
+
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderMemory, ProviderRedis)),
-		validation.Field(&cfg.Redis, validation.Skip.When(cfg.Provider != ProviderRedis), validation.Required),
+		// Required as well as known: an unset provider was accepted here and
+		// then refused by NewCache, so the one config that could not work was
+		// also the one validation had nothing to say about.
+		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "Redis" and " redis " while NewCache built them.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "cache provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&cfg.Redis, validation.Skip.When(provider != ProviderRedis), validation.Required),
 		validation.Field(&cfg.EvictionPolicy,
-			validation.Skip.When(cfg.Provider != ProviderMemory || cfg.MaxEntries <= 0),
+			validation.Skip.When(provider != ProviderMemory || cfg.MaxEntries <= 0),
 			validation.By(validEvictionPolicy)),
 	)
 }
@@ -97,7 +117,33 @@ func validEvictionPolicy(value any) error {
 func NewCache[T any](ctx context.Context, cfg *Config, opts ...Option) (cache.Cache[T], error) {
 	o := newOptions(opts)
 
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "cache provider")
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolved before the config's own rules, for the reason the provider is:
+	// ozzo's validation.Errors is a map with no Unwrap, so a caller matching
+	// memory.ErrUnknownEvictionPolicy would stop finding it the moment
+	// validation reported the same typo first. Resolved only for a cache that
+	// will be bounded, so an unbounded one is never failed by a policy it would
+	// not have consulted.
+	var policy memory.EvictionPolicy
+	if provider == ProviderMemory && cfg.MaxEntries > 0 {
+		if policy, err = memory.ParseEvictionPolicy(cfg.EvictionPolicy); err != nil {
+			return nil, errors.Wrap(err, "resolving cache eviction policy")
+		}
+	}
+
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating cache config")
+	}
+
+	switch provider {
 	case ProviderMemory:
 		// The janitor is bound to the caller's context because cache.Cache has
 		// no Close: the sweep stops when whatever scope owns this cache does.
@@ -108,36 +154,29 @@ func NewCache[T any](ctx context.Context, cfg *Config, opts ...Option) (cache.Ca
 			memory.WithJanitor(ctx, cfg.JanitorInterval),
 		}
 
-		// Resolved only for a cache that will be bounded, so an unbounded one
-		// is never failed by a policy it would not have consulted.
 		if cfg.MaxEntries > 0 {
-			policy, err := memory.ParseEvictionPolicy(cfg.EvictionPolicy)
-			if err != nil {
-				return nil, errors.Wrap(err, "resolving cache eviction policy")
-			}
-
 			memoryOpts = append(memoryOpts, memory.WithMaxEntries(cfg.MaxEntries, policy))
 		}
 
-		c, err := memory.NewInMemoryCache[T](cfg.Expiry, memoryOpts...)
-		if err != nil {
-			return nil, err
+		c, cacheErr := memory.NewInMemoryCache[T](cfg.Expiry, memoryOpts...)
+		if cacheErr != nil {
+			return nil, cacheErr
 		}
 
 		return c, nil
 	case ProviderRedis:
-		cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx,
+		cb, breakerErr := cfg.CircuitBreaker.NewCircuitBreaker(ctx,
 			circuitbreakingcfg.WithLogger(o.logger),
 			circuitbreakingcfg.WithMetricsProvider(o.metricsProvider))
-		if err != nil {
-			return nil, errors.Wrap(err, "initializing cache circuit breaker")
+		if breakerErr != nil {
+			return nil, errors.Wrap(breakerErr, "initializing cache circuit breaker")
 		}
-		c, err := redis.NewRedisCache[T](cfg.Redis, cfg.Expiry, cb,
+		c, cacheErr := redis.NewRedisCache[T](cfg.Redis, cfg.Expiry, cb,
 			redis.WithLogger(o.logger),
 			redis.WithTracerProvider(o.tracerProvider),
 			redis.WithMetricsProvider(o.metricsProvider))
-		if err != nil {
-			return nil, err
+		if cacheErr != nil {
+			return nil, cacheErr
 		}
 
 		return c, nil

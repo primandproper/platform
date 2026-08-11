@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	textsearch "github.com/primandproper/platform-go/v10/search/text"
 
@@ -94,14 +95,119 @@ func TestQueryFilter_FromParams(T *testing.T) {
 			QueryKeyIncludeArchived:   []string{strconv.FormatBool(true)},
 		}
 
-		actual.FromParams(exampleInput)
+		must.NoError(t, actual.FromParams(exampleInput))
 
 		test.Eq(t, expected, actual)
 
 		exampleInput[QueryKeySortBy] = []string{*SortAscending}
 
-		actual.FromParams(exampleInput)
+		must.NoError(t, actual.FromParams(exampleInput))
 		test.EqOp(t, SortAscending, actual.SortBy)
+	})
+}
+
+func TestQueryFilter_FromParams_parseFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("an absent parameter is not a failure", func(t *testing.T) {
+		t.Parallel()
+
+		qf := DefaultQueryFilter()
+
+		// Every key present and empty, which is what a client sending `?limit=`
+		// produces. None of them is a value that failed to parse.
+		must.NoError(t, qf.FromParams(url.Values{
+			QueryKeyLimit:           []string{""},
+			QueryKeyCreatedBefore:   []string{""},
+			QueryKeyCreatedAfter:    []string{""},
+			QueryKeyUpdatedBefore:   []string{""},
+			QueryKeyUpdatedAfter:    []string{""},
+			QueryKeyIncludeArchived: []string{""},
+			QueryKeySortBy:          []string{""},
+		}))
+
+		test.Eq(t, DefaultQueryFilter(), qf)
+	})
+
+	unreadable := map[string]url.Values{
+		"limit":           {QueryKeyLimit: []string{"fifty"}},
+		"negative limit":  {QueryKeyLimit: []string{"-5"}},
+		"createdBefore":   {QueryKeyCreatedBefore: []string{"yesterday"}},
+		"createdAfter":    {QueryKeyCreatedAfter: []string{"yesterday"}},
+		"updatedBefore":   {QueryKeyUpdatedBefore: []string{"yesterday"}},
+		"updatedAfter":    {QueryKeyUpdatedAfter: []string{"yesterday"}},
+		"includeArchived": {QueryKeyIncludeArchived: []string{"yes please"}},
+		"sortBy":          {QueryKeySortBy: []string{"sideways"}},
+	}
+
+	for name, params := range unreadable {
+		T.Run("reports an unreadable "+name, func(t *testing.T) {
+			t.Parallel()
+
+			err := DefaultQueryFilter().FromParams(params)
+			must.Error(t, err)
+			test.ErrorIs(t, err, platformerrors.ErrUnrecognizedInputValue)
+		})
+	}
+
+	T.Run("reports every unreadable parameter, not just the first", func(t *testing.T) {
+		t.Parallel()
+
+		err := DefaultQueryFilter().FromParams(url.Values{
+			QueryKeyLimit:        []string{"fifty"},
+			QueryKeyCreatedAfter: []string{"yesterday"},
+			QueryKeySortBy:       []string{"sideways"},
+		})
+
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), QueryKeyLimit)
+		test.StrContains(t, err.Error(), QueryKeyCreatedAfter)
+		test.StrContains(t, err.Error(), QueryKeySortBy)
+	})
+
+	T.Run("applies what did parse alongside the failure", func(t *testing.T) {
+		t.Parallel()
+
+		qf := DefaultQueryFilter()
+
+		err := qf.FromParams(url.Values{
+			QueryKeyCursor: []string{"abc"},
+			QueryKeyLimit:  []string{"fifty"},
+			QueryKeySortBy: []string{*SortDescending},
+		})
+
+		must.Error(t, err)
+		must.NotNil(t, qf.Cursor)
+		test.EqOp(t, "abc", *qf.Cursor)
+		test.EqOp(t, SortDescending, qf.SortBy)
+	})
+
+	T.Run("an over-large limit still clamps rather than failing", func(t *testing.T) {
+		t.Parallel()
+
+		qf := DefaultQueryFilter()
+
+		must.NoError(t, qf.FromParams(url.Values{
+			QueryKeyLimit: []string{strconv.Itoa(MaxQueryFilterLimit * 10)},
+		}))
+
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("ExtractQueryFilterFromRequest reports and still returns a usable filter", func(t *testing.T) {
+		t.Parallel()
+
+		req, reqErr := http.NewRequestWithContext(
+			t.Context(), http.MethodGet, "https://verygoodsoftwarenotvirus.ru", http.NoBody)
+		must.NoError(t, reqErr)
+
+		req.URL.RawQuery = url.Values{QueryKeyLimit: []string{"fifty"}}.Encode()
+
+		qf, err := ExtractQueryFilterFromRequest(req)
+		must.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnrecognizedInputValue)
+		test.Eq(t, DefaultQueryFilter(), qf)
 	})
 }
 
@@ -209,7 +315,8 @@ func TestExtractQueryFilter(T *testing.T) {
 		must.NotNil(t, req)
 
 		req.URL.RawQuery = exampleInput.Encode()
-		actual := ExtractQueryFilterFromRequest(req)
+		actual, err := ExtractQueryFilterFromRequest(req)
+		test.NoError(t, err)
 		test.Eq(t, expected, actual)
 	})
 
@@ -233,7 +340,8 @@ func TestExtractQueryFilter(T *testing.T) {
 		must.NotNil(t, req)
 
 		req.URL.RawQuery = exampleInput.Encode()
-		actual := ExtractQueryFilterFromRequest(req)
+		actual, err := ExtractQueryFilterFromRequest(req)
+		test.NoError(t, err)
 		test.Eq(t, expected, actual)
 	})
 }

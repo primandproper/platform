@@ -6,6 +6,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/links"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 
 	"github.com/cockroachdb/errors/errorspb"
@@ -103,11 +104,21 @@ var clientSafeSentinels = []error{
 	// can fix itself and one that files a ticket.
 	requestsigning.ErrStaleSignature,
 	requestsigning.ErrInvalidSignature,
+	// The four redemption outcomes. The links package separates them on purpose
+	// — a 256-bit token is never guessed, so naming the outcome is not an oracle
+	// — and that reasoning does not stop at the transport. Without these a gRPC
+	// client is told "FailedPrecondition" for all four, which is the one thing
+	// the separation exists to avoid, while an HTTP client is told which.
+	links.ErrLinkNotFound,
+	links.ErrLinkAlreadyRedeemed,
+	links.ErrLinkExpired,
+	links.ErrLinkRevoked,
+	links.ErrInvalidToken,
 	platformerrors.ErrNilInputParameter,
 	platformerrors.ErrEmptyInputParameter,
-	platformerrors.ErrNilInputProvided,
 	platformerrors.ErrInvalidIDProvided,
 	platformerrors.ErrEmptyInputProvided,
+	platformerrors.ErrUnrecognizedInputValue,
 }
 
 // UnaryErrorEncodingInterceptor returns a unary interceptor that encodes handler

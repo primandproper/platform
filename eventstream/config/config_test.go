@@ -23,7 +23,10 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 
-	T.Run("WebSocket provider", func(t *testing.T) {
+	// Every field of websocket.Config has a default and NewUpgrader documents a
+	// nil config as "use them", so naming the provider and nothing else is a
+	// configured websocket rather than a missing one.
+	T.Run("WebSocket provider without a websocket block", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -31,7 +34,15 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Provider: ProviderWebSocket,
 		}
 
-		test.Error(t, cfg.ValidateWithContext(ctx), test.Sprintf("websocket provider requires websocket config"))
+		test.NoError(t, cfg.ValidateWithContext(ctx))
+	})
+
+	// An unset provider used to validate clean and then be refused by both
+	// constructors, which is the one config validation had nothing to say about.
+	T.Run("unset provider", func(t *testing.T) {
+		t.Parallel()
+
+		test.Error(t, (&Config{}).ValidateWithContext(t.Context()))
 	})
 
 	T.Run("invalid provider", func(t *testing.T) {

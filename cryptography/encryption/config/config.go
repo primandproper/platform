@@ -73,7 +73,7 @@ func NewKeyring(
 	opts ...Option,
 ) (encryption.EncryptorDecryptor, error) {
 	if cfg == nil {
-		return nil, perrors.ErrNilInputProvided
+		return nil, perrors.ErrNilInputParameter
 	}
 
 	if err := cfg.ValidateWithContext(ctx); err != nil {

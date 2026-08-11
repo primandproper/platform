@@ -84,7 +84,7 @@ func TestConfig_NewTokenIssuer(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
 		}
 
-		actual, err := cfg.NewTokenIssuer(WithLogger(logger))
+		actual, err := cfg.NewTokenIssuer(t.Context(), WithLogger(logger))
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -97,7 +97,7 @@ func TestConfig_NewTokenIssuer(T *testing.T) {
 			Provider: "",
 		}
 
-		actual, err := cfg.NewTokenIssuer(WithLogger(logger))
+		actual, err := cfg.NewTokenIssuer(t.Context(), WithLogger(logger))
 		test.Nil(t, actual)
 		test.Error(t, err)
 	})
@@ -113,7 +113,7 @@ func TestConfig_NewTokenIssuer(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
 		}
 
-		actual, err := cfg.NewTokenIssuer()
+		actual, err := cfg.NewTokenIssuer(t.Context())
 		must.NoError(t, err)
 		test.NotNil(t, actual)
 	})
@@ -129,7 +129,7 @@ func TestConfig_NewTokenIssuer(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
 		}
 
-		actual, err := cfg.NewTokenIssuer()
+		actual, err := cfg.NewTokenIssuer(t.Context())
 		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 		test.Nil(t, actual)
 	})
@@ -145,7 +145,7 @@ func TestConfig_NewTokenIssuer(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
 		}
 
-		actual, err := cfg.NewTokenIssuer()
+		actual, err := cfg.NewTokenIssuer(t.Context())
 		test.Error(t, err)
 		test.Nil(t, actual)
 	})
@@ -160,7 +160,7 @@ func TestConfig_NewTokenIssuer(T *testing.T) {
 			Base64EncodedSigningKey: "not-valid-base64!!!",
 		}
 
-		actual, err := cfg.NewTokenIssuer()
+		actual, err := cfg.NewTokenIssuer(t.Context())
 		test.Error(t, err)
 		test.Nil(t, actual)
 	})
@@ -176,7 +176,7 @@ func TestConfig_NewTokenIssuer(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 16)),
 		}
 
-		actual, err := cfg.NewTokenIssuer()
+		actual, err := cfg.NewTokenIssuer(t.Context())
 		test.Error(t, err)
 		test.Nil(t, actual)
 	})

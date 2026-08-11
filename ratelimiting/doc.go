@@ -27,6 +27,32 @@ through RetryAfterFor rather than asserting for it themselves. It is separate
 from RateLimiter because a limiter fronting a third party often cannot answer,
 and an invented Retry-After is worse than none — clients obey it.
 
+# What the in-memory limiter keeps
+
+The in-memory limiter holds one token bucket per key, and the keys are whatever
+the caller limits on — client addresses and principal IDs, for the two obvious
+choices, neither of which has a bounded key space. So it reclaims them: a key
+that has gone unconsulted for twice its window is dropped on the next pass of a
+sweeper the constructor starts and Close stops.
+
+The window is the time a bucket takes to refill a full burst at the steady rate,
+which is the same quantity ratelimiting/redis turns into the length of its
+sliding window and expires its keys against. It is derived rather than
+configured because it is the point past which a bucket has nothing left to
+remember: a key that returns after the TTL is handed a full burst, which is
+exactly what the bucket it left behind would have refilled to. Eviction is
+therefore invisible to callers, and Close is not optional — an unclosed limiter
+keeps its sweeper, and itself, alive for the life of the process.
+
+The TTL cannot cover one case: a flood of distinct keys inside a single window,
+where nothing has been idle long enough to reclaim. That is what
+DefaultMaxLimiters bounds, evicting the least recently seen — the buckets
+closest to being refilled, and so the cheapest to forget. Unlike a TTL eviction
+this one does forgive whatever the evicted keys still owed, which is why the two
+are counted separately: a non-zero rate of capacity evictions says the bound is
+being hit and some keys are getting their allowance back early. Raise it with
+WithMaxLimiters.
+
 # Guarding a service
 
 The transport adapters are ratelimiting/http (a routing.Middleware answering

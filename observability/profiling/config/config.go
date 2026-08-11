@@ -2,7 +2,7 @@ package profilingcfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/errors"
@@ -28,11 +28,6 @@ const (
 	ProviderNoop = "noop"
 )
 
-// ErrPyroscopeConfigRequired is returned when the pyroscope provider is named
-// with no pyroscope config to go with it. It wraps errors.ErrNilInputParameter,
-// so a caller may check either.
-var ErrPyroscopeConfigRequired = errors.Wrap(errors.ErrNilInputParameter, "pyroscope profiling provider selected with no pyroscope config")
-
 type (
 	// Config contains settings related to profiling.
 	Config struct {
@@ -44,27 +39,59 @@ type (
 	}
 )
 
+// providers are every provider this package implements, plus the empty string,
+// which selects no profiling — the deliberate opt-out. Validation and
+// NewProfilingProvider both read it.
+var providers = []string{"", ProviderNoop, ProviderPyroscope, ProviderPprof}
+
+// defaultPyroscopeUploadRate is how often the agent ships profiles when the
+// operator did not say. It lives here rather than in the pyroscope package
+// because that config has no defaults of its own to apply it alongside.
+const defaultPyroscopeUploadRate = 15 * time.Second
+
+// EnsureDefaults fills in the fields this package supplies a default for.
+//
+// The upload rate used to be defaulted inside NewProfilingProvider, after the
+// point where a validation call would have run, so pyroscope's own Required
+// rule and the constructor disagreed about whether an unset rate was a
+// configuration or a mistake. Defaults belong before validation, which is what
+// this is for.
+func (c *Config) EnsureDefaults() {
+	if c == nil {
+		return
+	}
+
+	if cfgnorm.Provider(c.Provider) == ProviderPyroscope && c.Pyroscope != nil && c.Pyroscope.UploadRate == 0 {
+		c.Pyroscope.UploadRate = defaultPyroscopeUploadRate
+	}
+}
+
 // NewProfilingProvider provides a profiling provider based on config.
 func (c *Config) NewProfilingProvider(ctx context.Context, opts ...Option) (profiling.Provider, error) {
+	if c == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
 	// EnsureLogger, not the raw option: the logger is optional now, and both
 	// real providers log what they started.
 	logger := logging.EnsureLogger(newOptions(opts).logger)
 
-	p := strings.TrimSpace(strings.ToLower(c.Provider))
+	p, err := cfgnorm.SelectProvider(c.Provider, providers, "profiling provider")
+	if err != nil {
+		return nil, err
+	}
+
+	c.EnsureDefaults()
+
+	if err = c.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating profiling config")
+	}
 
 	switch p {
 	case ProviderPyroscope:
-		// A named provider with nothing to configure it is an error rather than a
-		// silent noop. There is no server address to send profiles to, and the
-		// process would otherwise run its whole life unprofiled while looking to
-		// every reader of the config like it was reporting to Pyroscope.
-		if c.Pyroscope == nil {
-			return nil, ErrPyroscopeConfigRequired
-		}
-		// Set default upload rate if not specified.
-		if c.Pyroscope.UploadRate == 0 {
-			c.Pyroscope.UploadRate = 15 * time.Second
-		}
+		// Validation requires the block for this provider, so this cannot be
+		// nil. It used to be, and the answer was a noop provider — profiling
+		// silently off for exactly the deployment that asked for it.
 		return pyroscope.NewProfilingProvider(ctx, logger, c.ServiceName, c.Pyroscope)
 	case ProviderPprof:
 		if c.Pprof == nil {
@@ -88,9 +115,19 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 	cfgnorm.ZeroToNil(&c.Pyroscope)
 	cfgnorm.ZeroToNil(&c.Pprof)
 
+	provider := cfgnorm.Provider(c.Provider)
+
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.In("", ProviderNoop, ProviderPyroscope, ProviderPprof)),
-		validation.Field(&c.Pyroscope, validation.When(c.Provider == ProviderPyroscope, validation.Required).Else(validation.Nil)),
-		validation.Field(&c.Pprof, validation.When(c.Provider == ProviderPyroscope || c.Provider == "", validation.Nil)),
+		validation.Field(&c.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "Pyroscope" while NewProfilingProvider built it.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "profiling provider %q", c.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&c.Pyroscope, validation.When(provider == ProviderPyroscope, validation.Required).Else(validation.Nil)),
+		validation.Field(&c.Pprof, validation.When(provider == ProviderPyroscope || provider == "", validation.Nil)),
 	)
 }

@@ -18,7 +18,6 @@ package authorizationcfg
 import (
 	"context"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/authorization"
@@ -75,7 +74,7 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
-	provider := normalize(cfg.Provider)
+	provider := cfgnorm.Provider(cfg.Provider)
 
 	// Release the sub-configs env parsing's ",init" allocated and nothing filled
 	// in, so the Nil rules below read "the operator configured this" rather than
@@ -189,12 +188,15 @@ func WithPillars(p *observability.Pillars) Option {
 // concrete type — whether a cache is in the chain is this function's decision,
 // not the caller's.
 func NewPolicyResolver(
-	_ context.Context,
+	ctx context.Context,
 	cfg *Config,
 	db database.SQLQueryExecutor,
 	c cache.Cache[authorization.PermissionSet],
 	opts ...Option,
 ) (authorization.PolicyResolver, error) {
+	// A nil config is the zero config, which this package documents as valid and
+	// as selecting the static resolver. It is still put through validation
+	// below, so the two spellings of "unconfigured" cannot diverge.
 	if cfg == nil {
 		cfg = &Config{}
 	}
@@ -202,12 +204,22 @@ func NewPolicyResolver(
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
-	var (
-		resolver authorization.PolicyResolver
-		err      error
-	)
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "authorization provider")
+	if err != nil {
+		return nil, err
+	}
 
-	switch normalize(cfg.Provider) {
+	// The config's own ErrUnknownProvider rule was unreachable while nothing
+	// called this, and so was the rule that a database provider must carry a
+	// database block — which is why the check for it below had to be written
+	// out here a second time.
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating authorization config")
+	}
+
+	var resolver authorization.PolicyResolver
+
+	switch provider {
 	case ProviderDatabase:
 		if cfg.Database == nil {
 			return nil, errors.New("database authorization provider selected with no database config")
@@ -248,10 +260,4 @@ func NewPolicyResolver(
 	}
 
 	return cachedResolver, nil
-}
-
-// normalize trims and lowercases a provider name, so that configuration
-// supplied by hand is not defeated by whitespace or case.
-func normalize(provider string) string {
-	return strings.TrimSpace(strings.ToLower(provider))
 }
