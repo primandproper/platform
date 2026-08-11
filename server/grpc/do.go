@@ -35,9 +35,7 @@ func RegisterGRPCServer(i do.Injector) {
 		}
 
 		return NewGRPCServer(
-			// context.Background() mirrors the HTTP sibling's registration; the
-			// registered context belongs to the consistency sweep that changes both.
-			context.Background(),
+			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			do.MustInvoke[[]grpc.UnaryServerInterceptor](i),
 			do.MustInvoke[[]grpc.StreamServerInterceptor](i),

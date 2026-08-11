@@ -40,7 +40,7 @@ func RegisterHTTPServer(i do.Injector, serviceName string) {
 		cfg := do.MustInvoke[Config](i)
 
 		return NewHTTPServer(
-			context.Background(),
+			do.MustInvoke[context.Context](i),
 			&cfg,
 			do.MustInvoke[*routing.Router](i),
 			WithServiceName(serviceName),

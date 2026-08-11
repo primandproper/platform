@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/eventstream"
 	essse "github.com/primandproper/platform-go/v10/eventstream/sse"
 	"github.com/primandproper/platform-go/v10/notifications/async"
@@ -16,6 +17,16 @@ const o11yName = "async_notifications_sse"
 var (
 	_ async.AsyncNotifier      = (*Notifier)(nil)
 	_ async.ConnectionAcceptor = (*Notifier)(nil)
+
+	// ErrNilConfig indicates a nil *Config.
+	//
+	// SSE has nothing to configure — the Config is empty, and everything this
+	// notifier needs arrives as options — so a nil one could be accepted without
+	// consequence. It is refused anyway, because the websocket sibling refuses
+	// one and a caller wiring both from the same config tree should not have to
+	// remember which of the two tolerates a missing block. A Config that later
+	// grows a field would turn the tolerated nil into a silent default.
+	ErrNilConfig = errors.New("sse async notifier config is nil")
 )
 
 // Notifier is an SSE-backed AsyncNotifier that manages direct client connections.
@@ -28,7 +39,11 @@ type Notifier struct {
 }
 
 // NewNotifier creates a new SSE-backed AsyncNotifier.
-func NewNotifier(_ *Config, opts ...Option) (*Notifier, error) {
+func NewNotifier(cfg *Config, opts ...Option) (*Notifier, error) {
+	if cfg == nil {
+		return nil, ErrNilConfig
+	}
+
 	o := newOptions(opts)
 
 	return &Notifier{

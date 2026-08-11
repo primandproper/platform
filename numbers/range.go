@@ -28,7 +28,10 @@ type (
 	}
 )
 
-var _ validation.ValidatableWithContext = (*MinRange[int])(nil)
+var (
+	_ validation.ValidatableWithContext = (*MinRange[int])(nil)
+	_ validation.ValidatableWithContext = (*OpenRange[int])(nil)
+)
 
 func (x *MinRange[T]) ValidateWithContext(ctx context.Context) error {
 	// Min is a value type that is always present, so `Required` (which rejects the
@@ -43,6 +46,29 @@ func (x *MinRange[T]) ValidateWithContext(ctx context.Context) error {
 
 func (x *MinRange[T]) validateMaxNotBelowMin(any) error {
 	if x.Max != nil && *x.Max < x.Min {
+		return errors.New("max must be greater than or equal to min")
+	}
+	return nil
+}
+
+// ValidateWithContext enforces the one thing an OpenRange can get wrong.
+//
+// Both bounds are optional, so neither is Required and an entirely empty range
+// — "no bound either way" — is valid. What is not valid is the same inversion
+// MinRange refuses: a maximum below the minimum describes a range no value can
+// satisfy, and a filter built from one silently returns nothing rather than
+// reporting that it was asked for the impossible. Absence of either bound has
+// nothing to compare, and passes.
+func (x *OpenRange[T]) ValidateWithContext(ctx context.Context) error {
+	return validation.ValidateStructWithContext(
+		ctx,
+		x,
+		validation.Field(&x.Max, validation.By(x.validateMaxNotBelowMin)),
+	)
+}
+
+func (x *OpenRange[T]) validateMaxNotBelowMin(any) error {
+	if x.Min != nil && x.Max != nil && *x.Max < *x.Min {
 		return errors.New("max must be greater than or equal to min")
 	}
 	return nil

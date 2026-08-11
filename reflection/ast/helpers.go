@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/primandproper/platform-go/v10/errors"
@@ -83,19 +84,26 @@ func FilterModuleImports(imports map[string]string, modulePath string) map[strin
 
 // GetTagValue extracts the value of a specific tag key from a raw struct field
 // tag string (with or without surrounding backticks). It returns the value before
-// any comma (i.e., omitting options like "omitempty"), with surrounding quotes stripped.
-// Returns empty string if the key is not found.
+// any comma (i.e., omitting options like "omitempty"). Returns empty string if
+// the key is not found.
+//
+// The lookup is reflect.StructTag's rather than a scan of this package's own,
+// because a struct tag is not a space-separated list: a value may itself contain
+// spaces, and this repo writes several that do — `validate:"required,min=1"` is
+// fine either way, but `env:"X" envDefault:"a b"` is not. Splitting on spaces
+// read "a" as the whole default and then treated the orphaned `b"` as a further
+// key, so the field after it in the tag went missing too. reflect.StructTag.Lookup
+// implements the conventional grammar, quoting included, and is the definition
+// the compiler and every reflection-based decoder already agree on.
 func GetTagValue(tag, key string) string {
-	tag = strings.Trim(tag, "`")
-
-	for t := range strings.SplitSeq(tag, " ") {
-		parts := strings.SplitN(t, ":", 2)
-		if len(parts) == 2 && parts[0] == key {
-			return strings.Trim(strings.Split(parts[1], ",")[0], `"`)
-		}
+	value, ok := reflect.StructTag(strings.Trim(tag, "`")).Lookup(key)
+	if !ok {
+		return ""
 	}
 
-	return ""
+	before, _, _ := strings.Cut(value, ",")
+
+	return before
 }
 
 // GetStructFields returns a map of field names to their type representation

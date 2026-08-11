@@ -265,7 +265,7 @@ func NewFulfiller(
 		base = append(base,
 			dataprivacy.WithFulfillerUploadManager(uploader),
 			dataprivacy.WithFulfillerURLSigner(dataprivacy.NewArtifactURLSigner(
-				uploader, cfg.Service.SignedURLTTL, encrypted,
+				uploader, cfg.Service.SignedURLTTL, encrypted, o.urlSigner...,
 			)),
 		)
 	}

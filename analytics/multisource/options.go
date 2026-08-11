@@ -1,6 +1,7 @@
 package multisource
 
 import (
+	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
@@ -42,4 +43,14 @@ func WithTracerProvider(tracerProvider tracing.Provider) Option {
 // per-source reporters built from config.
 func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 	return func(o *options) { o.metricsProvider = metricsProvider }
+}
+
+// WithPillars attaches a logger, tracer provider, and metrics provider in one
+// go, for the common case where a caller has already built them together. A nil
+// Pillars attaches nothing.
+//
+// It is applied in order with the individual options, so a caller can hand over
+// its pillars and then override one of them.
+func WithPillars(p *observability.Pillars) Option {
+	return func(o *options) { o.logger, o.tracerProvider, o.metricsProvider = p.Deps() }
 }

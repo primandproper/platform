@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/notifications/async/ably"
 	"github.com/primandproper/platform-go/v10/notifications/async/pusher"
+	asyncsse "github.com/primandproper/platform-go/v10/notifications/async/sse"
 	asyncws "github.com/primandproper/platform-go/v10/notifications/async/websocket"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
@@ -78,7 +79,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		// tell the correct deployment from the broken one is to make the
 		// operator say which it is.
 		for _, provider := range []string{ProviderSSE, ProviderWebSocket} {
-			cfg := &Config{Provider: provider, WebSocket: &asyncws.Config{}}
+			cfg := &Config{Provider: provider, SSE: &asyncsse.Config{}, WebSocket: &asyncws.Config{}}
 
 			test.ErrorIs(t, cfg.ValidateWithContext(t.Context()), ErrTopologyRequired)
 
@@ -91,7 +92,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		for _, provider := range []string{ProviderSSE, ProviderWebSocket} {
-			cfg := &Config{Provider: provider, WebSocket: &asyncws.Config{}, Topology: TopologyFleet}
+			cfg := &Config{Provider: provider, SSE: &asyncsse.Config{}, WebSocket: &asyncws.Config{}, Topology: TopologyFleet}
 
 			test.ErrorIs(t, cfg.ValidateWithContext(t.Context()), ErrFleetUnsupportedForSelfHostedProvider)
 
@@ -156,6 +157,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderSSE,
+			SSE:      &asyncsse.Config{},
 			Topology: TopologySingleReplica,
 		}
 

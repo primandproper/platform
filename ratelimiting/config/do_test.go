@@ -1,6 +1,7 @@
 package ratelimitingcfg
 
 import (
+	"context"
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -22,6 +23,7 @@ func TestRegisterRateLimiter(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue[logging.Logger](i, loggingnoop.NewLogger())
 		do.ProvideValue[tracing.Provider](i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, nil)

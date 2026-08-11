@@ -12,6 +12,8 @@ import (
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/notifications/mobile"
+	"github.com/primandproper/platform-go/v10/notifications/mobile/apns"
+	"github.com/primandproper/platform-go/v10/notifications/mobile/fcm"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
@@ -89,7 +91,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		cfg := &Config{
 			Provider: ProviderFCM,
 			APNs:     nil,
-			FCM:      &FCMConfig{},
+			FCM:      &fcm.Config{},
 		}
 		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
@@ -99,7 +101,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		cfg := &Config{
 			Provider: ProviderAPNsFCM,
-			APNs:     &APNsConfig{AuthKeyPath: "x", KeyID: "x", TeamID: "x", BundleID: "x"},
+			APNs:     &apns.Config{AuthKeyPath: "x", KeyID: "x", TeamID: "x", BundleID: "x"},
 			FCM:      nil,
 		}
 		test.NoError(t, cfg.ValidateWithContext(ctx))
@@ -111,8 +113,8 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		p8Path := createTestP8File(t)
 		cfg := &Config{
 			Provider: ProviderAPNsFCM,
-			APNs:     &APNsConfig{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
-			FCM:      &FCMConfig{},
+			APNs:     &apns.Config{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
+			FCM:      &fcm.Config{},
 		}
 		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
@@ -153,7 +155,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 		cfg := Config{
 			Provider: ProviderFCM,
 			APNs:     nil,
-			FCM:      &FCMConfig{CredentialsPath: credsPath},
+			FCM:      &fcm.Config{CredentialsPath: credsPath},
 		}
 		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		must.NoError(t, err)
@@ -170,7 +172,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 		p8Path := createTestP8File(t)
 		cfg := Config{
 			Provider: ProviderAPNs,
-			APNs:     &APNsConfig{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
+			APNs:     &apns.Config{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
 			FCM:      nil,
 		}
 		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
@@ -187,8 +189,8 @@ func TestConfig_NewPushSender(T *testing.T) {
 
 		cfg := Config{
 			Provider: ProviderAPNsFCM,
-			APNs:     &APNsConfig{AuthKeyPath: filepath.Join(t.TempDir(), "nonexistent.p8"), KeyID: "x", TeamID: "x", BundleID: "x"},
-			FCM:      &FCMConfig{},
+			APNs:     &apns.Config{AuthKeyPath: filepath.Join(t.TempDir(), "nonexistent.p8"), KeyID: "x", TeamID: "x", BundleID: "x"},
+			FCM:      &fcm.Config{},
 		}
 		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		test.Error(t, err)
@@ -201,8 +203,8 @@ func TestConfig_NewPushSender(T *testing.T) {
 		p8Path := createTestP8File(t)
 		cfg := Config{
 			Provider: ProviderAPNsFCM,
-			APNs:     &APNsConfig{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
-			FCM:      &FCMConfig{CredentialsPath: filepath.Join(t.TempDir(), "nonexistent.json")},
+			APNs:     &apns.Config{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
+			FCM:      &fcm.Config{CredentialsPath: filepath.Join(t.TempDir(), "nonexistent.json")},
 		}
 		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		test.Error(t, err)
@@ -238,7 +240,7 @@ func TestConfig_NewPushSender(T *testing.T) {
 		cfg := Config{
 			Provider: ProviderFCM,
 			APNs:     nil,
-			FCM:      &FCMConfig{CredentialsPath: credsPath},
+			FCM:      &fcm.Config{CredentialsPath: credsPath},
 		}
 		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		must.NoError(t, err)
@@ -252,8 +254,8 @@ func TestConfig_NewPushSender(T *testing.T) {
 		credsPath := createTestFCMCredsFile(t)
 		cfg := Config{
 			Provider: ProviderAPNsFCM,
-			APNs:     &APNsConfig{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
-			FCM:      &FCMConfig{CredentialsPath: credsPath},
+			APNs:     &apns.Config{AuthKeyPath: p8Path, KeyID: "x", TeamID: "x", BundleID: "x"},
+			FCM:      &fcm.Config{CredentialsPath: credsPath},
 		}
 		sender, err := cfg.NewPushSender(ctx, WithLogger(logger), WithTracerProvider(tracer))
 		must.NoError(t, err)

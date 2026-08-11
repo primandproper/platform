@@ -65,8 +65,8 @@ func TestNewNotifier(T *testing.T) {
 		t.Parallel()
 
 		n, err := NewNotifier(nil)
-		must.NoError(t, err)
-		must.NotNil(t, n)
+		must.ErrorIs(t, err, ErrNilConfig)
+		must.Nil(t, n)
 	})
 }
 

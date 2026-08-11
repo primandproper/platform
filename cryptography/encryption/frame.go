@@ -1,7 +1,7 @@
 package encryption
 
 import (
-	"fmt"
+	"github.com/primandproper/platform-go/v10/errors"
 )
 
 // frameVersion is the layout version written at the front of every ciphertext.
@@ -28,7 +28,7 @@ func encodeHeader(id KeyID) ([]byte, error) {
 	case id == "":
 		return nil, ErrEmptyKeyID
 	case len(id) > MaxKeyIDLength:
-		return nil, fmt.Errorf("%w: %d bytes exceeds %d", ErrKeyIDTooLong, len(id), MaxKeyIDLength)
+		return nil, errors.Wrapf(ErrKeyIDTooLong, "%d bytes exceeds %d", len(id), MaxKeyIDLength)
 	}
 
 	header := make([]byte, 0, headerOverhead+len(id))
@@ -46,23 +46,24 @@ func encodeHeader(id KeyID) ([]byte, error) {
 // authenticated rather than a re-encoding of them.
 func decodeHeader(ciphertext []byte) (id KeyID, header, body []byte, err error) {
 	if len(ciphertext) < headerOverhead {
-		return "", nil, nil, fmt.Errorf("%w: %d bytes cannot hold a header", ErrMalformedCiphertext, len(ciphertext))
+		return "", nil, nil, errors.Wrapf(ErrMalformedCiphertext, "%d bytes cannot hold a header", len(ciphertext))
 	}
 
 	if v := ciphertext[0]; v != frameVersion {
-		return "", nil, nil, fmt.Errorf("%w: %d", ErrUnsupportedCiphertextVersion, v)
+		return "", nil, nil, errors.Wrapf(ErrUnsupportedCiphertextVersion, "version %d", v)
 	}
 
 	idLen := int(ciphertext[1])
 	if idLen == 0 {
-		return "", nil, nil, fmt.Errorf("%w: header declares an empty key ID", ErrMalformedCiphertext)
+		return "", nil, nil, errors.Wrap(ErrMalformedCiphertext, "header declares an empty key ID")
 	}
 
 	end := headerOverhead + idLen
 	if len(ciphertext) < end {
-		return "", nil, nil, fmt.Errorf(
-			"%w: header declares a %d byte key ID but only %d bytes follow",
-			ErrMalformedCiphertext, idLen, len(ciphertext)-headerOverhead,
+		return "", nil, nil, errors.Wrapf(
+			ErrMalformedCiphertext,
+			"header declares a %d byte key ID but only %d bytes follow",
+			idLen, len(ciphertext)-headerOverhead,
 		)
 	}
 

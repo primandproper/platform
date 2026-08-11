@@ -6,7 +6,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/authorization"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/internal/identifier"
+	"github.com/primandproper/platform-go/v10/internal/plainname"
 	"github.com/primandproper/platform-go/v10/metering"
 )
 
@@ -517,9 +517,9 @@ type Checker interface {
 // validIdentifier reports whether a name is a plain identifier.
 //
 // Feature keys and plan names travel into cache keys, metric attribute values,
-// and permission strings, which is the rule internal/identifier states — and the
+// and permission strings, which is the rule internal/plainname states — and the
 // same rule metering applies to a meter name, since a quota feature's key and
 // the meter it counts against end up in the same cache key.
 func validIdentifier(name string, maxLen int) bool {
-	return identifier.Valid(name, maxLen)
+	return plainname.Valid(name, maxLen)
 }

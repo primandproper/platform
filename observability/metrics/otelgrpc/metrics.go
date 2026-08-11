@@ -11,7 +11,6 @@ import (
 	o11yutils "github.com/primandproper/platform-go/v10/observability/utils"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/hashicorp/go-multierror"
 	"go.opentelemetry.io/contrib/instrumentation/host"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
@@ -149,15 +148,15 @@ func (m *providerImpl) MeterProvider() metric.MeterProvider {
 }
 
 func (m *providerImpl) Shutdown(ctx context.Context) error {
-	errs := &multierror.Error{}
+	errs := make([]error, 0, len(m.shutdownFunctions))
 
 	for _, fn := range m.shutdownFunctions {
 		if err := fn(ctx); err != nil {
-			errs = multierror.Append(errs, err)
+			errs = append(errs, err)
 		}
 	}
 
-	return errs.ErrorOrNil()
+	return errors.Join(errs...)
 }
 
 // qualify prefixes an instrument name with the service name and records the

@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"context"
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/errors"
@@ -22,6 +23,7 @@ func TestRegisterGRPCServer(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue(i, &Config{Port: 0})
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
@@ -46,6 +48,7 @@ func TestRegisterGRPCServer(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue(i, &Config{Port: 0})
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
@@ -71,6 +74,7 @@ func TestRegisterGRPCServer(T *testing.T) {
 		errBuild := errors.New("building the registry")
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue(i, &Config{Port: 0})
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())

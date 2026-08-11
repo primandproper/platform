@@ -214,8 +214,8 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		handler := AppleAppSiteAssociationHandler(
 			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -239,8 +239,8 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		handler := AppleAppSiteAssociationHandler(
 			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
-			loggingnoop.NewLogger(),
-			tracingnoop.NewTracerProvider(),
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -264,8 +264,6 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 				BundleID: "com.example.ios",
 				Paths:    []string{"/invitations", "/invitations/*"},
 			},
-			nil,
-			nil,
 		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -295,8 +293,6 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 				BundleID:       "com.example.ios",
 				WebCredentials: true,
 			},
-			nil,
-			nil,
 		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -318,8 +314,6 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		handler := AppleAppSiteAssociationHandler(
 			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
-			nil,
-			nil,
 		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -342,8 +336,6 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 				Paths:          []string{"/invitations/*"},
 				WebCredentials: true,
 			},
-			nil,
-			nil,
 		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -364,8 +356,6 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		handler := AppleAppSiteAssociationHandler(
 			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
-			nil,
-			nil,
 		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -379,7 +369,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 	T.Run("returns 404 when disabled", func(t *testing.T) {
 		t.Parallel()
 
-		handler := AppleAppSiteAssociationHandler(&AppleAppSiteAssociationConfig{}, nil, nil)
+		handler := AppleAppSiteAssociationHandler(&AppleAppSiteAssociationConfig{})
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
@@ -394,8 +384,6 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		handler := AppleAppSiteAssociationHandler(
 			&AppleAppSiteAssociationConfig{TeamID: "too-short", BundleID: "com.example.ios"},
-			nil,
-			nil,
 		)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
@@ -409,7 +397,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 	T.Run("returns 404 when nil", func(t *testing.T) {
 		t.Parallel()
 
-		handler := AppleAppSiteAssociationHandler(nil, nil, nil)
+		handler := AppleAppSiteAssociationHandler(nil)
 
 		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()

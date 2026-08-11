@@ -9,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/sideshow/apns2"
 	"github.com/sideshow/apns2/payload"
 	"github.com/sideshow/apns2/token"
@@ -25,12 +26,38 @@ const (
 )
 
 // Config holds APNs configuration.
+//
+// It carries its own env tags and validation, rather than being filled in field
+// by field from a parallel struct in the config subpackage. The parallel one was
+// where the env tags and the validation lived, so this — the struct a caller
+// building a Sender by hand actually writes — was the one with neither, and a
+// field added here reached a deployment's environment only if somebody
+// remembered to add it in two places.
+//
+// AuthKeyPath is the .p8 signing key downloaded from Apple, KeyID identifies it,
+// TeamID is the Apple Developer team it belongs to, and BundleID is the app's
+// bundle identifier — which is also the APNs topic. Production selects Apple's
+// production gateway rather than the sandbox one.
 type Config struct {
-	AuthKeyPath string
-	KeyID       string
-	TeamID      string
-	BundleID    string
-	Production  bool
+	AuthKeyPath string `env:"AUTH_KEY_PATH" json:"authKeyPath,omitempty" yaml:"authKeyPath,omitempty"`
+	KeyID       string `env:"KEY_ID"        json:"keyID,omitempty"       yaml:"keyID,omitempty"`
+	TeamID      string `env:"TEAM_ID"       json:"teamID,omitempty"      yaml:"teamID,omitempty"`
+	BundleID    string `env:"BUNDLE_ID"     json:"bundleID,omitempty"    yaml:"bundleID,omitempty"`
+	Production  bool   `env:"PRODUCTION"    json:"production,omitempty"  yaml:"production,omitempty"`
+}
+
+var _ validation.ValidatableWithContext = (*Config)(nil)
+
+// ValidateWithContext validates a Config. APNs has no ambient-credential
+// equivalent of FCM's Application Default Credentials, so every one of these has
+// to be supplied.
+func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	return validation.ValidateStructWithContext(ctx, cfg,
+		validation.Field(&cfg.AuthKeyPath, validation.Required),
+		validation.Field(&cfg.KeyID, validation.Required),
+		validation.Field(&cfg.TeamID, validation.Required),
+		validation.Field(&cfg.BundleID, validation.Required),
+	)
 }
 
 // Sender sends push notifications to iOS devices via APNs.
@@ -43,9 +70,17 @@ type Sender struct {
 }
 
 // NewSender creates an APNs sender from config.
-func NewSender(cfg *Config, opts ...Option) (*Sender, error) {
-	if cfg == nil || cfg.AuthKeyPath == "" || cfg.KeyID == "" || cfg.TeamID == "" || cfg.BundleID == "" {
-		return nil, errors.New("apns: missing required config (authKeyPath, keyID, teamID, bundleID)")
+//
+// It takes a context so it can validate through the config's own rules rather
+// than repeating the required-field list here, which is the FCM sibling's
+// signature as well.
+func NewSender(ctx context.Context, cfg *Config, opts ...Option) (*Sender, error) {
+	if cfg == nil {
+		return nil, errors.Wrap(errors.ErrNilInputParameter, "apns: config is required")
+	}
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "apns: validating config")
 	}
 
 	o := newOptions(opts)

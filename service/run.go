@@ -8,8 +8,6 @@ import (
 	"syscall"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
-
-	"github.com/hashicorp/go-multierror"
 )
 
 // Run starts what New built, blocks until the process is asked to stop, and
@@ -123,9 +121,7 @@ func (s *Service) shutdown(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, s.shutdownTimeout)
 	defer cancel()
 
-	errs := &multierror.Error{}
-
-	errs = multierror.Append(errs, s.stopServers(ctx)...)
+	errs := s.stopServers(ctx)
 
 	for idx := len(s.runners) - 1; idx >= 0; idx-- {
 		runner := s.runners[idx]
@@ -133,7 +129,7 @@ func (s *Service) shutdown(ctx context.Context) error {
 		s.logger.WithValue("runner", runner.name).Debug("closing background loop")
 
 		if err := runner.v.Close(ctx); err != nil {
-			errs = multierror.Append(errs, s.report(err, "closing the %s", runner.name))
+			errs = append(errs, s.report(err, "closing the %s", runner.name))
 		}
 	}
 
@@ -141,7 +137,7 @@ func (s *Service) shutdown(ctx context.Context) error {
 		s.logger.WithValue("flush", flush.name).Debug("running final flush")
 
 		if err := flush.v(ctx); err != nil {
-			errs = multierror.Append(errs, s.report(err, "running the final %s pass", flush.name))
+			errs = append(errs, s.report(err, "running the final %s pass", flush.name))
 		}
 	}
 
@@ -151,7 +147,7 @@ func (s *Service) shutdown(ctx context.Context) error {
 		s.logger.WithValue("client", closer.name).Debug("releasing client")
 
 		if err := closer.v(ctx); err != nil {
-			errs = multierror.Append(errs, s.report(err, "releasing the %s", closer.name))
+			errs = append(errs, s.report(err, "releasing the %s", closer.name))
 		}
 	}
 
@@ -161,10 +157,10 @@ func (s *Service) shutdown(ctx context.Context) error {
 	// message this sequence produced, and shutting them down first would make
 	// the shutdown the one part of a process's life that is invisible.
 	if err := s.pillars.Shutdown(ctx); err != nil {
-		errs = multierror.Append(errs, platformerrors.Wrap(err, "shutting down the observability pillars"))
+		errs = append(errs, platformerrors.Wrap(err, "shutting down the observability pillars"))
 	}
 
-	return errs.ErrorOrNil()
+	return platformerrors.Join(errs...)
 }
 
 // stopServers drains ingress, all of it at once, and returns one error per

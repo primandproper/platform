@@ -116,7 +116,7 @@ func TestMultiPlatformPushSender_SendPush(T *testing.T) {
 			TeamID:      "TEAM123",
 			BundleID:    "com.example.app",
 		}
-		apnsSender, err := apns.NewSender(apnsCfg)
+		apnsSender, err := apns.NewSender(ctx, apnsCfg)
 		must.NoError(t, err)
 
 		sender := NewMultiPlatformPushSender(apnsSender, nil)

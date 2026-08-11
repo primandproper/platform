@@ -29,31 +29,18 @@ const (
 )
 
 type (
-	// APNsConfig configures APNs for iOS push notifications.
-	APNsConfig struct {
-		AuthKeyPath string `env:"AUTH_KEY_PATH" json:"authKeyPath,omitempty" yaml:"authKeyPath,omitempty"`
-		KeyID       string `env:"KEY_ID"        json:"keyID,omitempty"       yaml:"keyID,omitempty"`
-		TeamID      string `env:"TEAM_ID"       json:"teamID,omitempty"      yaml:"teamID,omitempty"`
-		BundleID    string `env:"BUNDLE_ID"     json:"bundleID,omitempty"    yaml:"bundleID,omitempty"`
-		Production  bool   `env:"PRODUCTION"    json:"production,omitempty"  yaml:"production,omitempty"`
-	}
-
-	// FCMConfig configures FCM for Android push notifications.
-	//
-	// An entirely empty FCMConfig is a valid one: it asks for Application Default
-	// Credentials, which is the normal way to run on GCP. Selecting FCM is what
-	// turns Android push on, not the presence of anything in here.
-	FCMConfig struct {
-		// CredentialsPath is the path to the Firebase service account JSON file.
-		// If empty, Application Default Credentials (ADC) are used.
-		CredentialsPath string `env:"CREDENTIALS_PATH" json:"credentialsPath,omitempty" yaml:"credentialsPath,omitempty"`
-	}
-
 	// Config is the push notifications configuration.
+	//
+	// The sub-configs are the leaf packages' own, not parallel copies of them.
+	// The copies existed so that the env tags and the validation could live here
+	// while the leaves stayed plain, and the cost was a hand-written field-by-field
+	// assignment between two structs that had to be kept in step: a field added
+	// to apns.Config was invisible to every deployment until somebody remembered
+	// to add it here too, and nothing said so.
 	Config struct {
-		APNs     *APNsConfig `env:",init"    envPrefix:"APNS_"         json:"apns,omitempty"     yaml:"apns,omitempty"`
-		FCM      *FCMConfig  `env:",init"    envPrefix:"FCM_"          json:"fcm,omitempty"      yaml:"fcm,omitempty"`
-		Provider string      `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
+		APNs     *apns.Config `env:",init"    envPrefix:"APNS_"         json:"apns,omitempty"     yaml:"apns,omitempty"`
+		FCM      *fcm.Config  `env:",init"    envPrefix:"FCM_"          json:"fcm,omitempty"      yaml:"fcm,omitempty"`
+		Provider string       `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 	}
 )
 
@@ -62,19 +49,6 @@ type (
 var providers = []string{ProviderAPNs, ProviderFCM, ProviderAPNsFCM, ProviderNoop}
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
-
-var _ validation.ValidatableWithContext = (*APNsConfig)(nil)
-
-// ValidateWithContext validates the APNsConfig. APNs has no ambient-credential
-// equivalent of FCM's ADC, so every one of these has to be supplied.
-func (cfg *APNsConfig) ValidateWithContext(ctx context.Context) error {
-	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.AuthKeyPath, validation.Required),
-		validation.Field(&cfg.KeyID, validation.Required),
-		validation.Field(&cfg.TeamID, validation.Required),
-		validation.Field(&cfg.BundleID, validation.Required),
-	)
-}
 
 // ValidateWithContext validates the Config.
 //
@@ -145,14 +119,7 @@ func (cfg *Config) NewPushSender(
 				return nil, errors.Newf("push notification provider %q selected with no APNs config", provider)
 			}
 
-			apnsCfg := &apns.Config{
-				AuthKeyPath: cfg.APNs.AuthKeyPath,
-				KeyID:       cfg.APNs.KeyID,
-				TeamID:      cfg.APNs.TeamID,
-				BundleID:    cfg.APNs.BundleID,
-				Production:  cfg.APNs.Production,
-			}
-			s, senderErr := apns.NewSender(apnsCfg, apns.WithTracerProvider(tracerProvider), apns.WithLogger(logger), apns.WithMetricsProvider(metricsProvider))
+			s, senderErr := apns.NewSender(ctx, cfg.APNs, apns.WithTracerProvider(tracerProvider), apns.WithLogger(logger), apns.WithMetricsProvider(metricsProvider))
 			if senderErr != nil {
 				return nil, errors.Wrap(senderErr, "initializing APNs sender")
 			}
@@ -163,9 +130,9 @@ func (cfg *Config) NewPushSender(
 		if provider == ProviderFCM || provider == ProviderAPNsFCM {
 			// A nil or empty FCM block asks for Application Default Credentials,
 			// so there is nothing to require here.
-			fcmCfg := &fcm.Config{}
-			if cfg.FCM != nil {
-				fcmCfg.CredentialsPath = cfg.FCM.CredentialsPath
+			fcmCfg := cfg.FCM
+			if fcmCfg == nil {
+				fcmCfg = &fcm.Config{}
 			}
 
 			s, senderErr := fcm.NewSender(ctx, fcmCfg, fcm.WithTracerProvider(tracerProvider), fcm.WithLogger(logger), fcm.WithMetricsProvider(metricsProvider))
