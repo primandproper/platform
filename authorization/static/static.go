@@ -36,8 +36,9 @@ type Resolver struct {
 // Option configures a Resolver.
 type Option func(*Resolver)
 
-// WithLogger attaches a logger, which the Resolver uses only to warn about a
-// policy that will deny everything.
+// WithLogger attaches a logger, which the Resolver uses once at construction to
+// report a policy that will deny everything, and never again — resolution
+// itself logs nothing.
 func WithLogger(logger logging.Logger) Option {
 	return func(r *Resolver) {
 		r.logger = logger
@@ -52,8 +53,8 @@ func WithLogger(logger logging.Logger) Option {
 //
 // Zero roles is valid and produces a resolver that denies everything. That is
 // deliberate: the zero-value configuration has to build, or the default
-// provider would not be usable without setup. It logs a warning, because a
-// service that denies every request is more likely to be a missing
+// provider would not be usable without setup. It says so at info level, because
+// a service that denies every request is more likely to be a missing
 // configuration than an intent.
 func NewResolver(roles []authorization.Role, opts ...Option) (*Resolver, error) {
 	expanded, err := authorization.ExpandInheritance(roles...)
@@ -160,11 +161,9 @@ func (r *Resolver) Roles(context.Context) ([]authorization.Role, error) {
 // memoKey builds a stable key for a set of role names. It sorts a copy so that
 // the same roles in a different order hit the same entry, and joins on NUL
 // because a role name cannot usefully contain one.
-// memoKey builds the cache key for a set of role names.
 //
-// NUL is the separator because it cannot appear in any sane role name — but
-// "cannot" has to be checked rather than assumed, since a name containing one
-// would let {"a\x00b"} and {"a", "b"} produce the same key, and a collision here
+// That "cannot" is checked rather than assumed: a name containing a NUL would
+// let {"a\x00b"} and {"a", "b"} produce the same key, and a collision here
 // grants one principal another's permissions.
 func memoKey(roles []string) (string, error) {
 	sorted := slices.Clone(roles)

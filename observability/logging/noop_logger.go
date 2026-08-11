@@ -20,15 +20,6 @@ func (l *noopLogger) Debug(string) {}
 // Error satisfies our interface.
 func (l *noopLogger) Error(string, error) {}
 
-// Fatal satisfies our interface.
-func (l *noopLogger) Fatal(error) {}
-
-// Printf satisfies our interface.
-func (l *noopLogger) Printf(string, ...any) {}
-
-// SetLevel satisfies our interface.
-func (l *noopLogger) SetLevel(_ Level) {}
-
 // SetRequestIDFunc satisfies our interface.
 func (l *noopLogger) SetRequestIDFunc(RequestIDFunc) {}
 

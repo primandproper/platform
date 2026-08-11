@@ -132,9 +132,16 @@ codes.PermissionDenied. A handler that returns it — wrapped or bare — gets t
 right status with no status construction of its own.
 
 The message a client sees is the constant "permission denied". Which permission
-was missing goes to the span and the log and stops there; naming it in the
-response discloses the permission taxonomy to a caller who just failed to
-authorize.
+was missing goes to the span and stops there; naming it in the response
+discloses the permission taxonomy to a caller who just failed to authorize.
+
+An ordinary denial is not logged. It increments a denials counter and marks the
+ambient span, and that is all: a caller lacking a permission is the enforcement
+layer working, and the volume worth watching is a counter rather than a line
+per request. The enforcers reserve their logger for the denials that mean
+something is misconfigured — an undeclared gRPC method, a route registered with
+an empty permission list, a request that reached enforcement with no grants at
+all — because each of those is a bug in the wiring rather than in the caller.
 
 # What is not here
 
