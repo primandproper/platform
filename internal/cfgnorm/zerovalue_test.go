@@ -122,7 +122,10 @@ func TestZeroValueConfigIsDecisive(T *testing.T) {
 		{name: "llm", cfg: &llmcfg.Config{}, needs: "provider"},
 		{name: "messagequeue", cfg: &messagequeuecfg.Config{}, needs: "provider"},
 		{name: "metering", cfg: &meteringcfg.Config{}, why: "metering counts in memory until a store is named"},
-		{name: "notifications/async", cfg: &asyncnotifcfg.Config{}, why: "async notifications are optional, and an unset provider is the noop notifier"},
+		// Unlike the other optional seams below, an unset provider is not the
+		// opt-out here: notifying nobody for the life of a process has to be
+		// asked for by name.
+		{name: "notifications/async", cfg: &asyncnotifcfg.Config{}, needs: "provider"},
 		{name: "notifications/mobile", cfg: &mobilecfg.Config{}, needs: "provider"},
 		{name: "observability", cfg: &observability.Config{}, why: "every pillar's unset provider is its documented opt-out"},
 		{name: "observability/logging", cfg: &loggingcfg.Config{}, why: "an unset provider logs nowhere, which is the opt-out"},

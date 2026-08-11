@@ -25,12 +25,13 @@ import (
 	"gocloud.dev/gcp"
 )
 
-var (
-	// ErrNilConfig denotes that the provided configuration is nil.
-	ErrNilConfig = platformerrors.New("nil config provided")
-	// ErrUnknownProvider denotes that the configured provider is not recognized.
-	ErrUnknownProvider = platformerrors.New("unknown storage provider")
-)
+// ErrNilConfig denotes that the provided configuration is nil.
+//
+// An unrecognized provider is reported as errors.ErrUnknownProvider rather than
+// a sentinel of this package's own: startup code branches on one thing for
+// "the config named a provider nothing implements", whichever package it
+// reached.
+var ErrNilConfig = platformerrors.New("nil config provided")
 
 type (
 	// Uploader implements the uploads.UploadManager interface.
@@ -245,7 +246,7 @@ func (u *Uploader) selectBucket(ctx context.Context, cfg *Config) (err error) {
 			return platformerrors.Wrap(err, "initializing filesystem bucket")
 		}
 	default:
-		return platformerrors.Wrapf(ErrUnknownProvider, "%q", cfg.Provider)
+		return platformerrors.Wrapf(platformerrors.ErrUnknownProvider, "storage provider %q", cfg.Provider)
 	}
 
 	if cfg.BucketPrefix != "" {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
@@ -248,7 +249,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		source, err := cfg.NewSecretSource(context.Background())
 		must.Error(t, err)
 		test.Nil(t, source)
-		test.StrContains(t, err.Error(), "unknown")
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 
 	T.Run("gcp provider with nil gcp config returns error", func(t *testing.T) {

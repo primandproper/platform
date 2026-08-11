@@ -3,6 +3,8 @@ package eventstreamcfg
 import (
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -93,7 +95,7 @@ func TestNewEventStreamUpgrader(T *testing.T) {
 
 		_, err := NewEventStreamUpgrader(t.Context(), &Config{}, nil)
 
-		test.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 }
 
@@ -135,6 +137,6 @@ func TestNewBidirectionalEventStreamUpgrader(T *testing.T) {
 
 		_, err := NewBidirectionalEventStreamUpgrader(t.Context(), &Config{}, nil)
 
-		test.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 }

@@ -81,7 +81,11 @@ func RegisterEnforcer(i do.Injector) {
 			return nil, err
 		}
 
-		return NewEnforcer(
+		// Built into a variable and returned only once err is known to be nil:
+		// NewEnforcer returns a *metering.QuotaEnforcer, and returning it
+		// straight through would register a non-nil metering.Enforcer wrapping a
+		// nil pointer whenever construction failed.
+		enforcer, err := NewEnforcer(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			do.MustInvoke[metering.Store](i),
@@ -91,6 +95,11 @@ func RegisterEnforcer(i do.Injector) {
 			totals,
 			WithPillars(pillars),
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		return enforcer, nil
 	})
 }
 

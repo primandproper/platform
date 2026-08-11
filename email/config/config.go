@@ -130,22 +130,38 @@ func (cfg *Config) NewEmailer(ctx context.Context, client *http.Client, circuitB
 		return nil, errors.Wrap(err, "validating email config")
 	}
 
+	// Every branch builds into a variable and returns only once its error is
+	// known to be nil. The provider packages return their own *Emailer, and
+	// returning one straight through would convert a nil pointer into a non-nil
+	// email.Emailer on the error path — a value that passes a caller's nil check
+	// and panics on the first send.
+	var (
+		emailer email.Emailer
+		err     error
+	)
+
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case ProviderSendgrid:
-		return sendgrid.NewSendGridEmailer(cfg.Sendgrid, client, circuitBreaker, sendgrid.WithLogger(logger), sendgrid.WithTracerProvider(tracerProvider), sendgrid.WithMetricsProvider(metricsProvider))
+		emailer, err = sendgrid.NewSendGridEmailer(cfg.Sendgrid, client, circuitBreaker, sendgrid.WithLogger(logger), sendgrid.WithTracerProvider(tracerProvider), sendgrid.WithMetricsProvider(metricsProvider))
 	case ProviderMailgun:
-		return mailgun.NewMailgunEmailer(cfg.Mailgun, client, circuitBreaker, mailgun.WithLogger(logger), mailgun.WithTracerProvider(tracerProvider), mailgun.WithMetricsProvider(metricsProvider))
+		emailer, err = mailgun.NewMailgunEmailer(cfg.Mailgun, client, circuitBreaker, mailgun.WithLogger(logger), mailgun.WithTracerProvider(tracerProvider), mailgun.WithMetricsProvider(metricsProvider))
 	case ProviderMailjet:
-		return mailjet.NewMailjetEmailer(cfg.Mailjet, client, circuitBreaker, mailjet.WithLogger(logger), mailjet.WithTracerProvider(tracerProvider), mailjet.WithMetricsProvider(metricsProvider))
+		emailer, err = mailjet.NewMailjetEmailer(cfg.Mailjet, client, circuitBreaker, mailjet.WithLogger(logger), mailjet.WithTracerProvider(tracerProvider), mailjet.WithMetricsProvider(metricsProvider))
 	case ProviderResend:
-		return resend.NewResendEmailer(cfg.Resend, client, circuitBreaker, resend.WithLogger(logger), resend.WithTracerProvider(tracerProvider), resend.WithMetricsProvider(metricsProvider))
+		emailer, err = resend.NewResendEmailer(cfg.Resend, client, circuitBreaker, resend.WithLogger(logger), resend.WithTracerProvider(tracerProvider), resend.WithMetricsProvider(metricsProvider))
 	case ProviderPostmark:
-		return postmark.NewPostmarkEmailer(cfg.Postmark, client, circuitBreaker, postmark.WithLogger(logger), postmark.WithTracerProvider(tracerProvider), postmark.WithMetricsProvider(metricsProvider))
+		emailer, err = postmark.NewPostmarkEmailer(cfg.Postmark, client, circuitBreaker, postmark.WithLogger(logger), postmark.WithTracerProvider(tracerProvider), postmark.WithMetricsProvider(metricsProvider))
 	case ProviderSES:
-		return ses.NewSESEmailer(ctx, cfg.SES, client, circuitBreaker, nil, ses.WithLogger(logger), ses.WithTracerProvider(tracerProvider), ses.WithMetricsProvider(metricsProvider))
+		emailer, err = ses.NewSESEmailer(ctx, cfg.SES, client, circuitBreaker, nil, ses.WithLogger(logger), ses.WithTracerProvider(tracerProvider), ses.WithMetricsProvider(metricsProvider))
 	case ProviderNoop:
-		return noop.NewEmailer()
+		emailer, err = noop.NewEmailer()
 	default:
 		return nil, errors.Wrapf(errors.ErrUnknownProvider, "email provider %q", cfg.Provider)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return emailer, nil
 }
