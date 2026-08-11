@@ -102,7 +102,8 @@ type Cache[T any] struct {
 // Flush and an empty-prefix DeleteByPrefix return cache.ErrNamespaceRequired
 // rather than guess at ownership in a possibly shared database.
 //
-// Values are stored through cache.NewCBORCodec unless WithCodec says otherwise.
+// Values are stored through cache.NewDefaultCodec unless WithCodec says
+// otherwise.
 // Entries carry no record of the codec that wrote them, so pointing a cache
 // with one codec at a store warmed by another produces decode errors until the
 // old entries expire; give the new codec its own cfg.Namespace when switching.
@@ -119,7 +120,7 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreak
 	}
 
 	impl := &Cache[T]{
-		codec:           cache.NewCBORCodec[T](),
+		codec:           cache.NewDefaultCodec[T](),
 		circuitBreaker:  circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		namespace:       cfg.Namespace,
 		expiration:      expiration,

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/cache"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -225,9 +227,46 @@ func TestPermissionSet_Encoding(T *testing.T) {
 		test.True(t, original.Equal(&decoded))
 	})
 
-	// gob matters specifically because cache.Cache's default codec is gob, and
-	// PermissionSet's only field is unexported — without GobEncode the cache
-	// would silently round-trip an empty set.
+	// The codec under test is deliberately the cache's default rather than a
+	// named one. PermissionSet's only field is unexported, so it can only be
+	// encoded by a codec that honors its MarshalBinary — and the last time the
+	// default moved, the type was left teaching gob and saying nothing to what
+	// replaced it. Naming the default here means the next move fails a test.
+	T.Run("round-trips through the cache's default codec", func(t *testing.T) {
+		t.Parallel()
+
+		codec := cache.NewDefaultCodec[PermissionSet]()
+		original := NewPermissionSet(permRead, permWrite, permDelete)
+
+		encoded, err := codec.Encode(original)
+		must.NoError(t, err)
+
+		decoded, err := codec.Decode(encoded)
+		must.NoError(t, err)
+
+		must.NotNil(t, decoded)
+		test.EqOp(t, 3, decoded.Len())
+		test.True(t, original.Equal(decoded))
+	})
+
+	T.Run("an empty set round-trips through the cache's default codec", func(t *testing.T) {
+		t.Parallel()
+
+		codec := cache.NewDefaultCodec[PermissionSet]()
+
+		encoded, err := codec.Encode(NewPermissionSet())
+		must.NoError(t, err)
+
+		decoded, err := codec.Decode(encoded)
+		must.NoError(t, err)
+
+		must.NotNil(t, decoded)
+		test.True(t, decoded.IsEmpty())
+	})
+
+	// gob is no longer the default, but it is still the opt-in codec for values
+	// CBOR cannot carry, and a PermissionSet nested in such a value takes this
+	// path. It reaches MarshalBinary through gob's own fallback chain.
 	T.Run("gob round-trips through an unexported field", func(t *testing.T) {
 		t.Parallel()
 
@@ -244,13 +283,13 @@ func TestPermissionSet_Encoding(T *testing.T) {
 		test.True(t, original.Equal(decoded))
 	})
 
-	T.Run("gob output is deterministic", func(t *testing.T) {
+	T.Run("binary output is deterministic", func(t *testing.T) {
 		t.Parallel()
 
-		first, err := NewPermissionSet(permWrite, permRead).GobEncode()
+		first, err := NewPermissionSet(permWrite, permRead).MarshalBinary()
 		must.NoError(t, err)
 
-		second, err := NewPermissionSet(permRead, permWrite).GobEncode()
+		second, err := NewPermissionSet(permRead, permWrite).MarshalBinary()
 		must.NoError(t, err)
 
 		test.Eq(t, first, second)
@@ -262,6 +301,6 @@ func TestPermissionSet_Encoding(T *testing.T) {
 		var s PermissionSet
 
 		test.Error(t, s.UnmarshalJSON([]byte(`{"not":"an array"}`)))
-		test.Error(t, s.GobDecode([]byte(`not json`)))
+		test.Error(t, s.UnmarshalBinary([]byte(`not json`)))
 	})
 }

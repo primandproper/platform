@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,6 +62,47 @@ func newMemoryCache(t *testing.T) cache.Cache[authorization.PermissionSet] {
 	must.NoError(t, err)
 
 	return c
+}
+
+// newEncodingCache returns a cache that stores the encoded form of a value
+// rather than the value itself, through the codec a serializing provider would
+// use by default.
+//
+// The memory cache cannot stand in for this. It hands back the same pointer it
+// was given, so a PermissionSet that no codec can encode round-trips through it
+// perfectly — which is how a redis deployment came to deny every permission for
+// a TTL while every test in this package passed.
+func newEncodingCache() *cachemock.CacheMock[authorization.PermissionSet] {
+	codec := cache.NewDefaultCodec[authorization.PermissionSet]()
+
+	var mu sync.Mutex
+	entries := map[string][]byte{}
+
+	return &cachemock.CacheMock[authorization.PermissionSet]{
+		SetFunc: func(_ context.Context, key string, value *authorization.PermissionSet, _ ...cache.WriteOption) error {
+			encoded, err := codec.Encode(value)
+			if err != nil {
+				return err
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			entries[key] = encoded
+
+			return nil
+		},
+		GetFunc: func(_ context.Context, key string) (*authorization.PermissionSet, error) {
+			mu.Lock()
+			encoded, ok := entries[key]
+			mu.Unlock()
+
+			if !ok {
+				return nil, cache.ErrNotFound
+			}
+
+			return codec.Decode(encoded)
+		},
+	}
 }
 
 func newTestResolver(t *testing.T, inner authorization.PolicyResolver) *Resolver {
@@ -190,8 +232,6 @@ func TestResolver_Caching(T *testing.T) {
 		test.EqOp(t, int64(0), inner.calls.Load())
 	})
 
-	// A PermissionSet's only field is unexported, so this also proves
-	// GobEncode/GobDecode are doing their job through the cache's default codec.
 	T.Run("cached sets survive the round trip intact", func(t *testing.T) {
 		t.Parallel()
 
@@ -206,6 +246,35 @@ func TestResolver_Caching(T *testing.T) {
 
 		test.EqOp(t, 2, second.Len())
 		test.True(t, first.Equal(second))
+	})
+
+	// The same assertion against a cache that actually encodes. This is the one
+	// that matters: a PermissionSet's only field is unexported, so a cache that
+	// stores bytes serves back whatever the codec could see of it. When that was
+	// nothing, the hit path below returned an empty set — a silent denial of
+	// every permission, indistinguishable from a working cache — which is
+	// exactly what the memory-backed sibling above cannot detect.
+	T.Run("cached sets survive a serializing cache intact", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &countingResolver{set: authorization.NewPermissionSet(permRead, permWrite)}
+		r, err := NewResolver(inner, newEncodingCache(), WithLogger(loggingnoop.NewLogger()))
+		must.NoError(t, err)
+
+		miss, err := r.PermissionsForRoles(t.Context(), "admin")
+		must.NoError(t, err)
+
+		hit, err := r.PermissionsForRoles(t.Context(), "admin")
+		must.NoError(t, err)
+
+		// Resolved once: the second call is a hit, so it is the decoded set
+		// being asserted on rather than the inner resolver's own pointer.
+		test.EqOp(t, int64(1), inner.calls.Load())
+
+		test.EqOp(t, 2, hit.Len())
+		test.True(t, hit.Has(permRead))
+		test.True(t, hit.Has(permWrite))
+		test.True(t, miss.Equal(hit))
 	})
 
 	T.Run("propagates an inner resolution error", func(t *testing.T) {
