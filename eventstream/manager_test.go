@@ -350,14 +350,14 @@ func TestStreamManager_SendToMember(T *testing.T) {
 		})
 	})
 
-	T.Run("nonexistent member returns nil", func(t *testing.T) {
+	T.Run("nonexistent member reports that there was nobody there", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		m, obs := newRecordingManager(t)
 
 		err := m.SendToMember(ctx, "g1", "m1", &Event{Type: "x"})
-		test.NoError(t, err)
+		test.ErrorIs(t, err, ErrNoSuchMember)
 
 		obs.ObservedOperationWithData(t, map[string]any{
 			"group_id":   "g1",
@@ -366,14 +366,14 @@ func TestStreamManager_SendToMember(T *testing.T) {
 		})
 	})
 
-	T.Run("nonexistent group returns nil", func(t *testing.T) {
+	T.Run("nonexistent group reports that there was nobody there", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		m, obs := newRecordingManager(t)
 
 		err := m.SendToMember(ctx, "g999", "m1", &Event{Type: "x"})
-		test.NoError(t, err)
+		test.ErrorIs(t, err, ErrNoSuchMember)
 
 		obs.ObservedOperationWithData(t, map[string]any{
 			"group_id":   "g999",

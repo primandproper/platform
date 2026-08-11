@@ -108,12 +108,37 @@ func (cb *breakerCallback) Success(posthog.APIMessage) {
 	}
 }
 
-func (cb *breakerCallback) Failure(_ posthog.APIMessage, err error) {
+// messageIdentity describes a message well enough to say which one was lost,
+// without emitting its properties — those are the caller's data, and a delivery
+// failure is not a reason to copy them into this service's logs.
+func messageIdentity(msg posthog.APIMessage) map[string]any {
+	values := map[string]any{"message.kind": fmt.Sprintf("%T", msg)}
+
+	switch m := msg.(type) {
+	case posthog.Capture:
+		values["message.event"] = m.Event
+		values["message.uuid"] = m.Uuid
+	case posthog.Identify:
+		values["message.uuid"] = m.Uuid
+	case posthog.Alias:
+		values["message.uuid"] = m.Uuid
+	}
+
+	return values
+}
+
+// Failure records a delivery the background flush could not complete.
+//
+// The message is named rather than discarded. This is the only notification a
+// caller ever gets that an event did not arrive — Enqueue returned successfully
+// long ago — so a log line saying that something failed, without saying what,
+// left no way to tell which events are missing from the destination.
+func (cb *breakerCallback) Failure(msg posthog.APIMessage, err error) {
 	cb.errorCounter.Add(context.Background(), 1)
 	if cb.circuitBreaker != nil {
 		cb.circuitBreaker.Failed()
 	}
-	cb.logger.Error("posthog event delivery failed", err)
+	cb.logger.WithValues(messageIdentity(msg)).Error("posthog event delivery failed", err)
 }
 
 // Close wraps the internal client's Close method.

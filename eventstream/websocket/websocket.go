@@ -278,6 +278,12 @@ func (s *bidirectionalWSStream) readLoop() {
 
 		var event eventstream.Event
 		if err = json.Unmarshal(msg, &event); err != nil {
+			// Logged rather than dropped in silence. A client sending malformed
+			// frames otherwise looks, from the server, exactly like a client
+			// sending nothing at all — and the frames are discarded either way, so
+			// this line is the only evidence that any arrived.
+			s.o11y.Logger().Error("discarding malformed inbound websocket event", err)
+
 			continue
 		}
 

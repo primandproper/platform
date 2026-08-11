@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/shoenig/test"
@@ -50,6 +52,18 @@ func (m *mockKafkaReader) Close() error {
 	return m.closeFunc()
 }
 
+// testConsumerInstruments builds the consumer instrument set against the noop
+// metrics provider, which is what these tests care about: the consume loop's
+// control flow, not the numbers it records.
+func testConsumerInstruments(t *testing.T) *mqmetrics.Consumer {
+	t.Helper()
+
+	instruments, err := mqmetrics.NewConsumer(metricsnoop.NewMetricsProvider(), t.Name())
+	must.NoError(t, err)
+
+	return instruments
+}
+
 func Test_kafkaConsumer_Consume(T *testing.T) {
 	T.Parallel()
 
@@ -65,9 +79,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		}
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: nil,
+			reader:      reader,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				return nil
 			},
@@ -97,10 +111,10 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		}
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: nil,
-			handlerFunc:     func(context.Context, []byte) error { return nil },
+			reader:      reader,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: testConsumerInstruments(t),
+			handlerFunc: func(context.Context, []byte) error { return nil },
 		}
 
 		done := make(chan struct{})
@@ -132,9 +146,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		}
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: nil,
+			reader:      reader,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				return nil
 			},
@@ -161,9 +175,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		}
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: nil,
+			reader:      reader,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				return nil
 			},
@@ -194,9 +208,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		}
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: nil,
+			reader:      reader,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				return nil
 			},
@@ -231,9 +245,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		}
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: nil,
+			reader:      reader,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				return nil
 			},
@@ -273,9 +287,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		handlerCalled := false
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            obs,
-			consumedCounter: metricstest.Int64Counter(t, t.Name()),
+			reader:      reader,
+			o11y:        obs,
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(_ context.Context, data []byte) error {
 				handlerCalled = true
 				test.Eq(t, []byte("test-message"), data)
@@ -326,9 +340,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: observedTopic})
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            obs,
-			consumedCounter: metricstest.Int64Counter(t, t.Name()),
+			reader:      reader,
+			o11y:        obs,
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return handlerErr
@@ -374,9 +388,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		}
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: metricstest.Int64Counter(t, t.Name()),
+			reader:      reader,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return errors.New("handler failed")
@@ -418,9 +432,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 
 		var handlerCalls int
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            observability.NewObserverForTest(t.Name()),
-			consumedCounter: metricstest.Int64Counter(t, t.Name()),
+			reader:      reader,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				handlerCalls++
 				return handlerErr
@@ -467,9 +481,9 @@ func Test_kafkaConsumer_Consume(T *testing.T) {
 		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: observedTopic})
 
 		c := &kafkaConsumer{
-			reader:          reader,
-			o11y:            obs,
-			consumedCounter: metricstest.Int64Counter(t, t.Name()),
+			reader:      reader,
+			o11y:        obs,
+			instruments: testConsumerInstruments(t),
 			handlerFunc: func(context.Context, []byte) error {
 				cancel()
 				return nil

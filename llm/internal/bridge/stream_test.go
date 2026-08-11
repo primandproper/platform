@@ -83,7 +83,7 @@ func newStream(t *testing.T, chunks []anyllm.ChatCompletionChunk, upstreamErr er
 
 	count := 0
 	chunkCh, errCh := upstream(t, chunks, upstreamErr)
-	out := Stream(chunkCh, errCh, func(error) { count++ })
+	out := Stream(chunkCh, errCh, func(error, *llm.Usage) { count++ })
 
 	t.Cleanup(func() {
 		must.NoError(t, out.Close())
@@ -477,7 +477,7 @@ func TestStream_Close(T *testing.T) {
 			textChunk("three"),
 			finishChunk(anyllm.FinishReasonStop, nil),
 		}, nil)
-		stream := Stream(chunkCh, errCh, func(error) { finishes++ })
+		stream := Stream(chunkCh, errCh, func(error, *llm.Usage) { finishes++ })
 
 		must.True(t, stream.Next())
 		test.EqOp(t, "one", stream.Current().Text)
@@ -514,7 +514,7 @@ func TestStream_Close(T *testing.T) {
 			}
 		}()
 
-		stream := Stream(chunkCh, errCh, func(error) {})
+		stream := Stream(chunkCh, errCh, func(error, *llm.Usage) {})
 
 		must.True(t, stream.Next())
 		must.NoError(t, stream.Close())
@@ -537,7 +537,7 @@ func TestStream_Close(T *testing.T) {
 				FinishReason: anyllm.FinishReasonStop,
 			}},
 		}}, nil)
-		stream := Stream(chunkCh, errCh, func(error) {})
+		stream := Stream(chunkCh, errCh, func(error, *llm.Usage) {})
 
 		must.True(t, stream.Next())
 		test.EqOp(t, llm.EventThinkingDelta, stream.Current().Type)
@@ -553,7 +553,7 @@ func TestStream_Close(T *testing.T) {
 		chunkCh, errCh := upstream(t, []anyllm.ChatCompletionChunk{
 			finishChunk(anyllm.FinishReasonStop, nil),
 		}, nil)
-		stream := Stream(chunkCh, errCh, func(error) { finishes++ })
+		stream := Stream(chunkCh, errCh, func(error, *llm.Usage) { finishes++ })
 
 		test.SliceLen(t, 1, collect(t, stream))
 		test.EqOp(t, 1, finishes)
@@ -569,7 +569,7 @@ func TestStream_Close(T *testing.T) {
 		finishes := 0
 
 		chunkCh, errCh := upstream(t, nil, anyllmerrors.NewAuthenticationError("openai", errors.New("bad key")))
-		stream := Stream(chunkCh, errCh, func(err error) {
+		stream := Stream(chunkCh, errCh, func(err error, _ *llm.Usage) {
 			finishes++
 			finishErr = err
 		})

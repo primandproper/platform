@@ -11,7 +11,6 @@ import (
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
 	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	"github.com/primandproper/platform-go/v10/uploads"
 
@@ -30,22 +29,14 @@ import (
 func newBucketUploader(t *testing.T, bucket *blob.Bucket) *Uploader {
 	t.Helper()
 
-	mp := metrics.EnsureMetricsProvider(metricsnoop.NewMetricsProvider())
-
-	saveCounter, err := mp.NewInt64Counter("test_saves")
-	must.NoError(t, err)
-	saveErrCounter, err := mp.NewInt64Counter("test_save_errors")
-	must.NoError(t, err)
-	latencyHist, err := mp.NewFloat64Histogram("test_latency_ms")
+	instruments, err := newInstruments(metricsnoop.NewMetricsProvider(), t.Name())
 	must.NoError(t, err)
 
 	return &Uploader{
 		bucket:         bucket,
 		o11y:           observability.NewRecordingObserver(),
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cbnoop.NewCircuitBreaker()),
-		saveCounter:    saveCounter,
-		saveErrCounter: saveErrCounter,
-		latencyHist:    latencyHist,
+		instruments:    instruments,
 	}
 }
 

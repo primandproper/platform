@@ -56,12 +56,40 @@ func (cb *breakerCallback) Success(segment.Message) {
 	}
 }
 
-func (cb *breakerCallback) Failure(_ segment.Message, err error) {
+// messageIdentity describes a message well enough to say which one was lost,
+// without emitting its properties or traits — those are the caller's data, and a
+// delivery failure is not a reason to copy them into this service's logs.
+func messageIdentity(msg segment.Message) map[string]any {
+	values := map[string]any{"message.kind": fmt.Sprintf("%T", msg)}
+
+	switch m := msg.(type) {
+	case segment.Track:
+		values["message.event"] = m.Event
+		values["message.id"] = m.MessageId
+	case segment.Identify:
+		values["message.id"] = m.MessageId
+	case segment.Page:
+		values["message.event"] = m.Name
+		values["message.id"] = m.MessageId
+	case segment.Group:
+		values["message.id"] = m.MessageId
+	}
+
+	return values
+}
+
+// Failure records a delivery the background flush could not complete.
+//
+// The message is named rather than discarded. This is the only notification a
+// caller ever gets that an event did not arrive — Enqueue returned successfully
+// long ago — so a log line saying that something failed, without saying what,
+// left no way to tell which events are missing from the destination.
+func (cb *breakerCallback) Failure(msg segment.Message, err error) {
 	cb.errorCounter.Add(context.Background(), 1)
 	if cb.circuitBreaker != nil {
 		cb.circuitBreaker.Failed()
 	}
-	cb.logger.Error("segment event delivery failed", err)
+	cb.logger.WithValues(messageIdentity(msg)).Error("segment event delivery failed", err)
 }
 
 // NewEventReporter returns a new Segment-backed EventReporter.

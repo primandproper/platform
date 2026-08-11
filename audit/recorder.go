@@ -53,8 +53,9 @@ type recorder struct {
 
 	redactions map[string]Redaction
 
-	recordedCounter metrics.Int64Counter
-	recordLatency   metrics.Float64Histogram
+	recordedCounter  metrics.Int64Counter
+	recordErrCounter metrics.Int64Counter
+	recordLatency    metrics.Float64Histogram
 
 	// What the options wrote, kept only until the observer is built from it.
 	// Read r.o11y.Logger() for the logger this recorder actually uses; this one
@@ -96,6 +97,9 @@ func NewRecorder(d dialect.Dialect, opts ...RecorderOption) (Recorder, error) {
 	if r.recordedCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_entries_recorded", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating entries recorded counter")
 	}
+	if r.recordErrCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_record_errors", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating record error counter")
+	}
 	if r.recordLatency, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_record_latency_ms", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating record latency histogram")
 	}
@@ -109,6 +113,8 @@ func (r *recorder) Record(ctx context.Context, q database.SQLQueryExecutor, entr
 	defer op.End()
 
 	if q == nil {
+		r.recordErrCounter.Add(ctx, 1)
+
 		return op.Error(ErrNilExecutor, "recording audit entries")
 	}
 
@@ -128,6 +134,8 @@ func (r *recorder) Record(ctx context.Context, q database.SQLQueryExecutor, entr
 	// advanced past them.
 	for _, entry := range entries {
 		if err := entry.validate(); err != nil {
+			r.recordErrCounter.Add(ctx, 1)
+
 			return op.Error(err, "validating audit entries")
 		}
 	}
@@ -142,6 +150,8 @@ func (r *recorder) Record(ctx context.Context, q database.SQLQueryExecutor, entr
 
 	for _, scope := range scopes {
 		if err := r.recordScope(ctx, q, scope, byScope[scope], now); err != nil {
+			r.recordErrCounter.Add(ctx, 1)
+
 			return op.Error(err, "recording audit entries for scope %q", scope)
 		}
 	}
@@ -149,6 +159,12 @@ func (r *recorder) Record(ctx context.Context, q database.SQLQueryExecutor, entr
 	// Counted after the statements succeed, but the caller's transaction can
 	// still roll back afterwards — so this counts intent to record, not
 	// committed rows. That gap is the caller's rollback rate.
+	//
+	// The errors counter beside it is what makes this number readable. Without
+	// one, a failing recorder showed up only as entries_recorded not climbing,
+	// which is indistinguishable from a service with nothing to audit — and audit
+	// is precisely the subsystem where "nothing happened" must not be the same
+	// signal as "nothing was written".
 	r.recordedCounter.Add(ctx, int64(len(entries)))
 
 	return nil

@@ -71,6 +71,11 @@ func NewProvider(cfg *Config, opts ...Option) (*Provider, error) {
 		return nil, errors.Wrap(err, "creating error counter")
 	}
 
+	tokenCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_tokens", name))
+	if err != nil {
+		return nil, errors.Wrap(err, "creating token counter")
+	}
+
 	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", name))
 	if err != nil {
 		return nil, errors.Wrap(err, "creating latency histogram")
@@ -80,6 +85,7 @@ func NewProvider(cfg *Config, opts ...Option) (*Provider, error) {
 		o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
 		requestCounter: requestCounter,
 		errorCounter:   errorCounter,
+		tokenCounter:   tokenCounter,
 		latencyHist:    latencyHist,
 		provider:       provider,
 		defaultModel:   cfg.DefaultModel,
@@ -93,6 +99,7 @@ type Provider struct {
 	o11y           observability.Observer
 	requestCounter metrics.Int64Counter
 	errorCounter   metrics.Int64Counter
+	tokenCounter   metrics.Int64Counter
 	latencyHist    metrics.Float64Histogram
 	// provider is the interface rather than the concrete Anthropic provider, so
 	// that the observability and translation seams around it can be exercised
@@ -130,6 +137,13 @@ func (p *Provider) Completion(ctx context.Context, req *llm.CompletionRequest) (
 	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
+	// Counted here, before anything can fail, so _requests means the same thing
+	// in Completion as it does in Stream. It used to be incremented only after a
+	// successful call here and before the call in Stream, so one counter name
+	// meant "successes" on one method and "attempts" on the other — and
+	// _requests minus _errors was a number with no interpretation at all.
+	p.requestCounter.Add(ctx, 1)
+
 	startTime := time.Now()
 	defer func() {
 		p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
@@ -149,12 +163,8 @@ func (p *Provider) Completion(ctx context.Context, req *llm.CompletionRequest) (
 		return nil, op.Error(bridge.NormalizeError(err), "completing request")
 	}
 
-	p.requestCounter.Add(ctx, 1)
-
 	out := bridge.Response(resp)
-	if out.Usage != nil {
-		op.Set("llm.tokens.total", out.Usage.TotalTokens)
-	}
+	p.recordUsage(ctx, op, out.Usage)
 	op.Set("llm.stop_reason", string(out.StopReason))
 
 	return out, nil
@@ -184,9 +194,10 @@ func (p *Provider) Stream(ctx context.Context, req *llm.CompletionRequest) (llm.
 	streamCtx, cancel := context.WithCancel(ctx)
 	chunks, errs := p.provider.CompletionStream(streamCtx, params)
 
-	return bridge.Stream(chunks, errs, func(streamErr error) {
+	return bridge.Stream(chunks, errs, func(streamErr error, streamUsage *llm.Usage) {
 		cancel()
 		p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+		p.recordUsage(ctx, op, streamUsage)
 
 		if streamErr != nil {
 			p.errorCounter.Add(ctx, 1)
@@ -195,6 +206,23 @@ func (p *Provider) Stream(ctx context.Context, req *llm.CompletionRequest) (llm.
 
 		op.End()
 	}), nil
+}
+
+// recordUsage puts a request's token accounting on the span and the token
+// counter.
+//
+// Streaming reached neither until now. The usage is only known from the final
+// chunk, so it was not available when Stream returned, and nothing carried it
+// back afterwards — which meant a service doing all its work through Stream had
+// no token numbers at all, despite this provider asking the API for them
+// specifically.
+func (p *Provider) recordUsage(ctx context.Context, op observability.Operation, u *llm.Usage) {
+	if u == nil {
+		return
+	}
+
+	op.Set("llm.tokens.total", u.TotalTokens)
+	p.tokenCounter.Add(ctx, int64(u.TotalTokens))
 }
 
 // params resolves the model and translates the request, recording what was

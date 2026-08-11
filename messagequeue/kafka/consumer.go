@@ -9,11 +9,13 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/panicking"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -26,10 +28,10 @@ type (
 	}
 
 	kafkaConsumer struct {
-		o11y            observability.Observer
-		consumedCounter metrics.Int64Counter
-		handlerFunc     func(context.Context, []byte) error
-		reader          kafkaReader
+		o11y        observability.Observer
+		instruments *mqmetrics.Consumer
+		handlerFunc func(context.Context, []byte) error
+		reader      kafkaReader
 	}
 )
 
@@ -40,11 +42,9 @@ var _ messagequeue.Consumer = (*kafkaConsumer)(nil)
 const fetchErrorBackoff = 250 * time.Millisecond
 
 func provideKafkaConsumer(logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, brokers []string, groupID, topic string, handlerFunc func(context.Context, []byte) error) (*kafkaConsumer, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	consumedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_consumed", topic))
+	instruments, err := mqmetrics.NewConsumer(metricsProvider, topic)
 	if err != nil {
-		return nil, fmt.Errorf("creating consumed counter: %w", err)
+		return nil, err
 	}
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
@@ -54,10 +54,10 @@ func provideKafkaConsumer(logger logging.Logger, tracerProvider tracing.Provider
 	})
 
 	return &kafkaConsumer{
-		handlerFunc:     handlerFunc,
-		reader:          reader,
-		o11y:            observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
-		consumedCounter: consumedCounter,
+		handlerFunc: handlerFunc,
+		reader:      reader,
+		o11y:        observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
+		instruments: instruments,
 	}, nil
 }
 
@@ -77,6 +77,11 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 			if ctx.Err() != nil {
 				return
 			}
+			// Sent to errs but, until now, never logged — so a consumer failing
+			// every fetch was silent in the logs unless whoever owned errs happened
+			// to log what arrived on it.
+			c.instruments.ReceiveFailed(ctx)
+			c.o11y.Logger().Error("fetching kafka message", err)
 			consumererr.Send(ctx, errs, err)
 			// Back off before refetching so a persistent fetch error doesn't hot-spin.
 			select {
@@ -90,9 +95,12 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 		msgCtx, op := c.o11y.BeginCustom(ctx, "consume_message")
 		op.Set(keys.LengthKey, len(msg.Value))
 		op.SpanOnly("partition", msg.Partition).SpanOnly("offset", msg.Offset)
-		c.consumedCounter.Add(msgCtx, 1)
 
-		if err = c.handlerFunc(msgCtx, msg.Value); err != nil {
+		startedAt := time.Now()
+		err = panicking.Contain(func() error { return c.handlerFunc(msgCtx, msg.Value) })
+		c.instruments.Handled(msgCtx, startedAt, err)
+
+		if err != nil {
 			op.Acknowledge(err, "handling message")
 			consumererr.Send(msgCtx, errs, err)
 			// Kafka commits are cumulative by offset, so committing a later message

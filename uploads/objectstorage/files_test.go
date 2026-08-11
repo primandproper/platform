@@ -10,7 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v10/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	"github.com/primandproper/platform-go/v10/uploads"
 
@@ -20,69 +19,18 @@ import (
 	"gocloud.dev/blob/memblob"
 )
 
-type testUploaderMetrics struct {
-	saveCounter      metrics.Int64Counter
-	readCounter      metrics.Int64Counter
-	deleteCounter    metrics.Int64Counter
-	saveErrCounter   metrics.Int64Counter
-	readErrCounter   metrics.Int64Counter
-	deleteErrCounter metrics.Int64Counter
-	latencyHist      metrics.Float64Histogram
-}
-
-func noopUploaderMetrics(t *testing.T) testUploaderMetrics {
-	t.Helper()
-	mp := metricsnoop.NewMetricsProvider()
-
-	saveCounter, err := mp.NewInt64Counter("test_saves")
-	must.NoError(t, err)
-
-	readCounter, err := mp.NewInt64Counter("test_reads")
-	must.NoError(t, err)
-
-	deleteCounter, err := mp.NewInt64Counter("test_deletes")
-	must.NoError(t, err)
-
-	saveErrCounter, err := mp.NewInt64Counter("test_save_errors")
-	must.NoError(t, err)
-
-	readErrCounter, err := mp.NewInt64Counter("test_read_errors")
-	must.NoError(t, err)
-
-	deleteErrCounter, err := mp.NewInt64Counter("test_delete_errors")
-	must.NoError(t, err)
-
-	latencyHist, err := mp.NewFloat64Histogram("test_latency")
-	must.NoError(t, err)
-
-	return testUploaderMetrics{
-		saveCounter:      saveCounter,
-		readCounter:      readCounter,
-		deleteCounter:    deleteCounter,
-		saveErrCounter:   saveErrCounter,
-		readErrCounter:   readErrCounter,
-		deleteErrCounter: deleteErrCounter,
-		latencyHist:      latencyHist,
-	}
-}
-
 // newTestUploader builds an Uploader over the given bucket and observer with no-op metrics.
 func newTestUploader(t *testing.T, b *blob.Bucket, obs observability.Observer, cb circuitbreaking.CircuitBreaker) *Uploader {
 	t.Helper()
 
-	m := noopUploaderMetrics(t)
+	instruments, err := newInstruments(metricsnoop.NewMetricsProvider(), t.Name())
+	must.NoError(t, err)
 
 	return &Uploader{
-		bucket:           b,
-		o11y:             obs,
-		circuitBreaker:   cb,
-		saveCounter:      m.saveCounter,
-		readCounter:      m.readCounter,
-		deleteCounter:    m.deleteCounter,
-		saveErrCounter:   m.saveErrCounter,
-		readErrCounter:   m.readErrCounter,
-		deleteErrCounter: m.deleteErrCounter,
-		latencyHist:      m.latencyHist,
+		bucket:         b,
+		o11y:           obs,
+		circuitBreaker: cb,
+		instruments:    instruments,
 	}
 }
 

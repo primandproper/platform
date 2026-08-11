@@ -4,24 +4,54 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/logging/slog"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-type errorHandler struct {
+var _ otel.ErrorHandler = (*ErrorHandler)(nil)
+
+// ErrorHandler reports OpenTelemetry's own internal errors — a dropped batch, an
+// exporter that cannot reach its collector — through a logging.Logger.
+type ErrorHandler struct {
 	logger logging.Logger
 }
 
-func (h errorHandler) Handle(err error) {
-	h.logger.Error("tracer reported issue", err)
+// NewErrorHandler builds an ErrorHandler reporting through the given logger.
+// An absent logger resolves to the noop, so the handler is safe to install
+// regardless.
+func NewErrorHandler(logger logging.Logger) *ErrorHandler {
+	return &ErrorHandler{logger: logging.EnsureLogger(logger).WithName("otel_errors")}
 }
 
-func init() {
-	// set a noop error handler just so one is set
-	otel.SetErrorHandler(errorHandler{logger: slog.NewSlogLogger(logging.ErrorLevel).WithName("otel_errors")})
+// Handle satisfies otel.ErrorHandler.
+func (h *ErrorHandler) Handle(err error) {
+	if err != nil {
+		h.logger.Error("tracer reported issue", err)
+	}
+}
+
+// SetGlobalErrorHandler installs a logger-backed handler as OpenTelemetry's
+// process-global error handler, and reports whether it did.
+//
+// This package used to do it in init(), which made importing anything under
+// observability/tracing enough to reassign a process-global — hard-wired to the
+// slog backend no matter which backend the application had configured, and
+// clobbering any handler the application had installed itself. The choice to own
+// that global belongs to whoever owns main, so it is a call now rather than a
+// link-time side effect.
+//
+// Passing a nil logger is a no-op returning false, rather than quietly
+// installing a handler that discards everything OTel reports.
+func SetGlobalErrorHandler(logger logging.Logger) bool {
+	if logger == nil {
+		return false
+	}
+
+	otel.SetErrorHandler(NewErrorHandler(logger))
+
+	return true
 }
 
 // Tracer describes a tracer.

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -350,7 +351,7 @@ func Test_provideRedisPublisher(T *testing.T) {
 
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				if name == "t_published" {
+				if name == mqmetrics.MessagesPublished {
 					return metricnoop.Int64Counter{}, errors.New("forced error")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", name)
@@ -370,9 +371,9 @@ func Test_provideRedisPublisher(T *testing.T) {
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch name {
-				case "t_published":
+				case mqmetrics.MessagesPublished:
 					return metricnoop.Int64Counter{}, nil
-				case "t_publish_errors":
+				case mqmetrics.PublishErrors:
 					return metricnoop.Int64Counter{}, errors.New("forced error")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", name)

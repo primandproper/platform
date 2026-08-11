@@ -74,7 +74,8 @@ func TestNewSecretSource(T *testing.T) {
 		must.Error(t, err)
 		test.Nil(t, source)
 
-		test.SliceLen(t, 1, mp.NewInt64CounterCalls())
+		// Two counters now: lookups, and the errors counter beside it.
+		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
 	})
 }

@@ -734,7 +734,10 @@ func Test_Cache_Ping_Unit(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		impl, client, _, _ := buildTestImpl(t)
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.SucceededFunc = func() {}
 
 		client.PingFunc = func(_ context.Context) *redis.StatusCmd {
 			cmd := redis.NewStatusCmd(ctx)
@@ -744,13 +747,17 @@ func Test_Cache_Ping_Unit(T *testing.T) {
 
 		test.NoError(t, impl.Ping(ctx))
 		test.SliceLen(t, 1, client.PingCalls())
+		test.SliceLen(t, 1, cb.SucceededCalls())
 	})
 
 	T.Run("with error", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		impl, client, _, _ := buildTestImpl(t)
+		impl, client, cb, obs := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return false }
+		cb.FailedFunc = func() {}
 
 		client.PingFunc = func(_ context.Context) *redis.StatusCmd {
 			cmd := redis.NewStatusCmd(ctx)
@@ -760,6 +767,23 @@ func Test_Cache_Ping_Unit(T *testing.T) {
 
 		test.Error(t, impl.Ping(ctx))
 		test.SliceLen(t, 1, client.PingCalls())
+		// The one call whose job is reporting reachability now feeds the breaker
+		// and the span, rather than answering only the caller.
+		test.SliceLen(t, 1, cb.FailedCalls())
+		op := obs.ObservedOperationWithData(t, map[string]any{})
+		must.SliceLen(t, 1, op.Errors)
+	})
+
+	T.Run("an open breaker answers without touching redis", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		impl, client, cb, _ := buildTestImpl(t)
+
+		cb.CannotProceedFunc = func() bool { return true }
+
+		test.ErrorIs(t, impl.Ping(ctx), cache.ErrUnavailable)
+		test.SliceLen(t, 0, client.PingCalls())
 	})
 }
 

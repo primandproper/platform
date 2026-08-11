@@ -20,7 +20,7 @@ var _ llm.Stream = (*stream)(nil)
 // is done rather than when Stream returns, since a stream outlives the call
 // that created it. A consumer that neither drains nor closes never triggers it,
 // which is why llm.Stream documents Close as mandatory.
-func Stream(chunks <-chan anyllm.ChatCompletionChunk, errs <-chan error, finish func(error)) llm.Stream {
+func Stream(chunks <-chan anyllm.ChatCompletionChunk, errs <-chan error, finish func(error, *llm.Usage)) llm.Stream {
 	return &stream{
 		chunks: chunks,
 		errs:   errs,
@@ -32,7 +32,7 @@ type stream struct {
 	err     error
 	chunks  <-chan anyllm.ChatCompletionChunk
 	errs    <-chan error
-	finish  func(error)
+	finish  func(error, *llm.Usage)
 	toolIdx map[string]int
 	usage   *llm.Usage
 	current llm.Event
@@ -118,6 +118,11 @@ func (s *stream) Close() error {
 }
 
 // finishOnce runs the finish hook at most once.
+//
+// It hands over whatever token accounting the stream saw, which is only known
+// once the stream is over — the provider reports usage in the final chunk. That
+// is why it travels through here rather than being read at the call site: by the
+// time Stream returns, there is nothing to read yet.
 func (s *stream) finishOnce(err error) {
 	if s.finish == nil {
 		return
@@ -125,7 +130,7 @@ func (s *stream) finishOnce(err error) {
 
 	finish := s.finish
 	s.finish = nil
-	finish(err)
+	finish(err, s.usage)
 }
 
 // drain reads both channels to completion so the producing goroutine can exit.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"strconv"
+	"time"
 
 	"github.com/primandproper/platform-go/v10/capitalism"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
@@ -68,8 +69,9 @@ var _ capitalism.UsageReporter = (*UsageReporter)(nil)
 // exported, and returned by NewUsageReporter, so a caller who has chosen Stripe
 // can depend on that choice rather than on the capitalism.UsageReporter seam.
 type UsageReporter struct {
-	o11y   observability.Observer
-	client *client.API
+	o11y        observability.Observer
+	client      *client.API
+	instruments *instruments
 }
 
 // NewUsageReporter builds a Stripe-backed UsageReporter.
@@ -88,12 +90,18 @@ func NewUsageReporter(cfg *Config, opts ...Option) (*UsageReporter, error) {
 
 	o := newOptions(opts)
 
+	instruments, err := newInstruments(o.metricsProvider)
+	if err != nil {
+		return nil, err
+	}
+
 	sc := &client.API{}
 	sc.Init(cfg.APIKey, nil)
 
 	return &UsageReporter{
-		client: sc,
-		o11y:   observability.NewObserver(usageImplementationName, o.logger, o.tracerProvider),
+		client:      sc,
+		o11y:        observability.NewObserver(usageImplementationName, o.logger, o.tracerProvider),
+		instruments: instruments,
 	}, nil
 }
 
@@ -107,9 +115,12 @@ func NewUsageReporter(cfg *Config, opts ...Option) (*UsageReporter, error) {
 // different timestamps left the smaller total standing beside the larger rather
 // than replacing it — and leaves the same discipline in place: post the delta
 // since the last flush, under a key derived from the flush's sequence number.
-func (s *UsageReporter) ReportUsage(ctx context.Context, input *capitalism.UsageReportInput) error {
+func (s *UsageReporter) ReportUsage(ctx context.Context, input *capitalism.UsageReportInput) (err error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
+
+	startedAt := time.Now()
+	defer func() { s.instruments.record(ctx, opReportUsage, startedAt, err) }()
 
 	if input == nil {
 		return op.Error(platformerrors.ErrNilInputParameter, "reporting usage")

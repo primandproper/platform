@@ -16,6 +16,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v10/random"
 	"github.com/primandproper/platform-go/v10/webhooks/inbound"
@@ -68,10 +69,14 @@ func newTestManager(t *testing.T, respond func(path string) (int, string)) (*Pay
 	sc := &client.API{}
 	sc.Init("sk_test_123", &stripe.Backends{API: backend, Connect: backend, Uploads: backend})
 
+	instruments, err := newInstruments(metricsnoop.NewMetricsProvider())
+	must.NoError(t, err)
+
 	pm := &PaymentManager{
 		client:         sc,
 		encoderDecoder: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON),
 		o11y:           observability.NewObserver(implementationName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
+		instruments:    instruments,
 	}
 
 	return pm, &captured

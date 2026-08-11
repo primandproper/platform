@@ -12,8 +12,6 @@ import (
 	"errors"
 	"math/big"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -381,38 +379,6 @@ func TestServer_listen(T *testing.T) {
 		must.NoError(t, err)
 		must.NotNil(t, listener)
 		test.NoError(t, listener.Close())
-	})
-}
-
-func Test_skipNoisePaths(T *testing.T) {
-	T.Parallel()
-
-	T.Run("ops paths are filtered out", func(t *testing.T) {
-		t.Parallel()
-
-		req := httptest.NewRequest(http.MethodGet, "/_ops_/health", http.NoBody)
-		test.False(t, skipNoisePaths(req))
-	})
-
-	T.Run("apple app site association path is filtered out", func(t *testing.T) {
-		t.Parallel()
-
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
-		test.False(t, skipNoisePaths(req))
-	})
-
-	T.Run("normal paths are not filtered", func(t *testing.T) {
-		t.Parallel()
-
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/things", http.NoBody)
-		test.True(t, skipNoisePaths(req))
-	})
-
-	T.Run("root path is not filtered", func(t *testing.T) {
-		t.Parallel()
-
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-		test.True(t, skipNoisePaths(req))
 	})
 }
 

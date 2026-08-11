@@ -35,7 +35,10 @@ func SetupOtelGRPC(ctx context.Context, serviceName string, collectionProbabilit
 		return nil, ErrNilConfig
 	}
 
-	res := o11yutils.MustOtelResource(ctx, serviceName)
+	res, err := o11yutils.OtelResource(ctx, serviceName)
+	if err != nil {
+		return nil, err
+	}
 
 	options := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(c.CollectorEndpoint),

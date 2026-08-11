@@ -197,6 +197,7 @@ func TestNewProvider(T *testing.T) {
 		must.Error(t, err)
 		must.Nil(t, provider)
 
+		// requests, then the error counter that failed.
 		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 	})
 
@@ -221,7 +222,8 @@ func TestNewProvider(T *testing.T) {
 		must.Error(t, err)
 		must.Nil(t, provider)
 
-		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
+		// requests, errors, tokens.
+		test.SliceLen(t, 3, mp.NewInt64CounterCalls())
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
 	})
 }

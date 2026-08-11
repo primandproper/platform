@@ -4,7 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
+
+// ErrNoSuchMember is returned by SendToMember when the named member has no
+// stream in the named group.
+//
+// It exists because the alternative was reporting success. A caller sending to a
+// member that has disconnected, or that it named wrongly, got a nil error and no
+// delivery — and the two cases a caller most wants to tell apart, "delivered"
+// and "there was nobody there", were the same answer.
+var ErrNoSuchMember = platformerrors.New("no stream for that member")
 
 // Event represents a typed event with a JSON payload.
 type Event struct {
