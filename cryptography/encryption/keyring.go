@@ -2,8 +2,8 @@ package encryption
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -105,11 +105,11 @@ func NewKeyring(current KeyID, ringKeys []RingKey, opts ...Option) (*Keyring, er
 		k := &ringKeys[i]
 
 		if k.Cipher == nil {
-			return nil, fmt.Errorf("%w: key %q has no cipher", ErrNilCipher, k.ID)
+			return nil, errors.Wrapf(ErrNilCipher, "key %q", k.ID)
 		}
 
 		if _, seen := byID[k.ID]; seen {
-			return nil, fmt.Errorf("%w: %q", ErrDuplicateKeyID, k.ID)
+			return nil, errors.Wrapf(ErrDuplicateKeyID, "key %q", k.ID)
 		}
 
 		// encodeHeader is the only place that decides what makes a key ID
@@ -130,24 +130,24 @@ func NewKeyring(current KeyID, ringKeys []RingKey, opts ...Option) (*Keyring, er
 
 	currentEntry, ok := byID[current]
 	if !ok {
-		return nil, fmt.Errorf("%w: %q is not among the ring's keys", ErrNoCurrentKey, current)
+		return nil, errors.Wrapf(ErrNoCurrentKey, "%q is not among the ring's keys", current)
 	}
 
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
 	encryptCounter, err := mp.NewInt64Counter(keyringName + "_encryptions")
 	if err != nil {
-		return nil, fmt.Errorf("creating encryption counter: %w", err)
+		return nil, errors.Wrap(err, "creating encryption counter")
 	}
 
 	decryptCounter, err := mp.NewInt64Counter(keyringName + "_decryptions")
 	if err != nil {
-		return nil, fmt.Errorf("creating decryption counter: %w", err)
+		return nil, errors.Wrap(err, "creating decryption counter")
 	}
 
 	unknownKeyCount, err := mp.NewInt64Counter(keyringName + "_unknown_key_ids")
 	if err != nil {
-		return nil, fmt.Errorf("creating unknown key counter: %w", err)
+		return nil, errors.Wrap(err, "creating unknown key counter")
 	}
 
 	return &Keyring{
@@ -222,7 +222,7 @@ func (r *Keyring) Decrypt(ctx context.Context, ciphertext, associatedData []byte
 		// definition not one of the ring's, and it is an error path.
 		r.unknownKeyCount.Add(ctx, 1, metric.WithAttributes(attribute.String(keyIDAttribute, string(keyID))))
 
-		return nil, op.Error(fmt.Errorf("%w: %q", ErrUnknownKeyID, keyID), "resolving ciphertext key")
+		return nil, op.Error(errors.Wrapf(ErrUnknownKeyID, "key %q", keyID), "resolving ciphertext key")
 	}
 
 	plaintext, err := entry.cipher.Open(ctx, body, bindHeader(header, associatedData))

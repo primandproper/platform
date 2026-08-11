@@ -24,7 +24,7 @@ func RegisterRateLimiter(i do.Injector) {
 		}
 
 		return NewRateLimiter(
-			context.Background(),
+			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			WithPillars(pillars),
 		)

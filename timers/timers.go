@@ -525,14 +525,19 @@ func (t *Timers[K]) Claim(ctx context.Context, limit int, lease time.Duration) (
 		limit = t.cfg.MaxClaimBatch
 	}
 
-	startTime := time.Now()
+	// Through the injected clock, not time.Now: this package hands one to the
+	// ticker its Run loop paces on, and a histogram that read the wall clock
+	// anyway was the one measurement a test driving that loop could not control.
+	// Not op.Time, because the record below is deliberately on the success path
+	// only — a claim that failed took no time worth a latency reading.
+	startTime := t.clock.Now()
 
 	due, err := t.claim(ctx, limit, lease)
 	if err != nil {
 		return nil, op.Error(err, "claiming due timers")
 	}
 
-	t.claimLatencyHist.Record(ctx, float64(time.Since(startTime).Microseconds())/microsPerMilli, t.attrs)
+	t.claimLatencyHist.Record(ctx, float64(t.clock.Since(startTime).Microseconds())/microsPerMilli, t.attrs)
 
 	if len(due) == 0 {
 		return nil, nil

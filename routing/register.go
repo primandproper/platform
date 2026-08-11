@@ -48,7 +48,9 @@ func register[In, Out any](r *Router, method, pattern string, h Handler[In, Out]
 
 	rc := newRouteConfig(method, r)
 	for _, o := range opts {
-		o(rc)
+		if o != nil {
+			o(rc)
+		}
 	}
 	if rc.operationID == "" {
 		rc.operationID = defaultOperationID(method, plain)

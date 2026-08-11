@@ -1191,8 +1191,21 @@ func NewArtifactURLSigner(
 	manager uploads.UploadManager,
 	ttl time.Duration,
 	encrypted bool,
+	opts ...URLSignerOption,
 ) func(ctx context.Context, req *Request) (string, time.Time) {
 	signer, canSign := manager.(uploads.URLSigner)
+
+	// The expiry it returns is the one the subject reads out of the notification
+	// — "this link works until" — so it is stamped through a clock like every
+	// other timestamp this package produces. Without one, a Fulfiller under a
+	// test clock sent a notification whose deadline was in wall-clock time, and
+	// the mismatch was only visible to whoever compared the two.
+	c := clock.NewClock()
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&c)
+		}
+	}
 
 	return func(ctx context.Context, req *Request) (string, time.Time) {
 		if !canSign || encrypted || req.ArtifactRef == "" {
@@ -1207,7 +1220,7 @@ func NewArtifactURLSigner(
 			return "", time.Time{}
 		}
 
-		return url, time.Now().UTC().Add(ttl)
+		return url, c.Now().UTC().Add(ttl)
 	}
 }
 

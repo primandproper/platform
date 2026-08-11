@@ -44,3 +44,38 @@ func TestMinRange_ValidateWithContext(T *testing.T) {
 		test.NoError(t, (&MinRange[int]{Min: 5, Max: &above}).ValidateWithContext(context.Background()))
 	})
 }
+
+func TestOpenRange_ValidateWithContext(T *testing.T) {
+	T.Parallel()
+
+	T.Run("an unbounded range is valid", func(t *testing.T) {
+		t.Parallel()
+
+		// Both bounds are optional, so asking for no bound at all is a request
+		// rather than a mistake.
+		test.NoError(t, (&OpenRange[int]{}).ValidateWithContext(context.Background()))
+	})
+
+	T.Run("a single bound has nothing to contradict", func(t *testing.T) {
+		t.Parallel()
+
+		bound := 5
+		test.NoError(t, (&OpenRange[int]{Min: &bound}).ValidateWithContext(context.Background()))
+		test.NoError(t, (&OpenRange[int]{Max: &bound}).ValidateWithContext(context.Background()))
+	})
+
+	T.Run("max below min is invalid", func(t *testing.T) {
+		t.Parallel()
+
+		minVal, maxVal := 5, 2
+		test.Error(t, (&OpenRange[int]{Min: &minVal, Max: &maxVal}).ValidateWithContext(context.Background()))
+	})
+
+	T.Run("max at or above min is valid", func(t *testing.T) {
+		t.Parallel()
+
+		minVal, eq, above := 5, 5, 10
+		test.NoError(t, (&OpenRange[int]{Min: &minVal, Max: &eq}).ValidateWithContext(context.Background()))
+		test.NoError(t, (&OpenRange[int]{Min: &minVal, Max: &above}).ValidateWithContext(context.Background()))
+	})
+}

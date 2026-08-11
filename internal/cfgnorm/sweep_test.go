@@ -38,6 +38,7 @@ import (
 	asyncably "github.com/primandproper/platform-go/v10/notifications/async/ably"
 	asyncnotifcfg "github.com/primandproper/platform-go/v10/notifications/async/config"
 	asyncpusher "github.com/primandproper/platform-go/v10/notifications/async/pusher"
+	"github.com/primandproper/platform-go/v10/notifications/mobile/apns"
 	mobilecfg "github.com/primandproper/platform-go/v10/notifications/mobile/config"
 	loggingcfg "github.com/primandproper/platform-go/v10/observability/logging/config"
 	loggingotelgrpc "github.com/primandproper/platform-go/v10/observability/logging/otelgrpc"
@@ -482,7 +483,7 @@ func TestUnselectedProvidersAreNotEnforced(T *testing.T) {
 			name: "notifications-mobile/apns",
 			cfg: &mobilecfg.Config{
 				Provider: mobilecfg.ProviderAPNs,
-				APNs: &mobilecfg.APNsConfig{
+				APNs: &apns.Config{
 					AuthKeyPath: "/etc/apns.p8",
 					KeyID:       "keyID",
 					TeamID:      "teamID",

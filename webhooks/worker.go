@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
@@ -263,7 +262,11 @@ func (w *Worker) Close(ctx context.Context) error {
 // cycle claims one batch and delivers it. Errors are logged and counted rather
 // than returned: there is no caller to hand them to, and the next cycle retries.
 func (w *Worker) cycle(ctx context.Context) {
-	startTime := time.Now()
+	// Through the clock, like every other time this package reads. Not through
+	// op.Time, because the window it measures opens before the span does: a
+	// cycle that claims nothing records no duration at all, so the Begin below
+	// cannot come first without giving every idle poll a span.
+	startTime := w.clock.Now()
 
 	now := w.clock.Now().UTC()
 
@@ -281,7 +284,7 @@ func (w *Worker) cycle(ctx context.Context) {
 
 	w.batchHist.Record(ctx, float64(len(claimed)))
 	defer func() {
-		w.cycleHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+		w.cycleHist.Record(ctx, float64(w.clock.Since(startTime).Milliseconds()))
 	}()
 
 	ctx, op := w.o11y.Begin(ctx, observability.WithValue(claimedKey, len(claimed)))
@@ -406,7 +409,7 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 		return attempt, retry.Unretryable(err)
 	}
 
-	startTime := time.Now()
+	startTime := w.clock.Now()
 
 	// G704: the URL is user-supplied by design — that is what a webhook endpoint
 	// is. w.checkURL ran immediately above and the client refuses redirects, so
@@ -414,7 +417,7 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 	// CheckEndpointURL for what that does and does not cover.
 	res, err := w.client.Do(req) //nolint:gosec // G704: endpoint URL is vetted by w.checkURL above
 
-	attempt.Duration = time.Since(startTime)
+	attempt.Duration = w.clock.Since(startTime)
 	w.deliveryHist.Record(ctx, float64(attempt.Duration.Milliseconds()), endpointAttr(dispatch.EndpointID))
 
 	if err != nil {

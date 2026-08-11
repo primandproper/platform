@@ -5,7 +5,7 @@ import (
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/internal/identifier"
+	"github.com/primandproper/platform-go/v10/internal/plainname"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.
@@ -296,9 +296,9 @@ func (m Meter) validate() error {
 // validMeterName reports whether a name is a plain identifier.
 //
 // A meter name travels into a provider-side idempotency key and into metric
-// attribute values, which is the rule internal/identifier states.
+// attribute values, which is the rule internal/plainname states.
 func validMeterName(name string) bool {
-	return identifier.Valid(name, MaxMeterNameLength)
+	return plainname.Valid(name, MaxMeterNameLength)
 }
 
 // Usage is one record of something having been consumed.

@@ -818,6 +818,23 @@ func TestNewArtifactURLSigner(T *testing.T) {
 		test.False(t, expiresAt.IsZero())
 	})
 
+	T.Run("stamps the expiry through the clock it was given", func(t *testing.T) {
+		t.Parallel()
+
+		uploader := &signingUploader{memoryUploader: newMemoryUploader()}
+		c := newStubClock()
+
+		// The expiry is what the subject reads out of the notification, so it has
+		// to come from the same clock the Fulfiller stamps everything else with —
+		// otherwise a test clock and a wall-clock deadline disagree, and only
+		// whoever compares the two ever finds out.
+		sign := NewArtifactURLSigner(uploader, time.Minute, false, WithURLSignerClock(c))
+
+		_, expiresAt := sign(t.Context(), &Request{ArtifactRef: "exports/x.json"})
+
+		test.EqOp(t, c.read().UTC().Add(time.Minute), expiresAt)
+	})
+
 	T.Run("declines when artifacts are encrypted", func(t *testing.T) {
 		t.Parallel()
 

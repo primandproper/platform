@@ -33,6 +33,7 @@ type options struct {
 	service   []dataprivacy.ServiceOption
 	fulfiller []dataprivacy.FulfillerOption
 	sweeper   []dataprivacy.SweeperOption
+	urlSigner []dataprivacy.URLSignerOption
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -100,4 +101,13 @@ func WithFulfillerOptions(opts ...dataprivacy.FulfillerOption) Option {
 // constructors ignore them.
 func WithSweeperOptions(opts ...dataprivacy.SweeperOption) Option {
 	return func(o *options) { o.sweeper = append(o.sweeper, opts...) }
+}
+
+// WithURLSignerOptions passes opts to the NewArtifactURLSigner this package
+// builds when it is given an upload manager. It exists for the clock: a caller
+// that hands the Fulfiller a WithFulfillerClock and does not hand the signer the
+// same one gets a notification whose stated expiry is in wall-clock time while
+// everything around it is not.
+func WithURLSignerOptions(opts ...dataprivacy.URLSignerOption) Option {
+	return func(o *options) { o.urlSigner = append(o.urlSigner, opts...) }
 }

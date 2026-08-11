@@ -43,7 +43,7 @@ func TestLoadFromJSONFile_OverlaysEnvironment(t *testing.T) {
 	// value and takes its envDefault.
 	t.Setenv("NAME", "fromenv")
 
-	cfg, err := LoadFromJSONFile[sampleConfig](path)
+	cfg, err := LoadFromJSONFile[sampleConfig](t.Context(), path)
 	must.NoError(t, err)
 	test.EqOp(t, "fromenv", cfg.Name)
 	test.EqOp(t, true, cfg.Verbose)
@@ -56,7 +56,7 @@ func TestLoadFromJSONFile(t *testing.T) {
 	t.Run("errors on missing file", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := LoadFromJSONFile[sampleConfig](filepath.Join(t.TempDir(), "nope.json"))
+		_, err := LoadFromJSONFile[sampleConfig](t.Context(), filepath.Join(t.TempDir(), "nope.json"))
 		test.Error(t, err)
 	})
 
@@ -67,7 +67,7 @@ func TestLoadFromJSONFile(t *testing.T) {
 		path := filepath.Join(dir, "bad.json")
 		must.NoError(t, os.WriteFile(path, []byte(`{not json`), 0o600))
 
-		_, err := LoadFromJSONFile[sampleConfig](path)
+		_, err := LoadFromJSONFile[sampleConfig](t.Context(), path)
 		test.Error(t, err)
 	})
 }
@@ -81,7 +81,7 @@ func TestLoadFromJSONFile_ApplyEnvError(t *testing.T) {
 	path := filepath.Join(dir, "config.json")
 	must.NoError(t, os.WriteFile(path, []byte(`{"Name":"decoded"}`), 0o600))
 
-	cfg, err := LoadFromJSONFile[sampleConfig](path)
+	cfg, err := LoadFromJSONFile[sampleConfig](t.Context(), path)
 	test.Error(t, err)
 	test.Nil(t, cfg)
 }
@@ -96,7 +96,7 @@ func TestLoadFromTOMLFile(t *testing.T) {
 		path := filepath.Join(dir, "config.toml")
 		must.NoError(t, os.WriteFile(path, []byte("name = \"fromfile\"\nverbose = true\n"), 0o600))
 
-		cfg, err := LoadFromTOMLFile[sampleConfig](path)
+		cfg, err := LoadFromTOMLFile[sampleConfig](t.Context(), path)
 		must.NoError(t, err)
 		test.EqOp(t, "fromfile", cfg.Name)
 		test.EqOp(t, true, cfg.Verbose)
@@ -110,7 +110,7 @@ func TestLoadFromTOMLFile(t *testing.T) {
 		path := filepath.Join(dir, "bad.toml")
 		must.NoError(t, os.WriteFile(path, []byte("name = = broken"), 0o600))
 
-		_, err := LoadFromTOMLFile[sampleConfig](path)
+		_, err := LoadFromTOMLFile[sampleConfig](t.Context(), path)
 		test.Error(t, err)
 	})
 }
@@ -125,7 +125,7 @@ func TestLoadFromYAMLFile(t *testing.T) {
 		path := filepath.Join(dir, "config.yaml")
 		must.NoError(t, os.WriteFile(path, []byte("name: fromfile\nverbose: true\n"), 0o600))
 
-		cfg, err := LoadFromYAMLFile[sampleConfig](path)
+		cfg, err := LoadFromYAMLFile[sampleConfig](t.Context(), path)
 		must.NoError(t, err)
 		test.EqOp(t, "fromfile", cfg.Name)
 		test.EqOp(t, true, cfg.Verbose)
@@ -139,7 +139,7 @@ func TestLoadFromYAMLFile(t *testing.T) {
 		path := filepath.Join(dir, "bad.yaml")
 		must.NoError(t, os.WriteFile(path, []byte("name: : :\n\t- broken"), 0o600))
 
-		_, err := LoadFromYAMLFile[sampleConfig](path)
+		_, err := LoadFromYAMLFile[sampleConfig](t.Context(), path)
 		test.Error(t, err)
 	})
 }

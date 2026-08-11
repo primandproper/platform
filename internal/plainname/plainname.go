@@ -1,5 +1,12 @@
-// Package identifier validates plain identifiers: names that travel into cache
-// keys, idempotency keys, metric attribute values, and permission strings.
+// Package plainname validates plain names: the ones an operator writes into
+// config — a plan name, a meter name — that then travel into cache keys,
+// idempotency keys, metric attribute values, and permission strings.
+//
+// It is named for what it validates rather than for "identifier", which is the
+// public identifiers package's word for a minted opaque ID. The two answer
+// unrelated questions — is this string one I generated, versus may this name go
+// where it is about to go — and the near-collision read as a typo at every call
+// site that imported one while meaning the other.
 //
 // Those destinations are the reason the rule is restriction rather than
 // escaping. None of the four has a quoting convention a producing package could
@@ -19,7 +26,7 @@
 // on this line rather than being sent to a common predicate to find out what it
 // currently means — which is the thing worth refusing, and is why charset offers
 // no way to hand it an arbitrary function.
-package identifier
+package plainname
 
 import (
 	"github.com/primandproper/platform-go/v10/charset"
@@ -35,7 +42,7 @@ var plain = charset.New(
 	charset.WithFirst(charset.ASCIILetters.Union(charset.Bytes('_'))),
 )
 
-// Valid reports whether name is a plain identifier no longer than maxLen.
+// Valid reports whether name is a plain name no longer than maxLen.
 //
 // The bound stays here rather than in plain because it is the caller's and not
 // the rule's: entitlements caps a plan name, metering caps a meter name, and the

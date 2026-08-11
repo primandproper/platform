@@ -2,8 +2,8 @@ package shredding
 
 import (
 	"context"
-	"encoding/json"
 
+	"github.com/primandproper/platform-go/v10/encoding"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -71,6 +71,7 @@ func (b *QueueBroadcaster) Broadcast(ctx context.Context, subject Subject) error
 type invalidationHandler struct {
 	invalidator Invalidator
 	o11y        observability.Observer
+	codec       encoding.Unmarshaler
 
 	receivedCounter metrics.Int64Counter
 	rejectedCounter metrics.Int64Counter
@@ -97,7 +98,7 @@ type invalidationHandler struct {
 // TTL everywhere while the publisher's counter says otherwise.
 //
 // Which is why this end is instrumented rather than being the two lines of
-// json.Unmarshal it otherwise is. It counts every message that arrives
+// decoding it otherwise is. It counts every message that arrives
 // (shredding_invalidations_received) and every one it could not turn into a
 // subject (shredding_invalidations_rejected), and the Invalidator counts what it
 // then did (shredding_invalidations_applied). Read against the publisher's
@@ -122,6 +123,17 @@ func NewInvalidationHandler(invalidator Invalidator, opts ...InvalidationOption)
 	}
 
 	h.o11y = observability.NewObserver(serviceName, h.logger, h.tracerProvider)
+
+	// The publishing half of this topic hands the Subject to a
+	// messagequeue.Publisher, and every provider's publisher encodes with a JSON
+	// encoding.ClientEncoder. Decoding through the same seam is what keeps the two
+	// halves one round trip: a change to how this module renders a value on the
+	// wire reaches the subscriber that has to read it.
+	h.codec = encoding.NewClientEncoder(
+		encoding.ContentTypeJSON,
+		encoding.WithLogger(h.logger),
+		encoding.WithTracerProvider(h.tracerProvider),
+	)
 
 	mp := metrics.EnsureMetricsProvider(h.metricsProvider)
 
@@ -150,7 +162,7 @@ func (h *invalidationHandler) handle(ctx context.Context, data []byte) error {
 	h.receivedCounter.Add(ctx, 1)
 
 	var subject Subject
-	if err := json.Unmarshal(data, &subject); err != nil {
+	if err := h.codec.Unmarshal(ctx, data, &subject); err != nil {
 		h.rejectedCounter.Add(ctx, 1)
 
 		return op.Error(err, "decoding shredding invalidation")

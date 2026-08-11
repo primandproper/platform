@@ -170,6 +170,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Pusher, validation.Skip.When(provider != ProviderPusher), validation.Required),
 		validation.Field(&cfg.Ably, validation.Skip.When(provider != ProviderAbly), validation.Required),
 		validation.Field(&cfg.WebSocket, validation.Skip.When(provider != ProviderWebSocket), validation.Required),
+		// Required despite having no fields to fill in, so the two direct-connection
+		// providers answer a missing block the same way. Its constructor refuses a
+		// nil Config like the websocket one does.
+		validation.Field(&cfg.SSE, validation.Skip.When(provider != ProviderSSE), validation.Required),
 	); err != nil {
 		return err
 	}

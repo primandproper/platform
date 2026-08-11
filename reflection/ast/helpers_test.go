@@ -208,6 +208,28 @@ func TestGetTagValue(T *testing.T) {
 
 		test.EqOp(t, "name", GetTagValue("`json:\"name\"`", "json"))
 	})
+
+	T.Run("reads a value containing spaces whole", func(t *testing.T) {
+		t.Parallel()
+
+		// A struct tag is not a space-separated list. Splitting on spaces read
+		// this default as "a" and then treated the orphaned `b"` as a key of its
+		// own, which also swallowed the tag after it.
+		tag := `env:"GREETING" envDefault:"hello there" json:"greeting"`
+
+		test.EqOp(t, "GREETING", GetTagValue(tag, "env"))
+		test.EqOp(t, "hello there", GetTagValue(tag, "envDefault"))
+		test.EqOp(t, "greeting", GetTagValue(tag, "json"))
+	})
+
+	T.Run("returns empty for a malformed tag", func(t *testing.T) {
+		t.Parallel()
+
+		// An unterminated quote is not a tag reflect.StructTag can parse, and
+		// guessing at what was meant is how the space-splitting version invented
+		// values nobody wrote.
+		test.EqOp(t, "", GetTagValue(`json:"name`, "json"))
+	})
 }
 
 func TestGetStructFields(T *testing.T) {

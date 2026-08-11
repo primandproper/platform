@@ -58,7 +58,7 @@ func referenceStepName(s string) bool {
 	return true
 }
 
-// referencePlainIdentifier is internal/identifier.Valid's character rule,
+// referencePlainIdentifier is internal/plainname.Valid's character rule,
 // without the maxLen its callers supply.
 func referencePlainIdentifier(s string) bool {
 	if s == "" {
@@ -126,7 +126,7 @@ func equivalences() map[string]struct {
 		"apns device token":                {reAPNSDeviceToken.MatchString, apnsDeviceToken.Valid},
 		"idempotency key characters":       {referenceIdempotencyKey, idempotencyKey.Valid},
 		"saga step name":                   {referenceStepName, stepName.Valid},
-		"internal/identifier plain name":   {referencePlainIdentifier, plainIdentifier.Valid},
+		"internal/plainname plain name":    {referencePlainIdentifier, plainIdentifier.Valid},
 		"workqueue and timers control set": {referenceControlBytes, controlBytes.ContainsAll},
 	}
 }

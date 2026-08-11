@@ -19,8 +19,7 @@ func RegisterServerEncoderDecoder(i do.Injector) {
 
 		return NewServerEncoderDecoder(
 			do.MustInvoke[ContentType](i),
-			WithLogger(pillars.Logger),
-			WithTracerProvider(pillars.TracerProvider),
+			WithPillars(pillars),
 		), nil
 	})
 }

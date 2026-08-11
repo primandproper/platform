@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ func TestRegisterHTTPServer(T *testing.T) {
 		t.Parallel()
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue(i, Config{Port: 8080, StartupDeadline: time.Second})
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, (*routing.Router)(nil))
@@ -44,6 +46,7 @@ func TestRegisterHTTPServer(T *testing.T) {
 		router := testRouter(t)
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue(i, Config{Port: 8080, StartupDeadline: time.Second})
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, router)
@@ -67,6 +70,7 @@ func TestRegisterHTTPServer(T *testing.T) {
 		router := testRouter(t)
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue(i, Config{Port: 8080, StartupDeadline: time.Second})
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, router)
@@ -88,6 +92,7 @@ func TestRegisterHTTPServer(T *testing.T) {
 		errBuild := errors.New("building the registry")
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
 		do.ProvideValue(i, Config{Port: 8080, StartupDeadline: time.Second})
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, testRouter(t))

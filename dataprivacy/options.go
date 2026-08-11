@@ -353,3 +353,21 @@ func WithFulfillerURLSigner(signer func(ctx context.Context, req *Request) (url 
 		}
 	}
 }
+
+// URLSignerOption configures the signer NewArtifactURLSigner returns.
+//
+// It is its own type rather than a FulfillerOption because the signer is built
+// before the Fulfiller it is handed to, and is equally usable by a caller that
+// has no Fulfiller at all.
+type URLSignerOption func(*clock.Clock)
+
+// WithURLSignerClock swaps the clock the signer stamps its expiry against, so a
+// Fulfiller under a test clock and the notification it sends agree about when
+// the link stops working. An absent clock reads the wall clock.
+func WithURLSignerClock(c clock.Clock) URLSignerOption {
+	return func(dst *clock.Clock) {
+		if c != nil {
+			*dst = c
+		}
+	}
+}

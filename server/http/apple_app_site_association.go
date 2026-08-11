@@ -8,8 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/encoding"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -199,21 +197,19 @@ func (cfg *AppleAppSiteAssociationConfig) document() appleAppSiteAssociation {
 //
 // A config that is empty or malformed yields a handler that responds 404, so callers
 // never have to branch on whether the feature is configured.
-func AppleAppSiteAssociationHandler(
-	cfg *AppleAppSiteAssociationConfig,
-	logger logging.Logger,
-	tracerProvider tracing.Provider,
-) http.HandlerFunc {
+func AppleAppSiteAssociationHandler(cfg *AppleAppSiteAssociationConfig, opts ...Option) http.HandlerFunc {
 	if !cfg.Enabled() {
 		return http.NotFound
 	}
+
+	o := newOptions(opts)
 
 	// Apple only accepts JSON here, so this uses its own JSON encoder rather than the
 	// service's configured one, which may be YAML, XML, or anything else.
 	enc := encoding.NewServerEncoderDecoder(
 		encoding.ContentTypeJSON,
-		encoding.WithLogger(logger),
-		encoding.WithTracerProvider(tracerProvider),
+		encoding.WithLogger(o.logger),
+		encoding.WithTracerProvider(o.tracerProvider),
 	)
 	document := cfg.document()
 

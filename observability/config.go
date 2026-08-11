@@ -14,7 +14,6 @@ import (
 	tracingcfg "github.com/primandproper/platform-go/v10/observability/tracing/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/hashicorp/go-multierror"
 )
 
 type (
@@ -142,11 +141,11 @@ func (cfg *Config) NewPillars(ctx context.Context) (*Pillars, error) {
 // telemetry so records are not dropped on exit. It is safe to call on a
 // partially populated Pillars.
 func (p *Pillars) Shutdown(ctx context.Context) error {
-	errs := &multierror.Error{}
+	var errs []error
 
 	if s, ok := p.Logger.(interface{ Shutdown(context.Context) error }); ok {
 		if err := s.Shutdown(ctx); err != nil {
-			errs = multierror.Append(errs, errors.Wrap(err, "shutting down logger"))
+			errs = append(errs, errors.Wrap(err, "shutting down logger"))
 		}
 	}
 
@@ -155,25 +154,25 @@ func (p *Pillars) Shutdown(ctx context.Context) error {
 		// closes the exporter connection, and a flush afterwards would have
 		// nothing left to flush with.
 		if err := p.TracerProvider.ForceFlush(ctx); err != nil {
-			errs = multierror.Append(errs, errors.Wrap(err, "flushing tracer provider"))
+			errs = append(errs, errors.Wrap(err, "flushing tracer provider"))
 		}
 
 		if err := p.TracerProvider.Shutdown(ctx); err != nil {
-			errs = multierror.Append(errs, errors.Wrap(err, "shutting down tracer provider"))
+			errs = append(errs, errors.Wrap(err, "shutting down tracer provider"))
 		}
 	}
 
 	if p.MetricsProvider != nil {
 		if err := p.MetricsProvider.Shutdown(ctx); err != nil {
-			errs = multierror.Append(errs, errors.Wrap(err, "shutting down metrics provider"))
+			errs = append(errs, errors.Wrap(err, "shutting down metrics provider"))
 		}
 	}
 
 	if p.Profiler != nil {
 		if err := p.Profiler.Shutdown(ctx); err != nil {
-			errs = multierror.Append(errs, errors.Wrap(err, "shutting down profiler"))
+			errs = append(errs, errors.Wrap(err, "shutting down profiler"))
 		}
 	}
 
-	return errs.ErrorOrNil()
+	return errors.Join(errs...)
 }

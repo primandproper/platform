@@ -42,7 +42,7 @@ func createTestSenderWithTransport(t *testing.T, fn roundTripFunc) (*Sender, *ob
 		TeamID:      "TEAM123",
 		BundleID:    "com.example.app",
 	}
-	sender, err := NewSender(cfg)
+	sender, err := NewSender(t.Context(), cfg)
 	must.NoError(t, err)
 
 	sender.client.HTTPClient = &http.Client{Transport: fn}
@@ -80,10 +80,10 @@ func TestNewSender(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		sender, err := NewSender(nil)
+		sender, err := NewSender(t.Context(), nil)
 		test.Nil(t, sender)
 		test.Error(t, err)
-		test.StrContains(t, err.Error(), "missing required config")
+		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 	})
 
 	T.Run("with empty auth key path", func(t *testing.T) {
@@ -95,10 +95,10 @@ func TestNewSender(T *testing.T) {
 			BundleID:   "com.example.app",
 			Production: false,
 		}
-		sender, err := NewSender(cfg)
+		sender, err := NewSender(t.Context(), cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
-		test.StrContains(t, err.Error(), "missing required config")
+		test.StrContains(t, err.Error(), "authKeyPath: cannot be blank")
 	})
 
 	T.Run("with empty key ID", func(t *testing.T) {
@@ -111,10 +111,10 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 			Production:  false,
 		}
-		sender, err := NewSender(cfg)
+		sender, err := NewSender(t.Context(), cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
-		test.StrContains(t, err.Error(), "missing required config")
+		test.StrContains(t, err.Error(), "keyID: cannot be blank")
 	})
 
 	T.Run("with non-existent auth key file", func(t *testing.T) {
@@ -127,7 +127,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 			Production:  false,
 		}
-		sender, err := NewSender(cfg)
+		sender, err := NewSender(t.Context(), cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "loading auth key")
@@ -142,10 +142,10 @@ func TestNewSender(T *testing.T) {
 			KeyID:       "KEY123",
 			BundleID:    "com.example.app",
 		}
-		sender, err := NewSender(cfg)
+		sender, err := NewSender(t.Context(), cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
-		test.StrContains(t, err.Error(), "missing required config")
+		test.StrContains(t, err.Error(), "teamID: cannot be blank")
 	})
 
 	T.Run("with empty bundle ID", func(t *testing.T) {
@@ -157,10 +157,10 @@ func TestNewSender(T *testing.T) {
 			KeyID:       "KEY123",
 			TeamID:      "TEAM123",
 		}
-		sender, err := NewSender(cfg)
+		sender, err := NewSender(t.Context(), cfg)
 		test.Nil(t, sender)
 		test.Error(t, err)
-		test.StrContains(t, err.Error(), "missing required config")
+		test.StrContains(t, err.Error(), "bundleID: cannot be blank")
 	})
 
 	T.Run("with valid config", func(t *testing.T) {
@@ -174,7 +174,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 			Production:  false,
 		}
-		sender, err := NewSender(cfg)
+		sender, err := NewSender(t.Context(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 		test.EqOp(t, "com.example.app", sender.topic)
@@ -191,7 +191,7 @@ func TestNewSender(T *testing.T) {
 			BundleID:    "com.example.app",
 			Production:  true,
 		}
-		sender, err := NewSender(cfg)
+		sender, err := NewSender(t.Context(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, sender)
 		test.EqOp(t, "com.example.app", sender.topic)
@@ -215,7 +215,7 @@ func TestNewSender(T *testing.T) {
 			},
 		}
 
-		sender, err := NewSender(cfg, WithMetricsProvider(mp))
+		sender, err := NewSender(t.Context(), cfg, WithMetricsProvider(mp))
 		test.Nil(t, sender)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "creating send counter")
@@ -247,7 +247,7 @@ func TestNewSender(T *testing.T) {
 			},
 		}
 
-		sender, err := NewSender(cfg, WithMetricsProvider(mp))
+		sender, err := NewSender(t.Context(), cfg, WithMetricsProvider(mp))
 		test.Nil(t, sender)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "creating error counter")
@@ -345,7 +345,7 @@ func TestSender_Send_rejectsInvalidDeviceToken(T *testing.T) {
 		BundleID:    "com.example.app",
 		Production:  false,
 	}
-	sender, err := NewSender(cfg)
+	sender, err := NewSender(T.Context(), cfg)
 	must.NoError(T, err)
 
 	ctx := T.Context()

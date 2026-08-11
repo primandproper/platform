@@ -143,13 +143,6 @@ func (u *Uploader) selectBucket(ctx context.Context, cfg *Config) (err error) {
 		if err != nil {
 			return platformerrors.Wrap(err, "initializing GCP objectstorage")
 		}
-
-		if available, availabilityErr := u.bucket.IsAccessible(ctx); availabilityErr != nil {
-			return platformerrors.Wrap(availabilityErr, "verifying bucket accessibility")
-		} else if !available {
-			return platformerrors.Newf("bucket %q is unavailable", cfg.BucketName)
-		}
-
 	case R2Provider:
 		if cfg.R2Config == nil {
 			return ErrNilConfig
@@ -204,6 +197,23 @@ func (u *Uploader) selectBucket(ctx context.Context, cfg *Config) (err error) {
 		return platformerrors.Wrapf(platformerrors.ErrUnknownProvider, "storage provider %q", cfg.Provider)
 	}
 
+	// No provider gets a reachability probe here, GCP included — it used to have
+	// one, and the asymmetry was the whole of the argument for it.
+	//
+	// Made uniform by removal rather than by extension, because what gocloud
+	// offers is Bucket.IsAccessible, and that is a ListPage. Listing is a
+	// distinct permission from reading and writing: the least-privilege policy
+	// for a service that only Saves and Opens grants neither s3:ListBucket nor
+	// storage.objects.list, so probing would refuse a bucket the Uploader can
+	// use perfectly well and refuse it at startup, where the deployment cannot
+	// proceed. It also makes constructing an Uploader a network call, which is
+	// how a transient blip during a rollout becomes a service that will not come
+	// up at all.
+	//
+	// Unreachability is a runtime condition here, and one this package already
+	// models: every operation runs through the circuit breaker, which reports
+	// ErrCircuitBroken with the provider's own error behind it. That names the
+	// operation that failed and the permission it needed, which a probe cannot.
 	if cfg.BucketPrefix != "" {
 		// The trailing separator is enforced rather than assumed. gocloud
 		// concatenates the prefix with the key verbatim, so a prefix of "acme"

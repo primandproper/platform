@@ -2,17 +2,15 @@ package config
 
 import (
 	"context"
-	"encoding/json"
 	stderrors "errors"
 	"os"
 	"path/filepath"
 
+	"github.com/primandproper/platform-go/v10/encoding"
 	"github.com/primandproper/platform-go/v10/errors"
 
-	"github.com/BurntSushi/toml"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/joho/godotenv"
-	"gopkg.in/yaml.v3"
 )
 
 // LoadFromEnvironment builds a *T populated entirely from environment variables.
@@ -31,36 +29,42 @@ func LoadFromEnvironment[T any](opts ...Option) (*T, error) {
 // documented on ApplyEnvironmentVariables: a field carrying an envDefault whose
 // env var is unset is reset to that default even if the file supplied a value,
 // so give such fields their env var (or no envDefault) when the file should win.
-func LoadFromJSONFile[T any](path string, opts ...Option) (*T, error) {
-	return loadFile[T](path, "JSON", json.Unmarshal, opts...)
+func LoadFromJSONFile[T any](ctx context.Context, path string, opts ...Option) (*T, error) {
+	return loadFile[T](ctx, path, encoding.ContentTypeJSON, opts...)
 }
 
-// LoadFromTOMLFile behaves like LoadFromJSONFile but decodes a TOML file (via
-// BurntSushi/toml). TOML keys map to struct fields by their `toml:` tag, falling
-// back to a case-insensitive field-name match.
-func LoadFromTOMLFile[T any](path string, opts ...Option) (*T, error) {
-	return loadFile[T](path, "TOML", toml.Unmarshal, opts...)
+// LoadFromTOMLFile behaves like LoadFromJSONFile but decodes a TOML file. TOML
+// keys map to struct fields by their `toml:` tag, falling back to a
+// case-insensitive field-name match.
+func LoadFromTOMLFile[T any](ctx context.Context, path string, opts ...Option) (*T, error) {
+	return loadFile[T](ctx, path, encoding.ContentTypeTOML, opts...)
 }
 
-// LoadFromYAMLFile behaves like LoadFromJSONFile but decodes a YAML file (via
-// gopkg.in/yaml.v3). YAML keys map to struct fields by their `yaml:` tag,
-// falling back to the lower-cased field name.
-func LoadFromYAMLFile[T any](path string, opts ...Option) (*T, error) {
-	return loadFile[T](path, "YAML", yaml.Unmarshal, opts...)
+// LoadFromYAMLFile behaves like LoadFromJSONFile but decodes a YAML file. YAML
+// keys map to struct fields by their `yaml:` tag, falling back to the
+// lower-cased field name.
+func LoadFromYAMLFile[T any](ctx context.Context, path string, opts ...Option) (*T, error) {
+	return loadFile[T](ctx, path, encoding.ContentTypeYAML, opts...)
 }
 
-// loadFile reads the file at path, decodes it with unmarshal into a fresh *T,
-// then overlays environment variables. format names the encoding for error
-// messages (e.g. "JSON").
-func loadFile[T any](path, format string, unmarshal func([]byte, any) error, opts ...Option) (*T, error) {
+// loadFile reads the file at path, decodes it as ct into a fresh *T, then
+// overlays environment variables.
+//
+// The decode goes through encoding rather than through the three unmarshalers
+// directly, so that a config file and everything else this module reads off a
+// wire are parsed by one dispatch. The alternative was three format-specific
+// imports here and three more anywhere else the same question came up, drifting
+// a decoder at a time — this package's job is where a config comes from, not
+// what JSON means.
+func loadFile[T any](ctx context.Context, path string, ct encoding.ContentType, opts ...Option) (*T, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrapf(err, "reading config file %q", path)
 	}
 
 	cfg := new(T)
-	if err = unmarshal(contents, cfg); err != nil {
-		return nil, errors.Wrapf(err, "decoding %s config file %q", format, path)
+	if err = encoding.NewClientEncoder(ct).Unmarshal(ctx, contents, cfg); err != nil {
+		return nil, errors.Wrapf(err, "decoding %s config file %q", ct, path)
 	}
 
 	if err = ApplyEnvironmentVariables(cfg, opts...); err != nil {

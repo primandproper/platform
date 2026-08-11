@@ -3,6 +3,9 @@ package mobilecfg
 import (
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/notifications/mobile/apns"
+	"github.com/primandproper/platform-go/v10/notifications/mobile/fcm"
+
 	"github.com/caarlos0/env/v11"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -18,8 +21,8 @@ import (
 func TestProviderGatesPlatforms(T *testing.T) {
 	T.Parallel()
 
-	completeAPNs := func() *APNsConfig {
-		return &APNsConfig{AuthKeyPath: "/keys/apns.p8", KeyID: "K1", TeamID: "T1", BundleID: "com.example.app"}
+	completeAPNs := func() *apns.Config {
+		return &apns.Config{AuthKeyPath: "/keys/apns.p8", KeyID: "K1", TeamID: "T1", BundleID: "com.example.app"}
 	}
 
 	T.Run("fcm alone validates with no FCM block at all", func(t *testing.T) {
@@ -37,7 +40,7 @@ func TestProviderGatesPlatforms(T *testing.T) {
 	T.Run("fcm alone validates with an empty FCM block, which asks for ADC", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Provider: ProviderFCM, FCM: &FCMConfig{}}
+		cfg := &Config{Provider: ProviderFCM, FCM: &fcm.Config{}}
 		must.NoError(t, env.Parse(cfg))
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
 	})
@@ -61,7 +64,7 @@ func TestProviderGatesPlatforms(T *testing.T) {
 	T.Run("a partially filled APNs block is refused rather than half-used", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Provider: ProviderAPNs, APNs: &APNsConfig{TeamID: "T1"}}
+		cfg := &Config{Provider: ProviderAPNs, APNs: &apns.Config{TeamID: "T1"}}
 		must.NoError(t, env.Parse(cfg))
 		must.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
