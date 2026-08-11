@@ -113,14 +113,3 @@ var (
 	// incident that looks like a healthy process.
 	ErrUnknownProvider = crdberrors.New("unknown provider")
 )
-
-// ErrNilInputProvided is ErrNilInputParameter under its other name.
-//
-// The two were distinct values naming one condition, and which one a package
-// returned was a coin flip — cookies returned this one, circuitbreaking's config
-// returned the other, and a caller wanting to catch "something was nil" had to
-// test for both or pick wrong. They are now the same value, so either name
-// matches whichever a package happens to return.
-//
-// Deprecated: use ErrNilInputParameter.
-var ErrNilInputProvided = ErrNilInputParameter

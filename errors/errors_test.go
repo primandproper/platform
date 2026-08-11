@@ -24,14 +24,6 @@ func TestSentinelErrors(T *testing.T) {
 		test.StrContains(t, ErrEmptyInputParameter.Error(), "empty")
 	})
 
-	T.Run("ErrNilInputProvided is ErrNilInputParameter", func(t *testing.T) {
-		t.Parallel()
-		test.NotNil(t, ErrNilInputProvided)
-		// Either name catches whichever a package returns, in both directions.
-		test.ErrorIs(t, ErrNilInputProvided, ErrNilInputParameter)
-		test.ErrorIs(t, ErrNilInputParameter, ErrNilInputProvided)
-	})
-
 	T.Run("ErrInvalidIDProvided", func(t *testing.T) {
 		t.Parallel()
 		test.NotNil(t, ErrInvalidIDProvided)
