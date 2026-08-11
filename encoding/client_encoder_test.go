@@ -15,14 +15,13 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// newRecordingClientEncoder builds a clientEncoder with a RecordingObserver
+// newRecordingClientEncoder builds an Encoder with a RecordingObserver
 // swapped in, so a test can both drive the encoder and assert which fields it
 // observed.
-func newRecordingClientEncoder(t *testing.T, ct ContentType) (*clientEncoder, *observability.RecordingObserver) {
+func newRecordingClientEncoder(t *testing.T, ct ContentType) (*Encoder, *observability.RecordingObserver) {
 	t.Helper()
 
-	e, ok := NewClientEncoder(ct).(*clientEncoder)
-	must.True(t, ok)
+	e := NewClientEncoder(ct)
 
 	obs := observability.NewRecordingObserver()
 	e.o11y = obs

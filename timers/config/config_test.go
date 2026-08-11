@@ -91,7 +91,7 @@ func TestNewTimers(T *testing.T) {
 	T.Run("forwards the options it was given", func(t *testing.T) {
 		t.Parallel()
 
-		c := clock.NewClock()
+		var c clock.Clock = clock.NewClock()
 
 		set, err := NewTimers[string](t.Context(), validConfig(), clientFor(dialect.Postgres),
 			WithClock(c),
@@ -109,7 +109,7 @@ func TestNewTimers(T *testing.T) {
 	T.Run("lets an explicit option override a configured one", func(t *testing.T) {
 		t.Parallel()
 
-		override := clock.NewClock()
+		var override clock.Clock = clock.NewClock()
 
 		set, err := NewTimers[string](t.Context(), validConfig(), clientFor(dialect.Postgres),
 			WithClock(clock.NewClock()),

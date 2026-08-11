@@ -186,7 +186,12 @@ func NewStore(
 		base = append(base, dataprivacy.WithStoreMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewSQLStore(client, append(base, o.store...)...)
+	store, err := dataprivacy.NewSQLStore(client, append(base, o.store...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return store, nil
 }
 
 // NewService builds the Service applications submit through.
@@ -222,7 +227,12 @@ func NewService(
 		base = append(base, dataprivacy.WithServiceMetricsProvider(metricsProvider))
 	}
 
-	return dataprivacy.NewService(ctx, &cfg.Service, store, ops, append(base, o.service...)...)
+	svc, err := dataprivacy.NewService(ctx, &cfg.Service, store, ops, append(base, o.service...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return svc, nil
 }
 
 // NewFulfiller builds the Fulfiller behind this package's operation kinds, and

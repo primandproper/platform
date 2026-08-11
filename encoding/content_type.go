@@ -63,7 +63,7 @@ func (c ContentType) Valid() bool {
 	}
 }
 
-func (e *clientEncoder) ContentType() string {
+func (e *Encoder) ContentType() string {
 	return e.contentType.String()
 }
 

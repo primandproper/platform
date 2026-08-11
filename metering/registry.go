@@ -125,10 +125,12 @@ func (f QuotaSourceFunc) QuotaFor(ctx context.Context, subject, meter string) (Q
 	return f(ctx, subject, meter)
 }
 
-var _ QuotaSource = (*registryQuotaSource)(nil)
+var _ QuotaSource = (*RegistryQuotaSource)(nil)
 
-// registryQuotaSource serves the Registry's static quotas to every subject.
-type registryQuotaSource struct {
+// RegistryQuotaSource serves the Registry's static quotas to every subject. It
+// is exported, and returned by NewRegistryQuotaSource, so a caller can depend on
+// the source it built rather than on the QuotaSource seam.
+type RegistryQuotaSource struct {
 	registry *Registry
 }
 
@@ -138,12 +140,12 @@ type registryQuotaSource struct {
 // It is the right answer for a deployment with one set of limits — an internal
 // service protecting a shared dependency — and the wrong one the moment two
 // customers are supposed to be able to buy different amounts.
-func NewRegistryQuotaSource(registry *Registry) QuotaSource {
-	return &registryQuotaSource{registry: registry}
+func NewRegistryQuotaSource(registry *Registry) *RegistryQuotaSource {
+	return &RegistryQuotaSource{registry: registry}
 }
 
 // QuotaFor implements QuotaSource.
-func (s *registryQuotaSource) QuotaFor(_ context.Context, _, meter string) (Quota, error) {
+func (s *RegistryQuotaSource) QuotaFor(_ context.Context, _, meter string) (Quota, error) {
 	if s.registry == nil {
 		return Quota{}, ErrNilRegistry
 	}

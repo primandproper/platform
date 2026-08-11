@@ -95,12 +95,17 @@ func NewStore(
 		return nil, errors.Wrap(err, "validating saga config")
 	}
 
-	return saga.NewSQLStore(client,
+	store, err := saga.NewSQLStore(client,
 		saga.WithTablePrefix(cfg.TablePrefix),
 		saga.WithStoreLogger(logger),
 		saga.WithStoreTracerProvider(tracerProvider),
 		saga.WithStoreMetricsProvider(metricsProvider),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	return store, nil
 }
 
 // NewWorker builds the Worker that advances instances.

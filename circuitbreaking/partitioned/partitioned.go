@@ -13,11 +13,13 @@ type KeyedCircuitBreaker interface {
 	For(key string) circuitbreaking.CircuitBreaker
 }
 
-var _ KeyedCircuitBreaker = (*keyedBreaker)(nil)
+var _ KeyedCircuitBreaker = (*KeyedBreaker)(nil)
 
-// keyedBreaker is a KeyedCircuitBreaker backed by a map of dedicated breakers and
-// a shared global fallback.
-type keyedBreaker struct {
+// KeyedBreaker is a KeyedCircuitBreaker backed by a map of dedicated breakers and
+// a shared global fallback. It is exported, and returned by
+// NewKeyedCircuitBreaker, so a caller can depend on the breaker it built rather
+// than on the KeyedCircuitBreaker seam.
+type KeyedBreaker struct {
 	global   circuitbreaking.CircuitBreaker
 	breakers map[string]circuitbreaking.CircuitBreaker
 	mu       sync.RWMutex
@@ -25,12 +27,12 @@ type keyedBreaker struct {
 
 // NewKeyedCircuitBreaker returns a KeyedCircuitBreaker that serves each key in
 // breakers from its dedicated CircuitBreaker and any other key from global.
-func NewKeyedCircuitBreaker(global circuitbreaking.CircuitBreaker, breakers map[string]circuitbreaking.CircuitBreaker) KeyedCircuitBreaker {
+func NewKeyedCircuitBreaker(global circuitbreaking.CircuitBreaker, breakers map[string]circuitbreaking.CircuitBreaker) *KeyedBreaker {
 	if breakers == nil {
 		breakers = map[string]circuitbreaking.CircuitBreaker{}
 	}
 
-	return &keyedBreaker{
+	return &KeyedBreaker{
 		global:   global,
 		breakers: breakers,
 	}
@@ -38,7 +40,7 @@ func NewKeyedCircuitBreaker(global circuitbreaking.CircuitBreaker, breakers map[
 
 // For returns the dedicated breaker for key, falling back to the global breaker
 // when key has no dedicated breaker.
-func (k *keyedBreaker) For(key string) circuitbreaking.CircuitBreaker {
+func (k *KeyedBreaker) For(key string) circuitbreaking.CircuitBreaker {
 	k.mu.RLock()
 	cb, ok := k.breakers[key]
 	k.mu.RUnlock()

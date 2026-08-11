@@ -28,7 +28,7 @@ func recordingStore(t *testing.T, env *storeEnv) (Store, *observability.Recordin
 	store := env.newStore(t)
 	recorder := observability.NewRecordingObserver()
 
-	concrete, ok := store.(*sqlStore)
+	concrete, ok := store.(*SQLStore)
 	must.True(t, ok)
 	concrete.o11y = recorder
 

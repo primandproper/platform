@@ -22,11 +22,14 @@ import (
 const serviceName = "elasticsearch_index"
 
 var (
-	_ textsearch.Index[any] = (*indexManager[any])(nil)
+	_ textsearch.Index[any] = (*IndexManager[any])(nil)
 )
 
 type (
-	indexManager[T any] struct {
+	// IndexManager is the Elasticsearch textsearch.Index. It is exported, and
+	// returned by NewIndexManager, so a caller who has chosen Elasticsearch can
+	// depend on that choice rather than on the seam every text index shares.
+	IndexManager[T any] struct {
 		o11y                  observability.Observer
 		circuitBreaker        circuitbreaking.CircuitBreaker
 		esClient              *elasticsearch.Client
@@ -56,7 +59,7 @@ func provideElasticsearchClient(cfg *Config) (*elasticsearch.Client, error) {
 	return c, nil
 }
 
-func NewIndexManager[T any](ctx context.Context, cfg *Config, indexName string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (textsearch.Index[T], error) {
+func NewIndexManager[T any](ctx context.Context, cfg *Config, indexName string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (*IndexManager[T], error) {
 	c, err := provideElasticsearchClient(cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing search client")
@@ -81,7 +84,7 @@ func NewIndexManager[T any](ctx context.Context, cfg *Config, indexName string, 
 		return nil, err
 	}
 
-	im := &indexManager[T]{
+	im := &IndexManager[T]{
 		o11y: observability.NewObserverWithValues(fmt.Sprintf("search_%s", indexName), logger, o.tracerProvider,
 			map[string]any{keys.IndexNameKey: normalizedIndex}),
 		esClient:              c,
@@ -168,7 +171,7 @@ func elasticsearchIsReadyToInit(
 	}
 }
 
-func (sm *indexManager[T]) ensureIndices(ctx context.Context) error {
+func (sm *IndexManager[T]) ensureIndices(ctx context.Context) error {
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 

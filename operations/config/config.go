@@ -100,7 +100,12 @@ func NewStore(cfg *Config, client database.Client, opts ...Option) (operations.S
 		base = append(base, operations.WithStoreMetricsProvider(o.metricsProvider))
 	}
 
-	return operations.NewSQLStore(client, append(base, o.store...)...)
+	store, err := operations.NewSQLStore(client, append(base, o.store...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return store, nil
 }
 
 // NewQueue builds the work queue operations are dispatched through.
@@ -204,7 +209,12 @@ func newServiceOver(
 		base = append(base, operations.WithMetricsProvider(o.metricsProvider))
 	}
 
-	return operations.NewService(ctx, &cfg.Operations, store, queue, registry, append(base, o.service...)...)
+	svc, err := operations.NewService(ctx, &cfg.Operations, store, queue, registry, append(base, o.service...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return svc, nil
 }
 
 // NewWorker builds the run loop over an existing store and queue.

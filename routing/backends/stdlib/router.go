@@ -19,13 +19,17 @@ import (
 	"github.com/primandproper/platform-go/v10/routing/backends/internal/httpmw"
 )
 
-var _ routing.Backend = (*backend)(nil)
+var _ routing.Backend = (*Backend)(nil)
 
-// backend is a net/http.ServeMux implementation of routing.Backend. Global
+// Backend is a net/http.ServeMux implementation of routing.Backend. Global
 // middleware is composed around the mux lazily in Handler; because the mux is
 // wrapped by reference, routes registered after the first Handler call are still
 // served.
-type backend struct {
+//
+// It is exported, and returned by NewBackend, so a caller who has chosen the
+// standard library mux can depend on that choice rather than on the seam every
+// router backend shares.
+type Backend struct {
 	built    http.Handler
 	mux      *http.ServeMux
 	standard []func(http.Handler) http.Handler
@@ -36,7 +40,7 @@ type backend struct {
 
 // NewBackend constructs a net/http-backed routing.Backend with the standard
 // middleware and OpenTelemetry stack installed. Pass it to routing.New.
-func NewBackend(cfg *Config, opts ...Option) routing.Backend {
+func NewBackend(cfg *Config, opts ...Option) *Backend {
 	// A nil config is the zero config, not a panic. The config subpackage
 	// dispatches on Provider and hands whichever sub-config happens to be set —
 	// which is nil unless the deployment filled that provider's section in, so
@@ -49,7 +53,7 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 	tracerProvider := tracing.EnsureTracerProvider(o.tracerProvider)
 	o11y := observability.NewObserver("router", logging.EnsureLogger(o.logger), tracerProvider)
 
-	return &backend{
+	return &Backend{
 		mux: http.NewServeMux(),
 		standard: httpmw.Standard(o11y, &httpmw.StackConfig{
 			TracerProvider:         tracerProvider,
@@ -72,7 +76,7 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 // server ran without the authentication or rate limiting the caller believed it
 // had registered. That is now a panic: a middleware that does not run is not a
 // condition a process should serve traffic in.
-func (b *backend) Use(middleware ...routing.Middleware) {
+func (b *Backend) Use(middleware ...routing.Middleware) {
 	if b.sealed.Load() {
 		panic("routing: Use called after Handler; middleware must be registered before the handler is built")
 	}
@@ -82,19 +86,19 @@ func (b *backend) Use(middleware ...routing.Middleware) {
 
 // Handle registers handler for method at pattern, using net/http's native
 // "METHOD /path/{name}" pattern syntax.
-func (b *backend) Handle(method, pattern string, handler http.Handler) {
+func (b *Backend) Handle(method, pattern string, handler http.Handler) {
 	b.mux.Handle(method+" "+pattern, handler)
 }
 
 // PathValue returns the named path parameter, resolved by the ServeMux from the
 // matched pattern.
-func (b *backend) PathValue(req *http.Request, name string) string {
+func (b *Backend) PathValue(req *http.Request, name string) string {
 	return req.PathValue(name)
 }
 
 // Handler returns the composed http.Handler: the standard middleware stack and
 // any user middleware wrapped around the mux.
-func (b *backend) Handler() http.Handler {
+func (b *Backend) Handler() http.Handler {
 	b.sealed.Store(true)
 
 	b.once.Do(func() {

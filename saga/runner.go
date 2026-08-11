@@ -22,13 +22,17 @@ import (
 // runnerName scopes the runner's spans, logger, and metrics.
 const runnerName = serviceName + "_runner"
 
-// runner is the typed surface over a non-generic Store and Registry.
+var _ Runner[struct{}] = (*StoreRunner[struct{}])(nil)
+
+// StoreRunner is the typed surface over a non-generic Store and Registry. It is
+// exported, and returned by NewRunner, so a caller can depend on the runner it
+// built rather than on the Runner seam.
 //
 // It holds no state of its own beyond its dependencies: everything a saga knows
 // is in the row. That is what makes it safe for the DI container to hold one
-// runner per state type over one shared Store, and for a Worker that has never
+// StoreRunner per state type over one shared Store, and for a Worker that has never
 // heard of T to advance what they start.
-type runner[T any] struct {
+type StoreRunner[T any] struct {
 	store     Store
 	registry  *Registry
 	publisher EventPublisher
@@ -51,7 +55,7 @@ type runner[T any] struct {
 // T is the state type. It must match the type the named definition was
 // registered with; Start and Get report ErrStateTypeMismatch rather than
 // decoding a saga's state into a struct that merely happens to parse.
-func NewRunner[T any](store Store, registry *Registry, opts ...RunnerOption) (Runner[T], error) {
+func NewRunner[T any](store Store, registry *Registry, opts ...RunnerOption) (*StoreRunner[T], error) {
 	if store == nil {
 		return nil, ErrNilStore
 	}
@@ -67,7 +71,7 @@ func NewRunner[T any](store Store, registry *Registry, opts ...RunnerOption) (Ru
 		}
 	}
 
-	r := &runner[T]{
+	r := &StoreRunner[T]{
 		store:           store,
 		registry:        registry,
 		publisher:       o.publisher,
@@ -92,7 +96,7 @@ func NewRunner[T any](store Store, registry *Registry, opts ...RunnerOption) (Ru
 }
 
 // Start implements Runner.
-func (r *runner[T]) Start(ctx context.Context, def string, initial T) (*Instance[T], error) {
+func (r *StoreRunner[T]) Start(ctx context.Context, def string, initial T) (*Instance[T], error) {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
 
@@ -111,7 +115,7 @@ func (r *runner[T]) Start(ctx context.Context, def string, initial T) (*Instance
 }
 
 // StartInTransaction implements Runner.
-func (r *runner[T]) StartInTransaction(
+func (r *StoreRunner[T]) StartInTransaction(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	def string,
@@ -133,7 +137,7 @@ func (r *runner[T]) StartInTransaction(
 }
 
 // start writes the instance and its started event through the given executor.
-func (r *runner[T]) start(
+func (r *StoreRunner[T]) start(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	name string,
@@ -188,7 +192,7 @@ func (r *runner[T]) start(
 }
 
 // Get implements Runner.
-func (r *runner[T]) Get(ctx context.Context, id string) (*Instance[T], error) {
+func (r *StoreRunner[T]) Get(ctx context.Context, id string) (*Instance[T], error) {
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(instanceIDKey, id))
 	defer op.End()
 
@@ -206,7 +210,7 @@ func (r *runner[T]) Get(ctx context.Context, id string) (*Instance[T], error) {
 }
 
 // List implements Runner.
-func (r *runner[T]) List(
+func (r *StoreRunner[T]) List(
 	ctx context.Context,
 	scope *ListScope,
 	page *filtering.QueryFilter,
@@ -236,7 +240,7 @@ func (r *runner[T]) List(
 }
 
 // Resume implements Runner.
-func (r *runner[T]) Resume(ctx context.Context, id string) (*Instance[T], error) {
+func (r *StoreRunner[T]) Resume(ctx context.Context, id string) (*Instance[T], error) {
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(instanceIDKey, id))
 	defer op.End()
 
@@ -304,7 +308,7 @@ func (r *runner[T]) Resume(ctx context.Context, id string) (*Instance[T], error)
 }
 
 // definitionFor resolves a definition and checks that its state type is T.
-func (r *runner[T]) definitionFor(name string) (*definition, error) {
+func (r *StoreRunner[T]) definitionFor(name string) (*definition, error) {
 	def, ok := r.registry.lookup(name)
 	if !ok {
 		return nil, platformerrors.Wrapf(ErrUnknownDefinition, "saga definition %q", name)
@@ -328,7 +332,7 @@ func (r *runner[T]) definitionFor(name string) (*definition, error) {
 // register the code that runs them. What it cannot do is check T, so the
 // mismatch that Start and Resume refuse is here merely a struct decoded from
 // JSON that did not describe it: zero fields rather than a wrong answer.
-func (r *runner[T]) decode(rec *Record) (*Instance[T], error) {
+func (r *StoreRunner[T]) decode(rec *Record) (*Instance[T], error) {
 	def, ok := r.registry.lookup(rec.Definition)
 	if !ok {
 		return decodeInstance[T](rec)

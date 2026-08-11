@@ -127,7 +127,7 @@ func TestSQLStore_CorruptStoredMaps(T *testing.T) {
 func storePrefix(t *testing.T, store Store) string {
 	t.Helper()
 
-	s, ok := store.(*sqlStore)
+	s, ok := store.(*SQLStore)
 	must.True(t, ok)
 
 	return s.tables.prefix()

@@ -76,7 +76,7 @@ func TestRecorderOptions(T *testing.T) {
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metrics.EnsureMetricsProvider(nil)
 
-		r := &recorder{}
+		r := &ChainRecorder{}
 		for _, opt := range []RecorderOption{
 			WithRecorderTablePrefix("custom"),
 			WithRecorderClock(c),
@@ -100,7 +100,7 @@ func TestRecorderOptions(T *testing.T) {
 		t.Parallel()
 
 		c := newStubClock()
-		r := &recorder{prefix: DefaultTablePrefix, clock: c}
+		r := &ChainRecorder{prefix: DefaultTablePrefix, clock: c}
 
 		WithRecorderTablePrefix("")(r)
 		WithRecorderClock(nil)(r)
@@ -127,7 +127,7 @@ func TestReaderOptions(T *testing.T) {
 
 		var logger logging.Logger = loggingnoop.NewLogger()
 
-		r := &reader{}
+		r := &SQLReader{}
 		for _, opt := range []ReaderOption{
 			WithReaderTablePrefix("custom"),
 			WithReaderLogger(logger),
@@ -146,7 +146,7 @@ func TestReaderOptions(T *testing.T) {
 	T.Run("ignore an empty prefix", func(t *testing.T) {
 		t.Parallel()
 
-		r := &reader{prefix: DefaultTablePrefix}
+		r := &SQLReader{prefix: DefaultTablePrefix}
 		WithReaderTablePrefix("")(r)
 
 		test.EqOp(t, DefaultTablePrefix, r.prefix)

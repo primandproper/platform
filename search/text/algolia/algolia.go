@@ -16,13 +16,16 @@ import (
 const serviceName = "algolia_index"
 
 var (
-	_ textsearch.Index[any] = (*indexManager[any])(nil)
+	_ textsearch.Index[any] = (*IndexManager[any])(nil)
 
 	ErrNilConfig = platformerrors.New("nil config provided")
 )
 
 type (
-	indexManager[T any] struct {
+	// IndexManager is the Algolia textsearch.Index. It is exported, and returned
+	// by NewIndexManager, so a caller who has chosen Algolia can depend on that
+	// choice rather than on the seam every text index shares.
+	IndexManager[T any] struct {
 		o11y           observability.Observer
 		circuitBreaker circuitbreaking.CircuitBreaker
 		client         *algolia.Index
@@ -35,7 +38,7 @@ func NewIndexManager[T any](
 	indexName string,
 	circuitBreaker circuitbreaking.CircuitBreaker,
 	opts ...Option,
-) (textsearch.Index[T], error) {
+) (*IndexManager[T], error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -58,7 +61,7 @@ func NewIndexManager[T any](
 		return nil, err
 	}
 
-	im := &indexManager[T]{
+	im := &IndexManager[T]{
 		o11y: observability.NewObserverWithValues(fmt.Sprintf("search_%s", indexName), o.logger, o.tracerProvider,
 			map[string]any{keys.IndexNameKey: indexName}),
 		client:         algolia.NewClientWithConfig(clientConfig).InitIndex(indexName),

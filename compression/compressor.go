@@ -51,30 +51,35 @@ type (
 )
 
 // Option configures a Compressor.
-type Option func(*compressor)
+type Option func(*StandardCompressor)
 
 // WithMaxDecompressedBytes overrides the maximum number of bytes DecompressBytes will
 // produce for a single input. A value of 0 leaves the default (DefaultMaxDecompressedBytes)
 // in place.
 func WithMaxDecompressedBytes(n uint64) Option {
-	return func(c *compressor) {
+	return func(c *StandardCompressor) {
 		if n > 0 {
 			c.maxDecompressedBytes = n
 		}
 	}
 }
 
-type compressor struct {
+var _ Compressor = (*StandardCompressor)(nil)
+
+// StandardCompressor is the Compressor for every supported Algorithm. It is
+// exported, and returned by NewCompressor, so a caller can depend on the
+// compressor it built rather than on the Compressor seam.
+type StandardCompressor struct {
 	algo                 Algorithm
 	maxDecompressedBytes uint64
 }
 
 // NewCompressor returns a new Compressor for the given Algorithm. An unknown or
 // empty Algorithm yields ErrInvalidAlgorithm.
-func NewCompressor(a Algorithm, opts ...Option) (Compressor, error) {
+func NewCompressor(a Algorithm, opts ...Option) (*StandardCompressor, error) {
 	switch a {
 	case AlgorithmZstd, AlgorithmS2:
-		c := &compressor{algo: a, maxDecompressedBytes: DefaultMaxDecompressedBytes}
+		c := &StandardCompressor{algo: a, maxDecompressedBytes: DefaultMaxDecompressedBytes}
 		for _, opt := range opts {
 			opt(c)
 		}
@@ -84,7 +89,7 @@ func NewCompressor(a Algorithm, opts ...Option) (Compressor, error) {
 	}
 }
 
-func (c *compressor) CompressBytes(in []byte) ([]byte, error) {
+func (c *StandardCompressor) CompressBytes(in []byte) ([]byte, error) {
 	switch c.algo {
 	case AlgorithmZstd:
 		var b bytes.Buffer
@@ -126,7 +131,7 @@ func (c *compressor) CompressBytes(in []byte) ([]byte, error) {
 // It copies one byte past the limit and treats reaching that byte as the
 // overflow signal, so the check is on bytes actually produced rather than on
 // anything the input claims about itself.
-func (c *compressor) copyBounded(r io.Reader) ([]byte, error) {
+func (c *StandardCompressor) copyBounded(r io.Reader) ([]byte, error) {
 	limit := int64(c.maxDecompressedBytes)
 
 	var b bytes.Buffer
@@ -143,7 +148,7 @@ func (c *compressor) copyBounded(r io.Reader) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func (c *compressor) DecompressBytes(in []byte) ([]byte, error) {
+func (c *StandardCompressor) DecompressBytes(in []byte) ([]byte, error) {
 	switch c.algo {
 	case AlgorithmZstd:
 		// WithDecoderMaxMemory is a *per-frame* cap, not a total-output one: N

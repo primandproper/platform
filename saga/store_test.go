@@ -499,7 +499,7 @@ func TestSQLStore_Errors(T *testing.T) {
 		// Reaching past the store to corrupt the column, which is the only way
 		// this row ever gets written: nothing in the package writes a non-JSON
 		// step list.
-		concrete, ok := store.(*sqlStore)
+		concrete, ok := store.(*SQLStore)
 		must.True(t, ok)
 
 		_, err := env.client.Writer().ExecContext(t.Context(),

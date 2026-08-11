@@ -226,10 +226,15 @@ func NewScopedLocker(
 			return nil, err
 		}
 
-		return distributedlock.NewScopedLocker(locker,
+		scoped, scopedErr := distributedlock.NewScopedLocker(locker,
 			distributedlock.WithLogger(logger),
 			distributedlock.WithTracerProvider(tracerProvider),
 			distributedlock.WithMetricsProvider(metricsProvider))
+		if scopedErr != nil {
+			return nil, scopedErr
+		}
+
+		return scoped, nil
 	case NoopProvider:
 		return noop.NewScopedLocker(), nil
 	default:

@@ -24,7 +24,7 @@ func TestScopedOptions(T *testing.T) {
 	T.Run("WithLogger sets the logger", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{}
+		s := &PollingScopedLocker{}
 		WithLogger(loggingnoop.NewLogger())(s)
 
 		test.NotNil(t, s.logger)
@@ -33,7 +33,7 @@ func TestScopedOptions(T *testing.T) {
 	T.Run("WithLogger accepts nil, leaving the logger unset", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{logger: loggingnoop.NewLogger()}
+		s := &PollingScopedLocker{logger: loggingnoop.NewLogger()}
 		WithLogger(nil)(s)
 
 		test.Nil(t, s.logger)
@@ -42,7 +42,7 @@ func TestScopedOptions(T *testing.T) {
 	T.Run("WithTracerProvider sets the tracer provider", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{}
+		s := &PollingScopedLocker{}
 		WithTracerProvider(tracingnoop.NewTracerProvider())(s)
 
 		test.NotNil(t, s.tracerProvider)
@@ -51,7 +51,7 @@ func TestScopedOptions(T *testing.T) {
 	T.Run("WithTracerProvider accepts nil, leaving the provider unset", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{tracerProvider: tracingnoop.NewTracerProvider()}
+		s := &PollingScopedLocker{tracerProvider: tracingnoop.NewTracerProvider()}
 		WithTracerProvider(nil)(s)
 
 		test.Nil(t, s.tracerProvider)
@@ -60,7 +60,7 @@ func TestScopedOptions(T *testing.T) {
 	T.Run("WithMetricsProvider sets the metrics provider", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{}
+		s := &PollingScopedLocker{}
 		WithMetricsProvider(metricsnoop.NewMetricsProvider())(s)
 
 		test.NotNil(t, s.metricsProvider)
@@ -69,7 +69,7 @@ func TestScopedOptions(T *testing.T) {
 	T.Run("every option applies independently", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{}
+		s := &PollingScopedLocker{}
 		for _, opt := range []ScopedOption{
 			WithLogger(loggingnoop.NewLogger()),
 			WithTracerProvider(tracingnoop.NewTracerProvider()),
@@ -90,7 +90,7 @@ func TestScopedLocker_grow(T *testing.T) {
 	T.Run("multiplies by the backoff factor", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{pollBackoff: 2, maxPollInterval: time.Minute}
+		s := &PollingScopedLocker{pollBackoff: 2, maxPollInterval: time.Minute}
 
 		test.EqOp(t, 2*time.Second, s.grow(time.Second))
 		test.EqOp(t, 4*time.Second, s.grow(2*time.Second))
@@ -99,7 +99,7 @@ func TestScopedLocker_grow(T *testing.T) {
 	T.Run("a factor of one holds the interval fixed", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{pollBackoff: 1, maxPollInterval: time.Minute}
+		s := &PollingScopedLocker{pollBackoff: 1, maxPollInterval: time.Minute}
 
 		test.EqOp(t, time.Second, s.grow(time.Second))
 	})
@@ -107,7 +107,7 @@ func TestScopedLocker_grow(T *testing.T) {
 	T.Run("clamps to the maximum", func(t *testing.T) {
 		t.Parallel()
 
-		s := &scopedLocker{pollBackoff: 10, maxPollInterval: 5 * time.Second}
+		s := &PollingScopedLocker{pollBackoff: 10, maxPollInterval: 5 * time.Second}
 
 		test.EqOp(t, 5*time.Second, s.grow(time.Second))
 		test.EqOp(t, 5*time.Second, s.grow(5*time.Second))
@@ -120,7 +120,7 @@ func TestScopedLocker_grow(T *testing.T) {
 		// shorter interval would turn a backing-off poller back into a hot one.
 		// A factor below 1 is the direct way to ask for a shorter one.
 		// NewScopedLocker rejects such a factor, so this reaches past it.
-		s := &scopedLocker{pollBackoff: 0.5, maxPollInterval: 30 * time.Second}
+		s := &PollingScopedLocker{pollBackoff: 0.5, maxPollInterval: 30 * time.Second}
 
 		got := s.grow(time.Second)
 		must.EqOp(t, 30*time.Second, got)
@@ -136,7 +136,7 @@ func TestScopedLocker_grow(T *testing.T) {
 		// two exits runs on any given machine. Both must give the same bounded,
 		// positive answer, which is what this asserts without depending on which
 		// one ran.
-		s := &scopedLocker{pollBackoff: math.MaxFloat64, maxPollInterval: 30 * time.Second}
+		s := &PollingScopedLocker{pollBackoff: math.MaxFloat64, maxPollInterval: 30 * time.Second}
 
 		interval := 10 * time.Millisecond
 		for range 100 {

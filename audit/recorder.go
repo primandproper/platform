@@ -40,13 +40,16 @@ type Recorder interface {
 	Record(ctx context.Context, q database.SQLQueryExecutor, entries ...*Entry) error
 }
 
-var _ Recorder = (*recorder)(nil)
+var _ Recorder = (*ChainRecorder)(nil)
 
-// recorder is the SQL Recorder.
+// ChainRecorder is the SQL Recorder, hash-chaining the entries it writes.
 //
 // Like outbox.Writer it holds no database handle: every Record takes the
 // caller's executor, so one Recorder serves every transaction in the process.
-type recorder struct {
+//
+// It is exported, and returned by NewRecorder, so a caller can depend on the
+// recorder it built rather than on the Recorder seam.
+type ChainRecorder struct {
 	clock  clock.Clock
 	o11y   observability.Observer
 	tables *tables
@@ -68,12 +71,12 @@ type recorder struct {
 }
 
 // NewRecorder builds a Recorder for the given dialect.
-func NewRecorder(d dialect.Dialect, opts ...RecorderOption) (Recorder, error) {
+func NewRecorder(d dialect.Dialect, opts ...RecorderOption) (*ChainRecorder, error) {
 	if !d.Valid() {
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "audit dialect %q", d)
 	}
 
-	r := &recorder{
+	r := &ChainRecorder{
 		dialect: d,
 		prefix:  DefaultTablePrefix,
 		clock:   clock.NewClock(),
@@ -108,7 +111,7 @@ func NewRecorder(d dialect.Dialect, opts ...RecorderOption) (Recorder, error) {
 }
 
 // Record appends entries inside the caller's transaction.
-func (r *recorder) Record(ctx context.Context, q database.SQLQueryExecutor, entries ...*Entry) error {
+func (r *ChainRecorder) Record(ctx context.Context, q database.SQLQueryExecutor, entries ...*Entry) error {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
 
@@ -168,7 +171,7 @@ func (r *recorder) Record(ctx context.Context, q database.SQLQueryExecutor, entr
 }
 
 // recordScope chains and inserts one scope's entries.
-func (r *recorder) recordScope(
+func (r *ChainRecorder) recordScope(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	scope string,
@@ -224,7 +227,7 @@ func (r *recorder) recordScope(
 
 // buildRow applies redaction, encodes the field blobs, and computes the entry's
 // hash over the exact bytes that are about to be stored.
-func (r *recorder) buildRow(entry *Entry) (*entryRow, error) {
+func (r *ChainRecorder) buildRow(entry *Entry) (*entryRow, error) {
 	changes, metadata, err := r.redact(entry)
 	if err != nil {
 		return nil, err
@@ -289,7 +292,7 @@ type chainState struct {
 // to avoid a read per write. It should not, and it cannot: the read is not the
 // point of the statement, the lock is, and a cached value would be stale the
 // instant another process wrote to the same scope.
-func (r *recorder) lockChainHead(
+func (r *ChainRecorder) lockChainHead(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	scope string,
@@ -320,7 +323,7 @@ func (r *recorder) lockChainHead(
 
 // readChainHead reads a scope's chain row, taking a row lock where the dialect
 // has them.
-func (r *recorder) readChainHead(ctx context.Context, q database.SQLQueryExecutor, scope string) (*chainState, error) {
+func (r *ChainRecorder) readChainHead(ctx context.Context, q database.SQLQueryExecutor, scope string) (*chainState, error) {
 	query, args := r.tables.buildSelectChainHead(r.dialect, scope, true)
 
 	var (

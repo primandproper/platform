@@ -62,7 +62,7 @@ type ScopedLocker interface {
 
 // ScopedOption configures the generic scoped adapter returned by
 // NewScopedLocker.
-type ScopedOption func(*scopedLocker)
+type ScopedOption func(*PollingScopedLocker)
 
 // WithScopedLockTTL sets the TTL the adapter passes to Acquire. The TTL must
 // comfortably exceed fn's worst-case duration: if the underlying lock expires
@@ -71,7 +71,7 @@ type ScopedOption func(*scopedLocker)
 // increment the scoped_lock_release_failures counter, which is the signal to
 // alert on.
 func WithScopedLockTTL(ttl time.Duration) ScopedOption {
-	return func(s *scopedLocker) {
+	return func(s *PollingScopedLocker) {
 		s.ttl = ttl
 	}
 }
@@ -82,7 +82,7 @@ func WithScopedLockTTL(ttl time.Duration) ScopedOption {
 // clock.Sleep returns immediately for a non-positive duration — and
 // NewScopedLocker rejects it. TryWithLock never polls.
 func WithScopedPollInterval(interval time.Duration) ScopedOption {
-	return func(s *scopedLocker) {
+	return func(s *PollingScopedLocker) {
 		s.pollInterval = interval
 	}
 }
@@ -101,7 +101,7 @@ func WithScopedPollInterval(interval time.Duration) ScopedOption {
 // NewScopedLocker rejects anything else. A factor of exactly 1 disables growth
 // and restores a fixed interval, still jittered.
 func WithScopedPollBackoff(factor float64, maxInterval time.Duration) ScopedOption {
-	return func(s *scopedLocker) {
+	return func(s *PollingScopedLocker) {
 		s.pollBackoff = factor
 		s.maxPollInterval = maxInterval
 	}
@@ -116,7 +116,7 @@ func WithScopedPollBackoff(factor float64, maxInterval time.Duration) ScopedOpti
 // fixed schedule can pass func() float64 { return 1 }, which yields exactly
 // the un-jittered interval. A nil fn is ignored.
 func WithScopedRand(fn retry.Rand) ScopedOption {
-	return func(s *scopedLocker) {
+	return func(s *PollingScopedLocker) {
 		if fn != nil {
 			s.rand = fn
 		}
@@ -127,7 +127,7 @@ func WithScopedRand(fn retry.Rand) ScopedOption {
 // generally do not need it: under testing/synctest the default clock already
 // runs on bubble time, so WithLock's waiting is deterministic and instant.
 func WithScopedClock(c clock.Clock) ScopedOption {
-	return func(s *scopedLocker) {
+	return func(s *PollingScopedLocker) {
 		if c != nil {
 			s.clock = c
 		}
@@ -136,7 +136,7 @@ func WithScopedClock(c clock.Clock) ScopedOption {
 
 // WithLogger attaches a logger. An absent logger logs nowhere.
 func WithLogger(logger logging.Logger) ScopedOption {
-	return func(s *scopedLocker) {
+	return func(s *PollingScopedLocker) {
 		s.logger = logger
 	}
 }
@@ -144,7 +144,7 @@ func WithLogger(logger logging.Logger) ScopedOption {
 // WithTracerProvider attaches a tracer provider, enabling spans on every
 // scoped-lock operation. An absent tracer provider traces nowhere.
 func WithTracerProvider(tracerProvider tracing.Provider) ScopedOption {
-	return func(s *scopedLocker) {
+	return func(s *PollingScopedLocker) {
 		s.tracerProvider = tracerProvider
 	}
 }
@@ -152,13 +152,18 @@ func WithTracerProvider(tracerProvider tracing.Provider) ScopedOption {
 // WithMetricsProvider attaches a metrics provider for the scoped_lock_*
 // counters and histograms. An absent provider records nothing.
 func WithMetricsProvider(metricsProvider metrics.Provider) ScopedOption {
-	return func(s *scopedLocker) {
+	return func(s *PollingScopedLocker) {
 		s.metricsProvider = metricsProvider
 	}
 }
 
-// scopedLocker adapts a Locker into a ScopedLocker: acquire, run, release.
-type scopedLocker struct {
+// PollingScopedLocker adapts a Locker into a ScopedLocker: acquire, run,
+// release. It waits for a contended lock by polling Acquire, which is what
+// distinguishes it from a provider that waits natively.
+//
+// It is exported, and returned by NewScopedLocker, so a caller can depend on the
+// adapter it built rather than on the ScopedLocker seam.
+type PollingScopedLocker struct {
 	o11y            observability.Observer
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
@@ -186,7 +191,7 @@ type scopedLocker struct {
 // grow advances the contended wait toward maxPollInterval. It is computed
 // stepwise rather than as pollInterval*factor^n so a long wait cannot overflow
 // the duration.
-func (s *scopedLocker) grow(interval time.Duration) time.Duration {
+func (s *PollingScopedLocker) grow(interval time.Duration) time.Duration {
 	grown := time.Duration(float64(interval) * s.pollBackoff)
 	if grown < interval {
 		// Overflowed past the duration's range.
@@ -196,7 +201,7 @@ func (s *scopedLocker) grow(interval time.Duration) time.Duration {
 	return min(grown, s.maxPollInterval)
 }
 
-var _ ScopedLocker = (*scopedLocker)(nil)
+var _ ScopedLocker = (*PollingScopedLocker)(nil)
 
 // NewScopedLocker wraps any Locker in scoped execution. WithLock waits for a
 // contended lock by polling Acquire (the Locker atom deliberately has no
@@ -209,12 +214,12 @@ var _ ScopedLocker = (*scopedLocker)(nil)
 // instrumentation describes individual attempts, while scoped_lock_*
 // describes the whole acquire-run-release operation, including fn's duration
 // and the time spent waiting.
-func NewScopedLocker(locker Locker, opts ...ScopedOption) (ScopedLocker, error) {
+func NewScopedLocker(locker Locker, opts ...ScopedOption) (*PollingScopedLocker, error) {
 	if locker == nil {
 		return nil, platformerrors.New("nil locker provided")
 	}
 
-	s := &scopedLocker{
+	s := &PollingScopedLocker{
 		locker: locker,
 		clock:  clock.NewClock(),
 		rand:   retry.DefaultRand,
@@ -283,7 +288,7 @@ func NewScopedLocker(locker Locker, opts ...ScopedOption) (ScopedLocker, error) 
 }
 
 // WithLock implements ScopedLocker, waiting for a contended lock by polling.
-func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
+func (s *PollingScopedLocker) WithLock(ctx context.Context, key string, fn func(ctx context.Context) error) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(keys.LockKeyKey, key))
 	defer op.End()
 
@@ -337,7 +342,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 }
 
 // TryWithLock implements ScopedLocker.
-func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
+func (s *PollingScopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx context.Context) error) (bool, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(keys.LockKeyKey, key))
 	defer op.End()
 
@@ -370,7 +375,7 @@ func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx 
 // attached to the span, and counted separately from acquisition errors rather
 // than only being folded into the returned error, which a caller may never
 // inspect.
-func (s *scopedLocker) run(ctx context.Context, op observability.Operation, held Lock, fn func(ctx context.Context) error) (err error) {
+func (s *PollingScopedLocker) run(ctx context.Context, op observability.Operation, held Lock, fn func(ctx context.Context) error) (err error) {
 	defer func() {
 		releaseErr := held.Release(context.WithoutCancel(ctx))
 		if releaseErr == nil {

@@ -35,11 +35,15 @@ const DefaultTablePrefix = ""
 // like a Service call in every span listing.
 const storeName = serviceName + "_store"
 
-var _ Store = (*sqlStore)(nil)
+var _ Store = (*SQLStore)(nil)
 
-// sqlStore is the SQL-backed Store, against the schema dataprivacy/migrations
+// SQLStore is the SQL-backed Store, against the schema dataprivacy/migrations
 // renders.
-type sqlStore struct {
+//
+// It is exported, and returned by NewSQLStore, so a caller who has chosen SQL
+// storage can depend on that choice rather than on the Store seam every backing
+// shares.
+type SQLStore struct {
 	client database.Client
 	tables *tables
 	o11y   observability.Observer
@@ -68,7 +72,7 @@ type sqlStore struct {
 //
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger, traces to a noop provider, and counts into a noop meter.
-func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) {
+func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
 	}
@@ -78,7 +82,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "dataprivacy dialect %q", d)
 	}
 
-	s := &sqlStore{
+	s := &SQLStore{
 		client:  client,
 		dialect: d,
 		tables:  newTables(DefaultTablePrefix),
@@ -119,7 +123,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 	return s, nil
 }
 
-func (s *sqlStore) Save(ctx context.Context, q database.SQLQueryExecutor, req *Request) error {
+func (s *SQLStore) Save(ctx context.Context, q database.SQLQueryExecutor, req *Request) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -152,7 +156,7 @@ func (s *sqlStore) Save(ctx context.Context, q database.SQLQueryExecutor, req *R
 	return nil
 }
 
-func (s *sqlStore) Get(ctx context.Context, requestID string) (*Request, error) {
+func (s *SQLStore) Get(ctx context.Context, requestID string) (*Request, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -178,7 +182,7 @@ func (s *sqlStore) Get(ctx context.Context, requestID string) (*Request, error) 
 	return req, nil
 }
 
-func (s *sqlStore) List(
+func (s *SQLStore) List(
 	ctx context.Context,
 	subject Subject,
 	filter *filtering.QueryFilter,
@@ -235,7 +239,7 @@ func (s *sqlStore) List(
 	), nil
 }
 
-func (s *sqlStore) Transition(
+func (s *SQLStore) Transition(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	requestID string,
@@ -300,7 +304,7 @@ func (s *sqlStore) Transition(
 	return req, nil
 }
 
-func (s *sqlStore) CompleteExport(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error {
+func (s *SQLStore) CompleteExport(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -332,11 +336,11 @@ func (s *sqlStore) CompleteExport(ctx context.Context, q database.SQLQueryExecut
 // WithTransaction delegates to the client, which begins its own span for the
 // transaction. Wrapping it here would nest a second span around the first and
 // say nothing the client's does not.
-func (s *sqlStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
 	return s.client.WithTransaction(ctx, fn)
 }
 
-func (s *sqlStore) CompleteErasure(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error {
+func (s *SQLStore) CompleteErasure(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -366,7 +370,7 @@ func (s *sqlStore) CompleteErasure(ctx context.Context, q database.SQLQueryExecu
 	return s.guard.Exec(ctx, op, q, query, args, req.ID, "erasure", "completing dataprivacy erasure")
 }
 
-func (s *sqlStore) MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error {
+func (s *SQLStore) MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -390,7 +394,7 @@ func (s *sqlStore) MarkKeyShredded(ctx context.Context, requestID string, at tim
 	return nil
 }
 
-func (s *sqlStore) Fail(ctx context.Context, requestID, lastErr string, at time.Time) (bool, error) {
+func (s *SQLStore) Fail(ctx context.Context, requestID, lastErr string, at time.Time) (bool, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -421,7 +425,7 @@ func (s *sqlStore) Fail(ctx context.Context, requestID, lastErr string, at time.
 	return true, nil
 }
 
-func (s *sqlStore) ExpiringArtifacts(ctx context.Context, now time.Time, limit int) ([]*Request, error) {
+func (s *SQLStore) ExpiringArtifacts(ctx context.Context, now time.Time, limit int) ([]*Request, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
 
@@ -449,7 +453,7 @@ func (s *sqlStore) ExpiringArtifacts(ctx context.Context, now time.Time, limit i
 	return requests, nil
 }
 
-func (s *sqlStore) MarkExpired(ctx context.Context, requestID string, at time.Time) error {
+func (s *SQLStore) MarkExpired(ctx context.Context, requestID string, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -462,7 +466,7 @@ func (s *sqlStore) MarkExpired(ctx context.Context, requestID string, at time.Ti
 	return nil
 }
 
-func (s *sqlStore) LapseUnconfirmed(ctx context.Context, now time.Time, limit int) (int64, error) {
+func (s *SQLStore) LapseUnconfirmed(ctx context.Context, now time.Time, limit int) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
 
@@ -487,7 +491,7 @@ func (s *sqlStore) LapseUnconfirmed(ctx context.Context, now time.Time, limit in
 	return lapsed, nil
 }
 
-func (s *sqlStore) CountOverdue(ctx context.Context, now time.Time) (map[RequestType]int64, error) {
+func (s *SQLStore) CountOverdue(ctx context.Context, now time.Time) (map[RequestType]int64, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -523,7 +527,7 @@ func (s *sqlStore) CountOverdue(ctx context.Context, now time.Time) (map[Request
 	return counts, nil
 }
 
-func (s *sqlStore) Reap(ctx context.Context, before time.Time, limit int) (int64, error) {
+func (s *SQLStore) Reap(ctx context.Context, before time.Time, limit int) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
 

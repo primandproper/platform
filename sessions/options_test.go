@@ -35,7 +35,7 @@ func TestStoreOptions(T *testing.T) {
 		var logger logging.Logger = loggingnoop.NewLogger()
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metricsnoop.NewMetricsProvider()
-		c := clock.NewClock()
+		var c clock.Clock = clock.NewClock()
 
 		o := newStoreOptions([]Option{
 			WithAbsoluteTimeout(time.Hour),
