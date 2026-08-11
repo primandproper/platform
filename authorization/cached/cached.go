@@ -80,16 +80,12 @@ const (
 
 // keyFormatVersion prefixes every cache key.
 //
-// Bump it whenever PermissionSet's encoding changes. Entries written by an
-// older binary then become unreachable rather than mis-decoded, and the cost of
-// that is one round of misses.
-//
-// v2 is that bump. Under v1 a CBOR-backed cache stored every set as the empty
-// map, because PermissionSet's only field is unexported and it taught gob how
-// to encode it but not CBOR. Those entries do not fail to decode — they decode
-// into an empty set, which this package would then serve as an authoritative
-// hit — so they have to be made unreachable by key rather than caught on read.
-const keyFormatVersion = "authzv2"
+// Bump it when PermissionSet's encoding changes and entries under the old one
+// are out there: bumping makes those unreachable rather than mis-decoded, at a
+// cost of one round of misses. Both halves have to hold. The move to
+// MarshalBinary changed the encoding and did not bump, because no deployment of
+// this module exists to have written an entry worth stranding.
+const keyFormatVersion = "authzv1"
 
 // DefaultTTL is the entry lifetime when WithTTL is not supplied.
 const DefaultTTL = 5 * time.Minute

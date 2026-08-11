@@ -221,14 +221,6 @@ func (s *PermissionSet) UnmarshalJSON(data []byte) error {
 // same treatment, and should be round-tripped through cache.NewDefaultCodec in
 // a test to prove it.
 //
-// The payload is the JSON array the GobEncode this replaces produced, but that
-// buys no compatibility with entries an older binary wrote: gob records which
-// of the three external encodings a type used in its type descriptor, so a
-// GobEncoder stream fails to decode into a BinaryMarshaler type. It fails
-// loudly, which is the tolerable half. The CBOR entries are the dangerous half
-// — they decode into an empty set with no error — and neither is reachable
-// after authorization/cached's key format version bump.
-//
 // The error branch is unreachable — the argument is a []Permission, and
 // encoding/json cannot fail on a slice of a string type — and stays only
 // because the interface requires the return and errcheck requires the handling.
