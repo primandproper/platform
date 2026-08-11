@@ -20,7 +20,7 @@ drift.
 		return err
 	}
 
-	srv, err := grpcserver.NewGRPCServer(cfg,
+	srv, err := grpcserver.NewGRPCServer(ctx, cfg,
 		[]grpc.UnaryServerInterceptor{interceptor}, nil, nil,
 		grpcserver.WithLogger(logger), grpcserver.WithTracerProvider(tracerProvider))
 

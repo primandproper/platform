@@ -48,7 +48,10 @@ func setupMetricsProvider(ctx context.Context, logger logging.Logger, serviceNam
 		return nil, nil, ErrNilConfig
 	}
 
-	res := o11yutils.MustOtelResource(ctx, serviceName)
+	res, err := o11yutils.OtelResource(ctx, serviceName)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	options := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpoint(cfg.CollectorEndpoint),
@@ -77,7 +80,10 @@ func setupMetricsProvider(ctx context.Context, logger logging.Logger, serviceNam
 			),
 		),
 	)
-	otel.SetMeterProvider(meterProvider)
+
+	// Registering the global provider is NewMetricsProvider's job, once, after
+	// this returns. Doing it here as well meant every setup assigned the same
+	// process-global twice.
 
 	logger.WithValue("config", cfg).Info("set up meter provider")
 
@@ -154,97 +160,89 @@ func (m *providerImpl) Shutdown(ctx context.Context) error {
 	return errs.ErrorOrNil()
 }
 
-func (m *providerImpl) NewFloat64Counter(name string, options ...metric.Float64CounterOption) (metrics.Float64Counter, error) {
-	logger := m.logger.WithValue("name", name)
-	logger.Info("NewFloat64Counter invoked")
+// qualify prefixes an instrument name with the service name and records the
+// creation at Debug.
+//
+// Each of these was an Info line. A process registers its instruments while
+// starting up — around fifty of them across this repo's packages — so the first
+// thing an operator saw in the log was fifty lines reporting that metrics
+// plumbing had been plumbed, ahead of anything the service had actually done.
+func (m *providerImpl) qualify(name, kind string) string {
+	m.logger.WithValues(map[string]any{
+		"instrument.name": name,
+		"instrument.kind": kind,
+	}).Debug("creating instrument")
 
-	z, err := m.mp.Float64Counter(fmt.Sprintf("%s.%s", m.serviceName, name), options...)
+	return fmt.Sprintf("%s.%s", m.serviceName, name)
+}
+
+func (m *providerImpl) NewFloat64Counter(name string, options ...metric.Float64CounterOption) (metrics.Float64Counter, error) {
+	z, err := m.mp.Float64Counter(m.qualify(name, "float64_counter"), options...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating float64_counter instrument")
 	}
 
 	return &metrics.Float64CounterImpl{X: z}, nil
 }
 
 func (m *providerImpl) NewFloat64Gauge(name string, options ...metric.Float64GaugeOption) (metrics.Float64Gauge, error) {
-	logger := m.logger.WithValue("name", name)
-	logger.Info("NewFloat64Gauge invoked")
-
-	z, err := m.mp.Float64Gauge(fmt.Sprintf("%s.%s", m.serviceName, name), options...)
+	z, err := m.mp.Float64Gauge(m.qualify(name, "float64_gauge"), options...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating float64_gauge instrument")
 	}
 
 	return &metrics.Float64GaugeImpl{X: z}, nil
 }
 
 func (m *providerImpl) NewFloat64UpDownCounter(name string, options ...metric.Float64UpDownCounterOption) (metrics.Float64UpDownCounter, error) {
-	logger := m.logger.WithValue("name", name)
-	logger.Info("NewFloat64UpDownCounter invoked")
-
-	z, err := m.mp.Float64UpDownCounter(fmt.Sprintf("%s.%s", m.serviceName, name), options...)
+	z, err := m.mp.Float64UpDownCounter(m.qualify(name, "float64_up_down_counter"), options...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating float64_up_down_counter instrument")
 	}
 
 	return &metrics.Float64UpDownCounterImpl{X: z}, nil
 }
 
 func (m *providerImpl) NewFloat64Histogram(name string, options ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
-	logger := m.logger.WithValue("name", name)
-	logger.Info("NewFloat64Histogram invoked")
-
-	z, err := m.mp.Float64Histogram(fmt.Sprintf("%s.%s", m.serviceName, name), options...)
+	z, err := m.mp.Float64Histogram(m.qualify(name, "float64_histogram"), options...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating float64_histogram instrument")
 	}
 
 	return &metrics.Float64HistogramImpl{X: z}, nil
 }
 
 func (m *providerImpl) NewInt64Counter(name string, options ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-	logger := m.logger.WithValue("name", name)
-	logger.Info("NewInt64Counter invoked")
-
-	z, err := m.mp.Int64Counter(fmt.Sprintf("%s.%s", m.serviceName, name), options...)
+	z, err := m.mp.Int64Counter(m.qualify(name, "int64_counter"), options...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating int64_counter instrument")
 	}
 
 	return &metrics.Int64CounterImpl{X: z}, nil
 }
 
 func (m *providerImpl) NewInt64Gauge(name string, options ...metric.Int64GaugeOption) (metrics.Int64Gauge, error) {
-	logger := m.logger.WithValue("name", name)
-	logger.Info("NewInt64Gauge invoked")
-
-	z, err := m.mp.Int64Gauge(fmt.Sprintf("%s.%s", m.serviceName, name), options...)
+	z, err := m.mp.Int64Gauge(m.qualify(name, "int64_gauge"), options...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating int64_gauge instrument")
 	}
 
 	return &metrics.Int64GaugeImpl{X: z}, nil
 }
 
 func (m *providerImpl) NewInt64UpDownCounter(name string, options ...metric.Int64UpDownCounterOption) (metrics.Int64UpDownCounter, error) {
-	logger := m.logger.WithValue("name", name)
-	logger.Info("NewInt64UpDownCounter invoked")
-
-	z, err := m.mp.Int64UpDownCounter(fmt.Sprintf("%s.%s", m.serviceName, name), options...)
+	z, err := m.mp.Int64UpDownCounter(m.qualify(name, "int64_up_down_counter"), options...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating int64_up_down_counter instrument")
 	}
 
 	return &metrics.Int64UpDownCounterImpl{X: z}, nil
 }
 
 func (m *providerImpl) NewInt64Histogram(name string, options ...metric.Int64HistogramOption) (metrics.Int64Histogram, error) {
-	logger := m.logger.WithValue("name", name)
-	logger.Info("NewInt64Histogram invoked")
-
-	z, err := m.mp.Int64Histogram(fmt.Sprintf("%s.%s", m.serviceName, name), options...)
+	z, err := m.mp.Int64Histogram(m.qualify(name, "int64_histogram"), options...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating int64_histogram instrument")
 	}
 
 	return &metrics.Int64HistogramImpl{X: z}, nil

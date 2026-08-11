@@ -12,6 +12,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
 	"github.com/shoenig/test"
@@ -53,9 +54,13 @@ func newTestUsageReporter(t *testing.T, status int, body string) (*UsageReporter
 	sc := &client.API{}
 	sc.Init("sk_test_123", &stripe.Backends{API: backend, Connect: backend, Uploads: backend})
 
+	instruments, err := newInstruments(metricsnoop.NewMetricsProvider())
+	must.NoError(t, err)
+
 	return &UsageReporter{
-		client: sc,
-		o11y:   observability.NewObserver(usageImplementationName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
+		client:      sc,
+		o11y:        observability.NewObserver(usageImplementationName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
+		instruments: instruments,
 	}, &captured
 }
 

@@ -10,11 +10,13 @@ import (
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/panicking"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -33,11 +35,11 @@ type (
 	}
 
 	sqsConsumer struct {
-		o11y            observability.Observer
-		consumedCounter metrics.Int64Counter
-		receiver        messageReceiver
-		handlerFunc     func(context.Context, []byte) error
-		queueURL        string
+		o11y        observability.Observer
+		instruments *mqmetrics.Consumer
+		receiver    messageReceiver
+		handlerFunc func(context.Context, []byte) error
+		queueURL    string
 	}
 )
 
@@ -48,9 +50,13 @@ const (
 	maxReceiveBackoff     = 30 * time.Second
 )
 
-// instrumentName renders a queue URL as an identifier fit for an instrument or
-// an instrumentation scope: the last path segment, with anything outside
-// [A-Za-z0-9_.-] replaced.
+// instrumentName renders a queue URL as an identifier fit for an instrumentation
+// scope: the last path segment, with anything outside [A-Za-z0-9_.-] replaced.
+//
+// The instruments themselves no longer need it — they carry constant names and
+// take the queue URL as an attribute, where a colon and a slash are ordinary
+// characters. This is the hazard SQS documented against itself and the other
+// three brokers did not; naming the instruments once removed it for all four.
 func instrumentName(queueURL string) string {
 	name := queueURL
 	if idx := strings.LastIndex(name, "/"); idx >= 0 {
@@ -79,25 +85,19 @@ func provideSQSConsumer(
 	queueURL string,
 	handlerFunc func(context.Context, []byte) error,
 ) (*sqsConsumer, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	// The queue *name*, not the URL: an instrument name is not a free-form
-	// string, and a URL's "https://" contributes a colon and slashes that
-	// OpenTelemetry rejects — so construction failed, but only against a real
-	// metrics provider, which is not what the tests run.
-	consumedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_consumed", instrumentName(queueURL)))
+	instruments, err := mqmetrics.NewConsumer(metricsProvider, queueURL)
 	if err != nil {
-		return nil, fmt.Errorf("creating consumed counter: %w", err)
+		return nil, err
 	}
 
 	return &sqsConsumer{
 		// The queue URL, not the instrument name: the value identifies the queue
 		// for a reader, while instrumentName only has to satisfy OpenTelemetry.
-		o11y:            observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", instrumentName(queueURL)), logger, tracerProvider, map[string]any{keys.TopicKey: queueURL}),
-		receiver:        receiver,
-		queueURL:        queueURL,
-		handlerFunc:     handlerFunc,
-		consumedCounter: consumedCounter,
+		o11y:        observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", instrumentName(queueURL)), logger, tracerProvider, map[string]any{keys.TopicKey: queueURL}),
+		receiver:    receiver,
+		queueURL:    queueURL,
+		handlerFunc: handlerFunc,
+		instruments: instruments,
 	}, nil
 }
 
@@ -118,6 +118,7 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 				return
 			}
 
+			c.instruments.ReceiveFailed(ctx)
 			c.o11y.Logger().Error("receiving SQS messages", err)
 			consumererr.Send(ctx, errs, err)
 
@@ -149,8 +150,11 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 			msgCtx, op := c.o11y.BeginCustom(ctx, "consume_message")
 			op.Set(keys.LengthKey, len(body))
 			op.SpanOnly("message_id", aws.ToString(msg.MessageId))
-			c.consumedCounter.Add(msgCtx, 1)
-			if err = c.handlerFunc(msgCtx, body); err != nil {
+			startedAt := time.Now()
+			err = panicking.Contain(func() error { return c.handlerFunc(msgCtx, body) })
+			c.instruments.Handled(msgCtx, startedAt, err)
+
+			if err != nil {
 				op.Acknowledge(err, "handling SQS message")
 				consumererr.Send(msgCtx, errs, err)
 				op.End()

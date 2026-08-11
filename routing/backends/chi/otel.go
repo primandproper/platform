@@ -38,8 +38,9 @@ func otelMiddleware(serviceName string, metricProvider metrics.Provider) []func(
 				TraceSampledHeader: "X-Trace-Sampled",
 			}),
 			otelchi.WithFilter(func(r *http.Request) bool {
-				// Skip tracing for health checks to avoid noise from load balancers, K8s probes, etc.
-				return !httpmw.IsHealthCheck(r.URL.Path)
+				// Skip tracing for probes and the other operational endpoints, to
+				// avoid noise from load balancers, K8s probes and scrapers.
+				return !httpmw.IsUntraced(r.URL.Path)
 			}),
 		),
 	}

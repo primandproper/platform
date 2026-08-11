@@ -122,7 +122,11 @@ func (s *Sender) Send(ctx context.Context, deviceToken, title, body string, badg
 	res, err := s.client.PushWithContext(ctx, n)
 	if err != nil {
 		s.errorCounter.Add(ctx, 1)
-		return errors.Wrap(err, "apns: push failed")
+		// The rejection path below goes through op.Error and this one used to
+		// return a bare wrap, so the transport failures — the ones where APNs was
+		// unreachable rather than unhappy — were the failures that left a green
+		// span. The FCM sibling reports its equivalent through op.Error.
+		return op.Error(err, "apns: push failed")
 	}
 
 	if !res.Sent() {

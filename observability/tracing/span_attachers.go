@@ -164,8 +164,13 @@ func AttachResponseToSpan(span trace.Span, res *http.Response) {
 }
 
 // AttachErrorToSpan attaches a given error to a span.
+//
+// Like every other attacher here it tolerates a nil or non-recording span. It
+// was the one that did not, which made it the only one whose contract changed
+// depending on whether the caller had a span — and error paths are exactly where
+// callers are least likely to have checked.
 func AttachErrorToSpan(span trace.Span, description string, err error) {
-	if err != nil {
+	if err != nil && recording(span) {
 		span.SetStatus(codes.Error, description)
 		span.RecordError(
 			err,

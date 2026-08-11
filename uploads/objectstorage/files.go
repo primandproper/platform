@@ -23,13 +23,26 @@ var (
 	_ uploads.Lister        = (*Uploader)(nil)
 )
 
+// rejected reports an operation the circuit breaker refused to attempt: it
+// counts the rejection and puts it on the span, then returns the sentinel
+// wrapped with what was being attempted.
+//
+// All eight methods used to return a bare circuitbreaking.ErrCircuitBroken here,
+// which left the span green and no counter moved. errors.Is still matches the
+// sentinel through the wrap, so callers branching on it are unaffected.
+func (u *Uploader) rejected(ctx context.Context, op observability.Operation, operation string) error {
+	u.instruments.rejected(ctx, operation)
+
+	return op.Error(circuitbreaking.ErrCircuitBroken, "%s rejected by open circuit breaker", operation)
+}
+
 // Save writes the contents of r to the object at path.
 func (u *Uploader) Save(ctx context.Context, path string, r io.Reader, opts ...uploads.SaveOption) error {
 	ctx, op := u.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, path))
 	defer op.End()
 
 	if u.circuitBreaker.CannotProceed() {
-		return circuitbreaking.ErrCircuitBroken
+		return u.rejected(ctx, op, opSave)
 	}
 
 	so := uploads.BuildSaveOptions(opts...)
@@ -47,8 +60,7 @@ func (u *Uploader) Save(ctx context.Context, path string, r io.Reader, opts ...u
 		CacheControl: so.CacheControl,
 	})
 	if err != nil {
-		u.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-		u.saveErrCounter.Add(ctx, 1)
+		u.instruments.failed(ctx, opSave, startTime)
 		u.circuitBreaker.Failed()
 		return op.Error(err, "creating object writer")
 	}
@@ -58,52 +70,49 @@ func (u *Uploader) Save(ctx context.Context, path string, r io.Reader, opts ...u
 		cancelWrite()
 	}
 	if err = errors.Join(copyErr, writer.Close()); err != nil {
-		u.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-		u.saveErrCounter.Add(ctx, 1)
+		u.instruments.failed(ctx, opSave, startTime)
 		u.circuitBreaker.Failed()
 		return op.Error(err, "writing object content")
 	}
 
 	op.Set(keys.LengthKey, written)
 
-	u.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	u.saveCounter.Add(ctx, 1)
+	u.instruments.succeeded(ctx, opSave, startTime)
 	u.circuitBreaker.Succeeded()
 	return nil
 }
 
 // Open returns a reader for the object at path. The caller is responsible for closing it.
 func (u *Uploader) Open(ctx context.Context, path string) (io.ReadCloser, error) {
-	return u.openRange(ctx, path, 0, -1, "opening object reader")
+	return u.openRange(ctx, path, 0, -1, opOpen, "opening object reader")
 }
 
 // OpenRange returns a reader over length bytes of the object at path, starting at offset. A
 // negative length reads to the end. The caller is responsible for closing it.
 func (u *Uploader) OpenRange(ctx context.Context, path string, offset, length int64) (io.ReadCloser, error) {
-	return u.openRange(ctx, path, offset, length, "opening ranged object reader")
+	return u.openRange(ctx, path, offset, length, opOpenRange, "opening ranged object reader")
 }
 
-func (u *Uploader) openRange(ctx context.Context, path string, offset, length int64, failureDesc string) (io.ReadCloser, error) {
+func (u *Uploader) openRange(ctx context.Context, path string, offset, length int64, operation, failureDesc string) (io.ReadCloser, error) {
 	ctx, op := u.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, path))
 	defer op.End()
 
 	if u.circuitBreaker.CannotProceed() {
-		return nil, circuitbreaking.ErrCircuitBroken
+		return nil, u.rejected(ctx, op, operation)
 	}
 
 	startTime := time.Now()
 
 	reader, err := u.bucket.NewRangeReader(ctx, path, offset, length, nil)
-	u.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		u.readErrCounter.Add(ctx, 1)
+		u.instruments.failed(ctx, operation, startTime)
 		u.circuitBreaker.Failed()
 		return nil, op.Error(err, "%s", failureDesc)
 	}
 
 	op.Set(keys.LengthKey, reader.Size())
 
-	u.readCounter.Add(ctx, 1)
+	u.instruments.succeeded(ctx, operation, startTime)
 	u.circuitBreaker.Succeeded()
 	return reader, nil
 }
@@ -114,20 +123,19 @@ func (u *Uploader) Delete(ctx context.Context, path string) error {
 	defer op.End()
 
 	if u.circuitBreaker.CannotProceed() {
-		return circuitbreaking.ErrCircuitBroken
+		return u.rejected(ctx, op, opDelete)
 	}
 
 	startTime := time.Now()
 
 	err := u.bucket.Delete(ctx, path)
-	u.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		u.deleteErrCounter.Add(ctx, 1)
+		u.instruments.failed(ctx, opDelete, startTime)
 		u.circuitBreaker.Failed()
 		return op.Error(err, "deleting object")
 	}
 
-	u.deleteCounter.Add(ctx, 1)
+	u.instruments.succeeded(ctx, opDelete, startTime)
 	u.circuitBreaker.Succeeded()
 	return nil
 }
@@ -138,20 +146,19 @@ func (u *Uploader) Exists(ctx context.Context, path string) (bool, error) {
 	defer op.End()
 
 	if u.circuitBreaker.CannotProceed() {
-		return false, circuitbreaking.ErrCircuitBroken
+		return false, u.rejected(ctx, op, opExists)
 	}
 
 	startTime := time.Now()
 
 	exists, err := u.bucket.Exists(ctx, path)
-	u.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		u.readErrCounter.Add(ctx, 1)
+		u.instruments.failed(ctx, opExists, startTime)
 		u.circuitBreaker.Failed()
 		return false, op.Error(err, "checking object existence")
 	}
 
-	u.readCounter.Add(ctx, 1)
+	u.instruments.succeeded(ctx, opExists, startTime)
 	u.circuitBreaker.Succeeded()
 	return exists, nil
 }
@@ -162,20 +169,19 @@ func (u *Uploader) Attributes(ctx context.Context, path string) (*uploads.Attrib
 	defer op.End()
 
 	if u.circuitBreaker.CannotProceed() {
-		return nil, circuitbreaking.ErrCircuitBroken
+		return nil, u.rejected(ctx, op, opAttributes)
 	}
 
 	startTime := time.Now()
 
 	attrs, err := u.bucket.Attributes(ctx, path)
-	u.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		u.readErrCounter.Add(ctx, 1)
+		u.instruments.failed(ctx, opAttributes, startTime)
 		u.circuitBreaker.Failed()
 		return nil, op.Error(err, "fetching object attributes")
 	}
 
-	u.readCounter.Add(ctx, 1)
+	u.instruments.succeeded(ctx, opAttributes, startTime)
 	u.circuitBreaker.Succeeded()
 	return &uploads.Attributes{
 		ContentType:  attrs.ContentType,
@@ -194,7 +200,7 @@ func (u *Uploader) List(ctx context.Context, prefix string) iter.Seq2[uploads.Ob
 		defer op.End()
 
 		if u.circuitBreaker.CannotProceed() {
-			yield(uploads.ObjectInfo{}, circuitbreaking.ErrCircuitBroken)
+			yield(uploads.ObjectInfo{}, u.rejected(spanCtx, op, opList))
 			return
 		}
 
@@ -209,8 +215,7 @@ func (u *Uploader) List(ctx context.Context, prefix string) iter.Seq2[uploads.Ob
 				break
 			}
 			if err != nil {
-				u.latencyHist.Record(spanCtx, float64(time.Since(startTime).Milliseconds()))
-				u.readErrCounter.Add(spanCtx, 1)
+				u.instruments.failed(spanCtx, opList, startTime)
 				u.circuitBreaker.Failed()
 				yield(uploads.ObjectInfo{}, op.Error(err, "listing objects"))
 				return
@@ -229,8 +234,7 @@ func (u *Uploader) List(ctx context.Context, prefix string) iter.Seq2[uploads.Ob
 
 		op.Set("object.count", count)
 
-		u.latencyHist.Record(spanCtx, float64(time.Since(startTime).Milliseconds()))
-		u.readCounter.Add(spanCtx, 1)
+		u.instruments.succeeded(spanCtx, opList, startTime)
 		u.circuitBreaker.Succeeded()
 	}
 }
@@ -242,7 +246,7 @@ func (u *Uploader) SignedURL(ctx context.Context, path string, opts *uploads.Sig
 	defer op.End()
 
 	if u.circuitBreaker.CannotProceed() {
-		return "", circuitbreaking.ErrCircuitBroken
+		return "", u.rejected(ctx, op, opSignedURL)
 	}
 
 	signOpts := &blob.SignedURLOptions{}
@@ -255,14 +259,13 @@ func (u *Uploader) SignedURL(ctx context.Context, path string, opts *uploads.Sig
 	startTime := time.Now()
 
 	signedURL, err := u.bucket.SignedURL(ctx, path, signOpts)
-	u.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
-		u.readErrCounter.Add(ctx, 1)
+		u.instruments.failed(ctx, opSignedURL, startTime)
 		u.circuitBreaker.Failed()
 		return "", op.Error(err, "signing object URL")
 	}
 
-	u.readCounter.Add(ctx, 1)
+	u.instruments.succeeded(ctx, opSignedURL, startTime)
 	u.circuitBreaker.Succeeded()
 	return signedURL, nil
 }

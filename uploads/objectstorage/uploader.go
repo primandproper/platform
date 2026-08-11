@@ -10,7 +10,6 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -36,16 +35,10 @@ var ErrNilConfig = platformerrors.New("nil config provided")
 type (
 	// Uploader implements the uploads.UploadManager interface.
 	Uploader struct {
-		bucket           *blob.Bucket
-		o11y             observability.Observer
-		circuitBreaker   circuitbreaking.CircuitBreaker
-		saveCounter      metrics.Int64Counter
-		readCounter      metrics.Int64Counter
-		deleteCounter    metrics.Int64Counter
-		saveErrCounter   metrics.Int64Counter
-		readErrCounter   metrics.Int64Counter
-		deleteErrCounter metrics.Int64Counter
-		latencyHist      metrics.Float64Histogram
+		bucket         *blob.Bucket
+		o11y           observability.Observer
+		circuitBreaker circuitbreaking.CircuitBreaker
+		instruments    *instruments
 	}
 
 	// Config configures our UploadManager.
@@ -104,53 +97,15 @@ func NewUploadManager(ctx context.Context, cfg *Config, opts ...Option) (*Upload
 
 	serviceName := fmt.Sprintf("%s_uploader", cfg.BucketName)
 
-	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
-
-	saveCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_saves", serviceName))
+	instruments, err := newInstruments(o.metricsProvider, cfg.BucketName)
 	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating save counter")
-	}
-
-	readCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_reads", serviceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating read counter")
-	}
-
-	deleteCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_deletes", serviceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating delete counter")
-	}
-
-	saveErrCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_save_errors", serviceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating save error counter")
-	}
-
-	readErrCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_read_errors", serviceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating read error counter")
-	}
-
-	deleteErrCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_delete_errors", serviceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating delete error counter")
-	}
-
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", serviceName))
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "creating latency histogram")
+		return nil, err
 	}
 
 	u := &Uploader{
-		o11y:             observability.NewObserver(serviceName, o.logger, o.tracerProvider),
-		circuitBreaker:   circuitbreakingcfg.EnsureCircuitBreaker(cb),
-		saveCounter:      saveCounter,
-		readCounter:      readCounter,
-		deleteCounter:    deleteCounter,
-		saveErrCounter:   saveErrCounter,
-		readErrCounter:   readErrCounter,
-		deleteErrCounter: deleteErrCounter,
-		latencyHist:      latencyHist,
+		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
+		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		instruments:    instruments,
 	}
 
 	if err = u.selectBucket(ctx, cfg); err != nil {

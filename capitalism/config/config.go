@@ -97,7 +97,7 @@ func prepare(ctx context.Context, cfg *Config) (string, error) {
 // nil would find a manager that panics on first use.
 func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stripe.EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
 	o := newOptions(opts)
-	logger, tracerProvider := o.logger, o.tracerProvider
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
 	provider, err := prepare(ctx, cfg)
 	if err != nil {
@@ -106,7 +106,7 @@ func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stri
 
 	switch provider {
 	case StripeProvider:
-		m, managerErr := stripe.NewPaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+		m, managerErr := stripe.NewPaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider), stripe.WithMetricsProvider(metricsProvider))
 		if managerErr != nil {
 			return nil, managerErr
 		}
@@ -128,7 +128,7 @@ func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stri
 // nil would find a reporter that panics on first use.
 func NewUsageReporter(ctx context.Context, cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
 	o := newOptions(opts)
-	logger, tracerProvider := o.logger, o.tracerProvider
+	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
 	provider, err := prepare(ctx, cfg)
 	if err != nil {
@@ -137,7 +137,7 @@ func NewUsageReporter(ctx context.Context, cfg *Config, opts ...Option) (capital
 
 	switch provider {
 	case StripeProvider:
-		r, reporterErr := stripe.NewUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+		r, reporterErr := stripe.NewUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider), stripe.WithMetricsProvider(metricsProvider))
 		if reporterErr != nil {
 			return nil, reporterErr
 		}

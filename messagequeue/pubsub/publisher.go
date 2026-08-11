@@ -10,6 +10,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/encoding"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -26,41 +27,25 @@ type (
 	}
 
 	pubSubPublisher struct {
-		o11y              observability.Observer
-		encoder           encoding.ClientEncoder
-		publisher         messagePublisher
-		publishedCounter  metrics.Int64Counter
-		publishErrCounter metrics.Int64Counter
-		latencyHist       metrics.Float64Histogram
+		o11y        observability.Observer
+		encoder     encoding.ClientEncoder
+		publisher   messagePublisher
+		instruments *mqmetrics.Publisher
 	}
 )
 
 // buildPubSubPublisher provides a Pub/Sub-backed pubSubPublisher.
 func buildPubSubPublisher(logger logging.Logger, pubsubClient *pubsub.Publisher, tracerProvider tracing.Provider, metricsProvider metrics.Provider, topic string) (*pubSubPublisher, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	publishedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_published", topic))
+	instruments, err := mqmetrics.NewPublisher(metricsProvider, topic)
 	if err != nil {
-		return nil, fmt.Errorf("creating published counter: %w", err)
-	}
-
-	publishErrCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_publish_errors", topic))
-	if err != nil {
-		return nil, fmt.Errorf("creating publish error counter: %w", err)
-	}
-
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_publish_latency_ms", topic))
-	if err != nil {
-		return nil, fmt.Errorf("creating publish latency histogram: %w", err)
+		return nil, err
 	}
 
 	return &pubSubPublisher{
-		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
-		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
-		publisher:         pubsubClient,
-		publishedCounter:  publishedCounter,
-		publishErrCounter: publishErrCounter,
-		latencyHist:       latencyHist,
+		encoder:     encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
+		o11y:        observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
+		publisher:   pubsubClient,
+		instruments: instruments,
 	}, nil
 }
 
@@ -154,7 +139,7 @@ func (p *pubSubPublisher) Publish(ctx context.Context, data any) error {
 
 	var b bytes.Buffer
 	if err := p.encoder.Encode(ctx, &b, data); err != nil {
-		p.publishErrCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 		return observability.PrepareError(err, op.Span(), "encoding topic message")
 	}
 
@@ -168,14 +153,13 @@ func (p *pubSubPublisher) Publish(ctx context.Context, data any) error {
 	// The Get method blocks until a server-generated ID or an error is returned for the published message.
 	serverID, err := result.Get(ctx)
 	if err != nil {
-		p.publishErrCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 		return op.Error(err, "publishing pubsub message")
 	}
 
 	op.SpanOnly("message_id", serverID)
 
-	p.publishedCounter.Add(ctx, 1)
-	p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	p.instruments.Published(ctx, startTime)
 
 	op.Logger().Debug("published message")
 

@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/panicking"
 
 	"cloud.google.com/go/pubsub/v2"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
@@ -20,11 +23,11 @@ import (
 
 type (
 	pubSubConsumer struct {
-		o11y            observability.Observer
-		consumedCounter metrics.Int64Counter
-		consumer        *pubsub.Client
-		handlerFunc     func(context.Context, []byte) error
-		topic           string
+		o11y        observability.Observer
+		instruments *mqmetrics.Consumer
+		consumer    *pubsub.Client
+		handlerFunc func(context.Context, []byte) error
+		topic       string
 	}
 )
 
@@ -37,19 +40,17 @@ func buildPubSubConsumer(
 	topic string,
 	handlerFunc func(context.Context, []byte) error,
 ) (messagequeue.Consumer, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	consumedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_consumed", topic))
+	instruments, err := mqmetrics.NewConsumer(metricsProvider, topic)
 	if err != nil {
-		return nil, fmt.Errorf("creating consumed counter: %w", err)
+		return nil, err
 	}
 
 	return &pubSubConsumer{
-		topic:           topic,
-		o11y:            observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
-		consumer:        pubsubClient,
-		handlerFunc:     handlerFunc,
-		consumedCounter: consumedCounter,
+		topic:       topic,
+		o11y:        observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
+		consumer:    pubsubClient,
+		handlerFunc: handlerFunc,
+		instruments: instruments,
 	}, nil
 }
 
@@ -92,8 +93,11 @@ func (c *pubSubConsumer) Consume(ctx context.Context, errs chan<- error) {
 			op.SpanOnly("delivery_attempt", *m.DeliveryAttempt)
 		}
 
-		c.consumedCounter.Add(msgCtx, 1)
-		if handleErr := c.handlerFunc(msgCtx, m.Data); handleErr != nil {
+		startedAt := time.Now()
+		handleErr := panicking.Contain(func() error { return c.handlerFunc(msgCtx, m.Data) })
+		c.instruments.Handled(msgCtx, startedAt, handleErr)
+
+		if handleErr != nil {
 			op.Acknowledge(handleErr, "handling pubsub message")
 			m.Nack()
 			consumererr.Send(msgCtx, errs, handleErr)
@@ -101,7 +105,13 @@ func (c *pubSubConsumer) Consume(ctx context.Context, errs chan<- error) {
 			m.Ack()
 		}
 	}); err != nil && ctx.Err() == nil {
+		// Receive only returns on a non-retryable failure, which means this
+		// consumer has stopped consuming. It used to be logged and dropped, so the
+		// owner of errs — the caller that asked to be told about consumer failures
+		// — went on waiting for messages from a subscription nothing was reading.
+		c.instruments.ReceiveFailed(ctx)
 		c.o11y.Logger().Error(fmt.Sprintf("receiving %s pub/sub data", c.topic), err)
+		consumererr.Send(ctx, errs, err)
 	}
 }
 

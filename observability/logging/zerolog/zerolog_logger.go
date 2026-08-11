@@ -3,6 +3,7 @@ package zerolog
 import (
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -16,22 +17,41 @@ import (
 
 const here = "github.com/primandproper/platform-go/v10/"
 
-func init() {
-	// The wrapper's logging methods add exactly one frame between the caller and
-	// zerolog's Caller() capture, so skip one — not two, which pointed one frame
-	// above the actual call site.
-	zerolog.CallerSkipFrameCount++
-	zerolog.DisableSampling(true)
-	zerolog.TimeFieldFormat = time.RFC3339Nano
-	// Emit timestamps in UTC rather than a hardcoded America/Chicago local time.
-	zerolog.TimestampFunc = func() time.Time {
-		return time.Now().UTC()
-	}
-	zerolog.CallerMarshalFunc = func(_ uintptr, file string, line int) string {
-		return strings.TrimPrefix(file, here) + ", line " + strconv.Itoa(line)
-	}
-	zerolog.LevelFieldName = "severity"
+// utcTimestampHook writes each event's timestamp as RFC3339Nano in UTC.
+//
+// zerolog's own Timestamp() reads the package-global TimestampFunc and
+// TimeFieldFormat, which this package used to set at import time — process-wide
+// state that belonged to whichever application happened to link it. A hook is
+// per-logger, so the format travels with the logger that wants it.
+type utcTimestampHook struct{}
+
+func (utcTimestampHook) Run(e *zerolog.Event, _ zerolog.Level, _ string) {
+	e.Str(zerolog.TimestampFieldName, time.Now().UTC().Format(time.RFC3339Nano))
 }
+
+// callerAt resolves the call site skip frames above its own caller, formatted
+// the way this package has always formatted callers.
+//
+// It stands in for zerolog's Caller(), which reads the global
+// CallerSkipFrameCount and CallerMarshalFunc. Resolving the frame here means the
+// skip count is a local constant that can be read against the method using it,
+// rather than a global increment that any other zerolog user in the process
+// could also apply.
+//
+// The TrimPrefix matters only in -trimpath builds, where runtime reports
+// module-relative paths; an untrimmed build keeps its absolute path.
+func callerAt(skip int) string {
+	_, file, line, ok := runtime.Caller(skip + 1)
+	if !ok {
+		return unknownCaller
+	}
+
+	return strings.TrimPrefix(file, here) + ", line " + strconv.Itoa(line)
+}
+
+// unknownCaller stands in when the stack cannot be walked, so the caller field
+// is always present rather than sometimes absent and sometimes empty.
+const unknownCaller = "unknown"
 
 var _ logging.Logger = (*Logger)(nil)
 
@@ -44,19 +64,21 @@ type Logger struct {
 }
 
 // buildZerologger builds a new zerologger.
+//
+// The caller field is attached by the methods that emit, not here. Binding
+// Caller() into the logger's context added it to every event and left Error's
+// own Caller() to add a second copy, so an error logged at the warn or error
+// threshold carried two of them.
 func buildZerologger(level logging.Level) zerolog.Logger {
 	var lvl zerolog.Level
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+	logger := zerolog.New(os.Stdout).Hook(utcTimestampHook{})
 
 	switch level {
 	case logging.DebugLevel:
-		logger = logger.With().Logger()
 		lvl = zerolog.DebugLevel
 	case logging.WarnLevel:
-		logger = logger.With().Caller().Logger()
 		lvl = zerolog.WarnLevel
 	case logging.ErrorLevel:
-		logger = logger.With().Caller().Logger()
 		lvl = zerolog.ErrorLevel
 	default:
 		lvl = zerolog.InfoLevel
@@ -96,11 +118,16 @@ func (l *Logger) Debug(input string) {
 
 // Error satisfies our contract for the logging.Logger Error method.
 func (l *Logger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
+	// Resolved here rather than in a helper, because the frame count has to be
+	// counted from a fixed depth below this method: 1 is whoever called it.
+	caller := callerAt(1)
+
 	if err != nil {
-		l.logger.Error().Stack().Caller().Err(err).Msg(whatWasHappeningWhenErrorOccurred)
+		l.logger.Error().Stack().Str(zerolog.CallerFieldName, caller).Err(err).Msg(whatWasHappeningWhenErrorOccurred)
 		return
 	}
-	l.logger.Error().Caller().Msg(whatWasHappeningWhenErrorOccurred)
+
+	l.logger.Error().Str(zerolog.CallerFieldName, caller).Msg(whatWasHappeningWhenErrorOccurred)
 }
 
 // Clone satisfies our contract for the logging.Logger WithValue method.

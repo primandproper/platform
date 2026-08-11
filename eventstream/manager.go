@@ -191,10 +191,11 @@ func (m *StreamManager[S]) SendToMember(ctx context.Context, groupID, memberID s
 	}
 	m.mu.RUnlock()
 
-	if found {
-		return s.Send(ctx, event)
+	if !found {
+		return op.Error(ErrNoSuchMember, "sending event to member")
 	}
-	return nil
+
+	return s.Send(ctx, event)
 }
 
 // GroupHasStreams returns whether a group has any active streams.

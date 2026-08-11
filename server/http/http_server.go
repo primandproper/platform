@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	perrors "github.com/primandproper/platform-go/v10/errors"
@@ -15,26 +14,10 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	"github.com/primandproper/platform-go/v10/routing"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/net/http2"
 )
 
 const defaultLoggerName = "api_server"
-
-// skipNoisePaths returns false for paths that should not be traced (health checks, apple site association, etc).
-func skipNoisePaths(r *http.Request) bool {
-	path := r.URL.Path
-	if strings.HasPrefix(path, "/_ops_/") {
-		return false
-	}
-	if isProbePath(path) {
-		return false
-	}
-	if path == AppleAppSiteAssociationPath {
-		return false
-	}
-	return true
-}
 
 type (
 	Server interface {
@@ -158,17 +141,17 @@ func (s *server) Shutdown(ctx context.Context) error {
 func (s *server) Serve(ctx context.Context) error {
 	s.logger.Debug("setting up server")
 
-	// The injected provider, not the OTel global: without WithTracerProvider,
-	// otelhttp reads the global, which this package never sets — so request
-	// tracing silently produced nothing while Shutdown dutifully flushed a
-	// provider that had seen none of it.
-	s.httpServer.Handler = otelhttp.NewHandler(
-		s.router.Handler(),
-		"http_server",
-		otelhttp.WithTracerProvider(s.tracerProvider),
-		otelhttp.WithSpanNameFormatter(tracing.FormatSpan),
-		otelhttp.WithFilter(skipNoisePaths),
-	)
+	// The router is served as-is. Request tracing belongs to the routing backend,
+	// which already installs it — otelchi for chi, otelhttp for the rest — and
+	// wrapping the router here as well produced two nested server spans for every
+	// request when both were handed the same provider, which is the default
+	// wiring.
+	//
+	// The backend's is the one worth keeping: chi's reads the matched route
+	// pattern, so its span names distinguish /users/{id} from /orders/{id} rather
+	// than collapsing both onto the request method. The noise paths this wrapper
+	// used to filter are filtered there too, by httpmw.IsUntraced.
+	s.httpServer.Handler = s.router.Handler()
 
 	http2ServerConf := &http2.Server{}
 	if err := http2.ConfigureServer(s.httpServer, http2ServerConf); err != nil {

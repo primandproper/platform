@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
+	"time"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/keys"
@@ -33,6 +35,15 @@ type Logger struct {
 }
 
 // NewOtelSlogLogger builds an OTLP-over-gRPC Logger.
+//
+// It reports nothing about its own construction. It used to announce the
+// collector endpoint through log/slog's global default — a destination, format
+// and level belonging to whatever else in the process had claimed that global,
+// which is exactly what a caller choosing this backend is choosing not to use.
+// Routing the line through the logger being built is no better: the first record
+// the collector receives is then one about having configured the collector, and
+// on an unreachable endpoint it is a record Shutdown has to block trying to
+// flush.
 func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName string, cfg *Config) (*Logger, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
@@ -60,8 +71,6 @@ func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName strin
 	var loggerProvider *log.LoggerProvider
 
 	if cfg.CollectorEndpoint != "" {
-		slog.Info("configuring otelgprc collector handler", slog.String("endpoint", cfg.CollectorEndpoint))
-
 		options := []otlploggrpc.Option{
 			otlploggrpc.WithEndpoint(cfg.CollectorEndpoint),
 		}
@@ -82,10 +91,15 @@ func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName strin
 			return nil, errors.Wrap(err, "instantiating otlploggrpc exporter")
 		}
 
+		res, resErr := o11yutils.OtelResource(ctx, serviceName)
+		if resErr != nil {
+			return nil, resErr
+		}
+
 		// Create the logger provider
 		loggerProvider = log.NewLoggerProvider(
 			log.WithProcessor(log.NewBatchProcessor(logExporter)),
-			log.WithResource(o11yutils.MustOtelResource(ctx, serviceName)),
+			log.WithResource(res),
 			log.WithAttributeCountLimit(128),
 			log.WithAttributeValueLengthLimit(-1),
 		)
@@ -135,23 +149,47 @@ func (l *Logger) SetRequestIDFunc(f logging.RequestIDFunc) {
 	}
 }
 
+// logAt emits a record whose source PC points at the caller of the exported
+// logging method rather than at this wrapper.
+//
+// This is the same fix the log/slog backend carries, and this backend — a copy
+// of that one — was made before it. Calling l.logger.Info/Debug/Error directly
+// leaves slog to walk the stack itself, and it stops at this file, so AddSource
+// and the otelslog bridge's WithSource(true) both attribute every record in the
+// process to whichever of the three methods below emitted it.
+func (l *Logger) logAt(level slog.Level, msg string, attrs ...slog.Attr) {
+	ctx := context.Background()
+	if !l.logger.Enabled(ctx, level) {
+		return
+	}
+
+	var pcs [1]uintptr
+	// Skip [runtime.Callers, logAt, the exported Info/Debug/Error method] so the
+	// captured PC is the caller of that exported method.
+	runtime.Callers(3, pcs[:])
+	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
+	r.AddAttrs(attrs...)
+	_ = l.logger.Handler().Handle(ctx, r) //nolint:errcheck // logging is best-effort
+}
+
 // Info satisfies our contract for the logging.Logger Info method.
 func (l *Logger) Info(input string) {
-	l.logger.Info(input)
+	l.logAt(slog.LevelInfo, input)
 }
 
 // Debug satisfies our contract for the logging.Logger Debug method.
 func (l *Logger) Debug(input string) {
-	l.logger.Debug(input)
+	l.logAt(slog.LevelDebug, input)
 }
 
 // Error satisfies our contract for the logging.Logger Error method.
 func (l *Logger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
 	if err != nil {
-		l.logger.Error(whatWasHappeningWhenErrorOccurred, slog.Any("error", err))
+		l.logAt(slog.LevelError, whatWasHappeningWhenErrorOccurred, slog.Any("error", err))
 		return
 	}
-	l.logger.Error(whatWasHappeningWhenErrorOccurred)
+
+	l.logAt(slog.LevelError, whatWasHappeningWhenErrorOccurred)
 }
 
 // Clone satisfies our contract for the logging.Logger WithValue method.

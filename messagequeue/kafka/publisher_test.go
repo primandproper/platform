@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/encoding"
 	encodingmock "github.com/primandproper/platform-go/v10/encoding/mock"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -51,15 +52,7 @@ func buildTestPublisher(t *testing.T) (*kafkaPublisher, *mockKafkaWriter, *obser
 
 	writer := &mockKafkaWriter{}
 
-	mp := metricsnoop.NewMetricsProvider()
-
-	publishedCounter, err := mp.NewInt64Counter("test_published")
-	must.NoError(t, err)
-
-	publishErrCounter, err := mp.NewInt64Counter("test_publish_errors")
-	must.NoError(t, err)
-
-	latencyHist, err := mp.NewFloat64Histogram("test_publish_latency_ms")
+	instruments, err := mqmetrics.NewPublisher(metricsnoop.NewMetricsProvider(), t.Name())
 	must.NoError(t, err)
 
 	// Seeded as provideKafkaPublisher seeds it: the topic is stated once at
@@ -67,13 +60,11 @@ func buildTestPublisher(t *testing.T) (*kafkaPublisher, *mockKafkaWriter, *obser
 	obs := observability.NewRecordingObserverWithValues(map[string]any{keys.TopicKey: t.Name()})
 
 	pub := &kafkaPublisher{
-		writer:            writer,
-		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON),
-		o11y:              obs,
-		topic:             t.Name(),
-		publishedCounter:  publishedCounter,
-		publishErrCounter: publishErrCounter,
-		latencyHist:       latencyHist,
+		writer:      writer,
+		encoder:     encoding.NewClientEncoder(encoding.ContentTypeJSON),
+		o11y:        obs,
+		topic:       t.Name(),
+		instruments: instruments,
 	}
 
 	return pub, writer, obs
@@ -460,17 +451,13 @@ func Test_publisherProvider_Close(T *testing.T) {
 			closeFunc: func() error { return nil },
 		}
 
-		mp := metricsnoop.NewMetricsProvider()
-		publishedCounter, _ := mp.NewInt64Counter("test_published")
-		publishErrCounter, _ := mp.NewInt64Counter("test_publish_errors")
-		latencyHist, _ := mp.NewFloat64Histogram("test_publish_latency_ms")
+		instruments, err := mqmetrics.NewPublisher(metricsnoop.NewMetricsProvider(), t.Name())
+		must.NoError(t, err)
 
 		provider.publisherCache[t.Name()] = &kafkaPublisher{
-			writer:            mw,
-			o11y:              observability.NewObserverForTest(t.Name()),
-			publishedCounter:  publishedCounter,
-			publishErrCounter: publishErrCounter,
-			latencyHist:       latencyHist,
+			writer:      mw,
+			o11y:        observability.NewObserverForTest(t.Name()),
+			instruments: instruments,
 		}
 
 		provider.Close()

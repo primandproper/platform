@@ -5,16 +5,19 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/internal/redisclient"
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/panicking"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -30,19 +33,17 @@ type (
 	}
 
 	redisConsumer struct {
-		o11y            observability.Observer
-		consumedCounter metrics.Int64Counter
-		handlerFunc     func(context.Context, []byte) error
-		subscription    channelProvider
+		o11y         observability.Observer
+		instruments  *mqmetrics.Consumer
+		handlerFunc  func(context.Context, []byte) error
+		subscription channelProvider
 	}
 )
 
 func provideRedisConsumer(ctx context.Context, logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, redisClient subscriptionProvider, topic string, handlerFunc func(context.Context, []byte) error) (*redisConsumer, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	consumedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_consumed", topic))
+	instruments, err := mqmetrics.NewConsumer(metricsProvider, topic)
 	if err != nil {
-		return nil, fmt.Errorf("creating consumed counter: %w", err)
+		return nil, err
 	}
 
 	subscription := redisClient.Subscribe(ctx, topic)
@@ -58,10 +59,10 @@ func provideRedisConsumer(ctx context.Context, logger logging.Logger, tracerProv
 	logger.Debug("subscribed to topic!")
 
 	return &redisConsumer{
-		handlerFunc:     handlerFunc,
-		subscription:    subscription,
-		o11y:            observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
-		consumedCounter: consumedCounter,
+		handlerFunc:  handlerFunc,
+		subscription: subscription,
+		o11y:         observability.NewObserverWithValues(fmt.Sprintf("%s_consumer", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
+		instruments:  instruments,
 	}, nil
 }
 
@@ -90,8 +91,12 @@ func (r *redisConsumer) Consume(ctx context.Context, errs chan<- error) {
 			}
 			msgCtx, op := r.o11y.BeginCustom(ctx, "consume_message")
 			op.Set(keys.LengthKey, len(msg.Payload))
-			r.consumedCounter.Add(msgCtx, 1)
-			if err := r.handlerFunc(msgCtx, []byte(msg.Payload)); err != nil {
+
+			startedAt := time.Now()
+			err := panicking.Contain(func() error { return r.handlerFunc(msgCtx, []byte(msg.Payload)) })
+			r.instruments.Handled(msgCtx, startedAt, err)
+
+			if err != nil {
 				op.Acknowledge(err, "handling message")
 				consumererr.Send(msgCtx, errs, err)
 			}

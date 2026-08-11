@@ -265,7 +265,10 @@ func (i *Cache[T]) Set(ctx context.Context, key string, value *T, opts ...cache.
 	if setErr := i.client.Set(ctx, i.key(key), encoded, cache.EffectiveExpiry(i.expiration, opts...)).Err(); setErr != nil {
 		i.cacheErrCounter.Add(ctx, 1)
 		i.circuitBreaker.Failed()
-		return setErr
+		// Every read path here reports through op.Error; the writes returned bare,
+		// so a trace showed a red span for a cache miss and a green one for a
+		// write that never reached redis.
+		return op.Error(setErr, "setting cache value")
 	}
 
 	i.circuitBreaker.Succeeded()
@@ -351,7 +354,7 @@ func (i *Cache[T]) Delete(ctx context.Context, key string) error {
 	if err := i.client.Del(ctx, i.key(key)).Err(); err != nil {
 		i.cacheErrCounter.Add(ctx, 1)
 		i.circuitBreaker.Failed()
-		return err
+		return op.Error(err, "deleting from cache")
 	}
 
 	i.circuitBreaker.Succeeded()
@@ -505,8 +508,34 @@ func (i *Cache[T]) scanAndDelete(ctx context.Context, c scanDelClient, pattern s
 	}
 }
 
+// Ping reports whether redis is reachable.
+//
+// It goes through the observer and the breaker like every other method. It used
+// to bypass both, which made the one call whose entire purpose is to report
+// reachability the one call that neither recorded a failure nor let the breaker
+// learn from it — and left a health check hitting a dead redis emitting nothing.
+//
+// A refusal from an open breaker is ErrUnavailable rather than a redis error:
+// the breaker is open precisely because redis has been failing, and answering
+// "unavailable" without waiting for another timeout is the point of having one.
 func (i *Cache[T]) Ping(ctx context.Context) error {
-	return i.client.Ping(ctx).Err()
+	ctx, op := i.o11y.Begin(ctx)
+	defer op.End()
+
+	if i.circuitBreaker.CannotProceed() {
+		return op.Error(cache.ErrUnavailable, "pinging cache")
+	}
+
+	if err := i.client.Ping(ctx).Err(); err != nil {
+		i.cacheErrCounter.Add(ctx, 1)
+		i.circuitBreaker.Failed()
+
+		return op.Error(err, "pinging cache")
+	}
+
+	i.circuitBreaker.Succeeded()
+
+	return nil
 }
 
 // GetMany fetches multiple keys, returning only those that were present. In
@@ -626,7 +655,7 @@ func (i *Cache[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cac
 		if err := i.client.Eval(ctx, batchSetScript, group, args...).Err(); err != nil {
 			i.cacheErrCounter.Add(ctx, 1)
 			i.circuitBreaker.Failed()
-			return err
+			return op.Error(err, "setting many cache values")
 		}
 	}
 

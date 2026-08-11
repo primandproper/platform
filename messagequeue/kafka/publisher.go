@@ -9,6 +9,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/encoding"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -25,13 +26,11 @@ type (
 	}
 
 	kafkaPublisher struct {
-		o11y              observability.Observer
-		encoder           encoding.ClientEncoder
-		writer            kafkaWriter
-		publishedCounter  metrics.Int64Counter
-		publishErrCounter metrics.Int64Counter
-		latencyHist       metrics.Float64Histogram
-		topic             string
+		o11y        observability.Observer
+		encoder     encoding.ClientEncoder
+		writer      kafkaWriter
+		instruments *mqmetrics.Publisher
+		topic       string
 	}
 )
 
@@ -53,19 +52,18 @@ func (p *kafkaPublisher) Publish(ctx context.Context, data any) error {
 
 	var b bytes.Buffer
 	if err := p.encoder.Encode(ctx, &b, data); err != nil {
-		p.publishErrCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 		return op.Error(err, "encoding topic message")
 	}
 
 	op.Set(keys.LengthKey, b.Len())
 
 	if err := p.writer.WriteMessages(ctx, kafka.Message{Value: b.Bytes()}); err != nil {
-		p.publishErrCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 		return op.Error(err, "publishing message")
 	}
 
-	p.publishedCounter.Add(ctx, 1)
-	p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	p.instruments.Published(ctx, startTime)
 
 	return nil
 }
@@ -78,21 +76,9 @@ func (p *kafkaPublisher) PublishAsync(ctx context.Context, data any) {
 }
 
 func provideKafkaPublisher(logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, brokers []string, topic string) (*kafkaPublisher, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	publishedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_published", topic))
+	instruments, err := mqmetrics.NewPublisher(metricsProvider, topic)
 	if err != nil {
-		return nil, fmt.Errorf("creating published counter: %w", err)
-	}
-
-	publishErrCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_publish_errors", topic))
-	if err != nil {
-		return nil, fmt.Errorf("creating publish error counter: %w", err)
-	}
-
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_publish_latency_ms", topic))
-	if err != nil {
-		return nil, fmt.Errorf("creating publish latency histogram: %w", err)
+		return nil, err
 	}
 
 	writer := &kafka.Writer{
@@ -107,13 +93,11 @@ func provideKafkaPublisher(logger logging.Logger, tracerProvider tracing.Provide
 	}
 
 	return &kafkaPublisher{
-		writer:            writer,
-		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
-		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
-		topic:             topic,
-		publishedCounter:  publishedCounter,
-		publishErrCounter: publishErrCounter,
-		latencyHist:       latencyHist,
+		writer:      writer,
+		encoder:     encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
+		o11y:        observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
+		topic:       topic,
+		instruments: instruments,
 	}, nil
 }
 

@@ -38,9 +38,14 @@ func SetupCloudTrace(ctx context.Context, serviceName string, spanCollectionProb
 		return nil, errors.Wrap(err, "setting up trace exporter")
 	}
 
+	res, err := o11yutils.OtelResource(ctx, serviceName)
+	if err != nil {
+		return nil, err
+	}
+
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(o11yutils.MustOtelResource(ctx, serviceName)),
+		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(spanCollectionProbability)),
 	)
 

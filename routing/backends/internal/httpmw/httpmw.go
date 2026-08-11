@@ -18,6 +18,7 @@ package httpmw
 import (
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/routing"
@@ -48,6 +49,33 @@ var healthCheckPaths = map[string]bool{
 // IsHealthCheck reports whether path is an operational health-check endpoint.
 func IsHealthCheck(path string) bool {
 	return healthCheckPaths[path]
+}
+
+const (
+	// operationalPathPrefix is the prefix server/http mounts its operational
+	// endpoints under — probes, version, and whatever else is scraped rather than
+	// requested by a user.
+	operationalPathPrefix = "/_ops_/"
+
+	// appleAppSiteAssociationPath is the well-known path iOS fetches. Like the
+	// probe paths above it is spelled out rather than imported: it is declared in
+	// server/http, which is built on routing, so the constant cannot travel in
+	// this direction.
+	appleAppSiteAssociationPath = "/.well-known/apple-app-site-association"
+)
+
+// IsUntraced reports whether path should produce no server span.
+//
+// It is a superset of IsHealthCheck: everything under the operational prefix and
+// the Apple site-association file, all of which are fetched on a timer by
+// something that is not a user and none of which is worth a trace.
+//
+// The distinction from IsHealthCheck is deliberate — route logging still wants
+// to see a request to /_ops_/version, while tracing does not.
+func IsUntraced(path string) bool {
+	return IsHealthCheck(path) ||
+		strings.HasPrefix(path, operationalPathPrefix) ||
+		path == appleAppSiteAssociationPath
 }
 
 // Chain wraps h with mws so that mws[0] is the outermost handler (the first to

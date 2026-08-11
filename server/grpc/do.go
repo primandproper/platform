@@ -1,6 +1,8 @@
 package grpc
 
 import (
+	"context"
+
 	"github.com/primandproper/platform-go/v10/healthcheck"
 	"github.com/primandproper/platform-go/v10/internal/injection"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -33,6 +35,9 @@ func RegisterGRPCServer(i do.Injector) {
 		}
 
 		return NewGRPCServer(
+			// context.Background() mirrors the HTTP sibling's registration; the
+			// registered context belongs to the consistency sweep that changes both.
+			context.Background(),
 			do.MustInvoke[*Config](i),
 			do.MustInvoke[[]grpc.UnaryServerInterceptor](i),
 			do.MustInvoke[[]grpc.StreamServerInterceptor](i),

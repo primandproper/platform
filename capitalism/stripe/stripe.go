@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/primandproper/platform-go/v10/capitalism"
 	"github.com/primandproper/platform-go/v10/encoding"
@@ -80,6 +81,7 @@ type (
 		encoderDecoder encoding.ServerEncoderDecoder
 		client         *client.API
 		handler        EventHandler
+		instruments    *instruments
 		verifier       inbound.Verifier
 	}
 )
@@ -95,10 +97,16 @@ func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (*Paym
 
 	o := newOptions(opts)
 
+	instruments, err := newInstruments(o.metricsProvider)
+	if err != nil {
+		return nil, err
+	}
+
 	m := &PaymentManager{
 		encoderDecoder: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON, encoding.WithLogger(o.logger), encoding.WithTracerProvider(o.tracerProvider)),
 		o11y:           observability.NewObserver(implementationName, o.logger, o.tracerProvider),
 		handler:        handler,
+		instruments:    instruments,
 	}
 
 	if cfg.APIKey != "" {
@@ -108,9 +116,9 @@ func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (*Paym
 	}
 
 	if cfg.WebhookSecret != "" {
-		verifier, err := inbound.NewStripeVerifier(cfg.WebhookSecret)
-		if err != nil {
-			return nil, platformerrors.Wrap(err, "building the stripe webhook verifier")
+		verifier, verifierErr := inbound.NewStripeVerifier(cfg.WebhookSecret)
+		if verifierErr != nil {
+			return nil, platformerrors.Wrap(verifierErr, "building the stripe webhook verifier")
 		}
 
 		m.verifier = verifier
@@ -130,9 +138,12 @@ func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (*Paym
 // to how long the handler takes. A service whose handler does anything slow should mount an
 // inbound.Receiver instead, which publishes the delivery and acks; this path exists for
 // handlers that are genuinely fast.
-func (s *PaymentManager) HandleEventWebhook(req *http.Request) error {
+func (s *PaymentManager) HandleEventWebhook(req *http.Request) (err error) {
 	ctx, op := s.o11y.Begin(req.Context())
 	defer op.End()
+
+	startedAt := time.Now()
+	defer func() { s.instruments.record(ctx, opHandleWebhook, startedAt, err) }()
 
 	if s.verifier == nil {
 		return op.Error(ErrWebhookSecretNotConfigured, "verifying webhook signature")
@@ -196,9 +207,12 @@ func (s *PaymentManager) HandleEventWebhook(req *http.Request) error {
 }
 
 // CreateCustomer creates a Stripe customer.
-func (s *PaymentManager) CreateCustomer(ctx context.Context, input *capitalism.CustomerCreationInput) (string, error) {
+func (s *PaymentManager) CreateCustomer(ctx context.Context, input *capitalism.CustomerCreationInput) (_ string, err error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
+
+	startedAt := time.Now()
+	defer func() { s.instruments.record(ctx, opCreateCustomer, startedAt, err) }()
 
 	if input == nil {
 		return "", op.Error(platformerrors.ErrNilInputParameter, "creating customer")
@@ -227,9 +241,12 @@ func (s *PaymentManager) CreateCustomer(ctx context.Context, input *capitalism.C
 }
 
 // CreatePaymentIntent creates a Stripe payment intent.
-func (s *PaymentManager) CreatePaymentIntent(ctx context.Context, input *capitalism.PaymentIntentCreationInput) (*capitalism.PaymentIntent, error) {
+func (s *PaymentManager) CreatePaymentIntent(ctx context.Context, input *capitalism.PaymentIntentCreationInput) (_ *capitalism.PaymentIntent, err error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
+
+	startedAt := time.Now()
+	defer func() { s.instruments.record(ctx, opCreatePaymentIntent, startedAt, err) }()
 
 	if input == nil {
 		return nil, op.Error(platformerrors.ErrNilInputParameter, "creating payment intent")
@@ -262,9 +279,12 @@ func (s *PaymentManager) CreatePaymentIntent(ctx context.Context, input *capital
 }
 
 // CreateSubscription creates a Stripe subscription for a customer on a single price.
-func (s *PaymentManager) CreateSubscription(ctx context.Context, input *capitalism.SubscriptionCreationInput) (string, error) {
+func (s *PaymentManager) CreateSubscription(ctx context.Context, input *capitalism.SubscriptionCreationInput) (_ string, err error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
+
+	startedAt := time.Now()
+	defer func() { s.instruments.record(ctx, opCreateSubscription, startedAt, err) }()
 
 	if input == nil {
 		return "", op.Error(platformerrors.ErrNilInputParameter, "creating subscription")

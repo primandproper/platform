@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/distributedlock"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/identifiers"
@@ -33,6 +34,7 @@ type held struct {
 // reference implementation of the lock semantics.
 type Locker struct {
 	o11y           observability.Observer
+	clock          clock.Clock
 	held           map[string]*held
 	acquireCounter metrics.Int64Counter
 	releaseCounter metrics.Int64Counter
@@ -69,8 +71,14 @@ func NewLocker(opts ...Option) (*Locker, error) {
 		return nil, errors.Wrap(err, "creating latency histogram")
 	}
 
+	lockClock := o.clock
+	if lockClock == nil {
+		lockClock = clock.NewClock()
+	}
+
 	return &Locker{
 		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
+		clock:          lockClock,
 		held:           make(map[string]*held),
 		acquireCounter: acquireCounter,
 		releaseCounter: releaseCounter,
@@ -95,9 +103,9 @@ func (l *Locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 		return nil, distributedlock.ErrInvalidTTL
 	}
 
-	startTime := time.Now()
+	startTime := l.clock.Now()
 	defer func() {
-		l.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+		l.latencyHist.Record(ctx, float64(l.clock.Since(startTime).Milliseconds()))
 	}()
 
 	l.mu.Lock()
@@ -107,20 +115,20 @@ func (l *Locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 	// only reclaims a key that is acquired again; without this sweep, keys acquired
 	// once and never re-acquired would accumulate for the life of the process. n is
 	// the number of live locks, which for this single-process backend is small.
-	now := time.Now()
+	now := l.clock.Now()
 	for k, h := range l.held {
 		if now.After(h.expires) {
 			delete(l.held, k)
 		}
 	}
 
-	if existing, ok := l.held[key]; ok && time.Now().Before(existing.expires) {
+	if existing, ok := l.held[key]; ok && now.Before(existing.expires) {
 		l.contendCounter.Add(ctx, 1)
 		return nil, distributedlock.ErrLockNotAcquired
 	}
 
 	token := identifiers.New()
-	l.held[key] = &held{token: token, expires: time.Now().Add(ttl)}
+	l.held[key] = &held{token: token, expires: now.Add(ttl)}
 	l.acquireCounter.Add(ctx, 1)
 
 	return &lock{
@@ -147,13 +155,28 @@ func (l *Locker) Close() error {
 
 // release is the internal release path called by lock handles. It runs under the
 // Locker's mutex and verifies the token still owns the key.
+//
+// It spans and times like Acquire does. Both siblings instrument this path; this
+// one counted the successes and recorded nothing else, so a release that failed
+// because the lock had already expired left no trace at all — which is the case
+// worth seeing, since it means someone else may already hold the key.
 func (l *Locker) release(ctx context.Context, key, token string) error {
+	ctx, op := l.o11y.BeginCustom(ctx, "release")
+	defer op.End()
+
+	op.Set(keys.LockKeyKey, key)
+
+	startTime := l.clock.Now()
+	defer func() {
+		l.latencyHist.Record(ctx, float64(l.clock.Since(startTime).Milliseconds()))
+	}()
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	current, ok := l.held[key]
-	if !ok || current.token != token || time.Now().After(current.expires) {
-		return distributedlock.ErrLockNotHeld
+	if !ok || current.token != token || l.clock.Now().After(current.expires) {
+		return op.Error(distributedlock.ErrLockNotHeld, "releasing lock")
 	}
 	delete(l.held, key)
 	l.releaseCounter.Add(ctx, 1)
@@ -163,17 +186,30 @@ func (l *Locker) release(ctx context.Context, key, token string) error {
 // refresh is the internal refresh path called by lock handles. It runs under the
 // Locker's mutex and verifies the token still owns the key before extending TTL.
 func (l *Locker) refresh(ctx context.Context, key, token string, ttl time.Duration) error {
+	ctx, op := l.o11y.BeginCustom(ctx, "refresh")
+	defer op.End()
+
+	op.Set(keys.LockKeyKey, key).Set(keys.LockTTLKey, ttl)
+
 	if ttl <= 0 {
-		return distributedlock.ErrInvalidTTL
+		return op.Error(distributedlock.ErrInvalidTTL, "refreshing lock")
 	}
+
+	startTime := l.clock.Now()
+	defer func() {
+		l.latencyHist.Record(ctx, float64(l.clock.Since(startTime).Milliseconds()))
+	}()
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	now := l.clock.Now()
+
 	current, ok := l.held[key]
-	if !ok || current.token != token || time.Now().After(current.expires) {
-		return distributedlock.ErrLockNotHeld
+	if !ok || current.token != token || now.After(current.expires) {
+		return op.Error(distributedlock.ErrLockNotHeld, "refreshing lock")
 	}
-	current.expires = time.Now().Add(ttl)
+	current.expires = now.Add(ttl)
 	l.refreshCounter.Add(ctx, 1)
 	return nil
 }

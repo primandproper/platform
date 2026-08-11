@@ -238,7 +238,7 @@ func TestNewGRPCServer_health(T *testing.T) {
 	T.Run("registers the health service when given a registry", func(t *testing.T) {
 		t.Parallel()
 
-		srv, err := NewGRPCServer(&Config{}, nil, nil, nil, WithHealthRegistry(healthcheck.NewRegistry()))
+		srv, err := NewGRPCServer(t.Context(), &Config{}, nil, nil, nil, WithHealthRegistry(healthcheck.NewRegistry()))
 		must.NoError(t, err)
 
 		_, registered := srv.grpcServer.GetServiceInfo()[grpc_health_v1.Health_ServiceDesc.ServiceName]
@@ -250,7 +250,7 @@ func TestNewGRPCServer_health(T *testing.T) {
 
 		// Opt-in, because gRPC panics on a service registered twice and an
 		// application may register its own health implementation.
-		srv, err := NewGRPCServer(&Config{}, nil, nil, nil)
+		srv, err := NewGRPCServer(t.Context(), &Config{}, nil, nil, nil)
 		must.NoError(t, err)
 
 		_, registered := srv.grpcServer.GetServiceInfo()[grpc_health_v1.Health_ServiceDesc.ServiceName]

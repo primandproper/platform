@@ -3,6 +3,7 @@ package capitalismcfg
 import (
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
 
@@ -17,8 +18,9 @@ type Option func(*options)
 
 // options collects what the options set.
 type options struct {
-	logger         logging.Logger
-	tracerProvider tracing.Provider
+	logger          logging.Logger
+	tracerProvider  tracing.Provider
+	metricsProvider metrics.Provider
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -44,15 +46,19 @@ func WithTracerProvider(tracerProvider tracing.Provider) Option {
 	return func(o *options) { o.tracerProvider = tracerProvider }
 }
 
-// WithPillars attaches a logger and tracer provider in one go, for the common
-// case where a caller has already built them together. A nil Pillars attaches
-// nothing. The pillars' metrics provider is ignored — see Option.
+// WithMetricsProvider attaches a metrics provider, enabling instruments on the
+// money path. An absent metrics provider records nothing.
+func WithMetricsProvider(metricsProvider metrics.Provider) Option {
+	return func(o *options) { o.metricsProvider = metricsProvider }
+}
+
+// WithPillars attaches all three pillars in one go, for the common case where a
+// caller has already built them together. A nil Pillars attaches nothing.
 //
 // It is applied in order with the individual options, so a caller can hand over
 // its pillars and then override one of them.
 func WithPillars(p *observability.Pillars) Option {
 	return func(o *options) {
-		logger, tracerProvider, _ := p.Deps()
-		o.logger, o.tracerProvider = logger, tracerProvider
+		o.logger, o.tracerProvider, o.metricsProvider = p.Deps()
 	}
 }

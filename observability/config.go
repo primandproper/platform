@@ -89,32 +89,53 @@ func (cfg *Config) NewPillars(ctx context.Context) (*Pillars, error) {
 		return nil, errors.Wrap(err, "validating observability config")
 	}
 
+	// Each pillar is recorded on p the moment it is built, so a failure further
+	// down can shut down the ones already running. Validating the whole config
+	// first — see above — removes the common cause of a partial build, but not
+	// every cause: an exporter whose collector is unreachable is valid config
+	// that fails at construction.
+	//
+	// What each one holds is why it matters. A tracer provider owns a batch
+	// processor goroutine and an exporter's gRPC connection; a profiler owns an
+	// agent reporting on an interval. Dropping the reference does not stop any of
+	// them, so returning the error without unwinding leaves them running with
+	// nothing left to shut them down.
+	p := &Pillars{}
+
+	abandon := func(err error, description string) (*Pillars, error) {
+		wrapped := errors.Wrap(err, description)
+		if shutdownErr := p.Shutdown(ctx); shutdownErr != nil {
+			return nil, errors.Join(wrapped, errors.Wrap(shutdownErr, "shutting down partially built pillars"))
+		}
+
+		return nil, wrapped
+	}
+
 	logger, err := cfg.Logging.NewLogger(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "setting up logger")
+		return abandon(err, "setting up logger")
 	}
+	p.Logger = logger
 
 	tracerProvider, err := cfg.Tracing.NewTracerProvider(ctx, tracingcfg.WithLogger(logger))
 	if err != nil {
-		return nil, errors.Wrap(err, "setting up tracer provider")
+		return abandon(err, "setting up tracer provider")
 	}
+	p.TracerProvider = tracerProvider
 
 	metricsProvider, err := cfg.Metrics.NewMetricsProvider(ctx, metricscfg.WithLogger(logger))
 	if err != nil {
-		return nil, errors.Wrap(err, "setting up metrics provider")
+		return abandon(err, "setting up metrics provider")
 	}
+	p.MetricsProvider = metricsProvider
 
 	profiler, err := cfg.Profiling.NewProfilingProvider(ctx, profilingcfg.WithLogger(logger))
 	if err != nil {
-		return nil, errors.Wrap(err, "setting up profiling provider")
+		return abandon(err, "setting up profiling provider")
 	}
+	p.Profiler = profiler
 
-	return &Pillars{
-		Logger:          logger,
-		TracerProvider:  tracerProvider,
-		MetricsProvider: metricsProvider,
-		Profiler:        profiler,
-	}, nil
+	return p, nil
 }
 
 // Shutdown gracefully stops the observability pillars, flushing any buffered

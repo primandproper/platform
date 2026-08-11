@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	perrors "github.com/primandproper/platform-go/v10/errors"
@@ -17,6 +18,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -41,7 +43,15 @@ type (
 	RegistrationFunc func(*grpc.Server)
 )
 
+// NewGRPCServer builds a gRPC server.
+//
+// It takes a context and validates the config, matching NewHTTPServer. The
+// Config has had a ValidateWithContext for as long as it has had a TLS pair, and
+// nothing called it — so naming a certificate without its key, which this
+// constructor reads as "TLS was not configured", started a plaintext server that
+// looked from its config like a TLS one.
 func NewGRPCServer(
+	ctx context.Context,
 	cfg *Config,
 	unaryServerInterceptors []grpc.UnaryServerInterceptor,
 	streamServerInterceptors []grpc.StreamServerInterceptor,
@@ -52,6 +62,10 @@ func NewGRPCServer(
 		return nil, perrors.ErrNilInputParameter
 	}
 
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, perrors.Wrap(err, "validating gRPC server config")
+	}
+
 	o := newOptions(opts)
 	logger := o.logger
 
@@ -59,7 +73,7 @@ func NewGRPCServer(
 	serverOpts := []grpc.ServerOption{
 		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithTracerProvider(tp))),
 		grpc.ChainUnaryInterceptor(append([]grpc.UnaryServerInterceptor{LoggingInterceptor(logger)}, unaryServerInterceptors...)...),
-		grpc.ChainStreamInterceptor(streamServerInterceptors...),
+		grpc.ChainStreamInterceptor(append([]grpc.StreamServerInterceptor{StreamLoggingInterceptor(logger)}, streamServerInterceptors...)...),
 	}
 
 	if cfg.TLSCertificateKeyFile != "" && cfg.TLSCertificateFile != "" {
@@ -176,25 +190,72 @@ func (s *Server) Serve(ctx context.Context) error {
 	return nil
 }
 
+// healthProbeMethodPrefix is the gRPC health service every load balancer and
+// Kubernetes probe calls on a timer. The HTTP sibling filters its probe paths
+// out of both spans and logs; this filters the equivalent here, which otherwise
+// made up the overwhelming majority of the lines these interceptors emitted.
+const healthProbeMethodPrefix = "/grpc.health.v1.Health/"
+
+// logRPC emits one line for a completed RPC.
+//
+// A failed RPC used to be reported as "error": 1 — no error, no code, no
+// message — so the log said an RPC had failed and nothing whatsoever about how.
+// The status code is the part an operator acts on: InvalidArgument is the
+// caller's problem and Internal is this service's.
+func logRPC(l logging.Logger, kind, fullMethod string, elapsed time.Duration, err error) {
+	if strings.HasPrefix(fullMethod, healthProbeMethodPrefix) {
+		return
+	}
+
+	values := map[string]any{
+		"rpc.method":  fullMethod,
+		"rpc.kind":    kind,
+		"rpc.code":    status.Code(err).String(),
+		"elapsed":     elapsed,
+		"elapsed_ms":  elapsed.Milliseconds(),
+		"rpc.errored": err != nil,
+	}
+
+	if err == nil {
+		l.WithValues(values).Info("rpc invoked")
+		return
+	}
+
+	if s, ok := status.FromError(err); ok {
+		values["rpc.message"] = s.Message()
+	}
+
+	l.WithValues(values).Error("rpc invoked", err)
+}
+
+// LoggingInterceptor logs every completed unary RPC.
 func LoggingInterceptor(logger logging.Logger) grpc.UnaryServerInterceptor {
 	l := logging.EnsureLogger(logger)
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		var ev uint8
 
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		result, err := handler(ctx, req)
-		end := time.Since(start)
 
-		if err != nil {
-			ev = 1
-		}
-
-		l.WithValues(map[string]any{
-			"rpc.method": info.FullMethod,
-			"elapsed":    end,
-			"error":      ev,
-		}).Info("rpc invoked")
+		logRPC(l, "unary", info.FullMethod, time.Since(start), err)
 
 		return result, err
+	}
+}
+
+// StreamLoggingInterceptor logs every completed streaming RPC.
+//
+// The unary side has been logged since this package existed and the stream side
+// was not logged at all, so a service whose API is mostly streams had no record
+// that any of it had been called.
+func StreamLoggingInterceptor(logger logging.Logger) grpc.StreamServerInterceptor {
+	l := logging.EnsureLogger(logger)
+
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		start := time.Now()
+		err := handler(srv, ss)
+
+		logRPC(l, "stream", info.FullMethod, time.Since(start), err)
+
+		return err
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/encoding"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -27,13 +28,11 @@ type (
 	}
 
 	sqsPublisher struct {
-		o11y              observability.Observer
-		encoder           encoding.ClientEncoder
-		publisher         messagePublisher
-		publishedCounter  metrics.Int64Counter
-		publishErrCounter metrics.Int64Counter
-		latencyHist       metrics.Float64Histogram
-		topic             string
+		o11y        observability.Observer
+		encoder     encoding.ClientEncoder
+		publisher   messagePublisher
+		instruments *mqmetrics.Publisher
+		topic       string
 	}
 )
 
@@ -51,7 +50,7 @@ func (p *sqsPublisher) Publish(ctx context.Context, data any) error {
 
 	var b bytes.Buffer
 	if err := p.encoder.Encode(ctx, &b, data); err != nil {
-		p.publishErrCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 		return observability.PrepareError(err, op.Span(), "encoding topic message")
 	}
 
@@ -63,12 +62,11 @@ func (p *sqsPublisher) Publish(ctx context.Context, data any) error {
 	}
 
 	if _, err := p.publisher.SendMessage(ctx, input); err != nil {
-		p.publishErrCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 		return observability.PrepareError(err, op.Span(), "publishing message")
 	}
 
-	p.publishedCounter.Add(ctx, 1)
-	p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+	p.instruments.Published(ctx, startTime)
 
 	return nil
 }
@@ -82,31 +80,17 @@ func (p *sqsPublisher) PublishAsync(ctx context.Context, data any) {
 
 // provideSQSPublisher provides a sqs-backed Publisher.
 func provideSQSPublisher(logger logging.Logger, sqsClient messagePublisher, tracerProvider tracing.Provider, metricsProvider metrics.Provider, topic string) (*sqsPublisher, error) {
-	mp := metrics.EnsureMetricsProvider(metricsProvider)
-
-	publishedCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_published", topic))
+	instruments, err := mqmetrics.NewPublisher(metricsProvider, topic)
 	if err != nil {
-		return nil, fmt.Errorf("creating published counter: %w", err)
-	}
-
-	publishErrCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_publish_errors", topic))
-	if err != nil {
-		return nil, fmt.Errorf("creating publish error counter: %w", err)
-	}
-
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_publish_latency_ms", topic))
-	if err != nil {
-		return nil, fmt.Errorf("creating publish latency histogram: %w", err)
+		return nil, err
 	}
 
 	return &sqsPublisher{
-		publisher:         sqsClient,
-		topic:             topic,
-		encoder:           encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
-		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
-		publishedCounter:  publishedCounter,
-		publishErrCounter: publishErrCounter,
-		latencyHist:       latencyHist,
+		publisher:   sqsClient,
+		topic:       topic,
+		encoder:     encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(logger), encoding.WithTracerProvider(tracerProvider)),
+		o11y:        observability.NewObserverWithValues(fmt.Sprintf("%s_publisher", topic), logger, tracerProvider, map[string]any{keys.TopicKey: topic}),
+		instruments: instruments,
 	}, nil
 }
 

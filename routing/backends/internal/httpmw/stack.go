@@ -68,8 +68,9 @@ func otelMiddleware(cfg *StackConfig) func(http.Handler) http.Handler {
 			otelhttp.WithTracerProvider(tracing.EnsureTracerProvider(cfg.TracerProvider)),
 			otelhttp.WithMeterProvider(cfg.MeterProvider),
 			otelhttp.WithFilter(func(r *http.Request) bool {
-				// Skip tracing for health checks to avoid noise from load balancers, K8s probes, etc.
-				return !IsHealthCheck(r.URL.Path)
+				// Skip tracing for probes and the other operational endpoints, to
+				// avoid noise from load balancers, K8s probes and scrapers.
+				return !IsUntraced(r.URL.Path)
 			}),
 			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 				return r.Method
