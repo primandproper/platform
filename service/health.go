@@ -55,7 +55,7 @@ func registerHealth(i do.Injector) {
 		// application wrote may not. An asserted-away client is left unchecked
 		// rather than reported down, and its owner, who is the only one who knows
 		// how to ask it, joins a checker through WithHealthChecks.
-		if err := adopt(i, registry, func(c database.Client) healthcheck.Checker {
+		if err = adopt(i, registry, func(c database.Client) healthcheck.Checker {
 			ready, ok := c.(healthcheck.DatabaseReadyChecker)
 			if !ok {
 				return nil
@@ -70,7 +70,7 @@ func registerHealth(i do.Injector) {
 		// path depends on: a service that cannot publish cannot serve, while one
 		// that cannot consume is behind rather than unready. ConsumerProvider
 		// has no Ping to ask anyway.
-		if err := adopt(i, registry, func(p messagequeue.PublisherProvider) healthcheck.Checker {
+		if err = adopt(i, registry, func(p messagequeue.PublisherProvider) healthcheck.Checker {
 			return healthcheck.NewMessageQueueChecker(messageQueueCheckerName, p)
 		}); err != nil {
 			return nil, err

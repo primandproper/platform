@@ -502,7 +502,7 @@ func (s *SQLStore) Requeue(ctx context.Context, deliveryID, endpointID string, a
 		op.Acknowledge(err, "reading rows affected by webhook requeue")
 		s.unreportedRowsCounter.Add(ctx, 1, storeOpAttr("requeue"))
 
-		return nil //nolint:nilerr // the write succeeded; only the row count is unavailable
+		return nil
 	}
 
 	if affected == 0 {

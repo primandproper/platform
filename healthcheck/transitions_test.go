@@ -137,9 +137,9 @@ func stringValue(t *testing.T, l line, key string) string {
 func linesAt(lines []line, level logging.Level) []line {
 	var matched []line
 
-	for _, l := range lines {
-		if l.level == level {
-			matched = append(matched, l)
+	for i := range lines {
+		if lines[i].level == level {
+			matched = append(matched, lines[i])
 		}
 	}
 

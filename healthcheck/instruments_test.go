@@ -62,8 +62,8 @@ func TestNewRegistry_InstrumentFailures(T *testing.T) {
 // recordingInstruments counts what the registry emitted, which is the only way
 // to tell "reported the transition" from "answered the probe correctly".
 type recordingInstruments struct {
-	transitions int
 	downs       []int64
+	transitions int
 	mu          sync.Mutex
 }
 

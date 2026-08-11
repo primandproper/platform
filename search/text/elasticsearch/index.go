@@ -171,7 +171,7 @@ func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 
 		// The body is where Elasticsearch says what was wrong with the query —
 		// which field does not exist, which shard failed — and it used to be
-		// decoded and thrown away in favour of res.Warnings(), a slice that is
+		// decoded and thrown away in favor of res.Warnings(), a slice that is
 		// empty on almost every error. What came back was an error whose whole
 		// message was the empty string.
 		return nil, op.Error(decodeErrorBody(res.Body, res.Status()), "querying elasticsearch")

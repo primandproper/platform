@@ -70,9 +70,9 @@ func TestTOTPVerifier_RecordsFailures(T *testing.T) {
 	// A failed second factor is the interesting half of this package, so it has
 	// to reach the pillars rather than only the caller.
 	for _, tc := range []struct {
+		sentinel error
 		name     string
 		code     string
-		sentinel error
 	}{
 		{name: "an absent code", code: "", sentinel: ErrCodeRequired},
 		{name: "a code that does not validate", code: "000000", sentinel: ErrInvalidCode},
