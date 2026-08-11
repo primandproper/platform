@@ -3,7 +3,6 @@ package circuitbreakingcfg
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 
 	circuit "github.com/rubyist/circuitbreaker"
 	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -127,7 +127,7 @@ func TestNewCircuitBreakerFromConfig(T *testing.T) {
 
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				test.EqOp(t, fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Name), counterName)
+				test.EqOp(t, TrippedCounterName, counterName)
 				return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 			},
 		}
@@ -148,9 +148,9 @@ func TestNewCircuitBreakerFromConfig(T *testing.T) {
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
-				case fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Name):
+				case TrippedCounterName:
 					return &metricsmock.Int64CounterMock{}, nil
-				case fmt.Sprintf("%s_circuit_breaker_failed", cfg.Name):
+				case FailedCounterName:
 					return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
@@ -174,10 +174,10 @@ func TestNewCircuitBreakerFromConfig(T *testing.T) {
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
 				switch counterName {
-				case fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Name),
-					fmt.Sprintf("%s_circuit_breaker_failed", cfg.Name):
+				case TrippedCounterName,
+					FailedCounterName:
 					return &metricsmock.Int64CounterMock{}, nil
-				case fmt.Sprintf("%s_circuit_breaker_reset", cfg.Name):
+				case ResetCounterName:
 					return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 				}
 				t.Fatalf("unexpected NewInt64Counter call: %q", counterName)
@@ -443,5 +443,51 @@ func TestCircuitBreaker_Integration(T *testing.T) {
 			time.Sleep(500 * time.Millisecond)
 		}
 		test.True(t, proceeded)
+	})
+}
+
+//nolint:paralleltest // identityFor draws from a process-wide counter
+func Test_identityFor(T *testing.T) {
+	T.Run("a configured name is the identity", func(t *testing.T) {
+		test.EqOp(t, "payments", identityFor("payments"))
+	})
+
+	T.Run("two unnamed breakers are two identities", func(t *testing.T) {
+		first, second := identityFor(DefaultName), identityFor(DefaultName)
+
+		test.NotEqOp(t, first, second)
+		test.StrHasPrefix(t, DefaultName+"_", first)
+		test.StrHasPrefix(t, DefaultName+"_", second)
+	})
+}
+
+func Test_options_addOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("every measurement carries the breaker's name", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithMetricAttributes(attribute.String("partition", "123"))})
+
+		attrs := metric.NewAddConfig(o.addOptions("payments")).Attributes()
+
+		name, ok := attrs.Value(NameAttributeKey)
+		must.True(t, ok)
+		test.EqOp(t, "payments", name.AsString())
+
+		// The caller's own attributes survive alongside it.
+		partition, ok := attrs.Value("partition")
+		must.True(t, ok)
+		test.EqOp(t, "123", partition.AsString())
+	})
+
+	T.Run("the name is there even with no caller attributes", func(t *testing.T) {
+		t.Parallel()
+
+		attrs := metric.NewAddConfig(newOptions(nil).addOptions("payments")).Attributes()
+
+		name, ok := attrs.Value(NameAttributeKey)
+		must.True(t, ok)
+		test.EqOp(t, "payments", name.AsString())
 	})
 }

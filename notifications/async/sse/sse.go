@@ -33,7 +33,7 @@ func NewNotifier(_ *Config, opts ...Option) (*Notifier, error) {
 
 	return &Notifier{
 		o11y:     observability.NewObserver(o11yName, o.logger, o.tracerProvider),
-		upgrader: essse.NewUpgrader(essse.WithTracerProvider(o.tracerProvider)),
+		upgrader: essse.NewUpgrader(essse.WithLogger(o.logger), essse.WithTracerProvider(o.tracerProvider)),
 		manager:  eventstream.NewStreamManager[eventstream.EventStream](eventstream.WithTracerProvider(o.tracerProvider), eventstream.WithLogger(o.logger)),
 	}, nil
 }

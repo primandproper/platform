@@ -9,8 +9,23 @@ import (
 
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/jackc/pgx/v5/pgconn"
+)
+
+// serviceName scopes this package's spans and logger.
+const serviceName = "postgres_table_access"
+
+// Span and log attribute keys. Credentials are never among them: CreateUser
+// takes a password and nothing here records it, on the span or anywhere else.
+const (
+	usernameKey  = "table_access.username"
+	databaseKey  = "table_access.database"
+	schemaKey    = "table_access.schema"
+	tableKey     = "table_access.table"
+	privilegeKey = "table_access.privilege"
+	existsKey    = "table_access.exists"
 )
 
 type Privilege string
@@ -48,11 +63,17 @@ var _ database.Manager = (*Manager)(nil)
 // and returned by NewManager, so a caller who has chosen PostgreSQL can depend on
 // that choice rather than on the interface every dialect's manager shares.
 type Manager struct {
-	db *sql.DB
+	db   *sql.DB
+	o11y observability.Observer
 }
 
-func NewManager(db *sql.DB) *Manager {
-	return &Manager{db: db}
+func NewManager(db *sql.DB, opts ...Option) *Manager {
+	o := newOptions(opts)
+
+	return &Manager{
+		db:   db,
+		o11y: observability.NewObserver(serviceName, o.logger, o.tracerProvider),
+	}
 }
 
 // quoteIdent safely wraps a Postgres identifier in double‑quotes,
@@ -115,9 +136,12 @@ const duplicateObject = "42710"
 // the failure, and a caller that wants the detail should not have to re-run the
 // statement to get it.
 func (p *Manager) CreateUser(ctx context.Context, username, password string) (err error) {
+	ctx, op := p.o11y.Begin(ctx, observability.WithValue(usernameKey, username))
+	defer op.End()
+
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
-		return errors.Wrap(err, "beginning create user transaction")
+		return op.Error(err, "beginning create user transaction")
 	}
 
 	defer func() {
@@ -125,69 +149,130 @@ func (p *Manager) CreateUser(ctx context.Context, username, password string) (er
 		// only that the happy path happened; anything else is a connection in a
 		// state the caller should hear about.
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !stderrors.Is(rollbackErr, sql.ErrTxDone) {
-			err = errors.Join(err, errors.Wrap(rollbackErr, "rolling back create user transaction"))
+			err = errors.Join(err, op.Error(rollbackErr, "rolling back create user transaction"))
 		}
 	}()
 
 	if _, err = tx.ExecContext(ctx, bindCreateUserArgs, username, password); err != nil {
-		return errors.Wrap(err, "binding create user arguments")
+		return op.Error(err, "binding create user arguments")
 	}
 
 	if _, err = tx.ExecContext(ctx, createUserFromSettings); err != nil {
 		var pgErr *pgconn.PgError
 		if stderrors.As(err, &pgErr) && pgErr.Code == duplicateObject {
-			return errors.Join(database.ErrUserAlreadyExists, errors.Wrap(err, "creating user"))
+			return op.Error(errors.Join(database.ErrUserAlreadyExists, err), "creating user")
 		}
 
-		return errors.Wrap(err, "creating user")
+		return op.Error(err, "creating user")
 	}
 
-	return errors.Wrap(tx.Commit(), "committing create user transaction")
+	if err = tx.Commit(); err != nil {
+		return op.Error(err, "committing create user transaction")
+	}
+
+	return nil
 }
 
 func (p *Manager) DeleteUser(ctx context.Context, username string) error {
-	_, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP USER IF EXISTS %s", quoteIdent(username)))
-	return err
+	ctx, op := p.o11y.Begin(ctx, observability.WithValue(usernameKey, username))
+	defer op.End()
+
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP USER IF EXISTS %s", quoteIdent(username))); err != nil {
+		return op.Error(err, "dropping user")
+	}
+
+	return nil
 }
 
 func (p *Manager) CreateDatabase(ctx context.Context, dbName, owner string) error {
-	_, err := p.db.ExecContext(ctx, fmt.Sprintf(
+	ctx, op := p.o11y.Begin(ctx,
+		observability.WithValue(databaseKey, dbName),
+		observability.WithValue(usernameKey, owner),
+	)
+	defer op.End()
+
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf(
 		"CREATE DATABASE %s OWNER %s",
 		quoteIdent(dbName),
 		quoteIdent(owner),
-	))
-	return err
+	)); err != nil {
+		return op.Error(err, "creating database")
+	}
+
+	return nil
 }
 
 func (p *Manager) DeleteDatabase(ctx context.Context, dbName string) error {
-	_, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", quoteIdent(dbName)))
-	return err
+	ctx, op := p.o11y.Begin(ctx, observability.WithValue(databaseKey, dbName))
+	defer op.End()
+
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", quoteIdent(dbName))); err != nil {
+		return op.Error(err, "dropping database")
+	}
+
+	return nil
 }
 
 func (p *Manager) UserExists(ctx context.Context, username string) (bool, error) {
+	ctx, op := p.o11y.Begin(ctx, observability.WithValue(usernameKey, username))
+	defer op.End()
+
 	var exists bool
-	err := p.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, username).Scan(&exists)
-	return exists, err
+	if err := p.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, username).Scan(&exists); err != nil {
+		return false, op.Error(err, "checking whether user exists")
+	}
+
+	op.SpanOnly(existsKey, exists)
+
+	return exists, nil
 }
 
 func (p *Manager) DatabaseExists(ctx context.Context, dbName string) (bool, error) {
+	ctx, op := p.o11y.Begin(ctx, observability.WithValue(databaseKey, dbName))
+	defer op.End()
+
 	var exists bool
-	err := p.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, dbName).Scan(&exists)
-	return exists, err
+	if err := p.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, dbName).Scan(&exists); err != nil {
+		return false, op.Error(err, "checking whether database exists")
+	}
+
+	op.SpanOnly(existsKey, exists)
+
+	return exists, nil
 }
 
 func (p *Manager) UserCanAccessDatabase(ctx context.Context, username, dbName string) (bool, error) {
+	ctx, op := p.o11y.Begin(ctx,
+		observability.WithValue(usernameKey, username),
+		observability.WithValue(databaseKey, dbName),
+	)
+	defer op.End()
+
 	var hasPrivilege bool
-	err := p.db.QueryRowContext(ctx, `SELECT has_database_privilege($1, $2, 'CONNECT')`, username, dbName).Scan(&hasPrivilege)
-	return hasPrivilege, err
+	if err := p.db.QueryRowContext(ctx, `SELECT has_database_privilege($1, $2, 'CONNECT')`, username, dbName).Scan(&hasPrivilege); err != nil {
+		return false, op.Error(err, "checking whether user can access database")
+	}
+
+	return hasPrivilege, nil
 }
 
 // GrantUserAccessToTable grants a specific privilege on a table to a user.
 func (p *Manager) GrantUserAccessToTable(ctx context.Context, username, schema, table, privilege string) error {
+	ctx, op := p.o11y.Begin(ctx,
+		observability.WithValue(usernameKey, username),
+		observability.WithValue(schemaKey, schema),
+		observability.WithValue(tableKey, table),
+		observability.WithValue(privilegeKey, privilege),
+	)
+	defer op.End()
+
 	if !isValidPrivilege(Privilege(privilege)) {
-		return errors.Newf("invalid privilege: %s", privilege)
+		return op.Error(errors.Newf("invalid privilege: %s", privilege), "granting table access")
 	}
 
-	_, err := p.db.ExecContext(ctx, fmt.Sprintf("GRANT %s ON TABLE %s TO %s", privilege, fmt.Sprintf("%s.%s", quoteIdent(schema), quoteIdent(table)), quoteIdent(username)))
-	return err
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("GRANT %s ON TABLE %s TO %s", privilege, fmt.Sprintf("%s.%s", quoteIdent(schema), quoteIdent(table)), quoteIdent(username))); err != nil {
+		return op.Error(err, "granting table access")
+	}
+
+	return nil
 }

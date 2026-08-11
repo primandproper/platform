@@ -213,7 +213,7 @@ func TestNewLocker(T *testing.T) {
 
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				test.EqOp(t, "dlock-breaker_circuit_breaker_tripped", counterName)
+				test.EqOp(t, circuitbreakingcfg.TrippedCounterName, counterName)
 				return &metricsmock.Int64CounterMock{}, fmt.Errorf("counter init failure")
 			},
 		}
@@ -348,7 +348,7 @@ func TestNewScopedLocker(T *testing.T) {
 
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				test.EqOp(t, "dlock-scoped-breaker_circuit_breaker_tripped", counterName)
+				test.EqOp(t, circuitbreakingcfg.TrippedCounterName, counterName)
 				return &metricsmock.Int64CounterMock{}, fmt.Errorf("counter init failure")
 			},
 		}

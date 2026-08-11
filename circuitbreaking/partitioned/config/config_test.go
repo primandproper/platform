@@ -2,7 +2,6 @@ package partitionedcfg
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
@@ -111,7 +110,7 @@ func TestNewKeyedCircuitBreakerFromConfig(T *testing.T) {
 
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				test.EqOp(t, fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Base.Name), counterName)
+				test.EqOp(t, circuitbreakingcfg.TrippedCounterName, counterName)
 				return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 			},
 		}

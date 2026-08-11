@@ -90,7 +90,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // so returning one straight through would convert a nil *webhooks.SQLStore into a
 // non-nil webhooks.Store on the error path, and a caller testing the result against
 // nil would find a store that panics on first use.
-func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...webhooks.SQLStoreOption) (webhooks.Store, error) {
+func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...Option) (webhooks.Store, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -101,9 +101,16 @@ func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...
 		return nil, errors.Wrap(err, "validating webhooks config")
 	}
 
-	base := []webhooks.SQLStoreOption{webhooks.WithTablePrefix(cfg.TablePrefix)}
+	options := newOptions(opts)
 
-	store, storeErr := webhooks.NewSQLStore(client, append(base, opts...)...)
+	base := []webhooks.SQLStoreOption{
+		webhooks.WithTablePrefix(cfg.TablePrefix),
+		webhooks.WithStoreLogger(options.logger),
+		webhooks.WithStoreTracerProvider(options.tracerProvider),
+		webhooks.WithStoreMetricsProvider(options.metricsProvider),
+	}
+
+	store, storeErr := webhooks.NewSQLStore(client, append(base, options.store...)...)
 	if storeErr != nil {
 		return nil, storeErr
 	}

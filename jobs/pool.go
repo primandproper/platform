@@ -182,7 +182,20 @@ func NewPool(ctx context.Context, cfg *PoolConfig, provider messagequeue.Consume
 		map[string]any{keys.TopicKey: p.cfg.Topic})
 
 	if p.policy == nil {
-		p.policy = retrycfg.NewExponentialBackoffPolicy(p.cfg.Retry)
+		policy, err := retrycfg.NewExponentialBackoffPolicy(p.cfg.Retry,
+			retrycfg.WithName(poolServiceName),
+			retrycfg.WithLogger(p.logger),
+			retrycfg.WithTracerProvider(p.tracerProvider),
+			retrycfg.WithMetricsProvider(p.metricsProvider),
+			retrycfg.WithClock(p.clock),
+		)
+		if err != nil {
+			p.cancelWorker()
+
+			return nil, err
+		}
+
+		p.policy = policy
 	}
 
 	if err := p.buildInstruments(); err != nil {

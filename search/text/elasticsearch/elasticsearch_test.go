@@ -199,8 +199,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			ctx := t.Context()
 			logger := loggingnoop.NewLogger()
 
-			ready := elasticsearchIsReadyToInit(ctx, cfg, logger, 5)
-			test.True(t, ready)
+			test.NoError(t, elasticsearchIsReadyToInit(ctx, cfg, logger, 5))
 		})
 
 		// --- provideElasticsearchClient ---
@@ -594,8 +593,7 @@ func Test_elasticsearchIsReadyToInit_Unit(T *testing.T) {
 		}
 
 		logger := loggingnoop.NewLogger()
-		ready := elasticsearchIsReadyToInit(context.Background(), cfg, logger, 1)
-		test.False(t, ready)
+		test.ErrorIs(t, elasticsearchIsReadyToInit(context.Background(), cfg, logger, 1), ErrNotReady)
 	})
 
 	T.Run("returns true with reachable server", func(t *testing.T) {
@@ -614,8 +612,7 @@ func Test_elasticsearchIsReadyToInit_Unit(T *testing.T) {
 		}
 
 		logger := loggingnoop.NewLogger()
-		ready := elasticsearchIsReadyToInit(context.Background(), cfg, logger, 3)
-		test.True(t, ready)
+		test.NoError(t, elasticsearchIsReadyToInit(context.Background(), cfg, logger, 3))
 	})
 }
 

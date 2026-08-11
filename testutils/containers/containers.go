@@ -77,8 +77,13 @@ func DefaultRetryConfig() retrycfg.Config {
 // stays decoupled from the testing package.
 func StartWithRetry[C any](ctx context.Context, start func(context.Context) (C, error)) (C, error) {
 	var container C
-	policy := retrycfg.NewExponentialBackoffPolicy(DefaultRetryConfig())
-	err := policy.Execute(ctx, func(ctx context.Context) error {
+
+	policy, err := retrycfg.NewExponentialBackoffPolicy(DefaultRetryConfig(), retrycfg.WithName("container_start"))
+	if err != nil {
+		return container, err
+	}
+
+	err = policy.Execute(ctx, func(ctx context.Context) error {
 		var startErr error
 		container, startErr = start(ctx)
 		return startErr
@@ -123,7 +128,8 @@ func PingUntilReady(tb testing.TB, ctx context.Context, ping func(context.Contex
 		tb.Fatal("containers: PingUntilReady requires a non-nil ping")
 	}
 
-	policy := retrycfg.NewExponentialBackoffPolicy(readinessRetryConfig())
+	policy, err := retrycfg.NewExponentialBackoffPolicy(readinessRetryConfig(), retrycfg.WithName("container_readiness"))
+	must.NoError(tb, err)
 	must.NoError(tb, policy.Execute(ctx, ping))
 }
 

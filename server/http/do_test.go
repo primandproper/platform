@@ -38,7 +38,7 @@ func TestRegisterHTTPServer(T *testing.T) {
 	T.Run("serves the probes from the registry the container carries", func(t *testing.T) {
 		t.Parallel()
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(&stubChecker{name: "database"})
 
 		router := testRouter(t)
@@ -48,7 +48,7 @@ func TestRegisterHTTPServer(T *testing.T) {
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, router)
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
-		do.ProvideValue(i, registry)
+		do.ProvideValue[healthcheck.Registry](i, registry)
 
 		RegisterHTTPServer(i, "test_service")
 

@@ -9,6 +9,17 @@ import (
 	"github.com/shoenig/test/must"
 )
 
+// newTestRegistry builds an uninstrumented registry, which is what a caller
+// that names no observability gets.
+func newTestRegistry(t *testing.T) *CheckerRegistry {
+	t.Helper()
+
+	registry, err := NewRegistry()
+	must.NoError(t, err)
+
+	return registry
+}
+
 type mockChecker struct {
 	checkFn func(ctx context.Context) error
 	name    string
@@ -31,7 +42,7 @@ func TestRegistry_CheckAll(T *testing.T) {
 	T.Run("empty registry returns up", func(t *testing.T) {
 		t.Parallel()
 
-		reg := NewRegistry()
+		reg := newTestRegistry(t)
 		ctx := context.Background()
 
 		result := reg.CheckAll(ctx)
@@ -44,7 +55,7 @@ func TestRegistry_CheckAll(T *testing.T) {
 	T.Run("a check receives a bounded (timeout) context", func(t *testing.T) {
 		t.Parallel()
 
-		reg := NewRegistry()
+		reg := newTestRegistry(t)
 		reg.Register(&mockChecker{name: "a", checkFn: func(ctx context.Context) error {
 			// Each check must run under a deadline so a hung check can't stall the probe.
 			if _, ok := ctx.Deadline(); !ok {
@@ -61,7 +72,7 @@ func TestRegistry_CheckAll(T *testing.T) {
 	T.Run("all checkers up", func(t *testing.T) {
 		t.Parallel()
 
-		reg := NewRegistry()
+		reg := newTestRegistry(t)
 		reg.Register(&mockChecker{name: "a"})
 		reg.Register(&mockChecker{name: "b"})
 		ctx := context.Background()
@@ -78,7 +89,7 @@ func TestRegistry_CheckAll(T *testing.T) {
 	T.Run("one checker down", func(t *testing.T) {
 		t.Parallel()
 
-		reg := NewRegistry()
+		reg := newTestRegistry(t)
 		reg.Register(&mockChecker{name: "up"})
 		reg.Register(&mockChecker{
 			name: "down",
@@ -100,7 +111,7 @@ func TestRegistry_CheckAll(T *testing.T) {
 	T.Run("ignores nil checker", func(t *testing.T) {
 		t.Parallel()
 
-		reg := NewRegistry()
+		reg := newTestRegistry(t)
 		reg.Register(nil)
 		reg.Register(&mockChecker{name: "a"})
 		ctx := context.Background()

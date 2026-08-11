@@ -3,6 +3,7 @@ package algolia
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
@@ -31,12 +32,15 @@ var (
 )
 
 // Index implements our indexManager interface.
-func (m *indexManager[T]) Index(ctx context.Context, id string, value any) error {
-	_, op := m.o11y.Begin(ctx)
+func (m *indexManager[T]) Index(ctx context.Context, id string, value any) (err error) {
+	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 
+	started := time.Now()
+	defer func() { m.instruments.Record(ctx, textsearch.OperationIndex, started, err) }()
+
 	if m.circuitBreaker.CannotProceed() {
-		return circuitbreaking.ErrCircuitBroken
+		return op.Error(circuitbreaking.ErrCircuitBroken, "indexing value")
 	}
 
 	op.Set(idKey, id)
@@ -44,12 +48,12 @@ func (m *indexManager[T]) Index(ctx context.Context, id string, value any) error
 
 	jsonEncoded, err := json.Marshal(value)
 	if err != nil {
-		return err
+		return op.Error(err, "encoding value for indexing")
 	}
 
 	var newValue map[string]any
-	if unmarshalErr := json.Unmarshal(jsonEncoded, &newValue); unmarshalErr != nil {
-		return unmarshalErr
+	if err = json.Unmarshal(jsonEncoded, &newValue); err != nil {
+		return op.Error(err, "decoding value for indexing")
 	}
 
 	// we make a huge, albeit safe assumption here.
@@ -58,48 +62,56 @@ func (m *indexManager[T]) Index(ctx context.Context, id string, value any) error
 
 	if _, err = m.client.SaveObject(newValue); err != nil {
 		m.circuitBreaker.Failed()
-		return err
+
+		return op.Error(err, "indexing value")
 	}
 
 	m.circuitBreaker.Succeeded()
+
 	return nil
 }
 
 // Search implements our IndexSearcher interface.
-func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchRequest) (*textsearch.SearchResults[T], error) {
-	_, op := m.o11y.Begin(ctx)
+func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchRequest) (_ *textsearch.SearchResults[T], err error) {
+	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 
+	started := time.Now()
+	defer func() { m.instruments.Record(ctx, textsearch.OperationSearch, started, err) }()
+
 	if m.circuitBreaker.CannotProceed() {
-		return nil, circuitbreaking.ErrCircuitBroken
+		return nil, op.Error(circuitbreaking.ErrCircuitBroken, "searching index")
 	}
 
 	op.Set(keys.SearchQueryKey, req.Query)
 
 	if req.Query == "" {
-		return nil, ErrEmptyQueryProvided
+		return nil, op.Error(ErrEmptyQueryProvided, "searching index")
 	}
 
 	// Algolia paginates by page number, not document offset, so that is what
 	// this backend's cursor carries.
 	page, err := textsearch.DecodeCursor(backendName, req.Cursor)
 	if err != nil {
-		m.circuitBreaker.Failed()
-
-		return nil, err
+		// Not the backend's failure — a cursor this backend did not issue, or one
+		// that has been tampered with — so the breaker is left alone. Tripping on
+		// it would take a healthy index out of service over a bad request.
+		return nil, op.Error(err, "decoding cursor")
 	}
 
 	hitsPerPage := textsearch.EffectiveLimit(req.Limit, maxSearchLimit)
 
 	op.Set("search.page", page).Set("search.hitsPerPage", hitsPerPage)
 
-	res, searchErr := m.client.Search(req.Query, opt.Page(page), opt.HitsPerPage(hitsPerPage))
-	if searchErr != nil {
+	res, err := m.client.Search(req.Query, opt.Page(page), opt.HitsPerPage(hitsPerPage))
+	if err != nil {
 		m.circuitBreaker.Failed()
-		return nil, searchErr
+
+		return nil, op.Error(err, "searching index")
 	}
 
 	results := []*T{}
+
 	for _, hit := range res.Hits {
 		var x *T
 
@@ -110,13 +122,12 @@ func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchReque
 		}
 
 		var encodedAsJSON []byte
-		encodedAsJSON, marshalErr := json.Marshal(hit)
-		if marshalErr != nil {
-			return nil, marshalErr
+		if encodedAsJSON, err = json.Marshal(hit); err != nil {
+			return nil, op.Error(err, "encoding search hit")
 		}
 
-		if unmarshalErr := json.Unmarshal(encodedAsJSON, &x); unmarshalErr != nil {
-			return nil, unmarshalErr
+		if err = json.Unmarshal(encodedAsJSON, &x); err != nil {
+			return nil, op.Error(err, "decoding search hit")
 		}
 
 		results = append(results, x)
@@ -132,9 +143,7 @@ func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchReque
 	// still have more pages behind it.
 	if next := page + 1; len(results) > 0 && next < res.NbPages {
 		if out.NextCursor, err = textsearch.EncodeCursor(backendName, next); err != nil {
-			m.circuitBreaker.Failed()
-
-			return nil, err
+			return nil, op.Error(err, "encoding next cursor")
 		}
 	}
 
@@ -144,41 +153,51 @@ func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchReque
 }
 
 // Delete implements our indexManager interface.
-func (m *indexManager[T]) Delete(ctx context.Context, id string) error {
-	_, op := m.o11y.Begin(ctx)
+func (m *indexManager[T]) Delete(ctx context.Context, id string) (err error) {
+	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 
+	started := time.Now()
+	defer func() { m.instruments.Record(ctx, textsearch.OperationDelete, started, err) }()
+
 	if m.circuitBreaker.CannotProceed() {
-		return circuitbreaking.ErrCircuitBroken
+		return op.Error(circuitbreaking.ErrCircuitBroken, "removing from index")
 	}
 
 	op.Set(idKey, id)
 
-	if _, err := m.client.DeleteObject(id); err != nil {
+	if _, err = m.client.DeleteObject(id); err != nil {
 		m.circuitBreaker.Failed()
-		return err
+
+		return op.Error(err, "removing from index")
 	}
 
 	op.Logger().Debug("removed from index")
 
 	m.circuitBreaker.Succeeded()
+
 	return nil
 }
 
 // Wipe implements our indexManager interface.
-func (m *indexManager[T]) Wipe(ctx context.Context) error {
-	_, op := m.o11y.Begin(ctx)
+func (m *indexManager[T]) Wipe(ctx context.Context) (err error) {
+	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 
+	started := time.Now()
+	defer func() { m.instruments.Record(ctx, textsearch.OperationWipe, started, err) }()
+
 	if m.circuitBreaker.CannotProceed() {
-		return circuitbreaking.ErrCircuitBroken
+		return op.Error(circuitbreaking.ErrCircuitBroken, "wiping index")
 	}
 
-	if _, err := m.client.ClearObjects(); err != nil {
+	if _, err = m.client.ClearObjects(); err != nil {
 		m.circuitBreaker.Failed()
-		return err
+
+		return op.Error(err, "wiping index")
 	}
 
 	m.circuitBreaker.Succeeded()
+
 	return nil
 }

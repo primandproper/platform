@@ -122,7 +122,7 @@ func NewRedisLocker(
 	return &Locker{
 		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		client:         client,
-		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb, circuitbreakingcfg.WithLogger(o.logger)),
 		acquireCounter: acquireCounter,
 		releaseCounter: releaseCounter,
 		refreshCounter: refreshCounter,

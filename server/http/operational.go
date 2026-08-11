@@ -84,12 +84,8 @@ func LivenessHandler(opts ...Option) http.Handler {
 func ReadinessHandler(registry healthcheck.Registry, opts ...Option) http.Handler {
 	logger := logging.EnsureLogger(newOptions(opts).logger)
 
-	if registry == nil {
-		registry = healthcheck.NewRegistry()
-	}
-
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		result := registry.CheckAll(req.Context())
+		result := healthcheck.Check(req.Context(), registry)
 
 		status := http.StatusOK
 		if result.Status != healthcheck.StatusUp {

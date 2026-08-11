@@ -71,10 +71,14 @@ func buildTestIndexManagerWithMockServer(t *testing.T, handler http.Handler, cb 
 
 	obs := observability.NewRecordingObserver()
 
+	instruments, err := textsearch.NewInstruments(serviceName, "test", nil)
+	must.NoError(t, err)
+
 	return &indexManager[example]{
 		o11y:           obs,
 		circuitBreaker: cb,
 		client:         client.InitIndex("test"),
+		instruments:    instruments,
 	}, obs
 }
 

@@ -6,7 +6,24 @@ import (
 	"math/rand/v2"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/clock"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/retry"
+
+	"go.opentelemetry.io/otel/metric"
+)
+
+// serviceName scopes this package's spans, logger, and instrument names.
+const serviceName = "retry"
+
+// Span and log attribute keys.
+const (
+	attemptsKey    = "retry.attempts"
+	maxAttemptsKey = "retry.max_attempts"
+	delayKey       = "retry.delay"
+	exhaustedKey   = "retry.exhausted"
 )
 
 // DelayFor returns the backoff before attempt, which is 1-indexed: attempt 1 is
@@ -38,25 +55,87 @@ func DelayFor(cfg Config, attempt uint) time.Duration {
 	return time.Duration(delay)
 }
 
-// exponentialBackoff implements retry.Policy with configurable exponential backoff.
-type exponentialBackoff struct {
+var _ retry.Policy = (*ExponentialBackoffPolicy)(nil)
+
+// ExponentialBackoffPolicy retries with exponential backoff and optional
+// jitter. It is what NewExponentialBackoffPolicy returns, so a caller who has
+// chosen this schedule can depend on that choice rather than on the Policy seam
+// every schedule shares.
+type ExponentialBackoffPolicy struct {
+	o11y  observability.Observer
+	clock clock.Clock
+
+	attemptCounter    metrics.Int64Counter
+	exhaustionCounter metrics.Int64Counter
+	addOptions        []metric.AddOption
+
 	config Config
 }
 
-// NewExponentialBackoffPolicy returns a Policy that retries with exponential backoff.
-func NewExponentialBackoffPolicy(cfg Config) retry.Policy {
+// NewExponentialBackoffPolicy returns a Policy that retries with exponential
+// backoff.
+//
+// Name it. A Config is embedded in most of the packages here that talk over a
+// network, so a deployment runs many of these at once and an unnamed one's
+// attempts land in the same counter as everyone else's.
+func NewExponentialBackoffPolicy(cfg Config, opts ...Option) (*ExponentialBackoffPolicy, error) {
 	cfg.EnsureDefaults()
 
-	return &exponentialBackoff{config: cfg}
+	o := newOptions(opts)
+
+	name := serviceName
+	if o.name != "" {
+		name = serviceName + "_" + o.name
+	}
+
+	p := &ExponentialBackoffPolicy{
+		config:     cfg,
+		clock:      o.clock,
+		o11y:       observability.NewObserver(name, o.logger, o.tracerProvider),
+		addOptions: o.addOptions(),
+	}
+
+	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
+
+	var err error
+	if p.attemptCounter, err = mp.NewInt64Counter(serviceName + "_attempts"); err != nil {
+		return nil, platformerrors.Wrap(err, "creating retry attempt counter")
+	}
+
+	// The number that says a service is spending its latency budget on retries
+	// rather than on work. Attempts alone cannot: a loop that succeeds on its
+	// second try and one that fails on its third both report attempts, and only
+	// one of them is a problem.
+	if p.exhaustionCounter, err = mp.NewInt64Counter(serviceName + "_exhaustions"); err != nil {
+		return nil, platformerrors.Wrap(err, "creating retry exhaustion counter")
+	}
+
+	return p, nil
 }
 
 // Execute runs the operation, retrying on failure up to MaxAttempts times.
-func (e *exponentialBackoff) Execute(ctx context.Context, operation func(ctx context.Context) error) error {
-	var lastErr error
+//
+// An operation that never succeeds comes back as a retry.ExhaustedError
+// carrying the number of attempts that produced it. The last error is still in
+// the chain, so everything a caller could match against before still matches;
+// what is new is that the caller can also tell "this failed" from "this failed
+// five times over four seconds".
+func (e *ExponentialBackoffPolicy) Execute(ctx context.Context, operation func(ctx context.Context) error) error {
+	ctx, op := e.o11y.Begin(ctx)
+	defer op.End()
+
+	op.SpanOnly(maxAttemptsKey, e.config.MaxAttempts)
+
+	var (
+		lastErr  error
+		attempts uint
+	)
 
 	for attempt := uint(0); attempt < e.config.MaxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
+			op.SpanOnly(attemptsKey, attempts)
+
 			if lastErr != nil {
 				return lastErr
 			}
@@ -65,41 +144,75 @@ func (e *exponentialBackoff) Execute(ctx context.Context, operation func(ctx con
 		default:
 		}
 
+		attempts++
+		e.attemptCounter.Add(ctx, 1, e.addOptions...)
+
 		lastErr = operation(ctx)
 		if lastErr == nil {
+			op.SpanOnly(attemptsKey, attempts)
+
 			return nil
 		}
 
 		// A canceled/expired loop context or an explicitly non-retryable error can
 		// never be resolved by another attempt — return immediately instead of
-		// sleeping and burning the remaining attempts.
+		// sleeping and burning the remaining attempts. Neither is exhaustion: the
+		// loop stopped for a reason of its own rather than for want of attempts.
 		if retry.IsTerminal(ctx, lastErr) {
+			op.SpanOnly(attemptsKey, attempts)
+
 			return lastErr
 		}
 
 		if attempt == e.config.MaxAttempts-1 {
-			return lastErr
+			break
 		}
 
-		// attempt is 0-indexed here and DelayFor is 1-indexed: the wait after
-		// the first failed attempt is the first retry's delay.
-		delay := DelayFor(e.config, attempt+1)
+		if err := e.wait(ctx, op, attempt); err != nil {
+			op.SpanOnly(attemptsKey, attempts)
 
-		sleepDuration := delay
-		// half > 0 guards rand.Int64N, which panics on a non-positive argument
-		// (e.g. a sub-2ns delay where int64(delay)/2 truncates to 0). When the
-		// delay is too small to halve, jitter is simply skipped.
-		if half := delay / 2; e.config.UseJitter && half > 0 {
-			jitter := time.Duration(rand.Int64N(int64(half))) //nolint:gosec // G404: jitter does not require cryptographic randomness
-			sleepDuration = delay - half + jitter
-		}
-
-		select {
-		case <-ctx.Done():
 			return lastErr
-		case <-time.After(sleepDuration):
 		}
 	}
 
-	return lastErr
+	return e.exhausted(ctx, op, attempts, lastErr)
+}
+
+// wait sleeps out the backoff before the next attempt, reporting a context that
+// went away underneath it.
+func (e *ExponentialBackoffPolicy) wait(ctx context.Context, op observability.Operation, attempt uint) error {
+	// attempt is 0-indexed here and DelayFor is 1-indexed: the wait after
+	// the first failed attempt is the first retry's delay.
+	delay := DelayFor(e.config, attempt+1)
+
+	sleepDuration := delay
+	// half > 0 guards rand.Int64N, which panics on a non-positive argument
+	// (e.g. a sub-2ns delay where int64(delay)/2 truncates to 0). When the
+	// delay is too small to halve, jitter is simply skipped.
+	if half := delay / 2; e.config.UseJitter && half > 0 {
+		jitter := time.Duration(rand.Int64N(int64(half))) //nolint:gosec // G404: jitter does not require cryptographic randomness
+		sleepDuration = delay - half + jitter
+	}
+
+	op.SpanOnly(delayKey, sleepDuration.String())
+
+	return e.clock.Sleep(ctx, sleepDuration)
+}
+
+// exhausted reports a loop that spent every attempt it had.
+//
+// A loop with no error to report never ran — MaxAttempts is at least 1 after
+// EnsureDefaults, so this is unreachable — and nil is the honest answer either
+// way.
+func (e *ExponentialBackoffPolicy) exhausted(ctx context.Context, op observability.Operation, attempts uint, lastErr error) error {
+	op.SpanOnly(attemptsKey, attempts)
+
+	if lastErr == nil {
+		return nil
+	}
+
+	op.SpanOnly(exhaustedKey, true)
+	e.exhaustionCounter.Add(ctx, 1, e.addOptions...)
+
+	return op.Error(retry.Exhausted(attempts, lastErr), "retrying operation")
 }

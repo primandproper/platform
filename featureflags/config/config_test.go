@@ -2,7 +2,6 @@ package featureflagscfg
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -240,7 +239,7 @@ func TestNewFeatureFlagManager(T *testing.T) {
 
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				test.EqOp(t, fmt.Sprintf("%s_circuit_breaker_tripped", cbCfg.Name), counterName)
+				test.EqOp(t, circuitbreakingcfg.TrippedCounterName, counterName)
 				return &metricsmock.Int64CounterMock{}, errors.New("arbitrary")
 			},
 		}

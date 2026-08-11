@@ -56,6 +56,17 @@ type storeEnv struct {
 func (e *storeEnv) newStore(t *testing.T) Store {
 	t.Helper()
 
+	store, err := NewSQLStore(e.client, WithTablePrefix(e.migrate(t)))
+	must.NoError(t, err)
+
+	return store
+}
+
+// migrate renders a uniquely prefixed set of webhook tables and returns the
+// prefix, for a test that wants to build the store over them itself.
+func (e *storeEnv) migrate(t *testing.T) string {
+	t.Helper()
+
 	prefix := fmt.Sprintf("wh_%d", prefixCounter.Add(1))
 
 	stmts, err := migrations.Statements(e.dialect, prefix)
@@ -67,10 +78,7 @@ func (e *storeEnv) newStore(t *testing.T) Store {
 		must.NoError(t, execErr, must.Sprintf("executing %q", stmt))
 	}
 
-	store, err := NewSQLStore(e.client, WithTablePrefix(prefix))
-	must.NoError(t, err)
-
-	return store
+	return prefix
 }
 
 // newSQLiteEnv builds a SQLite-backed environment. SQLite exercises the real

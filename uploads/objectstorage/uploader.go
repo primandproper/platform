@@ -104,7 +104,7 @@ func NewUploadManager(ctx context.Context, cfg *Config, opts ...Option) (*Upload
 
 	u := &Uploader{
 		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
-		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb, circuitbreakingcfg.WithLogger(o.logger)),
 		instruments:    instruments,
 	}
 

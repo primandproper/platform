@@ -104,7 +104,7 @@ func NewPostgresLocker(
 		o11y:            observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		readDB:          raw.ReadDB(),
 		writeDB:         raw.WriteDB(),
-		circuitBreaker:  circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		circuitBreaker:  circuitbreakingcfg.EnsureCircuitBreaker(cb, circuitbreakingcfg.WithLogger(o.logger)),
 		acquireCounter:  acquireCounter,
 		releaseCounter:  releaseCounter,
 		refreshCounter:  refreshCounter,

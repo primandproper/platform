@@ -228,7 +228,7 @@ func TestConfig_NewIndex(T *testing.T) {
 
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(counterName string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				test.EqOp(t, "test-breaker_circuit_breaker_tripped", counterName)
+				test.EqOp(t, circuitbreakingcfg.TrippedCounterName, counterName)
 				return &metricsmock.Int64CounterMock{}, errors.New("counter init failure")
 			},
 		}

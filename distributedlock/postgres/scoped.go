@@ -90,7 +90,7 @@ func NewPostgresScopedLocker(
 	return &ScopedLocker{
 		o11y:           observability.NewObserver(scopedServiceName, o.logger, o.tracerProvider),
 		db:             db,
-		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb, circuitbreakingcfg.WithLogger(o.logger)),
 		acquireCounter: acquireCounter,
 		contendCounter: contendCounter,
 		errCounter:     errCounter,

@@ -41,11 +41,15 @@ func buildTestIndexManagerForUnit(t *testing.T, cb circuitbreaking.CircuitBreake
 
 	obs := observability.NewRecordingObserver()
 
+	instruments, err := textsearch.NewInstruments(serviceName, "test", nil)
+	must.NoError(t, err)
+
 	return &indexManager[example]{
 		o11y:           obs,
 		circuitBreaker: cb,
 		esClient:       client,
 		indexName:      "test",
+		instruments:    instruments,
 	}, obs
 }
 
@@ -61,11 +65,15 @@ func buildTestIndexManagerWithServer(t *testing.T, server *httptest.Server, cb c
 
 	obs := observability.NewRecordingObserver()
 
+	instruments, err := textsearch.NewInstruments(serviceName, "test", nil)
+	must.NoError(t, err)
+
 	return &indexManager[example]{
 		o11y:           obs,
 		circuitBreaker: cb,
 		esClient:       client,
 		indexName:      "test",
+		instruments:    instruments,
 	}, obs
 }
 

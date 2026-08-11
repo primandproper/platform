@@ -9,6 +9,11 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// NameAttributeKey is the metric attribute carrying which breaker a measurement
+// came from. It is exported because a dashboard querying these counters has to
+// spell it, and a constant is better than a string repeated in a query builder.
+const NameAttributeKey = "circuit_breaker.name"
+
 // Option customizes how a CircuitBreaker is provided.
 //
 // The observability dependencies are options rather than parameters because
@@ -39,12 +44,19 @@ func newOptions(opts []Option) *options {
 	return o
 }
 
-func (o *options) addOptions() []metric.AddOption {
-	if len(o.metricAttributes) == 0 {
-		return nil
-	}
+// addOptions returns the attributes every measurement this breaker records
+// carries: its name, plus whatever the caller added.
+//
+// The name is an attribute rather than part of the instrument name so that one
+// breaker's trips can be read on their own and every breaker's trips can be read
+// together, and so that a breaker nobody named does not mint an instrument
+// nobody was expecting.
+func (o *options) addOptions(name string) []metric.AddOption {
+	attrs := make([]attribute.KeyValue, 0, len(o.metricAttributes)+1)
+	attrs = append(attrs, attribute.String(NameAttributeKey, name))
+	attrs = append(attrs, o.metricAttributes...)
 
-	return []metric.AddOption{metric.WithAttributes(o.metricAttributes...)}
+	return []metric.AddOption{metric.WithAttributes(attrs...)}
 }
 
 // WithMetricAttributes attaches a fixed set of attributes to every metric the

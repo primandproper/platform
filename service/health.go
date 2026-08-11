@@ -6,6 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v10/healthcheck"
 	"github.com/primandproper/platform-go/v10/internal/injection"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -39,14 +40,22 @@ const (
 // that starts empty.
 func registerHealth(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (healthcheck.Registry, error) {
-		registry := healthcheck.NewRegistry()
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
+		registry, err := healthcheck.NewRegistry(healthcheck.WithPillars(pillars))
+		if err != nil {
+			return nil, err
+		}
 
 		// Readiness is an optional capability of a Client rather than part of the
 		// interface — every provider this module ships has it, and one an
 		// application wrote may not. An asserted-away client is left unchecked
 		// rather than reported down, and its owner, who is the only one who knows
 		// how to ask it, joins a checker through WithHealthChecks.
-		if err := adopt(i, registry, func(c database.Client) healthcheck.Checker {
+		if err = adopt(i, registry, func(c database.Client) healthcheck.Checker {
 			ready, ok := c.(healthcheck.DatabaseReadyChecker)
 			if !ok {
 				return nil
@@ -61,7 +70,7 @@ func registerHealth(i do.Injector) {
 		// path depends on: a service that cannot publish cannot serve, while one
 		// that cannot consume is behind rather than unready. ConsumerProvider
 		// has no Ping to ask anyway.
-		if err := adopt(i, registry, func(p messagequeue.PublisherProvider) healthcheck.Checker {
+		if err = adopt(i, registry, func(p messagequeue.PublisherProvider) healthcheck.Checker {
 			return healthcheck.NewMessageQueueChecker(messageQueueCheckerName, p)
 		}); err != nil {
 			return nil, err

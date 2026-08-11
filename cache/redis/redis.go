@@ -122,7 +122,7 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreak
 
 	impl := &Cache[T]{
 		codec:           cache.NewDefaultCodec[T](),
-		circuitBreaker:  circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		circuitBreaker:  circuitbreakingcfg.EnsureCircuitBreaker(cb, circuitbreakingcfg.WithLogger(o.logger)),
 		namespace:       cfg.Namespace,
 		expiration:      expiration,
 		scanPageSize:    o.scanPageSize,

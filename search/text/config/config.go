@@ -84,9 +84,17 @@ func NewIndex[T any](
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ElasticsearchProvider:
-		return elasticsearch.NewIndexManager[T](ctx, cfg.Elasticsearch, indexName, circuitBreaker, elasticsearch.WithLogger(logger), elasticsearch.WithTracerProvider(tracerProvider))
+		return elasticsearch.NewIndexManager[T](ctx, cfg.Elasticsearch, indexName, circuitBreaker,
+			elasticsearch.WithLogger(logger),
+			elasticsearch.WithTracerProvider(tracerProvider),
+			elasticsearch.WithMetricsProvider(metricsProvider),
+		)
 	case AlgoliaProvider:
-		return algolia.NewIndexManager[T](cfg.Algolia, indexName, circuitBreaker, algolia.WithLogger(logger), algolia.WithTracerProvider(tracerProvider))
+		return algolia.NewIndexManager[T](cfg.Algolia, indexName, circuitBreaker,
+			algolia.WithLogger(logger),
+			algolia.WithTracerProvider(tracerProvider),
+			algolia.WithMetricsProvider(metricsProvider),
+		)
 	case ProviderNoop:
 		return noop.NewIndexManager[T](), nil
 	default:
