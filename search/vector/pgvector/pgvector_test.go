@@ -409,20 +409,6 @@ func TestSafeIdentifier(T *testing.T) {
 	})
 }
 
-func TestQuoteIdent(T *testing.T) {
-	T.Parallel()
-
-	T.Run("simple", func(t *testing.T) {
-		t.Parallel()
-		test.EqOp(t, `"users"`, quoteIdent("users"))
-	})
-
-	T.Run("with embedded quote", func(t *testing.T) {
-		t.Parallel()
-		test.EqOp(t, `"foo""bar"`, quoteIdent(`foo"bar`))
-	})
-}
-
 func TestPgTextArray(T *testing.T) {
 	T.Parallel()
 

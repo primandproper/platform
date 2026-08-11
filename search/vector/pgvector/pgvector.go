@@ -12,6 +12,7 @@ import (
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
@@ -144,8 +145,8 @@ func NewIndex[T any](
 		errCounter:        errCounter,
 		latencyHist:       latencyHist,
 		indexName:         indexName,
-		quotedIndex:       quoteIdent(indexName),
-		quotedMetadataCol: quoteIdent(metaCol),
+		quotedIndex:       dialect.Postgres.QuoteIdentifier(indexName),
+		quotedMetadataCol: dialect.Postgres.QuoteIdentifier(metaCol),
 		distanceOperator:  op,
 		indexOpsClass:     ops,
 		dimension:         cfg.Dimension,
@@ -200,7 +201,7 @@ func (i *indexManager[T]) ensureTable(ctx context.Context) error {
 		),
 		fmt.Sprintf(
 			`CREATE INDEX IF NOT EXISTS %s ON %s USING hnsw (embedding %s)`,
-			quoteIdent(i.indexName+"_embedding_idx"), i.quotedIndex, i.indexOpsClass,
+			dialect.Postgres.QuoteIdentifier(i.indexName+"_embedding_idx"), i.quotedIndex, i.indexOpsClass,
 		),
 	}
 
@@ -515,12 +516,6 @@ func unmarshalMetadata[T any](data []byte) (*T, error) {
 		return nil, err
 	}
 	return &t, nil
-}
-
-// quoteIdent safely wraps a Postgres identifier in double-quotes, doubling any
-// embedded double-quotes per the SQL spec.
-func quoteIdent(id string) string {
-	return `"` + strings.ReplaceAll(id, `"`, `""`) + `"`
 }
 
 // firstWords returns the first few words of a SQL statement for use in error

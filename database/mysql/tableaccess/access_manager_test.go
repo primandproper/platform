@@ -84,55 +84,6 @@ func runWithTestMySQLInstance(t *testing.T, fn func(ctx context.Context, my *mys
 	)
 }
 
-func TestQuoteIdent(T *testing.T) {
-	T.Parallel()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple identifier",
-			input:    "users",
-			expected: "`users`",
-		},
-		{
-			name:     "identifier with spaces",
-			input:    "user table",
-			expected: "`user table`",
-		},
-		{
-			name:     "identifier with backticks",
-			input:    "user`name",
-			expected: "`user``name`",
-		},
-		{
-			name:     "identifier with multiple backticks",
-			input:    "user``name",
-			expected: "`user````name`",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "``",
-		},
-		{
-			name:     "identifier with special characters",
-			input:    "user-name_table",
-			expected: "`user-name_table`",
-		},
-	}
-
-	for _, tt := range tests {
-		T.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			result := quoteIdent(tt.input)
-			test.EqOp(t, tt.expected, result)
-		})
-	}
-}
-
 func TestQuoteLiteral(T *testing.T) {
 	T.Parallel()
 

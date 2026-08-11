@@ -238,3 +238,48 @@ func TestSplitStatements(T *testing.T) {
 		test.SliceLen(t, 0, SplitStatements("-- nothing here\n\n-- or here\n"))
 	})
 }
+
+func TestDialect_QuoteIdentifier(T *testing.T) {
+	T.Parallel()
+
+	T.Run("quotes with the dialect's quote character", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, `"users"`, Postgres.QuoteIdentifier("users"))
+		test.EqOp(t, `"users"`, SQLite.QuoteIdentifier("users"))
+		test.EqOp(t, "`users`", MySQL.QuoteIdentifier("users"))
+	})
+
+	// An embedded quote that is not doubled ends the quoting early, and
+	// everything after it is statement text.
+	T.Run("doubles an embedded quote", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, `"foo""bar"`, Postgres.QuoteIdentifier(`foo"bar`))
+		test.EqOp(t, "`foo``bar`", MySQL.QuoteIdentifier("foo`bar"))
+	})
+
+	// The other dialect's quote character is data, not quoting, so it passes
+	// through untouched — which is why one function per dialect would be two
+	// chances to escape the wrong one.
+	T.Run("leaves the other dialect's quote character alone", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "\"`backticks`\"", Postgres.QuoteIdentifier("`backticks`"))
+		test.EqOp(t, "`\"quotes\"`", MySQL.QuoteIdentifier(`"quotes"`))
+	})
+
+	// The standard form is what every dialect here but MySQL uses, so it is the
+	// safer answer for one this package does not know.
+	T.Run("an unknown dialect gets the standard form", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, `"users"`, Dialect("cockroach").QuoteIdentifier("users"))
+	})
+
+	T.Run("an empty identifier is empty quoting", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, `""`, Postgres.QuoteIdentifier(""))
+	})
+}

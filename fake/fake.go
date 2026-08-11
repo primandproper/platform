@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	fake "github.com/brianvoe/gofakeit/v7"
 	"github.com/go-faker/faker/v4"
 	"github.com/go-faker/faker/v4/pkg/interfaces"
 	"github.com/go-faker/faker/v4/pkg/options"
@@ -35,9 +34,19 @@ func fakerOptions(extra ...options.OptionFunc) []options.OptionFunc {
 	}, extra...)
 }
 
-// BuildFakeTime builds a fake time.
+// BuildFakeTime builds a fake time, truncated to the second and in UTC.
+//
+// It draws from the same library every other builder here does. A second faker
+// was pulled in for this one function, and two generators mean two seeds and
+// two notions of what a random value is — which is a surprising amount of
+// machinery for "an arbitrary timestamp".
+//
+// Truncated because these values round-trip through columns that do not all
+// keep sub-second precision, and a fake that survives a save but not a reload
+// fails an equality assertion for a reason that has nothing to do with the code
+// under test.
 func BuildFakeTime() time.Time {
-	return fake.Date().Add(0).Truncate(time.Second).UTC()
+	return time.Unix(faker.UnixTime(), 0).Truncate(time.Second).UTC()
 }
 
 // BuildFakeForTest builds a fake instance of the given type for a test, failing the test on error.

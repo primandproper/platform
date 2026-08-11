@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	stderrors "errors"
 	"fmt"
-	"strings"
 
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 
@@ -74,12 +74,6 @@ func NewManager(db *sql.DB, opts ...Option) *Manager {
 		db:   db,
 		o11y: observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}
-}
-
-// quoteIdent safely wraps a Postgres identifier in double‑quotes,
-// doubling any embedded double‑quotes per the SQL spec.
-func quoteIdent(id string) string {
-	return `"` + strings.ReplaceAll(id, `"`, `""`) + `"`
 }
 
 // bindCreateUserArgs stashes the new role's name and password in transaction-local
@@ -177,7 +171,7 @@ func (p *Manager) DeleteUser(ctx context.Context, username string) error {
 	ctx, op := p.o11y.Begin(ctx, observability.WithValue(usernameKey, username))
 	defer op.End()
 
-	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP USER IF EXISTS %s", quoteIdent(username))); err != nil {
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP USER IF EXISTS %s", dialect.Postgres.QuoteIdentifier(username))); err != nil {
 		return op.Error(err, "dropping user")
 	}
 
@@ -193,8 +187,8 @@ func (p *Manager) CreateDatabase(ctx context.Context, dbName, owner string) erro
 
 	if _, err := p.db.ExecContext(ctx, fmt.Sprintf(
 		"CREATE DATABASE %s OWNER %s",
-		quoteIdent(dbName),
-		quoteIdent(owner),
+		dialect.Postgres.QuoteIdentifier(dbName),
+		dialect.Postgres.QuoteIdentifier(owner),
 	)); err != nil {
 		return op.Error(err, "creating database")
 	}
@@ -206,7 +200,7 @@ func (p *Manager) DeleteDatabase(ctx context.Context, dbName string) error {
 	ctx, op := p.o11y.Begin(ctx, observability.WithValue(databaseKey, dbName))
 	defer op.End()
 
-	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", quoteIdent(dbName))); err != nil {
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dialect.Postgres.QuoteIdentifier(dbName))); err != nil {
 		return op.Error(err, "dropping database")
 	}
 
@@ -270,7 +264,7 @@ func (p *Manager) GrantUserAccessToTable(ctx context.Context, username, schema, 
 		return op.Error(errors.Newf("invalid privilege: %s", privilege), "granting table access")
 	}
 
-	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("GRANT %s ON TABLE %s TO %s", privilege, fmt.Sprintf("%s.%s", quoteIdent(schema), quoteIdent(table)), quoteIdent(username))); err != nil {
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf("GRANT %s ON TABLE %s TO %s", privilege, fmt.Sprintf("%s.%s", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(table)), dialect.Postgres.QuoteIdentifier(username))); err != nil {
 		return op.Error(err, "granting table access")
 	}
 

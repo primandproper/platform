@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/testutils/containers/pgtest"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -69,55 +70,6 @@ func runWithTestPostgres(t *testing.T, fn func(ctx context.Context, pg *pgtest.I
 	admin := fmt.Sprintf("%d", hashStringToNumber(t.Name()))
 
 	pgtest.Run(t, fn, pgtest.WithCredentials(splitReverseConcat(admin), admin, reverseString(admin)))
-}
-
-func TestQuoteIdent(T *testing.T) {
-	T.Parallel()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple identifier",
-			input:    "users",
-			expected: `"users"`,
-		},
-		{
-			name:     "identifier with spaces",
-			input:    "user table",
-			expected: `"user table"`,
-		},
-		{
-			name:     "identifier with double quotes",
-			input:    `user"name`,
-			expected: `"user""name"`,
-		},
-		{
-			name:     "identifier with multiple double quotes",
-			input:    `user""name`,
-			expected: `"user""""name"`,
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: `""`,
-		},
-		{
-			name:     "identifier with special characters",
-			input:    "user-name_table",
-			expected: `"user-name_table"`,
-		},
-	}
-
-	for _, tt := range tests {
-		T.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			result := quoteIdent(tt.input)
-			test.EqOp(t, tt.expected, result)
-		})
-	}
 }
 
 func TestIsValidPrivilege(T *testing.T) {
@@ -763,7 +715,7 @@ func TestManager_UserCanAccessDatabase(T *testing.T) {
 			test.NoError(t, err)
 
 			// Grant CONNECT privilege to the user for the database
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s", quoteIdent(databaseName), quoteIdent(username)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s", dialect.Postgres.QuoteIdentifier(databaseName), dialect.Postgres.QuoteIdentifier(username)))
 			test.NoError(t, err)
 
 			// Check access - user should have access now
@@ -866,7 +818,7 @@ func TestManager_GrantUserAccessToTable(T *testing.T) {
 			test.NoError(t, err)
 
 			// Create a test table
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(schema), quoteIdent(table)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(table)))
 			test.NoError(t, err)
 
 			// Grant access
@@ -897,7 +849,7 @@ func TestManager_GrantUserAccessToTable(T *testing.T) {
 			test.NoError(t, err)
 
 			// Create a test table
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(schema), quoteIdent(table)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(table)))
 			test.NoError(t, err)
 
 			privileges := []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"}
@@ -930,7 +882,7 @@ func TestManager_GrantUserAccessToTable(T *testing.T) {
 			test.NoError(t, err)
 
 			// Create a test table
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(schema), quoteIdent(table)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(table)))
 			test.NoError(t, err)
 
 			// Try to grant invalid privilege
@@ -962,7 +914,7 @@ func TestManager_GrantUserAccessToTable(T *testing.T) {
 			test.NoError(t, err)
 
 			// Create a test table
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(schema), quoteIdent(table)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(table)))
 			test.NoError(t, err)
 
 			// Try to grant lowercase privilege (should fail)
@@ -994,10 +946,10 @@ func TestManager_GrantUserAccessToTable(T *testing.T) {
 			test.NoError(t, err)
 
 			// Create schema and table
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %s", quoteIdent(schema)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %s", dialect.Postgres.QuoteIdentifier(schema)))
 			test.NoError(t, err)
 
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(schema), quoteIdent(table)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(table)))
 			test.NoError(t, err)
 
 			// Grant access
@@ -1019,7 +971,7 @@ func TestManager_GrantUserAccessToTable(T *testing.T) {
 			table := "testtable"
 
 			// Create a test table
-			_, err := adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(schema), quoteIdent(table)))
+			_, err := adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(table)))
 			test.NoError(t, err)
 
 			// Try to grant access to non-existent user
@@ -1152,7 +1104,7 @@ func TestManager_SQLInjectionProtection(T *testing.T) {
 			test.NoError(t, err)
 
 			// Create a test table with the malicious name
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(schema), quoteIdent(maliciousTable)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(maliciousTable)))
 			test.NoError(t, err)
 
 			// This should not cause SQL injection due to proper quoting
@@ -1184,10 +1136,10 @@ func TestManager_SQLInjectionProtection(T *testing.T) {
 			test.NoError(t, err)
 
 			// Create schema and table with malicious names
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %s", quoteIdent(maliciousSchema)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %s", dialect.Postgres.QuoteIdentifier(maliciousSchema)))
 			test.NoError(t, err)
 
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(maliciousSchema), quoteIdent(table)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(maliciousSchema), dialect.Postgres.QuoteIdentifier(table)))
 			test.NoError(t, err)
 
 			// This should not cause SQL injection due to proper quoting
@@ -1365,7 +1317,7 @@ func TestManager_ErrorCases(T *testing.T) {
 			test.NoError(t, err)
 
 			// Create a test table
-			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", quoteIdent(schema), quoteIdent(table)))
+			_, err = adminDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", dialect.Postgres.QuoteIdentifier(schema), dialect.Postgres.QuoteIdentifier(table)))
 			test.NoError(t, err)
 
 			// Empty privilege should fail
