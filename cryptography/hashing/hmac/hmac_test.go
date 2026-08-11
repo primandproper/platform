@@ -123,3 +123,58 @@ func TestEqual(T *testing.T) {
 		test.False(t, Equal([]byte("short"), []byte("considerably longer")))
 	})
 }
+
+func TestMatchesAny(T *testing.T) {
+	T.Parallel()
+
+	content := []byte("content")
+
+	hashers := []hashing.Hasher{
+		NewHMACSHA256Hasher([]byte("a")),
+		NewHMACSHA256Hasher([]byte("b")),
+	}
+
+	macUnder := func(key string) []byte {
+		return NewHMACSHA256Hasher([]byte(key)).Hash(content)
+	}
+
+	// The rotation case in both directions: the outgoing key still verifies, and
+	// so does the incoming one.
+	T.Run("matches under any held key", func(t *testing.T) {
+		t.Parallel()
+
+		test.True(t, MatchesAny(hashers, content, macUnder("a")))
+		test.True(t, MatchesAny(hashers, content, macUnder("b")))
+	})
+
+	// The provider's own rotation: several candidates in one header, any one of
+	// which may be the one this receiver's secret produces.
+	T.Run("matches when any candidate is the one", func(t *testing.T) {
+		t.Parallel()
+
+		test.True(t, MatchesAny(hashers, content, macUnder("z"), macUnder("b")))
+	})
+
+	T.Run("does not match a key it does not hold", func(t *testing.T) {
+		t.Parallel()
+
+		test.False(t, MatchesAny(hashers, content, macUnder("c")))
+	})
+
+	T.Run("does not match a MAC over other content", func(t *testing.T) {
+		t.Parallel()
+
+		test.False(t, MatchesAny(hashers, content, NewHMACSHA256Hasher([]byte("a")).Hash([]byte("other"))))
+	})
+
+	// A verifier holding no keys accepts nothing, and a header carrying no
+	// candidates proves nothing. Either reading as a match would turn a
+	// misconfiguration into an open endpoint.
+	T.Run("an empty side is never a match", func(t *testing.T) {
+		t.Parallel()
+
+		test.False(t, MatchesAny(nil, content, macUnder("a")))
+		test.False(t, MatchesAny(hashers, content))
+		test.False(t, MatchesAny(nil, content))
+	})
+}

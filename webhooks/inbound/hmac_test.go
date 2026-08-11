@@ -254,20 +254,3 @@ func TestHasherFactory(T *testing.T) {
 	})
 }
 
-func TestMatchesAny(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
-		t.Parallel()
-
-		content := []byte("content")
-		hashers := []hashing.Hasher{
-			hmac.NewHMACSHA256Hasher([]byte("a")),
-			hmac.NewHMACSHA256Hasher([]byte("b")),
-		}
-
-		test.True(t, matchesAny(hashers, content, hmac.NewHMACSHA256Hasher([]byte("b")).Hash(content)))
-		test.False(t, matchesAny(hashers, content, hmac.NewHMACSHA256Hasher([]byte("c")).Hash(content)))
-		test.False(t, matchesAny(nil, content, []byte("anything")))
-	})
-}

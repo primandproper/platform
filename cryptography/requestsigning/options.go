@@ -11,14 +11,15 @@ import (
 // notion of what time it is; each option's doc says which of them read it.
 type Option func(*config)
 
+// config is what the options set. The clock/pin/tolerance triple is Freshness,
+// embedded rather than restated, so this package and every scheme that borrows
+// it resolve "now" the same way.
 type config struct {
-	clock     clock.Clock
-	at        time.Time
-	tolerance time.Duration
+	Freshness
 }
 
 func newConfig(opts []Option) *config {
-	cfg := &config{tolerance: DefaultTolerance}
+	cfg := &config{Freshness: Freshness{Tolerance: DefaultTolerance}}
 
 	for _, opt := range opts {
 		if opt != nil {
@@ -27,21 +28,6 @@ func newConfig(opts []Option) *config {
 	}
 
 	return cfg
-}
-
-// now resolves the instant this operation runs at: the pinned one if a caller
-// named it, the injected clock's otherwise, and the wall clock when neither was
-// supplied.
-func (c *config) now() time.Time {
-	if !c.at.IsZero() {
-		return c.at
-	}
-
-	if c.clock != nil {
-		return c.clock.Now()
-	}
-
-	return time.Now()
 }
 
 // WithClock swaps the source of time a Signer stamps with and a Verifier
@@ -53,7 +39,7 @@ func (c *config) now() time.Time {
 func WithClock(c clock.Clock) Option {
 	return func(cfg *config) {
 		if c != nil {
-			cfg.clock = c
+			cfg.Clock = c
 		}
 	}
 }
@@ -68,7 +54,7 @@ func WithClock(c clock.Clock) Option {
 func WithTolerance(d time.Duration) Option {
 	return func(cfg *config) {
 		if d > 0 {
-			cfg.tolerance = d
+			cfg.Tolerance = d
 		}
 	}
 }
@@ -83,7 +69,7 @@ func WithTolerance(d time.Duration) Option {
 func WithVerificationTime(t time.Time) Option {
 	return func(cfg *config) {
 		if !t.IsZero() {
-			cfg.at = t
+			cfg.At = t
 		}
 	}
 }

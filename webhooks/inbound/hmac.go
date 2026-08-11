@@ -201,7 +201,8 @@ func (v *HMACVerifier) Verify(_ context.Context, headers http.Header, body []byt
 		return platformerrors.Wrapf(ErrInvalidSignature, "%s is not valid %s", v.scheme.Header, v.scheme.Encoding)
 	}
 
-	if !matchesAny(v.hashers, body, candidate) {
+	// Every secret, without short-circuiting; see hmac.MatchesAny.
+	if !hmac.MatchesAny(v.hashers, body, candidate) {
 		return ErrInvalidSignature
 	}
 
@@ -234,24 +235,4 @@ func decoderFor(e Encoding) (func(string) ([]byte, error), error) {
 	default:
 		return nil, platformerrors.Wrapf(platformerrors.ErrUnknownProvider, "webhook signature encoding %q", e)
 	}
-}
-
-// matchesAny reports whether candidate is the MAC of content under any of the
-// hashers, comparing in constant time.
-//
-// Every hasher is tried even after one matches. The loop is over at most a
-// handful of keys held during a rotation, so the cost is nothing, and not
-// short-circuiting keeps the work independent of which key matched — the
-// property the constant-time comparison inside hmac.Equal exists to provide,
-// and which an early return would give back one key at a time.
-func matchesAny(hashers []hashing.Hasher, content, candidate []byte) bool {
-	var matched bool
-
-	for _, h := range hashers {
-		if hmac.Equal(h.Hash(content), candidate) {
-			matched = true
-		}
-	}
-
-	return matched
 }

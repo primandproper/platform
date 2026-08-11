@@ -22,8 +22,8 @@ func TestNewVerifierConfig(T *testing.T) {
 		cfg := newVerifierConfig(nil)
 
 		must.NotNil(t, cfg)
-		test.EqOp(t, DefaultTolerance, cfg.tolerance)
-		test.False(t, cfg.now().IsZero())
+		test.EqOp(t, DefaultTolerance, cfg.Tolerance)
+		test.False(t, cfg.Now().IsZero())
 	})
 
 	T.Run("skips nil options", func(t *testing.T) {
@@ -32,7 +32,7 @@ func TestNewVerifierConfig(T *testing.T) {
 		cfg := newVerifierConfig([]VerifierOption{nil, WithTolerance(time.Minute), nil})
 
 		must.NotNil(t, cfg)
-		test.EqOp(t, time.Minute, cfg.tolerance)
+		test.EqOp(t, time.Minute, cfg.Tolerance)
 	})
 }
 
@@ -49,7 +49,7 @@ func TestVerifierConfig_now(T *testing.T) {
 			WithVerificationTime(at),
 		})
 
-		test.EqOp(t, at, cfg.now())
+		test.EqOp(t, at, cfg.Now())
 	})
 
 	// A zero time would otherwise pin verification to the Unix epoch and reject everything.
@@ -61,7 +61,7 @@ func TestVerifierConfig_now(T *testing.T) {
 			WithClock(&clockmock.ClockMock{NowFunc: func() time.Time { return at }}),
 		})
 
-		test.EqOp(t, at, cfg.now())
+		test.EqOp(t, at, cfg.Now())
 	})
 
 	T.Run("a nil clock is ignored", func(t *testing.T) {
@@ -69,8 +69,8 @@ func TestVerifierConfig_now(T *testing.T) {
 
 		cfg := newVerifierConfig([]VerifierOption{WithClock(nil)})
 
-		test.Nil(t, cfg.clock)
-		test.False(t, cfg.now().IsZero())
+		test.Nil(t, cfg.Clock)
+		test.False(t, cfg.Now().IsZero())
 	})
 }
 
@@ -83,7 +83,7 @@ func TestWithTolerance(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range []time.Duration{0, -time.Hour} {
-			test.EqOp(t, DefaultTolerance, newVerifierConfig([]VerifierOption{WithTolerance(d)}).tolerance)
+			test.EqOp(t, DefaultTolerance, newVerifierConfig([]VerifierOption{WithTolerance(d)}).Tolerance)
 		}
 	})
 }
