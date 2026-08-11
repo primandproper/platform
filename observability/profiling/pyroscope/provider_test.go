@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	"github.com/primandproper/platform-go/v10/observability/profiling"
 
@@ -21,8 +22,8 @@ func TestNewProfilingProvider(T *testing.T) {
 		logger := loggingnoop.NewLogger()
 
 		p, err := NewProfilingProvider(ctx, logger, "test-service", nil)
-		must.NoError(t, err)
-		test.NotNil(t, p)
+		test.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
+		test.Nil(t, p)
 	})
 
 	T.Run("standard", func(t *testing.T) {

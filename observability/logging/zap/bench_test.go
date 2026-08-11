@@ -32,7 +32,11 @@ func silenceOutput(b *testing.B) {
 func BenchmarkZapLogger(b *testing.B) {
 	silenceOutput(b)
 
-	logger := NewZapLogger(logging.InfoLevel)
+	logger, err := NewZapLogger(logging.InfoLevel)
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	fields := map[string]any{"user_id": "123", "tenant": "acme", "count": 42}
 	benchErr := errors.New("benchmark error")
 

@@ -423,10 +423,11 @@ func TestUnselectedProvidersAreNotEnforced(T *testing.T) {
 		},
 
 		// notifications/async
-		{
-			name: "notifications-async/unset",
-			cfg:  &asyncnotifcfg.Config{},
-		},
+		//
+		// There is no unset case here, unlike its siblings: async notifications
+		// have no default provider. Sending nothing is selected by naming noop,
+		// so an unset provider is a validation failure rather than a config that
+		// validates and then quietly notifies nobody.
 		{
 			name: "notifications-async/noop",
 			cfg:  &asyncnotifcfg.Config{Provider: asyncnotifcfg.ProviderNoop},

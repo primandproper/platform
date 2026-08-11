@@ -11,14 +11,17 @@ import (
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/profiling"
-	profilingnoop "github.com/primandproper/platform-go/v10/observability/profiling/noop"
 )
 
 // NewProfilingProvider creates a pprof-based profiling provider that exposes
 // /debug/pprof endpoints on an HTTP server.
+//
+// A nil Config is an error rather than a noop, for the same reason the pyroscope
+// provider refuses one: a provider that profiles nothing is indistinguishable
+// from one that works until somebody goes looking for a profile.
 func NewProfilingProvider(ctx context.Context, logger logging.Logger, cfg *Config) (profiling.Provider, error) {
 	if cfg == nil {
-		return profilingnoop.NewProvider(), nil
+		return nil, errors.Wrap(errors.ErrNilInputParameter, "nil pprof config")
 	}
 
 	port := cfg.Port

@@ -11,8 +11,10 @@ import (
 )
 
 // NewMultiSourceEventReporterFromConfig builds a MultiSourceEventReporter from proxy sources config.
-// For each source, attempts to create an EventReporter via NewCollector.
-// If creation fails (e.g. missing credentials) or provider is unset, uses Noop for that source.
+// For each source, it creates an EventReporter via NewCollector. A source that fails to
+// construct — missing credentials, an unset provider — fails the whole call rather than
+// getting a noop of its own: that substitution outlived the mistake by the life of the
+// process, and every event for the source went nowhere while every call returned nil.
 //
 // For PostHog: reporters are deduplicated by API key. Sources sharing the same PostHog API key
 // reuse a single client (the source name is set as a property on each event), while sources with

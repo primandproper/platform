@@ -26,7 +26,12 @@ const (
 
 var (
 	// ErrInvalidAlgorithm is returned when an unsupported compression algorithm is requested.
-	ErrInvalidAlgorithm = errors.New("invalid compression algorithm")
+	//
+	// Algorithm is a runtime-config selection seam like any provider name, so this
+	// wraps errors.ErrUnknownProvider: startup code that branches on one sentinel
+	// for "the config named something this build does not have" catches this too,
+	// and a caller that wants to say "compression" specifically still can.
+	ErrInvalidAlgorithm = errors.Wrap(errors.ErrUnknownProvider, "invalid compression algorithm")
 	// ErrDecompressedTooLarge is returned when decompressing an input would exceed the
 	// configured maximum decompressed size.
 	ErrDecompressedTooLarge = errors.New("decompressed output exceeds configured maximum")
@@ -75,7 +80,7 @@ func NewCompressor(a Algorithm, opts ...Option) (Compressor, error) {
 		}
 		return c, nil
 	default:
-		return nil, ErrInvalidAlgorithm
+		return nil, errors.Wrapf(ErrInvalidAlgorithm, "compression algorithm %q", a)
 	}
 }
 
@@ -111,7 +116,7 @@ func (c *compressor) CompressBytes(in []byte) ([]byte, error) {
 
 		return b.Bytes(), nil
 	default:
-		return nil, errors.Newf("unsupported compression algorithm: %s", c.algo)
+		return nil, errors.Wrapf(ErrInvalidAlgorithm, "compression algorithm %q", c.algo)
 	}
 }
 
@@ -156,6 +161,6 @@ func (c *compressor) DecompressBytes(in []byte) ([]byte, error) {
 		// s2's streaming reader has no output cap of its own, built-in or per-frame.
 		return c.copyBounded(s2.NewReader(bytes.NewReader(in)))
 	default:
-		return nil, errors.Newf("unsupported compression algorithm: %s", c.algo)
+		return nil, errors.Wrapf(ErrInvalidAlgorithm, "compression algorithm %q", c.algo)
 	}
 }

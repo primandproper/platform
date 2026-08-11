@@ -116,20 +116,22 @@ func TestMultiSourceEventReporter_getReporter(T *testing.T) {
 		}
 		m := NewMultiSourceEventReporter(reporters)
 
-		got := m.getReporter("ios")
+		got, err := m.getReporter("ios")
+		test.NoError(t, err)
 		test.Eq(t, expected, got)
 	})
 
-	T.Run("returns noop for unknown source", func(t *testing.T) {
+	T.Run("returns ErrUnknownSource for unknown source", func(t *testing.T) {
 		t.Parallel()
 
 		m := NewMultiSourceEventReporter(nil)
 
-		got := m.getReporter("unknown")
-		test.NotNil(t, got)
+		got, err := m.getReporter("unknown")
+		test.Nil(t, got)
+		test.ErrorIs(t, err, ErrUnknownSource)
 	})
 
-	T.Run("returns noop when reporter is nil in map", func(t *testing.T) {
+	T.Run("returns ErrUnknownSource when reporter is nil in map", func(t *testing.T) {
 		t.Parallel()
 
 		reporters := map[string]analytics.EventReporter{
@@ -137,8 +139,23 @@ func TestMultiSourceEventReporter_getReporter(T *testing.T) {
 		}
 		m := NewMultiSourceEventReporter(reporters)
 
-		got := m.getReporter("ios")
-		test.NotNil(t, got)
+		got, err := m.getReporter("ios")
+		test.Nil(t, got)
+		test.ErrorIs(t, err, ErrUnknownSource)
+	})
+
+	T.Run("error names the configured sources", func(t *testing.T) {
+		t.Parallel()
+
+		reporters := map[string]analytics.EventReporter{
+			"web": noop.NewEventReporter(),
+			"ios": noop.NewEventReporter(),
+		}
+		m := NewMultiSourceEventReporter(reporters)
+
+		_, err := m.getReporter("android")
+		test.Error(t, err)
+		test.StrContains(t, err.Error(), "[ios web]")
 	})
 }
 
@@ -175,13 +192,13 @@ func TestMultiSourceEventReporter_TrackEvent(T *testing.T) {
 		})
 	})
 
-	T.Run("uses noop for unknown source", func(t *testing.T) {
+	T.Run("reports an unknown source rather than dropping the event", func(t *testing.T) {
 		t.Parallel()
 
 		m := NewMultiSourceEventReporter(nil)
 
 		err := m.TrackEvent(context.Background(), "unknown", "signup", "user1", nil)
-		test.NoError(t, err)
+		test.ErrorIs(t, err, ErrUnknownSource)
 	})
 
 	T.Run("records values even when reporter errors", func(t *testing.T) {
@@ -273,13 +290,13 @@ func TestMultiSourceEventReporter_AddUser(T *testing.T) {
 		})
 	})
 
-	T.Run("uses noop for unknown source", func(t *testing.T) {
+	T.Run("reports an unknown source rather than dropping the identify", func(t *testing.T) {
 		t.Parallel()
 
 		m := NewMultiSourceEventReporter(nil)
 
 		err := m.AddUser(context.Background(), "unknown", "user1", nil)
-		test.NoError(t, err)
+		test.ErrorIs(t, err, ErrUnknownSource)
 	})
 
 	T.Run("records values even when reporter errors", func(t *testing.T) {

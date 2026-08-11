@@ -3,9 +3,9 @@ package multisource
 import (
 	"context"
 	"maps"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/analytics"
-	"github.com/primandproper/platform-go/v10/analytics/noop"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
@@ -17,6 +17,16 @@ const (
 	// For PostHog, where a single API key is shared across sources, this property distinguishes events.
 	SourcePropertyKey = "source"
 )
+
+// ErrUnknownSource is returned when an event names a source this reporter was
+// not built with.
+//
+// It is an error rather than a noop substitution. The substitution was
+// permanent — every event for that source was dropped for the life of the
+// process, and every call returned nil — which is exactly what
+// NewMultiSourceEventReporterFromConfig refuses at construction. Nothing about
+// dispatch makes the same mistake more forgivable.
+var ErrUnknownSource = errors.New("no analytics reporter configured for source")
 
 // MultiSourceEventReporter delegates events to per-source EventReporters. The reporters map is
 // populated at construction and never mutated afterwards, so reads need no synchronization.
@@ -38,21 +48,23 @@ func NewMultiSourceEventReporter(reporters map[string]analytics.EventReporter, o
 	}
 }
 
-// getReporter returns the reporter for the source, or Noop if unknown/missing.
-func (m *MultiSourceEventReporter) getReporter(source string) analytics.EventReporter {
+// getReporter returns the reporter for the source, or ErrUnknownSource.
+//
+// The known sources travel with the error because the caller's next question is
+// always "then what did I configure?", and a source name is a deployment
+// string nobody can look up from the message alone.
+func (m *MultiSourceEventReporter) getReporter(source string) (analytics.EventReporter, error) {
 	if r, ok := m.reporters[source]; ok && r != nil {
-		return r
+		return r, nil
 	}
-	m.o11y.Logger().WithValue("source", source).WithValue("known_sources", m.knownSources()).Info("no analytics reporter configured for source, using noop")
-	return noop.NewEventReporter()
+
+	return nil, errors.Wrapf(ErrUnknownSource, "source %q, configured sources %v", source, m.knownSources())
 }
 
+// knownSources returns the configured source names, sorted so the same set
+// reads the same way every time it appears in an error or a log line.
 func (m *MultiSourceEventReporter) knownSources() []string {
-	sources := make([]string, 0, len(m.reporters))
-	for k := range m.reporters {
-		sources = append(sources, k)
-	}
-	return sources
+	return slices.Sorted(maps.Keys(m.reporters))
 }
 
 // Close flushes and closes every underlying reporter. Reporters shared across multiple sources
@@ -105,7 +117,12 @@ func (m *MultiSourceEventReporter) TrackEvent(ctx context.Context, source, event
 	)
 	defer op.End()
 
-	return m.getReporter(source).EventOccurred(ctx, event, userID, withSourceProperty(source, properties))
+	r, err := m.getReporter(source)
+	if err != nil {
+		return observability.PrepareError(err, op.Span(), "resolving analytics reporter")
+	}
+
+	return r.EventOccurred(ctx, event, userID, withSourceProperty(source, properties))
 }
 
 // AddUser identifies a user against the reporter for the given source, forwarding the
@@ -118,7 +135,12 @@ func (m *MultiSourceEventReporter) AddUser(ctx context.Context, source, userID s
 	)
 	defer op.End()
 
-	return m.getReporter(source).AddUser(ctx, userID, withSourceProperty(source, properties))
+	r, err := m.getReporter(source)
+	if err != nil {
+		return observability.PrepareError(err, op.Span(), "resolving analytics reporter")
+	}
+
+	return r.AddUser(ctx, userID, withSourceProperty(source, properties))
 }
 
 // TrackAnonymousEvent records an event for an anonymous user.
@@ -131,5 +153,10 @@ func (m *MultiSourceEventReporter) TrackAnonymousEvent(ctx context.Context, sour
 	)
 	defer op.End()
 
-	return m.getReporter(source).EventOccurredAnonymous(ctx, event, anonymousID, withSourceProperty(source, properties))
+	r, err := m.getReporter(source)
+	if err != nil {
+		return observability.PrepareError(err, op.Span(), "resolving analytics reporter")
+	}
+
+	return r.EventOccurredAnonymous(ctx, event, anonymousID, withSourceProperty(source, properties))
 }
