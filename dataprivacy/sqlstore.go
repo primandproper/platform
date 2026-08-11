@@ -13,13 +13,11 @@ import (
 	"github.com/primandproper/platform-go/v10/dataprivacy/migrations"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/filtering"
+	"github.com/primandproper/platform-go/v10/internal/sqlguard"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // DefaultTablePrefix is the namespace the dataprivacy tables carry when none is
@@ -47,6 +45,10 @@ type sqlStore struct {
 	o11y   observability.Observer
 
 	guardMissCounter metrics.Int64Counter
+
+	// guard is what a guarded write means in this package when it matches no
+	// row. See internal/sqlguard.
+	guard sqlguard.Guard
 
 	// What the options wrote, kept only until the observer is built from it.
 	// Read s.o11y.Logger() for the logger this store actually uses; this one
@@ -105,14 +107,16 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 		return nil, platformerrors.Wrap(err, "creating dataprivacy store guard miss counter")
 	}
 
-	return s, nil
-}
+	s.guard = sqlguard.Guard{
+		MissCounter: s.guardMissCounter,
+		NotFound:    ErrRequestNotFound,
+		Namespace:   "dataprivacy",
+		IDKey:       requestIDKey,
+		Message:     "dataprivacy request left processing before its completion could be recorded",
+		Reason:      "dataprivacy request %q is no longer being processed",
+	}
 
-// storeOpAttr labels a guard miss with the operation that missed, so the metric
-// distinguishes a subject confirming twice from a worker losing a completion
-// race — one is routine and one wants looking at.
-func storeOpAttr(operation string) metric.MeasurementOption {
-	return metric.WithAttributes(attribute.String(storeOpKey, operation))
+	return s, nil
 }
 
 func (s *sqlStore) Save(ctx context.Context, q database.SQLQueryExecutor, req *Request) error {
@@ -278,7 +282,7 @@ func (s *sqlStore) Transition(
 		// distinguishable from ordinary contention, and it is the caller that
 		// knows whether losing this particular race matters.
 		op.Set(guardMissedKey, true)
-		s.guardMissCounter.Add(ctx, 1, storeOpAttr("transition"))
+		s.guardMissCounter.Add(ctx, 1, s.guard.OpAttr("transition"))
 
 		return nil, platformerrors.Wrapf(ErrRequestNotFound, "dataprivacy request %q in expected status", requestID)
 	}
@@ -322,7 +326,7 @@ func (s *sqlStore) CompleteExport(ctx context.Context, q database.SQLQueryExecut
 
 	query, args := s.tables.buildCompleteExport(s.dialect, req, failures, at)
 
-	return s.execExpectingRow(ctx, op, q, query, args, req.ID, "export", "completing dataprivacy export")
+	return s.guard.Exec(ctx, op, q, query, args, req.ID, "export", "completing dataprivacy export")
 }
 
 // WithTransaction delegates to the client, which begins its own span for the
@@ -359,7 +363,7 @@ func (s *sqlStore) CompleteErasure(ctx context.Context, q database.SQLQueryExecu
 
 	query, args := s.tables.buildCompleteErasure(s.dialect, req, failures, retained, at)
 
-	return s.execExpectingRow(ctx, op, q, query, args, req.ID, "erasure", "completing dataprivacy erasure")
+	return s.guard.Exec(ctx, op, q, query, args, req.ID, "erasure", "completing dataprivacy erasure")
 }
 
 func (s *sqlStore) MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error {
@@ -483,42 +487,35 @@ func (s *sqlStore) LapseUnconfirmed(ctx context.Context, now time.Time, limit in
 	return lapsed, nil
 }
 
-func (s *sqlStore) CountOverdue(ctx context.Context, now time.Time) (counts map[RequestType]int64, err error) {
+func (s *sqlStore) CountOverdue(ctx context.Context, now time.Time) (map[RequestType]int64, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
 	query, args := s.tables.buildCountOverdue(s.dialect, now)
 
-	rows, err := s.client.Reader().QueryContext(ctx, query, args...)
+	type overdue struct {
+		requestType string
+		count       int64
+	}
+
+	rows, err := database.ScanAll(ctx, s.client.Reader(), "dataprivacy overdue count", query, args,
+		func(scanner database.Scanner) (overdue, error) {
+			var row overdue
+
+			err := scanner.Scan(&row.requestType, &row.count)
+
+			return row, err
+		})
 	if err != nil {
 		return nil, op.Error(err, "counting overdue dataprivacy requests")
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing dataprivacy overdue count rows")
-		}
-	}()
 
 	// Seeded with a zero for every type, so a gauge that was reporting three
 	// overdue exports actively drops to zero when they are served rather than
 	// holding a stale reading on the dashboard forever.
-	counts = map[RequestType]int64{RequestExport: 0, RequestErasure: 0}
-
-	for rows.Next() {
-		var (
-			requestType string
-			count       int64
-		)
-
-		if err = rows.Scan(&requestType, &count); err != nil {
-			return nil, op.Error(err, "scanning overdue dataprivacy request count")
-		}
-
-		counts[RequestType(requestType)] = count
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, op.Error(err, "iterating overdue dataprivacy request counts")
+	counts := map[RequestType]int64{RequestExport: 0, RequestErasure: 0}
+	for _, row := range rows {
+		counts[RequestType(row.requestType)] = row.count
 	}
 
 	op.Set(overdueKey, counts[RequestExport]+counts[RequestErasure])
@@ -563,72 +560,9 @@ func statusStrings(statuses []Status) string {
 	return strings.Join(rendered, ",")
 }
 
-// execExpectingRow runs a guarded UPDATE and reports a request that was not in
-// the status the guard required.
-//
-// The distinction matters more here than it looks. A completion that matches no
-// rows means the request left StatusProcessing while the worker was busy —
-// cancelled, or expired, or claimed by a second worker after a lease lapsed —
-// and treating that as success would have the worker report an export delivered
-// against a row that says otherwise.
-func (s *sqlStore) execExpectingRow(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	query string,
-	args []any,
-	requestID, operation, description string,
-) error {
-	result, err := q.ExecContext(ctx, query, args...)
-	if err != nil {
-		return op.Error(err, "%s", description)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return op.Error(err, "reading result of %s", description)
-	}
-
-	op.Set(rowsAffectedKey, affected)
-
-	if affected == 0 {
-		// Logged rather than merely counted, because this one is worth reading.
-		// The work is done — the artifact is uploaded, or the rows are deleted —
-		// and the row that should record it has moved on without us. Everything
-		// needed to find the request by hand goes in the line.
-		op.Set(guardMissedKey, true)
-		s.guardMissCounter.Add(ctx, 1, storeOpAttr(operation))
-		op.Logger().WithValue(requestIDKey, requestID).
-			Info("dataprivacy request left processing before its completion could be recorded")
-
-		return platformerrors.Wrapf(ErrRequestNotFound, "dataprivacy request %q is no longer being processed", requestID)
-	}
-
-	return nil
-}
-
 // scanRequests drains a request projection.
-func scanRequests(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (requests []*Request, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing dataprivacy request rows")
-		}
-	}()
-
-	for rows.Next() {
-		req, scanErr := scanRequest(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-
-		requests = append(requests, req)
-	}
-
-	return requests, rows.Err()
+func scanRequests(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]*Request, error) {
+	return database.ScanAll(ctx, q, "dataprivacy request", query, args, scanRequest)
 }
 
 // scanRequest reads one row of requestColumns.

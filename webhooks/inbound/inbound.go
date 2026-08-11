@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
@@ -23,6 +24,15 @@ const serviceName = "webhooks_inbound"
 // ever hold.
 const DefaultMaxBodyBytes int64 = 256 << 10
 
+// DefaultTolerance is how far a signed timestamp may sit from the verifier's
+// clock before a delivery is rejected as stale.
+//
+// It is requestsigning.DefaultTolerance. Five minutes is Stripe's own default
+// and the customary figure generally, so the two arrived at the same number
+// independently — which is precisely why there should not be two of them to
+// change.
+const DefaultTolerance = requestsigning.DefaultTolerance
+
 var (
 	// ErrInvalidSignature indicates a delivery whose signature header is
 	// missing, malformed, or does not match the body under any secret the
@@ -32,7 +42,13 @@ var (
 	// applied tells a forger how close it got, and none of the distinctions are
 	// actionable for an operator: every one of them means the same thing, which
 	// is that the request did not prove it came from the provider.
-	ErrInvalidSignature = platformerrors.New("invalid webhook signature")
+	//
+	// It is requestsigning's sentinel rather than one of this package's own.
+	// "This body did not prove it came from who it claims" is one fact whether
+	// the signature was minted by requestsigning or by Stripe, and a service
+	// verifying both would otherwise need two errors.Is calls to ask it — which
+	// is the same reason the outbound half aliases ErrNoSigningSecret.
+	ErrInvalidSignature = requestsigning.ErrInvalidSignature
 
 	// ErrStaleSignature indicates a signature whose timestamp sits outside the
 	// tolerance window. Only schemes that sign a timestamp can report it.
@@ -40,7 +56,8 @@ var (
 	// It is separate from ErrInvalidSignature because it is the one
 	// verification failure with a benign cause an operator can act on — clock
 	// skew — and because it says nothing about whether the secret was right.
-	ErrStaleSignature = platformerrors.New("webhook signature timestamp outside tolerance")
+	// It is requestsigning's, for the reason above.
+	ErrStaleSignature = requestsigning.ErrStaleSignature
 
 	// ErrNoSecret indicates a verifier constructed without one. A verifier with
 	// no secret rejects every delivery, which from the outside is

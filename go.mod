@@ -22,7 +22,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.24
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.3
 	github.com/boombuler/barcode v1.1.0
-	github.com/brianvoe/gofakeit/v7 v7.14.1
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cockroachdb/errors v1.12.0
 	github.com/dhaus67/openfeature-posthog-go v0.1.2

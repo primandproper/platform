@@ -193,10 +193,10 @@ func (r *Recorder[E]) write(ctx context.Context, record any, description string)
 // flush runs the tick hook, reports drop and overflow counters, and flushes
 // the sink.
 func (r *Recorder[E]) flush(ctx context.Context, now time.Time, final bool) {
-	startTime := time.Now()
-	defer func() {
-		r.flushHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	ctx, op := r.o11y.Begin(ctx)
+	defer op.End()
+
+	defer op.Time(ctx, r.clock, r.flushHist)()
 
 	if r.onFlush != nil {
 		r.onFlush(now, final, func(record any) {

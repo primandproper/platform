@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/rand/v2"
 	"slices"
 	"sync"
 	"time"
@@ -289,8 +288,6 @@ func (w *Worker) cycle(ctx context.Context) {
 // a lease lapsed mid-pass — and the useful thing to do is hand the lease back
 // and move on, not block a goroutine for the length of somebody else's pass.
 func (w *Worker) advance(ctx context.Context, inst *Record) {
-	startTime := time.Now()
-
 	ctx, op := w.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		instanceIDKey: inst.ID,
 		definitionKey: inst.Definition,
@@ -299,6 +296,11 @@ func (w *Worker) advance(ctx context.Context, inst *Record) {
 		attemptsKey:   inst.Attempts,
 	}))
 	defer op.End()
+
+	// Stopped where the pass ends rather than deferred: what follows the
+	// recording is bookkeeping about the outcome, and a lock this worker did
+	// not get is not a pass whose duration means anything.
+	recordLatency := op.Time(ctx, w.clock, w.advanceHist, definitionAttr(inst.Definition))
 
 	// Deliberately no timeout on the pass as a whole. Each step is bounded by
 	// StepTimeout inside execute, and drive stops starting new ones once its
@@ -312,7 +314,7 @@ func (w *Worker) advance(ctx context.Context, inst *Record) {
 		return w.drive(ctx, op, inst)
 	})
 
-	w.advanceHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), definitionAttr(inst.Definition))
+	recordLatency()
 
 	if !acquired && err == nil {
 		w.contendedCounter.Add(ctx, 1, definitionAttr(inst.Definition))
@@ -653,7 +655,7 @@ func (w *Worker) markStuck(ctx context.Context, inst *Record, cause error) error
 func (w *Worker) reschedule(ctx context.Context, inst *Record, attempts int, phase string, cause error) error {
 	inst.Attempts = attempts
 
-	nextAttempt := w.clock.Now().UTC().Add(w.backoffFor(attempts, phase))
+	nextAttempt := w.clock.Now().UTC().Add(retrycfg.ScheduledDelayFor(w.cfg.budgetFor(phase), attempts))
 
 	w.o11y.Logger().WithValues(map[string]any{
 		instanceIDKey:  inst.ID,
@@ -719,10 +721,7 @@ func (w *Worker) execute(
 	ctx, cancel := context.WithTimeout(ctx, w.cfg.StepTimeout)
 	defer cancel()
 
-	startTime := time.Now()
-	defer func() {
-		w.stepHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), stepAttrs(inst.Definition, name, phase))
-	}()
+	defer op.Time(ctx, w.clock, w.stepHist, stepAttrs(inst.Definition, name, phase))()
 
 	apply := def.do
 	if phase == phaseUndo {
@@ -809,36 +808,6 @@ func (w *Worker) exhausted(cause error, attempts int, phase string) bool {
 	}
 
 	return uint(attempts) >= w.cfg.budgetFor(phase).MaxAttempts
-}
-
-// backoffFor computes the delay before a step's next attempt.
-//
-// The schedule comes from retrycfg.DelayFor, so this and anything using a
-// retry.Policy grow their delays identically from the same Config. The wait is
-// persisted as a timestamp rather than slept through, so it survives a restart,
-// and the jitter is full rather than equal — several workers share this table,
-// and spreading their next attempts across the whole window is what keeps them
-// from re-colliding after one contended claim.
-func (w *Worker) backoffFor(attempts int, phase string) time.Duration {
-	if attempts < 1 {
-		attempts = 1
-	}
-
-	cfg := w.cfg.budgetFor(phase)
-
-	delay := float64(retrycfg.DelayFor(cfg, uint(attempts)))
-
-	if cfg.UseJitter {
-		// Full jitter. Not security-sensitive: this only decorrelates retry
-		// timing between workers.
-		delay *= rand.Float64() //nolint:gosec // jitter, not entropy
-	}
-
-	if delay < float64(time.Millisecond) {
-		delay = float64(time.Millisecond)
-	}
-
-	return time.Duration(delay)
 }
 
 // containedPanic turns a panic that panicking.Contain caught into this

@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/mail"
 	"strings"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/email"
@@ -96,13 +94,6 @@ func NewPostmarkEmailer(cfg *Config, client *http.Client, circuitBreaker circuit
 	return e, nil
 }
 
-func formatAddress(name, address string) string {
-	if strings.TrimSpace(name) == "" {
-		return address
-	}
-	return (&mail.Address{Name: name, Address: address}).String()
-}
-
 // SendEmail sends an email.
 func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMessage) error {
 	ctx, op := e.o11y.Begin(ctx)
@@ -112,10 +103,7 @@ func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMes
 		return platformerrors.New("nil outbound email message")
 	}
 
-	startTime := time.Now()
-	defer func() {
-		e.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, e.latencyHist)()
 
 	op.Set(keys.EmailSubjectKey, details.Subject).Set(keys.EmailToAddressKey, details.ToAddress).Set(keys.EmailFromAddressKey, details.FromAddress)
 
@@ -124,8 +112,8 @@ func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMes
 	}
 
 	pmEmail := postmark.Email{
-		From:     formatAddress(details.FromName, details.FromAddress),
-		To:       formatAddress(details.ToName, details.ToAddress),
+		From:     email.FormatAddress(details.FromName, details.FromAddress),
+		To:       email.FormatAddress(details.ToName, details.ToAddress),
 		Subject:  details.Subject,
 		HtmlBody: details.HTMLContent,
 	}

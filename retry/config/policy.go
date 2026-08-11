@@ -3,7 +3,6 @@ package retrycfg
 import (
 	"context"
 	"math"
-	"math/rand/v2"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/clock"
@@ -36,11 +35,12 @@ const (
 // schedule, and computing it twice is how the two quietly stop agreeing.
 //
 // Jitter is deliberately not applied here. Sleeping and scheduling want
-// different distributions — Execute uses equal jitter to keep a floor under
-// each wait, while a fleet writing wake-up times wants full jitter to spread
-// them — so the shared part is the schedule and the caller decides how to
-// perturb it. Callers pass a Config that has been through EnsureDefaults;
-// DelayFor does not mutate its argument.
+// different distributions — Execute uses retry.Equal to keep a floor under each
+// wait, while a fleet writing wake-up times wants retry.Full to spread them —
+// so the shared part is the schedule and the caller decides how to perturb it.
+// ScheduledDelayFor is the second of those, for callers that cannot sleep.
+// Callers pass a Config that has been through EnsureDefaults; DelayFor does not
+// mutate its argument.
 func DelayFor(cfg Config, attempt uint) time.Duration {
 	if attempt < 1 {
 		attempt = 1
@@ -55,6 +55,39 @@ func DelayFor(cfg Config, attempt uint) time.Duration {
 	return time.Duration(delay)
 }
 
+// minScheduledDelay floors a scheduled wait. A full-jittered delay can land
+// arbitrarily close to zero, and a row that becomes claimable immediately spins
+// against the same failure rather than waiting out whatever caused it.
+const minScheduledDelay = time.Millisecond
+
+// ScheduledDelayFor returns the delay before the next attempt for a caller that
+// writes a wake-up timestamp instead of sleeping.
+//
+// The schedule is DelayFor's, so a persisted retry and a retry.Policy grow their
+// delays identically from the same Config. What differs is everything around it:
+// the wait survives a process restart because it is a column rather than a
+// goroutine, and the jitter is retry.Full rather than retry.Equal — several
+// workers share one table, and spreading their next attempts across the whole
+// window is what keeps them from re-colliding on every round after one contended
+// claim. The floor is what makes that safe for a caller who cannot sleep off a
+// near-zero draw.
+//
+// attempt is 1-indexed and signed because it usually arrives as a column: a
+// value below 1, negative included, is treated as the first attempt rather than
+// wrapping into an enormous exponent.
+func ScheduledDelayFor(cfg Config, attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+
+	var jitter retry.Jitter = retry.None
+	if cfg.UseJitter {
+		jitter = retry.Full(nil)
+	}
+
+	return jitter.AtLeast(minScheduledDelay)(DelayFor(cfg, uint(attempt)))
+}
+
 var _ retry.Policy = (*ExponentialBackoffPolicy)(nil)
 
 // ExponentialBackoffPolicy retries with exponential backoff and optional
@@ -62,8 +95,9 @@ var _ retry.Policy = (*ExponentialBackoffPolicy)(nil)
 // chosen this schedule can depend on that choice rather than on the Policy seam
 // every schedule shares.
 type ExponentialBackoffPolicy struct {
-	o11y  observability.Observer
-	clock clock.Clock
+	o11y   observability.Observer
+	clock  clock.Clock
+	jitter retry.Jitter
 
 	attemptCounter    metrics.Int64Counter
 	exhaustionCounter metrics.Int64Counter
@@ -91,8 +125,13 @@ func NewExponentialBackoffPolicy(cfg Config, opts ...Option) (*ExponentialBackof
 	p := &ExponentialBackoffPolicy{
 		config:     cfg,
 		clock:      o.clock,
+		jitter:     retry.None,
 		o11y:       observability.NewObserver(name, o.logger, o.tracerProvider),
 		addOptions: o.addOptions(),
+	}
+
+	if cfg.UseJitter {
+		p.jitter = retry.Equal(o.rand)
 	}
 
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
@@ -180,19 +219,14 @@ func (e *ExponentialBackoffPolicy) Execute(ctx context.Context, operation func(c
 
 // wait sleeps out the backoff before the next attempt, reporting a context that
 // went away underneath it.
+//
+// The jitter is retry.Equal rather than retry.Full because this caller sleeps in
+// place: half the schedule stays under every wait, so a loop that has backed off
+// to seconds cannot draw a near-zero one and become hot again.
 func (e *ExponentialBackoffPolicy) wait(ctx context.Context, op observability.Operation, attempt uint) error {
 	// attempt is 0-indexed here and DelayFor is 1-indexed: the wait after
 	// the first failed attempt is the first retry's delay.
-	delay := DelayFor(e.config, attempt+1)
-
-	sleepDuration := delay
-	// half > 0 guards rand.Int64N, which panics on a non-positive argument
-	// (e.g. a sub-2ns delay where int64(delay)/2 truncates to 0). When the
-	// delay is too small to halve, jitter is simply skipped.
-	if half := delay / 2; e.config.UseJitter && half > 0 {
-		jitter := time.Duration(rand.Int64N(int64(half))) //nolint:gosec // G404: jitter does not require cryptographic randomness
-		sleepDuration = delay - half + jitter
-	}
+	sleepDuration := e.jitter(DelayFor(e.config, attempt+1))
 
 	op.SpanOnly(delayKey, sleepDuration.String())
 

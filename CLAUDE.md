@@ -76,6 +76,30 @@ There is one deliberate exception outside the config subpackages: `observability
 
 Every package uses `WithTracerProvider(tracing.Provider)` — never a ready-made `tracing.Tracer`, which would let a span's instrumentation scope come from the caller instead of the component. `Option` types are **not** parameterized on their package's generic type, even in generic packages (`cache`, `idempotency`, `eventcapture`): Go cannot infer a type argument from a call's result type, so an `Option[T]` forces every call site to spell `T` out forever. Options that genuinely need the type parameter (`WithCodec`, `WithRecordable`, `WithTransform`, `WithObserver`, `WithKeyOrder`) stay generic but infer it from their argument, and the constructor type-asserts and reports a mismatch.
 
+**Extract what can be got wrong twice, not what is merely written twice.** A
+second copy of a naming convention, a precision narrowing, a clock read, or a
+SQLSTATE list can be *wrong* — it can drift from the first and nothing will say
+so — and those get one home: `observability/metrics.OperationSet` and
+`observability.Operation.Time` for the instrument trio and its timing,
+`internal/pgretry` for the Postgres write-retry loop, `internal/sqlguard` for the
+guarded write, `database.ScanAll` for the rows drain, `retry.Full`/`retry.Equal`
+for the jitter strategies, `email.FormatAddress` for the RFC-5322 escaping.
+
+A second copy of a *shape* cannot be wrong that way. The provider families —
+`llm/{openai,anthropic}`, `embeddings/{openai,ollama,cohere}` — are near-identical
+files and are left that way: each is a translation between this module's types
+and one vendor's API, so the shape they share is the interface's and the lines
+that differ are the ones a reader opened the file for. Factoring them into a base
+type with translation hooks trades one readable file for two, at the seam most
+likely to move. `llm/doc.go` carries the long form.
+
+The test is whether the copies face the same seam. `featureflags/{posthog,launchdarkly}`
+looked like the same case and was not: both evaluate through `*openfeature.Client`,
+so only construction and `Close` were vendor-specific and the rest was one
+implementation written twice — extracted to `featureflags/internal/openfeatureflags`
+and embedded. Two translations to two APIs stay; one implementation against one
+seam does not.
+
 ## Testing
 
 - **`stretchr/testify` is banned in its entirety** (`assert`, `require`, and `mock`).

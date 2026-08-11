@@ -247,10 +247,7 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	type point struct {
 		Payload any       `json:"payload,omitempty"`
@@ -311,10 +308,7 @@ func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	points := make([]any, 0, len(ids))
 	for _, id := range ids {
@@ -357,10 +351,7 @@ func (i *indexManager[T]) Wipe(ctx context.Context) error {
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	status, respBody, err := i.jsonReq(ctx, http.MethodDelete, i.collectionPath(""), nil)
 	if err != nil {
@@ -403,10 +394,7 @@ func (i *indexManager[T]) Query(ctx context.Context, req vectorsearch.QueryReque
 		return nil, circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	body := map[string]any{
 		"vector":       req.Embedding,

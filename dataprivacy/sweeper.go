@@ -156,14 +156,10 @@ func (s *Sweeper) Job(schedule jobs.Schedule, leaseTTL time.Duration) jobs.Job {
 // storage provider being unreachable is not a reason to skip the retention reap
 // as well.
 func (s *Sweeper) Sweep(ctx context.Context) (*SweepResult, error) {
-	startTime := time.Now()
-
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
-	defer func() {
-		s.sweepLatencyHst.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, s.clock, s.sweepLatencyHst)()
 
 	now := s.clock.Now().UTC()
 

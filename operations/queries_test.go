@@ -270,29 +270,6 @@ func TestBuildReap(T *testing.T) {
 	test.SliceLen(T, 2, args)
 }
 
-func TestTruncate(T *testing.T) {
-	T.Parallel()
-
-	test.EqOp(T, "abc", truncate("abc", 10))
-	test.EqOp(T, "ab", truncate("abc", 2))
-
-	// A message reaches an API client as JSON, and half a multi-byte rune is not
-	// a shorter string — it is one that fails to encode.
-	truncated := truncate("aé", 2)
-	test.EqOp(T, "a", truncated)
-	test.True(T, len(truncated) <= 2)
-
-	test.EqOp(T, "", truncate("é", 1))
-}
-
-func TestBlobOrNil(T *testing.T) {
-	T.Parallel()
-
-	test.Nil(T, blobOrNil(nil))
-	test.Nil(T, blobOrNil([]byte{}))
-	test.NotNil(T, blobOrNil([]byte{1}))
-}
-
 // Every query builder renders against a prefix, and a prefix that reached only
 // some of them would put half the package's statements against a table that
 // does not exist.

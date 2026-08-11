@@ -113,31 +113,22 @@ func verify(keyring Keyring, body []byte, signature string, cfg *config) error {
 		return err
 	}
 
-	// The timestamp is checked before any HMAC is computed. A stale request is
-	// rejected without spending work proportional to its body, which is what
-	// keeps a replay flood from costing the receiver anything.
-	if skew := cfg.now().UTC().Sub(time.Unix(timestamp, 0).UTC()); skew > cfg.tolerance || skew < -cfg.tolerance {
-		return platformerrors.Wrapf(ErrStaleSignature, "timestamp %d is %s from now", timestamp, skew.Round(time.Second))
+	// Checked before any HMAC is computed; see Freshness.Check for why that
+	// ordering is what keeps a replay flood cheap.
+	if err = cfg.Check(time.Unix(timestamp, 0)); err != nil {
+		return err
 	}
 
 	payload := signingPayload(scheme, timestamp, body)
 
-	// Every key is tried, and the loop does not break on a match: returning as
-	// soon as one key verifies makes the time taken depend on which key matched,
-	// which distinguishes "current key" from "previous key" to anyone timing it.
-	matched := false
-
+	hashers := make([]hashing.Hasher, 0, len(keys))
 	for _, key := range keys {
-		expected := hmachasher.NewHMACSHA256Hasher(key).Hash(payload)
-
-		for _, candidate := range candidates {
-			if hmachasher.Equal(expected, candidate) {
-				matched = true
-			}
-		}
+		hashers = append(hashers, hmachasher.NewHMACSHA256Hasher(key))
 	}
 
-	if !matched {
+	// Every key is tried against every candidate without short-circuiting; see
+	// hmac.MatchesAny for why the loop does not break on a match.
+	if !hmachasher.MatchesAny(hashers, payload, candidates...) {
 		return ErrInvalidSignature
 	}
 

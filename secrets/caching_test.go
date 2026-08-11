@@ -697,29 +697,6 @@ func TestCachingSource_Close(T *testing.T) {
 	})
 }
 
-func TestJitter(T *testing.T) {
-	T.Parallel()
-
-	T.Run("never lengthens the interval and never halves it", func(t *testing.T) {
-		t.Parallel()
-
-		const interval = time.Minute
-
-		for range 1000 {
-			d := jitter(interval)
-
-			test.True(t, d <= interval)
-			test.True(t, d > interval/2)
-		}
-	})
-
-	T.Run("an interval too small to halve is returned as-is", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, time.Duration(1), jitter(1))
-	})
-}
-
 // drain empties ch without blocking, so a test can assert on what has been
 // delivered so far.
 func drain[T any](ch chan T) []T {

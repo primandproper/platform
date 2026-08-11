@@ -197,20 +197,4 @@ func TestWorker_Degraded(T *testing.T) {
 			op.End()
 		}
 	})
-
-	T.Run("backoff never schedules the past for a sub-millisecond delay", func(t *testing.T) {
-		t.Parallel()
-
-		store := newSQLiteEnv(t).newStore(t)
-		registry := registryWith(t, "orders", noopStep("one"))
-
-		cfg := &WorkerConfig{}
-		cfg.EnsureDefaults()
-		cfg.Backoff.InitialDelay = time.Nanosecond
-
-		worker, err := NewWorker(t.Context(), cfg, store, registry, newScopedLocker(t))
-		must.NoError(t, err)
-
-		test.EqOp(t, time.Millisecond, worker.backoffFor(1, phaseDo))
-	})
 }

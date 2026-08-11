@@ -2,7 +2,6 @@ package timers
 
 import (
 	"context"
-	stderrors "errors"
 	"fmt"
 	"time"
 
@@ -10,10 +9,10 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/pgretry"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -40,21 +39,9 @@ const (
 	notifyChannelKey = "timers.notify_channel"
 )
 
-// maxStoredErrLen bounds what goes into last_error, so a pathological driver
-// error cannot bloat the row.
-const maxStoredErrLen = 1024
-
 // microsPerMilli converts the microsecond-resolution latency this package
 // measures into the milliseconds every other histogram in the module reports.
 const microsPerMilli = 1000.0
-
-// The two class 40 SQLSTATEs Postgres resolves by asking the caller to re-run
-// the whole statement. Anything else — a constraint violation, a dead
-// connection — is the caller's problem and must not be retried.
-const (
-	pgSerializationFailure = "40001"
-	pgDeadlockDetected     = "40P01"
-)
 
 // Timer is one durable one-shot schedule.
 type Timer[K comparable] struct {
@@ -181,6 +168,11 @@ type Timers[K comparable] struct {
 	reapedCounter    metrics.Int64Counter
 	retryCounter     metrics.Int64Counter
 
+	// retrier re-runs a write that Postgres asked to have re-run. See
+	// internal/pgretry for why these retries exist in a table this package
+	// otherwise locks in a fixed order.
+	retrier pgretry.Retrier
+
 	outstandingGauge metrics.Int64Gauge
 	dueGauge         metrics.Int64Gauge
 	stalledGauge     metrics.Int64Gauge
@@ -282,6 +274,15 @@ func New[K comparable](
 
 	if err := t.buildInstruments(o.metricsProvider); err != nil {
 		return nil, err
+	}
+
+	t.retrier = pgretry.Retrier{
+		Logger:     t.o11y.Logger(),
+		Counter:    t.retryCounter,
+		AddOptions: []metric.AddOption{t.attrs},
+		AttemptKey: attemptKey,
+		Subject:    "timer",
+		Attempts:   t.cfg.WriteAttempts,
 	}
 
 	return t, nil
@@ -564,7 +565,7 @@ func (t *Timers[K]) Claim(ctx context.Context, limit int, lease time.Duration) (
 func (t *Timers[K]) claim(ctx context.Context, limit int, lease time.Duration) ([]Due[K], error) {
 	var due []Due[K]
 
-	err := t.withRetries(ctx, "claim", func() error {
+	err := t.retrier.Do(ctx, "claim", func() error {
 		var claimErr error
 
 		due, claimErr = t.claimOnce(ctx, limit, lease)
@@ -576,48 +577,40 @@ func (t *Timers[K]) claim(ctx context.Context, limit int, lease time.Duration) (
 }
 
 // claimOnce is one attempt of claim.
-func (t *Timers[K]) claimOnce(ctx context.Context, limit int, lease time.Duration) (due []Due[K], err error) {
+func (t *Timers[K]) claimOnce(ctx context.Context, limit int, lease time.Duration) ([]Due[K], error) {
 	// The writer, not the reader: this is an UPDATE that happens to return rows,
 	// and a read replica would both fail it and lose every lease it handed out.
-	rows, err := t.client.Writer().QueryContext(ctx, buildClaim(t.cfg.resolvedTable()),
-		t.cfg.Name, t.cfg.attemptCeiling(), limit, lease.Microseconds())
+	due, err := database.ScanAll(ctx, t.client.Writer(), "claimed timer",
+		buildClaim(t.cfg.resolvedTable()),
+		[]any{t.cfg.Name, t.cfg.attemptCeiling(), limit, lease.Microseconds()},
+		func(scanner database.Scanner) (Due[K], error) {
+			var (
+				encoded    string
+				lateMicros int64
+				fired      Due[K]
+			)
+
+			if scanErr := scanner.Scan(&encoded, &fired.Payload, &fired.RunAt,
+				&lateMicros, &fired.Attempts, &fired.Reclaimed); scanErr != nil {
+				return fired, platformerrors.Wrap(scanErr, "scanning claimed timer")
+			}
+
+			fired.Late = max(time.Duration(lateMicros)*time.Microsecond, 0)
+
+			// A key that will not decode is the one failure here a caller cannot act
+			// on and must not be hidden: it means the table holds rows written under
+			// a different key type or codec, and every claim will keep leasing them.
+			// Failing the whole batch is the loud version of that, and the lease
+			// lapses on its own.
+			var decodeErr error
+			if fired.Key, decodeErr = t.codec.DecodeKey(encoded); decodeErr != nil {
+				return fired, platformerrors.Wrapf(decodeErr, "decoding claimed timer key %q", encoded)
+			}
+
+			return fired, nil
+		})
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "leasing due timers")
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing claimed timer rows")
-		}
-	}()
-
-	for rows.Next() {
-		var (
-			encoded    string
-			lateMicros int64
-			fired      Due[K]
-		)
-
-		if err = rows.Scan(&encoded, &fired.Payload, &fired.RunAt,
-			&lateMicros, &fired.Attempts, &fired.Reclaimed); err != nil {
-			return nil, platformerrors.Wrap(err, "scanning claimed timer")
-		}
-
-		fired.Late = max(time.Duration(lateMicros)*time.Microsecond, 0)
-
-		// A key that will not decode is the one failure here a caller cannot act
-		// on and must not be hidden: it means the table holds rows written under
-		// a different key type or codec, and every claim will keep leasing them.
-		// Failing the whole batch is the loud version of that, and the lease
-		// lapses on its own.
-		if fired.Key, err = t.codec.DecodeKey(encoded); err != nil {
-			return nil, platformerrors.Wrapf(err, "decoding claimed timer key %q", encoded)
-		}
-
-		due = append(due, fired)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, platformerrors.Wrap(err, "reading claimed timers")
 	}
 
 	return due, nil
@@ -685,7 +678,7 @@ func (t *Timers[K]) Release(ctx context.Context, delay time.Duration, cause erro
 
 	affected, err := t.writeFirings(ctx, "release", fired, func(rows []firingRef) (string, []any) {
 		args := make([]any, 0, (len(rows)*2)+3)
-		args = append(args, t.cfg.Name, delay.Microseconds(), truncateError(cause))
+		args = append(args, t.cfg.Name, delay.Microseconds(), pgretry.TruncateError(cause))
 
 		for i := range rows {
 			args = append(args, rows[i].key, rows[i].runAt)
@@ -746,7 +739,7 @@ func (t *Timers[K]) Cancel(ctx context.Context, keys ...K) (int64, error) {
 
 	var affected int64
 
-	err := t.withRetries(ctx, "cancel", func() error {
+	err := t.retrier.Do(ctx, "cancel", func() error {
 		res, execErr := t.client.Writer().
 			ExecContext(ctx, buildCancel(t.cfg.resolvedTable(), len(encoded)), args...)
 		if execErr != nil {
@@ -783,7 +776,7 @@ func (t *Timers[K]) Reap(ctx context.Context) (int64, error) {
 
 	var affected int64
 
-	err := t.withRetries(ctx, "reap", func() error {
+	err := t.retrier.Do(ctx, "reap", func() error {
 		res, execErr := t.client.Writer().ExecContext(ctx, buildReap(t.cfg.resolvedTable()),
 			t.cfg.Name, t.cfg.Retention.Microseconds(), t.cfg.ReapBatchSize)
 		if execErr != nil {
@@ -890,7 +883,7 @@ func (t *Timers[K]) writeFirings(
 
 	var affected int64
 
-	err := t.withRetries(ctx, label, func() error {
+	err := t.retrier.Do(ctx, label, func() error {
 		res, execErr := t.client.Writer().ExecContext(ctx, query, args...)
 		if execErr != nil {
 			return execErr
@@ -902,59 +895,4 @@ func (t *Timers[K]) writeFirings(
 	})
 
 	return affected, err
-}
-
-// withRetries runs fn, re-running it for as long as Postgres keeps reporting one
-// of the two conditions it resolves by asking for a retry.
-//
-// Ordered locking makes a deadlock between two of this package's own writers
-// impossible, so in a database this package has to itself these retries never
-// fire. They exist for the case it does not: a consumer whose own statements
-// touch these rows — a foreign key from their domain table, a bulk cleanup —
-// reintroduces exactly the cycle the ordering removed, and a retried deadlock is
-// invisible where an unretried one is a failed request.
-func (t *Timers[K]) withRetries(ctx context.Context, label string, fn func() error) error {
-	var err error
-
-	for attempt := uint(1); ; attempt++ {
-		if err = fn(); err == nil {
-			return nil
-		}
-
-		if attempt >= t.cfg.WriteAttempts || !isRetryable(err) {
-			return err
-		}
-
-		t.retryCounter.Add(ctx, 1, t.attrs)
-		t.o11y.Logger().WithValues(map[string]any{
-			attemptKey:  attempt,
-			"operation": label,
-		}).Info("retrying timer write after a serialization failure")
-	}
-}
-
-// isRetryable reports whether err is one of the two transient class 40
-// conditions Postgres resolves by re-running the statement.
-func isRetryable(err error) bool {
-	var pgErr *pgconn.PgError
-	if !stderrors.As(err, &pgErr) {
-		return false
-	}
-
-	return pgErr.Code == pgDeadlockDetected || pgErr.Code == pgSerializationFailure
-}
-
-// truncateError renders a cause for the last_error column, bounded so that a
-// pathological driver error cannot bloat the row.
-//
-// The column is nullable and a nil cause renders as NULL rather than the empty
-// string, which is why this is not platformerrors.TruncateError outright: the
-// row distinguishes "has not failed" from "failed", and ” would collapse the
-// two. The bounding itself is shared, so the cut stays on a rune boundary.
-func truncateError(err error) any {
-	if err == nil {
-		return nil
-	}
-
-	return platformerrors.TruncateError(err, maxStoredErrLen)
 }

@@ -53,7 +53,7 @@ func (s *signer) SignRequest(ctx context.Context, req *http.Request) error {
 		return platformerrors.Wrap(err, "resolving the signing keyring")
 	}
 
-	at := s.cfg.now().UTC()
+	at := s.cfg.Now().UTC()
 
 	signature, err := Sign(keyring, body, at)
 	if err != nil {

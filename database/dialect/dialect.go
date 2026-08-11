@@ -195,6 +195,33 @@ func ValidIdentifier(s string) bool {
 	return identifier.Valid(s)
 }
 
+// QuoteIdentifier renders an identifier as a quoted one for d, doubling any
+// embedded quote character so it cannot end the quoting early.
+//
+// It is the escaping counterpart to ValidIdentifier's restricting, and both
+// exist because a table or column name is interpolated into statement text
+// rather than bound. Prefer ValidIdentifier where the name comes from
+// configuration and a rejection is actionable; this is for the names that are
+// legal-but-awkward — a mixed-case column, a reserved word — where refusing
+// would be refusing a database somebody already has.
+//
+// Postgres and SQLite quote with double-quotes per the SQL standard; MySQL
+// quotes with backticks. An unrecognized dialect gets the standard form, which
+// is the one every dialect here but MySQL uses.
+//
+// This is not sanitization for arbitrary input. A NUL byte, or a name from a
+// hostile source, still belongs in ValidIdentifier's hands: doubling the quote
+// character makes a legal identifier safe to quote, not an arbitrary string
+// safe to interpolate.
+func (d Dialect) QuoteIdentifier(id string) string {
+	quote := `"`
+	if d == MySQL {
+		quote = "`"
+	}
+
+	return quote + strings.ReplaceAll(id, quote, quote+quote) + quote
+}
+
 // SplitStatements strips '--' comments from ddl and splits it into individually
 // executable statements on ';', preserving statement order.
 //

@@ -8,7 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	databasemock "github.com/primandproper/platform-go/v10/database/mock"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -223,56 +222,36 @@ func TestQueue_Claim_RejectsAnUnusableLease(T *testing.T) {
 	}
 }
 
-func TestIsRetryable(T *testing.T) {
-	T.Parallel()
-
-	T.Run("recognizes the two conditions postgres asks to retry", func(t *testing.T) {
-		t.Parallel()
-
-		for _, code := range []string{pgDeadlockDetected, pgSerializationFailure} {
-			test.True(t, isRetryable(&pgconn.PgError{Code: code}), test.Sprintf("code %q", code))
-			test.True(t, isRetryable(platformerrors.Wrap(&pgconn.PgError{Code: code}, "wrapped")))
-		}
-	})
-
-	// Retrying a constraint violation would turn a permanent failure into a
-	// loop, so everything else is returned on the first attempt.
-	T.Run("refuses everything else", func(t *testing.T) {
-		t.Parallel()
-
-		test.False(t, isRetryable(nil))
-		test.False(t, isRetryable(platformerrors.New("plain")))
-		test.False(t, isRetryable(&pgconn.PgError{Code: "23505"}))
-	})
-}
-
-func TestTruncateError(T *testing.T) {
-	T.Parallel()
-
-	T.Run("a nil cause stores nothing", func(t *testing.T) {
-		t.Parallel()
-
-		test.Nil(t, truncateError(nil))
-	})
-
-	T.Run("a short cause is stored whole", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "boom", truncateError(platformerrors.New("boom")))
-	})
-
-	T.Run("a pathological cause cannot bloat the row", func(t *testing.T) {
-		t.Parallel()
-
-		stored, ok := truncateError(platformerrors.New(strings.Repeat("x", maxStoredErrLen*2))).(string)
-		must.True(t, ok)
-		test.EqOp(t, maxStoredErrLen, len(stored))
-	})
-}
-
 // upperCodec is a deliberately non-default rendering, to prove WithKeyCodec is
 // actually consulted.
 type upperCodec struct{}
 
 func (upperCodec) EncodeKey(key string) (string, error)     { return strings.ToUpper(key), nil }
 func (upperCodec) DecodeKey(encoded string) (string, error) { return strings.ToLower(encoded), nil }
+
+// The retrier is a struct field rather than a method, so an unwired one is a
+// zero value that runs every write exactly once — retrying nothing, silently.
+// This is the test that says it was wired, and wired to the configured ceiling.
+func TestQueue_retrier(T *testing.T) {
+	T.Parallel()
+
+	T.Run("re-runs a deadlock up to the configured attempt ceiling", func(t *testing.T) {
+		t.Parallel()
+
+		queue, err := New[string](t.Context(), validConfig(), clientFor(dialect.Postgres))
+		must.NoError(t, err)
+
+		must.Greater(t, uint(1), queue.cfg.WriteAttempts)
+
+		var calls int
+
+		writeErr := queue.retrier.Do(t.Context(), "writing", func() error {
+			calls++
+
+			return &pgconn.PgError{Code: "40P01"}
+		})
+
+		must.Error(t, writeErr)
+		test.EqOp(t, int(queue.cfg.WriteAttempts), calls)
+	})
+}

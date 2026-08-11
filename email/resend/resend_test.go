@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/mail"
 	"net/url"
 	"testing"
 	"time"
@@ -17,30 +16,6 @@ import (
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
-
-func TestFormatAddress(T *testing.T) {
-	T.Parallel()
-
-	T.Run("bare address when name is empty", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "real@example.com", formatAddress("", "real@example.com"))
-	})
-
-	T.Run("quotes hostile name to prevent recipient injection", func(t *testing.T) {
-		t.Parallel()
-
-		got := formatAddress(`x <a@attacker.com>,`, "real@example.com")
-
-		parsed, err := mail.ParseAddress(got)
-		must.NoError(t, err)
-		test.EqOp(t, "real@example.com", parsed.Address)
-
-		list, err := mail.ParseAddressList(got)
-		must.NoError(t, err)
-		test.SliceLen(t, 1, list)
-	})
-}
 
 type sendEmailResponse struct {
 	Id string `json:"id"`
@@ -173,9 +148,9 @@ func TestResendEmailer_SendEmail(T *testing.T) {
 		}
 		must.NoError(t, c.SendEmail(t.Context(), details))
 
-		test.EqOp(t, formatAddress(details.FromName, details.FromAddress), gotBody.From)
+		test.EqOp(t, email.FormatAddress(details.FromName, details.FromAddress), gotBody.From)
 		must.SliceLen(t, 1, gotBody.To)
-		test.EqOp(t, formatAddress(details.ToName, details.ToAddress), gotBody.To[0])
+		test.EqOp(t, email.FormatAddress(details.ToName, details.ToAddress), gotBody.To[0])
 		test.EqOp(t, details.Subject, gotBody.Subject)
 		test.EqOp(t, details.HTMLContent, gotBody.Html)
 	})

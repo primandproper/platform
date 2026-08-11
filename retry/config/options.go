@@ -6,6 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/retry"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -26,6 +27,7 @@ type options struct {
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	clock           clock.Clock
+	rand            retry.Rand
 	name            string
 }
 
@@ -71,6 +73,22 @@ func WithClock(c clock.Clock) Option {
 	return func(o *options) {
 		if c != nil {
 			o.clock = c
+		}
+	}
+}
+
+// WithRand replaces the source the backoff's jitter draws from. fn must return
+// a value in [0,1]; the wait is half the scheduled delay plus that fraction of
+// the other half, so a loop that started with others does not re-collide with
+// them on every round.
+//
+// The default draws from math/rand/v2 and needs no seeding. A test wanting an
+// exact schedule can pass func() float64 { return 1 }, which yields the
+// un-jittered delay. A nil fn is ignored.
+func WithRand(fn retry.Rand) Option {
+	return func(o *options) {
+		if fn != nil {
+			o.rand = fn
 		}
 	}
 }

@@ -162,8 +162,6 @@ func (e *QuotaEnforcer) initInstruments() error {
 
 // Check implements Enforcer.
 func (e *QuotaEnforcer) Check(ctx context.Context, subject, meter string, quantity int64) (*Decision, error) {
-	startTime := time.Now()
-
 	ctx, op := e.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:  subject,
 		meterKey:    meter,
@@ -171,9 +169,7 @@ func (e *QuotaEnforcer) Check(ctx context.Context, subject, meter string, quanti
 	}))
 	defer op.End()
 
-	defer func() {
-		e.checkHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), meterAttr(meter))
-	}()
+	defer op.Time(ctx, e.clock, e.checkHist, meterAttr(meter))()
 
 	e.checkCounter.Add(ctx, 1, meterAttr(meter))
 
@@ -234,8 +230,6 @@ func (e *QuotaEnforcer) Consume(ctx context.Context, subject, meter string, quan
 //
 //nolint:gocritic // hugeParam: Usage is taken by value to match Recorder.Record's variadic
 func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, u Usage) (*Decision, error) {
-	startTime := time.Now()
-
 	ctx, op := e.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:  u.Subject,
 		meterKey:    u.Meter,
@@ -243,9 +237,7 @@ func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, u Usage) (*Decision, e
 	}))
 	defer op.End()
 
-	defer func() {
-		e.consumeHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), meterAttr(u.Meter))
-	}()
+	defer op.Time(ctx, e.clock, e.consumeHist, meterAttr(u.Meter))()
 
 	e.consumeCounter.Add(ctx, 1, meterAttr(u.Meter))
 

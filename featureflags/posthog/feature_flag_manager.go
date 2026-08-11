@@ -1,17 +1,15 @@
 package posthog
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/featureflags"
+	"github.com/primandproper/platform-go/v10/featureflags/internal/openfeatureflags"
 	"github.com/primandproper/platform-go/v10/identifiers"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
 	openfeatureposthog "github.com/dhaus67/openfeature-posthog-go"
@@ -37,15 +35,12 @@ type (
 	// NewFeatureFlagManager, so a caller who has chosen PostHog can depend on that
 	// choice rather than on the interface every flag backend shares.
 	FeatureFlagManager struct {
-		o11y            observability.Observer
-		posthogClient   posthog.Client
-		circuitBreaker  circuitbreaking.CircuitBreaker
-		evalCounter     metrics.Int64Counter
-		errorCounter    metrics.Int64Counter
-		notFoundCounter metrics.Int64Counter
-		latencyHist     metrics.Float64Histogram
-		ofClient        *openfeature.Client
-		domain          string
+		posthogClient posthog.Client
+		// Evaluator is the flag evaluation every OpenFeature-backed provider
+		// here does; see featureflags/internal/openfeatureflags. Embedded, so
+		// this type still presents the whole featureflags.FeatureFlagManager
+		// surface.
+		openfeatureflags.Evaluator
 	}
 )
 
@@ -130,194 +125,20 @@ func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBr
 	ofClient := openfeature.NewClient(domain)
 
 	ffm := &FeatureFlagManager{
-		domain:          domain,
-		posthogClient:   client,
-		ofClient:        ofClient,
-		circuitBreaker:  circuitBreaker,
-		o11y:            o11y,
-		evalCounter:     evalCounter,
-		errorCounter:    errorCounter,
-		notFoundCounter: notFoundCounter,
-		latencyHist:     latencyHist,
+		posthogClient: client,
+		Evaluator: openfeatureflags.Evaluator{
+			O11y:            o11y,
+			Client:          ofClient,
+			CircuitBreaker:  circuitBreaker,
+			Domain:          domain,
+			EvalCounter:     evalCounter,
+			ErrorCounter:    errorCounter,
+			NotFoundCounter: notFoundCounter,
+			LatencyHist:     latencyHist,
+		},
 	}
 
 	return ffm, nil
-}
-
-// toOpenFeatureContext converts a featureflags.EvaluationContext into the SDK's
-// own representation. It is the only place this provider crosses the boundary
-// between the platform-owned type and the OpenFeature type.
-func toOpenFeatureContext(evalCtx featureflags.EvaluationContext) openfeature.EvaluationContext {
-	return openfeature.NewEvaluationContext(evalCtx.TargetingKey, evalCtx.Attributes)
-}
-
-// evaluationError classifies a failed evaluation into the error the caller sees and
-// the verdict the circuit breaker hears.
-//
-// A flag the provider resolved as absent scores a success. The breaker exists to
-// give a failing service breathing room, and answering "no such flag" is not what a
-// failing service does — it is a correct negative answer. Counting it as a failure
-// is what let a flag name shipped ahead of its flag open a breaker that every other
-// flag in the process shares.
-//
-// Everything else is a failure the breaker should hear about. That includes the
-// SDK's pre-evaluation short circuits, which return empty resolution details and so
-// arrive here with an empty code: an unready or fatally broken provider is exactly
-// what the breaker is for.
-func (f *FeatureFlagManager) evaluationError(ctx context.Context, feature string, code openfeature.ErrorCode, err error) error {
-	if code == openfeature.FlagNotFoundCode {
-		f.notFoundCounter.Add(ctx, 1)
-		f.circuitBreaker.Succeeded()
-
-		return platformerrors.Wrapf(featureflags.ErrFlagNotFound, "feature flag %q", feature)
-	}
-
-	f.errorCounter.Add(ctx, 1)
-	f.circuitBreaker.Failed()
-
-	return err
-}
-
-// CanUseFeature returns whether the supplied evaluation context is permitted to use
-// the named feature.
-//
-// This is the one method here that never reports featureflags.ErrFlagNotFound.
-// PostHog's API answers false for a boolean flag it does not know, which is
-// indistinguishable from a flag that exists and is off, so the OpenFeature provider
-// skips the found check for booleans rather than call every false a not-found. A
-// caller therefore sees (false, nil) for a flag nobody has created — the same inert
-// answer this package's distinction is there to produce, reached one layer lower.
-// The four typed getters do report it, because a missing key is distinguishable
-// once the flag has a value to be missing.
-func (f *FeatureFlagManager) CanUseFeature(ctx context.Context, feature string, evalCtx featureflags.EvaluationContext) (bool, error) {
-	ctx, op := f.o11y.Begin(ctx,
-		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
-		observability.WithValue("feature", feature),
-	)
-	defer op.End()
-
-	if !f.circuitBreaker.CanProceed() {
-		return false, circuitbreaking.ErrCircuitBroken
-	}
-
-	startTime := time.Now()
-	details, err := f.ofClient.BooleanValueDetails(ctx, feature, false, toOpenFeatureContext(evalCtx))
-	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	if err != nil {
-		return false, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag eligibility")
-	}
-
-	op.Set("flag.value", details.Value)
-
-	f.evalCounter.Add(ctx, 1)
-	f.circuitBreaker.Succeeded()
-	return details.Value, nil
-}
-
-// GetStringValue returns the string value of a feature flag, falling back to
-// defaultValue on error.
-func (f *FeatureFlagManager) GetStringValue(ctx context.Context, feature, defaultValue string, evalCtx featureflags.EvaluationContext) (string, error) {
-	ctx, op := f.o11y.Begin(ctx,
-		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
-		observability.WithValue("feature", feature),
-	)
-	defer op.End()
-
-	if !f.circuitBreaker.CanProceed() {
-		return defaultValue, circuitbreaking.ErrCircuitBroken
-	}
-
-	startTime := time.Now()
-	details, err := f.ofClient.StringValueDetails(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
-	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	if err != nil {
-		return defaultValue, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag string variation")
-	}
-
-	op.Set("flag.default", defaultValue).Set("flag.value", details.Value)
-
-	f.evalCounter.Add(ctx, 1)
-	f.circuitBreaker.Succeeded()
-	return details.Value, nil
-}
-
-// GetInt64Value returns the int64 value of a feature flag, falling back to
-// defaultValue on error.
-func (f *FeatureFlagManager) GetInt64Value(ctx context.Context, feature string, defaultValue int64, evalCtx featureflags.EvaluationContext) (int64, error) {
-	ctx, op := f.o11y.Begin(ctx,
-		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
-		observability.WithValue("feature", feature),
-	)
-	defer op.End()
-
-	if !f.circuitBreaker.CanProceed() {
-		return defaultValue, circuitbreaking.ErrCircuitBroken
-	}
-
-	startTime := time.Now()
-	details, err := f.ofClient.IntValueDetails(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
-	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	if err != nil {
-		return defaultValue, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag int variation")
-	}
-
-	op.Set("flag.default", defaultValue).Set("flag.value", details.Value)
-
-	f.evalCounter.Add(ctx, 1)
-	f.circuitBreaker.Succeeded()
-	return details.Value, nil
-}
-
-// GetFloat64Value returns the float64 value of a feature flag, falling back to
-// defaultValue on error.
-func (f *FeatureFlagManager) GetFloat64Value(ctx context.Context, feature string, defaultValue float64, evalCtx featureflags.EvaluationContext) (float64, error) {
-	ctx, op := f.o11y.Begin(ctx,
-		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
-		observability.WithValue("feature", feature),
-	)
-	defer op.End()
-
-	if !f.circuitBreaker.CanProceed() {
-		return defaultValue, circuitbreaking.ErrCircuitBroken
-	}
-
-	startTime := time.Now()
-	details, err := f.ofClient.FloatValueDetails(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
-	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	if err != nil {
-		return defaultValue, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag float variation")
-	}
-
-	op.Set("flag.default", defaultValue).Set("flag.value", details.Value)
-
-	f.evalCounter.Add(ctx, 1)
-	f.circuitBreaker.Succeeded()
-	return details.Value, nil
-}
-
-// GetObjectValue returns the object (JSON) value of a feature flag, falling back
-// to defaultValue on error.
-func (f *FeatureFlagManager) GetObjectValue(ctx context.Context, feature string, defaultValue any, evalCtx featureflags.EvaluationContext) (any, error) {
-	ctx, op := f.o11y.Begin(ctx,
-		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
-		observability.WithValue("feature", feature),
-	)
-	defer op.End()
-
-	if !f.circuitBreaker.CanProceed() {
-		return defaultValue, circuitbreaking.ErrCircuitBroken
-	}
-
-	startTime := time.Now()
-	details, err := f.ofClient.ObjectValueDetails(ctx, feature, defaultValue, toOpenFeatureContext(evalCtx))
-	f.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	if err != nil {
-		return defaultValue, op.Error(f.evaluationError(ctx, feature, details.ErrorCode, err), "checking feature flag object variation")
-	}
-
-	f.evalCounter.Add(ctx, 1)
-	f.circuitBreaker.Succeeded()
-	return details.Value, nil
 }
 
 // Close closes the PostHog client and detaches it from OpenFeature's
@@ -332,8 +153,8 @@ func (f *FeatureFlagManager) GetObjectValue(ctx context.Context, feature string,
 func (f *FeatureFlagManager) Close() error {
 	var errs []error
 
-	if err := openfeature.SetNamedProvider(f.domain, openfeature.NoopProvider{}); err != nil {
-		errs = append(errs, platformerrors.Wrap(err, "detaching OpenFeature provider"))
+	if err := f.Detach(); err != nil {
+		errs = append(errs, err)
 	}
 
 	if err := f.posthogClient.Close(); err != nil {

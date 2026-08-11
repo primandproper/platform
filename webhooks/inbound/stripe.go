@@ -17,15 +17,6 @@ const (
 	// StripeSignatureHeader carries Stripe's timestamp and signatures.
 	StripeSignatureHeader = "Stripe-Signature"
 
-	// DefaultTolerance is how far a signed timestamp may sit from the
-	// verifier's clock before a delivery is rejected as stale.
-	//
-	// Five minutes is Stripe's own default and the customary figure generally.
-	// It is a compromise between two real failures: too tight and ordinary
-	// clock skew rejects good deliveries, too loose and a captured delivery
-	// stays replayable for as long as the window lasts.
-	DefaultTolerance = 5 * time.Minute
-
 	// stripeTimestampElement and stripeSignatureElement are the element keys in
 	// the Stripe-Signature header, which is a comma-separated list of
 	// key=value pairs: "t=1614556800,v1=abc…,v1=def…".
@@ -100,8 +91,8 @@ func (v *StripeVerifier) Verify(_ context.Context, headers http.Header, body []b
 		return platformerrors.Wrapf(ErrInvalidSignature, "malformed %s header", StripeSignatureHeader)
 	}
 
-	if drift := v.cfg.now().Sub(sig.timestamp); drift > v.cfg.tolerance || drift < -v.cfg.tolerance {
-		return platformerrors.Wrapf(ErrStaleSignature, "signed %s from now", drift.Round(time.Second))
+	if err := v.cfg.Check(sig.timestamp); err != nil {
+		return err
 	}
 
 	// The signed payload carries the timestamp exactly as it appeared in the
@@ -113,14 +104,9 @@ func (v *StripeVerifier) Verify(_ context.Context, headers http.Header, body []b
 	signed = append(signed, '.')
 	signed = append(signed, body...)
 
-	var matched bool
-	for _, candidate := range sig.candidates {
-		if matchesAny(v.hashers, signed, candidate) {
-			matched = true
-		}
-	}
-
-	if !matched {
+	// Every secret against every presented v1 element, without
+	// short-circuiting; see hmac.MatchesAny.
+	if !hmac.MatchesAny(v.hashers, signed, sig.candidates...) {
 		return ErrInvalidSignature
 	}
 

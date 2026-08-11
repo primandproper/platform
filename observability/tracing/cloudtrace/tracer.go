@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	o11yutils "github.com/primandproper/platform-go/v10/observability/utils"
 
@@ -18,14 +17,6 @@ import (
 // cfg.ProjectID, which is what a deployment naming "cloudtrace" and supplying
 // no cloudtrace block got.
 var ErrNilConfig = errors.New("nil config")
-
-type errorHandler struct {
-	logger logging.Logger
-}
-
-func (h errorHandler) Handle(err error) {
-	h.logger.Error("tracer reported issue", err)
-}
 
 // SetupCloudTrace creates a new trace provider instance and registers it as global trace provider.
 func SetupCloudTrace(ctx context.Context, serviceName string, spanCollectionProbability float64, cfg *Config) (tracing.Provider, error) {

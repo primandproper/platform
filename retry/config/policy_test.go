@@ -340,3 +340,76 @@ func newPolicy(t *testing.T, cfg Config, opts ...Option) *ExponentialBackoffPoli
 
 	return policy
 }
+
+func TestScheduledDelayFor(T *testing.T) {
+	T.Parallel()
+
+	// This is the schedule three workers write into a next_attempt_at column,
+	// so these numbers are a contract between outbox, webhooks and saga rather
+	// than an internal detail of any of them.
+	T.Run("is DelayFor when jitter is off", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: time.Second, Multiplier: 2, MaxDelay: 10 * time.Second}
+
+		test.EqOp(t, time.Second, ScheduledDelayFor(cfg, 1))
+		test.EqOp(t, 2*time.Second, ScheduledDelayFor(cfg, 2))
+		test.EqOp(t, 4*time.Second, ScheduledDelayFor(cfg, 3))
+		test.EqOp(t, 10*time.Second, ScheduledDelayFor(cfg, 9))
+	})
+
+	// Full jitter draws from below the schedule, so the cap still holds and the
+	// un-jittered delay is still the ceiling.
+	T.Run("jitter stays within the un-jittered bound", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: time.Second, Multiplier: 2, MaxDelay: 10 * time.Second, UseJitter: true}
+
+		for range 500 {
+			got := ScheduledDelayFor(cfg, 3)
+
+			must.GreaterEq(t, time.Millisecond, got)
+			must.LessEq(t, 4*time.Second, got)
+		}
+
+		for range 500 {
+			must.LessEq(t, cfg.MaxDelay, ScheduledDelayFor(cfg, 100))
+		}
+	})
+
+	// A jittered delay can land arbitrarily close to zero, and a row that
+	// becomes claimable immediately spins against whatever failure put it
+	// there rather than waiting the failure out.
+	T.Run("floors a near-zero draw at a millisecond", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: time.Microsecond, Multiplier: 1, MaxDelay: time.Second, UseJitter: true}
+
+		for range 500 {
+			test.EqOp(t, time.Millisecond, ScheduledDelayFor(cfg, 1))
+		}
+	})
+
+	// The floor holds without jitter too: a sub-millisecond InitialDelay is
+	// legal in a struct literal even though validation would reject it.
+	T.Run("floors an un-jittered delay below a millisecond", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: time.Nanosecond, Multiplier: 1, MaxDelay: time.Second}
+
+		test.EqOp(t, time.Millisecond, ScheduledDelayFor(cfg, 1))
+	})
+
+	// Attempt counts arrive from stored rows, where a zero or a negative is a
+	// plausible value rather than a programming error. Signed, so that a
+	// negative reads as "the first attempt" instead of wrapping into an
+	// enormous exponent and returning MaxDelay.
+	T.Run("treats a non-positive attempt as the first", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := Config{InitialDelay: 250 * time.Millisecond, Multiplier: 2, MaxDelay: time.Minute}
+
+		test.EqOp(t, ScheduledDelayFor(cfg, 1), ScheduledDelayFor(cfg, 0))
+		test.EqOp(t, ScheduledDelayFor(cfg, 1), ScheduledDelayFor(cfg, -5))
+	})
+}

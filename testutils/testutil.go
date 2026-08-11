@@ -9,18 +9,10 @@ import (
 	"math"
 	"net/http"
 	"testing"
-	"time"
 
-	fake "github.com/brianvoe/gofakeit/v7"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
-
-func init() {
-	if err := fake.Seed(time.Now().UnixNano()); err != nil {
-		panic(err)
-	}
-}
 
 const (
 	Example32ByteKey = "HEREISA32CHARSECRETWHICHISMADEUP"

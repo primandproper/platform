@@ -1,9 +1,14 @@
 package observability
 
 import (
+	"context"
+
+	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 )
 
@@ -23,6 +28,7 @@ type Operation interface {
 	LogOnly(key string, value any) Operation
 	Logger() logging.Logger
 	Span() tracing.Span
+	Time(ctx context.Context, c clock.Clock, hist metrics.Float64Histogram, opts ...metric.RecordOption) func()
 	Error(err error, descriptionFmt string, descriptionArgs ...any) error
 	Acknowledge(err error, descriptionFmt string, descriptionArgs ...any)
 	GRPCStatus(err error, code codes.Code, descriptionFmt string, descriptionArgs ...any) error
@@ -104,5 +110,59 @@ func (op *operation) GRPCStatus(err error, code codes.Code, descriptionFmt strin
 func (op *operation) End() {
 	if op.span != nil {
 		op.span.End()
+	}
+}
+
+// millisPerSecond converts a duration to the milliseconds every histogram in
+// this module reports, keeping the sub-millisecond part rather than truncating
+// it: an operation that takes 400µs is not an operation that takes zero.
+const millisPerSecond = 1000.0
+
+// Time starts a timer and returns the function that records how long the
+// operation took into hist, in milliseconds.
+//
+// Call it deferred, at the top of the work it measures:
+//
+//	defer op.Time(c.clock, c.latencyHist)()
+//
+// The doubled parentheses are the point: the outer call starts the clock now
+// and the deferred inner one stops it, so there is no `startTime` local for a
+// later edit to move, shadow, or leave behind when the block it belonged to is
+// restructured. Twenty-five sites had written the three-line closure by hand,
+// and the ones that had drifted had drifted in the direction this fixes.
+//
+// c is the component's clock, and is a parameter rather than something resolved
+// here because that is the mistake this exists to stop repeating. A component
+// that holds an injected clock and reads time.Now() for its latency is a
+// component whose tests cannot control what its histogram records; passing nil
+// resolves to the wall clock, and is the honest spelling for a component that
+// has no clock to inject.
+//
+// The recording runs on the context the work ran under, so an exporter that
+// reads baggage off it sees what the operation saw. A nil histogram records
+// nothing, so an unmetered component needs no branch.
+func (op *operation) Time(ctx context.Context, c clock.Clock, hist metrics.Float64Histogram, opts ...metric.RecordOption) func() {
+	return timing(ctx, c, hist, opts...)
+}
+
+// timing is Time's body, shared with RecordingOperation so that a test reading
+// an Operation off a RecordingObserver measures through the same code the real
+// one does.
+func timing(ctx context.Context, c clock.Clock, hist metrics.Float64Histogram, opts ...metric.RecordOption) func() {
+	if hist == nil {
+		return func() {}
+	}
+
+	if c == nil {
+		c = clock.NewClock()
+	}
+
+	startTime := c.Now()
+
+	// Now at both ends rather than Now-then-Since: one method for a caller's
+	// clock to answer, and a stub clock pinned to an instant reports a duration
+	// of zero, which is what pinning it means.
+	return func() {
+		hist.Record(ctx, c.Now().Sub(startTime).Seconds()*millisPerSecond, opts...)
 	}
 }

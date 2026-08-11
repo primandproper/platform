@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 )
@@ -52,7 +53,7 @@ const instanceColumns = "id, definition, status, current_step, step_names, state
 func (t *tables) buildInsertInstance(d dialect.Dialect, inst *Record, stepNames []byte, nextAttempt time.Time) (query string, args []any) {
 	args = []any{
 		inst.ID, inst.Definition, string(inst.Status), inst.CurrentStep, string(stepNames),
-		blobOrNil(inst.State), inst.Attempts, inst.LastError, string(inst.ResumeStatus),
+		database.BlobOrNil(inst.State), inst.Attempts, inst.LastError, string(inst.ResumeStatus),
 		inst.StartedAt.UTC(), inst.UpdatedAt.UTC(), nextAttempt.UTC(),
 	}
 
@@ -238,7 +239,7 @@ func (t *tables) buildFetchByIDs(d dialect.Dialect, ids []string) (query string,
 func (t *tables) buildAdvance(d dialect.Dialect, inst *Record, nextAttempt, at time.Time) (query string, args []any) {
 	args = make([]any, 0, len(activeStatuses)+8)
 	args = append(args,
-		string(inst.Status), inst.CurrentStep, blobOrNil(inst.State),
+		string(inst.Status), inst.CurrentStep, database.BlobOrNil(inst.State),
 		inst.LastError, string(inst.ResumeStatus), at.UTC(), nextAttempt.UTC(),
 	)
 
@@ -370,16 +371,4 @@ func wherePrefix(where string) string {
 	}
 
 	return " WHERE " + where
-}
-
-// blobOrNil maps an empty encoding to a SQL NULL rather than an empty blob, so
-// "no state" and "an empty state" cannot be distinguished in the column by
-// accident — they mean the same thing, and storing two renderings of it would
-// make the round trip depend on which call site wrote the row.
-func blobOrNil(b []byte) any {
-	if len(b) == 0 {
-		return nil
-	}
-
-	return b
 }

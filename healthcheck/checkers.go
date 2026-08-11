@@ -36,54 +36,59 @@ func (d *databaseChecker) Check(ctx context.Context) error {
 	return nil
 }
 
-// CacheReadyChecker checks if a cache client is ready.
-type CacheReadyChecker interface {
+// Pinger is anything whose readiness is a Ping. Cache clients and message queue
+// clients both are, and so is most of what a service depends on over a
+// connection.
+type Pinger interface {
 	Ping(ctx context.Context) error
 }
+
+// CacheReadyChecker checks if a cache client is ready.
+type CacheReadyChecker = Pinger
+
+// MessageQueueReadyChecker checks if a message queue client is ready.
+type MessageQueueReadyChecker = Pinger
 
 // NewCacheChecker returns a Checker that pings the given cache client.
 func NewCacheChecker(name string, client CacheReadyChecker) Checker {
-	return &cacheChecker{name: name, client: client}
+	return NewPingChecker(name, "cache", client)
 }
 
-type cacheChecker struct {
-	client CacheReadyChecker
-	name   string
-}
-
-func (c *cacheChecker) Name() string {
-	return c.name
-}
-
-func (c *cacheChecker) Check(ctx context.Context) error {
-	if c.client == nil {
-		return errors.New("cache client is nil")
-	}
-	return c.client.Ping(ctx)
-}
-
-// MessageQueueReadyChecker checks if a message queue client is ready.
-type MessageQueueReadyChecker interface {
-	Ping(ctx context.Context) error
-}
-
-// NewMessageQueueChecker returns a Checker that pings the given message queue client.
+// NewMessageQueueChecker returns a Checker that pings the given message queue
+// client.
 func NewMessageQueueChecker(name string, client MessageQueueReadyChecker) Checker {
-	return &messageQueueChecker{name: name, client: client}
+	return NewPingChecker(name, "message queue", client)
 }
 
-type messageQueueChecker struct {
-	client MessageQueueReadyChecker
-	name   string
+// NewPingChecker returns a Checker that reports whatever client.Ping says.
+//
+// name is the dependency's name in the probe's output; subject names the kind of
+// client in the error a nil one produces, which is the only place the two
+// wrappers above ever differed. They existed as separate types because the
+// packages they check are separate, not because the check is — and a third
+// pingable dependency would have been a third byte-identical copy.
+//
+// A nil client is an error rather than a pass. A probe reporting healthy for a
+// dependency it was never given is worse than no probe: it is a green check
+// covering a wiring mistake.
+func NewPingChecker(name, subject string, client Pinger) Checker {
+	return &pingChecker{name: name, subject: subject, client: client}
 }
 
-func (m *messageQueueChecker) Name() string {
-	return m.name
+type pingChecker struct {
+	client  Pinger
+	name    string
+	subject string
 }
 
-func (m *messageQueueChecker) Check(ctx context.Context) error {
-	if m.client == nil {
-		return errors.New("message queue client is nil")
+func (p *pingChecker) Name() string {
+	return p.name
+}
+
+func (p *pingChecker) Check(ctx context.Context) error {
+	if p.client == nil {
+		return errors.Newf("%s client is nil", p.subject)
 	}
-	return m.client.Ping(ctx)
+
+	return p.client.Ping(ctx)
 }

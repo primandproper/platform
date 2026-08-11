@@ -12,6 +12,7 @@ import (
 	circuitbreakingmock "github.com/primandproper/platform-go/v10/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v10/featureflags"
+	"github.com/primandproper/platform-go/v10/featureflags/internal/openfeatureflags"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
@@ -160,14 +161,17 @@ func buildTestManagerWithFlags(t *testing.T, cb circuitbreaking.CircuitBreaker, 
 	must.NoError(t, err)
 
 	return &FeatureFlagManager{
-		ldClient:        client,
-		ofClient:        ofClient,
-		circuitBreaker:  cb,
-		o11y:            observability.NewObserver(serviceName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
-		evalCounter:     evalCounter,
-		errorCounter:    errorCounter,
-		notFoundCounter: notFoundCounter,
-		latencyHist:     latencyHist,
+		ldClient: client,
+		Evaluator: openfeatureflags.Evaluator{
+			Client:          ofClient,
+			CircuitBreaker:  cb,
+			O11y:            observability.NewObserver(serviceName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
+			Domain:          domain,
+			EvalCounter:     evalCounter,
+			ErrorCounter:    errorCounter,
+			NotFoundCounter: notFoundCounter,
+			LatencyHist:     latencyHist,
+		},
 	}
 }
 
@@ -175,7 +179,7 @@ func buildTestManagerWithFlags(t *testing.T, cb circuitbreaking.CircuitBreaker, 
 // so a test can assert which fields an evaluation observed.
 func withRecordingObserver(ffm *FeatureFlagManager) *observability.RecordingObserver {
 	obs := observability.NewRecordingObserver()
-	ffm.o11y = obs
+	ffm.O11y = obs
 
 	return obs
 }
@@ -329,37 +333,6 @@ func TestNewFeatureFlagManager_metricInitErrors(T *testing.T) {
 		must.Error(t, err)
 		must.Nil(t, actual)
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
-	})
-}
-
-func TestToOpenFeatureContext(T *testing.T) {
-	T.Parallel()
-
-	T.Run("with attributes", func(t *testing.T) {
-		t.Parallel()
-
-		ec := featureflags.EvaluationContext{
-			TargetingKey: "user123",
-			Attributes:   map[string]any{"plan": "pro", "region": "us-east"},
-		}
-
-		result := toOpenFeatureContext(ec)
-
-		test.EqOp(t, "user123", result.TargetingKey())
-		test.Eq(t, "pro", result.Attribute("plan"))
-		test.Eq(t, "us-east", result.Attribute("region"))
-	})
-
-	T.Run("with nil attributes", func(t *testing.T) {
-		t.Parallel()
-
-		ec := featureflags.EvaluationContext{
-			TargetingKey: "user456",
-		}
-
-		result := toOpenFeatureContext(ec)
-
-		test.EqOp(t, "user456", result.TargetingKey())
 	})
 }
 

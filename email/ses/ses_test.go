@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/mail"
 	"testing"
 
 	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
@@ -17,30 +16,6 @@ import (
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
-
-func TestFormatAddress(T *testing.T) {
-	T.Parallel()
-
-	T.Run("bare address when name is empty", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "real@example.com", formatAddress("", "real@example.com"))
-	})
-
-	T.Run("quotes hostile name to prevent recipient injection", func(t *testing.T) {
-		t.Parallel()
-
-		got := formatAddress(`x <a@attacker.com>,`, "real@example.com")
-
-		parsed, err := mail.ParseAddress(got)
-		must.NoError(t, err)
-		test.EqOp(t, "real@example.com", parsed.Address)
-
-		list, err := mail.ParseAddressList(got)
-		must.NoError(t, err)
-		test.SliceLen(t, 1, list)
-	})
-}
 
 type mockSESClient struct {
 	output *sesv2.SendEmailOutput
@@ -173,11 +148,11 @@ func TestEmailer_SendEmail(T *testing.T) {
 		must.NoError(t, e.SendEmail(t.Context(), details))
 
 		must.NotNil(t, mock.input)
-		test.EqOp(t, formatAddress(details.FromName, details.FromAddress), aws.ToString(mock.input.FromEmailAddress))
+		test.EqOp(t, email.FormatAddress(details.FromName, details.FromAddress), aws.ToString(mock.input.FromEmailAddress))
 
 		must.NotNil(t, mock.input.Destination)
 		must.SliceLen(t, 1, mock.input.Destination.ToAddresses)
-		test.EqOp(t, formatAddress(details.ToName, details.ToAddress), mock.input.Destination.ToAddresses[0])
+		test.EqOp(t, email.FormatAddress(details.ToName, details.ToAddress), mock.input.Destination.ToAddresses[0])
 
 		must.NotNil(t, mock.input.Content)
 		must.NotNil(t, mock.input.Content.Simple)

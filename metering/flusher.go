@@ -241,14 +241,10 @@ func (f *Flusher) Job(schedule jobs.Schedule, leaseTTL time.Duration) jobs.Job {
 // event table grow unbounded — the reap's own predicate already refuses to touch
 // anything a failed post still needs.
 func (f *Flusher) Flush(ctx context.Context) (*FlushResult, error) {
-	startTime := time.Now()
-
 	ctx, op := f.o11y.Begin(ctx)
 	defer op.End()
 
-	defer func() {
-		f.passHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, f.clock, f.passHist)()
 
 	now := f.clock.Now().UTC()
 
@@ -406,7 +402,8 @@ func (f *Flusher) flushOne(ctx context.Context, total *Total) (outcome flushOutc
 
 // report posts one delta to the provider under a deterministic idempotency key.
 func (f *Flusher) report(ctx context.Context, total *Total, ref ProviderRef, delta int64) (err error) {
-	startTime := time.Now()
+	ctx, op := f.o11y.Begin(ctx, observability.WithValue(meterKey, total.Meter))
+	defer op.End()
 
 	// Bounded so a provider that hangs cannot hold the lease past its expiry and
 	// let a second flusher start posting the same delta. The config validation
@@ -414,9 +411,7 @@ func (f *Flusher) report(ctx context.Context, total *Total, ref ProviderRef, del
 	ctx, cancel := context.WithTimeout(ctx, f.cfg.FlushTimeout)
 	defer cancel()
 
-	defer func() {
-		f.postHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), meterAttr(total.Meter))
-	}()
+	defer op.Time(ctx, f.clock, f.postHist, meterAttr(total.Meter))()
 
 	// A provider SDK is third-party code on the money path. A panic in it would
 	// otherwise take down the goroutine, and with it every other total in the

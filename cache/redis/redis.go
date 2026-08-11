@@ -206,10 +206,7 @@ func (i *Cache[T]) Get(ctx context.Context, key string) (*T, error) {
 		return nil, cache.ErrUnavailable
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	res, err := i.client.Get(ctx, i.key(key)).Result()
 	if err != nil {
@@ -251,10 +248,7 @@ func (i *Cache[T]) Set(ctx context.Context, key string, value *T, opts ...cache.
 		return cache.ErrUnavailable
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	encoded, err := i.encode(value)
 	if err != nil {
@@ -297,10 +291,7 @@ func (i *Cache[T]) SetIfPresent(ctx context.Context, key string, value *T, opts 
 		return cache.ErrUnavailable
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	encoded, err := i.encode(value)
 	if err != nil {
@@ -346,10 +337,7 @@ func (i *Cache[T]) Delete(ctx context.Context, key string) error {
 		return cache.ErrUnavailable
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	if err := i.client.Del(ctx, i.key(key)).Err(); err != nil {
 		i.cacheErrCounter.Add(ctx, 1)
@@ -378,10 +366,7 @@ func (i *Cache[T]) DeleteMany(ctx context.Context, keys []string) error {
 		return cache.ErrUnavailable
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	stored := make([]string, len(keys))
 	for idx, k := range keys {
@@ -424,10 +409,7 @@ func (i *Cache[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
 		return cache.ErrUnavailable
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	pattern := escapeGlob(i.key(prefix)) + "*"
 
@@ -555,10 +537,7 @@ func (i *Cache[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, e
 		return nil, cache.ErrUnavailable
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	stored := make([]string, len(keys))
 	callerKey := make(map[string]string, len(keys))
@@ -623,10 +602,7 @@ func (i *Cache[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cac
 		return cache.ErrUnavailable
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	// Encode every value first so a single bad value fails the batch before any
 	// write is issued.

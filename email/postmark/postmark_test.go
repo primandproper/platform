@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/mail"
 	"testing"
 	"time"
 
@@ -61,32 +60,6 @@ func testEmailMessage(t *testing.T) *email.OutboundEmailMessage {
 		Subject:     t.Name(),
 		HTMLContent: t.Name(),
 	}
-}
-
-func TestFormatAddress(T *testing.T) {
-	T.Parallel()
-
-	T.Run("bare address when name is empty", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "real@example.com", formatAddress("", "real@example.com"))
-	})
-
-	T.Run("quotes hostile name to prevent recipient injection", func(t *testing.T) {
-		t.Parallel()
-
-		// A name crafted to smuggle in a second recipient must be quoted so that
-		// parsing the result yields exactly one address: the intended one.
-		got := formatAddress(`x <a@attacker.com>,`, "real@example.com")
-
-		parsed, err := mail.ParseAddress(got)
-		must.NoError(t, err)
-		test.EqOp(t, "real@example.com", parsed.Address)
-
-		list, err := mail.ParseAddressList(got)
-		must.NoError(t, err)
-		test.SliceLen(t, 1, list)
-	})
 }
 
 func TestNewPostmarkEmailer(T *testing.T) {
@@ -181,8 +154,8 @@ func TestPostmarkEmailer_SendEmail(T *testing.T) {
 		}
 		must.NoError(t, c.SendEmail(t.Context(), details))
 
-		test.EqOp(t, formatAddress(details.FromName, details.FromAddress), gotBody.From)
-		test.EqOp(t, formatAddress(details.ToName, details.ToAddress), gotBody.To)
+		test.EqOp(t, email.FormatAddress(details.FromName, details.FromAddress), gotBody.From)
+		test.EqOp(t, email.FormatAddress(details.ToName, details.ToAddress), gotBody.To)
 		test.EqOp(t, details.Subject, gotBody.Subject)
 		test.EqOp(t, details.HTMLContent, gotBody.HtmlBody)
 	})

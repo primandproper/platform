@@ -135,10 +135,7 @@ func (l *Locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 		return nil, circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		l.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, l.latencyHist)()
 
 	// Each held lock pins its own write-pool connection for its entire lifetime
 	// (the advisory lock lives on that session). If every connection in the write
@@ -243,10 +240,7 @@ func (l *Locker) release(ctx context.Context, h *lock) error {
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		l.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, l.latencyHist)()
 
 	l.mu.Lock()
 	if _, ok := l.outstanding[h.token]; !ok {
@@ -298,10 +292,7 @@ func (l *Locker) refresh(ctx context.Context, h *lock, ttl time.Duration) error 
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		l.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, l.latencyHist)()
 
 	l.mu.Lock()
 	_, stillHeld := l.outstanding[h.token]

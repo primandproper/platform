@@ -382,7 +382,7 @@ func (f *Fulfiller) run(
 
 	op.Set(subjectIDKey, req.Subject.ID)
 
-	startTime := time.Now()
+	recordLatency := op.Time(ctx, f.clock, f.fulfillHist, requestTypeAttr(req.Type))
 
 	// Bounded so that a collector or an eraser that hangs cannot hold the
 	// operation open indefinitely. The operation's own lease is no longer the
@@ -398,7 +398,7 @@ func (f *Fulfiller) run(
 
 	result, err := fulfill(fulfillCtx, req, rep)
 
-	f.fulfillHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), requestTypeAttr(req.Type))
+	recordLatency()
 
 	if err != nil {
 		return nil, f.recordFailure(ctx, req, attempt, err)
@@ -518,7 +518,7 @@ func (f *Fulfiller) export(
 	// Checked before the fan-out rather than only after it, because collection
 	// is the expensive half: every registered domain runs a query against the
 	// application's own database on behalf of a request somebody has withdrawn.
-	if cancelled(rep) {
+	if operations.Cancelled(rep) {
 		return nil, f.stop(ctx, req, "stopped before collecting")
 	}
 
@@ -531,7 +531,7 @@ func (f *Fulfiller) export(
 	// units is to stop at a place that can be described, and "collected but not
 	// delivered" is describable in a way that "half an object in a bucket" is
 	// not.
-	if cancelled(rep) {
+	if operations.Cancelled(rep) {
 		return nil, f.stop(ctx, req, "stopped after collecting %d sections", len(doc.Data))
 	}
 
@@ -715,7 +715,7 @@ func (f *Fulfiller) collectOne(ctx context.Context, key string, subject Subject)
 
 	var fragment json.RawMessage
 
-	startTime := time.Now()
+	recordLatency := op.Time(ctx, f.clock, f.collectHist, sectionAttr(key))
 
 	err := panicking.Contain(func() error {
 		var collectErr error
@@ -724,7 +724,7 @@ func (f *Fulfiller) collectOne(ctx context.Context, key string, subject Subject)
 		return collectErr
 	})
 
-	f.collectHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), sectionAttr(key))
+	recordLatency()
 
 	if err != nil {
 		return nil, op.Error(containedPanic(op, err, ErrCollectorPanicked), "collecting dataprivacy section")
@@ -802,7 +802,7 @@ func (f *Fulfiller) erase(
 
 	rep.SetUnits(len(keys))
 
-	if cancelled(rep) {
+	if operations.Cancelled(rep) {
 		return nil, f.stop(ctx, req, "stopped before erasing")
 	}
 
@@ -1018,16 +1018,6 @@ func containedPanic(op observability.Operation, err, sentinel error) error {
 	op.SpanOnly(panicStackKey, string(pe.Stack))
 
 	return platformerrors.Wrapf(sentinel, "%v", pe.Value)
-}
-
-// cancelled reports whether somebody has asked the operation to stop.
-func cancelled(rep operations.Reporter) bool {
-	select {
-	case <-rep.Cancelled():
-		return true
-	default:
-		return false
-	}
 }
 
 // stop records a request the runner abandoned because it was asked to, and

@@ -11,6 +11,7 @@ import (
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/receivewait"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -41,13 +42,6 @@ type (
 		handlerFunc func(context.Context, []byte) error
 		queueURL    string
 	}
-)
-
-const (
-	// initialReceiveBackoff and maxReceiveBackoff bound the wait between failed
-	// ReceiveMessage calls.
-	initialReceiveBackoff = 100 * time.Millisecond
-	maxReceiveBackoff     = 30 * time.Second
 )
 
 // instrumentName renders a queue URL as an identifier fit for an instrumentation
@@ -105,7 +99,7 @@ func provideSQSConsumer(
 // On handler success, the message is deleted from the queue.
 // On handler failure, the message is not deleted (it returns after visibility timeout).
 func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
-	backoff := initialReceiveBackoff
+	backoff := receivewait.New(nil, nil)
 
 	for ctx.Err() == nil {
 		output, err := c.receiver.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
@@ -122,23 +116,17 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 			c.o11y.Logger().Error("receiving SQS messages", err)
 			consumererr.Send(ctx, errs, err)
 
-			// Back off before retrying. Long polling normally paces this loop, but
-			// a receive that fails returns immediately — so a persistent failure
-			// (expired credentials, a deleted queue, a network partition) spun the
-			// loop as fast as the CPU and the SQS API allowed, burning a core and
-			// the request quota for as long as it lasted.
-			backoff = min(backoff*2, maxReceiveBackoff)
-
-			select {
-			case <-ctx.Done():
+			// Long polling normally paces this loop, but a receive that fails
+			// returns immediately; see the receivewait package for what a loop
+			// with no wait here costs.
+			if backoff.Wait(ctx) != nil {
 				return
-			case <-time.After(backoff):
 			}
 
 			continue
 		}
 
-		backoff = initialReceiveBackoff
+		backoff.Reset()
 
 		for i := range output.Messages {
 			msg := &output.Messages[i]

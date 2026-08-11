@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/charset"
+	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 )
@@ -106,7 +106,7 @@ type insertRow struct {
 // it; DO NOTHING returns no rows instead and leaves the transaction healthy,
 // which is what makes the idempotency seam usable from where it is most wanted.
 func (t *tables) buildInsert(row *insertRow) (query string, args []any) {
-	args = []any{row.id, row.kind, row.owner, blobOrNil(row.request), row.countLabel}
+	args = []any{row.id, row.kind, row.owner, database.BlobOrNil(row.request), row.countLabel}
 
 	return fmt.Sprintf(
 		"INSERT INTO %s (id, kind, state, owner, request, count_label, "+
@@ -184,10 +184,7 @@ func (t *tables) buildListWhere(scope *ListScope, args []any) (where string, out
 func (t *tables) buildList(scope *ListScope, cursor string, limit int, descending bool) (query string, args []any) {
 	where, args := t.buildListWhere(scope, nil)
 
-	direction, comparison := "ASC", " > "
-	if descending {
-		direction, comparison = "DESC", " < "
-	}
+	direction, comparison := database.CursorOrder(descending)
 
 	if cursor != "" {
 		args = append(args, cursor)
@@ -328,7 +325,7 @@ func (t *tables) buildFinish(row finishRow) (query string, args []any) {
 		code, message, retryable = row.opErr.Code, row.opErr.Message, row.opErr.Retryable
 	}
 
-	args = []any{row.id, string(row.state), uri, blobOrNil(detail), code, message, retryable}
+	args = []any{row.id, string(row.state), uri, database.BlobOrNil(detail), code, message, retryable}
 
 	unitsDone := "units_done"
 	if row.unitsAllDone {
@@ -456,28 +453,4 @@ func wherePrefix(where string) string {
 	}
 
 	return " WHERE " + where
-}
-
-// blobOrNil maps an empty encoding to a SQL NULL rather than an empty blob, so
-// "no request" and "an empty request" cannot be distinguished in the column by
-// accident — they mean the same thing, and storing two renderings of it would
-// make the round trip depend on which call site wrote the row.
-func blobOrNil(b []byte) any {
-	if len(b) == 0 {
-		return nil
-	}
-
-	return b
-}
-
-// truncate bounds a human-readable string to the column's width. Messages are
-// truncated rather than refused: losing the tail of an error message is not
-// worth failing the operation that produced it.
-//
-// The cut is on a rune boundary, which charset.TruncateUTF8 is what guarantees.
-// A message reaches an API client as JSON, and half a multi-byte rune is not a
-// shorter string — it is one that fails to encode, turning a truncated message
-// into a failed response.
-func truncate(s string, limit int) string {
-	return charset.TruncateUTF8(s, limit)
 }

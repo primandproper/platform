@@ -122,5 +122,32 @@ that do not.
 The llm/config subpackage builds a Provider from configuration, and returns the
 llm/noop provider when none is configured — so a service with no LLM
 credentials starts and runs rather than failing at construction.
+
+# Why the provider files look alike
+
+The openai and anthropic implementations are near-identical files, and that is
+deliberate. Each is a translation between this package's request and response
+types and one vendor's SDK, so the shape they share is the shape of the
+interface — request in, translate, call, translate back, instrument — and the
+lines that differ are precisely the ones a reader came to see.
+
+Factoring the common half out would produce a base type holding the
+instrumentation and the error mapping, with each vendor supplying a handful of
+translation hooks. That trades a file a reader can hold in their head for two
+files they must hold at once, and it does it at the seam most likely to move:
+every vendor difference that shows up next — a new content block type, a
+streaming protocol that frames differently, a usage field one of them omits —
+arrives as a hook the base type did not anticipate. The generic machinery
+around three implementations is not obviously cheaper than three
+implementations.
+
+What was extracted is what is genuinely one decision rather than one shape:
+the instrument trio (observability/metrics.OperationSet), the latency timing
+(observability.Operation.Time), and the float narrowing every embeddings
+provider needs (embeddings.ToFloat32). The rule those share is that a second
+copy could be *wrong* — a different suffix, a bypassed clock, a different
+precision. A second copy of "decode the response, build a Completion" cannot
+be wrong in that way; it can only be different, and different is what it is
+for.
 */
 package llm

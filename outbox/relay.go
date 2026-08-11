@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -301,8 +300,6 @@ func (r *Relay) Close(ctx context.Context) error {
 // rather than returned: there is no caller to hand them to, and the next cycle
 // retries.
 func (r *Relay) cycle(ctx context.Context) {
-	startTime := time.Now()
-
 	msgs, err := r.claim(ctx)
 	if err != nil {
 		r.claimErrCounter.Add(ctx, 1)
@@ -316,12 +313,11 @@ func (r *Relay) cycle(ctx context.Context) {
 	}
 
 	r.batchHist.Record(ctx, float64(len(msgs)))
-	defer func() {
-		r.cycleHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
 
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(claimedKey, len(msgs)))
 	defer op.End()
+
+	defer op.Time(ctx, r.clock, r.cycleHist)()
 
 	// Published serially, in created_at order. The claim predicate admits at
 	// most one message per partition key per batch, so a failure here can never
@@ -368,10 +364,7 @@ func (r *Relay) publish(ctx context.Context, msg *claimedMessage) error {
 		op.Set(partitionKeyKey, msg.key)
 	}
 
-	startTime := time.Now()
-	defer func() {
-		r.publishHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), topicAttr(msg.topic))
-	}()
+	defer op.Time(ctx, r.clock, r.publishHist, topicAttr(msg.topic))()
 
 	publisher, err := r.publisherFor(ctx, msg.topic)
 	if err != nil {
@@ -475,7 +468,7 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 
 	quarantine := uint(msg.attempts) >= r.cfg.Backoff.MaxAttempts
 
-	nextAttempt := r.clock.Now().UTC().Add(r.backoffFor(msg.attempts))
+	nextAttempt := r.clock.Now().UTC().Add(retrycfg.ScheduledDelayFor(r.cfg.Backoff, msg.attempts))
 
 	query, args := buildRecordFailure(
 		r.dialect, r.cfg.table, msg.id, nextAttempt, truncateError(cause), quarantine,
@@ -550,7 +543,7 @@ func (r *Relay) backlog(ctx context.Context) (depth int64, age time.Duration, er
 		return 0, 0, platformerrors.Wrap(err, "reading outbox backlog")
 	}
 
-	created, ok := coerceTime(oldest)
+	created, ok := database.CoerceTime(oldest)
 	if !ok {
 		return depth, 0, nil
 	}
@@ -560,50 +553,6 @@ func (r *Relay) backlog(ctx context.Context) (depth int64, age time.Duration, er
 	}
 
 	return depth, age, nil
-}
-
-// coerceTime normalizes whatever a driver hands back for MIN(created_at).
-//
-// It is scanned as `any` rather than sql.NullTime because the drivers disagree.
-// pgx and go-sql-driver return a time.Time, but modernc's SQLite driver stores a
-// bound time.Time as Go's own String() rendering and an aggregate over that
-// column loses the declared DATETIME affinity, so it comes back as a plain
-// string that sql.NullTime refuses outright.
-//
-// A NULL — an empty backlog — reports false, and the caller treats that as an
-// age of zero.
-func coerceTime(v any) (time.Time, bool) {
-	var s string
-
-	switch typed := v.(type) {
-	case nil:
-		return time.Time{}, false
-	case time.Time:
-		return typed, true
-	case string:
-		s = typed
-	case []byte:
-		s = string(typed)
-	default:
-		return time.Time{}, false
-	}
-
-	// Go's String() layout comes first: it is what the SQLite path actually
-	// produces, and the others are here so a driver change does not silently
-	// zero the gauge.
-	for _, layout := range []string{
-		"2006-01-02 15:04:05.999999999 -0700 MST",
-		time.RFC3339Nano,
-		"2006-01-02 15:04:05.999999999-07:00",
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-	} {
-		if parsed, parseErr := time.Parse(layout, s); parseErr == nil {
-			return parsed, true
-		}
-	}
-
-	return time.Time{}, false
 }
 
 // reap deletes published rows past the retention window.
@@ -648,38 +597,6 @@ func topicAttr(topic string) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String(keys.TopicKey, topic))
 }
 
-// backoffFor computes the delay before a message's next attempt.
-//
-// The schedule comes from retrycfg.DelayFor, so the relay and anything using a
-// retry.Policy grow their delays identically from the same Config. What differs
-// is everything around it: the wait is persisted as a timestamp rather than
-// slept through, so it survives a relay restart, and the jitter is full rather
-// than equal — several relays share this table, and spreading their next
-// attempts across the whole window is what keeps them from re-colliding on
-// every round after one contended claim.
-func (r *Relay) backoffFor(attempts int) time.Duration {
-	if attempts < 1 {
-		attempts = 1
-	}
-
-	delay := float64(retrycfg.DelayFor(r.cfg.Backoff, uint(attempts)))
-
-	if r.cfg.Backoff.UseJitter {
-		// Full jitter. Not security-sensitive: this only decorrelates retry
-		// timing between relays.
-		delay *= rand.Float64() //nolint:gosec // jitter, not entropy
-	}
-
-	// A floor, because a jittered delay can land arbitrarily close to zero and
-	// a message that becomes claimable immediately would spin against the same
-	// failure rather than waiting out whatever caused it.
-	if delay < float64(time.Millisecond) {
-		delay = float64(time.Millisecond)
-	}
-
-	return time.Duration(delay)
-}
-
 // maxStoredErrorLength bounds what goes into last_error, so a pathological
 // driver error cannot bloat the row.
 const maxStoredErrorLength = 1024
@@ -692,55 +609,25 @@ func truncateError(err error) string {
 // scanIDs runs a single-column query and collects the results. A close failure
 // is surfaced only when nothing worse already went wrong, so the real cause is
 // never masked by the cleanup.
-func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (ids []string, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing outbox id rows")
-		}
-	}()
-
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-
-		ids = append(ids, id)
-	}
-
-	return ids, rows.Err()
+func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]string, error) {
+	return database.ScanStrings(ctx, q, "outbox id", query, args)
 }
 
 // scanMessages projects claimed rows. The column list comes from
 // messageColumns so the query and this scan cannot drift.
-func scanMessages(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (msgs []claimedMessage, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing outbox message rows")
-		}
-	}()
-
-	for rows.Next() {
+func scanMessages(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]claimedMessage, error) {
+	return database.ScanAll(ctx, q, "outbox message", query, args, func(scanner database.Scanner) (claimedMessage, error) {
 		var (
 			msg claimedMessage
 			key sql.NullString
 		)
 
-		if err = rows.Scan(&msg.id, &msg.topic, &key, &msg.payload, &msg.attempts); err != nil {
-			return nil, err
+		if err := scanner.Scan(&msg.id, &msg.topic, &key, &msg.payload, &msg.attempts); err != nil {
+			return claimedMessage{}, err
 		}
 
 		msg.key = key.String
-		msgs = append(msgs, msg)
-	}
 
-	return msgs, rows.Err()
+		return msg, nil
+	})
 }

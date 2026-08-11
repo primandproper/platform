@@ -791,27 +791,6 @@ func TestStatusSets(T *testing.T) {
 	})
 }
 
-func TestBlobOrNil(T *testing.T) {
-	T.Parallel()
-
-	T.Run("maps an empty encoding to NULL", func(t *testing.T) {
-		t.Parallel()
-
-		// "No failures" and "an empty failure map" mean the same thing, and
-		// storing two renderings of it would make the round trip depend on which
-		// call site wrote the row.
-		test.Nil(t, blobOrNil(nil))
-		test.Nil(t, blobOrNil([]byte{}))
-	})
-
-	T.Run("passes a populated encoding through", func(t *testing.T) {
-		t.Parallel()
-
-		encoded := []byte(`{"identity":"boom"}`)
-		test.Eq(t, any(encoded), blobOrNil(encoded))
-	})
-}
-
 func TestNullableTime(T *testing.T) {
 	T.Parallel()
 

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	o11yutils "github.com/primandproper/platform-go/v10/observability/utils"
 
@@ -20,14 +19,6 @@ import (
 // c.CollectorEndpoint, which is what a deployment naming "otelgrpc" and
 // supplying no otelgrpc block got. The metrics twin has always reported this.
 var ErrNilConfig = errors.New("nil config")
-
-type errorHandler struct {
-	logger logging.Logger
-}
-
-func (h errorHandler) Handle(err error) {
-	h.logger.Error("tracer reported issue", err)
-}
 
 // SetupOtelGRPC creates a new trace provider instance and registers it as global trace provider.
 func SetupOtelGRPC(ctx context.Context, serviceName string, collectionProbability float64, c *Config) (tracing.Provider, error) {

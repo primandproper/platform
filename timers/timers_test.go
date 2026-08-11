@@ -13,7 +13,6 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	databasemock "github.com/primandproper/platform-go/v10/database/mock"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shoenig/test"
@@ -189,25 +188,6 @@ func TestTimers_EmptyBatchesTouchNothing(T *testing.T) {
 	})
 }
 
-func TestTruncateError(T *testing.T) {
-	T.Parallel()
-
-	T.Run("a nil cause stores nothing", func(t *testing.T) {
-		t.Parallel()
-
-		test.Nil(t, truncateError(nil))
-	})
-
-	T.Run("bounds what reaches the column", func(t *testing.T) {
-		t.Parallel()
-
-		stored, ok := truncateError(stderrors.New(strings.Repeat("e", maxStoredErrLen*2))).(string)
-
-		must.True(t, ok)
-		test.EqOp(t, maxStoredErrLen, len(stored))
-	})
-}
-
 // The lease guard sits above every statement, so a caller who passes a
 // meaningless lease is told so rather than leasing rows nobody can hold.
 func TestTimers_Claim_RejectsANonPositiveLease(T *testing.T) {
@@ -221,119 +201,6 @@ func TestTimers_Claim_RejectsANonPositiveLease(T *testing.T) {
 
 		test.True(T, stderrors.Is(claimErr, ErrInvalidLease), test.Sprintf("lease %s", lease))
 	}
-}
-
-// isRetryable decides which failures withRetries is allowed to re-run. Getting
-// it wrong in either direction is expensive: too narrow and a retryable deadlock
-// becomes a failed request, too wide and a permanent error is re-run until the
-// attempt ceiling.
-func TestIsRetryable(T *testing.T) {
-	T.Parallel()
-
-	cases := map[string]struct {
-		err      error
-		expected bool
-	}{
-		"a deadlock":                 {&pgconn.PgError{Code: pgDeadlockDetected}, true},
-		"a serialization failure":    {&pgconn.PgError{Code: pgSerializationFailure}, true},
-		"a wrapped deadlock":         {platformerrors.Wrap(&pgconn.PgError{Code: pgDeadlockDetected}, "writing"), true},
-		"another Postgres condition": {&pgconn.PgError{Code: "23505"}, false},
-		"an unrelated error":         {stderrors.New("boom"), false},
-		"no error at all":            {nil, false},
-	}
-
-	for name, tc := range cases {
-		T.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			test.EqOp(t, tc.expected, isRetryable(tc.err))
-		})
-	}
-}
-
-func TestTimers_WithRetries(T *testing.T) {
-	T.Parallel()
-
-	deadlock := &pgconn.PgError{Code: pgDeadlockDetected}
-
-	newSet := func(t *testing.T) *Timers[string] {
-		t.Helper()
-
-		set, err := New[string](t.Context(), validConfig(), postgresClient())
-		must.NoError(t, err)
-
-		return set
-	}
-
-	T.Run("runs the write once when it succeeds", func(t *testing.T) {
-		t.Parallel()
-
-		var calls int
-
-		err := newSet(t).withRetries(t.Context(), "writing", func() error {
-			calls++
-
-			return nil
-		})
-
-		must.NoError(t, err)
-		test.EqOp(t, 1, calls)
-	})
-
-	// The point of the classification: a permanent failure must not be re-run,
-	// because re-asking an answered question only delays the error.
-	T.Run("returns a non-retryable failure without re-running it", func(t *testing.T) {
-		t.Parallel()
-
-		var calls int
-		sentinel := stderrors.New("constraint violated")
-
-		err := newSet(t).withRetries(t.Context(), "writing", func() error {
-			calls++
-
-			return sentinel
-		})
-
-		test.True(t, stderrors.Is(err, sentinel))
-		test.EqOp(t, 1, calls)
-	})
-
-	T.Run("re-runs a deadlock until it succeeds", func(t *testing.T) {
-		t.Parallel()
-
-		var calls int
-
-		err := newSet(t).withRetries(t.Context(), "writing", func() error {
-			calls++
-			if calls == 1 {
-				return deadlock
-			}
-
-			return nil
-		})
-
-		must.NoError(t, err)
-		test.EqOp(t, 2, calls)
-	})
-
-	// WriteAttempts is a ceiling, not a suggestion — a deadlock that never
-	// clears has to stop rather than spin.
-	T.Run("gives up at the attempt ceiling and returns the last failure", func(t *testing.T) {
-		t.Parallel()
-
-		var calls int
-
-		set := newSet(t)
-
-		err := set.withRetries(t.Context(), "writing", func() error {
-			calls++
-
-			return deadlock
-		})
-
-		test.True(t, stderrors.Is(err, deadlock))
-		test.EqOp(t, int(set.cfg.WriteAttempts), calls)
-	})
 }
 
 // failingConnector is a driver whose every connection attempt fails. It exists
@@ -488,4 +355,31 @@ func TestTimers_Stats_SurfacesAFailedRead(T *testing.T) {
 	_, err = set.Stats(T.Context())
 
 	test.True(T, stderrors.Is(err, sentinel))
+}
+
+// The retrier is a struct field rather than a method, so an unwired one is a
+// zero value that runs every write exactly once — retrying nothing, silently.
+// This is the test that says it was wired, and wired to the configured ceiling.
+func TestTimers_retrier(T *testing.T) {
+	T.Parallel()
+
+	T.Run("re-runs a deadlock up to the configured attempt ceiling", func(t *testing.T) {
+		t.Parallel()
+
+		set, err := New[string](t.Context(), validConfig(), postgresClient())
+		must.NoError(t, err)
+
+		must.Greater(t, uint(1), set.cfg.WriteAttempts)
+
+		var calls int
+
+		writeErr := set.retrier.Do(t.Context(), "writing", func() error {
+			calls++
+
+			return &pgconn.PgError{Code: "40P01"}
+		})
+
+		must.Error(t, writeErr)
+		test.EqOp(t, int(set.cfg.WriteAttempts), calls)
+	})
 }

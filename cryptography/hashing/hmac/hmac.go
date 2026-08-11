@@ -72,3 +72,35 @@ func (h *Hasher) Hash(content []byte) []byte {
 func Equal(a, b []byte) bool {
 	return hmac.Equal(a, b)
 }
+
+// MatchesAny reports whether any hasher's MAC over content equals any of the
+// candidates, in time independent of which one matched.
+//
+// It is the shape every multi-key verifier in this module needs, because every
+// one of them holds more than one key: a receiver carries an outgoing secret
+// through a rotation window, and a provider may present several signatures in
+// one header for the same reason. Both loops therefore run to completion —
+// returning as soon as something matches makes the time taken depend on which
+// key and which candidate agreed, which is exactly the distinction Equal's
+// constant-time comparison exists to hide, given back one key at a time.
+//
+// The cost of not short-circuiting is nothing: the lists are a handful of keys
+// held during a rotation, not an unbounded set.
+//
+// No hashers or no candidates is not a match. A verifier holding no keys
+// accepts nothing, which is the only safe reading of "we cannot check this".
+func MatchesAny(hashers []hashing.Hasher, content []byte, candidates ...[]byte) bool {
+	var matched bool
+
+	for _, h := range hashers {
+		expected := h.Hash(content)
+
+		for _, candidate := range candidates {
+			if Equal(expected, candidate) {
+				matched = true
+			}
+		}
+	}
+
+	return matched
+}

@@ -8,7 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v10/database/dialect"
 
 	"github.com/shoenig/test"
-	"github.com/shoenig/test/must"
 )
 
 func TestBuildInsert(T *testing.T) {
@@ -109,42 +108,6 @@ func TestBuildRecordFailure(T *testing.T) {
 
 		test.True(t, strings.Contains(query, "claimed_until = NULL"))
 		test.Eq(t, []any{next, "boom", true, "id-1"}, args)
-	})
-}
-
-func TestCoerceTime(T *testing.T) {
-	T.Parallel()
-
-	T.Run("accepts every rendering a driver might return", func(t *testing.T) {
-		t.Parallel()
-
-		want := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-
-		cases := map[string]any{
-			"time.Time":         want,
-			"go String layout":  "2026-07-27 12:00:00 +0000 UTC",
-			"RFC3339":           "2026-07-27T12:00:00Z",
-			"space offset":      "2026-07-27 12:00:00+00:00",
-			"no zone":           "2026-07-27 12:00:00",
-			"bytes":             []byte("2026-07-27 12:00:00 +0000 UTC"),
-			"fractional string": "2026-07-27 12:00:00.000000000 +0000 UTC",
-		}
-
-		for name, in := range cases {
-			got, ok := coerceTime(in)
-			must.True(t, ok, must.Sprintf("case %q", name))
-			test.True(t, want.Equal(got), test.Sprintf("case %q: got %s", name, got))
-		}
-	})
-
-	T.Run("reports false for a NULL or unusable value", func(t *testing.T) {
-		t.Parallel()
-
-		// A NULL is an empty backlog, not an error.
-		for _, in := range []any{nil, "", "not a time", 42, []byte("nope")} {
-			_, ok := coerceTime(in)
-			test.False(t, ok, test.Sprintf("value %v", in))
-		}
 	})
 }
 

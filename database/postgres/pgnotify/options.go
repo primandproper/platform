@@ -4,6 +4,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/retry"
 )
 
 // Option configures a Listener. The zero configuration works: an absent logger
@@ -15,6 +16,7 @@ type options struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
+	rand            retry.Rand
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -48,4 +50,18 @@ func WithTracerProvider(tracerProvider tracing.Provider) Option {
 // nothing.
 func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 	return func(o *options) { o.metricsProvider = metricsProvider }
+}
+
+// WithRand replaces the source that spreads reconnect backoff across the upper
+// half of its interval. fn must return a value in [0,1]; a value of 1 yields
+// the un-jittered backoff.
+//
+// The default draws from math/rand/v2 and needs no seeding. A nil fn is
+// ignored.
+func WithRand(fn retry.Rand) Option {
+	return func(o *options) {
+		if fn != nil {
+			o.rand = fn
+		}
+	}
 }

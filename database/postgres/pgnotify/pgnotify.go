@@ -3,7 +3,6 @@ package pgnotify
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +11,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v10/retry"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -55,6 +55,13 @@ type Listener struct {
 	coalescedCounter  metrics.Int64Counter
 	reconnectCounter  metrics.Int64Counter
 	connectErrCounter metrics.Int64Counter
+
+	// jitter spreads reconnect backoff across the upper half of its interval,
+	// so that a fleet of listeners knocked off by one failover does not
+	// reconnect in lockstep and knock the recovering primary over again. Equal
+	// rather than full jitter: the lower bound is what keeps the delay from
+	// collapsing toward zero, which is the case this is defending against.
+	jitter retry.Jitter
 
 	// listen is the statement issued on every new session, rendered once at
 	// construction. The channel name is quoted rather than bound: LISTEN is a
@@ -107,6 +114,7 @@ func NewListener(ctx context.Context, cfg *Config, opts ...Option) (*Listener, e
 		signal: make(chan struct{}, 1),
 		stop:   make(chan struct{}),
 		done:   make(chan struct{}),
+		jitter: retry.Equal(o.rand),
 	}
 
 	// The channel is what every line and every span here is about, and it never
@@ -195,7 +203,7 @@ func (l *Listener) Run() {
 
 		l.o11y.Logger().WithValue(backoffKey, backoff).Error("postgres listener session ended, reconnecting", err)
 
-		if !l.sleep(ctx, jitter(backoff)) {
+		if !l.sleep(ctx, l.jitter(backoff)) {
 			return
 		}
 
@@ -337,17 +345,4 @@ func (l *Listener) sleep(ctx context.Context, d time.Duration) bool {
 	case <-ctx.Done():
 		return false
 	}
-}
-
-// jitter spreads a backoff across the upper half of its interval, so that a
-// fleet of listeners knocked off by one failover does not reconnect in lockstep
-// and knock the recovering primary over again. The lower bound keeps the delay
-// from collapsing toward zero, which full jitter would allow.
-func jitter(d time.Duration) time.Duration {
-	if d <= 0 {
-		return 0
-	}
-
-	// Not security-sensitive: this only decorrelates reconnect timing.
-	return d/2 + time.Duration(rand.Int64N(int64(d/2)+1)) //nolint:gosec // spread, not entropy
 }

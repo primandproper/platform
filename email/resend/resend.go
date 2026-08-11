@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/mail"
-	"strings"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/email"
@@ -90,22 +87,12 @@ func NewResendEmailer(cfg *Config, client *http.Client, circuitBreaker circuitbr
 	return e, nil
 }
 
-func formatAddress(name, address string) string {
-	if strings.TrimSpace(name) == "" {
-		return address
-	}
-	return (&mail.Address{Name: name, Address: address}).String()
-}
-
 // SendEmail sends an email.
 func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMessage) error {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		e.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, e.latencyHist)()
 
 	op.Set(keys.EmailSubjectKey, details.Subject).Set(keys.EmailToAddressKey, details.ToAddress).Set(keys.EmailFromAddressKey, details.FromAddress)
 
@@ -113,8 +100,8 @@ func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMes
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	from := formatAddress(details.FromName, details.FromAddress)
-	to := formatAddress(details.ToName, details.ToAddress)
+	from := email.FormatAddress(details.FromName, details.FromAddress)
+	to := email.FormatAddress(details.ToName, details.ToAddress)
 
 	params := &resend.SendEmailRequest{
 		From:    from,

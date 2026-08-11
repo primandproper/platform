@@ -312,14 +312,10 @@ func (s *Sweeper) Job(schedule jobs.Schedule, leaseTTL time.Duration) jobs.Job {
 // everything that did work — a locked table is not a reason to skip the four
 // unrelated policies behind it.
 func (s *Sweeper) Sweep(ctx context.Context) (*SweepResult, error) {
-	startTime := time.Now()
-
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(policyCountKey, len(s.policies)))
 	defer op.End()
 
-	defer func() {
-		s.sweepHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, s.clock, s.sweepHist)()
 
 	result := &SweepResult{Policies: make([]PolicyResult, 0, len(s.policies))}
 

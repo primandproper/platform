@@ -55,7 +55,7 @@ func newScopedFixture(t *testing.T, opts ...distributedlock.ScopedOption) (distr
 		append([]distributedlock.ScopedOption{
 			distributedlock.WithScopedLockTTL(scopedLockTTL),
 			distributedlock.WithScopedPollInterval(scopedPollInterval),
-			distributedlock.WithScopedJitter(noJitter),
+			distributedlock.WithScopedRand(noJitter),
 		}, opts...)...,
 	)
 	must.NoError(t, err)
@@ -164,7 +164,7 @@ func TestNewScopedLocker(T *testing.T) {
 		_, err = distributedlock.NewScopedLocker(
 			raw,
 			nil,
-			distributedlock.WithScopedJitter(nil),
+			distributedlock.WithScopedRand(nil),
 			distributedlock.WithScopedClock(nil),
 		)
 		test.NoError(t, err)
@@ -244,6 +244,9 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 		// A clock whose Sleep returns instantly: the wait between polls is the
 		// test's to control, not the wall's.
 		c := &clockmock.ClockMock{
+			// Now is read too: the locker times its own latency against the
+			// clock it was given rather than against the wall.
+			NowFunc:   time.Now,
 			SleepFunc: func(context.Context, time.Duration) error { return nil },
 		}
 
@@ -264,7 +267,7 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 		scoped, err := distributedlock.NewScopedLocker(
 			raw,
 			distributedlock.WithScopedPollInterval(scopedPollInterval),
-			distributedlock.WithScopedJitter(noJitter),
+			distributedlock.WithScopedRand(noJitter),
 			distributedlock.WithScopedClock(c),
 		)
 		must.NoError(t, err)
@@ -281,6 +284,9 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 		t.Parallel()
 
 		c := &clockmock.ClockMock{
+			// Now is read too: the locker times its own latency against the
+			// clock it was given rather than against the wall.
+			NowFunc:   time.Now,
 			SleepFunc: func(context.Context, time.Duration) error { return nil },
 		}
 
@@ -307,7 +313,7 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 			raw,
 			distributedlock.WithScopedPollInterval(scopedPollInterval),
 			distributedlock.WithScopedPollBackoff(1e300, maxPoll),
-			distributedlock.WithScopedJitter(noJitter),
+			distributedlock.WithScopedRand(noJitter),
 			distributedlock.WithScopedClock(c),
 		)
 		must.NoError(t, err)
@@ -508,7 +514,7 @@ func TestScopedLocker_WithLock_Backoff(T *testing.T) {
 			// The floor of the jitter range: every wait is exactly half the
 			// interval, so the lock is taken half an interval after release.
 			scoped, raw := newScopedFixture(t,
-				distributedlock.WithScopedJitter(func() float64 { return 0 }),
+				distributedlock.WithScopedRand(func() float64 { return 0 }),
 				distributedlock.WithScopedPollBackoff(1, time.Minute))
 
 			ctx, cancel := context.WithCancel(t.Context())

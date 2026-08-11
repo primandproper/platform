@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/clock"
+	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
@@ -16,16 +17,22 @@ import (
 type VerifierOption func(*verifierConfig)
 
 // verifierConfig collects what the verifier options set.
+//
+// The clock/pin/tolerance triple is requestsigning.Freshness, embedded rather
+// than restated: a provider's scheme and this module's own bind a timestamp
+// into the signed material for the same reason, and there is no version of
+// "how far from now is too far" that should differ between them. What is this
+// package's own is the secret list, because these schemes take a shared secret
+// where requestsigning takes a keyring.
 type verifierConfig struct {
-	clock     clock.Clock
-	at        time.Time
+	requestsigning.Freshness
+
 	additions []string
-	tolerance time.Duration
 }
 
 // newVerifierConfig applies opts, ignoring nil entries.
 func newVerifierConfig(opts []VerifierOption) *verifierConfig {
-	cfg := &verifierConfig{tolerance: DefaultTolerance}
+	cfg := &verifierConfig{Freshness: requestsigning.Freshness{Tolerance: DefaultTolerance}}
 
 	for _, opt := range opts {
 		if opt != nil {
@@ -34,21 +41,6 @@ func newVerifierConfig(opts []VerifierOption) *verifierConfig {
 	}
 
 	return cfg
-}
-
-// now resolves the instant a verification compares a signed timestamp against:
-// the pinned one if a caller named it, the injected clock's otherwise, and the
-// wall clock when neither was supplied.
-func (c *verifierConfig) now() time.Time {
-	if !c.at.IsZero() {
-		return c.at
-	}
-
-	if c.clock != nil {
-		return c.clock.Now()
-	}
-
-	return time.Now()
 }
 
 // secretsWith returns the primary secret followed by any additional ones,
@@ -93,7 +85,7 @@ func WithAdditionalSecrets(secrets ...string) VerifierOption {
 func WithTolerance(d time.Duration) VerifierOption {
 	return func(cfg *verifierConfig) {
 		if d > 0 {
-			cfg.tolerance = d
+			cfg.Tolerance = d
 		}
 	}
 }
@@ -107,7 +99,7 @@ func WithTolerance(d time.Duration) VerifierOption {
 func WithClock(c clock.Clock) VerifierOption {
 	return func(cfg *verifierConfig) {
 		if c != nil {
-			cfg.clock = c
+			cfg.Clock = c
 		}
 	}
 }
@@ -122,7 +114,7 @@ func WithClock(c clock.Clock) VerifierOption {
 func WithVerificationTime(t time.Time) VerifierOption {
 	return func(cfg *verifierConfig) {
 		if !t.IsZero() {
-			cfg.at = t
+			cfg.At = t
 		}
 	}
 }

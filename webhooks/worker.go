@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"sync"
@@ -541,7 +540,7 @@ func (w *Worker) recordFailure(ctx context.Context, dispatch *ClaimedDispatch, c
 	dead := !shortCircuited &&
 		(errors.Is(cause, retry.ErrUnretryable) || uint(dispatch.Attempts) >= w.cfg.Backoff.MaxAttempts)
 
-	nextAttempt := w.clock.Now().UTC().Add(w.backoffFor(attempts))
+	nextAttempt := w.clock.Now().UTC().Add(retrycfg.ScheduledDelayFor(w.cfg.Backoff, attempts))
 	if shortCircuited {
 		// Retried on the breaker's own timescale rather than the delivery's:
 		// backing off exponentially against an open circuit means the first
@@ -653,38 +652,6 @@ func (w *Worker) reap(ctx context.Context) {
 		w.reapedCounter.Add(ctx, reaped)
 		op.Logger().Debug("reaped delivered webhook dispatches")
 	}
-}
-
-// backoffFor computes the delay before a dispatch's next attempt.
-//
-// The schedule comes from retrycfg.DelayFor, so the worker and anything using a
-// retry.Policy grow their delays identically from the same Config. What differs
-// is everything around it: the wait is persisted as a timestamp rather than
-// slept through, so it survives a worker restart, and the jitter is full rather
-// than equal — several workers share this table, and spreading their next
-// attempts across the whole window is what keeps them from re-colliding on
-// every round after one contended claim.
-func (w *Worker) backoffFor(attempts int) time.Duration {
-	if attempts < 1 {
-		attempts = 1
-	}
-
-	delay := float64(retrycfg.DelayFor(w.cfg.Backoff, uint(attempts)))
-
-	if w.cfg.Backoff.UseJitter {
-		// Full jitter. Not security-sensitive: this only decorrelates retry
-		// timing between workers.
-		delay *= rand.Float64() //nolint:gosec // jitter, not entropy
-	}
-
-	// A floor, because a jittered delay can land arbitrarily close to zero and a
-	// dispatch that becomes claimable immediately would spin against the same
-	// failure rather than waiting out whatever caused it.
-	if delay < float64(time.Millisecond) {
-		delay = float64(time.Millisecond)
-	}
-
-	return time.Duration(delay)
 }
 
 // eventTypeAttr labels a measurement with its event type. One dispatcher serves

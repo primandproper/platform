@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 
@@ -72,12 +73,6 @@ func NewManager(db *sql.DB, opts ...Option) *Manager {
 		db:   db,
 		o11y: observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}
-}
-
-// quoteIdent safely wraps a MySQL identifier in backticks,
-// doubling any embedded backticks per MySQL quoting rules.
-func quoteIdent(id string) string {
-	return "`" + strings.ReplaceAll(id, "`", "``") + "`"
 }
 
 // quoteLiteral safely wraps a MySQL string literal in single-quotes. MySQL (unlike
@@ -225,14 +220,14 @@ func (m *Manager) CreateDatabase(ctx context.Context, dbName, owner string) erro
 	)
 	defer op.End()
 
-	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", quoteIdent(dbName))); err != nil {
+	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dialect.MySQL.QuoteIdentifier(dbName))); err != nil {
 		return op.Error(err, "creating database")
 	}
 
 	// MySQL has no OWNER concept; grant all privileges instead.
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf(
 		"GRANT ALL PRIVILEGES ON %s.* TO %s@'%%'",
-		quoteIdent(dbName),
+		dialect.MySQL.QuoteIdentifier(dbName),
 		quoteLiteral(owner),
 	)); err != nil {
 		return op.Error(err, "granting database privileges to owner")
@@ -245,7 +240,7 @@ func (m *Manager) DeleteDatabase(ctx context.Context, dbName string) error {
 	ctx, op := m.o11y.Begin(ctx, observability.WithValue(databaseKey, dbName))
 	defer op.End()
 
-	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", quoteIdent(dbName))); err != nil {
+	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dialect.MySQL.QuoteIdentifier(dbName))); err != nil {
 		return op.Error(err, "dropping database")
 	}
 
@@ -309,8 +304,8 @@ func (m *Manager) GrantUserAccessToTable(ctx context.Context, username, schema, 
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf(
 		"GRANT %s ON %s.%s TO %s@'%%'",
 		privilege,
-		quoteIdent(schema),
-		quoteIdent(table),
+		dialect.MySQL.QuoteIdentifier(schema),
+		dialect.MySQL.QuoteIdentifier(table),
 		quoteLiteral(username),
 	)); err != nil {
 		return op.Error(err, "granting table access")

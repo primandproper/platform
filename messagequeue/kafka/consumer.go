@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/receivewait"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -36,10 +37,6 @@ type (
 )
 
 var _ messagequeue.Consumer = (*kafkaConsumer)(nil)
-
-// fetchErrorBackoff is the pause after a failed fetch before retrying, so a
-// persistent broker error doesn't hot-spin the consume loop.
-const fetchErrorBackoff = 250 * time.Millisecond
 
 func provideKafkaConsumer(logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, brokers []string, groupID, topic string, handlerFunc func(context.Context, []byte) error) (*kafkaConsumer, error) {
 	instruments, err := mqmetrics.NewConsumer(metricsProvider, topic)
@@ -71,6 +68,8 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 		}
 	}()
 
+	backoff := receivewait.New(nil, nil)
+
 	for {
 		msg, err := c.reader.FetchMessage(ctx)
 		if err != nil {
@@ -83,12 +82,13 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 			c.instruments.ReceiveFailed(ctx)
 			c.o11y.Logger().Error("fetching kafka message", err)
 			consumererr.Send(ctx, errs, err)
-			// Back off before refetching so a persistent fetch error doesn't hot-spin.
-			select {
-			case <-ctx.Done():
+			// Back off before refetching; see the receivewait package for what a
+			// loop with no wait here costs, and why the schedule is shared with
+			// every other consumer rather than chosen per broker.
+			if backoff.Wait(ctx) != nil {
 				return
-			case <-time.After(fetchErrorBackoff):
 			}
+
 			continue
 		}
 

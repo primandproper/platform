@@ -4,7 +4,6 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
@@ -113,10 +112,7 @@ func (s *ScopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		s.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, s.latencyHist)()
 
 	lockID := hashLockID(s.namespace, key)
 	op.Set(keys.LockIDKey, lockID)
@@ -158,10 +154,7 @@ func (s *ScopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx 
 		return false, circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		s.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, s.latencyHist)()
 
 	lockID := hashLockID(s.namespace, key)
 	op.Set(keys.LockIDKey, lockID)

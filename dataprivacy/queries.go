@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 )
@@ -70,7 +71,7 @@ func (t *tables) buildInsertRequest(d dialect.Dialect, req *Request, failures, r
 		req.Subject.ID, string(req.Subject.Type), req.Subject.Scope,
 		req.RequestedAt.UTC(), req.DueAt.UTC(), nullableTime(req.ExpiresAt), req.CompletedAt,
 		req.ArtifactRef, req.ArtifactBytes, req.Deleted, req.Anonymized,
-		blobOrNil(failures), blobOrNil(retained), req.LastError, req.KeyShreddedAt,
+		database.BlobOrNil(failures), database.BlobOrNil(retained), req.LastError, req.KeyShreddedAt,
 	}
 
 	return fmt.Sprintf(
@@ -112,10 +113,7 @@ func (t *tables) buildListRequests(d dialect.Dialect, subject Subject, cursor st
 		where += " AND subject_scope = " + d.Placeholder(len(args))
 	}
 
-	direction, comparison := "ASC", " > "
-	if descending {
-		direction, comparison = "DESC", " < "
-	}
+	direction, comparison := database.CursorOrder(descending)
 
 	if cursor != "" {
 		args = append(args, cursor)
@@ -211,7 +209,7 @@ func (t *tables) buildTransition(
 func (t *tables) buildCompleteExport(d dialect.Dialect, req *Request, failures []byte, at time.Time) (query string, args []any) {
 	args = []any{
 		string(StatusCompleted), at.UTC(),
-		req.ExpiresAt.UTC(), req.ArtifactRef, req.ArtifactBytes, blobOrNil(failures),
+		req.ExpiresAt.UTC(), req.ArtifactRef, req.ArtifactBytes, database.BlobOrNil(failures),
 		req.ID, string(StatusInProgress),
 	}
 
@@ -233,7 +231,7 @@ func (t *tables) buildCompleteExport(d dialect.Dialect, req *Request, failures [
 func (t *tables) buildCompleteErasure(d dialect.Dialect, req *Request, failures, retained []byte, at time.Time) (query string, args []any) {
 	args = []any{
 		string(StatusCompleted), at.UTC(),
-		req.Deleted, req.Anonymized, blobOrNil(failures), blobOrNil(retained), req.KeyShreddedAt,
+		req.Deleted, req.Anonymized, database.BlobOrNil(failures), database.BlobOrNil(retained), req.KeyShreddedAt,
 		req.ID, string(StatusInProgress),
 	}
 
@@ -396,18 +394,6 @@ func (t *tables) buildReap(d dialect.Dialect, before time.Time, limit int) (quer
 	}
 
 	return fmt.Sprintf("DELETE FROM %s WHERE id IN (%s)", t.requests, inner), args
-}
-
-// blobOrNil maps an empty encoding to a SQL NULL rather than an empty blob, so
-// "no failures" and "an empty failure map" cannot be distinguished in the
-// column by accident — they mean the same thing, and storing two renderings of
-// it would make the round trip depend on which call site wrote the row.
-func blobOrNil(b []byte) any {
-	if len(b) == 0 {
-		return nil
-	}
-
-	return b
 }
 
 // nullableTime maps the zero time to a SQL NULL. A zero timestamp bound as a
