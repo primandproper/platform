@@ -49,3 +49,33 @@ func TestCloseQuietly(T *testing.T) {
 		})
 	})
 }
+
+func TestOsFSOpen(T *testing.T) {
+	T.Parallel()
+
+	T.Run("opens an existing file", func(t *testing.T) {
+		t.Parallel()
+
+		path := filepath.Join(t.TempDir(), "f.txt")
+		must.NoError(t, os.WriteFile(path, []byte("hello"), 0o600))
+
+		f, err := osFS{}.Open(path)
+		must.NoError(t, err)
+		must.NoError(t, f.Close())
+	})
+
+	// os.Open hands back a nil *os.File on failure, and *os.File satisfies
+	// fs.File, so returning its result straight through made the returned
+	// fs.File non-nil — a value a caller's nil check accepts and the first Read
+	// panics on.
+	T.Run("a failed open is a nil interface, not a typed nil", func(t *testing.T) {
+		t.Parallel()
+
+		f, err := osFS{}.Open(filepath.Join(t.TempDir(), "absent.txt"))
+		test.Error(t, err)
+
+		// Compared against nil directly rather than with test.Nil, which is
+		// satisfied by a nil pointer inside a non-nil interface.
+		test.True(t, f == nil)
+	})
+}

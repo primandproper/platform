@@ -91,7 +91,13 @@ func RegisterChecker(i do.Injector) {
 			return nil, err
 		}
 
-		return NewChecker(
+		// Built into a variable and returned only once err is known to be nil:
+		// NewChecker returns an *entitlements.PlanChecker, and returning it
+		// straight through would register a non-nil entitlements.Checker
+		// wrapping a nil pointer whenever construction failed — which is
+		// exactly the "nobody registered one" / "the registered one failed to
+		// build" distinction the InvokePillars call above exists to keep.
+		checker, err := NewChecker(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			do.MustInvoke[*entitlements.Catalog](i),
@@ -101,5 +107,10 @@ func RegisterChecker(i do.Injector) {
 			assignments,
 			WithPillars(pillars),
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		return checker, nil
 	})
 }

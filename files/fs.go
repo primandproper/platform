@@ -16,9 +16,17 @@ import (
 // seam existed. It is the backing store for every Reader built by NewReader.
 type osFS struct{}
 
-// Open satisfies fs.FS. *os.File already satisfies fs.File, so os.Open's result is returned directly.
+// Open satisfies fs.FS. *os.File already satisfies fs.File, but it is bound and returned only once
+// err is known to be nil: os.Open hands back a nil *os.File on failure, and returning that straight
+// through would make the fs.File non-nil — a value a caller's nil check accepts and the first Read
+// panics on.
 func (osFS) Open(name string) (fs.File, error) {
-	return os.Open(name)
+	f, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return f, nil
 }
 
 // ReadFile satisfies fs.ReadFileFS so fs.ReadFile keeps using os.ReadFile for the default Reader,

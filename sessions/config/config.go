@@ -192,22 +192,38 @@ func newBackend[T any](
 	db database.Client,
 	o *options,
 ) (sessions.Backend[T], error) {
+	// Every branch builds into backend and returns it only once err is known to
+	// be nil. sessions/database.NewBackend hands back a *database.Backend[T],
+	// and returning it straight through would convert a nil pointer into a
+	// non-nil sessions.Backend[T] on the error path — a value that passes a
+	// caller's nil check and panics on the first Get. The cache branch is
+	// written the same way even though its constructor still returns the
+	// interface, so that narrowing it to a concrete type does not quietly
+	// reintroduce the trap here.
+	var (
+		backend sessions.Backend[T]
+		err     error
+	)
+
 	switch cfg.provider() {
 	case ProviderCache:
-		c, err := cachecfg.NewCache[sessions.Record[T]](ctx, &cfg.Cache,
+		// cacheErr rather than the err above: this one is returned on the spot,
+		// and := here would shadow err for the rest of the case, leaving the
+		// backend assignment below writing to a variable nothing reads.
+		c, cacheErr := cachecfg.NewCache[sessions.Record[T]](ctx, &cfg.Cache,
 			cachecfg.WithLogger(o.logger),
 			cachecfg.WithTracerProvider(o.tracerProvider),
 			cachecfg.WithMetricsProvider(o.metricsProvider))
-		if err != nil {
-			return nil, errors.Wrap(err, "building session cache")
+		if cacheErr != nil {
+			return nil, errors.Wrap(cacheErr, "building session cache")
 		}
 
-		return sessionscache.NewBackend(c, append([]sessionscache.Option{
+		backend, err = sessionscache.NewBackend(c, append([]sessionscache.Option{
 			sessionscache.WithLogger(o.logger),
 			sessionscache.WithTracerProvider(o.tracerProvider),
 		}, o.cacheBackend...)...)
 	case ProviderDatabase:
-		return sessionsdatabase.NewBackend[T](&cfg.Database, db, append([]sessionsdatabase.Option{
+		backend, err = sessionsdatabase.NewBackend[T](&cfg.Database, db, append([]sessionsdatabase.Option{
 			sessionsdatabase.WithLogger(o.logger),
 			sessionsdatabase.WithTracerProvider(o.tracerProvider),
 			sessionsdatabase.WithMetricsProvider(o.metricsProvider),
@@ -218,6 +234,12 @@ func newBackend[T any](
 	default:
 		return nil, errors.Wrapf(errors.ErrUnknownProvider, "session provider %q", cfg.Provider)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return backend, nil
 }
 
 // NewManager builds a cookie-bound session manager for T from configuration.
