@@ -59,7 +59,7 @@ func (r *responseRecorder) WriteHeader(statusCode int) {
 	r.code = statusCode
 }
 
-func buildTestIndexManagerWithMockServer(t *testing.T, handler http.Handler, cb circuitbreaking.CircuitBreaker) (*indexManager[example], *observability.RecordingObserver) {
+func buildTestIndexManagerWithMockServer(t *testing.T, handler http.Handler, cb circuitbreaking.CircuitBreaker) (*IndexManager[example], *observability.RecordingObserver) {
 	t.Helper()
 
 	client := algoliasearch.NewClientWithConfig(algoliasearch.Configuration{
@@ -74,7 +74,7 @@ func buildTestIndexManagerWithMockServer(t *testing.T, handler http.Handler, cb 
 	instruments, err := textsearch.NewInstruments(serviceName, "test", nil)
 	must.NoError(t, err)
 
-	return &indexManager[example]{
+	return &IndexManager[example]{
 		o11y:           obs,
 		circuitBreaker: cb,
 		client:         client.InitIndex("test"),
@@ -82,7 +82,7 @@ func buildTestIndexManagerWithMockServer(t *testing.T, handler http.Handler, cb 
 	}, obs
 }
 
-func buildTestIndexManager(t *testing.T) *indexManager[example] {
+func buildTestIndexManager(t *testing.T) *IndexManager[example] {
 	t.Helper()
 
 	im, err := NewIndexManager[example](
@@ -94,10 +94,10 @@ func buildTestIndexManager(t *testing.T) *indexManager[example] {
 		t.Fatal(err)
 	}
 
-	return im.(*indexManager[example])
+	return im
 }
 
-func buildTestIndexManagerWithCircuitBreaker(t *testing.T, cb circuitbreaking.CircuitBreaker) *indexManager[example] {
+func buildTestIndexManagerWithCircuitBreaker(t *testing.T, cb circuitbreaking.CircuitBreaker) *IndexManager[example] {
 	t.Helper()
 
 	im, err := NewIndexManager[example](
@@ -109,7 +109,7 @@ func buildTestIndexManagerWithCircuitBreaker(t *testing.T, cb circuitbreaking.Ci
 		t.Fatal(err)
 	}
 
-	return im.(*indexManager[example])
+	return im
 }
 
 func TestIndexManager_Index(T *testing.T) {

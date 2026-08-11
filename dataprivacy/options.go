@@ -28,11 +28,11 @@ func WithMessageRenderer(renderer MessageRenderer) EmailNotifierOption {
 }
 
 // ServiceOption configures a Service.
-type ServiceOption func(*service)
+type ServiceOption func(*StoreService)
 
 // WithServiceClock swaps the clock stamping submission, deadline, and expiry.
 func WithServiceClock(c clock.Clock) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		if c != nil {
 			s.clock = c
 		}
@@ -41,21 +41,21 @@ func WithServiceClock(c clock.Clock) ServiceOption {
 
 // WithServiceLogger attaches a logger.
 func WithServiceLogger(logger logging.Logger) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		s.logger = logger
 	}
 }
 
 // WithServiceTracerProvider attaches a tracer provider.
 func WithServiceTracerProvider(tracerProvider tracing.Provider) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		s.tracerProvider = tracerProvider
 	}
 }
 
 // WithServiceMetricsProvider attaches a metrics provider.
 func WithServiceMetricsProvider(metricsProvider metrics.Provider) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		s.metricsProvider = metricsProvider
 	}
 }
@@ -66,7 +66,7 @@ func WithServiceMetricsProvider(metricsProvider metrics.Provider) ServiceOption 
 // writes to. Nothing here can check that, and a mismatch surfaces as an artifact that
 // exists in the bucket and cannot be found by the service that promised it.
 func WithServiceUploadManager(manager uploads.UploadManager) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		if manager != nil {
 			s.uploader = manager
 		}
@@ -76,7 +76,7 @@ func WithServiceUploadManager(manager uploads.UploadManager) ServiceOption {
 // WithServiceCompressor supplies the compressor artifacts were written with. It
 // must match the Fulfiller's, or Open returns garbage.
 func WithServiceCompressor(compressor compression.Compressor) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		if compressor != nil {
 			s.packager.compressor = compressor
 		}
@@ -88,7 +88,7 @@ func WithServiceCompressor(compressor compression.Compressor) ServiceOption {
 //
 // Setting it also disables Download: see ErrArtifactEncrypted.
 func WithServiceDecryptor(decryptor encryption.Decryptor) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		if decryptor != nil {
 			s.packager.decryptor = decryptor
 			// Recorded so Download can refuse rather than hand out a link to
@@ -107,7 +107,7 @@ func WithServiceDecryptor(decryptor encryption.Decryptor) ServiceOption {
 // produces, and a system that can produce one without leaving a record of who
 // asked has a data exfiltration path with no alarm on it.
 func WithServiceAuditRecorder(recorder audit.Recorder) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		if recorder != nil {
 			s.recorder = recorder
 		}
@@ -116,7 +116,7 @@ func WithServiceAuditRecorder(recorder audit.Recorder) ServiceOption {
 
 // WithActorResolver supplies the principal recorded in audit entries.
 func WithActorResolver(resolver ActorResolver) ServiceOption {
-	return func(s *service) {
+	return func(s *StoreService) {
 		if resolver != nil {
 			s.actor = resolver
 		}
@@ -124,13 +124,13 @@ func WithActorResolver(resolver ActorResolver) ServiceOption {
 }
 
 // SQLStoreOption configures a SQL Store.
-type SQLStoreOption func(*sqlStore)
+type SQLStoreOption func(*SQLStore)
 
 // WithTablePrefix overrides DefaultTablePrefix. It must be a plain SQL
 // identifier fragment: it is interpolated into the query text, not bound as a
 // parameter, and it must match the prefix the migrations were rendered with.
 func WithTablePrefix(prefix string) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		if prefix != "" {
 			s.tables = newTables(prefix)
 		}
@@ -139,21 +139,21 @@ func WithTablePrefix(prefix string) SQLStoreOption {
 
 // WithStoreLogger attaches a logger.
 func WithStoreLogger(logger logging.Logger) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.logger = logger
 	}
 }
 
 // WithStoreTracerProvider attaches a tracer provider.
 func WithStoreTracerProvider(tracerProvider tracing.Provider) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.tracerProvider = tracerProvider
 	}
 }
 
 // WithStoreMetricsProvider attaches a metrics provider.
 func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.metricsProvider = metricsProvider
 	}
 }

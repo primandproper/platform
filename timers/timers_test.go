@@ -140,7 +140,7 @@ func TestNew(T *testing.T) {
 	T.Run("takes a clock", func(t *testing.T) {
 		t.Parallel()
 
-		supplied := clock.NewClock()
+		var supplied clock.Clock = clock.NewClock()
 
 		set, err := New[string](t.Context(), validConfig(), postgresClient(), WithClock(supplied))
 

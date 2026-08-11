@@ -69,7 +69,12 @@ func (c *Config) NewMetricsProvider(ctx context.Context, opts ...Option) (metric
 
 	switch provider {
 	case ProviderOtel:
-		return otelgrpc.NewMetricsProvider(ctx, logger, c.ServiceName, c.Otel)
+		p, providerErr := otelgrpc.NewMetricsProvider(ctx, logger, c.ServiceName, c.Otel)
+		if providerErr != nil {
+			return nil, providerErr
+		}
+
+		return p, nil
 	case "", ProviderNoop:
 		return metricsnoop.NewMetricsProvider(), nil
 	default:

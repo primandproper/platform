@@ -19,6 +19,8 @@ import (
 
 const defaultLoggerName = "api_server"
 
+var _ Server = (*APIServer)(nil)
+
 type (
 	Server interface {
 		// Serve binds the listener and serves until Shutdown is called or the
@@ -30,8 +32,11 @@ type (
 		Router() *routing.Router
 	}
 
-	// server is our API http server.
-	server struct {
+	// APIServer is our API http server. It is exported, and returned by
+	// NewHTTPServer, so a caller can depend on the server it built rather than on
+	// the Server seam — matching server/grpc, whose NewGRPCServer has always
+	// returned its own *Server.
+	APIServer struct {
 		logger         logging.Logger
 		router         *routing.Router
 		httpServer     *http.Server
@@ -57,7 +62,7 @@ func NewHTTPServer(
 	serverSettings *Config,
 	router *routing.Router,
 	opts ...Option,
-) (Server, error) {
+) (*APIServer, error) {
 	if serverSettings == nil {
 		serverSettings = &Config{}
 	}
@@ -72,7 +77,7 @@ func NewHTTPServer(
 	if o.serviceName != "" {
 		loggerName = o.serviceName
 	}
-	srv := &server{
+	srv := &APIServer{
 		config: serverSettings,
 
 		// infra things,
@@ -109,7 +114,7 @@ func NewHTTPServer(
 }
 
 // Router returns the router.
-func (s *server) Router() *routing.Router {
+func (s *APIServer) Router() *routing.Router {
 	return s.router
 }
 
@@ -124,7 +129,7 @@ func (s *server) Router() *routing.Router {
 // the part worth tracing. Whoever built the provider shuts it down;
 // observability.Pillars.Shutdown is that owner, and service.Service runs it
 // last.
-func (s *server) Shutdown(ctx context.Context) error {
+func (s *APIServer) Shutdown(ctx context.Context) error {
 	// Drain in-flight requests first, then flush — otherwise spans from requests
 	// that complete during draining are lost because the flush already ran.
 	err := s.httpServer.Shutdown(ctx)
@@ -142,7 +147,7 @@ func (s *server) Shutdown(ctx context.Context) error {
 // a library cannot decide that a bind failure should take the host process
 // down, and a caller that wants that can still do it from the returned error.
 // A graceful close reports nil.
-func (s *server) Serve(ctx context.Context) error {
+func (s *APIServer) Serve(ctx context.Context) error {
 	s.logger.Debug("setting up server")
 
 	// The router is served as-is. Request tracing belongs to the routing backend,
@@ -191,7 +196,7 @@ func (s *server) Serve(ctx context.Context) error {
 // listen binds the TCP listener the server serves on. When StartupDeadline is
 // configured it bounds the bind with that deadline, so binding cannot hang
 // indefinitely during startup.
-func (s *server) listen(ctx context.Context) (net.Listener, error) {
+func (s *APIServer) listen(ctx context.Context) (net.Listener, error) {
 	if s.config.StartupDeadline > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, s.config.StartupDeadline)

@@ -21,7 +21,12 @@ type Manager interface {
 	BuildCookie(ctx context.Context, name string, value any) (*http.Cookie, error)
 }
 
-type manager struct {
+var _ Manager = (*SecureCookieManager)(nil)
+
+// SecureCookieManager is the Manager backed by gorilla/securecookie. It is
+// exported, and returned by NewCookieManager, so a caller can depend on the
+// manager it built rather than on the Manager seam.
+type SecureCookieManager struct {
 	o11y         observability.Observer
 	secureCookie *securecookie.SecureCookie
 	domain       string
@@ -45,7 +50,7 @@ func sameSiteMode(s string) http.SameSite {
 }
 
 // NewCookieManager returns a new Manager.
-func NewCookieManager(cfg *Config, opts ...Option) (Manager, error) {
+func NewCookieManager(cfg *Config, opts ...Option) (*SecureCookieManager, error) {
 	if cfg == nil {
 		return nil, perrors.ErrNilInputParameter
 	}
@@ -74,7 +79,7 @@ func NewCookieManager(cfg *Config, opts ...Option) (Manager, error) {
 		sc = sc.MaxAge(int(cfg.Lifetime.Seconds()))
 	}
 
-	return &manager{
+	return &SecureCookieManager{
 		secureCookie: sc,
 		domain:       cfg.Domain,
 		lifetime:     cfg.Lifetime,
@@ -85,7 +90,7 @@ func NewCookieManager(cfg *Config, opts ...Option) (Manager, error) {
 }
 
 // Encode wraps securecookie's Encode method.
-func (m *manager) Encode(ctx context.Context, name string, value any) (string, error) {
+func (m *SecureCookieManager) Encode(ctx context.Context, name string, value any) (string, error) {
 	_, op := m.o11y.Begin(ctx, observability.WithValue(keys.NameKey, name))
 	defer op.End()
 
@@ -101,7 +106,7 @@ func (m *manager) Encode(ctx context.Context, name string, value any) (string, e
 // the manager's configured security attributes: Secure from SecureOnly, Domain,
 // SameSite, and MaxAge/Expires from Lifetime, plus a non-negotiable HttpOnly
 // default. Callers hand the result to http.SetCookie.
-func (m *manager) BuildCookie(ctx context.Context, name string, value any) (*http.Cookie, error) {
+func (m *SecureCookieManager) BuildCookie(ctx context.Context, name string, value any) (*http.Cookie, error) {
 	_, op := m.o11y.Begin(ctx, observability.WithValue(keys.NameKey, name))
 	defer op.End()
 
@@ -129,7 +134,7 @@ func (m *manager) BuildCookie(ctx context.Context, name string, value any) (*htt
 }
 
 // Decode wraps securecookie's Decode method.
-func (m *manager) Decode(ctx context.Context, name, value string, dst any) error {
+func (m *SecureCookieManager) Decode(ctx context.Context, name, value string, dst any) error {
 	_, op := m.o11y.Begin(ctx, observability.WithValue(keys.NameKey, name))
 	defer op.End()
 

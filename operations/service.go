@@ -16,10 +16,12 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-var _ Service = (*service)(nil)
+var _ Service = (*StoreService)(nil)
 
-// service is the Service implementation over a Store and a work queue.
-type service struct {
+// StoreService is the Service implementation over a Store and a work queue. It
+// is exported, and returned by NewService, so a caller can depend on the service
+// it built rather than on the Service seam.
+type StoreService struct {
 	store    Store
 	queue    *workqueue.Queue[string]
 	registry *Registry
@@ -53,7 +55,7 @@ func NewService(
 	queue *workqueue.Queue[string],
 	registry *Registry,
 	opts ...ServiceOption,
-) (Service, error) {
+) (*StoreService, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -85,7 +87,7 @@ func NewService(
 
 	o := newServiceOptions(opts)
 
-	s := &service{
+	s := &StoreService{
 		cfg:      *cfg,
 		store:    store,
 		queue:    queue,
@@ -128,7 +130,7 @@ func kindAttr(kind string) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String(kindKey, kind))
 }
 
-func (s *service) Start(ctx context.Context, kind string, request any, opts ...StartOption) (*Operation, error) {
+func (s *StoreService) Start(ctx context.Context, kind string, request any, opts ...StartOption) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(kindKey, kind))
 	defer span.End()
 
@@ -152,7 +154,7 @@ func (s *service) Start(ctx context.Context, kind string, request any, opts ...S
 	return op, nil
 }
 
-func (s *service) StartInTransaction(
+func (s *StoreService) StartInTransaction(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	kind string,
@@ -184,7 +186,7 @@ func (s *service) StartInTransaction(
 
 // start does the shared work of both Starts: resolve the kind, encode the
 // request, mint an ID, and insert the row.
-func (s *service) start(
+func (s *StoreService) start(
 	ctx context.Context,
 	span observability.Operation,
 	q database.SQLQueryExecutor,
@@ -267,7 +269,7 @@ func (s *service) start(
 // will be picked up by the sweep. Failing Start after the row landed would tell
 // the caller their operation does not exist while the table says it does — and
 // they would retry, producing a second one.
-func (s *service) enqueue(ctx context.Context, op *Operation, o *startOptions) {
+func (s *StoreService) enqueue(ctx context.Context, op *Operation, o *startOptions) {
 	if op == nil || op.State != StatePending {
 		return
 	}
@@ -283,7 +285,7 @@ func (s *service) enqueue(ctx context.Context, op *Operation, o *startOptions) {
 	}
 }
 
-func (s *service) Get(ctx context.Context, id string) (*Operation, error) {
+func (s *StoreService) Get(ctx context.Context, id string) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
@@ -295,7 +297,7 @@ func (s *service) Get(ctx context.Context, id string) (*Operation, error) {
 	return op, nil
 }
 
-func (s *service) List(
+func (s *StoreService) List(
 	ctx context.Context,
 	scope *ListScope,
 	filter *filtering.QueryFilter,
@@ -311,7 +313,7 @@ func (s *service) List(
 	return results, nil
 }
 
-func (s *service) Cancel(ctx context.Context, id string) (*Operation, error) {
+func (s *StoreService) Cancel(ctx context.Context, id string) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
@@ -326,7 +328,7 @@ func (s *service) Cancel(ctx context.Context, id string) (*Operation, error) {
 	return op, nil
 }
 
-func (s *service) Recover(ctx context.Context) (int, error) {
+func (s *StoreService) Recover(ctx context.Context) (int, error) {
 	ctx, span := s.o11y.Begin(ctx)
 	defer span.End()
 
@@ -368,7 +370,7 @@ func (s *service) Recover(ctx context.Context) (int, error) {
 	return len(entries), nil
 }
 
-func (s *service) Enqueue(ctx context.Context, id string, opts ...StartOption) error {
+func (s *StoreService) Enqueue(ctx context.Context, id string, opts ...StartOption) error {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
@@ -386,7 +388,7 @@ func (s *service) Enqueue(ctx context.Context, id string, opts ...StartOption) e
 	return nil
 }
 
-func (s *service) Reap(ctx context.Context) (int64, error) {
+func (s *StoreService) Reap(ctx context.Context) (int64, error) {
 	ctx, span := s.o11y.Begin(ctx)
 	defer span.End()
 

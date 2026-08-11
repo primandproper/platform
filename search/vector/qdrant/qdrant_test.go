@@ -119,7 +119,7 @@ func (s *qdrantStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // buildStubIndex creates an indexManager backed by an httptest server using the given stub.
 // The server is closed when the test finishes.
-func buildStubIndex(t *testing.T, stub *qdrantStub, cb circuitbreaking.CircuitBreaker) *indexManager[doc] {
+func buildStubIndex(t *testing.T, stub *qdrantStub, cb circuitbreaking.CircuitBreaker) *IndexManager[doc] {
 	t.Helper()
 
 	srv := httptest.NewServer(stub)
@@ -137,14 +137,14 @@ func buildStubIndex(t *testing.T, stub *qdrantStub, cb circuitbreaking.CircuitBr
 	)
 	must.NoError(t, err)
 
-	return idx.(*indexManager[doc])
+	return idx
 }
 
 // buildRecordingIndex builds a stub-backed indexManager with a RecordingObserver
 // swapped in, so a test can assert which fields an operation observed. The
 // returned observer captures the LAST operation Begun, so drive a single method
 // per recording index.
-func buildRecordingIndex(t *testing.T, stub *qdrantStub, cb circuitbreaking.CircuitBreaker) (*indexManager[doc], *observability.RecordingObserver) {
+func buildRecordingIndex(t *testing.T, stub *qdrantStub, cb circuitbreaking.CircuitBreaker) (*IndexManager[doc], *observability.RecordingObserver) {
 	t.Helper()
 
 	idx := buildStubIndex(t, stub, cb)
@@ -353,19 +353,19 @@ func TestCollectionPath(T *testing.T) {
 
 	T.Run("no suffix", func(t *testing.T) {
 		t.Parallel()
-		im := &indexManager[doc]{baseURL: "http://localhost:6333", collection: "my_col"}
+		im := &IndexManager[doc]{baseURL: "http://localhost:6333", collection: "my_col"}
 		test.EqOp(t, "http://localhost:6333/collections/my_col", im.collectionPath(""))
 	})
 
 	T.Run("with suffix", func(t *testing.T) {
 		t.Parallel()
-		im := &indexManager[doc]{baseURL: "http://localhost:6333", collection: "my_col"}
+		im := &IndexManager[doc]{baseURL: "http://localhost:6333", collection: "my_col"}
 		test.EqOp(t, "http://localhost:6333/collections/my_col/points?wait=true", im.collectionPath("/points?wait=true"))
 	})
 
 	T.Run("collection name is URL-escaped", func(t *testing.T) {
 		t.Parallel()
-		im := &indexManager[doc]{baseURL: "http://localhost:6333", collection: "has space"}
+		im := &IndexManager[doc]{baseURL: "http://localhost:6333", collection: "has space"}
 		test.EqOp(t, "http://localhost:6333/collections/has%20space", im.collectionPath(""))
 	})
 }
@@ -939,7 +939,7 @@ func TestQuery(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		im := idx.(*indexManager[doc])
+		im := idx
 		obs := observability.NewRecordingObserverWithValues(map[string]any{keys.IndexNameKey: im.collection})
 		im.o11y = obs
 

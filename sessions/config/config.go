@@ -177,7 +177,12 @@ func NewStore[T any](ctx context.Context, cfg *Config, db database.Client, opts 
 		return nil, err
 	}
 
-	return sessions.NewStore(backend, cfg.storeOptions(o)...)
+	store, err := sessions.NewStore(backend, cfg.storeOptions(o)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return store, nil
 }
 
 // newBackend selects and builds the storage the configured provider names.

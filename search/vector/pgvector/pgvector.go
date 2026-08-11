@@ -48,7 +48,10 @@ func validIdentifier(s string) bool {
 	return safeIdentifier.Valid(s)
 }
 
-type indexManager[T any] struct {
+// IndexManager is the pgvector vectorsearch.Index. It is exported, and returned
+// by NewIndex, so a caller who has chosen pgvector can depend on that choice
+// rather than on the seam every vector index shares.
+type IndexManager[T any] struct {
 	o11y              observability.Observer
 	db                database.Client
 	circuitBreaker    circuitbreaking.CircuitBreaker
@@ -66,7 +69,7 @@ type indexManager[T any] struct {
 	dimension         int
 }
 
-var _ vectorsearch.Index[any] = (*indexManager[any])(nil)
+var _ vectorsearch.Index[any] = (*IndexManager[any])(nil)
 
 // NewIndex builds a pgvector-backed vectorsearch.Index. It runs an idempotent
 // schema migration on construction (CREATE EXTENSION + CREATE TABLE + CREATE INDEX)
@@ -78,7 +81,7 @@ func NewIndex[T any](
 	indexName string,
 	cb circuitbreaking.CircuitBreaker,
 	opts ...Option,
-) (vectorsearch.Index[T], error) {
+) (*IndexManager[T], error) {
 	if cfg == nil {
 		return nil, vectorsearch.ErrNilConfig
 	}
@@ -133,7 +136,7 @@ func NewIndex[T any](
 		return nil, platformerrors.Wrap(err, "creating latency histogram")
 	}
 
-	im := &indexManager[T]{
+	im := &IndexManager[T]{
 		o11y:              observability.NewObserverWithValues(fmt.Sprintf("%s_%s", serviceName, indexName), o.logger, o.tracerProvider, map[string]any{keys.IndexNameKey: indexName}),
 		db:                db,
 		circuitBreaker:    circuitbreakingcfg.EnsureCircuitBreaker(cb, circuitbreakingcfg.WithLogger(o.logger)),
@@ -184,7 +187,7 @@ const ensureSchemaLockKey int64 = 0x7067766563746f72 // "pgvector" as ASCII
 // ensureTable runs the idempotent schema migration. It is safe to call repeatedly
 // and concurrently — concurrent callers serialize via a transaction-scoped advisory
 // lock so they observe each other's CREATE EXTENSION as already-done.
-func (i *indexManager[T]) ensureTable(ctx context.Context) error {
+func (i *IndexManager[T]) ensureTable(ctx context.Context) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
@@ -227,7 +230,7 @@ func (i *indexManager[T]) ensureTable(ctx context.Context) error {
 }
 
 // Upsert implements vectorsearch.Index.
-func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Vector[T]) error {
+func (i *IndexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Vector[T]) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(vectors)))
 	defer op.End()
 
@@ -304,7 +307,7 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 }
 
 // Delete implements vectorsearch.Index.
-func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
+func (i *IndexManager[T]) Delete(ctx context.Context, ids ...string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(ids)))
 	defer op.End()
 
@@ -330,7 +333,7 @@ func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
 }
 
 // Wipe implements vectorsearch.Index.
-func (i *indexManager[T]) Wipe(ctx context.Context) error {
+func (i *IndexManager[T]) Wipe(ctx context.Context) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
@@ -353,7 +356,7 @@ func (i *indexManager[T]) Wipe(ctx context.Context) error {
 }
 
 // Query implements vectorsearch.Index.
-func (i *indexManager[T]) Query(ctx context.Context, req vectorsearch.QueryRequest) ([]vectorsearch.QueryResult[T], error) {
+func (i *IndexManager[T]) Query(ctx context.Context, req vectorsearch.QueryRequest) ([]vectorsearch.QueryResult[T], error) {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 

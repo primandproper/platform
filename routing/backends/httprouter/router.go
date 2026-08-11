@@ -29,13 +29,17 @@ import (
 	hr "github.com/julienschmidt/httprouter"
 )
 
-var _ routing.Backend = (*backend)(nil)
+var _ routing.Backend = (*Backend)(nil)
 
-// backend is a julienschmidt/httprouter implementation of routing.Backend.
+// Backend is a julienschmidt/httprouter implementation of routing.Backend.
 // Global middleware is composed around the router lazily in Handler; because the
 // router is wrapped by reference, routes registered after the first Handler call
 // are still served.
-type backend struct {
+//
+// It is exported, and returned by NewBackend, so a caller who has chosen
+// httprouter can depend on that choice rather than on the seam every router
+// backend shares.
+type Backend struct {
 	built    http.Handler
 	router   *hr.Router
 	standard []func(http.Handler) http.Handler
@@ -48,7 +52,7 @@ type backend struct {
 // middleware and OpenTelemetry stack installed. Pass it to routing.New. Panics
 // in handlers propagate to the shared recovery middleware, so no httprouter
 // PanicHandler is installed.
-func NewBackend(cfg *Config, opts ...Option) routing.Backend {
+func NewBackend(cfg *Config, opts ...Option) *Backend {
 	// A nil config is the zero config, not a panic. The config subpackage
 	// dispatches on Provider and hands whichever sub-config happens to be set —
 	// which is nil unless the deployment filled that provider's section in, so
@@ -61,7 +65,7 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 	tracerProvider := tracing.EnsureTracerProvider(o.tracerProvider)
 	o11y := observability.NewObserver("router", logging.EnsureLogger(o.logger), tracerProvider)
 
-	return &backend{
+	return &Backend{
 		router: hr.New(),
 		standard: httpmw.Standard(o11y, &httpmw.StackConfig{
 			TracerProvider:         tracerProvider,
@@ -83,7 +87,7 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 // server ran without the authentication or rate limiting the caller believed it
 // had registered. That is now a panic: a middleware that does not run is not a
 // condition a process should serve traffic in.
-func (b *backend) Use(middleware ...routing.Middleware) {
+func (b *Backend) Use(middleware ...routing.Middleware) {
 	if b.sealed.Load() {
 		panic("routing: Use called after Handler; middleware must be registered before the handler is built")
 	}
@@ -93,14 +97,14 @@ func (b *backend) Use(middleware ...routing.Middleware) {
 
 // Handle registers handler for method at pattern, rewriting the "{name}"
 // placeholders to httprouter's ":name" form.
-func (b *backend) Handle(method, pattern string, handler http.Handler) {
+func (b *Backend) Handle(method, pattern string, handler http.Handler) {
 	b.router.Handler(method, httpmw.ColonParams(pattern), handler)
 }
 
 // PathValue returns the named path parameter from the httprouter params stored
 // on the request context, decoded. A match found by escapedPathDispatch captured
 // an escaped segment; one found by httprouter itself has nothing left to decode.
-func (b *backend) PathValue(req *http.Request, name string) string {
+func (b *Backend) PathValue(req *http.Request, name string) string {
 	return pathvalues.Decode(hr.ParamsFromContext(req.Context()).ByName(name))
 }
 
@@ -243,7 +247,7 @@ func allowedMethods(router *hr.Router, escaped, reqMethod string) string {
 
 // Handler returns the composed http.Handler: the standard middleware stack and
 // any user middleware wrapped around the router.
-func (b *backend) Handler() http.Handler {
+func (b *Backend) Handler() http.Handler {
 	b.sealed.Store(true)
 
 	b.once.Do(func() {

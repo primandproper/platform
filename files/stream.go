@@ -33,7 +33,7 @@ func StreamChunks(ctx context.Context, src io.Reader, n int) (<-chan ChunkResult
 // streaming finishes. Setup failures (the file failing to open, or n <= 0) are returned
 // synchronously with a nil channel and no goroutine; streamChunks is the single chunk-size
 // validator and closes the file via cleanup if it rejects n.
-func (r *standardReader) StreamChunksFile(ctx context.Context, name string, n int) (<-chan ChunkResult, error) {
+func (r *StandardReader) StreamChunksFile(ctx context.Context, name string, n int) (<-chan ChunkResult, error) {
 	f, err := r.fsys.Open(name)
 	if err != nil {
 		return nil, errors.Wrap(err, "opening file")
@@ -44,7 +44,7 @@ func (r *standardReader) StreamChunksFile(ctx context.Context, name string, n in
 
 // streamChunks is the shared engine behind StreamChunks and StreamChunksFile. cleanup, if non-nil,
 // runs once the goroutine exits (used to close a file the caller no longer owns).
-func (r *standardReader) streamChunks(ctx context.Context, name string, src io.Reader, n int, cleanup func()) (<-chan ChunkResult, error) {
+func (r *StandardReader) streamChunks(ctx context.Context, name string, src io.Reader, n int, cleanup func()) (<-chan ChunkResult, error) {
 	if n <= 0 {
 		if cleanup != nil {
 			cleanup()

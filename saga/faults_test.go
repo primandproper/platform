@@ -146,7 +146,7 @@ func newFaultyStore(t *testing.T, env *storeEnv, f *faults) (faulty, healthy Sto
 	// through a client that works.
 	healthy = env.newStore(t)
 
-	concrete, ok := healthy.(*sqlStore)
+	concrete, ok := healthy.(*SQLStore)
 	must.True(t, ok)
 
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "closed.db"))
@@ -256,7 +256,7 @@ func TestSQLStore_Faults(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store := env.newStore(t)
 
-		concrete, ok := store.(*sqlStore)
+		concrete, ok := store.(*SQLStore)
 		must.True(t, ok)
 
 		// SQLite permits NULL in a TEXT PRIMARY KEY, which no code path in this

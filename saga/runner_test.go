@@ -316,7 +316,7 @@ func TestRunner_Get(T *testing.T) {
 		store := env.newStore(t)
 		saveInstance(t, store, newRecord("i1", "elsewhere", []string{"one"}, testState{}, baseTime), baseTime)
 
-		concrete, ok := store.(*sqlStore)
+		concrete, ok := store.(*SQLStore)
 		must.True(t, ok)
 
 		_, err := env.client.Writer().ExecContext(t.Context(),

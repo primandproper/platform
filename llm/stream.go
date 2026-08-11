@@ -75,23 +75,26 @@ type Stream interface {
 	Close() error
 }
 
-var _ Stream = (*sliceStream)(nil)
+var _ Stream = (*SliceStream)(nil)
 
 // NewSliceStream returns a Stream that yields the given events and then stops.
 // It is what a Provider with nothing to say returns, and it saves consumers'
 // tests from standing up an HTTP server to exercise their event handling.
-func NewSliceStream(events ...Event) Stream {
-	return &sliceStream{events: events}
+func NewSliceStream(events ...Event) *SliceStream {
+	return &SliceStream{events: events}
 }
 
-type sliceStream struct {
+// SliceStream is the Stream over a fixed slice of events. It is exported, and
+// returned by NewSliceStream, so a caller can depend on the stream it built
+// rather than on the Stream seam.
+type SliceStream struct {
 	current Event
 	events  []Event
 	idx     int
 	closed  bool
 }
 
-func (s *sliceStream) Next() bool {
+func (s *SliceStream) Next() bool {
 	if s.closed || s.idx >= len(s.events) {
 		return false
 	}
@@ -102,15 +105,15 @@ func (s *sliceStream) Next() bool {
 	return true
 }
 
-func (s *sliceStream) Current() Event {
+func (s *SliceStream) Current() Event {
 	return s.current
 }
 
-func (*sliceStream) Err() error {
+func (*SliceStream) Err() error {
 	return nil
 }
 
-func (s *sliceStream) Close() error {
+func (s *SliceStream) Close() error {
 	s.closed = true
 
 	return nil

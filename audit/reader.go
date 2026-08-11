@@ -115,10 +115,11 @@ type Reader interface {
 	Verify(ctx context.Context, scope string, from, to time.Time) (*VerificationResult, error)
 }
 
-var _ Reader = (*reader)(nil)
+var _ Reader = (*SQLReader)(nil)
 
-// reader is the SQL Reader.
-type reader struct {
+// SQLReader is the SQL Reader. It is exported, and returned by NewReader, so a
+// caller can depend on the reader it built rather than on the Reader seam.
+type SQLReader struct {
 	client database.Client
 	o11y   observability.Observer
 	tables *tables
@@ -138,7 +139,7 @@ type reader struct {
 
 // NewReader builds a Reader over the database holding the audit tables. The
 // dialect comes from the client, so the two cannot disagree.
-func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {
+func NewReader(client database.Client, opts ...ReaderOption) (*SQLReader, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
 	}
@@ -148,7 +149,7 @@ func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "audit dialect %q", d)
 	}
 
-	r := &reader{
+	r := &SQLReader{
 		client:  client,
 		dialect: d,
 		prefix:  DefaultTablePrefix,
@@ -180,7 +181,7 @@ func NewReader(client database.Client, opts ...ReaderOption) (Reader, error) {
 }
 
 // Get returns one entry.
-func (r *reader) Get(ctx context.Context, id string) (*Entry, error) {
+func (r *SQLReader) Get(ctx context.Context, id string) (*Entry, error) {
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(entryIDKey, id))
 	defer op.End()
 
@@ -203,7 +204,7 @@ func (r *reader) Get(ctx context.Context, id string) (*Entry, error) {
 }
 
 // List pages through matching entries, newest first when the filter says so.
-func (r *reader) List(
+func (r *SQLReader) List(
 	ctx context.Context,
 	q *Query,
 	filter *filtering.QueryFilter,
@@ -261,7 +262,7 @@ func (r *reader) List(
 // what you would publish.
 //
 // A zero from or to leaves that end unbounded.
-func (r *reader) Verify(ctx context.Context, scope string, from, to time.Time) (*VerificationResult, error) {
+func (r *SQLReader) Verify(ctx context.Context, scope string, from, to time.Time) (*VerificationResult, error) {
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(scopeKey, scope))
 	defer op.End()
 
@@ -326,7 +327,7 @@ type anchorState struct {
 // and any other range starts mid-chain and links to the entry before it. If
 // that entry is simply absent, the chain has a hole retention did not make,
 // which is a deletion and is reported as one.
-func (r *reader) anchorFor(ctx context.Context, scope string, firstSeq int64) (*anchorState, error) {
+func (r *SQLReader) anchorFor(ctx context.Context, scope string, firstSeq int64) (*anchorState, error) {
 	prunedThroughSeq, prunedThroughHash, err := r.prunedThrough(ctx, scope)
 	if err != nil {
 		return nil, err
@@ -352,7 +353,7 @@ func (r *reader) anchorFor(ctx context.Context, scope string, firstSeq int64) (*
 
 // prunedThrough reads how far retention has pruned a scope. A scope with no
 // chain row has never been written to, and so has never been pruned either.
-func (r *reader) prunedThrough(ctx context.Context, scope string) (seq int64, hash string, err error) {
+func (r *SQLReader) prunedThrough(ctx context.Context, scope string) (seq int64, hash string, err error) {
 	query, args := r.tables.buildSelectChainHead(r.dialect, scope, false)
 
 	var (

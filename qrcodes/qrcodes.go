@@ -29,7 +29,10 @@ type (
 	// Issuer identifies the service that issued the TOTP secret.
 	Issuer string
 
-	builder struct {
+	// StandardBuilder is the one Builder implementation. It is exported, and
+	// returned by NewBuilder, so a caller can depend on the builder it built
+	// rather than on the Builder seam.
+	StandardBuilder struct {
 		o11y       observability.Observer
 		qrEncode   func(content string, level qr.ErrorCorrectionLevel, mode qr.Encoding) (barcode.Barcode, error)
 		scale      func(bc barcode.Barcode, width, height int) (barcode.Barcode, error)
@@ -38,11 +41,13 @@ type (
 	}
 )
 
+var _ Builder = (*StandardBuilder)(nil)
+
 // NewBuilder returns a new QR code Builder.
-func NewBuilder(issuer Issuer, opts ...Option) Builder {
+func NewBuilder(issuer Issuer, opts ...Option) *StandardBuilder {
 	o := newOptions(opts)
 
-	return &builder{
+	return &StandardBuilder{
 		o11y:       observability.NewObserver(o11yName, o.logger, o.tracerProvider),
 		totpIssuer: issuer,
 		qrEncode:   qr.Encode,
@@ -54,7 +59,7 @@ func NewBuilder(issuer Issuer, opts ...Option) Builder {
 }
 
 // BuildQRCode builds a QR code for a given username and secret.
-func (s *builder) BuildQRCode(ctx context.Context, username, twoFactorSecret string) (string, error) {
+func (s *StandardBuilder) BuildQRCode(ctx context.Context, username, twoFactorSecret string) (string, error) {
 	_, op := s.o11y.Begin(ctx)
 	defer op.End()
 

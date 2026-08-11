@@ -12,7 +12,7 @@ import (
 // LinesFile opens name and yields each of its lines. The open error is returned up front; any read
 // error is yielded by the iterator. The file is closed when iteration is exhausted or the caller
 // breaks out of the range.
-func (r *standardReader) LinesFile(name string) (iter.Seq2[string, error], error) {
+func (r *StandardReader) LinesFile(name string) (iter.Seq2[string, error], error) {
 	f, err := r.fsys.Open(name)
 	if err != nil {
 		return nil, errors.Wrap(err, "opening file")
@@ -31,7 +31,7 @@ func (r *standardReader) LinesFile(name string) (iter.Seq2[string, error], error
 
 // ChunksFile opens name and yields successive slices of up to n lines, closing the file when
 // iteration ends or the caller breaks.
-func (r *standardReader) ChunksFile(name string, n int) (iter.Seq2[[]string, error], error) {
+func (r *StandardReader) ChunksFile(name string, n int) (iter.Seq2[[]string, error], error) {
 	f, err := r.fsys.Open(name)
 	if err != nil {
 		return nil, errors.Wrap(err, "opening file")
@@ -49,7 +49,7 @@ func (r *standardReader) ChunksFile(name string, n int) (iter.Seq2[[]string, err
 }
 
 // SliceLinesFile opens name and returns up to count lines after skipping offset lines.
-func (r *standardReader) SliceLinesFile(ctx context.Context, name string, offset, count int) ([]string, error) {
+func (r *StandardReader) SliceLinesFile(ctx context.Context, name string, offset, count int) ([]string, error) {
 	_, op := r.o11y.Begin(ctx, observability.WithValue(keys.FilenameKey, name))
 	defer op.End()
 

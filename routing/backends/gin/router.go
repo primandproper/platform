@@ -29,17 +29,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var _ routing.Backend = (*backend)(nil)
+var _ routing.Backend = (*Backend)(nil)
 
 // paramsCtxKey is the private context key under which the gin path parameters
 // are stored so PathValue can retrieve them from a bare *http.Request.
 type paramsCtxKey struct{}
 
-// backend is a gin-gonic/gin implementation of routing.Backend. Global
+// Backend is a gin-gonic/gin implementation of routing.Backend. Global
 // middleware is composed around the engine lazily in Handler; because the engine
 // is wrapped by reference, routes registered after the first Handler call are
 // still served.
-type backend struct {
+//
+// It is exported, and returned by NewBackend, so a caller who has chosen gin can
+// depend on that choice rather than on the seam every router backend shares.
+type Backend struct {
 	built    http.Handler
 	engine   *gin.Engine
 	standard []func(http.Handler) http.Handler
@@ -54,7 +57,7 @@ type backend struct {
 // It sets gin to release mode, a process-global setting, to silence gin's
 // debug-mode route logging; the platform logging middleware provides request
 // logs instead.
-func NewBackend(cfg *Config, opts ...Option) routing.Backend {
+func NewBackend(cfg *Config, opts ...Option) *Backend {
 	// A nil config is the zero config, not a panic. The config subpackage
 	// dispatches on Provider and hands whichever sub-config happens to be set —
 	// which is nil unless the deployment filled that provider's section in, so
@@ -90,7 +93,7 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 	// alone.
 	engine.UnescapePathValues = false
 
-	return &backend{
+	return &Backend{
 		engine: engine,
 		standard: httpmw.Standard(o11y, &httpmw.StackConfig{
 			TracerProvider:         tracerProvider,
@@ -112,7 +115,7 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 // server ran without the authentication or rate limiting the caller believed it
 // had registered. That is now a panic: a middleware that does not run is not a
 // condition a process should serve traffic in.
-func (b *backend) Use(middleware ...routing.Middleware) {
+func (b *Backend) Use(middleware ...routing.Middleware) {
 	if b.sealed.Load() {
 		panic("routing: Use called after Handler; middleware must be registered before the handler is built")
 	}
@@ -123,7 +126,7 @@ func (b *backend) Use(middleware ...routing.Middleware) {
 // Handle registers handler for method at pattern, rewriting the "{name}"
 // placeholders to gin's ":name" form. The gin path parameters are copied onto
 // the request context so PathValue can resolve them.
-func (b *backend) Handle(method, pattern string, handler http.Handler) {
+func (b *Backend) Handle(method, pattern string, handler http.Handler) {
 	b.engine.Handle(method, httpmw.ColonParams(pattern), func(c *gin.Context) {
 		req := c.Request
 		if len(c.Params) > 0 {
@@ -137,7 +140,7 @@ func (b *backend) Handle(method, pattern string, handler http.Handler) {
 // PathValue returns the named path parameter from the gin params stashed on the
 // request context by Handle, decoded. The engine matches on the escaped path, so
 // what it captured is an escaped segment.
-func (b *backend) PathValue(req *http.Request, name string) string {
+func (b *Backend) PathValue(req *http.Request, name string) string {
 	if params, ok := req.Context().Value(paramsCtxKey{}).(gin.Params); ok {
 		return pathvalues.Decode(params.ByName(name))
 	}
@@ -147,7 +150,7 @@ func (b *backend) PathValue(req *http.Request, name string) string {
 
 // Handler returns the composed http.Handler: the standard middleware stack and
 // any user middleware wrapped around the gin engine.
-func (b *backend) Handler() http.Handler {
+func (b *Backend) Handler() http.Handler {
 	b.sealed.Store(true)
 
 	b.once.Do(func() {

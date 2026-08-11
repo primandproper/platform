@@ -56,7 +56,7 @@ const (
 // table. A resource type's own rules can only add to it — there is no way to
 // opt one resource type back out of the catch-all, deliberately, since that is
 // the shape of every redaction bug worth having.
-func (r *recorder) dispositions(resourceType string) map[string]disposition {
+func (r *ChainRecorder) dispositions(resourceType string) map[string]disposition {
 	if len(r.redactions) == 0 {
 		return nil
 	}
@@ -96,7 +96,7 @@ func (r *recorder) dispositions(resourceType string) map[string]disposition {
 // The originals are never mutated: the caller may still be holding the maps it
 // passed, and quietly emptying them would be a surprising thing for a write to
 // do.
-func (r *recorder) redact(entry *Entry) (changes map[string]Change, metadata map[string]string, err error) {
+func (r *ChainRecorder) redact(entry *Entry) (changes map[string]Change, metadata map[string]string, err error) {
 	rules := r.dispositions(entry.ResourceType)
 	if len(rules) == 0 {
 		return entry.Changes, entry.Metadata, nil

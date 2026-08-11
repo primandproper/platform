@@ -21,14 +21,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// newRecordingServerEncoderDecoder builds a serverEncoderDecoder with a
+// newRecordingServerEncoderDecoder builds an EncoderDecoder with a
 // RecordingObserver swapped in, so a test can both drive the encoder and assert
 // which fields it observed.
-func newRecordingServerEncoderDecoder(t *testing.T, ct ContentType) (*serverEncoderDecoder, *observability.RecordingObserver) {
+func newRecordingServerEncoderDecoder(t *testing.T, ct ContentType) (*EncoderDecoder, *observability.RecordingObserver) {
 	t.Helper()
 
-	ed, ok := NewServerEncoderDecoder(ct).(*serverEncoderDecoder)
-	must.True(t, ok)
+	ed := NewServerEncoderDecoder(ct)
 
 	obs := observability.NewRecordingObserver()
 	ed.o11y = obs
@@ -107,8 +106,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 			t.Parallel()
 
 			ex := &example{Name: "name"}
-			encoderDecoder, ok := NewServerEncoderDecoder(tc.contentType).(*serverEncoderDecoder)
-			must.True(t, ok)
+			encoderDecoder := NewServerEncoderDecoder(tc.contentType)
 
 			ctx := t.Context()
 			res := httptest.NewRecorder()
@@ -124,8 +122,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 
 		ex := &example{Name: "name"}
-		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeEmoji).(*serverEncoderDecoder)
-		must.True(t, ok)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeEmoji)
 
 		ctx := t.Context()
 		res := httptest.NewRecorder()
@@ -140,8 +137,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 		expectation := "name"
 		ex := &example{Name: expectation}
-		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeJSON).(*serverEncoderDecoder)
-		must.True(t, ok)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeJSON)
 
 		ctx := t.Context()
 		res := httptest.NewRecorder()
@@ -154,8 +150,7 @@ func TestServerEncoderDecoder_encodeResponse(T *testing.T) {
 		t.Parallel()
 
 		ex := &example{Name: "name"}
-		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeXML).(*serverEncoderDecoder)
-		must.True(t, ok)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeXML)
 
 		ctx := t.Context()
 		res := httptest.NewRecorder()
@@ -301,8 +296,7 @@ func TestServerEncoderDecoder_MustEncode(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeJSON).(*serverEncoderDecoder)
-		must.True(t, ok)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeJSON)
 
 		defer func() {
 			test.NotNil(t, recover())
@@ -457,8 +451,7 @@ func TestServerEncoderDecoder_RespondWithData(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		encoderDecoder, ok := NewServerEncoderDecoder(ContentTypeJSON).(*serverEncoderDecoder)
-		must.True(t, ok)
+		encoderDecoder := NewServerEncoderDecoder(ContentTypeJSON)
 
 		res := httptest.NewRecorder()
 
@@ -484,7 +477,7 @@ func Test_tomlDecoder_Decode(T *testing.T) {
 
 // The emoji path no longer has a streaming encoder of its own — every content
 // type marshals to bytes and writes them — so the cases that adapter carried
-// belong to clientEncoder.Encode now.
+// belong to Encoder.Encode now.
 func Test_clientEncoder_Encode_errors(T *testing.T) {
 	T.Parallel()
 

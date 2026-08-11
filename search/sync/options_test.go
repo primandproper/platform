@@ -35,7 +35,7 @@ func TestSyncerOptions(T *testing.T) {
 		var logger logging.Logger = nooplogging.NewLogger()
 		tracerProvider := nooptracing.NewTracerProvider()
 		metricsProvider := noopmetrics.NewMetricsProvider()
-		c := clock.NewClock()
+		var c clock.Clock = clock.NewClock()
 
 		o := newOptions()
 		for _, opt := range []SyncerOption{

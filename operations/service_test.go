@@ -45,13 +45,13 @@ func TestNewService(T *testing.T) {
 
 // newTestService builds a service over a fake store with no queue, for the reads
 // and the cancellation, none of which touch one.
-func newTestService(t *testing.T, store Store, registry *Registry) *service {
+func newTestService(t *testing.T, store Store, registry *Registry) *StoreService {
 	t.Helper()
 
 	cfg := &Config{}
 	cfg.EnsureDefaults()
 
-	s := &service{
+	s := &StoreService{
 		cfg:      *cfg,
 		store:    store,
 		registry: registry,

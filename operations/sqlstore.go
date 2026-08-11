@@ -27,11 +27,15 @@ import (
 // like a Runner executing in every span listing.
 const storeName = serviceName + "_store"
 
-var _ Store = (*sqlStore)(nil)
+var _ Store = (*SQLStore)(nil)
 
-// sqlStore is the Postgres-backed Store, against the schema
+// SQLStore is the Postgres-backed Store, against the schema
 // operations/migrations renders.
-type sqlStore struct {
+//
+// It is exported, and returned by NewSQLStore, so a caller who has chosen SQL
+// storage can depend on that choice rather than on the Store seam every backing
+// shares.
+type SQLStore struct {
 	client database.Client
 	tables *tables
 	o11y   observability.Observer
@@ -62,7 +66,7 @@ type sqlStore struct {
 //
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger, traces to a noop provider, and counts into a noop meter.
-func NewSQLStore(client database.Client, opts ...StoreOption) (Store, error) {
+func NewSQLStore(client database.Client, opts ...StoreOption) (*SQLStore, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
 	}
@@ -71,7 +75,7 @@ func NewSQLStore(client database.Client, opts ...StoreOption) (Store, error) {
 		return nil, err
 	}
 
-	s := &sqlStore{client: client, tables: newTables(DefaultTablePrefix)}
+	s := &SQLStore{client: client, tables: newTables(DefaultTablePrefix)}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(s)
@@ -123,7 +127,7 @@ func NewSQLStore(client database.Client, opts ...StoreOption) (Store, error) {
 	return s, nil
 }
 
-func (s *sqlStore) Insert(ctx context.Context, q database.SQLQueryExecutor, op *Operation) (*Operation, error) {
+func (s *SQLStore) Insert(ctx context.Context, q database.SQLQueryExecutor, op *Operation) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx)
 	defer span.End()
 
@@ -173,7 +177,7 @@ func (s *sqlStore) Insert(ctx context.Context, q database.SQLQueryExecutor, op *
 	return inserted, nil
 }
 
-func (s *sqlStore) Get(ctx context.Context, id string) (*Operation, error) {
+func (s *SQLStore) Get(ctx context.Context, id string) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
@@ -199,7 +203,7 @@ func (s *sqlStore) Get(ctx context.Context, id string) (*Operation, error) {
 	return op, nil
 }
 
-func (s *sqlStore) GetMany(ctx context.Context, ids []string) ([]*Operation, error) {
+func (s *SQLStore) GetMany(ctx context.Context, ids []string) ([]*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(batchKey, len(ids)))
 	defer span.End()
 
@@ -219,7 +223,7 @@ func (s *sqlStore) GetMany(ctx context.Context, ids []string) ([]*Operation, err
 	return ops, nil
 }
 
-func (s *sqlStore) List(
+func (s *SQLStore) List(
 	ctx context.Context,
 	scope *ListScope,
 	filter *filtering.QueryFilter,
@@ -280,7 +284,7 @@ func (s *sqlStore) List(
 	), nil
 }
 
-func (s *sqlStore) Begin(ctx context.Context, id string, attempts int, lease time.Duration) (*Operation, error) {
+func (s *SQLStore) Begin(ctx context.Context, id string, attempts int, lease time.Duration) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		operationIDKey: id,
 		attemptsKey:    attempts,
@@ -311,7 +315,7 @@ func (s *sqlStore) Begin(ctx context.Context, id string, attempts int, lease tim
 	return op, nil
 }
 
-func (s *sqlStore) Progress(ctx context.Context, id string, progress Progress, lease time.Duration) (Ack, error) {
+func (s *SQLStore) Progress(ctx context.Context, id string, progress Progress, lease time.Duration) (Ack, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		operationIDKey: id,
 		unitKey:        progress.Unit,
@@ -355,7 +359,7 @@ func (s *sqlStore) Progress(ctx context.Context, id string, progress Progress, l
 	return ack, nil
 }
 
-func (s *sqlStore) Finish(
+func (s *SQLStore) Finish(
 	ctx context.Context,
 	id string,
 	state State,
@@ -397,7 +401,7 @@ func (s *sqlStore) Finish(
 	return s.execExpectingRow(ctx, span, query, args, id, "finish", "finishing operation")
 }
 
-func (s *sqlStore) Release(ctx context.Context, id string, opErr *Error) error {
+func (s *SQLStore) Release(ctx context.Context, id string, opErr *Error) error {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
@@ -411,7 +415,7 @@ func (s *sqlStore) Release(ctx context.Context, id string, opErr *Error) error {
 	return s.execExpectingRow(ctx, span, query, args, id, "release", "releasing operation")
 }
 
-func (s *sqlStore) RequestCancel(ctx context.Context, id string) (*Operation, error) {
+func (s *SQLStore) RequestCancel(ctx context.Context, id string) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
@@ -440,7 +444,7 @@ func (s *sqlStore) RequestCancel(ctx context.Context, id string) (*Operation, er
 	return s.Get(ctx, id)
 }
 
-func (s *sqlStore) Stranded(ctx context.Context, grace time.Duration, limit int) ([]*Operation, error) {
+func (s *SQLStore) Stranded(ctx context.Context, grace time.Duration, limit int) ([]*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer span.End()
 
@@ -460,7 +464,7 @@ func (s *sqlStore) Stranded(ctx context.Context, grace time.Duration, limit int)
 	return ops, nil
 }
 
-func (s *sqlStore) Reap(ctx context.Context, retention time.Duration, limit int) (int64, error) {
+func (s *SQLStore) Reap(ctx context.Context, retention time.Duration, limit int) (int64, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer span.End()
 
@@ -488,7 +492,7 @@ func (s *sqlStore) Reap(ctx context.Context, retention time.Duration, limit int)
 // WithTransaction delegates to the client, which begins its own span for the
 // transaction. Wrapping it here would nest a second span around the first and
 // say nothing the client's does not.
-func (s *sqlStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
 	return s.client.WithTransaction(ctx, fn)
 }
 
@@ -499,7 +503,7 @@ func (s *sqlStore) WithTransaction(ctx context.Context, fn func(q database.SQLQu
 // lost one costs a watcher its poll interval and costs the operation nothing.
 // Failing a progress flush because a notification did not go out would trade
 // something that matters for something that does not.
-func (s *sqlStore) notify(ctx context.Context) {
+func (s *SQLStore) notify(ctx context.Context) {
 	if s.notifyChannel == "" {
 		return
 	}
@@ -517,7 +521,7 @@ func (s *sqlStore) notify(ctx context.Context) {
 // finished by another worker after a lease lapsed, or cancelled outright — and
 // treating that as success would have the worker report a result the database
 // never recorded, to a client that will poll the row and see something else.
-func (s *sqlStore) execExpectingRow(
+func (s *SQLStore) execExpectingRow(
 	ctx context.Context,
 	span observability.Operation,
 	query string,

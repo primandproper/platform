@@ -37,7 +37,7 @@ func TestCloseQuietly(T *testing.T) {
 	T.Run("does not panic when no logger was supplied", func(t *testing.T) {
 		t.Parallel()
 
-		r := NewReader().(*standardReader)
+		r := NewReader()
 		must.NotNil(t, r.logger)
 
 		f, err := os.Create(filepath.Join(t.TempDir(), "f.txt"))

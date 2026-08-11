@@ -39,7 +39,7 @@ func RegisterHTTPServer(i do.Injector, serviceName string) {
 
 		cfg := do.MustInvoke[Config](i)
 
-		return NewHTTPServer(
+		srv, err := NewHTTPServer(
 			do.MustInvoke[context.Context](i),
 			&cfg,
 			do.MustInvoke[*routing.Router](i),
@@ -49,5 +49,10 @@ func RegisterHTTPServer(i do.Injector, serviceName string) {
 			WithHealthRegistry(registry),
 			WithVersionEndpoint(),
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		return srv, nil
 	})
 }

@@ -100,13 +100,16 @@ func (f EventPublisherFunc) Publish(ctx context.Context, q database.SQLQueryExec
 	return f(ctx, q, events...)
 }
 
-// outboxPublisher publishes lifecycle events through an outbox.Writer.
-type outboxPublisher struct {
+// OutboxPublisher publishes lifecycle events through an outbox.Writer. It is
+// exported, and returned by NewOutboxPublisher, so a caller who has chosen
+// outbox delivery can depend on that choice rather than on the EventPublisher
+// seam.
+type OutboxPublisher struct {
 	writer *outbox.Writer
 	topic  string
 }
 
-var _ EventPublisher = (*outboxPublisher)(nil)
+var _ EventPublisher = (*OutboxPublisher)(nil)
 
 // NewOutboxPublisher builds an EventPublisher over an outbox.Writer, so
 // lifecycle events commit with the instance row they describe and are relayed
@@ -117,12 +120,12 @@ var _ EventPublisher = (*outboxPublisher)(nil)
 // subscriber never sees "completed" before "step completed". Events for
 // different instances are unordered with respect to each other, which is what
 // lets the relay make progress on a thousand sagas without serializing them.
-func NewOutboxPublisher(writer *outbox.Writer, opts ...OutboxPublisherOption) (EventPublisher, error) {
+func NewOutboxPublisher(writer *outbox.Writer, opts ...OutboxPublisherOption) (*OutboxPublisher, error) {
 	if writer == nil {
 		return nil, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil saga outbox writer")
 	}
 
-	p := &outboxPublisher{writer: writer, topic: DefaultEventTopic}
+	p := &OutboxPublisher{writer: writer, topic: DefaultEventTopic}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(p)
@@ -133,7 +136,7 @@ func NewOutboxPublisher(writer *outbox.Writer, opts ...OutboxPublisherOption) (E
 }
 
 // Publish implements EventPublisher.
-func (p *outboxPublisher) Publish(ctx context.Context, q database.SQLQueryExecutor, events ...Event) error {
+func (p *OutboxPublisher) Publish(ctx context.Context, q database.SQLQueryExecutor, events ...Event) error {
 	if len(events) == 0 {
 		return nil
 	}
