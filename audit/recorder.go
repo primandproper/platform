@@ -122,10 +122,7 @@ func (r *recorder) Record(ctx context.Context, q database.SQLQueryExecutor, entr
 		return nil
 	}
 
-	startTime := time.Now()
-	defer func() {
-		r.recordLatency.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, r.clock, r.recordLatency)()
 
 	op.Set(entryCountKey, len(entries))
 

@@ -287,10 +287,12 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(keys.LockKeyKey, key))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		s.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, s.clock, s.latencyHist)()
+
+	// The wait is its own measurement, ending when the lock is acquired rather
+	// than when fn returns: scoped_lock_latency_ms is the whole operation and
+	// scoped_lock_wait_ms is the part of it spent not holding the lock.
+	recordWait := op.Time(ctx, s.clock, s.waitHist)
 
 	// polls counts contended attempts. Contention is counted once per call
 	// rather than once per poll, so scoped_lock_contended means the same thing
@@ -306,7 +308,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 				s.contendCounter.Add(ctx, 1)
 				op.SpanOnly("lock.polls", polls)
 			}
-			s.waitHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+			recordWait()
 			s.acquireCounter.Add(ctx, 1)
 
 			return s.run(ctx, op, held, fn)
@@ -339,10 +341,7 @@ func (s *scopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx 
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(keys.LockKeyKey, key))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		s.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, s.clock, s.latencyHist)()
 
 	held, err := s.locker.Acquire(ctx, key, s.ttl)
 	if stderrors.Is(err, ErrLockNotAcquired) {

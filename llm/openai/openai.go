@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/llm"
@@ -52,14 +51,9 @@ func NewProvider(cfg *Config, opts ...Option) (*Provider, error) {
 	o := newOptions(opts)
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
 
-	requestCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_requests", name))
+	instruments, err := metrics.NewOperationSet(o.metricsProvider, name)
 	if err != nil {
-		return nil, errors.Wrap(err, "creating request counter")
-	}
-
-	errorCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_errors", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating error counter")
+		return nil, err
 	}
 
 	tokenCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_tokens", name))
@@ -67,19 +61,12 @@ func NewProvider(cfg *Config, opts ...Option) (*Provider, error) {
 		return nil, errors.Wrap(err, "creating token counter")
 	}
 
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating latency histogram")
-	}
-
 	return &Provider{
-		o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
-		requestCounter: requestCounter,
-		errorCounter:   errorCounter,
-		tokenCounter:   tokenCounter,
-		latencyHist:    latencyHist,
-		provider:       provider,
-		defaultModel:   cfg.DefaultModel,
+		o11y:         observability.NewObserver(name, o.logger, o.tracerProvider),
+		instruments:  instruments,
+		tokenCounter: tokenCounter,
+		provider:     provider,
+		defaultModel: cfg.DefaultModel,
 	}, nil
 }
 
@@ -87,11 +74,9 @@ func NewProvider(cfg *Config, opts ...Option) (*Provider, error) {
 // returned by NewProvider, so a caller who has chosen OpenAI can depend on that
 // choice rather than on the interface every model provider shares.
 type Provider struct {
-	o11y           observability.Observer
-	requestCounter metrics.Int64Counter
-	errorCounter   metrics.Int64Counter
-	tokenCounter   metrics.Int64Counter
-	latencyHist    metrics.Float64Histogram
+	o11y         observability.Observer
+	instruments  *metrics.OperationSet
+	tokenCounter metrics.Int64Counter
 	// provider is the interface rather than the concrete OpenAI provider, so
 	// that the observability and translation seams around it can be exercised
 	// without an HTTP round trip.
@@ -130,23 +115,20 @@ func (p *Provider) Completion(ctx context.Context, req *llm.CompletionRequest) (
 	// successful call here and before the call in Stream, so one counter name
 	// meant "successes" on one method and "attempts" on the other — and
 	// _requests minus _errors was a number with no interpretation at all.
-	p.requestCounter.Add(ctx, 1)
+	p.instruments.Attempt(ctx)
 
-	startTime := time.Now()
-	defer func() {
-		p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, p.instruments.Latency)()
 
 	params, err := p.params(req, op)
 	if err != nil {
-		p.errorCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 
 		return nil, op.Error(err, "building request")
 	}
 
 	resp, err := p.provider.Completion(ctx, params)
 	if err != nil {
-		p.errorCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 
 		return nil, op.Error(bridge.NormalizeError(err), "completing request")
 	}
@@ -171,7 +153,7 @@ func (p *Provider) Stream(ctx context.Context, req *llm.CompletionRequest) (llm.
 	params, err := p.params(req, op)
 	if err != nil {
 		defer op.End()
-		p.errorCounter.Add(ctx, 1)
+		p.instruments.Failed(ctx)
 
 		return nil, op.Error(err, "building request")
 	}
@@ -182,19 +164,19 @@ func (p *Provider) Stream(ctx context.Context, req *llm.CompletionRequest) (llm.
 	// rather than in the shared translation.
 	params.StreamOptions = &anyllm.StreamOptions{IncludeUsage: true}
 
-	startTime := time.Now()
-	p.requestCounter.Add(ctx, 1)
+	recordLatency := op.Time(ctx, nil, p.instruments.Latency)
+	p.instruments.Attempt(ctx)
 
 	streamCtx, cancel := context.WithCancel(ctx)
 	chunks, errs := p.provider.CompletionStream(streamCtx, params)
 
 	return bridge.Stream(chunks, errs, func(streamErr error, streamUsage *llm.Usage) {
 		cancel()
-		p.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
+		recordLatency()
 		p.recordUsage(ctx, op, streamUsage)
 
 		if streamErr != nil {
-			p.errorCounter.Add(ctx, 1)
+			p.instruments.Failed(ctx)
 			op.Acknowledge(streamErr, "streaming completion")
 		}
 

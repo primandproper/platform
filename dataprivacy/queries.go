@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 )
 
@@ -395,7 +395,6 @@ func (t *tables) buildReap(d dialect.Dialect, before time.Time, limit int) (quer
 
 	return fmt.Sprintf("DELETE FROM %s WHERE id IN (%s)", t.requests, inner), args
 }
-
 
 // nullableTime maps the zero time to a SQL NULL. A zero timestamp bound as a
 // value reads back as year 1, which every comparison in the expiry sweeps would

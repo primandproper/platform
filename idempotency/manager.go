@@ -134,10 +134,7 @@ func (m *Manager[T]) Do(
 	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		m.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, m.clock, m.latencyHist)()
 
 	o := newDoOptions(opts)
 

@@ -562,4 +562,3 @@ func TestNewRelay(T *testing.T) {
 		test.EqOp(t, ClaimLease, r.cfg.ClaimMode)
 	})
 }
-

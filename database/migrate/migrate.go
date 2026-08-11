@@ -285,9 +285,7 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 	m.runCounter.Add(ctx, 1)
 
 	startTime := time.Now()
-	defer func() {
-		m.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, m.latencyHist)()
 
 	gd, err := gooseDialect(m.dialect)
 	if err != nil {

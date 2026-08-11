@@ -253,4 +253,3 @@ func TestHasherFactory(T *testing.T) {
 		test.Nil(t, factory)
 	})
 }
-

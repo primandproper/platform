@@ -151,10 +151,7 @@ func (l *Locker) Acquire(ctx context.Context, key string, ttl time.Duration) (di
 		return nil, circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		l.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, l.latencyHist)()
 
 	token := identifiers.New()
 	fullKey := l.keyPrefix + key
@@ -205,10 +202,7 @@ func (l *Locker) release(ctx context.Context, key, fullKey, token string) error 
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		l.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, l.latencyHist)()
 
 	res, err := l.client.Eval(ctx, releaseScript, []string{fullKey}, token).Int64()
 	if err != nil {
@@ -241,10 +235,7 @@ func (l *Locker) refresh(ctx context.Context, key, fullKey, token string, ttl ti
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		l.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, l.latencyHist)()
 
 	res, err := l.client.Eval(ctx, refreshScript, []string{fullKey}, token, ttl.Milliseconds()).Int64()
 	if err != nil {

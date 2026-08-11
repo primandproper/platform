@@ -270,8 +270,6 @@ func TestBuildReap(T *testing.T) {
 	test.SliceLen(T, 2, args)
 }
 
-
-
 // Every query builder renders against a prefix, and a prefix that reached only
 // some of them would put half the package's statements against a table that
 // does not exist.

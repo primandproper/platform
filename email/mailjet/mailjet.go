@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/email"
@@ -106,10 +105,7 @@ func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMes
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		e.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, e.latencyHist)()
 
 	if e.circuitBreaker.CannotProceed() {
 		return circuitbreaking.ErrCircuitBroken

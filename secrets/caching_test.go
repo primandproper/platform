@@ -697,7 +697,6 @@ func TestCachingSource_Close(T *testing.T) {
 	})
 }
 
-
 // drain empties ch without blocking, so a test can assert on what has been
 // delivered so far.
 func drain[T any](ch chan T) []T {

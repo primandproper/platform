@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 )
 
@@ -486,4 +486,3 @@ func (t *tables) buildReapEvents(d dialect.Dialect, before time.Time, limit int)
 
 	return fmt.Sprintf("DELETE FROM %s WHERE idempotency_key IN (%s)", t.events, inner), args
 }
-

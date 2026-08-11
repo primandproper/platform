@@ -188,7 +188,6 @@ func TestTimers_EmptyBatchesTouchNothing(T *testing.T) {
 	})
 }
 
-
 // The lease guard sits above every statement, so a caller who passes a
 // meaningless lease is told so rather than leasing rows nobody can hold.
 func TestTimers_Claim_RejectsANonPositiveLease(T *testing.T) {

@@ -21,8 +21,8 @@ type options struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
-	refreshInterval time.Duration
 	rand            retry.Rand
+	refreshInterval time.Duration
 }
 
 func newOptions(opts []Option) *options {

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+
 	// Registered for their decoders so image.Decode can sniff these formats.
 	_ "image/gif"
 	_ "image/jpeg"

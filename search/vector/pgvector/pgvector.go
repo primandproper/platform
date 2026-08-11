@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
@@ -239,10 +238,7 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	// Validate dimensions and prepare per-row payloads up front so we don't open a
 	// transaction we then have to roll back.
@@ -319,10 +315,7 @@ func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	stmt := fmt.Sprintf(`DELETE FROM %s WHERE id = ANY($1)`, i.quotedIndex)
 	if _, err := i.db.Writer().ExecContext(ctx, stmt, pgTextArray(ids)); err != nil {
@@ -345,10 +338,7 @@ func (i *indexManager[T]) Wipe(ctx context.Context) error {
 		return circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	stmt := fmt.Sprintf(`TRUNCATE TABLE %s`, i.quotedIndex)
 	if _, err := i.db.Writer().ExecContext(ctx, stmt); err != nil {
@@ -381,10 +371,7 @@ func (i *indexManager[T]) Query(ctx context.Context, req vectorsearch.QueryReque
 		return nil, circuitbreaking.ErrCircuitBroken
 	}
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, i.latencyHist)()
 
 	where := ""
 	if req.Filter != nil {

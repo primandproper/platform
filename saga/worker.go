@@ -288,8 +288,6 @@ func (w *Worker) cycle(ctx context.Context) {
 // a lease lapsed mid-pass — and the useful thing to do is hand the lease back
 // and move on, not block a goroutine for the length of somebody else's pass.
 func (w *Worker) advance(ctx context.Context, inst *Record) {
-	startTime := time.Now()
-
 	ctx, op := w.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		instanceIDKey: inst.ID,
 		definitionKey: inst.Definition,
@@ -298,6 +296,11 @@ func (w *Worker) advance(ctx context.Context, inst *Record) {
 		attemptsKey:   inst.Attempts,
 	}))
 	defer op.End()
+
+	// Stopped where the pass ends rather than deferred: what follows the
+	// recording is bookkeeping about the outcome, and a lock this worker did
+	// not get is not a pass whose duration means anything.
+	recordLatency := op.Time(ctx, w.clock, w.advanceHist, definitionAttr(inst.Definition))
 
 	// Deliberately no timeout on the pass as a whole. Each step is bounded by
 	// StepTimeout inside execute, and drive stops starting new ones once its
@@ -311,7 +314,7 @@ func (w *Worker) advance(ctx context.Context, inst *Record) {
 		return w.drive(ctx, op, inst)
 	})
 
-	w.advanceHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), definitionAttr(inst.Definition))
+	recordLatency()
 
 	if !acquired && err == nil {
 		w.contendedCounter.Add(ctx, 1, definitionAttr(inst.Definition))
@@ -718,10 +721,7 @@ func (w *Worker) execute(
 	ctx, cancel := context.WithTimeout(ctx, w.cfg.StepTimeout)
 	defer cancel()
 
-	startTime := time.Now()
-	defer func() {
-		w.stepHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), stepAttrs(inst.Definition, name, phase))
-	}()
+	defer op.Time(ctx, w.clock, w.stepHist, stepAttrs(inst.Definition, name, phase))()
 
 	apply := def.do
 	if phase == phaseUndo {

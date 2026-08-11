@@ -222,7 +222,6 @@ func TestQueue_Claim_RejectsAnUnusableLease(T *testing.T) {
 	}
 }
 
-
 // upperCodec is a deliberately non-default rendering, to prove WithKeyCodec is
 // actually consulted.
 type upperCodec struct{}

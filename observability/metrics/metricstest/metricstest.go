@@ -12,6 +12,8 @@ package metricstest
 import (
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+
 	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -37,4 +39,21 @@ func Float64Histogram(t *testing.T, name string) metric.Float64Histogram {
 	must.NoError(t, err)
 
 	return x
+}
+
+// OperationSet builds the request/error/latency trio under name, failing the
+// test if it cannot.
+//
+// It exists because the components that hold a metrics.OperationSet are
+// constructed by hand in their own tests — a struct literal with a stubbed
+// transport beside the instruments — and three lines of instrument construction
+// per literal is the same duplication the set was extracted to remove, moved
+// into the test files.
+func OperationSet(t *testing.T, name string) *metrics.OperationSet {
+	t.Helper()
+
+	set, err := metrics.NewOperationSet(nil, name)
+	must.NoError(t, err)
+
+	return set
 }

@@ -937,4 +937,3 @@ func newRefusingServer(t *testing.T) *httptest.Server {
 
 	return server
 }
-

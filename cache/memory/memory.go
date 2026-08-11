@@ -260,10 +260,7 @@ func (i *Cache[T]) Get(ctx context.Context, key string) (*T, error) {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	e, ok := i.lookup(key)
 
@@ -292,10 +289,7 @@ func (i *Cache[T]) Set(ctx context.Context, key string, value *T, opts ...cache.
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	e := i.newEntry(value, opts)
 
@@ -326,10 +320,7 @@ func (i *Cache[T]) SetIfPresent(ctx context.Context, key string, value *T, opts 
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	e := i.newEntry(value, opts)
 
@@ -357,10 +348,7 @@ func (i *Cache[T]) Delete(ctx context.Context, key string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("name", key))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	i.cacheMu.Lock()
 	defer i.cacheMu.Unlock()
@@ -376,10 +364,7 @@ func (i *Cache[T]) GetMany(ctx context.Context, keys []string) (map[string]*T, e
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	var expiredKeys, missingKeys []string
 
@@ -429,10 +414,7 @@ func (i *Cache[T]) SetMany(ctx context.Context, items map[string]*T, opts ...cac
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(items)))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	// One deadline for the whole batch: options apply to the call, not per item.
 	var expiresAt time.Time
@@ -463,10 +445,7 @@ func (i *Cache[T]) DeleteMany(ctx context.Context, keys []string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("length", len(keys)))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	i.cacheMu.Lock()
 	defer i.cacheMu.Unlock()
@@ -489,10 +468,7 @@ func (i *Cache[T]) DeleteByPrefix(ctx context.Context, prefix string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue("prefix", prefix))
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	i.cacheMu.Lock()
 	defer i.cacheMu.Unlock()
@@ -514,10 +490,7 @@ func (i *Cache[T]) Flush(ctx context.Context) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		i.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, i.clock, i.latencyHist)()
 
 	i.cacheMu.Lock()
 	defer i.cacheMu.Unlock()

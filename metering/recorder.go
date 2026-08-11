@@ -151,8 +151,6 @@ func (r *DurableRecorder) RecordTx(ctx context.Context, q database.SQLQueryExecu
 // record is the shared body: prepare every record, then hand the survivors to
 // the store in configured chunks.
 func (r *DurableRecorder) record(ctx context.Context, q database.SQLQueryExecutor, usages []Usage) error {
-	startTime := time.Now()
-
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(usages)))
 	defer op.End()
 
@@ -160,9 +158,7 @@ func (r *DurableRecorder) record(ctx context.Context, q database.SQLQueryExecuto
 		return nil
 	}
 
-	defer func() {
-		r.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, r.clock, r.latencyHist)()
 
 	now := r.clock.Now().UTC()
 

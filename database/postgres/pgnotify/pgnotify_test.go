@@ -282,4 +282,3 @@ func TestListener_Close(T *testing.T) {
 		must.NoError(t, l.Close(t.Context()))
 	})
 }
-

@@ -3,7 +3,6 @@ package entitlements
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/authorization"
 	"github.com/primandproper/platform-go/v10/cache"
@@ -169,7 +168,6 @@ func (c *PlanChecker) CheckQuantity(
 	quantity int64,
 	opts ...CheckOption,
 ) (*Decision, error) {
-	startTime := time.Now()
 	co := newCheckOptions(opts)
 
 	ctx, op := c.o11y.Begin(ctx, observability.WithValues(map[string]any{
@@ -179,9 +177,7 @@ func (c *PlanChecker) CheckQuantity(
 	}))
 	defer op.End()
 
-	defer func() {
-		c.checkHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), featureAttr(feature))
-	}()
+	defer op.Time(ctx, nil, c.checkHist, featureAttr(feature))()
 
 	c.checkCounter.Add(ctx, 1, featureAttr(feature))
 

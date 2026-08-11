@@ -15,8 +15,8 @@ var errNotFound = platformerrors.New("thing not found")
 
 // testGuard is the guard these tests exercise: everything named, so that a
 // missing field shows up as a difference rather than as silence.
-func testGuard() Guard {
-	return Guard{
+func testGuard() *Guard {
+	return &Guard{
 		NotFound:  errNotFound,
 		Namespace: "things",
 		IDKey:     "things.id",
@@ -138,6 +138,6 @@ func TestGuard_OpAttr(T *testing.T) {
 	T.Run("names the attribute after the namespace", func(t *testing.T) {
 		t.Parallel()
 
-		test.NotNil(t, Guard{Namespace: "things"}.OpAttr("finish"))
+		test.NotNil(t, (&Guard{Namespace: "things"}).OpAttr("finish"))
 	})
 }

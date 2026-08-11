@@ -300,8 +300,6 @@ func (r *Relay) Close(ctx context.Context) error {
 // rather than returned: there is no caller to hand them to, and the next cycle
 // retries.
 func (r *Relay) cycle(ctx context.Context) {
-	startTime := time.Now()
-
 	msgs, err := r.claim(ctx)
 	if err != nil {
 		r.claimErrCounter.Add(ctx, 1)
@@ -315,12 +313,11 @@ func (r *Relay) cycle(ctx context.Context) {
 	}
 
 	r.batchHist.Record(ctx, float64(len(msgs)))
-	defer func() {
-		r.cycleHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
 
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(claimedKey, len(msgs)))
 	defer op.End()
+
+	defer op.Time(ctx, r.clock, r.cycleHist)()
 
 	// Published serially, in created_at order. The claim predicate admits at
 	// most one message per partition key per batch, so a failure here can never
@@ -367,10 +364,7 @@ func (r *Relay) publish(ctx context.Context, msg *claimedMessage) error {
 		op.Set(partitionKeyKey, msg.key)
 	}
 
-	startTime := time.Now()
-	defer func() {
-		r.publishHist.Record(ctx, float64(time.Since(startTime).Milliseconds()), topicAttr(msg.topic))
-	}()
+	defer op.Time(ctx, r.clock, r.publishHist, topicAttr(msg.topic))()
 
 	publisher, err := r.publisherFor(ctx, msg.topic)
 	if err != nil {

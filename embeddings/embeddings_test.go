@@ -74,3 +74,24 @@ func TestEmbedder_batchContract(T *testing.T) {
 		test.Nil(t, out)
 	})
 }
+
+func TestToFloat32(T *testing.T) {
+	T.Parallel()
+
+	T.Run("narrows every element", func(t *testing.T) {
+		t.Parallel()
+
+		test.Eq(t, []float32{0.5, -1.25, 0}, embeddings.ToFloat32([]float64{0.5, -1.25, 0}))
+	})
+
+	// A caller ranging over the result never has to distinguish "no vector"
+	// from "a vector of nothing".
+	T.Run("an absent vector is an empty one", func(t *testing.T) {
+		t.Parallel()
+
+		got := embeddings.ToFloat32(nil)
+
+		must.NotNil(t, got)
+		test.SliceEmpty(t, got)
+	})
+}

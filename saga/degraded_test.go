@@ -197,5 +197,4 @@ func TestWorker_Degraded(T *testing.T) {
 			op.End()
 		}
 	})
-
 }

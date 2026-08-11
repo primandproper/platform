@@ -36,12 +36,10 @@ var _ embeddings.Embedder = (*Embedder)(nil)
 // returned by NewEmbedder, so a caller who has chosen Cohere can depend on that
 // choice rather than on the interface every embedding provider shares.
 type Embedder struct {
-	o11y           observability.Observer
-	client         *http.Client
-	cfg            *Config
-	requestCounter metrics.Int64Counter
-	errorCounter   metrics.Int64Counter
-	latencyHist    metrics.Float64Histogram
+	o11y        observability.Observer
+	client      *http.Client
+	cfg         *Config
+	instruments *metrics.OperationSet
 }
 
 // NewEmbedder creates a new Cohere-backed embeddings provider.
@@ -63,30 +61,16 @@ func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (*Embedder, e
 	}
 	client := &http.Client{Timeout: timeout}
 
-	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
-
-	requestCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_requests", name))
+	instruments, err := metrics.NewOperationSet(o.metricsProvider, name)
 	if err != nil {
-		return nil, errors.Wrap(err, "creating request counter")
-	}
-
-	errorCounter, err := mp.NewInt64Counter(fmt.Sprintf("%s_errors", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating error counter")
-	}
-
-	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", name))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating latency histogram")
+		return nil, err
 	}
 
 	return &Embedder{
-		o11y:           observability.NewObserver(name, logger, o.tracerProvider),
-		client:         client,
-		cfg:            cfg,
-		requestCounter: requestCounter,
-		errorCounter:   errorCounter,
-		latencyHist:    latencyHist,
+		o11y:        observability.NewObserver(name, logger, o.tracerProvider),
+		client:      client,
+		cfg:         cfg,
+		instruments: instruments,
 	}, nil
 }
 
@@ -124,12 +108,11 @@ func (e *Embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 
 	// Instrumented here rather than in GenerateEmbedding, which delegates to
 	// this method — counting both would double every single-input call.
-	e.requestCounter.Add(ctx, 1)
-	startTime := time.Now()
+	e.instruments.Attempt(ctx)
+	defer op.Time(ctx, nil, e.instruments.Latency)()
 	defer func() {
-		e.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
 		if err != nil {
-			e.errorCounter.Add(ctx, 1)
+			e.instruments.Failed(ctx)
 		}
 	}()
 
@@ -218,7 +201,7 @@ func (e *Embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 	now := time.Now()
 	out := make([]*embeddings.Embedding, len(inputs))
 	for i, raw := range embResp.Embeddings.Float {
-		vector := toFloat32(raw)
+		vector := embeddings.ToFloat32(raw)
 		out[i] = &embeddings.Embedding{
 			Vector:      vector,
 			SourceText:  texts[i],
@@ -245,12 +228,4 @@ func (e *Embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Inpu
 	}
 
 	return out[0], nil
-}
-
-func toFloat32(f64 []float64) []float32 {
-	out := make([]float32, len(f64))
-	for i, v := range f64 {
-		out[i] = float32(v)
-	}
-	return out
 }

@@ -5,7 +5,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -97,10 +96,7 @@ func (s *SecretSource) GetSecret(ctx context.Context, name string) (string, erro
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
-	startTime := time.Now()
-	defer func() {
-		s.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, s.latencyHist)()
 
 	paramName := s.resolveName(name)
 	op.Set(keys.SecretNameKey, paramName)

@@ -87,7 +87,7 @@ type Guard struct {
 // reads a row, finds it in the wrong state, and reports the miss itself wants
 // the same attribute on the same counter, and two spellings of it would put
 // half a package's misses in a series nothing groups with the other half.
-func (g Guard) OpAttr(operation string) metric.MeasurementOption {
+func (g *Guard) OpAttr(operation string) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String(g.Namespace+storeOpSuffix, operation))
 }
 
@@ -98,7 +98,7 @@ func (g Guard) OpAttr(operation string) metric.MeasurementOption {
 // distinguishes a caller cancelling twice from a worker losing a lease race,
 // one of which is routine and one of which wants looking at. description names
 // the write in whatever error the driver returns.
-func (g Guard) Exec(
+func (g *Guard) Exec(
 	ctx context.Context,
 	op observability.Operation,
 	q database.SQLQueryExecutor,

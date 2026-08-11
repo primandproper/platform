@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -64,10 +63,7 @@ func (e *SecretSource) GetSecret(ctx context.Context, name string) (string, erro
 	// NOTE: only the secret's lookup key is observed, never its value.
 	op.Set(keys.SecretNameKey, name)
 
-	startTime := time.Now()
-	defer func() {
-		e.latencyHist.Record(ctx, float64(time.Since(startTime).Milliseconds()))
-	}()
+	defer op.Time(ctx, nil, e.latencyHist)()
 
 	value, ok := os.LookupEnv(name)
 	if !ok {

@@ -306,12 +306,10 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		e := &Embedder{
-			requestCounter: metricstest.Int64Counter(t, "requests"),
-			errorCounter:   metricstest.Int64Counter(t, "errors"),
-			latencyHist:    metricstest.Float64Histogram(t, "latency"),
-			cfg:            &Config{BaseURL: string([]byte{0x7f})},
-			o11y:           observability.NewObserverForTest("test"),
-			client:         &http.Client{},
+			instruments: metricstest.OperationSet(t, "test"),
+			cfg:         &Config{BaseURL: string([]byte{0x7f})},
+			o11y:        observability.NewObserverForTest("test"),
+			client:      &http.Client{},
 		}
 
 		result, err := e.GenerateEmbedding(t.Context(), &embeddings.Input{Content: "hello"})
@@ -325,11 +323,9 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 
 		body := `{"embeddings":[[0.1,0.2]]}`
 		e := &Embedder{
-			requestCounter: metricstest.Int64Counter(t, "requests"),
-			errorCounter:   metricstest.Int64Counter(t, "errors"),
-			latencyHist:    metricstest.Float64Histogram(t, "latency"),
-			cfg:            &Config{BaseURL: "http://localhost"},
-			o11y:           observability.NewObserverForTest("test"),
+			instruments: metricstest.OperationSet(t, "test"),
+			cfg:         &Config{BaseURL: "http://localhost"},
+			o11y:        observability.NewObserverForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return &http.Response{
@@ -350,11 +346,9 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		e := &Embedder{
-			requestCounter: metricstest.Int64Counter(t, "requests"),
-			errorCounter:   metricstest.Int64Counter(t, "errors"),
-			latencyHist:    metricstest.Float64Histogram(t, "latency"),
-			cfg:            &Config{BaseURL: "http://localhost"},
-			o11y:           observability.NewObserverForTest("test"),
+			instruments: metricstest.OperationSet(t, "test"),
+			cfg:         &Config{BaseURL: "http://localhost"},
+			o11y:        observability.NewObserverForTest("test"),
 			client: &http.Client{
 				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return &http.Response{
@@ -450,11 +444,9 @@ func TestEmbedder_GenerateEmbeddings_Batch(T *testing.T) {
 		t.Parallel()
 
 		e := &Embedder{
-			requestCounter: metricstest.Int64Counter(t, "requests"),
-			errorCounter:   metricstest.Int64Counter(t, "errors"),
-			latencyHist:    metricstest.Float64Histogram(t, "latency"),
-			cfg:            &Config{},
-			o11y:           observability.NewObserverForTest("test"),
+			instruments: metricstest.OperationSet(t, "test"),
+			cfg:         &Config{},
+			o11y:        observability.NewObserverForTest("test"),
 			// A nil client would panic if a request were attempted, which is the
 			// assertion: an empty batch must short-circuit before the round trip.
 			client: nil,
@@ -469,12 +461,10 @@ func TestEmbedder_GenerateEmbeddings_Batch(T *testing.T) {
 		t.Parallel()
 
 		e := &Embedder{
-			requestCounter: metricstest.Int64Counter(t, "requests"),
-			errorCounter:   metricstest.Int64Counter(t, "errors"),
-			latencyHist:    metricstest.Float64Histogram(t, "latency"),
-			cfg:            &Config{},
-			o11y:           observability.NewObserverForTest("test"),
-			client:         nil,
+			instruments: metricstest.OperationSet(t, "test"),
+			cfg:         &Config{},
+			o11y:        observability.NewObserverForTest("test"),
+			client:      nil,
 		}
 
 		// Refused rather than split: one request embeds against one model, and

@@ -222,8 +222,10 @@ func TestNewProvider(T *testing.T) {
 		must.Error(t, err)
 		must.Nil(t, provider)
 
-		// requests, errors, tokens.
-		test.SliceLen(t, 3, mp.NewInt64CounterCalls())
+		// The set builds requests and errors before its histogram, and the
+		// token counter is this provider's own, built after the set — so a
+		// histogram that fails is reached with two counters made, not three.
+		test.SliceLen(t, 2, mp.NewInt64CounterCalls())
 		test.SliceLen(t, 1, mp.NewFloat64HistogramCalls())
 	})
 }

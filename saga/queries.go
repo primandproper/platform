@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 )
 
@@ -372,4 +372,3 @@ func wherePrefix(where string) string {
 
 	return " WHERE " + where
 }
-

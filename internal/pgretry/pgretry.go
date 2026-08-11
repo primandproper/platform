@@ -84,10 +84,6 @@ type Retrier struct {
 	// before anyone reads a log. An absent one records nothing.
 	Counter metrics.Int64Counter
 
-	// AddOptions are the attributes Counter's measurements carry — the caller's
-	// queue or set name, so one process running several does not collapse them.
-	AddOptions []metric.AddOption
-
 	// AttemptKey names the log field carrying the attempt number. It is the
 	// caller's, because the surrounding package's keys are namespaced to it.
 	AttemptKey string
@@ -95,6 +91,10 @@ type Retrier struct {
 	// Subject names what is being written, in the log line: "work queue",
 	// "timer".
 	Subject string
+
+	// AddOptions are the attributes Counter's measurements carry — the caller's
+	// queue or set name, so one process running several does not collapse them.
+	AddOptions []metric.AddOption
 
 	// Attempts bounds how many times a write runs in total, the first included.
 	// A value below 2 runs the write once and returns whatever it got.

@@ -127,4 +127,3 @@ func TestWorkerConfig_budgetFor(T *testing.T) {
 		test.True(t, cfg.CompensationBackoff.MaxAttempts > cfg.Backoff.MaxAttempts)
 	})
 }
-

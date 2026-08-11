@@ -9,10 +9,13 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 )
@@ -332,6 +335,14 @@ func (op *RecordingOperation) Logger() logging.Logger {
 // Span returns nil; recording operations have no real span.
 func (op *RecordingOperation) Span() tracing.Span {
 	return nil
+}
+
+// Time measures through the same code the production Operation does, so a test
+// holding a RecordingOperation still records into whatever histogram it was
+// given — which is how a test asserts on a latency it controls through an
+// injected clock.
+func (op *RecordingOperation) Time(ctx context.Context, c clock.Clock, hist metrics.Float64Histogram, opts ...metric.RecordOption) func() {
+	return timing(ctx, c, hist, opts...)
 }
 
 // Error records err and returns it wrapped, matching the production Operation's

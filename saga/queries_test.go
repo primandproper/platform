@@ -248,5 +248,4 @@ func TestQueryHelpers(T *testing.T) {
 		test.EqOp(t, "", wherePrefix(""))
 		test.EqOp(t, " WHERE a = 1", wherePrefix("a = 1"))
 	})
-
 }

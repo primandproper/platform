@@ -53,3 +53,25 @@ type Embedder interface {
 	// partially populated slice the caller has to inspect positionally.
 	GenerateEmbeddings(ctx context.Context, inputs []*Input) ([]*Embedding, error)
 }
+
+// ToFloat32 narrows a float64 vector to the float32 one an Embedding carries.
+//
+// Every provider here needs it, because every provider's JSON decodes to
+// float64 and every vector store this module talks to stores float32 — so the
+// narrowing happens once per response on the way out of each provider. Three
+// byte-identical copies of a four-line loop is not a crisis, but it is three
+// places for the precision decision to be made independently, and the decision
+// is the interesting part: float32 is what pgvector and Qdrant store, so
+// keeping float64 through this layer would double every payload for precision
+// that is discarded at the next hop.
+//
+// A nil or empty input yields an empty, non-nil slice, so a caller ranging over
+// the result never has to distinguish "no vector" from "a vector of nothing".
+func ToFloat32(f64 []float64) []float32 {
+	out := make([]float32, len(f64))
+	for i, v := range f64 {
+		out[i] = float32(v)
+	}
+
+	return out
+}

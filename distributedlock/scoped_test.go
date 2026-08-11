@@ -244,6 +244,9 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 		// A clock whose Sleep returns instantly: the wait between polls is the
 		// test's to control, not the wall's.
 		c := &clockmock.ClockMock{
+			// Now is read too: the locker times its own latency against the
+			// clock it was given rather than against the wall.
+			NowFunc:   time.Now,
 			SleepFunc: func(context.Context, time.Duration) error { return nil },
 		}
 
@@ -281,6 +284,9 @@ func TestScopedLocker_WithScopedClock(T *testing.T) {
 		t.Parallel()
 
 		c := &clockmock.ClockMock{
+			// Now is read too: the locker times its own latency against the
+			// clock it was given rather than against the wall.
+			NowFunc:   time.Now,
 			SleepFunc: func(context.Context, time.Duration) error { return nil },
 		}
 
