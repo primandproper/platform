@@ -43,16 +43,9 @@ type Evaluator struct {
 	// package's.
 	O11y observability.Observer
 
-	// Client is the OpenFeature client bound to the provider's domain.
-	Client *openfeature.Client
-
 	// CircuitBreaker guards every evaluation. Required: a nil one panics on
 	// first use rather than silently evaluating unguarded.
 	CircuitBreaker circuitbreaking.CircuitBreaker
-
-	// Domain is the name the provider registered under, and is what Close
-	// detaches.
-	Domain string
 
 	// EvalCounter counts evaluations that answered.
 	EvalCounter metrics.Int64Counter
@@ -67,6 +60,13 @@ type Evaluator struct {
 
 	// LatencyHist records how long an evaluation took, in milliseconds.
 	LatencyHist metrics.Float64Histogram
+
+	// Client is the OpenFeature client bound to the provider's domain.
+	Client *openfeature.Client
+
+	// Domain is the name the provider registered under, and is what Close
+	// detaches.
+	Domain string
 }
 
 // Context converts a featureflags.EvaluationContext into the SDK's own

@@ -35,13 +35,12 @@ type (
 	// NewFeatureFlagManager, so a caller who has chosen PostHog can depend on that
 	// choice rather than on the interface every flag backend shares.
 	FeatureFlagManager struct {
+		posthogClient posthog.Client
 		// Evaluator is the flag evaluation every OpenFeature-backed provider
 		// here does; see featureflags/internal/openfeatureflags. Embedded, so
 		// this type still presents the whole featureflags.FeatureFlagManager
 		// surface.
 		openfeatureflags.Evaluator
-
-		posthogClient posthog.Client
 	}
 )
 

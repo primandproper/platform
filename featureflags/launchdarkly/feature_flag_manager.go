@@ -39,13 +39,12 @@ type (
 	// NewFeatureFlagManager, so a caller who has chosen LaunchDarkly can depend on
 	// that choice rather than on the interface every flag backend shares.
 	FeatureFlagManager struct {
+		ldClient *ld.LDClient
 		// Evaluator is the flag evaluation every OpenFeature-backed provider
 		// here does; see featureflags/internal/openfeatureflags. Embedded, so
 		// this type still presents the whole featureflags.FeatureFlagManager
 		// surface.
 		openfeatureflags.Evaluator
-
-		ldClient *ld.LDClient
 	}
 )
 
