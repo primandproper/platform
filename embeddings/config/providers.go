@@ -2,7 +2,6 @@ package embeddingscfg
 
 import (
 	"context"
-	"strings"
 
 	"github.com/primandproper/platform-go/v10/embeddings"
 	"github.com/primandproper/platform-go/v10/embeddings/cohere"
@@ -10,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v10/embeddings/ollama"
 	"github.com/primandproper/platform-go/v10/embeddings/openai"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 )
 
 // NewEmbedder provides an Embedder from config.
@@ -31,7 +31,16 @@ func NewEmbedder(
 		return nil, errors.ErrNilInputParameter
 	}
 
-	switch provider := strings.TrimSpace(strings.ToLower(c.Provider)); provider {
+	provider, err := cfgnorm.SelectProvider(c.Provider, providers, "embeddings provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = c.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating embeddings config")
+	}
+
+	switch provider {
 	case ProviderOpenAI:
 		return openai.NewEmbedder(ctx, c.OpenAI,
 			openai.WithLogger(logger),

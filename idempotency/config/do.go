@@ -14,8 +14,11 @@ import (
 // is generic because a Manager stores results of one concrete type; each
 // result type the application replays is registered separately.
 //
-// Prerequisites: *Config and database.Client must be registered in the
-// injector before the Manager is invoked.
+// Prerequisites: *Config must be registered in the injector before the Manager
+// is invoked. A database.Client is only required when the config's lock
+// provider is postgres — which is what NewManager documents, and what this
+// used to contradict by invoking one unconditionally: a redis-locked container
+// that had registered no database panicked at build.
 func RegisterManager[T any](i do.Injector) {
 	do.Provide(i, func(i do.Injector) (*idempotency.Manager[T], error) {
 		pillars, err := observability.InvokePillars(i)
@@ -23,10 +26,21 @@ func RegisterManager[T any](i do.Injector) {
 			return nil, err
 		}
 
+		cfg := do.MustInvoke[*Config](i)
+
+		var db database.Client
+		if cfg.Lock.RequiresDatabase() {
+			client, clientErr := do.Invoke[database.Client](i)
+			if clientErr != nil {
+				return nil, clientErr
+			}
+			db = client
+		}
+
 		return NewManager[T](
 			do.MustInvoke[context.Context](i),
-			do.MustInvoke[*Config](i),
-			do.MustInvoke[database.Client](i),
+			cfg,
+			db,
 			WithPillars(pillars),
 		)
 	})

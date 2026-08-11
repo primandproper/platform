@@ -3,7 +3,6 @@ package secretscfg
 import (
 	"context"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/errors"
@@ -59,15 +58,12 @@ type Config struct {
 // which selects the env source. Validation and NewSecretSource both read it.
 var providers = []string{"", ProviderEnv, ProviderNoop, ProviderGCP, ProviderSSM, ProviderKubernetes}
 
-// normalizeProvider canonicalizes a provider name the way NewSecretSource does.
-func normalizeProvider(provider string) string {
-	return strings.TrimSpace(strings.ToLower(provider))
-}
-
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates the config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	provider := cfgnorm.Provider(cfg.Provider)
+
 	// Release the sub-configs env parsing's ",init" allocated and nothing filled
 	// in, so the Nil rules below read "the operator configured this" rather than
 	// "env parsing ran".
@@ -79,15 +75,20 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Provider, validation.By(func(any) error {
 			// Checked normalized, matching dispatch: validating the raw string
 			// rejected "GCP" and " gcp " while NewSecretSource accepted both.
-			if !slices.Contains(providers, normalizeProvider(cfg.Provider)) {
+			if !slices.Contains(providers, provider) {
+				// The sentinel is wrapped for its text, not for errors.Is:
+				// ozzo's validation.Errors is a map with no Unwrap, so what
+				// reaches the caller from here is a string. NewSecretSource
+				// checks the same list before this runs, which is what makes
+				// errors.Is(err, ErrUnknownProvider) hold for a constructor.
 				return errors.Wrapf(errors.ErrUnknownProvider, "secrets provider %q", cfg.Provider)
 			}
 
 			return nil
 		})),
-		validation.Field(&cfg.GCP, validation.When(normalizeProvider(cfg.Provider) == ProviderGCP, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderGCP, validation.Nil)),
-		validation.Field(&cfg.SSM, validation.When(normalizeProvider(cfg.Provider) == ProviderSSM, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderSSM, validation.Nil)),
-		validation.Field(&cfg.Kubernetes, validation.When(normalizeProvider(cfg.Provider) == ProviderKubernetes, validation.Required), validation.When(normalizeProvider(cfg.Provider) != ProviderKubernetes, validation.Nil)),
+		validation.Field(&cfg.GCP, validation.When(provider == ProviderGCP, validation.Required), validation.When(provider != ProviderGCP, validation.Nil)),
+		validation.Field(&cfg.SSM, validation.When(provider == ProviderSSM, validation.Required), validation.When(provider != ProviderSSM, validation.Nil)),
+		validation.Field(&cfg.Kubernetes, validation.When(provider == ProviderKubernetes, validation.Required), validation.When(provider != ProviderKubernetes, validation.Nil)),
 		validation.Field(&cfg.CacheTTL, validation.Min(time.Duration(0))),
 		// Caught here as well as at construction, so an operator who set a
 		// refresh without a cache — or one that cannot land before the entry it
@@ -139,6 +140,14 @@ func (cfg *Config) NewSecretSource(ctx context.Context, opts ...Option) (secrets
 		return s, nil
 	}
 
+	if _, err := cfgnorm.SelectProvider(cfg.Provider, providers, "secrets provider"); err != nil {
+		return nil, err
+	}
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating secrets config")
+	}
+
 	source, err := cfg.newProviderSource(ctx, o)
 	if err != nil {
 		return nil, err
@@ -158,8 +167,7 @@ func (cfg *Config) NewSecretSource(ctx context.Context, opts ...Option) (secrets
 func (cfg *Config) newProviderSource(ctx context.Context, o *options) (secrets.SecretSource, error) {
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
-	provider := normalizeProvider(cfg.Provider)
-	switch provider {
+	switch cfgnorm.Provider(cfg.Provider) {
 	case "", ProviderEnv:
 		s, err := env.NewSecretSource(env.WithLogger(logger), env.WithTracerProvider(tracerProvider), env.WithMetricsProvider(metricsProvider))
 		if err != nil {
@@ -203,7 +211,7 @@ func (cfg *Config) newProviderSource(ctx context.Context, o *options) (secrets.S
 
 		return s, nil
 	default:
-		return nil, errors.Newf("unknown secret source provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "secrets provider %q", cfg.Provider)
 	}
 }
 

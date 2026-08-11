@@ -10,7 +10,6 @@ import (
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/keys"
 
 	"github.com/XSAM/otelsql"
 	"go.opentelemetry.io/otel/attribute"
@@ -278,20 +277,24 @@ func (q *Client) IsReady(ctx context.Context) bool {
 
 	op.Set("db.ping.max_attempts", maxAttempts).Set("db.ping.wait_period", waitPeriod)
 
-	readReady := q.waitForPing(ctx, op, q.readDB, q.config.GetReadConnectionString(), maxAttempts, waitPeriod)
+	readReady := q.waitForPing(ctx, op, q.readDB, "read", maxAttempts, waitPeriod)
 	if !readReady {
 		return false
 	}
 
 	if q.writeDB != q.readDB {
-		return q.waitForPing(ctx, op, q.writeDB, q.config.GetWriteConnectionString(), maxAttempts, waitPeriod)
+		return q.waitForPing(ctx, op, q.writeDB, "write", maxAttempts, waitPeriod)
 	}
 
 	return true
 }
 
-func (q *Client) waitForPing(ctx context.Context, op observability.Operation, db *sql.DB, connectionURL string, maxAttempts int, waitPeriod time.Duration) bool {
-	logger := op.Logger().WithValue(keys.ConnectionURLKey, connectionURL)
+// waitForPing labels its log lines with which side is being pinged, rather than
+// the connection string. A sqlite URL is a file path and carries no credential,
+// but this function is a near-copy of the postgres and mysql ones and the copying
+// goes both ways; a URL logged here becomes a password logged there.
+func (q *Client) waitForPing(ctx context.Context, op observability.Operation, db *sql.DB, connectionName string, maxAttempts int, waitPeriod time.Duration) bool {
+	logger := op.Logger().WithValue("connection", connectionName)
 
 	for attemptCount := range maxAttempts {
 		if err := db.PingContext(ctx); err == nil {

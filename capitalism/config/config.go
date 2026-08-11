@@ -2,12 +2,13 @@ package capitalismcfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/capitalism"
 	"github.com/primandproper/platform-go/v10/capitalism/noop"
 	"github.com/primandproper/platform-go/v10/capitalism/stripe"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -34,6 +35,10 @@ type (
 	}
 )
 
+// providers are every provider this package implements. Validation and both
+// constructors read it.
+var providers = []string{StripeProvider, NoopProvider}
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct.
@@ -44,20 +49,56 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // validation.When guard alone stops the Required rule and nothing else, so a
 // webhook secret was demanded of deployments that charge nobody.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
+	provider := cfgnorm.Provider(cfg.Provider)
+
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.Required, validation.In(StripeProvider, NoopProvider)),
-		validation.Field(&cfg.Stripe, validation.Skip.When(cfg.Provider != StripeProvider), validation.Required),
+		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "Stripe" and " stripe " while both constructors built them.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "payments provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&cfg.Stripe, validation.Skip.When(provider != StripeProvider), validation.Required),
 	)
+}
+
+// prepare validates cfg, shared by both constructors so that building a payment
+// manager cannot succeed against a config the usage reporter would reject.
+//
+// It returns the normalized provider, which is what the callers dispatch on.
+func prepare(ctx context.Context, cfg *Config) (string, error) {
+	if cfg == nil {
+		return "", errors.ErrNilInputParameter
+	}
+
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "payments provider")
+	if err != nil {
+		return "", err
+	}
+
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return "", errors.Wrap(err, "validating payments config")
+	}
+
+	return provider, nil
 }
 
 // NewPaymentManager provides a capitalism.PaymentManager implementation based on the
 // config. stripeEventHandler is optional (may be nil) and, for the Stripe provider, is invoked with
 // each verified webhook event.
-func NewPaymentManager(_ context.Context, cfg *Config, stripeEventHandler stripe.EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
+func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stripe.EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
 	o := newOptions(opts)
 	logger, tracerProvider := o.logger, o.tracerProvider
 
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	provider, err := prepare(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	switch provider {
 	case StripeProvider:
 		return stripe.NewPaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
 	case NoopProvider:
@@ -68,11 +109,16 @@ func NewPaymentManager(_ context.Context, cfg *Config, stripeEventHandler stripe
 }
 
 // NewUsageReporter provides a capitalism.UsageReporter based on the config.
-func NewUsageReporter(_ context.Context, cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
+func NewUsageReporter(ctx context.Context, cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
 	o := newOptions(opts)
 	logger, tracerProvider := o.logger, o.tracerProvider
 
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	provider, err := prepare(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	switch provider {
 	case StripeProvider:
 		return stripe.NewUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
 	case NoopProvider:

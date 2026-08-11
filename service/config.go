@@ -310,6 +310,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Routing),
 		validation.Field(&cfg.Saga),
 		validation.Field(&cfg.Secrets),
+		validation.Field(&cfg.Shredding),
 		validation.Field(&cfg.Tokens),
 		validation.Field(&cfg.Uploads),
 		validation.Field(&cfg.Webhooks),

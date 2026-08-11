@@ -13,6 +13,10 @@ func ExampleNewInMemoryRateLimiter() {
 		panic(err)
 	}
 
+	// Closing is what stops the sweeper that reclaims the limiters of keys that
+	// have stopped arriving.
+	defer limiter.Close()
+
 	var allowed bool
 	allowed, err = limiter.Allow(context.Background(), "user-123")
 	if err != nil {

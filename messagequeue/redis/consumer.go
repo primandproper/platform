@@ -130,13 +130,24 @@ type consumerProvider struct {
 }
 
 // NewRedisConsumerProvider returns a ConsumerProvider for a given address.
-func NewRedisConsumerProvider(cfg Config, opts ...Option) messagequeue.ConsumerProvider {
+//
+// It takes a context and reports an error so that the config's own
+// ValidateWithContext runs here. Without it, a config with no QueueAddresses
+// fell through both branches below and the provider came back holding a nil
+// client — which nothing noticed until the first Ping panicked.
+func NewRedisConsumerProvider(ctx context.Context, cfg Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, platformerrors.Wrap(err, "validating redis consumer config")
+	}
+
 	o := newOptions(opts)
 	o11y := observability.NewObserver("redis_consumer_provider", o.logger, o.tracerProvider)
 	o11y.Logger().WithValue("queue_addresses", cfg.QueueAddresses).
 		WithValue(keys.UsernameKey, cfg.Username).
 		WithValue("password_empty", cfg.Password == "").Info("setting up redis consumer")
 
+	// Validation guarantees at least one address, so these two branches cover
+	// every config that reaches here.
 	var redisClient subscriptionProvider
 	if len(cfg.QueueAddresses) > 1 {
 		redisClient = redis.NewClusterClient(&redis.ClusterOptions{
@@ -144,7 +155,7 @@ func NewRedisConsumerProvider(cfg Config, opts ...Option) messagequeue.ConsumerP
 			Username: cfg.Username,
 			Password: cfg.Password,
 		})
-	} else if len(cfg.QueueAddresses) == 1 {
+	} else {
 		redisClient = redis.NewClient(&redis.Options{
 			Addr:     cfg.QueueAddresses[0],
 			Username: cfg.Username,
@@ -158,7 +169,7 @@ func NewRedisConsumerProvider(cfg Config, opts ...Option) messagequeue.ConsumerP
 		metricsProvider: o.metricsProvider,
 		redisClient:     redisClient,
 		consumerCache:   map[string]messagequeue.Consumer{},
-	}
+	}, nil
 }
 
 // Close closes the shared Redis client, mirroring the publisher provider. Cached

@@ -8,6 +8,7 @@ import (
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/panicking"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -17,6 +18,12 @@ import (
 const (
 	panicStackKey  = "timers.panic_stack"
 	handlerLateKey = "timers.lateness_ms"
+	// timerKeyKey names the one timer a firing span is about, and timerKeysKey
+	// the batch a failed write could not retire. Both hold the encoded key — the
+	// text in the row's primary key — so a span or a log line leads straight to
+	// the row, which is where last_error is.
+	timerKeyKey  = "timers.key"
+	timerKeysKey = "timers.keys"
 )
 
 const (
@@ -242,18 +249,40 @@ func (w *Worker[K]) pass(ctx context.Context) (int, error) {
 			// Not fatal, and not returned: the handlers ran. The lease lapses and
 			// the firings come back, which is a duplicate rather than a loss, and
 			// saying so here is more useful than failing a pass that worked.
-			w.timers.o11y.Logger().Error("completing fired timers", completeErr)
+			w.logKeys(fired).Error("completing fired timers", completeErr)
 		}
 	}
 
 	for i := range failed {
 		if releaseErr := w.timers.
 			Release(writeCtx, w.cfg.RetryDelay, failed[i].cause, failed[i].due...); releaseErr != nil {
-			w.timers.o11y.Logger().Error("releasing failed timers", releaseErr)
+			w.logKeys(failed[i].due).Error("releasing failed timers", releaseErr)
 		}
 	}
 
 	return len(due), nil
+}
+
+// logKeys returns the worker's logger carrying the encoded keys of a batch.
+//
+// A write that fails against a batch is the one place the keys are otherwise
+// lost entirely: Complete and Release take the whole slice, so a failure says
+// only that some timers could not be retired. It is bounded by the configured
+// batch size, which is what makes putting the whole list on one line reasonable.
+//
+// A key that will not encode is skipped rather than rendered some other way. It
+// cannot happen for a key that was just decoded out of the table, and a
+// placeholder in the list would read as a key nobody can find.
+func (w *Worker[K]) logKeys(due []Due[K]) logging.Logger {
+	encoded := make([]string, 0, len(due))
+
+	for i := range due {
+		if key, err := encodeKey(w.timers.codec, due[i].Key); err == nil {
+			encoded = append(encoded, key)
+		}
+	}
+
+	return w.timers.o11y.Logger().WithValue(timerKeysKey, encoded)
 }
 
 // failureGroup is the firings one distinct handler error accounted for, and one
@@ -331,11 +360,22 @@ func (w *Worker[K]) fire(ctx context.Context, due []Due[K]) (fired []Due[K], fai
 // handle fires one timer under its own span, containing whatever the handler
 // does to itself.
 func (w *Worker[K]) handle(ctx context.Context, due Due[K]) error {
-	ctx, op := w.o11y.Begin(ctx, observability.WithValues(map[string]any{
+	values := map[string]any{
 		attemptKey:     due.Attempts,
 		reclaimedKey:   due.Reclaimed,
 		handlerLateKey: due.Late.Milliseconds(),
-	}))
+	}
+
+	// The encoded key rather than the Go value, because it is what the row is
+	// filed under: a reader who found this span by its error goes to the table
+	// next, and anything else makes them guess at the rendering. Without it the
+	// span said a timer failed without saying which, and the row's last_error was
+	// the only thing that led back.
+	if key, err := encodeKey(w.timers.codec, due.Key); err == nil {
+		values[timerKeyKey] = key
+	}
+
+	ctx, op := w.o11y.Begin(ctx, observability.WithValues(values))
 	defer op.End()
 
 	err := panicking.Contain(func() error { return w.handler(ctx, due) })

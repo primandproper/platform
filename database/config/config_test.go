@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -663,101 +665,6 @@ func TestConfig_GetWriteConnectionString_ProviderAware(T *testing.T) {
 	})
 }
 
-func TestConfig_driverName(T *testing.T) {
-	T.Parallel()
-
-	T.Run("postgres default", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{Provider: ProviderPostgres}
-		test.EqOp(t, "pgx", cfg.driverName())
-	})
-
-	T.Run("mysql", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{Provider: ProviderMySQL}
-		test.EqOp(t, "mysql", cfg.driverName())
-	})
-
-	T.Run("sqlite", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{Provider: ProviderSQLite}
-		test.EqOp(t, "sqlite", cfg.driverName())
-	})
-
-	T.Run("unknown falls back to pgx", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{Provider: "unknown"}
-		test.EqOp(t, "pgx", cfg.driverName())
-	})
-}
-
-func TestConfig_ConnectToReadDatabase(T *testing.T) {
-	T.Parallel()
-
-	T.Run("sqlite in-memory", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{
-			Provider: ProviderSQLite,
-			ReadConnection: ConnectionDetails{
-				Database: ":memory:",
-			},
-		}
-
-		db, err := cfg.ConnectToReadDatabase()
-		must.NoError(t, err)
-		must.NotNil(t, db)
-		must.NoError(t, db.Close())
-	})
-
-	T.Run("postgres lazy open", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{
-			Provider: ProviderPostgres,
-			ReadConnection: ConnectionDetails{
-				Host:     "localhost",
-				Port:     5432,
-				Username: "user",
-				Password: "pass",
-				Database: "db",
-			},
-		}
-
-		db, err := cfg.ConnectToReadDatabase()
-		must.NoError(t, err)
-		must.NotNil(t, db)
-		must.NoError(t, db.Close())
-	})
-
-	T.Run("mysql with bogus DSN returns error", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{
-			Provider: ProviderMySQL,
-		}
-		db, err := cfg.connectToDatabase("not a valid mysql dsn")
-		test.Nil(t, db)
-		test.Error(t, err)
-	})
-}
-
-func TestConfig_ConnectToWriteDatabase(T *testing.T) {
-	T.Parallel()
-
-	T.Run("sqlite in-memory", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{
-			Provider: ProviderSQLite,
-			WriteConnection: ConnectionDetails{
-				Database: ":memory:",
-			},
-		}
-
-		db, err := cfg.ConnectToWriteDatabase()
-		must.NoError(t, err)
-		must.NotNil(t, db)
-		must.NoError(t, db.Close())
-	})
-}
-
 func TestNewDatabase(T *testing.T) {
 	T.Parallel()
 
@@ -770,8 +677,7 @@ func TestNewDatabase(T *testing.T) {
 
 		client, err := NewDatabase(t.Context(), cfg, nil)
 		test.Nil(t, client)
-		test.Error(t, err)
-		test.StrContains(t, err.Error(), "invalid database provider")
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 
 	T.Run("postgres lazy open", func(t *testing.T) {

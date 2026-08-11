@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
@@ -153,8 +154,8 @@ func TestKubernetesSecretSource_GetSecret(T *testing.T) {
 		test.EqOp(t, "db-creds", mc.lastName)
 
 		obs.ObservedOperationWithData(t, map[string]any{
-			"secret.name": "db-creds",
-			"secret.key":  "password",
+			keys.SecretNameKey:  "db-creds",
+			keys.SecretEntryKey: "password",
 		})
 	})
 
@@ -191,8 +192,8 @@ func TestKubernetesSecretSource_GetSecret(T *testing.T) {
 
 		// The identifiers must still have been observed even though the lookup failed.
 		obs.ObservedOperationWithData(t, map[string]any{
-			"secret.name": "db-creds",
-			"secret.key":  "password",
+			keys.SecretNameKey:  "db-creds",
+			keys.SecretEntryKey: "password",
 		})
 	})
 
@@ -209,8 +210,8 @@ func TestKubernetesSecretSource_GetSecret(T *testing.T) {
 		// Even though the send failed, the identifiers must still have been observed,
 		// and the failure itself recorded on the operation.
 		op := obs.ObservedOperationWithData(t, map[string]any{
-			"secret.name": "db-creds",
-			"secret.key":  "password",
+			keys.SecretNameKey:  "db-creds",
+			keys.SecretEntryKey: "password",
 		})
 		must.SliceLen(t, 1, op.Errors)
 	})

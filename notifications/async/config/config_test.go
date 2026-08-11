@@ -68,7 +68,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 			test.ErrorIs(t, cfg.ValidateWithContext(t.Context()), ErrTopologyRequired)
 
-			_, err := cfg.NewAsyncNotifier(nil)
+			_, err := cfg.NewAsyncNotifier(t.Context())
 			test.ErrorIs(t, err, ErrTopologyRequired)
 		}
 	})
@@ -81,7 +81,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 			test.ErrorIs(t, cfg.ValidateWithContext(t.Context()), ErrFleetUnsupportedForSelfHostedProvider)
 
-			_, err := cfg.NewAsyncNotifier(nil)
+			_, err := cfg.NewAsyncNotifier(t.Context())
 			test.ErrorIs(t, err, ErrFleetUnsupportedForSelfHostedProvider)
 		}
 	})
@@ -95,7 +95,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			cfg := &Config{Provider: ProviderNoop, Topology: topology}
 			must.NoError(t, cfg.ValidateWithContext(t.Context()))
 
-			actual, err := cfg.NewAsyncNotifier(nil)
+			actual, err := cfg.NewAsyncNotifier(t.Context())
 			test.NotNil(t, actual)
 			test.NoError(t, err)
 		}
@@ -132,7 +132,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			Topology:  TopologySingleReplica,
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -145,7 +145,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			Topology: TopologySingleReplica,
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -163,7 +163,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			},
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -178,7 +178,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			},
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.NotNil(t, actual)
 		test.NoError(t, err)
 	})
@@ -192,7 +192,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 				Provider: provider,
 			}
 
-			actual, err := cfg.NewAsyncNotifier(nil)
+			actual, err := cfg.NewAsyncNotifier(t.Context())
 			test.NotNil(t, actual)
 			test.NoError(t, err)
 		})
@@ -205,7 +205,7 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		actual, err := cfg.NewAsyncNotifier(nil)
+		actual, err := cfg.NewAsyncNotifier(t.Context())
 		test.Nil(t, actual)
 		test.Error(t, err)
 	})

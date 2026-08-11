@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 )
@@ -138,72 +139,107 @@ func (qf *QueryFilter) AttachToLogger(logger logging.Logger) logging.Logger {
 	return l
 }
 
-// parseTimestamp reads one RFC3339Nano timestamp parameter, returning nil when
-// the parameter is absent or unparseable.
+// FromParams overrides the core QueryFilter values with values retrieved from
+// url.Params, reporting any parameter that was supplied and could not be read.
 //
-// The absence check is not redundant with the parse: an absent parameter reads
-// as "", which time.Parse rejects by allocating a *time.ParseError that this
-// function then discards. Four of those per call, on every list request, for
-// filters the overwhelming majority of requests do not send — checking first
-// costs a comparison and skips all of it.
-func parseTimestamp(params url.Values, key string) *time.Time {
-	raw := params.Get(key)
-	if raw == "" {
-		return nil
+// An absent parameter is not a failure — the filter simply keeps whatever it
+// already held. A parameter that is present and unreadable is, and that is the
+// distinction the method exists to draw. It used to make no distinction at all:
+// `limit=fifty` and `createdAfter=yesterday` parsed to an error that was
+// discarded, and the caller got an unfiltered list that looked exactly like a
+// filtered one with nothing excluded. The person who notices is whoever reconciles
+// the numbers a week later.
+//
+// Every parameter is attempted, so one bad value does not hide the next; the
+// returned error joins all of them. Whatever did parse is applied, which makes an
+// ignored error behave as the old method did — but a caller reporting the failure
+// to a client should discard the filter rather than list against a half-applied
+// one.
+func (qf *QueryFilter) FromParams(params url.Values) error {
+	var errs []error
+
+	// unreadable names the parameter and the value that would not parse. The
+	// value is the caller's own input coming back to them, and the transport
+	// mappers answer ErrUnrecognizedInputValue with a constant message, so it
+	// reaches logs and traces without reaching the response body.
+	unreadable := func(key, value string, cause error) error {
+		return platformerrors.Wrapf(
+			platformerrors.Join(platformerrors.ErrUnrecognizedInputValue, cause),
+			"reading %s parameter %q", key, value,
+		)
 	}
 
-	t, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return nil
+	// parseTime reads one RFC3339Nano parameter, recording an error only when the
+	// parameter was supplied and would not parse.
+	//
+	// The absence check is not redundant with the parse: an absent parameter reads
+	// as "", which time.Parse rejects by allocating a *time.ParseError. Four of
+	// those per call, on every list request, for filters the overwhelming majority
+	// of requests do not send — checking first costs a comparison and skips all of
+	// it. It is also what keeps an unsent filter from being reported as an
+	// unreadable one.
+	parseTime := func(key string, into **time.Time) {
+		raw := params.Get(key)
+		if raw == "" {
+			return
+		}
+
+		t, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			errs = append(errs, unreadable(key, raw, err))
+
+			return
+		}
+
+		*into = &t
 	}
 
-	return &t
-}
-
-// FromParams overrides the core QueryFilter values with values retrieved from url.Params.
-//
-// Every field is optional, and each is left untouched when its parameter is
-// absent or malformed — a bad filter is ignored rather than refused, so one
-// unparseable timestamp does not fail a list request outright.
-func (qf *QueryFilter) FromParams(params url.Values) {
 	if i := params.Get(QueryKeyCursor); i != "" {
 		qf.Cursor = &i
 	}
 
 	if raw := params.Get(QueryKeyLimit); raw != "" {
-		if i, err := strconv.ParseUint(raw, 10, 64); err == nil {
+		i, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			errs = append(errs, unreadable(QueryKeyLimit, raw, err))
+		} else {
+			// Still clamped rather than rejected: MaxQueryFilterLimit documents an
+			// over-large limit as a clamp, and a client asking for more than the
+			// ceiling has asked a legible question with a legible answer.
 			qf.MaxResponseSize = new(uint16(math.Min(math.Max(float64(i), 0), MaxQueryFilterLimit)))
 		}
 	}
 
-	if t := parseTimestamp(params, QueryKeyCreatedBefore); t != nil {
-		qf.CreatedBefore = t
-	}
-
-	if t := parseTimestamp(params, QueryKeyCreatedAfter); t != nil {
-		qf.CreatedAfter = t
-	}
-
-	if t := parseTimestamp(params, QueryKeyUpdatedBefore); t != nil {
-		qf.UpdatedBefore = t
-	}
-
-	if t := parseTimestamp(params, QueryKeyUpdatedAfter); t != nil {
-		qf.UpdatedAfter = t
-	}
+	parseTime(QueryKeyCreatedBefore, &qf.CreatedBefore)
+	parseTime(QueryKeyCreatedAfter, &qf.CreatedAfter)
+	parseTime(QueryKeyUpdatedBefore, &qf.UpdatedBefore)
+	parseTime(QueryKeyUpdatedAfter, &qf.UpdatedAfter)
 
 	if raw := params.Get(QueryKeyIncludeArchived); raw != "" {
-		if i, err := strconv.ParseBool(raw); err == nil {
+		i, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, unreadable(QueryKeyIncludeArchived, raw, err))
+		} else {
 			qf.IncludeArchived = &i
 		}
 	}
 
-	switch strings.ToLower(params.Get(QueryKeySortBy)) {
-	case sortAscendingString:
-		qf.SortBy = SortAscending
-	case sortDescendingString:
-		qf.SortBy = SortDescending
+	if raw := params.Get(QueryKeySortBy); raw != "" {
+		switch strings.ToLower(raw) {
+		case sortAscendingString:
+			qf.SortBy = SortAscending
+		case sortDescendingString:
+			qf.SortBy = SortDescending
+		default:
+			// A sort order nobody recognized is the most expensive of these to
+			// swallow: the request comes back sorted the other way, in full, and
+			// looks entirely successful.
+			errs = append(errs, platformerrors.Wrapf(platformerrors.ErrUnrecognizedInputValue,
+				"reading %s parameter %q", QueryKeySortBy, raw))
+		}
 	}
+
+	return platformerrors.Join(errs...)
 }
 
 // SetCursor sets the current page with certain constraints.
@@ -275,10 +311,17 @@ func (qf *QueryFilter) ToPagination() Pagination {
 	return x
 }
 
-// ExtractQueryFilterFromRequest can extract a QueryFilter from a request.
-func ExtractQueryFilterFromRequest(req *http.Request) *QueryFilter {
+// ExtractQueryFilterFromRequest extracts a QueryFilter from a request,
+// reporting any query parameter that was supplied and could not be read.
+//
+// The filter is always usable — it starts from DefaultQueryFilter and holds
+// whatever parsed — so a handler that wants the old lenient behavior can log
+// the error and list anyway. One that would rather not answer a mistyped filter
+// with a plausible-looking page has an error wrapping
+// errors.ErrUnrecognizedInputValue, which errors/http already renders as a 400.
+func ExtractQueryFilterFromRequest(req *http.Request) (*QueryFilter, error) {
 	qf := DefaultQueryFilter()
-	qf.FromParams(req.URL.Query())
+	err := qf.FromParams(req.URL.Query())
 
 	if qf.MaxResponseSize != nil {
 		if *qf.MaxResponseSize == 0 {
@@ -286,7 +329,7 @@ func ExtractQueryFilterFromRequest(req *http.Request) *QueryFilter {
 		}
 	}
 
-	return qf
+	return qf, err
 }
 
 // NewQueryFilteredResult creates a new QueryFilteredResult.

@@ -2,11 +2,14 @@ package embeddingscfg
 
 import (
 	"context"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/embeddings"
 	"github.com/primandproper/platform-go/v10/embeddings/cohere"
 	"github.com/primandproper/platform-go/v10/embeddings/ollama"
 	"github.com/primandproper/platform-go/v10/embeddings/openai"
+	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -32,6 +35,12 @@ type Config struct {
 	Provider string         `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 }
 
+// providers are every provider this package implements, plus the empty string,
+// which selects the noop embedder: embeddings are an optional capability, so
+// leaving them unconfigured is a supported deployment. Validation and
+// NewEmbedder both read it.
+var providers = []string{"", ProviderOpenAI, ProviderOllama, ProviderCohere, ProviderNoop}
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates the config.
@@ -42,11 +51,21 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // validation.When guard alone stops the Required rule and nothing else, so
 // OpenAI's and Cohere's API keys were required at once and no config could load.
 func (c *Config) ValidateWithContext(ctx context.Context) error {
+	provider := cfgnorm.Provider(c.Provider)
+
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.In(ProviderOpenAI, ProviderOllama, ProviderCohere, ProviderNoop, "")),
-		validation.Field(&c.OpenAI, validation.Skip.When(c.Provider != ProviderOpenAI), validation.Required),
-		validation.Field(&c.Ollama, validation.Skip.When(c.Provider != ProviderOllama), validation.Required),
-		validation.Field(&c.Cohere, validation.Skip.When(c.Provider != ProviderCohere), validation.Required),
+		validation.Field(&c.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "OpenAI" and " cohere " while NewEmbedder built them.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "embeddings provider %q", c.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&c.OpenAI, validation.Skip.When(provider != ProviderOpenAI), validation.Required),
+		validation.Field(&c.Ollama, validation.Skip.When(provider != ProviderOllama), validation.Required),
+		validation.Field(&c.Cohere, validation.Skip.When(provider != ProviderCohere), validation.Required),
 	)
 }
 

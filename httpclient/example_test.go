@@ -41,6 +41,7 @@ func ExampleNewHTTPClient_resilience() {
 	if err != nil {
 		panic(err)
 	}
+	defer limiter.Close()
 
 	// Whatever the service already built. Absent, every resilience layer below
 	// resolves to its noop and the client records nowhere.
@@ -89,6 +90,7 @@ func ExampleWithHTTPCache() {
 	if err != nil {
 		panic(err)
 	}
+	defer limiter.Close()
 
 	client, err := httpclient.NewHTTPClient(
 		httpclient.WithHTTPCache(store,

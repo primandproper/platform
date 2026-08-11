@@ -1,6 +1,7 @@
 package tokenscfg
 
 import (
+	"context"
 	"encoding/base64"
 	"testing"
 
@@ -28,7 +29,7 @@ func TestNewTokenIssuer(T *testing.T) {
 			Base64EncodedSigningKey: base64.URLEncoding.EncodeToString(random.MustGenerateRawBytes(ctx, 32)),
 		}
 
-		issuer, err := NewTokenIssuer(cfg)
+		issuer, err := NewTokenIssuer(ctx, cfg)
 		must.NoError(t, err)
 		test.NotNil(t, issuer)
 	})
@@ -49,6 +50,7 @@ func TestRegisterTokenIssuer(T *testing.T) {
 		}
 
 		i := do.New()
+		do.ProvideValue[context.Context](i, ctx)
 		do.ProvideValue(i, loggingnoop.NewLogger())
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue(i, cfg)
