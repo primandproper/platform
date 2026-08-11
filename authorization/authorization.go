@@ -183,7 +183,7 @@ func (s *PermissionSet) safe() map[Permission]struct{} {
 // The error branch is unreachable — the argument is a []Permission, and
 // encoding/json cannot fail on a slice of a string type — and stays only
 // because the interface requires the return and errcheck requires the handling.
-// The same is true of GobEncode below.
+// The same is true of MarshalBinary below.
 func (s *PermissionSet) MarshalJSON() ([]byte, error) {
 	b, err := json.Marshal(s.Slice())
 	if err != nil {
@@ -204,26 +204,49 @@ func (s *PermissionSet) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// GobEncode encodes the set as a sorted slice of permissions.
+// MarshalBinary encodes the set as a sorted array of permissions.
 //
-// PermissionSet's only field is unexported, so gob cannot encode it
-// structurally. This matters because cache.Cache's default codec is gob, and
-// authorization/cached stores resolved sets — without these methods the cache
-// silently round-trips an empty set.
-func (s *PermissionSet) GobEncode() ([]byte, error) {
+// PermissionSet's only field is unexported, so no encoder reflecting over the
+// type can reach its contents: gob, CBOR, and anything else structural see a
+// struct with nothing in it. gob refuses outright. CBOR encodes the empty map
+// and decodes it back with no error, which means authorization/cached — whose
+// production wiring is redis, and whose default codec is CBOR — would serve an
+// empty set as an authoritative hit for the length of a TTL, with no error and
+// no fault counter to notice it by.
+//
+// encoding.BinaryMarshaler is the hook they all honor, so the encoding is
+// stated once here rather than once per codec. Deliberately not GobEncode: that
+// pair only taught gob, and the default moved to a codec it said nothing to.
+// Any type stored in cache.Cache whose fields are all unexported needs this
+// same treatment, and should be round-tripped through cache.NewDefaultCodec in
+// a test to prove it.
+//
+// The payload is the JSON array the GobEncode this replaces produced, but that
+// buys no compatibility with entries an older binary wrote: gob records which
+// of the three external encodings a type used in its type descriptor, so a
+// GobEncoder stream fails to decode into a BinaryMarshaler type. It fails
+// loudly, which is the tolerable half. The CBOR entries are the dangerous half
+// — they decode into an empty set with no error — and neither is reachable
+// after authorization/cached's key format version bump.
+//
+// The error branch is unreachable — the argument is a []Permission, and
+// encoding/json cannot fail on a slice of a string type — and stays only
+// because the interface requires the return and errcheck requires the handling.
+// The same is true of MarshalJSON above.
+func (s *PermissionSet) MarshalBinary() ([]byte, error) {
 	b, err := json.Marshal(s.Slice())
 	if err != nil {
-		return nil, errors.Wrap(err, "gob-encoding permission set")
+		return nil, errors.Wrap(err, "binary-encoding permission set")
 	}
 
 	return b, nil
 }
 
-// GobDecode decodes a set encoded by GobEncode.
-func (s *PermissionSet) GobDecode(data []byte) error {
+// UnmarshalBinary decodes a set encoded by MarshalBinary.
+func (s *PermissionSet) UnmarshalBinary(data []byte) error {
 	var perms []Permission
 	if err := json.Unmarshal(data, &perms); err != nil {
-		return errors.Wrap(err, "gob-decoding permission set")
+		return errors.Wrap(err, "binary-decoding permission set")
 	}
 	*s = *NewPermissionSet(perms...)
 

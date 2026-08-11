@@ -83,7 +83,13 @@ const (
 // Bump it whenever PermissionSet's encoding changes. Entries written by an
 // older binary then become unreachable rather than mis-decoded, and the cost of
 // that is one round of misses.
-const keyFormatVersion = "authzv1"
+//
+// v2 is that bump. Under v1 a CBOR-backed cache stored every set as the empty
+// map, because PermissionSet's only field is unexported and it taught gob how
+// to encode it but not CBOR. Those entries do not fail to decode — they decode
+// into an empty set, which this package would then serve as an authoritative
+// hit — so they have to be made unreachable by key rather than caught on read.
+const keyFormatVersion = "authzv2"
 
 // DefaultTTL is the entry lifetime when WithTTL is not supplied.
 const DefaultTTL = 5 * time.Minute

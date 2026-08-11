@@ -57,17 +57,22 @@ func ExampleCache_batch() {
 	// one
 }
 
-// ExampleNewGobCodec shows the codec the serializing providers use by default.
-// Consumers reach for Codec only to replace it — redis.WithCodec accepts any
-// implementation whose Decode round-trips its own Encode. Note the migration
-// caveat: values written under one codec are unreadable through another.
-func ExampleNewGobCodec() {
+// ExampleNewDefaultCodec shows the codec the serializing providers use when
+// given none. Consumers reach for Codec only to replace it — redis.WithCodec
+// accepts any implementation whose Decode round-trips its own Encode. Note the
+// migration caveat: values written under one codec are unreadable through
+// another.
+//
+// It is also the codec to round-trip a type through before caching it, rather
+// than a named one, so that a type which only a particular codec can encode is
+// caught here rather than in a deployment.
+func ExampleNewDefaultCodec() {
 	type session struct {
 		UserID string
 		Roles  []string
 	}
 
-	codec := cache.NewGobCodec[session]()
+	codec := cache.NewDefaultCodec[session]()
 
 	encoded, err := codec.Encode(&session{UserID: "u-1", Roles: []string{"admin", "auditor"}})
 	if err != nil {
