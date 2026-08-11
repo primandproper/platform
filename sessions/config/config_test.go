@@ -213,6 +213,26 @@ func TestNewStore(T *testing.T) {
 		test.EqOp(t, "u_1", read.Data.UserID)
 	})
 
+	// newBackend is the narrowing seam: sessions/database.NewBackend returns its
+	// own *Backend[T], and returning that straight through made a nil pointer a
+	// non-nil sessions.Backend[T] on every one of its six failure paths.
+	// Exercised through newBackend rather than NewStore because NewStore checks
+	// the error and discards the value, so the trap is invisible from outside.
+	T.Run("a failed database backend is a nil interface, not a typed nil", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderDatabase}
+		cfg.EnsureDefaults()
+
+		backend, err := newBackend[principal](t.Context(), cfg, nil, newOptions(nil))
+		test.ErrorIs(t, err, sessionsdatabase.ErrNilClient)
+
+		// Compared against nil directly rather than with test.Nil, which is
+		// satisfied by a nil pointer inside a non-nil interface — the exact
+		// value this asserts is absent.
+		test.True(t, backend == nil)
+	})
+
 	// An unrecognized provider must not fall back to something that works in
 	// development and signs everybody out in production.
 	T.Run("refuses a provider it does not implement", func(t *testing.T) {
