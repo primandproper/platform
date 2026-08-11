@@ -32,7 +32,7 @@ type options struct {
 	scanPageSize int64
 }
 
-// WithCodec swaps the value codec. The default is cache.NewCBORCodec; supply
+// WithCodec swaps the value codec. The default is cache.NewDefaultCodec; supply
 // cache.NewGobCodec for values with interface-typed fields, or a codec of your
 // own when a fixed format beats a self-describing one. Values written with one
 // codec are unreadable through another — see cache.Codec for the migration

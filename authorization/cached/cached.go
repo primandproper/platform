@@ -80,9 +80,11 @@ const (
 
 // keyFormatVersion prefixes every cache key.
 //
-// Bump it whenever PermissionSet's encoding changes. Entries written by an
-// older binary then become unreachable rather than mis-decoded, and the cost of
-// that is one round of misses.
+// Bump it when PermissionSet's encoding changes and entries under the old one
+// are out there: bumping makes those unreachable rather than mis-decoded, at a
+// cost of one round of misses. Both halves have to hold. The move to
+// MarshalBinary changed the encoding and did not bump, because no deployment of
+// this module exists to have written an entry worth stranding.
 const keyFormatVersion = "authzv1"
 
 // DefaultTTL is the entry lifetime when WithTTL is not supplied.
