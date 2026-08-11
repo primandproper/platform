@@ -225,11 +225,9 @@ func TestCipher_NonceFailure(T *testing.T) {
 		c, err := NewCipher(key)
 		must.NoError(t, err)
 
-		impl, ok := c.(*aesImpl)
-		must.True(t, ok)
-		impl.random = exhaustedReader{}
+		c.random = exhaustedReader{}
 
-		_, err = impl.Seal(t.Context(), []byte("secret"), nil)
+		_, err = c.Seal(t.Context(), []byte("secret"), nil)
 		test.ErrorIs(t, err, errNoEntropy)
 	})
 }

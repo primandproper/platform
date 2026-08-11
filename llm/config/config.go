@@ -76,6 +76,12 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 // upstream: the provider sub-configs are what carry the API keys, and skipping
 // their rules meant a deployment that named openai and supplied nothing got as
 // far as its first completion before finding out.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *openai.Provider into a
+// non-nil llm.Provider on the error path, and a caller testing the result against
+// nil would find a provider that panics on first use.
 func (c *Config) NewLLMProvider(ctx context.Context, opts ...Option) (llm.Provider, error) {
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
@@ -95,9 +101,19 @@ func (c *Config) NewLLMProvider(ctx context.Context, opts ...Option) (llm.Provid
 
 	switch provider {
 	case ProviderOpenAI:
-		return openai.NewProvider(c.OpenAI, openai.WithLogger(logger), openai.WithTracerProvider(tracerProvider), openai.WithMetricsProvider(metricsProvider))
+		p, provErr := openai.NewProvider(c.OpenAI, openai.WithLogger(logger), openai.WithTracerProvider(tracerProvider), openai.WithMetricsProvider(metricsProvider))
+		if provErr != nil {
+			return nil, provErr
+		}
+
+		return p, nil
 	case ProviderAnthropic:
-		return anthropic.NewProvider(c.Anthropic, anthropic.WithLogger(logger), anthropic.WithTracerProvider(tracerProvider), anthropic.WithMetricsProvider(metricsProvider))
+		p, provErr := anthropic.NewProvider(c.Anthropic, anthropic.WithLogger(logger), anthropic.WithTracerProvider(tracerProvider), anthropic.WithMetricsProvider(metricsProvider))
+		if provErr != nil {
+			return nil, provErr
+		}
+
+		return p, nil
 	case ProviderNoop:
 		return llmnoop.NewProvider(), nil
 	default:

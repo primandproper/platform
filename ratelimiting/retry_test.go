@@ -76,7 +76,7 @@ func TestInMemoryRateLimiter_RetryAfter(T *testing.T) {
 		must.NoError(t, err)
 		defer limiter.Close()
 
-		delay, ok := limiter.(RetryHinter).RetryAfter(t.Context(), "unseen")
+		delay, ok := limiter.RetryAfter(t.Context(), "unseen")
 		test.False(t, ok)
 		test.EqOp(t, time.Duration(0), delay)
 	})
@@ -98,7 +98,7 @@ func TestInMemoryRateLimiter_RetryAfter(T *testing.T) {
 		must.NoError(t, err)
 		must.False(t, allowed)
 
-		delay, ok := limiter.(RetryHinter).RetryAfter(t.Context(), "key")
+		delay, ok := limiter.RetryAfter(t.Context(), "key")
 		must.True(t, ok)
 		test.Greater(t, time.Duration(0), delay)
 		test.LessEq(t, time.Second, delay)
@@ -118,10 +118,10 @@ func TestInMemoryRateLimiter_RetryAfter(T *testing.T) {
 		must.NoError(t, err)
 		must.True(t, allowed)
 
-		first, ok := limiter.(RetryHinter).RetryAfter(t.Context(), "key")
+		first, ok := limiter.RetryAfter(t.Context(), "key")
 		must.True(t, ok)
 
-		second, ok := limiter.(RetryHinter).RetryAfter(t.Context(), "key")
+		second, ok := limiter.RetryAfter(t.Context(), "key")
 		must.True(t, ok)
 
 		// Time passes between the two calls, so the second can only be shorter.
@@ -139,7 +139,7 @@ func TestInMemoryRateLimiter_RetryAfter(T *testing.T) {
 		must.NoError(t, err)
 		must.True(t, allowed)
 
-		delay, ok := limiter.(RetryHinter).RetryAfter(t.Context(), "key")
+		delay, ok := limiter.RetryAfter(t.Context(), "key")
 		must.True(t, ok)
 		test.EqOp(t, time.Duration(0), delay)
 	})
@@ -157,7 +157,7 @@ func TestInMemoryRateLimiter_RetryAfter(T *testing.T) {
 		must.NoError(t, err)
 		must.False(t, allowed)
 
-		delay, ok := limiter.(RetryHinter).RetryAfter(t.Context(), "key")
+		delay, ok := limiter.RetryAfter(t.Context(), "key")
 		test.False(t, ok)
 		test.EqOp(t, time.Duration(0), delay)
 	})
@@ -179,7 +179,7 @@ func TestInMemoryRateLimiter_RetryAfter(T *testing.T) {
 		must.NoError(t, err)
 		must.False(t, allowed)
 
-		_, ok := limiter.(RetryHinter).RetryAfter(t.Context(), "key")
+		_, ok := limiter.RetryAfter(t.Context(), "key")
 		test.False(t, ok)
 	})
 }

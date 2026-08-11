@@ -455,9 +455,6 @@ func Test_publisherProvider_Close(T *testing.T) {
 		_, err := provider.NewPublisher(ctx, t.Name())
 		must.NoError(t, err)
 
-		pp, ok := provider.(*publisherProvider)
-		must.True(t, ok)
-
 		// Replace cached publisher with one using a mock writer so Close doesn't hit real Kafka
 		mw := &mockKafkaWriter{
 			closeFunc: func() error { return nil },
@@ -468,7 +465,7 @@ func Test_publisherProvider_Close(T *testing.T) {
 		publishErrCounter, _ := mp.NewInt64Counter("test_publish_errors")
 		latencyHist, _ := mp.NewFloat64Histogram("test_publish_latency_ms")
 
-		pp.publisherCache[t.Name()] = &kafkaPublisher{
+		provider.publisherCache[t.Name()] = &kafkaPublisher{
 			writer:            mw,
 			o11y:              observability.NewObserverForTest(t.Name()),
 			publishedCounter:  publishedCounter,

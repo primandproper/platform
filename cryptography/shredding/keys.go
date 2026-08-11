@@ -53,11 +53,13 @@ const (
 	wrapContext = "shredding/subject-key/v1"
 )
 
-var _ Keys = (*keys)(nil)
+var _ Keys = (*KeyManager)(nil)
 
-// keys is the Keys implementation: a store of wrapped data keys, a wrapper that
-// opens them, and a short-lived cache of the results.
-type keys struct {
+// KeyManager is the Keys implementation: a store of wrapped data keys, a
+// wrapper that opens them, and a short-lived cache of the results. It is
+// exported, and returned by NewKeys, so a caller can depend on the manager it
+// built rather than on the Keys seam.
+type KeyManager struct {
 	store       Store
 	wrapper     encryption.KeyWrapper
 	clock       clock.Clock
@@ -109,7 +111,7 @@ type keys struct {
 // nothing better does.
 //
 // Observability is optional and defaults to nothing.
-func NewKeys(store Store, wrapper encryption.KeyWrapper, opts ...Option) (Keys, error) {
+func NewKeys(store Store, wrapper encryption.KeyWrapper, opts ...Option) (*KeyManager, error) {
 	if store == nil {
 		return nil, ErrNilStore
 	}
@@ -118,11 +120,11 @@ func NewKeys(store Store, wrapper encryption.KeyWrapper, opts ...Option) (Keys, 
 		return nil, ErrNilKeyWrapper
 	}
 
-	k := &keys{
+	k := &KeyManager{
 		store:     store,
 		wrapper:   wrapper,
 		clock:     clock.NewClock(),
-		newCipher: func(key []byte) (encryption.Cipher, error) { return aes.NewCipher(key) },
+		newCipher: newAESCipher,
 		random:    rand.Reader,
 		ttl:       DefaultKeyTTL,
 		maxCached: DefaultMaxCachedKeys,
@@ -143,9 +145,22 @@ func NewKeys(store Store, wrapper encryption.KeyWrapper, opts ...Option) (Keys, 
 	return k, nil
 }
 
+// newAESCipher is the default newCipher. It is a named function rather than a
+// closure around aes.NewCipher because that constructor returns *aes.Cipher:
+// forwarding its results straight into an encryption.Cipher return would make a
+// nil cipher a non-nil interface on the error path.
+func newAESCipher(key []byte) (encryption.Cipher, error) {
+	c, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
 // buildInstruments creates every instrument at construction, so a broken meter
 // fails the wiring rather than the first erasure.
-func (k *keys) buildInstruments() error {
+func (k *KeyManager) buildInstruments() error {
 	mp := metrics.EnsureMetricsProvider(k.metricsProvider)
 
 	var err error
@@ -201,7 +216,7 @@ func (k *keys) buildInstruments() error {
 	return nil
 }
 
-func (k *keys) Encrypt(ctx context.Context, subject Subject, plaintext, associatedData []byte) ([]byte, error) {
+func (k *KeyManager) Encrypt(ctx context.Context, subject Subject, plaintext, associatedData []byte) ([]byte, error) {
 	ctx, op := k.o11y.Begin(ctx,
 		observability.WithValue(subjectIDKey, subject.ID),
 		observability.WithValue(subjectTypeKey, subject.Type),
@@ -221,7 +236,7 @@ func (k *keys) Encrypt(ctx context.Context, subject Subject, plaintext, associat
 	return sealed, nil
 }
 
-func (k *keys) Decrypt(ctx context.Context, subject Subject, ciphertext, associatedData []byte) ([]byte, error) {
+func (k *KeyManager) Decrypt(ctx context.Context, subject Subject, ciphertext, associatedData []byte) ([]byte, error) {
 	ctx, op := k.o11y.Begin(ctx,
 		observability.WithValue(subjectIDKey, subject.ID),
 		observability.WithValue(subjectTypeKey, subject.Type),
@@ -246,7 +261,7 @@ func (k *keys) Decrypt(ctx context.Context, subject Subject, ciphertext, associa
 	return opened, nil
 }
 
-func (k *keys) Shred(ctx context.Context, subject Subject) (Receipt, error) {
+func (k *KeyManager) Shred(ctx context.Context, subject Subject) (Receipt, error) {
 	ctx, op := k.o11y.Begin(ctx,
 		observability.WithValue(subjectIDKey, subject.ID),
 		observability.WithValue(subjectTypeKey, subject.Type),
@@ -280,7 +295,7 @@ func (k *keys) Shred(ctx context.Context, subject Subject) (Receipt, error) {
 	return receipt, nil
 }
 
-func (k *keys) Invalidate(ctx context.Context, subject Subject) {
+func (k *KeyManager) Invalidate(ctx context.Context, subject Subject) {
 	ctx, op := k.o11y.Begin(ctx,
 		observability.WithValue(subjectIDKey, subject.ID),
 		observability.WithValue(subjectTypeKey, subject.Type),
@@ -315,7 +330,7 @@ func (k *keys) Invalidate(ctx context.Context, subject Subject) {
 // that is already done — trading a stated five-minute bound for a request that
 // reports failure. The failure is counted and logged instead, which is what
 // makes a bus that has silently stopped delivering visible.
-func (k *keys) broadcast(ctx context.Context, op observability.Operation, subject Subject) {
+func (k *KeyManager) broadcast(ctx context.Context, op observability.Operation, subject Subject) {
 	if k.broadcaster == nil {
 		return
 	}
@@ -333,7 +348,7 @@ func (k *keys) broadcast(ctx context.Context, op observability.Operation, subjec
 
 // cipherFor resolves the subject's Cipher, minting a data key when asked to and
 // when the subject has none.
-func (k *keys) cipherFor(
+func (k *KeyManager) cipherFor(
 	ctx context.Context,
 	op observability.Operation,
 	subject Subject,
@@ -367,7 +382,7 @@ func (k *keys) cipherFor(
 }
 
 // openRecord unwraps a live record into a usable Cipher.
-func (k *keys) openRecord(ctx context.Context, op observability.Operation, record *Record) (encryption.Cipher, error) {
+func (k *KeyManager) openRecord(ctx context.Context, op observability.Operation, record *Record) (encryption.Cipher, error) {
 	if record.Shredded() {
 		op.Set(shreddedAtKey, *record.ShreddedAt)
 
@@ -404,7 +419,7 @@ func (k *keys) openRecord(ctx context.Context, op observability.Operation, recor
 // ciphertext under the other perfectly readable, which is the failure this
 // package exists to prevent and would be invisible until somebody audited an
 // erasure.
-func (k *keys) mint(ctx context.Context, op observability.Operation, subject Subject) (encryption.Cipher, error) {
+func (k *KeyManager) mint(ctx context.Context, op observability.Operation, subject Subject) (encryption.Cipher, error) {
 	material := make([]byte, dataKeyLength)
 	if _, err := io.ReadFull(k.random, material); err != nil {
 		return nil, platformerrors.Wrap(err, "generating subject data key")

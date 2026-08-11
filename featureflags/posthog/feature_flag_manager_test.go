@@ -79,7 +79,7 @@ func posthogErrorHandler() http.Handler {
 	})
 }
 
-func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker, configModifiers ...func(config *posthog.Config)) *featureFlagManager {
+func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker, configModifiers ...func(config *posthog.Config)) *FeatureFlagManager {
 	t.Helper()
 
 	cfg := &Config{
@@ -91,10 +91,10 @@ func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker, configMod
 	must.NoError(t, err)
 	must.NotNil(t, ffm)
 
-	return ffm.(*featureFlagManager)
+	return ffm
 }
 
-func buildTestManagerWithHandler(t *testing.T, cb circuitbreaking.CircuitBreaker, handler http.Handler) *featureFlagManager {
+func buildTestManagerWithHandler(t *testing.T, cb circuitbreaking.CircuitBreaker, handler http.Handler) *FeatureFlagManager {
 	t.Helper()
 
 	ts := httptest.NewServer(handler)
@@ -130,7 +130,7 @@ func buildTestManagerWithHandler(t *testing.T, cb circuitbreaking.CircuitBreaker
 	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", serviceName))
 	must.NoError(t, err)
 
-	return &featureFlagManager{
+	return &FeatureFlagManager{
 		posthogClient:   client,
 		ofClient:        ofClient,
 		circuitBreaker:  cb,
@@ -144,7 +144,7 @@ func buildTestManagerWithHandler(t *testing.T, cb circuitbreaking.CircuitBreaker
 
 // withRecordingObserver swaps a RecordingObserver into the manager and returns it,
 // so a test can assert which fields an evaluation observed.
-func withRecordingObserver(ffm *featureFlagManager) *observability.RecordingObserver {
+func withRecordingObserver(ffm *FeatureFlagManager) *observability.RecordingObserver {
 	obs := observability.NewRecordingObserver()
 	ffm.o11y = obs
 

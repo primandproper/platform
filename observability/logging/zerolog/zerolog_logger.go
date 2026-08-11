@@ -33,8 +33,12 @@ func init() {
 	zerolog.LevelFieldName = "severity"
 }
 
-// logger is our log wrapper.
-type zerologLogger struct {
+var _ logging.Logger = (*Logger)(nil)
+
+// Logger is the zerolog logging.Logger implementation. It is exported, and
+// returned by NewZerologLogger, so a caller who has chosen zerolog can depend on
+// that choice rather than on the interface every backend shares.
+type Logger struct {
 	requestIDFunc logging.RequestIDFunc
 	logger        zerolog.Logger
 }
@@ -61,37 +65,37 @@ func buildZerologger(level logging.Level) zerolog.Logger {
 	return logger.Level(lvl)
 }
 
-// NewZerologLogger builds a new zerologLogger.
-func NewZerologLogger(lvl logging.Level) logging.Logger {
-	return &zerologLogger{logger: buildZerologger(lvl)}
+// NewZerologLogger builds a zerolog-backed Logger.
+func NewZerologLogger(lvl logging.Level) *Logger {
+	return &Logger{logger: buildZerologger(lvl)}
 }
 
 // WithName is our obligatory contract fulfillment function.
 // Zerolog doesn't support named loggers :( so we have this workaround.
-func (l *zerologLogger) WithName(name string) logging.Logger {
+func (l *Logger) WithName(name string) logging.Logger {
 	l2 := l.logger.With().Str(logging.LoggerNameKey, name).Logger()
-	return &zerologLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // SetRequestIDFunc sets the request ID retrieval function.
-func (l *zerologLogger) SetRequestIDFunc(f logging.RequestIDFunc) {
+func (l *Logger) SetRequestIDFunc(f logging.RequestIDFunc) {
 	if f != nil {
 		l.requestIDFunc = f
 	}
 }
 
 // Info satisfies our contract for the logging.Logger Info method.
-func (l *zerologLogger) Info(input string) {
+func (l *Logger) Info(input string) {
 	l.logger.Info().Msg(input)
 }
 
 // Debug satisfies our contract for the logging.Logger Debug method.
-func (l *zerologLogger) Debug(input string) {
+func (l *Logger) Debug(input string) {
 	l.logger.Debug().Msg(input)
 }
 
 // Error satisfies our contract for the logging.Logger Error method.
-func (l *zerologLogger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
+func (l *Logger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
 	if err != nil {
 		l.logger.Error().Stack().Caller().Err(err).Msg(whatWasHappeningWhenErrorOccurred)
 		return
@@ -100,44 +104,44 @@ func (l *zerologLogger) Error(whatWasHappeningWhenErrorOccurred string, err erro
 }
 
 // Clone satisfies our contract for the logging.Logger WithValue method.
-func (l *zerologLogger) Clone() logging.Logger {
+func (l *Logger) Clone() logging.Logger {
 	l2 := l.logger.With().Logger()
-	return &zerologLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // WithValue satisfies our contract for the logging.Logger WithValue method.
-func (l *zerologLogger) WithValue(key string, value any) logging.Logger {
+func (l *Logger) WithValue(key string, value any) logging.Logger {
 	l2 := l.logger.With().Interface(key, value).Logger()
-	return &zerologLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // WithValues satisfies our contract for the logging.Logger WithValues method.
-func (l *zerologLogger) WithValues(values map[string]any) logging.Logger {
+func (l *Logger) WithValues(values map[string]any) logging.Logger {
 	var l2 = l.logger.With().Logger()
 
 	for key, val := range values {
 		l2 = l2.With().Interface(key, val).Logger()
 	}
 
-	return &zerologLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // WithError satisfies our contract for the logging.Logger WithError method.
-func (l *zerologLogger) WithError(err error) logging.Logger {
+func (l *Logger) WithError(err error) logging.Logger {
 	l2 := l.logger.With().Err(err).Logger()
-	return &zerologLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // WithSpan satisfies our contract for the logging.Logger WithSpan method.
-func (l *zerologLogger) WithSpan(span trace.Span) logging.Logger {
+func (l *Logger) WithSpan(span trace.Span) logging.Logger {
 	si := logging.ExtractSpanInfo(span)
 
 	l2 := l.logger.With().Str(keys.SpanIDKey, si.SpanID).Str(keys.TraceIDKey, si.TraceID).Logger()
 
-	return &zerologLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
-func (l *zerologLogger) attachRequestToLog(req *http.Request) zerolog.Logger {
+func (l *Logger) attachRequestToLog(req *http.Request) zerolog.Logger {
 	ri := logging.ExtractRequestInfo(req, l.requestIDFunc)
 	if req == nil {
 		return l.logger
@@ -161,16 +165,16 @@ func (l *zerologLogger) attachRequestToLog(req *http.Request) zerolog.Logger {
 }
 
 // WithRequest satisfies our contract for the logging.Logger WithRequest method.
-func (l *zerologLogger) WithRequest(req *http.Request) logging.Logger {
-	return &zerologLogger{requestIDFunc: l.requestIDFunc, logger: l.attachRequestToLog(req)}
+func (l *Logger) WithRequest(req *http.Request) logging.Logger {
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l.attachRequestToLog(req)}
 }
 
 // WithResponse satisfies our contract for the logging.Logger WithResponse method.
-func (l *zerologLogger) WithResponse(res *http.Response) logging.Logger {
+func (l *Logger) WithResponse(res *http.Response) logging.Logger {
 	l2 := l.logger.With().Logger()
 	if res != nil {
 		l2 = l.attachRequestToLog(res.Request).With().Int(keys.ResponseStatusKey, res.StatusCode).Logger()
 	}
 
-	return &zerologLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }

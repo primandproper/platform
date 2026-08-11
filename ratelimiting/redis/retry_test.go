@@ -134,7 +134,7 @@ func TestRateLimiter_window(T *testing.T) {
 	T.Run("derives the window from the burst and the rate", func(t *testing.T) {
 		t.Parallel()
 
-		limiter := &rateLimiter{requestsPerSec: 10, burstSize: 20}
+		limiter := &RateLimiter{requestsPerSec: 10, burstSize: 20}
 
 		limit, windowMS := limiter.window()
 		test.EqOp(t, int64(20), limit)
@@ -144,7 +144,7 @@ func TestRateLimiter_window(T *testing.T) {
 	T.Run("keeps a sub-1 rate from flooring the limit to zero", func(t *testing.T) {
 		t.Parallel()
 
-		limiter := &rateLimiter{requestsPerSec: 0.5, burstSize: 1}
+		limiter := &RateLimiter{requestsPerSec: 0.5, burstSize: 1}
 
 		limit, windowMS := limiter.window()
 		test.EqOp(t, int64(1), limit)
@@ -154,7 +154,7 @@ func TestRateLimiter_window(T *testing.T) {
 	T.Run("substitutes a usable rate for a non-positive one", func(t *testing.T) {
 		t.Parallel()
 
-		limiter := &rateLimiter{requestsPerSec: 0, burstSize: 3}
+		limiter := &RateLimiter{requestsPerSec: 0, burstSize: 3}
 
 		limit, windowMS := limiter.window()
 		test.EqOp(t, int64(3), limit)

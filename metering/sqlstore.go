@@ -35,11 +35,14 @@ const DefaultTablePrefix = ""
 // look like a Check in every span listing.
 const storeName = serviceName + "_store"
 
-var _ Store = (*sqlStore)(nil)
+var _ Store = (*SQLStore)(nil)
 
-// sqlStore is the SQL-backed Store, against the schema metering/migrations
+// SQLStore is the SQL-backed Store, against the schema metering/migrations
 // renders.
-type sqlStore struct {
+// It is exported, and returned by NewSQLStore, so a caller who has chosen SQL
+// storage can depend on that choice rather than on the Store seam every backing
+// shares.
+type SQLStore struct {
 	client database.Client
 	tables *tables
 	o11y   observability.Observer
@@ -64,7 +67,7 @@ type sqlStore struct {
 //
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger, traces to a noop provider, and counts into a noop meter.
-func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) {
+func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
 	}
@@ -74,7 +77,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "metering dialect %q", d)
 	}
 
-	s := &sqlStore{
+	s := &SQLStore{
 		client:  client,
 		dialect: d,
 		tables:  newTables(DefaultTablePrefix),
@@ -113,7 +116,7 @@ func storeOpAttr(operation string) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String(storeOpKey, operation))
 }
 
-func (s *sqlStore) Record(ctx context.Context, entries []Entry, at time.Time) (RecordResult, error) {
+func (s *SQLStore) Record(ctx context.Context, entries []Entry, at time.Time) (RecordResult, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(entries)))
 	defer op.End()
 
@@ -141,7 +144,7 @@ func (s *sqlStore) Record(ctx context.Context, entries []Entry, at time.Time) (R
 	return result, nil
 }
 
-func (s *sqlStore) RecordTx(
+func (s *SQLStore) RecordTx(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	entries []Entry,
@@ -170,7 +173,7 @@ func (s *sqlStore) RecordTx(
 
 // record is the shared body of Record and RecordTx: dedupe every entry against
 // the ledger, then fold what survived into its period's total.
-func (s *sqlStore) record(
+func (s *SQLStore) record(
 	ctx context.Context,
 	op observability.Operation,
 	q database.SQLQueryExecutor,
@@ -224,7 +227,7 @@ func (s *sqlStore) record(
 // insertEvent writes one ledger row, reporting whether it was new.
 // eventExists reports whether this entry's (meter, idempotency_key) is already
 // in the ledger.
-func (s *sqlStore) eventExists(
+func (s *SQLStore) eventExists(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	entry *Entry,
@@ -242,7 +245,7 @@ func (s *sqlStore) eventExists(
 	}
 }
 
-func (s *sqlStore) insertEvent(
+func (s *SQLStore) insertEvent(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	entry *Entry,
@@ -268,7 +271,7 @@ func (s *sqlStore) insertEvent(
 	return affected > 0, nil
 }
 
-func (s *sqlStore) Total(ctx context.Context, subject, meter string, bounds Bounds) (*Total, error) {
+func (s *SQLStore) Total(ctx context.Context, subject, meter string, bounds Bounds) (*Total, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:     subject,
 		meterKey:       meter,
@@ -302,7 +305,7 @@ func (s *sqlStore) Total(ctx context.Context, subject, meter string, bounds Boun
 }
 
 //nolint:gocritic // hugeParam: Entry is taken by value to match Store.Consume's interface
-func (s *sqlStore) Consume(
+func (s *SQLStore) Consume(
 	ctx context.Context,
 	entry Entry,
 	limit int64,
@@ -352,7 +355,7 @@ func (s *sqlStore) Consume(
 // written, so a refused consume does not burn its idempotency key on usage it
 // never recorded; and the total is only folded once the ledger row proves the
 // usage is new.
-func (s *sqlStore) consume(
+func (s *SQLStore) consume(
 	ctx context.Context,
 	op observability.Operation,
 	q database.SQLQueryExecutor,
@@ -440,7 +443,7 @@ func (s *sqlStore) consume(
 	return decision, nil
 }
 
-func (s *sqlStore) ClaimFlushable(
+func (s *SQLStore) ClaimFlushable(
 	ctx context.Context,
 	now time.Time,
 	limit, maxAttempts int,
@@ -509,7 +512,7 @@ func (s *sqlStore) ClaimFlushable(
 	return claimed, nil
 }
 
-func (s *sqlStore) MarkFlushed(ctx context.Context, total *Total, flushed int64, at time.Time) error {
+func (s *SQLStore) MarkFlushed(ctx context.Context, total *Total, flushed int64, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -533,7 +536,7 @@ func (s *sqlStore) MarkFlushed(ctx context.Context, total *Total, flushed int64,
 		"marking metering total flushed")
 }
 
-func (s *sqlStore) ReleaseFlush(ctx context.Context, total *Total, lastErr string, nextFlush time.Time) error {
+func (s *SQLStore) ReleaseFlush(ctx context.Context, total *Total, lastErr string, nextFlush time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -556,7 +559,7 @@ func (s *sqlStore) ReleaseFlush(ctx context.Context, total *Total, lastErr strin
 		"releasing metering flush lease")
 }
 
-func (s *sqlStore) ReapEvents(ctx context.Context, before time.Time, limit int) (int64, error) {
+func (s *SQLStore) ReapEvents(ctx context.Context, before time.Time, limit int) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
 
@@ -584,7 +587,7 @@ func (s *sqlStore) ReapEvents(ctx context.Context, before time.Time, limit int) 
 // WithTransaction delegates to the client, which begins its own span for the
 // transaction. Wrapping it here would nest a second span around the first and say
 // nothing the client's does not.
-func (s *sqlStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
 	return s.client.WithTransaction(ctx, fn)
 }
 
@@ -594,7 +597,7 @@ func (s *sqlStore) WithTransaction(ctx context.Context, fn func(q database.SQLQu
 // means the total's flush sequence moved while this flusher was posting — its
 // lease lapsed and somebody else took over — and treating that as success would
 // have two flushers each believe they own the next sequence number.
-func (s *sqlStore) execExpectingRow(
+func (s *SQLStore) execExpectingRow(
 	ctx context.Context,
 	op observability.Operation,
 	query string,

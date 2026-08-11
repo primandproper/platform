@@ -42,12 +42,17 @@ func isValidPrivilege(p Privilege) bool {
 	}
 }
 
-type manager struct {
+var _ database.Manager = (*Manager)(nil)
+
+// Manager is the PostgreSQL database.Manager implementation. It is exported,
+// and returned by NewManager, so a caller who has chosen PostgreSQL can depend on
+// that choice rather than on the interface every dialect's manager shares.
+type Manager struct {
 	db *sql.DB
 }
 
-func NewManager(db *sql.DB) database.Manager {
-	return &manager{db: db}
+func NewManager(db *sql.DB) *Manager {
+	return &Manager{db: db}
 }
 
 // quoteIdent safely wraps a Postgres identifier in double‑quotes,
@@ -109,7 +114,7 @@ const duplicateObject = "42710"
 // driver's own error is preserved underneath it: the SQLSTATE is what identified
 // the failure, and a caller that wants the detail should not have to re-run the
 // statement to get it.
-func (p *manager) CreateUser(ctx context.Context, username, password string) (err error) {
+func (p *Manager) CreateUser(ctx context.Context, username, password string) (err error) {
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return errors.Wrap(err, "beginning create user transaction")
@@ -140,12 +145,12 @@ func (p *manager) CreateUser(ctx context.Context, username, password string) (er
 	return errors.Wrap(tx.Commit(), "committing create user transaction")
 }
 
-func (p *manager) DeleteUser(ctx context.Context, username string) error {
+func (p *Manager) DeleteUser(ctx context.Context, username string) error {
 	_, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP USER IF EXISTS %s", quoteIdent(username)))
 	return err
 }
 
-func (p *manager) CreateDatabase(ctx context.Context, dbName, owner string) error {
+func (p *Manager) CreateDatabase(ctx context.Context, dbName, owner string) error {
 	_, err := p.db.ExecContext(ctx, fmt.Sprintf(
 		"CREATE DATABASE %s OWNER %s",
 		quoteIdent(dbName),
@@ -154,31 +159,31 @@ func (p *manager) CreateDatabase(ctx context.Context, dbName, owner string) erro
 	return err
 }
 
-func (p *manager) DeleteDatabase(ctx context.Context, dbName string) error {
+func (p *Manager) DeleteDatabase(ctx context.Context, dbName string) error {
 	_, err := p.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", quoteIdent(dbName)))
 	return err
 }
 
-func (p *manager) UserExists(ctx context.Context, username string) (bool, error) {
+func (p *Manager) UserExists(ctx context.Context, username string) (bool, error) {
 	var exists bool
 	err := p.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, username).Scan(&exists)
 	return exists, err
 }
 
-func (p *manager) DatabaseExists(ctx context.Context, dbName string) (bool, error) {
+func (p *Manager) DatabaseExists(ctx context.Context, dbName string) (bool, error) {
 	var exists bool
 	err := p.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, dbName).Scan(&exists)
 	return exists, err
 }
 
-func (p *manager) UserCanAccessDatabase(ctx context.Context, username, dbName string) (bool, error) {
+func (p *Manager) UserCanAccessDatabase(ctx context.Context, username, dbName string) (bool, error) {
 	var hasPrivilege bool
 	err := p.db.QueryRowContext(ctx, `SELECT has_database_privilege($1, $2, 'CONNECT')`, username, dbName).Scan(&hasPrivilege)
 	return hasPrivilege, err
 }
 
 // GrantUserAccessToTable grants a specific privilege on a table to a user.
-func (p *manager) GrantUserAccessToTable(ctx context.Context, username, schema, table, privilege string) error {
+func (p *Manager) GrantUserAccessToTable(ctx context.Context, username, schema, table, privilege string) error {
 	if !isValidPrivilege(Privilege(privilege)) {
 		return errors.Newf("invalid privilege: %s", privilege)
 	}

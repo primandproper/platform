@@ -15,12 +15,12 @@ const exampleInternalSecret = "HEREISASECRETWHICHIVEMADEUPBECAUSEIWANNATESTRELIA
 
 // newRecordingVerifier builds a verifier with a RecordingObserver swapped in, so a
 // test can drive Verify and assert that it opened and closed an operation.
-func newRecordingVerifier(t *testing.T) (*verifier, *observability.RecordingObserver) {
+func newRecordingVerifier(t *testing.T) (*TOTPVerifier, *observability.RecordingObserver) {
 	t.Helper()
 
 	obs := observability.NewRecordingObserver()
 
-	return &verifier{o11y: obs}, obs
+	return &TOTPVerifier{o11y: obs}, obs
 }
 
 func TestVerifier_Verify_observability(T *testing.T) {

@@ -20,15 +20,20 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// logger is our log wrapper.
-type otelSlogLogger struct {
+var _ logging.Logger = (*Logger)(nil)
+
+// Logger is the OTLP-over-gRPC logging.Logger implementation, built on
+// log/slog. It is exported, and returned by NewOtelSlogLogger, so a caller who
+// has chosen it can depend on that choice rather than on the interface every
+// backend shares.
+type Logger struct {
 	requestIDFunc  logging.RequestIDFunc
 	logger         *slog.Logger
 	loggerProvider *log.LoggerProvider
 }
 
-// NewOtelSlogLogger builds a new otelSlogLogger.
-func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName string, cfg *Config) (logging.Logger, error) {
+// NewOtelSlogLogger builds an OTLP-over-gRPC Logger.
+func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName string, cfg *Config) (*Logger, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -96,7 +101,7 @@ func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName strin
 		))
 	}
 
-	logger := &otelSlogLogger{
+	logger := &Logger{
 		logger:         slog.New(slogmulti.Fanout(logHandlers...)),
 		loggerProvider: loggerProvider,
 	}
@@ -108,7 +113,7 @@ func NewOtelSlogLogger(ctx context.Context, lvl logging.Level, serviceName strin
 // goroutine. It is a no-op for loggers configured without a collector endpoint, and
 // for loggers derived via With* (which do not own the provider). The DI container
 // (samber/do) invokes this automatically on shutdown; Pillars.Shutdown calls it too.
-func (l *otelSlogLogger) Shutdown(ctx context.Context) error {
+func (l *Logger) Shutdown(ctx context.Context) error {
 	if l.loggerProvider == nil {
 		return nil
 	}
@@ -118,30 +123,30 @@ func (l *otelSlogLogger) Shutdown(ctx context.Context) error {
 
 // WithName is our obligatory contract fulfillment function.
 // Slog doesn't support named loggers :( so we have this workaround.
-func (l *otelSlogLogger) WithName(name string) logging.Logger {
+func (l *Logger) WithName(name string) logging.Logger {
 	l2 := l.logger.With(slog.String(logging.LoggerNameKey, name))
-	return &otelSlogLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // SetRequestIDFunc sets the request ID retrieval function.
-func (l *otelSlogLogger) SetRequestIDFunc(f logging.RequestIDFunc) {
+func (l *Logger) SetRequestIDFunc(f logging.RequestIDFunc) {
 	if f != nil {
 		l.requestIDFunc = f
 	}
 }
 
 // Info satisfies our contract for the logging.Logger Info method.
-func (l *otelSlogLogger) Info(input string) {
+func (l *Logger) Info(input string) {
 	l.logger.Info(input)
 }
 
 // Debug satisfies our contract for the logging.Logger Debug method.
-func (l *otelSlogLogger) Debug(input string) {
+func (l *Logger) Debug(input string) {
 	l.logger.Debug(input)
 }
 
 // Error satisfies our contract for the logging.Logger Error method.
-func (l *otelSlogLogger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
+func (l *Logger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
 	if err != nil {
 		l.logger.Error(whatWasHappeningWhenErrorOccurred, slog.Any("error", err))
 		return
@@ -150,44 +155,44 @@ func (l *otelSlogLogger) Error(whatWasHappeningWhenErrorOccurred string, err err
 }
 
 // Clone satisfies our contract for the logging.Logger WithValue method.
-func (l *otelSlogLogger) Clone() logging.Logger {
+func (l *Logger) Clone() logging.Logger {
 	l2 := l.logger.With()
-	return &otelSlogLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // WithValue satisfies our contract for the logging.Logger WithValue method.
-func (l *otelSlogLogger) WithValue(key string, value any) logging.Logger {
+func (l *Logger) WithValue(key string, value any) logging.Logger {
 	l2 := l.logger.With(slog.Any(key, value))
-	return &otelSlogLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // WithValues satisfies our contract for the logging.Logger WithValues method.
-func (l *otelSlogLogger) WithValues(values map[string]any) logging.Logger {
+func (l *Logger) WithValues(values map[string]any) logging.Logger {
 	var l2 = l.logger.With()
 
 	for key, val := range values {
 		l2 = l2.With(slog.Any(key, val))
 	}
 
-	return &otelSlogLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // WithError satisfies our contract for the logging.Logger WithError method.
-func (l *otelSlogLogger) WithError(err error) logging.Logger {
+func (l *Logger) WithError(err error) logging.Logger {
 	l2 := l.logger.With(slog.Any("error", err))
-	return &otelSlogLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
 // WithSpan satisfies our contract for the logging.Logger WithSpan method.
-func (l *otelSlogLogger) WithSpan(span trace.Span) logging.Logger {
+func (l *Logger) WithSpan(span trace.Span) logging.Logger {
 	si := logging.ExtractSpanInfo(span)
 
 	l2 := l.logger.With(slog.String(keys.SpanIDKey, si.SpanID), slog.String(keys.TraceIDKey, si.TraceID))
 
-	return &otelSlogLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }
 
-func (l *otelSlogLogger) attachRequestToLog(req *http.Request) *slog.Logger {
+func (l *Logger) attachRequestToLog(req *http.Request) *slog.Logger {
 	ri := logging.ExtractRequestInfo(req, l.requestIDFunc)
 	if req == nil {
 		return l.logger
@@ -209,16 +214,16 @@ func (l *otelSlogLogger) attachRequestToLog(req *http.Request) *slog.Logger {
 }
 
 // WithRequest satisfies our contract for the logging.Logger WithRequest method.
-func (l *otelSlogLogger) WithRequest(req *http.Request) logging.Logger {
-	return &otelSlogLogger{requestIDFunc: l.requestIDFunc, logger: l.attachRequestToLog(req)}
+func (l *Logger) WithRequest(req *http.Request) logging.Logger {
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l.attachRequestToLog(req)}
 }
 
 // WithResponse satisfies our contract for the logging.Logger WithResponse method.
-func (l *otelSlogLogger) WithResponse(res *http.Response) logging.Logger {
+func (l *Logger) WithResponse(res *http.Response) logging.Logger {
 	l2 := l.logger.With()
 	if res != nil {
 		l2 = l.attachRequestToLog(res.Request).With(slog.Int(keys.ResponseStatusKey, res.StatusCode))
 	}
 
-	return &otelSlogLogger{requestIDFunc: l.requestIDFunc, logger: l2}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2}
 }

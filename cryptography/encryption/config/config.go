@@ -117,10 +117,20 @@ func NewKeyring(
 }
 
 // newCipher dispatches on the configured provider.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so `return aes.NewCipher(...)` would convert a nil *aes.Cipher into a non-nil
+// encryption.Cipher on the error path.
 func newCipher(cfg *Config, material encryption.MasterKey, o *options) (encryption.Cipher, error) {
 	switch normalize(cfg.Provider) {
 	case ProviderAES:
-		return aes.NewCipher(material, aes.WithLogger(o.logger), aes.WithTracerProvider(o.tracerProvider))
+		c, err := aes.NewCipher(material, aes.WithLogger(o.logger), aes.WithTracerProvider(o.tracerProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return c, nil
 	default:
 		return nil, perrors.Wrapf(perrors.ErrUnknownProvider, "encryption provider %q", cfg.Provider)
 	}

@@ -100,7 +100,13 @@ func validateLevel(value any) error {
 }
 
 // NewLogger builds a logger according to the provided config.
-func (cfg *Config) NewLogger(ctx context.Context) (logger logging.Logger, err error) {
+//
+// The fallible providers are built into a variable and returned only once their
+// error is known to be nil. The backend constructors return their own concrete
+// types, so assigning one straight into the logging.Logger result would leave a
+// nil *zap.Logger as a non-nil logging.Logger alongside the error — a value a
+// caller's != nil check accepts and the first Info panics on.
+func (cfg *Config) NewLogger(ctx context.Context) (logging.Logger, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -116,18 +122,26 @@ func (cfg *Config) NewLogger(ctx context.Context) (logger logging.Logger, err er
 
 	switch provider {
 	case ProviderZerolog:
-		logger = zerolog.NewZerologLogger(cfg.Level)
+		return zerolog.NewZerologLogger(cfg.Level), nil
 	case ProviderZap:
-		logger, err = zap.NewZapLogger(cfg.Level)
+		logger, zapErr := zap.NewZapLogger(cfg.Level)
+		if zapErr != nil {
+			return nil, zapErr
+		}
+
+		return logger, nil
 	case ProviderSlog:
-		logger = slog.NewSlogLogger(cfg.Level)
+		return slog.NewSlogLogger(cfg.Level), nil
 	case ProviderOtelSlog:
-		logger, err = otelgrpc.NewOtelSlogLogger(ctx, cfg.Level, cfg.ServiceName, cfg.OtelSlog)
+		logger, otelErr := otelgrpc.NewOtelSlogLogger(ctx, cfg.Level, cfg.ServiceName, cfg.OtelSlog)
+		if otelErr != nil {
+			return nil, otelErr
+		}
+
+		return logger, nil
 	case "", ProviderNoop:
-		logger = loggingnoop.NewLogger()
+		return loggingnoop.NewLogger(), nil
 	default:
 		return nil, errors.Wrapf(errors.ErrUnknownProvider, "logging provider %q", cfg.Provider)
 	}
-
-	return logger, err
 }

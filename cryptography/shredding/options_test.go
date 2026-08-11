@@ -16,7 +16,7 @@ func TestOptions(T *testing.T) {
 	T.Run("ignores a nil clock", func(t *testing.T) {
 		t.Parallel()
 
-		k := &keys{clock: newStubClock()}
+		k := &KeyManager{clock: newStubClock()}
 		WithClock(nil)(k)
 
 		test.NotNil(t, k.clock)
@@ -27,7 +27,7 @@ func TestOptions(T *testing.T) {
 
 		broadcaster := &recordingBroadcaster{}
 
-		k := &keys{}
+		k := &KeyManager{}
 		WithBroadcaster(broadcaster)(k)
 		WithBroadcaster(nil)(k)
 
@@ -39,7 +39,7 @@ func TestOptions(T *testing.T) {
 
 		// Zero is a real setting: it turns caching off, so erasure completes on
 		// the call at the cost of an unwrap per operation.
-		k := &keys{ttl: DefaultKeyTTL}
+		k := &KeyManager{ttl: DefaultKeyTTL}
 		WithKeyTTL(0)(k)
 		test.EqOp(t, time.Duration(0), k.ttl)
 
@@ -50,7 +50,7 @@ func TestOptions(T *testing.T) {
 	T.Run("rejects a negative cache cap", func(t *testing.T) {
 		t.Parallel()
 
-		k := &keys{maxCached: DefaultMaxCachedKeys}
+		k := &KeyManager{maxCached: DefaultMaxCachedKeys}
 		WithMaxCachedKeys(-1)(k)
 
 		test.EqOp(t, DefaultMaxCachedKeys, k.maxCached)
@@ -61,7 +61,7 @@ func TestOptions(T *testing.T) {
 
 		logger := logging.EnsureLogger(nil)
 
-		k := &keys{}
+		k := &KeyManager{}
 		WithLogger(logger)(k)
 
 		test.NotNil(t, k.logger)
@@ -70,7 +70,7 @@ func TestOptions(T *testing.T) {
 	T.Run("ignores an empty table prefix", func(t *testing.T) {
 		t.Parallel()
 
-		s := &sqlStore{tables: newTables("ddb")}
+		s := &SQLStore{tables: newTables("ddb")}
 		WithTablePrefix("")(s)
 
 		test.EqOp(t, "ddb", s.tables.prefix())

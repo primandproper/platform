@@ -41,7 +41,7 @@ func (m *mockRedisClient) Close() error {
 	return m.closeFunc()
 }
 
-func buildTestRateLimiter(t *testing.T) (*rateLimiter, *mockRedisClient) {
+func buildTestRateLimiter(t *testing.T) (*RateLimiter, *mockRedisClient) {
 	t.Helper()
 
 	client := &mockRedisClient{}
@@ -56,7 +56,7 @@ func buildTestRateLimiter(t *testing.T) (*rateLimiter, *mockRedisClient) {
 	errorCounter, err := mp.NewInt64Counter(redisName + "_errors")
 	must.NoError(t, err)
 
-	return &rateLimiter{
+	return &RateLimiter{
 		o11y:            observability.NewObserver(redisName, nil, nil),
 		client:          client,
 		requestsPerSec:  10,
@@ -272,7 +272,7 @@ func Test_rateLimiter_Allow(T *testing.T) {
 		must.NoError(t, err)
 
 		// 0.5 rps with a burst of 3: the old int64(0.5)=0 limit rejected everything.
-		rl := &rateLimiter{o11y: observability.NewObserver(redisName, nil, nil), client: client, requestsPerSec: 0.5, burstSize: 3, allowedCounter: allowed, rejectedCounter: rejected, errorCounter: errc}
+		rl := &RateLimiter{o11y: observability.NewObserver(redisName, nil, nil), client: client, requestsPerSec: 0.5, burstSize: 3, allowedCounter: allowed, rejectedCounter: rejected, errorCounter: errc}
 
 		cmd := redis.NewCmd(ctx)
 		cmd.SetVal(int64(1))

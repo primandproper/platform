@@ -23,7 +23,7 @@ import (
 // newTestUsageReporter builds a stripeUsageReporter whose Stripe client talks to
 // an httptest server, so a test can drive the post and inspect the request Stripe
 // would have received.
-func newTestUsageReporter(t *testing.T, status int, body string) (*stripeUsageReporter, *[]capturedRequest) {
+func newTestUsageReporter(t *testing.T, status int, body string) (*UsageReporter, *[]capturedRequest) {
 	t.Helper()
 
 	var (
@@ -53,7 +53,7 @@ func newTestUsageReporter(t *testing.T, status int, body string) (*stripeUsageRe
 	sc := &client.API{}
 	sc.Init("sk_test_123", &stripe.Backends{API: backend, Connect: backend, Uploads: backend})
 
-	return &stripeUsageReporter{
+	return &UsageReporter{
 		client: sc,
 		o11y:   observability.NewObserver(usageImplementationName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
 	}, &captured

@@ -69,7 +69,13 @@ func (p *pubSubPublisher) Stop() {
 	p.publisher.Stop()
 }
 
-type publisherProvider struct {
+var _ messagequeue.PublisherProvider = (*PublisherProvider)(nil)
+
+// PublisherProvider is the Google Cloud Pub/Sub messagequeue.PublisherProvider implementation. It is
+// exported, and returned by NewPubSubPublisherProvider, so a caller who has chosen
+// Google Cloud Pub/Sub can depend on that choice rather than on the interface every
+// broker shares.
+type PublisherProvider struct {
 	logger            logging.Logger
 	publisherCache    map[string]messagequeue.Publisher
 	pubsubClient      *pubsub.Client
@@ -80,10 +86,10 @@ type publisherProvider struct {
 }
 
 // NewPubSubPublisherProvider returns a PublisherProvider for a given address.
-func NewPubSubPublisherProvider(client *pubsub.Client, projectID string, opts ...Option) messagequeue.PublisherProvider {
+func NewPubSubPublisherProvider(client *pubsub.Client, projectID string, opts ...Option) *PublisherProvider {
 	o := newOptions(opts)
 
-	return &publisherProvider{
+	return &PublisherProvider{
 		logger:          logging.EnsureLogger(o.logger),
 		pubsubClient:    client,
 		publisherCache:  map[string]messagequeue.Publisher{},
@@ -94,17 +100,17 @@ func NewPubSubPublisherProvider(client *pubsub.Client, projectID string, opts ..
 }
 
 // Ping is a no-op for GCP Pub/Sub (managed service).
-func (p *publisherProvider) Ping(context.Context) error { return nil }
+func (p *PublisherProvider) Ping(context.Context) error { return nil }
 
 // Close closes the connection topic.
-func (p *publisherProvider) Close() {
+func (p *PublisherProvider) Close() {
 	if err := p.pubsubClient.Close(); err != nil {
 		p.logger.Error("closing pubsub connection", err)
 	}
 }
 
 // qualifyTopicName ensures the topic name is fully qualified (projects/{project}/topics/{topic}).
-func (p *publisherProvider) qualifyTopicName(topicName string) string {
+func (p *PublisherProvider) qualifyTopicName(topicName string) string {
 	if strings.HasPrefix(topicName, "projects/") {
 		return topicName
 	}
@@ -112,7 +118,7 @@ func (p *publisherProvider) qualifyTopicName(topicName string) string {
 }
 
 // NewPublisher returns a pubSubPublisher for a given topic.
-func (p *publisherProvider) NewPublisher(ctx context.Context, topicName string) (messagequeue.Publisher, error) {
+func (p *PublisherProvider) NewPublisher(ctx context.Context, topicName string) (messagequeue.Publisher, error) {
 	if topicName == "" {
 		return nil, messagequeue.ErrEmptyTopicName
 	}

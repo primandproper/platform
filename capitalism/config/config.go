@@ -89,6 +89,12 @@ func prepare(ctx context.Context, cfg *Config) (string, error) {
 // NewPaymentManager provides a capitalism.PaymentManager implementation based on the
 // config. stripeEventHandler is optional (may be nil) and, for the Stripe provider, is invoked with
 // each verified webhook event.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *stripe.PaymentManager into a
+// non-nil capitalism.PaymentManager on the error path, and a caller testing the result against
+// nil would find a manager that panics on first use.
 func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stripe.EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
 	o := newOptions(opts)
 	logger, tracerProvider := o.logger, o.tracerProvider
@@ -100,7 +106,12 @@ func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stri
 
 	switch provider {
 	case StripeProvider:
-		return stripe.NewPaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+		m, managerErr := stripe.NewPaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+		if managerErr != nil {
+			return nil, managerErr
+		}
+
+		return m, nil
 	case NoopProvider:
 		return noop.NewPaymentManager(), nil
 	default:
@@ -109,6 +120,12 @@ func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stri
 }
 
 // NewUsageReporter provides a capitalism.UsageReporter based on the config.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *stripe.UsageReporter into a
+// non-nil capitalism.UsageReporter on the error path, and a caller testing the result against
+// nil would find a reporter that panics on first use.
 func NewUsageReporter(ctx context.Context, cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
 	o := newOptions(opts)
 	logger, tracerProvider := o.logger, o.tracerProvider
@@ -120,7 +137,12 @@ func NewUsageReporter(ctx context.Context, cfg *Config, opts ...Option) (capital
 
 	switch provider {
 	case StripeProvider:
-		return stripe.NewUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+		r, reporterErr := stripe.NewUsageReporter(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider))
+		if reporterErr != nil {
+			return nil, reporterErr
+		}
+
+		return r, nil
 	case NoopProvider:
 		return noop.NewUsageReporter(), nil
 	default:

@@ -78,6 +78,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // Defaults are applied before validation, so an unset RequestsPerSec is the
 // documented default rather than a validation failure; a negative one is still
 // rejected, because a negative rate rejects every request.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *redis.RateLimiter into a
+// non-nil ratelimiting.RateLimiter on the error path, and a caller testing the result against
+// nil would find a limiter that panics on first use.
 func NewRateLimiter(
 	ctx context.Context,
 	cfg *Config,
@@ -126,12 +132,22 @@ func NewRateLimiter(
 		// sweep is Close.
 		//
 		//nolint:contextcheck // the sweep outlives this ctx by design; see above.
-		return ratelimiting.NewInMemoryRateLimiter(cfg.RequestsPerSec, cfg.BurstSize, memoryOpts...)
+		l, limiterErr := ratelimiting.NewInMemoryRateLimiter(cfg.RequestsPerSec, cfg.BurstSize, memoryOpts...)
+		if limiterErr != nil {
+			return nil, limiterErr
+		}
+
+		return l, nil
 	case ProviderRedis:
-		return redisrl.NewRedisRateLimiter(ctx, cfg.Redis, cfg.RequestsPerSec, cfg.BurstSize,
+		l, limiterErr := redisrl.NewRedisRateLimiter(ctx, cfg.Redis, cfg.RequestsPerSec, cfg.BurstSize,
 			redisrl.WithLogger(logger),
 			redisrl.WithTracerProvider(tracerProvider),
 			redisrl.WithMetricsProvider(metricsProvider))
+		if limiterErr != nil {
+			return nil, limiterErr
+		}
+
+		return l, nil
 	default:
 		return nil, errors.Wrapf(errors.ErrUnknownProvider, "rate limiter provider %q", cfg.Provider)
 	}

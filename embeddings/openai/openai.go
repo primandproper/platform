@@ -30,7 +30,12 @@ const (
 	providerName = "openai"
 )
 
-type embedder struct {
+var _ embeddings.Embedder = (*Embedder)(nil)
+
+// Embedder is the OpenAI embeddings.Embedder implementation. It is exported, and
+// returned by NewEmbedder, so a caller who has chosen OpenAI can depend on that
+// choice rather than on the interface every embedding provider shares.
+type Embedder struct {
 	o11y           observability.Observer
 	client         *http.Client
 	cfg            *Config
@@ -40,7 +45,7 @@ type embedder struct {
 }
 
 // NewEmbedder creates a new OpenAI-backed embeddings provider.
-func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (embeddings.Embedder, error) {
+func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (*Embedder, error) {
 	if cfg == nil {
 		return nil, errors.New("openai embeddings config is required")
 	}
@@ -75,7 +80,7 @@ func NewEmbedder(ctx context.Context, cfg *Config, opts ...Option) (embeddings.E
 		return nil, errors.Wrap(err, "creating latency histogram")
 	}
 
-	return &embedder{
+	return &Embedder{
 		o11y:           observability.NewObserver(name, logger, o.tracerProvider),
 		client:         client,
 		cfg:            cfg,
@@ -108,7 +113,7 @@ type embeddingResponse struct {
 // Requests) is surfaced to the caller as an error carrying the status code; it is not
 // retried or backed off. Callers that want retry/backoff should wrap this call themselves
 // (e.g. with the platform's retry package).
-func (e *embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.Input) (_ []*embeddings.Embedding, err error) {
+func (e *Embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.Input) (_ []*embeddings.Embedding, err error) {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -231,7 +236,7 @@ func (e *embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 //
 // It is a thin wrapper over GenerateEmbeddings: OpenAI's API takes an array,
 // so one input is simply a batch of one.
-func (e *embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Input) (*embeddings.Embedding, error) {
+func (e *Embedder) GenerateEmbedding(ctx context.Context, input *embeddings.Input) (*embeddings.Embedding, error) {
 	out, err := e.GenerateEmbeddings(ctx, []*embeddings.Input{input})
 	if err != nil {
 		return nil, err

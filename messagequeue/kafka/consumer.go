@@ -111,7 +111,11 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 	}
 }
 
-type consumerProvider struct {
+// ConsumerProvider is the Kafka messagequeue.ConsumerProvider implementation. It is
+// exported, and returned by NewKafkaConsumerProvider, so a caller who has chosen
+// Kafka can depend on that choice rather than on the interface every
+// broker shares.
+type ConsumerProvider struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
@@ -121,15 +125,15 @@ type consumerProvider struct {
 	consumerCacheMu sync.RWMutex
 }
 
-var _ messagequeue.ConsumerProvider = (*consumerProvider)(nil)
+var _ messagequeue.ConsumerProvider = (*ConsumerProvider)(nil)
 
 // NewKafkaConsumerProvider returns a ConsumerProvider backed by Kafka.
-func NewKafkaConsumerProvider(cfg Config, opts ...Option) messagequeue.ConsumerProvider {
+func NewKafkaConsumerProvider(cfg Config, opts ...Option) *ConsumerProvider {
 	o := newOptions(opts)
 	logger := logging.EnsureLogger(o.logger)
 	logger.WithValue("brokers", cfg.Brokers).WithValue("group_id", cfg.GroupID).Info("setting up kafka consumer")
 
-	return &consumerProvider{
+	return &ConsumerProvider{
 		logger:          logger,
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
@@ -141,10 +145,10 @@ func NewKafkaConsumerProvider(cfg Config, opts ...Option) messagequeue.ConsumerP
 
 // Close is a no-op: each cached consumer owns its Kafka reader and closes it when
 // its Consume loop exits, so the provider holds no independent resource to release.
-func (p *consumerProvider) Close() {}
+func (p *ConsumerProvider) Close() {}
 
 // NewConsumer returns a Consumer for the given topic.
-func (p *consumerProvider) NewConsumer(_ context.Context, topic string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
+func (p *ConsumerProvider) NewConsumer(_ context.Context, topic string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
 	if topic == "" {
 		return nil, messagequeue.ErrEmptyTopicName
 	}

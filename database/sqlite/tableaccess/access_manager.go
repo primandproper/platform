@@ -11,40 +11,47 @@ import (
 // SQLite has no concept of users, roles, permissions, or multiple databases.
 var ErrNotSupported = errors.New("operation not supported by SQLite")
 
-type manager struct{}
+var _ database.Manager = (*Manager)(nil)
 
-func NewManager() database.Manager {
-	return &manager{}
+// Manager is the SQLite database.Manager implementation: every operation
+// reports ErrNotSupported, because SQLite has no users, roles, or grants. It is
+// exported, and returned by NewManager, so a caller who has chosen SQLite can
+// depend on that choice rather than on the interface every dialect's manager
+// shares.
+type Manager struct{}
+
+func NewManager() *Manager {
+	return &Manager{}
 }
 
-func (m *manager) CreateUser(_ context.Context, _, _ string) error {
+func (m *Manager) CreateUser(_ context.Context, _, _ string) error {
 	return ErrNotSupported
 }
 
-func (m *manager) DeleteUser(_ context.Context, _ string) error {
+func (m *Manager) DeleteUser(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
-func (m *manager) CreateDatabase(_ context.Context, _, _ string) error {
+func (m *Manager) CreateDatabase(_ context.Context, _, _ string) error {
 	return ErrNotSupported
 }
 
-func (m *manager) DeleteDatabase(_ context.Context, _ string) error {
+func (m *Manager) DeleteDatabase(_ context.Context, _ string) error {
 	return ErrNotSupported
 }
 
-func (m *manager) UserExists(_ context.Context, _ string) (bool, error) {
+func (m *Manager) UserExists(_ context.Context, _ string) (bool, error) {
 	return false, ErrNotSupported
 }
 
-func (m *manager) DatabaseExists(_ context.Context, _ string) (bool, error) {
+func (m *Manager) DatabaseExists(_ context.Context, _ string) (bool, error) {
 	return false, ErrNotSupported
 }
 
-func (m *manager) GrantUserAccessToTable(_ context.Context, _, _, _, _ string) error {
+func (m *Manager) GrantUserAccessToTable(_ context.Context, _, _, _, _ string) error {
 	return ErrNotSupported
 }
 
-func (m *manager) UserCanAccessDatabase(_ context.Context, _, _ string) (bool, error) {
+func (m *Manager) UserCanAccessDatabase(_ context.Context, _, _ string) (bool, error) {
 	return false, ErrNotSupported
 }

@@ -40,12 +40,17 @@ func isValidPrivilege(p Privilege) bool {
 	}
 }
 
-type manager struct {
+var _ database.Manager = (*Manager)(nil)
+
+// Manager is the MySQL database.Manager implementation. It is exported,
+// and returned by NewManager, so a caller who has chosen MySQL can depend on
+// that choice rather than on the interface every dialect's manager shares.
+type Manager struct {
 	db *sql.DB
 }
 
-func NewManager(db *sql.DB) database.Manager {
-	return &manager{db: db}
+func NewManager(db *sql.DB) *Manager {
+	return &Manager{db: db}
 }
 
 // quoteIdent safely wraps a MySQL identifier in backticks,
@@ -101,7 +106,7 @@ const cannotUser = 1396
 // known to have happened, and a read that could not run is not evidence of a
 // duplicate — swapping it for the sentinel is how a transient failure ends up
 // reported as a name collision.
-func (m *manager) duplicateUserError(ctx context.Context, username string, cause error) error {
+func (m *Manager) duplicateUserError(ctx context.Context, username string, cause error) error {
 	var myErr *mysqldriver.MySQLError
 	if !stderrors.As(cause, &myErr) || myErr.Number != cannotUser {
 		return cause
@@ -132,7 +137,7 @@ func (m *manager) duplicateUserError(ctx context.Context, username string, cause
 // A username already in use comes back wrapping database.ErrUserAlreadyExists,
 // which errors/http and errors/grpc map to a conflict rather than a 500. The
 // driver's own error is preserved underneath it.
-func (m *manager) CreateUser(ctx context.Context, username, password string) (err error) {
+func (m *Manager) CreateUser(ctx context.Context, username, password string) (err error) {
 	conn, err := m.db.Conn(ctx)
 	if err != nil {
 		return errors.Wrap(err, "acquiring connection for create user")
@@ -178,12 +183,12 @@ func (m *manager) CreateUser(ctx context.Context, username, password string) (er
 	return nil
 }
 
-func (m *manager) DeleteUser(ctx context.Context, username string) error {
+func (m *Manager) DeleteUser(ctx context.Context, username string) error {
 	_, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP USER IF EXISTS %s@'%%'", quoteLiteral(username)))
 	return err
 }
 
-func (m *manager) CreateDatabase(ctx context.Context, dbName, owner string) error {
+func (m *Manager) CreateDatabase(ctx context.Context, dbName, owner string) error {
 	if _, err := m.db.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", quoteIdent(dbName))); err != nil {
 		return err
 	}
@@ -197,24 +202,24 @@ func (m *manager) CreateDatabase(ctx context.Context, dbName, owner string) erro
 	return err
 }
 
-func (m *manager) DeleteDatabase(ctx context.Context, dbName string) error {
+func (m *Manager) DeleteDatabase(ctx context.Context, dbName string) error {
 	_, err := m.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", quoteIdent(dbName)))
 	return err
 }
 
-func (m *manager) UserExists(ctx context.Context, username string) (bool, error) {
+func (m *Manager) UserExists(ctx context.Context, username string) (bool, error) {
 	var exists bool
 	err := m.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM mysql.user WHERE User = ? AND Host = '%')`, username).Scan(&exists)
 	return exists, err
 }
 
-func (m *manager) DatabaseExists(ctx context.Context, dbName string) (bool, error) {
+func (m *Manager) DatabaseExists(ctx context.Context, dbName string) (bool, error) {
 	var exists bool
 	err := m.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?)`, dbName).Scan(&exists)
 	return exists, err
 }
 
-func (m *manager) UserCanAccessDatabase(ctx context.Context, username, dbName string) (bool, error) {
+func (m *Manager) UserCanAccessDatabase(ctx context.Context, username, dbName string) (bool, error) {
 	var count int
 	err := m.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE = CONCAT('''', ?, '''@''%''') AND TABLE_SCHEMA = ?`,
@@ -227,7 +232,7 @@ func (m *manager) UserCanAccessDatabase(ctx context.Context, username, dbName st
 }
 
 // GrantUserAccessToTable grants a specific privilege on a table to a user.
-func (m *manager) GrantUserAccessToTable(ctx context.Context, username, schema, table, privilege string) error {
+func (m *Manager) GrantUserAccessToTable(ctx context.Context, username, schema, table, privilege string) error {
 	if !isValidPrivilege(Privilege(privilege)) {
 		return errors.Newf("invalid privilege: %s", privilege)
 	}

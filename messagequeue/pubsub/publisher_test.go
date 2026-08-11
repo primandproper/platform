@@ -107,7 +107,7 @@ func TestPublisherProvider_Ping(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		p := &publisherProvider{}
+		p := &PublisherProvider{}
 		test.NoError(t, p.Ping(t.Context()))
 	})
 }
@@ -118,7 +118,7 @@ func TestPublisherProvider_qualifyTopicName(T *testing.T) {
 	T.Run("already qualified", func(t *testing.T) {
 		t.Parallel()
 
-		p := &publisherProvider{projectID: "my-project"}
+		p := &PublisherProvider{projectID: "my-project"}
 		result := p.qualifyTopicName("projects/my-project/topics/my-topic")
 		test.EqOp(t, "projects/my-project/topics/my-topic", result)
 	})
@@ -126,7 +126,7 @@ func TestPublisherProvider_qualifyTopicName(T *testing.T) {
 	T.Run("unqualified", func(t *testing.T) {
 		t.Parallel()
 
-		p := &publisherProvider{projectID: "my-project"}
+		p := &PublisherProvider{projectID: "my-project"}
 		result := p.qualifyTopicName("my-topic")
 		test.EqOp(t, "projects/my-project/topics/my-topic", result)
 	})

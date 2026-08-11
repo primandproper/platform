@@ -31,11 +31,15 @@ type RateLimiter interface {
 }
 
 var (
-	_ RateLimiter = (*inMemoryRateLimiter)(nil)
-	_ RetryHinter = (*inMemoryRateLimiter)(nil)
+	_ RateLimiter = (*InMemoryRateLimiter)(nil)
+	_ RetryHinter = (*InMemoryRateLimiter)(nil)
 )
 
-type inMemoryRateLimiter struct {
+// InMemoryRateLimiter is the process-local RateLimiter, backed by a token
+// bucket per key. It is exported, and returned by NewInMemoryRateLimiter, so a
+// caller who has chosen it can depend on that choice rather than on the
+// interface every limiter shares.
+type InMemoryRateLimiter struct {
 	o11y                   observability.Observer
 	clock                  clock.Clock
 	allowedCounter         metrics.Int64Counter
@@ -70,7 +74,7 @@ type inMemoryRateLimiter struct {
 // have stopped arriving, so Close is not optional: a limiter that is never
 // closed keeps that goroutine, and itself, alive for the life of the process.
 // See the package documentation for what is retained and for how long.
-func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Option) (RateLimiter, error) {
+func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Option) (*InMemoryRateLimiter, error) {
 	o := newOptions(opts)
 
 	mp := metrics.EnsureMetricsProvider(o.metricsProvider)
@@ -107,7 +111,7 @@ func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Optio
 
 	window := limiterWindow(requestsPerSec, burstSize)
 
-	r := &inMemoryRateLimiter{
+	r := &InMemoryRateLimiter{
 		o11y:                   observability.NewObserver(inMemoryName, o.logger, o.tracerProvider),
 		clock:                  o.clock,
 		requestsPerSec:         requestsPerSec,
@@ -133,7 +137,7 @@ func NewInMemoryRateLimiter(requestsPerSec float64, burstSize int, opts ...Optio
 	return r, nil
 }
 
-func (r *inMemoryRateLimiter) Allow(ctx context.Context, key string) (bool, error) {
+func (r *InMemoryRateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
 
@@ -161,7 +165,7 @@ func (r *inMemoryRateLimiter) Allow(ctx context.Context, key string) (bool, erro
 //
 // A key with no bucket yet reports no hint rather than zero: the caller is
 // about to be allowed, so there is nothing to wait for and nothing to say.
-func (r *inMemoryRateLimiter) RetryAfter(_ context.Context, key string) (time.Duration, bool) {
+func (r *InMemoryRateLimiter) RetryAfter(_ context.Context, key string) (time.Duration, bool) {
 	entry, ok := r.lookup(key)
 	if !ok {
 		return 0, false
@@ -189,7 +193,7 @@ func (r *inMemoryRateLimiter) RetryAfter(_ context.Context, key string) (time.Du
 }
 
 // lookup returns key's entry without stamping it.
-func (r *inMemoryRateLimiter) lookup(key string) (*limiterEntry, bool) {
+func (r *InMemoryRateLimiter) lookup(key string) (*limiterEntry, bool) {
 	value, ok := r.limiters.Load(key)
 	if !ok {
 		return nil, false
@@ -200,7 +204,7 @@ func (r *inMemoryRateLimiter) lookup(key string) (*limiterEntry, bool) {
 	return entry, ok
 }
 
-func (r *inMemoryRateLimiter) getOrCreateLimiter(ctx context.Context, key string) *rate.Limiter {
+func (r *InMemoryRateLimiter) getOrCreateLimiter(ctx context.Context, key string) *rate.Limiter {
 	now := r.clock.Now()
 
 	if entry, ok := r.lookup(key); ok {
@@ -233,7 +237,7 @@ func (r *inMemoryRateLimiter) getOrCreateLimiter(ctx context.Context, key string
 //
 // It is safe to call more than once, and it waits for the sweeper to exit, so a
 // caller that closes a limiter holds no goroutine of ours afterwards.
-func (r *inMemoryRateLimiter) Close() error {
+func (r *InMemoryRateLimiter) Close() error {
 	r.stopOnce.Do(func() { close(r.stop) })
 	<-r.done
 

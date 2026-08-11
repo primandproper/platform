@@ -19,7 +19,7 @@ import (
 // A nil Config is an error rather than a noop, for the same reason the pyroscope
 // provider refuses one: a provider that profiles nothing is indistinguishable
 // from one that works until somebody goes looking for a profile.
-func NewProfilingProvider(ctx context.Context, logger logging.Logger, cfg *Config) (profiling.Provider, error) {
+func NewProfilingProvider(ctx context.Context, logger logging.Logger, cfg *Config) (*Provider, error) {
 	if cfg == nil {
 		return nil, errors.Wrap(errors.ErrNilInputParameter, "nil pprof config")
 	}
@@ -54,20 +54,24 @@ func NewProfilingProvider(ctx context.Context, logger logging.Logger, cfg *Confi
 		WithValue("addr", addr).
 		Info("starting pprof HTTP server")
 
-	return &provider{
+	return &Provider{
 		server: server,
 		logger: logger,
 	}, nil
 }
 
-var _ profiling.Provider = (*provider)(nil)
+var _ profiling.Provider = (*Provider)(nil)
 
-type provider struct {
+// Provider is the net/http/pprof profiling.Provider implementation. It is
+// exported, and returned by NewProfilingProvider, so a caller who has chosen
+// pprof can depend on that choice rather than on the interface every profiler
+// shares.
+type Provider struct {
 	server *http.Server
 	logger logging.Logger
 }
 
-func (p *provider) Start(ctx context.Context) error {
+func (p *Provider) Start(ctx context.Context) error {
 	go func() {
 		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			p.logger.Error("pprof server error", err)
@@ -76,7 +80,7 @@ func (p *provider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *provider) Shutdown(ctx context.Context) error {
+func (p *Provider) Shutdown(ctx context.Context) error {
 	if p.server != nil {
 		if err := p.server.Shutdown(ctx); err != nil {
 			return errors.Wrap(err, "shutting down pprof server")

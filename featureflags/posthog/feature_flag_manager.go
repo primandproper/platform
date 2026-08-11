@@ -29,9 +29,14 @@ var (
 	ErrMissingCredentials = platformerrors.New("missing PostHog credentials")
 )
 
+var _ featureflags.FeatureFlagManager = (*FeatureFlagManager)(nil)
+
 type (
-	// featureFlagManager implements the feature flag interface using OpenFeature.
-	featureFlagManager struct {
+	// FeatureFlagManager is the PostHog featureflags.FeatureFlagManager
+	// implementation, by way of OpenFeature. It is exported, and returned by
+	// NewFeatureFlagManager, so a caller who has chosen PostHog can depend on that
+	// choice rather than on the interface every flag backend shares.
+	FeatureFlagManager struct {
 		o11y            observability.Observer
 		posthogClient   posthog.Client
 		circuitBreaker  circuitbreaking.CircuitBreaker
@@ -44,8 +49,9 @@ type (
 	}
 )
 
-// NewFeatureFlagManager constructs a new featureFlagManager backed by OpenFeature.
-func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (featureflags.FeatureFlagManager, error) {
+// NewFeatureFlagManager constructs a PostHog FeatureFlagManager backed by
+// OpenFeature.
+func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (*FeatureFlagManager, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -123,7 +129,7 @@ func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBr
 
 	ofClient := openfeature.NewClient(domain)
 
-	ffm := &featureFlagManager{
+	ffm := &FeatureFlagManager{
 		domain:          domain,
 		posthogClient:   client,
 		ofClient:        ofClient,
@@ -158,7 +164,7 @@ func toOpenFeatureContext(evalCtx featureflags.EvaluationContext) openfeature.Ev
 // SDK's pre-evaluation short circuits, which return empty resolution details and so
 // arrive here with an empty code: an unready or fatally broken provider is exactly
 // what the breaker is for.
-func (f *featureFlagManager) evaluationError(ctx context.Context, feature string, code openfeature.ErrorCode, err error) error {
+func (f *FeatureFlagManager) evaluationError(ctx context.Context, feature string, code openfeature.ErrorCode, err error) error {
 	if code == openfeature.FlagNotFoundCode {
 		f.notFoundCounter.Add(ctx, 1)
 		f.circuitBreaker.Succeeded()
@@ -183,7 +189,7 @@ func (f *featureFlagManager) evaluationError(ctx context.Context, feature string
 // answer this package's distinction is there to produce, reached one layer lower.
 // The four typed getters do report it, because a missing key is distinguishable
 // once the flag has a value to be missing.
-func (f *featureFlagManager) CanUseFeature(ctx context.Context, feature string, evalCtx featureflags.EvaluationContext) (bool, error) {
+func (f *FeatureFlagManager) CanUseFeature(ctx context.Context, feature string, evalCtx featureflags.EvaluationContext) (bool, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -210,7 +216,7 @@ func (f *featureFlagManager) CanUseFeature(ctx context.Context, feature string, 
 
 // GetStringValue returns the string value of a feature flag, falling back to
 // defaultValue on error.
-func (f *featureFlagManager) GetStringValue(ctx context.Context, feature, defaultValue string, evalCtx featureflags.EvaluationContext) (string, error) {
+func (f *FeatureFlagManager) GetStringValue(ctx context.Context, feature, defaultValue string, evalCtx featureflags.EvaluationContext) (string, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -237,7 +243,7 @@ func (f *featureFlagManager) GetStringValue(ctx context.Context, feature, defaul
 
 // GetInt64Value returns the int64 value of a feature flag, falling back to
 // defaultValue on error.
-func (f *featureFlagManager) GetInt64Value(ctx context.Context, feature string, defaultValue int64, evalCtx featureflags.EvaluationContext) (int64, error) {
+func (f *FeatureFlagManager) GetInt64Value(ctx context.Context, feature string, defaultValue int64, evalCtx featureflags.EvaluationContext) (int64, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -264,7 +270,7 @@ func (f *featureFlagManager) GetInt64Value(ctx context.Context, feature string, 
 
 // GetFloat64Value returns the float64 value of a feature flag, falling back to
 // defaultValue on error.
-func (f *featureFlagManager) GetFloat64Value(ctx context.Context, feature string, defaultValue float64, evalCtx featureflags.EvaluationContext) (float64, error) {
+func (f *FeatureFlagManager) GetFloat64Value(ctx context.Context, feature string, defaultValue float64, evalCtx featureflags.EvaluationContext) (float64, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -291,7 +297,7 @@ func (f *featureFlagManager) GetFloat64Value(ctx context.Context, feature string
 
 // GetObjectValue returns the object (JSON) value of a feature flag, falling back
 // to defaultValue on error.
-func (f *featureFlagManager) GetObjectValue(ctx context.Context, feature string, defaultValue any, evalCtx featureflags.EvaluationContext) (any, error) {
+func (f *FeatureFlagManager) GetObjectValue(ctx context.Context, feature string, defaultValue any, evalCtx featureflags.EvaluationContext) (any, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -323,7 +329,7 @@ func (f *featureFlagManager) GetObjectValue(ctx context.Context, feature string,
 // closed, and the process accumulated them until it exited. Replacing the
 // registration with the no-op provider releases the client; the (small,
 // clientless) map entry itself is not removable and is left behind.
-func (f *featureFlagManager) Close() error {
+func (f *FeatureFlagManager) Close() error {
 	var errs []error
 
 	if err := openfeature.SetNamedProvider(f.domain, openfeature.NoopProvider{}); err != nil {

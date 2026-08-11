@@ -23,11 +23,14 @@ import (
 // not end in '_'; database/ddl supplies the separator.
 const DefaultTablePrefix = ""
 
-var _ Store = (*sqlStore)(nil)
+var _ Store = (*SQLStore)(nil)
 
-// sqlStore is the SQL-backed Store, against the schema webhooks/migrations
+// SQLStore is the SQL-backed Store, against the schema webhooks/migrations
 // renders.
-type sqlStore struct {
+// It is exported, and returned by NewSQLStore, so a caller who has chosen SQL
+// storage can depend on that choice rather than on the Store seam every backing
+// shares.
+type SQLStore struct {
 	client  database.Client
 	tables  *tables
 	dialect dialect.Dialect
@@ -39,7 +42,7 @@ type sqlStore struct {
 // still match the one the migrations were rendered with — nothing here can check
 // that, and a mismatch surfaces as a missing table on the first query rather
 // than at construction.
-func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) {
+func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
 	}
@@ -49,7 +52,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "webhooks dialect %q", d)
 	}
 
-	s := &sqlStore{
+	s := &SQLStore{
 		client:  client,
 		dialect: d,
 		tables:  newTables(DefaultTablePrefix),
@@ -74,7 +77,7 @@ var ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParamet
 // SaveEndpoint upserts the endpoint and replaces its subscription set, both in
 // one transaction — a half-registered endpoint would either receive events it
 // no longer subscribes to or silently receive none.
-func (s *sqlStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
+func (s *SQLStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 	if endpoint == nil {
 		return ErrNilEndpoint
 	}
@@ -111,7 +114,7 @@ func (s *sqlStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 }
 
 // GetEndpoint reads one endpoint and its subscriptions.
-func (s *sqlStore) GetEndpoint(ctx context.Context, endpointID string) (*Endpoint, error) {
+func (s *SQLStore) GetEndpoint(ctx context.Context, endpointID string) (*Endpoint, error) {
 	query, args := s.tables.buildSelectEndpoint(s.dialect, endpointID)
 
 	endpoint, err := scanEndpoint(s.client.Reader().QueryRowContext(ctx, query, args...))
@@ -127,7 +130,7 @@ func (s *sqlStore) GetEndpoint(ctx context.Context, endpointID string) (*Endpoin
 }
 
 // ListEndpoints pages the registry.
-func (s *sqlStore) ListEndpoints(ctx context.Context, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Endpoint], error) {
+func (s *SQLStore) ListEndpoints(ctx context.Context, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Endpoint], error) {
 	if filter == nil {
 		filter = filtering.DefaultQueryFilter()
 	}
@@ -171,7 +174,7 @@ func (s *sqlStore) ListEndpoints(ctx context.Context, filter *filtering.QueryFil
 }
 
 // ArchiveEndpoint retires an endpoint.
-func (s *sqlStore) ArchiveEndpoint(ctx context.Context, endpointID string) error {
+func (s *SQLStore) ArchiveEndpoint(ctx context.Context, endpointID string) error {
 	query, args := s.tables.buildArchiveEndpoint(s.dialect, endpointID, time.Now().UTC())
 
 	if _, err := s.client.Writer().ExecContext(ctx, query, args...); err != nil {
@@ -183,7 +186,7 @@ func (s *sqlStore) ArchiveEndpoint(ctx context.Context, endpointID string) error
 
 // EndpointsForEvent resolves the fan-out set, using the caller's executor so it
 // sees the same snapshot as the transaction that is dispatching.
-func (s *sqlStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, eventType string) ([]*Endpoint, error) {
+func (s *SQLStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, eventType string) ([]*Endpoint, error) {
 	if q == nil {
 		return nil, ErrNilExecutor
 	}
@@ -200,7 +203,7 @@ func (s *sqlStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExe
 
 // Enqueue writes the delivery and its dispatches through the caller's executor,
 // so they commit with whatever else that transaction did.
-func (s *sqlStore) Enqueue(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery, endpointIDs []string, now time.Time) error {
+func (s *SQLStore) Enqueue(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery, endpointIDs []string, now time.Time) error {
 	if q == nil {
 		return ErrNilExecutor
 	}
@@ -239,7 +242,7 @@ func (s *sqlStore) Enqueue(ctx context.Context, q database.SQLQueryExecutor, del
 
 // Claim selects a batch, leases it, and reads it back — all in one transaction,
 // so two workers cannot lease the same rows.
-func (s *sqlStore) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]ClaimedDispatch, error) {
+func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]ClaimedDispatch, error) {
 	var claimed []ClaimedDispatch
 
 	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
@@ -282,7 +285,7 @@ func (s *sqlStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 }
 
 // MarkDelivered retires an accepted dispatch.
-func (s *sqlStore) MarkDelivered(ctx context.Context, dispatchID string, at time.Time) error {
+func (s *SQLStore) MarkDelivered(ctx context.Context, dispatchID string, at time.Time) error {
 	query, args := s.tables.buildMarkDelivered(s.dialect, dispatchID, at.UTC())
 
 	if _, err := s.client.Writer().ExecContext(ctx, query, args...); err != nil {
@@ -293,7 +296,7 @@ func (s *sqlStore) MarkDelivered(ctx context.Context, dispatchID string, at time
 }
 
 // RecordFailure schedules the retry, or marks the dispatch dead.
-func (s *sqlStore) RecordFailure(ctx context.Context, dispatchID string, attempts int, nextAttempt time.Time, lastErr string, dead bool) error {
+func (s *SQLStore) RecordFailure(ctx context.Context, dispatchID string, attempts int, nextAttempt time.Time, lastErr string, dead bool) error {
 	if attempts < 0 {
 		attempts = 0
 	}
@@ -308,7 +311,7 @@ func (s *sqlStore) RecordFailure(ctx context.Context, dispatchID string, attempt
 }
 
 // RecordAttempt appends to the delivery log.
-func (s *sqlStore) RecordAttempt(ctx context.Context, attempt *Attempt) error {
+func (s *SQLStore) RecordAttempt(ctx context.Context, attempt *Attempt) error {
 	if attempt == nil {
 		return platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil webhook attempt")
 	}
@@ -327,7 +330,7 @@ func (s *sqlStore) RecordAttempt(ctx context.Context, attempt *Attempt) error {
 }
 
 // ListAttempts pages one delivery's log.
-func (s *sqlStore) ListAttempts(ctx context.Context, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Attempt], error) {
+func (s *SQLStore) ListAttempts(ctx context.Context, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Attempt], error) {
 	if filter == nil {
 		filter = filtering.DefaultQueryFilter()
 	}
@@ -364,7 +367,7 @@ func (s *sqlStore) ListAttempts(ctx context.Context, deliveryID string, filter *
 }
 
 // Requeue re-drives one delivery to one endpoint.
-func (s *sqlStore) Requeue(ctx context.Context, deliveryID, endpointID string, at time.Time) error {
+func (s *SQLStore) Requeue(ctx context.Context, deliveryID, endpointID string, at time.Time) error {
 	query, args := s.tables.buildRequeue(s.dialect, deliveryID, endpointID, at.UTC())
 
 	res, err := s.client.Writer().ExecContext(ctx, query, args...)
@@ -389,7 +392,7 @@ func (s *sqlStore) Requeue(ctx context.Context, deliveryID, endpointID string, a
 }
 
 // Backlog reads how many dispatches are waiting and how old the oldest is.
-func (s *sqlStore) Backlog(ctx context.Context) (depth int64, oldest time.Time, err error) {
+func (s *SQLStore) Backlog(ctx context.Context) (depth int64, oldest time.Time, err error) {
 	var raw any
 	if err = s.client.Reader().QueryRowContext(ctx, s.tables.buildBacklog()).Scan(&depth, &raw); err != nil {
 		return 0, time.Time{}, platformerrors.Wrap(err, "reading webhook backlog")
@@ -409,7 +412,7 @@ func (s *sqlStore) Backlog(ctx context.Context) (depth int64, oldest time.Time, 
 // The three DELETEs run in one transaction so a crash between them cannot leave
 // a delivery whose dispatches are gone but whose payload lingers forever —
 // nothing would ever revisit it.
-func (s *sqlStore) Reap(ctx context.Context, before time.Time, limit int) (int64, error) {
+func (s *SQLStore) Reap(ctx context.Context, before time.Time, limit int) (int64, error) {
 	var reaped int64
 
 	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
@@ -457,7 +460,7 @@ func (s *sqlStore) Reap(ctx context.Context, before time.Time, limit int) (int64
 }
 
 // subscriptionsFor reads one endpoint's event types.
-func (s *sqlStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) (events []string, err error) {
+func (s *SQLStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) (events []string, err error) {
 	query := "SELECT event_type FROM " + s.tables.subscriptions +
 		" WHERE endpoint_id = " + s.dialect.Placeholder(1) + " ORDER BY event_type"
 
@@ -484,7 +487,7 @@ func (s *sqlStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExec
 }
 
 // scanEndpoints projects endpoint rows, without their subscriptions.
-func (s *sqlStore) scanEndpoints(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (endpoints []*Endpoint, err error) {
+func (s *SQLStore) scanEndpoints(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (endpoints []*Endpoint, err error) {
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -538,7 +541,7 @@ func scanEndpoint(scanner database.Scanner) (*Endpoint, error) {
 
 // scanClaimed projects claimed dispatches joined to their delivery and
 // endpoint. The column list comes from dispatchColumns.
-func (s *sqlStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (claimed []ClaimedDispatch, err error) {
+func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (claimed []ClaimedDispatch, err error) {
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -586,7 +589,7 @@ func (s *sqlStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor,
 
 // scanAttempts projects delivery log rows. The column list comes from
 // attemptColumns.
-func (s *sqlStore) scanAttempts(ctx context.Context, query string, args []any) (attempts []*Attempt, err error) {
+func (s *SQLStore) scanAttempts(ctx context.Context, query string, args []any) (attempts []*Attempt, err error) {
 	rows, err := s.client.Reader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

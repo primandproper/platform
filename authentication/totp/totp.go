@@ -28,21 +28,26 @@ type Verifier interface {
 	Verify(ctx context.Context, secret, code string) error
 }
 
-type verifier struct {
+var _ Verifier = (*TOTPVerifier)(nil)
+
+// TOTPVerifier is the github.com/pquerna/otp-backed Verifier. It is exported,
+// and returned by NewVerifier, so a caller can depend on the verifier it built
+// rather than on the Verifier seam.
+type TOTPVerifier struct {
 	o11y observability.Observer
 }
 
 // NewVerifier returns a Verifier backed by github.com/pquerna/otp.
-func NewVerifier(opts ...Option) Verifier {
+func NewVerifier(opts ...Option) *TOTPVerifier {
 	o := newOptions(opts)
 
-	return &verifier{
+	return &TOTPVerifier{
 		o11y: observability.NewObserver(serviceName, nil, o.tracerProvider),
 	}
 }
 
 // Verify implements Verifier.
-func (v *verifier) Verify(ctx context.Context, secret, code string) error {
+func (v *TOTPVerifier) Verify(ctx context.Context, secret, code string) error {
 	_, op := v.o11y.Begin(ctx)
 	defer op.End()
 

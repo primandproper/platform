@@ -26,15 +26,12 @@ import (
 
 // newRecordingProvider builds a provider with a RecordingObserver swapped in, so a
 // test can both drive Completion and assert which fields it observed.
-func newRecordingProvider(t *testing.T, cfg *Config) (*openaiProvider, *observability.RecordingObserver) {
+func newRecordingProvider(t *testing.T, cfg *Config) (*Provider, *observability.RecordingObserver) {
 	t.Helper()
 
-	p, err := NewProvider(cfg)
+	prov, err := NewProvider(cfg)
 	must.NoError(t, err)
-	must.NotNil(t, p)
-
-	prov, ok := p.(*openaiProvider)
-	must.True(t, ok)
+	must.NotNil(t, prov)
 
 	obs := observability.NewRecordingObserver()
 	prov.o11y = obs
@@ -45,7 +42,7 @@ func newRecordingProvider(t *testing.T, cfg *Config) (*openaiProvider, *observab
 // newFakeProvider builds a provider whose upstream is a fake rather than an
 // HTTP client, for the paths — streaming above all — where standing up an SSE
 // server would test net/http more than it tests this package.
-func newFakeProvider(t *testing.T, upstream *fakeUpstream) (*openaiProvider, *observability.RecordingObserver) {
+func newFakeProvider(t *testing.T, upstream *fakeUpstream) (*Provider, *observability.RecordingObserver) {
 	t.Helper()
 
 	prov, obs := newRecordingProvider(t, &Config{APIKey: "test-key"})

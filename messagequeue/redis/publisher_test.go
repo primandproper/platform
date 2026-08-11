@@ -157,8 +157,6 @@ func Test_redisPublisher_Stop(T *testing.T) {
 
 		provider, err := NewRedisPublisherProvider(t.Context(), Config{QueueAddresses: []string{t.Name()}})
 		must.NoError(t, err)
-		pp, ok := provider.(*publisherProvider)
-		must.True(t, ok)
 
 		mmp := &mockMessagePublisher{
 			publishFunc: func(context.Context, string, any) *redis.IntCmd { return &redis.IntCmd{} },
@@ -167,7 +165,7 @@ func Test_redisPublisher_Stop(T *testing.T) {
 				return nil
 			},
 		}
-		pp.redisClient = mmp
+		provider.redisClient = mmp
 
 		pub1, err := provider.NewPublisher(ctx, "topic-1")
 		must.NoError(t, err)

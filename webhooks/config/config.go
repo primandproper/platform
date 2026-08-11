@@ -84,6 +84,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewStore builds the Store both halves share. client must be the database
 // holding the webhook tables — the same one the Dispatcher's transactions run
 // against.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *webhooks.SQLStore into a
+// non-nil webhooks.Store on the error path, and a caller testing the result against
+// nil would find a store that panics on first use.
 func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...webhooks.SQLStoreOption) (webhooks.Store, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
@@ -97,7 +103,12 @@ func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...
 
 	base := []webhooks.SQLStoreOption{webhooks.WithTablePrefix(cfg.TablePrefix)}
 
-	return webhooks.NewSQLStore(client, append(base, opts...)...)
+	store, storeErr := webhooks.NewSQLStore(client, append(base, opts...)...)
+	if storeErr != nil {
+		return nil, storeErr
+	}
+
+	return store, nil
 }
 
 // NewDispatcher builds a Dispatcher from configuration.
@@ -110,6 +121,12 @@ func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...
 //
 // Explicit options run after the config-derived ones, so a caller can still
 // override anything.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *webhooks.StoreDispatcher into a
+// non-nil webhooks.Dispatcher on the error path, and a caller testing the result against
+// nil would find a dispatcher that panics on first use.
 func NewDispatcher(
 	ctx context.Context,
 	cfg *Config,
@@ -141,7 +158,12 @@ func NewDispatcher(
 		base = append(base, webhooks.WithDispatcherMetricsProvider(metricsProvider))
 	}
 
-	return webhooks.NewDispatcher(store, append(base, o.dispatcher...)...)
+	d, dispatcherErr := webhooks.NewDispatcher(store, append(base, o.dispatcher...)...)
+	if dispatcherErr != nil {
+		return nil, dispatcherErr
+	}
+
+	return d, nil
 }
 
 // NewWorker builds a Worker from configuration, including the shared HTTP

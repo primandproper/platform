@@ -82,7 +82,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with info level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*Logger)
 		must.True(t, ok)
 
 		l.SetLevel(logging.InfoLevel)
@@ -91,7 +91,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with debug level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*Logger)
 		must.True(t, ok)
 
 		l.SetLevel(logging.DebugLevel)
@@ -100,7 +100,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with warn level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*Logger)
 		must.True(t, ok)
 
 		l.SetLevel(logging.WarnLevel)
@@ -109,7 +109,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with error level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*Logger)
 		must.True(t, ok)
 
 		l.SetLevel(logging.ErrorLevel)
@@ -118,7 +118,7 @@ func Test_zapLogger_SetLevel(T *testing.T) {
 	T.Run("with nil level", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*Logger)
 		must.True(t, ok)
 
 		l.SetLevel("")
@@ -260,7 +260,7 @@ func Test_zapLogger_WithRequest(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := mustZapLogger(t, logging.DebugLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.DebugLevel).(*Logger)
 		must.True(t, ok)
 
 		l.requestIDFunc = func(*http.Request) string {
@@ -313,9 +313,9 @@ func Test_zapLogger_SetLevelOnDerivedLogger(T *testing.T) {
 		var buf bytes.Buffer
 		atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
 		core := zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(&buf), atomicLevel)
-		root := &zapLogger{logger: zap.New(core), atomicLevel: atomicLevel}
+		root := &Logger{logger: zap.New(core), atomicLevel: atomicLevel}
 
-		derived, ok := root.WithName(t.Name()).(*zapLogger)
+		derived, ok := root.WithName(t.Name()).(*Logger)
 		must.True(t, ok)
 
 		// Before the fix this nil-dereferenced; now it adjusts the shared atomic level.
@@ -331,7 +331,7 @@ func Test_zapLogger_NewZapLoggerLevelMapping(T *testing.T) {
 	T.Run("warn level maps to warn", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := mustZapLogger(t, logging.WarnLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.WarnLevel).(*Logger)
 		must.True(t, ok)
 
 		test.EqOp(t, zap.WarnLevel, l.atomicLevel.Level())
@@ -340,7 +340,7 @@ func Test_zapLogger_NewZapLoggerLevelMapping(T *testing.T) {
 	T.Run("error level maps to error", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := mustZapLogger(t, logging.ErrorLevel).(*zapLogger)
+		l, ok := mustZapLogger(t, logging.ErrorLevel).(*Logger)
 		must.True(t, ok)
 
 		test.EqOp(t, zap.ErrorLevel, l.atomicLevel.Level())
@@ -355,7 +355,7 @@ func Test_zapLogger_requestIDFuncSurvivesDerivation(T *testing.T) {
 
 		var buf bytes.Buffer
 		core := zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(&buf), zapcore.DebugLevel)
-		root := &zapLogger{logger: zap.New(core), atomicLevel: zap.NewAtomicLevel()}
+		root := &Logger{logger: zap.New(core), atomicLevel: zap.NewAtomicLevel()}
 		root.SetRequestIDFunc(func(*http.Request) string { return "req-123" })
 
 		u, err := url.ParseRequestURI("https://example.com/path?things=stuff")

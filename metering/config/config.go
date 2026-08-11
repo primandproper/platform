@@ -100,6 +100,12 @@ func (cfg *Config) prepare(ctx context.Context) error {
 //
 // Explicit options run after the config-derived ones, so a caller can still
 // override anything.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *metering.SQLStore into a
+// non-nil metering.Store on the error path, and a caller testing the result against
+// nil would find a store that panics on first use.
 func NewStore(
 	ctx context.Context,
 	cfg *Config,
@@ -125,7 +131,12 @@ func NewStore(
 		base = append(base, metering.WithStoreMetricsProvider(metricsProvider))
 	}
 
-	return metering.NewSQLStore(client, append(base, o.store...)...)
+	store, storeErr := metering.NewSQLStore(client, append(base, o.store...)...)
+	if storeErr != nil {
+		return nil, storeErr
+	}
+
+	return store, nil
 }
 
 // NewRecorder builds the ingest path.

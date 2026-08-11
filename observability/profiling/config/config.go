@@ -67,6 +67,12 @@ func (c *Config) EnsureDefaults() {
 }
 
 // NewProfilingProvider provides a profiling provider based on config.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *pyroscope.Provider
+// into a non-nil profiling.Provider on the error path, and a caller testing the
+// result against nil would find a provider that panics on first use.
 func (c *Config) NewProfilingProvider(ctx context.Context, opts ...Option) (profiling.Provider, error) {
 	if c == nil {
 		return nil, errors.ErrNilInputParameter
@@ -92,12 +98,23 @@ func (c *Config) NewProfilingProvider(ctx context.Context, opts ...Option) (prof
 		// Validation requires the block for this provider, so this cannot be
 		// nil. It used to be, and the answer was a noop provider — profiling
 		// silently off for exactly the deployment that asked for it.
-		return pyroscope.NewProfilingProvider(ctx, logger, c.ServiceName, c.Pyroscope)
+		p, provErr := pyroscope.NewProfilingProvider(ctx, logger, c.ServiceName, c.Pyroscope)
+		if provErr != nil {
+			return nil, provErr
+		}
+
+		return p, nil
 	case ProviderPprof:
 		if c.Pprof == nil {
 			c.Pprof = &pprof.Config{Port: pprof.DefaultPort}
 		}
-		return pprof.NewProfilingProvider(ctx, logger, c.Pprof)
+
+		p, provErr := pprof.NewProfilingProvider(ctx, logger, c.Pprof)
+		if provErr != nil {
+			return nil, provErr
+		}
+
+		return p, nil
 	case "", ProviderNoop:
 		return profilingnoop.NewProvider(), nil
 	default:

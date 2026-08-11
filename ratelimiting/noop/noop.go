@@ -6,22 +6,22 @@ import (
 	"github.com/primandproper/platform-go/v10/ratelimiting"
 )
 
-var _ ratelimiting.RateLimiter = (*rateLimiter)(nil)
+var _ ratelimiting.RateLimiter = (*RateLimiter)(nil)
 
-// rateLimiter always allows requests.
-type rateLimiter struct{}
+// RateLimiter always allows requests.
+type RateLimiter struct{}
 
 // Allow always returns true.
-func (n *rateLimiter) Allow(ctx context.Context, key string) (bool, error) {
+func (n *RateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
 // Close is a no-op.
-func (n *rateLimiter) Close() error {
+func (n *RateLimiter) Close() error {
 	return nil
 }
 
 // NewRateLimiter returns a RateLimiter that never limits.
-func NewRateLimiter() ratelimiting.RateLimiter {
-	return &rateLimiter{}
+func NewRateLimiter() *RateLimiter {
+	return &RateLimiter{}
 }

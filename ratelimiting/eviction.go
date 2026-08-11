@@ -101,7 +101,7 @@ func limiterWindow(requestsPerSec float64, burstSize int) time.Duration {
 // The context is this goroutine's own: it outlives every request that reaches
 // the limiter, so there is no caller's context to inherit, and the only thing
 // it carries is where the eviction counters record.
-func (r *inMemoryRateLimiter) sweepEvery() {
+func (r *InMemoryRateLimiter) sweepEvery() {
 	defer close(r.done)
 
 	ctx := context.Background()
@@ -135,7 +135,7 @@ func (r *inMemoryRateLimiter) sweepEvery() {
 // touched — not re-created — in the same instant, which loses a bucket it had
 // let go idle for a full TTL and is handed a full one. That is the same outcome
 // as arriving a moment earlier.
-func (r *inMemoryRateLimiter) sweep(ctx context.Context) {
+func (r *InMemoryRateLimiter) sweep(ctx context.Context) {
 	now := r.clock.Now()
 
 	var evicted int64
@@ -180,7 +180,7 @@ func (r *inMemoryRateLimiter) sweep(ctx context.Context) {
 //
 // It runs on the goroutine that inserted the key, which is deliberate: the
 // caller filling the map is the one that pays to bound it.
-func (r *inMemoryRateLimiter) evictOverflow(ctx context.Context) {
+func (r *InMemoryRateLimiter) evictOverflow(ctx context.Context) {
 	if !r.overBound() {
 		return
 	}
@@ -258,6 +258,6 @@ func (r *inMemoryRateLimiter) evictOverflow(ctx context.Context) {
 
 // overBound reports whether the map holds more limiters than it may. A
 // non-positive bound is no bound.
-func (r *inMemoryRateLimiter) overBound() bool {
+func (r *InMemoryRateLimiter) overBound() bool {
 	return r.maxLimiters > 0 && r.tracked.Load() > int64(r.maxLimiters)
 }

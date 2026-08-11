@@ -6,32 +6,32 @@ import (
 	"github.com/primandproper/platform-go/v10/analytics"
 )
 
-var _ analytics.EventReporter = (*eventReporter)(nil)
+var _ analytics.EventReporter = (*EventReporter)(nil)
 
-// eventReporter is a no-op EventReporter.
-type eventReporter struct{}
+// EventReporter is a no-op EventReporter.
+type EventReporter struct{}
 
 // NewEventReporter returns a new no-op EventReporter.
-func NewEventReporter() analytics.EventReporter {
-	return &eventReporter{}
+func NewEventReporter() *EventReporter {
+	return &EventReporter{}
 }
 
 // Close does nothing.
-func (c *eventReporter) Close(context.Context) error {
+func (c *EventReporter) Close(context.Context) error {
 	return nil
 }
 
 // AddUser does nothing.
-func (c *eventReporter) AddUser(context.Context, string, map[string]any) error {
+func (c *EventReporter) AddUser(context.Context, string, map[string]any) error {
 	return nil
 }
 
 // EventOccurred does nothing.
-func (c *eventReporter) EventOccurred(context.Context, string, string, map[string]any) error {
+func (c *EventReporter) EventOccurred(context.Context, string, string, map[string]any) error {
 	return nil
 }
 
 // EventOccurredAnonymous does nothing.
-func (c *eventReporter) EventOccurredAnonymous(context.Context, string, string, map[string]any) error {
+func (c *EventReporter) EventOccurredAnonymous(context.Context, string, string, map[string]any) error {
 	return nil
 }

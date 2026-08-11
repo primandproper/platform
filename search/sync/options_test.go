@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/clock"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 	nooplogging "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	noopmetrics "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	nooptracing "github.com/primandproper/platform-go/v10/observability/tracing/noop"
@@ -31,7 +32,7 @@ func TestSyncerOptions(T *testing.T) {
 	T.Run("apply what they are given", func(t *testing.T) {
 		t.Parallel()
 
-		logger := nooplogging.NewLogger()
+		var logger logging.Logger = nooplogging.NewLogger()
 		tracerProvider := nooptracing.NewTracerProvider()
 		metricsProvider := noopmetrics.NewMetricsProvider()
 		c := clock.NewClock()
@@ -67,7 +68,7 @@ func TestReindexOptions(T *testing.T) {
 	T.Run("apply what they are given", func(t *testing.T) {
 		t.Parallel()
 
-		logger := nooplogging.NewLogger()
+		var logger logging.Logger = nooplogging.NewLogger()
 		tracerProvider := nooptracing.NewTracerProvider()
 		metricsProvider := noopmetrics.NewMetricsProvider()
 		pruner := &stubEnumerator{}

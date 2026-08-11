@@ -6,6 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
@@ -71,7 +72,7 @@ func TestRecorderOptions(T *testing.T) {
 		t.Parallel()
 
 		c := newStubClock()
-		logger := loggingnoop.NewLogger()
+		var logger logging.Logger = loggingnoop.NewLogger()
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metrics.EnsureMetricsProvider(nil)
 
@@ -124,7 +125,7 @@ func TestReaderOptions(T *testing.T) {
 	T.Run("apply what they are given", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
+		var logger logging.Logger = loggingnoop.NewLogger()
 
 		r := &reader{}
 		for _, opt := range []ReaderOption{

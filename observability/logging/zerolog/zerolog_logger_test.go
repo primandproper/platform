@@ -206,8 +206,7 @@ func Test_zerologLogger_WithRequest(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		l, ok := NewZerologLogger(logging.DebugLevel).(*zerologLogger)
-		must.True(t, ok)
+		l := NewZerologLogger(logging.DebugLevel)
 
 		l.requestIDFunc = func(*http.Request) string {
 			return t.Name()
@@ -257,7 +256,7 @@ func Test_zerologLogger_requestIDFuncSurvivesDerivation(T *testing.T) {
 		t.Parallel()
 
 		var buf bytes.Buffer
-		root := &zerologLogger{logger: zerolog.New(&buf)}
+		root := &Logger{logger: zerolog.New(&buf)}
 		root.SetRequestIDFunc(func(*http.Request) string { return "req-123" })
 
 		u, err := url.ParseRequestURI("https://example.com/path?things=stuff")

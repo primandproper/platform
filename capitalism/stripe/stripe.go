@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	_ capitalism.PaymentManager = (*stripePaymentManager)(nil)
+	_ capitalism.PaymentManager = (*PaymentManager)(nil)
 
 	// ErrNilConfig indicates a nil config was provided.
 	ErrNilConfig = platformerrors.New("stripe config is nil")
@@ -42,6 +42,8 @@ var (
 	// missing environment variable.
 	ErrWebhookSecretNotConfigured = platformerrors.New("stripe webhook secret not configured; set the webhook secret to receive events")
 )
+
+var _ capitalism.PaymentManager = (*PaymentManager)(nil)
 
 type (
 	// Event is a verified webhook event, in this module's own vocabulary.
@@ -69,7 +71,11 @@ type (
 	// A nil handler leaves the default behavior (decode known events + log) in place.
 	EventHandler func(ctx context.Context, event *Event) error
 
-	stripePaymentManager struct {
+	// PaymentManager is the Stripe capitalism.PaymentManager implementation. It is
+	// exported, and returned by NewPaymentManager, so a caller who has chosen
+	// Stripe can depend on that choice rather than on the interface every payment
+	// processor shares.
+	PaymentManager struct {
 		o11y           observability.Observer
 		encoderDecoder encoding.ServerEncoderDecoder
 		client         *client.API
@@ -82,14 +88,14 @@ type (
 // client is initialized for outbound operations; when cfg.WebhookSecret is set, a verifier is
 // built for the inbound webhook path. Either half works without the other.
 // handler is optional and invoked for every verified event.
-func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
+func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (*PaymentManager, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
 
 	o := newOptions(opts)
 
-	m := &stripePaymentManager{
+	m := &PaymentManager{
 		encoderDecoder: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON, encoding.WithLogger(o.logger), encoding.WithTracerProvider(o.tracerProvider)),
 		o11y:           observability.NewObserver(implementationName, o.logger, o.tracerProvider),
 		handler:        handler,
@@ -124,7 +130,7 @@ func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (capit
 // to how long the handler takes. A service whose handler does anything slow should mount an
 // inbound.Receiver instead, which publishes the delivery and acks; this path exists for
 // handlers that are genuinely fast.
-func (s *stripePaymentManager) HandleEventWebhook(req *http.Request) error {
+func (s *PaymentManager) HandleEventWebhook(req *http.Request) error {
 	ctx, op := s.o11y.Begin(req.Context())
 	defer op.End()
 
@@ -190,7 +196,7 @@ func (s *stripePaymentManager) HandleEventWebhook(req *http.Request) error {
 }
 
 // CreateCustomer creates a Stripe customer.
-func (s *stripePaymentManager) CreateCustomer(ctx context.Context, input *capitalism.CustomerCreationInput) (string, error) {
+func (s *PaymentManager) CreateCustomer(ctx context.Context, input *capitalism.CustomerCreationInput) (string, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -221,7 +227,7 @@ func (s *stripePaymentManager) CreateCustomer(ctx context.Context, input *capita
 }
 
 // CreatePaymentIntent creates a Stripe payment intent.
-func (s *stripePaymentManager) CreatePaymentIntent(ctx context.Context, input *capitalism.PaymentIntentCreationInput) (*capitalism.PaymentIntent, error) {
+func (s *PaymentManager) CreatePaymentIntent(ctx context.Context, input *capitalism.PaymentIntentCreationInput) (*capitalism.PaymentIntent, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -256,7 +262,7 @@ func (s *stripePaymentManager) CreatePaymentIntent(ctx context.Context, input *c
 }
 
 // CreateSubscription creates a Stripe subscription for a customer on a single price.
-func (s *stripePaymentManager) CreateSubscription(ctx context.Context, input *capitalism.SubscriptionCreationInput) (string, error) {
+func (s *PaymentManager) CreateSubscription(ctx context.Context, input *capitalism.SubscriptionCreationInput) (string, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 

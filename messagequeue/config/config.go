@@ -137,6 +137,12 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewConsumerProvider provides a ConsumerProvider.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *redis.ConsumerProvider into a
+// non-nil messagequeue.ConsumerProvider on the error path, and a caller testing the
+// result against nil would find a value that panics on first use.
 func NewConsumerProvider(ctx context.Context, c *Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
@@ -156,9 +162,19 @@ func NewConsumerProvider(ctx context.Context, c *Config, opts ...Option) (messag
 
 	switch provider {
 	case string(ProviderRedis):
-		return redis.NewRedisConsumerProvider(ctx, c.Consumer.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider))
+		p, provErr := redis.NewRedisConsumerProvider(ctx, c.Consumer.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider))
+		if provErr != nil {
+			return nil, provErr
+		}
+
+		return p, nil
 	case string(ProviderSQS):
-		return sqs.NewSQSConsumerProvider(ctx, c.Consumer.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
+		p, provErr := sqs.NewSQSConsumerProvider(ctx, c.Consumer.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
+		if provErr != nil {
+			return nil, provErr
+		}
+
+		return p, nil
 	case string(ProviderKafka):
 		return kafka.NewKafkaConsumerProvider(c.Consumer.Kafka, kafka.WithLogger(logger), kafka.WithTracerProvider(tracerProvider), kafka.WithMetricsProvider(metricsProvider)), nil
 	case string(ProviderPubSub):
@@ -178,6 +194,12 @@ func NewConsumerProvider(ctx context.Context, c *Config, opts ...Option) (messag
 }
 
 // NewPublisherProvider provides a PublisherProvider.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *redis.PublisherProvider into a
+// non-nil messagequeue.PublisherProvider on the error path, and a caller testing the
+// result against nil would find a value that panics on first use.
 func NewPublisherProvider(ctx context.Context, c *Config, opts ...Option) (messagequeue.PublisherProvider, error) {
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
@@ -197,9 +219,19 @@ func NewPublisherProvider(ctx context.Context, c *Config, opts ...Option) (messa
 
 	switch provider {
 	case string(ProviderRedis):
-		return redis.NewRedisPublisherProvider(ctx, c.Publisher.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider))
+		p, provErr := redis.NewRedisPublisherProvider(ctx, c.Publisher.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider))
+		if provErr != nil {
+			return nil, provErr
+		}
+
+		return p, nil
 	case string(ProviderSQS):
-		return sqs.NewSQSPublisherProvider(ctx, c.Publisher.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
+		p, provErr := sqs.NewSQSPublisherProvider(ctx, c.Publisher.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
+		if provErr != nil {
+			return nil, provErr
+		}
+
+		return p, nil
 	case string(ProviderKafka):
 		return kafka.NewKafkaPublisherProvider(c.Publisher.Kafka, kafka.WithLogger(logger), kafka.WithTracerProvider(tracerProvider), kafka.WithMetricsProvider(metricsProvider)), nil
 	case string(ProviderPubSub):

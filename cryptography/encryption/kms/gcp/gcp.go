@@ -28,7 +28,12 @@ type CryptoKeyClient interface {
 	Close() error
 }
 
-type gcpKeyWrapper struct {
+// KeyWrapper is the Cloud KMS encryption.KeyWrapper implementation. It is
+// exported, and returned by NewKeyWrapper, so a caller who has chosen Cloud KMS
+// can depend on that choice rather than on the interface every wrapper shares —
+// most concretely Close, which encryption.KeyWrapper does not carry and which
+// this wrapper needs whenever it built the gRPC client itself.
+type KeyWrapper struct {
 	o11y         observability.Observer
 	client       CryptoKeyClient
 	wrapCounter  metrics.Int64Counter
@@ -37,7 +42,7 @@ type gcpKeyWrapper struct {
 	keyName      string
 }
 
-var _ encryption.KeyWrapper = (*gcpKeyWrapper)(nil)
+var _ encryption.KeyWrapper = (*KeyWrapper)(nil)
 
 // NewKeyWrapper builds a KeyWrapper backed by Cloud KMS.
 //
@@ -48,7 +53,7 @@ var _ encryption.KeyWrapper = (*gcpKeyWrapper)(nil)
 // entire reason to prefer this over the local wrapper, and it is also why
 // every wrap and unwrap is a network round trip — a per-subject data key
 // should be unwrapped once and cached, not unwrapped per row read.
-func NewKeyWrapper(ctx context.Context, cfg *Config, client CryptoKeyClient, opts ...Option) (encryption.KeyWrapper, error) {
+func NewKeyWrapper(ctx context.Context, cfg *Config, client CryptoKeyClient, opts ...Option) (*KeyWrapper, error) {
 	if cfg == nil {
 		return nil, errors.New("gcp kms key wrapper: config is required")
 	}
@@ -86,7 +91,7 @@ func NewKeyWrapper(ctx context.Context, cfg *Config, client CryptoKeyClient, opt
 		client = kmsClient
 	}
 
-	return &gcpKeyWrapper{
+	return &KeyWrapper{
 		o11y:         o11y,
 		client:       client,
 		wrapCounter:  wrapCounter,
@@ -96,7 +101,7 @@ func NewKeyWrapper(ctx context.Context, cfg *Config, client CryptoKeyClient, opt
 	}, nil
 }
 
-func (w *gcpKeyWrapper) Wrap(ctx context.Context, key, associatedData []byte) ([]byte, error) {
+func (w *KeyWrapper) Wrap(ctx context.Context, key, associatedData []byte) ([]byte, error) {
 	ctx, op := w.o11y.Begin(ctx)
 	defer op.End()
 
@@ -118,7 +123,7 @@ func (w *gcpKeyWrapper) Wrap(ctx context.Context, key, associatedData []byte) ([
 	return resp.GetCiphertext(), nil
 }
 
-func (w *gcpKeyWrapper) Unwrap(ctx context.Context, wrapped, associatedData []byte) ([]byte, error) {
+func (w *KeyWrapper) Unwrap(ctx context.Context, wrapped, associatedData []byte) ([]byte, error) {
 	ctx, op := w.o11y.Begin(ctx)
 	defer op.End()
 
@@ -146,10 +151,10 @@ func (w *gcpKeyWrapper) Unwrap(ctx context.Context, wrapped, associatedData []by
 }
 
 // Close releases the underlying client.
-func (w *gcpKeyWrapper) Close() error {
+func (w *KeyWrapper) Close() error {
 	return w.client.Close()
 }
 
-func (w *gcpKeyWrapper) recordLatency(ctx context.Context, start time.Time) {
+func (w *KeyWrapper) recordLatency(ctx context.Context, start time.Time) {
 	w.latencyHist.Record(ctx, float64(time.Since(start).Milliseconds()))
 }

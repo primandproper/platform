@@ -678,7 +678,7 @@ func TestTruncateError(T *testing.T) {
 func newSQLiteEnvFor(t *testing.T, store Store) *storeEnv {
 	t.Helper()
 
-	s, ok := store.(*sqlStore)
+	s, ok := store.(*SQLStore)
 	must.True(t, ok)
 
 	return &storeEnv{client: s.client, dialect: s.dialect}

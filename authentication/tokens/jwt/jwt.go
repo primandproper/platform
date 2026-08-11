@@ -19,8 +19,13 @@ const (
 	name = "jwt_signer"
 )
 
+var _ tokens.Issuer = (*Signer)(nil)
+
 type (
-	signer struct {
+	// Signer is the JWT tokens.Issuer implementation. It is exported, and returned
+	// by NewSigner, so a caller who has chosen JWT can depend on that choice rather
+	// than on the interface every token format shares.
+	Signer struct {
 		o11y       observability.Observer
 		issuer     string
 		audience   string
@@ -33,14 +38,14 @@ type (
 // An empty signingKey is rejected rather than accepted: HS256 will happily mint
 // and verify tokens under a zero-length HMAC key, so anyone who knows the
 // algorithm can forge one.
-func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (tokens.Issuer, error) {
+func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (*Signer, error) {
 	if len(signingKey) == 0 {
 		return nil, platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "JWT signing key")
 	}
 
 	o := newOptions(opts)
 
-	s := &signer{
+	s := &Signer{
 		issuer:     issuer,
 		audience:   audience,
 		signingKey: signingKey,
@@ -54,7 +59,7 @@ func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (toke
 // (exp, nbf, iat, aud, iss, sub, jti); callers supply any application-specific
 // claims via extraClaims. Passing a reserved-claim key in extraClaims returns
 // ErrReservedClaim.
-func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
+func (s *Signer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
 	_, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -97,7 +102,7 @@ func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Dur
 }
 
 // ParseToken parses and verifies a JWT and returns its claims.
-func (s *signer) ParseToken(ctx context.Context, tokenString string) (tokens.Claims, error) {
+func (s *Signer) ParseToken(ctx context.Context, tokenString string) (tokens.Claims, error) {
 	_, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -114,7 +119,7 @@ func (s *signer) ParseToken(ctx context.Context, tokenString string) (tokens.Cla
 	return jwtClaims{inner: mapClaims}, nil
 }
 
-func (s *signer) parseToken(tokenString string) (*jwt.Token, error) {
+func (s *Signer) parseToken(tokenString string) (*jwt.Token, error) {
 	parsedToken, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])

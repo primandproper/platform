@@ -109,7 +109,7 @@ func testFlagItems() []ldstoretypes.KeyedItemDescriptor {
 	}
 }
 
-func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker) *featureFlagManager {
+func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker) *FeatureFlagManager {
 	t.Helper()
 
 	cfg := &Config{SDKKey: t.Name()}
@@ -126,10 +126,10 @@ func buildTestManager(t *testing.T, cb circuitbreaking.CircuitBreaker) *featureF
 	must.NoError(t, err)
 	must.NotNil(t, ffm)
 
-	return ffm.(*featureFlagManager)
+	return ffm
 }
 
-func buildTestManagerWithFlags(t *testing.T, cb circuitbreaking.CircuitBreaker, flags []ldstoretypes.KeyedItemDescriptor) *featureFlagManager {
+func buildTestManagerWithFlags(t *testing.T, cb circuitbreaking.CircuitBreaker, flags []ldstoretypes.KeyedItemDescriptor) *FeatureFlagManager {
 	t.Helper()
 
 	ldConfig := ld.Config{
@@ -159,7 +159,7 @@ func buildTestManagerWithFlags(t *testing.T, cb circuitbreaking.CircuitBreaker, 
 	latencyHist, err := mp.NewFloat64Histogram(fmt.Sprintf("%s_latency_ms", serviceName))
 	must.NoError(t, err)
 
-	return &featureFlagManager{
+	return &FeatureFlagManager{
 		ldClient:        client,
 		ofClient:        ofClient,
 		circuitBreaker:  cb,
@@ -173,7 +173,7 @@ func buildTestManagerWithFlags(t *testing.T, cb circuitbreaking.CircuitBreaker, 
 
 // withRecordingObserver swaps a RecordingObserver into the manager and returns it,
 // so a test can assert which fields an evaluation observed.
-func withRecordingObserver(ffm *featureFlagManager) *observability.RecordingObserver {
+func withRecordingObserver(ffm *FeatureFlagManager) *observability.RecordingObserver {
 	obs := observability.NewRecordingObserver()
 	ffm.o11y = obs
 

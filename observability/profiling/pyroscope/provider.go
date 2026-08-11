@@ -19,7 +19,7 @@ import (
 // A nil Config is an error rather than a noop. Asking this package for a
 // provider is asking for Pyroscope, and handing back something that profiles
 // nothing would hide the misconfiguration for the life of the process.
-func NewProfilingProvider(ctx context.Context, logger logging.Logger, serviceName string, cfg *Config) (profiling.Provider, error) {
+func NewProfilingProvider(ctx context.Context, logger logging.Logger, serviceName string, cfg *Config) (*Provider, error) {
 	if cfg == nil {
 		return nil, errors.Wrap(errors.ErrNilInputParameter, "nil pyroscope config")
 	}
@@ -72,7 +72,7 @@ func NewProfilingProvider(ctx context.Context, logger logging.Logger, serviceNam
 		WithValue("upload_rate", cfg.UploadRate.String()).
 		Info("started pyroscope profiler")
 
-	return &provider{
+	return &Provider{
 		profiler: profiler,
 		logger:   logger,
 	}, nil
@@ -89,20 +89,23 @@ func defaultProfileTypes() []pyroscope.ProfileType {
 	}
 }
 
-var _ profiling.Provider = (*provider)(nil)
+var _ profiling.Provider = (*Provider)(nil)
 
-type provider struct {
+// Provider is the Pyroscope profiling.Provider implementation. It is exported,
+// and returned by NewProfilingProvider, so a caller who has chosen Pyroscope can
+// depend on that choice rather than on the interface every profiler shares.
+type Provider struct {
 	profiler *pyroscope.Profiler
 	logger   logging.Logger
 }
 
-func (p *provider) Start(ctx context.Context) error {
+func (p *Provider) Start(ctx context.Context) error {
 	// Pyroscope starts immediately in NewProfilingProvider.
 	// Start is a no-op for pyroscope since we already called pyroscope.Start.
 	return nil
 }
 
-func (p *provider) Shutdown(ctx context.Context) error {
+func (p *Provider) Shutdown(ctx context.Context) error {
 	if p.profiler != nil {
 		if err := p.profiler.Stop(); err != nil {
 			return err

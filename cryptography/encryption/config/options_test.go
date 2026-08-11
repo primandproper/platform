@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
@@ -18,7 +19,7 @@ func TestOptions(T *testing.T) {
 	T.Run("each option sets the field it names", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
+		var logger logging.Logger = loggingnoop.NewLogger()
 		tracerProvider := tracingnoop.NewTracerProvider()
 
 		o := newOptions([]Option{

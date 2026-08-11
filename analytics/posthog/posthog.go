@@ -24,8 +24,13 @@ var (
 	ErrEmptyAPIToken = platformerrors.New("empty Posthog API token")
 )
 
+var _ analytics.EventReporter = (*EventReporter)(nil)
+
 type (
-	// EventReporter is a PostHog-backed EventReporter.
+	// EventReporter is the PostHog analytics.EventReporter implementation. It is
+	// exported, and returned by NewEventReporter, so a caller who has chosen
+	// PostHog can depend on that choice rather than on the interface every
+	// reporter shares.
 	EventReporter struct {
 		o11y           observability.Observer
 		client         posthog.Client
@@ -36,7 +41,7 @@ type (
 )
 
 // NewEventReporter returns a new PostHog-backed EventReporter.
-func NewEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (analytics.EventReporter, error) {
+func NewEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (*EventReporter, error) {
 	if apiKey == "" {
 		return nil, ErrEmptyAPIToken
 	}

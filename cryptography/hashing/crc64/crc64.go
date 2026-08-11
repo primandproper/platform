@@ -21,10 +21,15 @@ import (
 // waste.
 var isoTable = crc64.MakeTable(crc64.ISO)
 
-var _ hashing.Hasher = (*crc64Hasher)(nil)
+var _ hashing.Hasher = (*ISOHasher)(nil)
 
+// ISOHasher is the CRC-64 (ISO) hashing.Hasher implementation. The polynomial
+// is in the name for the reason NewCRC64ISOHasher gives: ISO and ECMA are both
+// in wide use and disagree on the same input. It is exported, and returned by
+// NewCRC64ISOHasher, so a caller who has chosen this polynomial can depend on
+// that choice rather than on the interface every digest algorithm shares.
 type (
-	crc64Hasher struct{}
+	ISOHasher struct{}
 )
 
 // NewCRC64ISOHasher returns a hashing.Hasher backed by the CRC-64 (ISO)
@@ -37,11 +42,11 @@ type (
 //
 // WARNING: this is a NON-CRYPTOGRAPHIC checksum and MUST NOT be used for
 // security, password, or tamper-resistance purposes. See the package doc.
-func NewCRC64ISOHasher() hashing.Hasher {
-	return &crc64Hasher{}
+func NewCRC64ISOHasher() *ISOHasher {
+	return &ISOHasher{}
 }
 
-func (s *crc64Hasher) Hash(content []byte) []byte {
+func (s *ISOHasher) Hash(content []byte) []byte {
 	return binary.BigEndian.AppendUint64(nil, ChecksumISO(content))
 }
 

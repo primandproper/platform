@@ -234,7 +234,7 @@ func recordObservations(t *testing.T, store Store) *observability.RecordingObser
 
 	obs := observability.NewRecordingObserver()
 
-	impl, ok := store.(*sqlStore)
+	impl, ok := store.(*SQLStore)
 	must.True(t, ok, must.Sprintf("store is a %T, not a *sqlStore", store))
 	impl.o11y = obs
 

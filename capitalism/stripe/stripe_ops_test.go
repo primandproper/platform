@@ -39,7 +39,7 @@ type capturedRequest struct {
 // newTestManager builds a stripePaymentManager whose Stripe client talks to an httptest server, so
 // a test can drive the outbound operations and inspect the request Stripe would have sent. respond
 // returns the (status, JSON body) for a given request path.
-func newTestManager(t *testing.T, respond func(path string) (int, string)) (*stripePaymentManager, *[]capturedRequest) {
+func newTestManager(t *testing.T, respond func(path string) (int, string)) (*PaymentManager, *[]capturedRequest) {
 	t.Helper()
 
 	var (
@@ -68,7 +68,7 @@ func newTestManager(t *testing.T, respond func(path string) (int, string)) (*str
 	sc := &client.API{}
 	sc.Init("sk_test_123", &stripe.Backends{API: backend, Connect: backend, Uploads: backend})
 
-	pm := &stripePaymentManager{
+	pm := &PaymentManager{
 		client:         sc,
 		encoderDecoder: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON),
 		o11y:           observability.NewObserver(implementationName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
@@ -242,7 +242,7 @@ func TestStripePaymentManager_CreateSubscription(T *testing.T) {
 func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 	T.Parallel()
 
-	signedRequest := func(t *testing.T, pm *stripePaymentManager, secret string) *http.Request {
+	signedRequest := func(t *testing.T, pm *PaymentManager, secret string) *http.Request {
 		t.Helper()
 
 		ctx := t.Context()
@@ -287,9 +287,8 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 
 		pm, err := NewPaymentManager(&Config{WebhookSecret: secret}, handler)
 		must.NoError(t, err)
-		impl := pm.(*stripePaymentManager)
 
-		must.NoError(t, impl.HandleEventWebhook(signedRequest(t, impl, secret)))
+		must.NoError(t, pm.HandleEventWebhook(signedRequest(t, pm, secret)))
 
 		test.True(t, called)
 		test.EqOp(t, "evt_test_123", gotID)
@@ -308,8 +307,7 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 
 		pm, err := NewPaymentManager(&Config{WebhookSecret: secret}, handler)
 		must.NoError(t, err)
-		impl := pm.(*stripePaymentManager)
 
-		test.Error(t, impl.HandleEventWebhook(signedRequest(t, impl, secret)))
+		test.Error(t, pm.HandleEventWebhook(signedRequest(t, pm, secret)))
 	})
 }

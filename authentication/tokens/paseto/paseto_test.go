@@ -17,7 +17,7 @@ import (
 // craftToken encrypts an arbitrary claim set with the signer's key, bypassing
 // IssueToken's claim ownership so a test can forge expired / wrong-audience
 // tokens that still authenticate.
-func craftToken(t *testing.T, s *signer, claims map[string]any) string {
+func craftToken(t *testing.T, s *Signer, claims map[string]any) string {
 	t.Helper()
 
 	tokenStr, err := paseto.NewV2().Encrypt(s.signingKey, claims, "footer")
@@ -28,7 +28,7 @@ func craftToken(t *testing.T, s *signer, claims map[string]any) string {
 
 // validClaims returns a fully-valid claim set for s that individual tests
 // mutate one field at a time to isolate each validation rule.
-func validClaims(s *signer) map[string]any {
+func validClaims(s *Signer) map[string]any {
 	now := time.Now().UTC()
 	return map[string]any{
 		"aud": s.audience,
@@ -51,14 +51,11 @@ const (
 
 // newRecordingSigner builds a signer with a RecordingObserver swapped in, so a
 // test can drive its methods and assert what it observed.
-func newRecordingSigner(t *testing.T, signingKey []byte) (*signer, *observability.RecordingObserver) {
+func newRecordingSigner(t *testing.T, signingKey []byte) (*Signer, *observability.RecordingObserver) {
 	t.Helper()
 
-	issuer, err := NewSigner("platform-test", t.Name(), signingKey)
+	s, err := NewSigner("platform-test", t.Name(), signingKey)
 	must.NoError(t, err)
-
-	s, ok := issuer.(*signer)
-	must.True(t, ok)
 
 	obs := observability.NewRecordingObserver()
 	s.o11y = obs

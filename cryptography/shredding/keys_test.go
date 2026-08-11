@@ -340,9 +340,7 @@ func TestKeys_Cache(T *testing.T) {
 		// Every cached key is a key a shred cannot reach yet, so the cap is a
 		// bound on how many subjects can be mid-erasure at once as much as it is
 		// a bound on memory.
-		concrete, ok := held.(*keys)
-		must.True(t, ok)
-		test.LessEq(t, 2, concrete.cache.len())
+		test.LessEq(t, 2, held.cache.len())
 	})
 
 	T.Run("drops a key on an invalidation from elsewhere", func(t *testing.T) {

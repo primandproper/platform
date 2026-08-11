@@ -43,7 +43,7 @@ type (
 )
 
 // NewArgon2Authenticator returns an argon2 powered Argon2Authenticator.
-func NewArgon2Authenticator(opts ...Option) authentication.Authenticator {
+func NewArgon2Authenticator(opts ...Option) *Argon2Authenticator {
 	o := newOptions(opts)
 
 	return &Argon2Authenticator{

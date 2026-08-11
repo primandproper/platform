@@ -15,7 +15,7 @@ import (
 // and associated data that does not match all produce the same GCM failure,
 // and reporting which one it was would answer a question only an attacker is
 // asking.
-func (e *aesImpl) Open(ctx context.Context, ciphertext, associatedData []byte) ([]byte, error) {
+func (e *Cipher) Open(ctx context.Context, ciphertext, associatedData []byte) ([]byte, error) {
 	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(ciphertext)))
 	defer op.End()
 

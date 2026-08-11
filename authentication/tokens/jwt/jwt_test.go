@@ -15,13 +15,11 @@ import (
 
 // newRecordingSigner builds a signer with a RecordingObserver swapped in, so a
 // test can both drive the signer and assert what it observed.
-func newRecordingSigner(t *testing.T) (*signer, *observability.RecordingObserver) {
+func newRecordingSigner(t *testing.T) (*Signer, *observability.RecordingObserver) {
 	t.Helper()
 
-	issuer, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
+	s, err := NewSigner("platform-test", t.Name(), []byte(exampleSigningKey))
 	must.NoError(t, err)
-
-	s := issuer.(*signer)
 
 	obs := observability.NewRecordingObserver()
 	s.o11y = obs
@@ -51,7 +49,7 @@ func craftJWT(t *testing.T, claims jwt.MapClaims) string {
 
 // validJWTClaims returns a fully-valid claim set for s that individual tests
 // mutate one field at a time to isolate each validation rule.
-func validJWTClaims(s *signer) jwt.MapClaims {
+func validJWTClaims(s *Signer) jwt.MapClaims {
 	now := time.Now().UTC()
 	return jwt.MapClaims{
 		"aud": s.audience,
