@@ -8,6 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/internal/sqlclient"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 
@@ -170,27 +171,18 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 		writeDB:   writeDB,
 		config:    cfg,
 		o11y:      o11y,
-		timeFunc:  defaultTimeFunc,
+		timeFunc:  time.Now,
 	}
 
 	return c, nil
 }
 
 // closePools releases whatever was opened, for the failure paths after a
-// successful connect. Read and write may be the same handles when only one
-// connection string is configured, so each is closed once.
+// successful connect. It is the shared sqlclient.ClosePools plus the pgx pools
+// the database/sql handles are derived from, closed in that order so the
+// handles drain back before the pool waits on them.
 func closePools(cause error, readDB, writeDB *sql.DB, readPool, writePool *pgxpool.Pool) error {
-	if readDB != nil {
-		if closeErr := readDB.Close(); closeErr != nil {
-			cause = errors.Join(cause, errors.Wrap(closeErr, "closing read database"))
-		}
-	}
-
-	if writeDB != nil && writeDB != readDB {
-		if closeErr := writeDB.Close(); closeErr != nil {
-			cause = errors.Join(cause, errors.Wrap(closeErr, "closing write database"))
-		}
-	}
+	cause = sqlclient.ClosePools(cause, readDB, writeDB)
 
 	if readPool != nil {
 		readPool.Close()
@@ -291,10 +283,7 @@ func (q *Client) Writer() database.SQLQueryExecutor {
 // WithTransaction runs fn inside a transaction on the write database, committing on a
 // nil return and rolling back on error or panic. See database.RunInTransaction.
 func (q *Client) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutor) error) error {
-	ctx, op := q.o11y.Begin(ctx)
-	defer op.End()
-
-	return database.RunInTransaction(ctx, q.writeDB, q.RollbackTransaction, fn)
+	return sqlclient.WithTransaction(ctx, q.o11y, q.writeDB, q.RollbackTransaction, fn)
 }
 
 // Close closes the database/sql layer first so its connections drain back to the
@@ -302,21 +291,7 @@ func (q *Client) WithTransaction(ctx context.Context, fn func(tx database.SQLQue
 // connection is returned, so a connection leaked by a caller (an unclosed Rows,
 // an unreleased native Acquire) will hang Close rather than be abandoned.
 func (q *Client) Close() error {
-	var errs error
-
-	if err := q.readDB.Close(); err != nil {
-		q.o11y.Logger().Error("closing read database connection", err)
-		errs = errors.Join(errs, err)
-	}
-
-	// Always attempt to close the write pool even if the read pool failed to close,
-	// so a read-close error can't leak the write connection.
-	if q.writeDB != q.readDB {
-		if err := q.writeDB.Close(); err != nil {
-			q.o11y.Logger().Error("closing write database connection", err)
-			errs = errors.Join(errs, err)
-		}
-	}
+	errs := sqlclient.Close(q.o11y, q.readDB, q.writeDB)
 
 	// Pools are nil on clients constructed directly around a plain *sql.DB (tests);
 	// the derived handles above are the only layer in that case.
@@ -335,70 +310,20 @@ func (q *Client) IsReady(ctx context.Context) bool {
 	ctx, op := q.o11y.Begin(ctx)
 	defer op.End()
 
-	maxAttempts := int(q.config.GetMaxPingAttempts())
-	waitPeriod := q.config.GetPingWaitPeriod()
-
-	op.Set("db.ping.max_attempts", maxAttempts).Set("db.ping.wait_period", waitPeriod)
-
-	readReady := q.waitForPing(ctx, op, q.readDB, "read", maxAttempts, waitPeriod)
-	if !readReady {
-		return false
-	}
-
-	if q.writeDB != q.readDB {
-		return q.waitForPing(ctx, op, q.writeDB, "write", maxAttempts, waitPeriod)
-	}
-
-	return true
+	return sqlclient.IsReady(ctx, op, q.config, q.readDB, q.writeDB)
 }
 
-func (q *Client) waitForPing(ctx context.Context, op observability.Operation, db *sql.DB, connectionName string, maxAttempts int, waitPeriod time.Duration) bool {
-	logger := op.Logger().WithValue("connection", connectionName)
-
-	for attemptCount := range maxAttempts {
-		if err := db.PingContext(ctx); err == nil {
-			return true
-		}
-
-		logger.WithValue("attempt_count", attemptCount).Info("ping failed, waiting for db")
-
-		// Don't sleep after the final attempt, and abort promptly if the caller's
-		// context is canceled rather than sleeping through it.
-		if attemptCount == maxAttempts-1 {
-			break
-		}
-
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(waitPeriod):
-		}
-	}
-
-	return false
-}
-
-func defaultTimeFunc() time.Time {
-	return time.Now()
-}
-
+// CurrentTime reads the clock this client was built with.
 func (q *Client) CurrentTime() time.Time {
-	if q == nil || q.timeFunc == nil {
-		return defaultTimeFunc()
+	if q == nil {
+		return sqlclient.Now(nil)
 	}
 
-	return q.timeFunc()
+	return sqlclient.Now(q.timeFunc)
 }
 
+// RollbackTransaction rolls tx back, recording a failure on a span rather than
+// returning it.
 func (q *Client) RollbackTransaction(ctx context.Context, tx database.SQLQueryExecutorAndTransactionManager) {
-	_, op := q.o11y.Begin(ctx)
-	defer op.End()
-
-	op.Logger().Debug("rolling back transaction")
-
-	if err := tx.Rollback(); err != nil {
-		op.Acknowledge(err, "rolling back transaction")
-	}
-
-	op.Logger().Debug("transaction rolled back")
+	sqlclient.RollbackTransaction(ctx, q.o11y, tx)
 }

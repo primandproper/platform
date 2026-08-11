@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/distributedlock"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/identifiers"
+	"github.com/primandproper/platform-go/v10/internal/redisclient"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -84,8 +85,9 @@ func NewRedisLocker(
 		return nil, distributedlock.ErrNilConfig
 	}
 
-	if len(cfg.Addresses) == 0 {
-		return nil, fmt.Errorf("%w: at least one redis address is required", distributedlock.ErrNilConfig)
+	client, err := buildRedisClient(cfg)
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building redis client")
 	}
 
 	o := newOptions(opts)
@@ -119,7 +121,7 @@ func NewRedisLocker(
 
 	return &Locker{
 		o11y:           observability.NewObserver(serviceName, o.logger, o.tracerProvider),
-		client:         buildRedisClient(cfg),
+		client:         client,
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
 		acquireCounter: acquireCounter,
 		releaseCounter: releaseCounter,
@@ -288,24 +290,12 @@ func (l *lock) Refresh(ctx context.Context, ttl time.Duration) error {
 	return nil
 }
 
-// buildRedisClient picks single-node vs cluster mode based on Addresses length.
-func buildRedisClient(cfg *Config) redisClient {
-	if len(cfg.Addresses) > 1 {
-		return redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:        cfg.Addresses,
-			Username:     cfg.Username,
-			Password:     cfg.Password,
-			DialTimeout:  1 * time.Second,
-			ReadTimeout:  1 * time.Second,
-			WriteTimeout: 1 * time.Second,
-		})
-	}
-	return redis.NewClient(&redis.Options{
-		Addr:         cfg.Addresses[0],
-		Username:     cfg.Username,
-		Password:     cfg.Password,
-		DialTimeout:  1 * time.Second,
-		ReadTimeout:  1 * time.Second,
-		WriteTimeout: 1 * time.Second,
+// buildRedisClient opens the connection this locker acquires and refreshes
+// through.
+func buildRedisClient(cfg *Config) (redisClient, error) {
+	return redisclient.New(redisclient.Config{
+		Username:  cfg.Username,
+		Password:  cfg.Password,
+		Addresses: cfg.Addresses,
 	})
 }

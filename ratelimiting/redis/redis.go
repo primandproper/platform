@@ -8,6 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/identifiers"
+	"github.com/primandproper/platform-go/v10/internal/redisclient"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
@@ -111,19 +112,13 @@ func NewRedisRateLimiter(ctx context.Context, cfg Config, requestsPerSec float64
 		return nil, errors.Wrap(err, "validating redis rate limiter config")
 	}
 
-	var client redisClient
-	if len(cfg.Addresses) > 1 {
-		client = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:    cfg.Addresses,
-			Username: cfg.Username,
-			Password: cfg.Password,
-		})
-	} else {
-		client = redis.NewClient(&redis.Options{
-			Addr:     cfg.Addresses[0],
-			Username: cfg.Username,
-			Password: cfg.Password,
-		})
+	client, err := redisclient.New(redisclient.Config{
+		Username:  cfg.Username,
+		Password:  cfg.Password,
+		Addresses: cfg.Addresses,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "building redis client")
 	}
 
 	o := newOptions(opts)

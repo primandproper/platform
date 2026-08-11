@@ -255,23 +255,12 @@ func (d *dispatcher) Replay(ctx context.Context, deliveryID, endpointID string) 
 	return nil
 }
 
-// truncateError bounds what goes into last_error, so a pathological transport
-// error cannot bloat the row.
-func truncateError(err error) string {
-	if err == nil {
-		return ""
-	}
-
-	return truncate(err.Error(), maxStoredErrorLength)
-}
-
-// maxStoredErrorLength bounds a stored error rendering.
+// maxStoredErrorLength bounds a stored error rendering, so a pathological
+// transport error cannot bloat the row.
 const maxStoredErrorLength = 1024
 
-func truncate(s string, limit int) string {
-	if len(s) > limit {
-		return s[:limit]
-	}
-
-	return s
+// truncateError bounds what goes into last_error and into a recorded delivery
+// attempt.
+func truncateError(err error) string {
+	return platformerrors.TruncateError(err, maxStoredErrorLength)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/encoding"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/redisclient"
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
@@ -124,9 +125,11 @@ type publisherProvider struct {
 // NewRedisPublisherProvider returns a PublisherProvider for a given address.
 //
 // It takes a context and reports an error so that the config's own
-// ValidateWithContext runs here. Without it, a config with no QueueAddresses
-// fell through both branches below and the provider came back holding a nil
-// client — which nothing noticed until the first Publish panicked.
+// ValidateWithContext runs here, and so that an address list redisclient
+// refuses is a startup error. Without either, a config naming no
+// QueueAddresses built cleanly and the provider came back holding a nil
+// client — which nothing noticed until the first Publish panicked, in
+// whichever goroutine happened to make it.
 func NewRedisPublisherProvider(ctx context.Context, cfg Config, opts ...Option) (messagequeue.PublisherProvider, error) {
 	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, platformerrors.Wrap(err, "validating redis publisher config")
@@ -139,32 +142,20 @@ func NewRedisPublisherProvider(ctx context.Context, cfg Config, opts ...Option) 
 		WithValue("password_empty", cfg.Password == "")
 	logger.Info("setting up redis publisher")
 
-	// Validation guarantees at least one address, so these two branches cover
-	// every config that reaches here.
-	var redisClient messagePublisher
-	if len(cfg.QueueAddresses) > 1 {
-		redisClient = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:        cfg.QueueAddresses,
-			Username:     cfg.Username,
-			Password:     cfg.Password,
-			DialTimeout:  1 * time.Second,
-			WriteTimeout: 1 * time.Second,
-		})
-	} else {
-		redisClient = redis.NewClient(&redis.Options{
-			Addr:         cfg.QueueAddresses[0],
-			Username:     cfg.Username,
-			Password:     cfg.Password,
-			DialTimeout:  1 * time.Second,
-			WriteTimeout: 1 * time.Second,
-		})
+	client, err := redisclient.New(redisclient.Config{
+		Username:  cfg.Username,
+		Password:  cfg.Password,
+		Addresses: cfg.QueueAddresses,
+	})
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building redis client")
 	}
 
 	logger.Info("redis publisher setup complete")
 
 	return &publisherProvider{
 		o11y:            o11y,
-		redisClient:     redisClient,
+		redisClient:     client,
 		publisherCache:  map[string]messagequeue.Publisher{},
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,

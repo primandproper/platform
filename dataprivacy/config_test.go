@@ -1,9 +1,11 @@
 package dataprivacy
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/operations"
 
 	"github.com/shoenig/test"
@@ -142,19 +144,20 @@ func TestSubject(T *testing.T) {
 func TestTruncate(T *testing.T) {
 	T.Parallel()
 
-	T.Run("leaves a short string alone", func(t *testing.T) {
+	T.Run("leaves a short error alone", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, "short", truncate("short", 100))
+		test.EqOp(t, "short", truncateError(platformerrors.New("short")))
 	})
 
 	T.Run("cuts without splitting a rune", func(t *testing.T) {
 		t.Parallel()
 
 		// A truncated error still has to be valid UTF-8 or it will not store.
-		cut := truncate("aa£", 3)
+		// maxStoredErrorLength lands mid-rune here: 1023 'a's then a two-byte '£'.
+		cut := truncateError(platformerrors.New(strings.Repeat("a", maxStoredErrorLength-1) + "£"))
 
-		test.EqOp(t, "aa", cut)
+		test.EqOp(t, strings.Repeat("a", maxStoredErrorLength-1), cut)
 		test.True(t, utf8ValidString(cut))
 	})
 

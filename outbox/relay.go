@@ -684,17 +684,9 @@ func (r *Relay) backoffFor(attempts int) time.Duration {
 // driver error cannot bloat the row.
 const maxStoredErrorLength = 1024
 
+// truncateError renders a cause for the last_error column, bounded.
 func truncateError(err error) string {
-	if err == nil {
-		return ""
-	}
-
-	s := err.Error()
-	if len(s) > maxStoredErrorLength {
-		return s[:maxStoredErrorLength]
-	}
-
-	return s
+	return platformerrors.TruncateError(err, maxStoredErrorLength)
 }
 
 // scanIDs runs a single-column query and collects the results. A close failure

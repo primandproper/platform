@@ -73,7 +73,7 @@ func (l *captureLogger) WithResponse(*http.Response) logging.Logger { return l }
 func (l *captureLogger) WithError(error) logging.Logger             { return l }
 func (l *captureLogger) WithSpan(trace.Span) logging.Logger         { return l }
 
-func Test_buildRecoveryMiddleware(T *testing.T) {
+func Test_buildChiMux_recovery(T *testing.T) {
 	T.Parallel()
 
 	T.Run("panicking handler yields a 500 and a log, not a severed connection", func(t *testing.T) {
@@ -100,9 +100,11 @@ func Test_buildRecoveryMiddleware(T *testing.T) {
 		t.Parallel()
 
 		obs := observability.NewObserverForTest(t.Name())
-		handler := buildRecoveryMiddleware(obs)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		mux := buildChiMux(obs, metricsnoop.NewMetricsProvider(), &Config{})
+
+		mux.Get("/boom", func(http.ResponseWriter, *http.Request) {
 			panic(http.ErrAbortHandler)
-		}))
+		})
 
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/boom", http.NoBody)
 		res := httptest.NewRecorder()
@@ -112,7 +114,7 @@ func Test_buildRecoveryMiddleware(T *testing.T) {
 			test.True(t, ok && stderrors.Is(err, http.ErrAbortHandler))
 		}()
 
-		handler.ServeHTTP(res, req)
+		mux.ServeHTTP(res, req)
 	})
 }
 

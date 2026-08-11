@@ -8,6 +8,7 @@ import (
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -37,29 +38,6 @@ var _ messagequeue.Consumer = (*kafkaConsumer)(nil)
 // fetchErrorBackoff is the pause after a failed fetch before retrying, so a
 // persistent broker error doesn't hot-spin the consume loop.
 const fetchErrorBackoff = 250 * time.Millisecond
-
-// sendErr delivers err on errs without wedging: it also selects on ctx so a
-// consumer whose error channel is no longer being drained still unblocks when the
-// context is canceled during shutdown.
-func (c *kafkaConsumer) sendErr(ctx context.Context, errs chan<- error, err error) {
-	if errs == nil {
-		return
-	}
-
-	// Prefer delivering the error whenever the channel can accept it right now — a
-	// handler that cancels ctx and then returns an error would otherwise race the
-	// send against ctx.Done() (both ready) and randomly drop the error.
-	select {
-	case errs <- err:
-		return
-	default:
-	}
-
-	select {
-	case errs <- err:
-	case <-ctx.Done():
-	}
-}
 
 func provideKafkaConsumer(logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, brokers []string, groupID, topic string, handlerFunc func(context.Context, []byte) error) (*kafkaConsumer, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
@@ -99,7 +77,7 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 			if ctx.Err() != nil {
 				return
 			}
-			c.sendErr(ctx, errs, err)
+			consumererr.Send(ctx, errs, err)
 			// Back off before refetching so a persistent fetch error doesn't hot-spin.
 			select {
 			case <-ctx.Done():
@@ -116,7 +94,7 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 
 		if err = c.handlerFunc(msgCtx, msg.Value); err != nil {
 			op.Acknowledge(err, "handling message")
-			c.sendErr(msgCtx, errs, err)
+			consumererr.Send(msgCtx, errs, err)
 			// Kafka commits are cumulative by offset, so committing a later message
 			// would advance the group past this failed one and lose it. Stop instead,
 			// leaving the offset uncommitted for redelivery on restart/rebalance.
@@ -126,7 +104,7 @@ func (c *kafkaConsumer) Consume(ctx context.Context, errs chan<- error) {
 
 		if err = c.reader.CommitMessages(msgCtx, msg); err != nil {
 			op.Acknowledge(err, "committing message")
-			c.sendErr(msgCtx, errs, err)
+			consumererr.Send(msgCtx, errs, err)
 		}
 
 		op.End()

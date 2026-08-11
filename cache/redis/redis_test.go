@@ -1042,7 +1042,8 @@ func Test_buildRedisClient(T *testing.T) {
 			Password:  "pass",
 		}
 
-		c := buildRedisClient(cfg)
+		c, err := buildRedisClient(cfg)
+		must.NoError(t, err)
 		test.NotNil(t, c)
 	})
 
@@ -1055,7 +1056,8 @@ func Test_buildRedisClient(T *testing.T) {
 			Password:  "pass",
 		}
 
-		c := buildRedisClient(cfg)
+		c, err := buildRedisClient(cfg)
+		must.NoError(t, err)
 		test.NotNil(t, c)
 	})
 
@@ -1066,7 +1068,10 @@ func Test_buildRedisClient(T *testing.T) {
 			Addresses: []string{},
 		}
 
-		c := buildRedisClient(cfg)
+		// An empty address list is a configuration error, not a nil client that
+		// panics on the first read.
+		c, err := buildRedisClient(cfg)
+		test.Error(t, err)
 		test.Nil(t, c)
 	})
 }

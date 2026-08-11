@@ -1,12 +1,18 @@
-// Package httpmw holds the plain net/http middleware stack shared by the
-// non-chi routing backends (stdlib, httprouter, gin). Each of those backends
-// exposes an http.Handler for its mux/engine and wraps it with the same
-// observability, recovery, CORS, and OpenTelemetry middleware, so the behavior
-// lives here once rather than being copied per backend.
+// Package httpmw holds the net/http middleware stack shared by every routing
+// backend. Each backend exposes an http.Handler for its mux or engine and wraps
+// it with the same observability, recovery, CORS, and request-ID middleware, so
+// the behavior lives here once rather than being copied per backend.
 //
-// The chi backend keeps its own copy of this stack because chi installs
-// middleware through chi.Router.Use and instruments with otelchi rather than
-// otelhttp; the two are close cousins but not identical.
+// chi consumes it too, through chi.Router.Use, which takes the same plain
+// func(http.Handler) http.Handler that Chain composes. What chi does not share
+// is the OpenTelemetry step — it instruments with otelchi, which reads chi's
+// RouteContext and can therefore name a span after the matched route where the
+// generic otelhttp wrapper here can only name it after the method. That one
+// difference is why Standard exposes the stack as a slice: chi rebuilds the
+// same order around its own otel middleware rather than copying the rest.
+//
+// Standard itself is for the backends that take otelMiddleware as given
+// (stdlib, httprouter, gin).
 package httpmw
 
 import (
@@ -26,7 +32,7 @@ const (
 )
 
 // healthCheckPaths are request paths that should not be traced or logged (e.g.
-// load balancer probes). It mirrors the chi backend's set so probes are quiet
+// load balancer probes). Every backend reads this one set, so probes are quiet
 // regardless of which backend is in use.
 //
 // The two /healthz and /readyz entries are server/http's LivenessPath and
@@ -46,7 +52,8 @@ func IsHealthCheck(path string) bool {
 
 // Chain wraps h with mws so that mws[0] is the outermost handler (the first to
 // see a request and the last to see the response), matching the order chi
-// applies middleware registered via Use.
+// applies middleware registered via Use. That is what lets one ordering serve
+// both the backends that chain by hand and the one that calls chi.Router.Use.
 func Chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler {
 	for i := len(mws) - 1; i >= 0; i-- {
 		if mws[i] != nil {

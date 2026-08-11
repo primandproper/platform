@@ -7,7 +7,9 @@ import (
 	"sync"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/redisclient"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -34,28 +36,6 @@ type (
 		subscription    channelProvider
 	}
 )
-
-// sendErr delivers err on errs without wedging: it also selects on ctx so a
-// consumer whose error channel is no longer being drained still unblocks when the
-// context is canceled during shutdown.
-func (r *redisConsumer) sendErr(ctx context.Context, errs chan<- error, err error) {
-	if errs == nil {
-		return
-	}
-
-	// Prefer delivering the error whenever the channel can accept it right now, so a
-	// canceled ctx doesn't race the send (both select cases ready) and drop the error.
-	select {
-	case errs <- err:
-		return
-	default:
-	}
-
-	select {
-	case errs <- err:
-	case <-ctx.Done():
-	}
-}
 
 func provideRedisConsumer(ctx context.Context, logger logging.Logger, tracerProvider tracing.Provider, metricsProvider metrics.Provider, redisClient subscriptionProvider, topic string, handlerFunc func(context.Context, []byte) error) (*redisConsumer, error) {
 	mp := metrics.EnsureMetricsProvider(metricsProvider)
@@ -113,7 +93,7 @@ func (r *redisConsumer) Consume(ctx context.Context, errs chan<- error) {
 			r.consumedCounter.Add(msgCtx, 1)
 			if err := r.handlerFunc(msgCtx, []byte(msg.Payload)); err != nil {
 				op.Acknowledge(err, "handling message")
-				r.sendErr(msgCtx, errs, err)
+				consumererr.Send(msgCtx, errs, err)
 			}
 			op.End()
 		}
@@ -132,8 +112,9 @@ type consumerProvider struct {
 // NewRedisConsumerProvider returns a ConsumerProvider for a given address.
 //
 // It takes a context and reports an error so that the config's own
-// ValidateWithContext runs here. Without it, a config with no QueueAddresses
-// fell through both branches below and the provider came back holding a nil
+// ValidateWithContext runs here, and so that an address list redisclient
+// refuses is a startup error. Without either, a config naming no
+// QueueAddresses built cleanly and the provider came back holding a nil
 // client — which nothing noticed until the first Ping panicked.
 func NewRedisConsumerProvider(ctx context.Context, cfg Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
 	if err := cfg.ValidateWithContext(ctx); err != nil {
@@ -146,28 +127,20 @@ func NewRedisConsumerProvider(ctx context.Context, cfg Config, opts ...Option) (
 		WithValue(keys.UsernameKey, cfg.Username).
 		WithValue("password_empty", cfg.Password == "").Info("setting up redis consumer")
 
-	// Validation guarantees at least one address, so these two branches cover
-	// every config that reaches here.
-	var redisClient subscriptionProvider
-	if len(cfg.QueueAddresses) > 1 {
-		redisClient = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:    cfg.QueueAddresses,
-			Username: cfg.Username,
-			Password: cfg.Password,
-		})
-	} else {
-		redisClient = redis.NewClient(&redis.Options{
-			Addr:     cfg.QueueAddresses[0],
-			Username: cfg.Username,
-			Password: cfg.Password,
-		})
+	client, err := redisclient.New(redisclient.Config{
+		Username:  cfg.Username,
+		Password:  cfg.Password,
+		Addresses: cfg.QueueAddresses,
+	})
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building redis client")
 	}
 
 	return &consumerProvider{
 		o11y:            o11y,
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
-		redisClient:     redisClient,
+		redisClient:     client,
 		consumerCache:   map[string]messagequeue.Consumer{},
 	}, nil
 }

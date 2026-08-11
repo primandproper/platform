@@ -12,6 +12,7 @@ import (
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/redisclient"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -183,7 +184,9 @@ func NewRedisCache[T any](cfg *Config, expiration time.Duration, cb circuitbreak
 	}
 
 	// Built last, so a failed constructor never leaves a connected client behind.
-	impl.client = buildRedisClient(cfg)
+	if impl.client, err = buildRedisClient(cfg); err != nil {
+		return nil, err
+	}
 
 	return impl, nil
 }
@@ -703,30 +706,14 @@ func (i *Cache[T]) decode(s string) (*T, error) {
 	return x, nil
 }
 
-// buildRedisClient returns a PublisherProvider for a given address.
-func buildRedisClient(cfg *Config) redisClient {
-	var c redisClient
-	if cfg.clusterMode() {
-		c = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:        cfg.Addresses,
-			Username:     cfg.Username,
-			Password:     cfg.Password,
-			DialTimeout:  1 * time.Second,
-			ReadTimeout:  1 * time.Second,
-			WriteTimeout: 1 * time.Second,
-		})
-	} else if len(cfg.Addresses) == 1 {
-		c = redis.NewClient(&redis.Options{
-			Addr:         cfg.Addresses[0],
-			Username:     cfg.Username,
-			Password:     cfg.Password,
-			DialTimeout:  1 * time.Second,
-			ReadTimeout:  1 * time.Second,
-			WriteTimeout: 1 * time.Second,
-		})
-	}
-
-	return c
+// buildRedisClient opens the connection this cache reads and writes through.
+func buildRedisClient(cfg *Config) (redisClient, error) {
+	return redisclient.New(redisclient.Config{
+		Username:  cfg.Username,
+		Password:  cfg.Password,
+		Addresses: cfg.Addresses,
+		Cluster:   cfg.clusterMode(),
+	})
 }
 
 // Close releases the connection pool. It does not evict anything: the entries

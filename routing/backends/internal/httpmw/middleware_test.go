@@ -1,4 +1,4 @@
-package chi
+package httpmw
 
 import (
 	"net/http"
@@ -10,7 +10,7 @@ import (
 	"github.com/shoenig/test"
 )
 
-func TestBuildLoggingMiddleware(T *testing.T) {
+func TestLogging(T *testing.T) {
 	T.Parallel()
 
 	T.Run("standard", func(t *testing.T) {
@@ -18,7 +18,7 @@ func TestBuildLoggingMiddleware(T *testing.T) {
 
 		ctx := t.Context()
 		obs := observability.NewRecordingObserver()
-		middleware := buildLoggingMiddleware(obs, false)
+		middleware := Logging(obs, false)
 
 		test.NotNil(t, middleware)
 
@@ -38,7 +38,7 @@ func TestBuildLoggingMiddleware(T *testing.T) {
 
 		ctx := t.Context()
 		obs := observability.NewRecordingObserver()
-		middleware := buildLoggingMiddleware(obs, false)
+		middleware := Logging(obs, false)
 
 		test.NotNil(t, middleware)
 
