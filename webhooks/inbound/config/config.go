@@ -175,6 +175,12 @@ func (cfg *HMACConfig) ValidateWithContext(ctx context.Context) error {
 // Explicit options run after the ones derived from configuration, so a caller
 // can still override anything — a pinned verification time in a test, an extra
 // secret held somewhere the environment does not reach.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *inbound.StripeVerifier into a
+// non-nil inbound.Verifier on the error path, and a caller testing the result against
+// nil would find a verifier that panics on first use.
 func NewVerifier(ctx context.Context, cfg *Config, opts ...Option) (inbound.Verifier, error) {
 	if cfg == nil {
 		return nil, platformerrors.ErrNilInputParameter
@@ -196,17 +202,32 @@ func NewVerifier(ctx context.Context, cfg *Config, opts ...Option) (inbound.Veri
 
 	switch normalize(cfg.Provider) {
 	case ProviderStripe:
-		return inbound.NewStripeVerifier(cfg.Secret, base...)
+		v, verifierErr := inbound.NewStripeVerifier(cfg.Secret, base...)
+		if verifierErr != nil {
+			return nil, verifierErr
+		}
+
+		return v, nil
 	case ProviderGitHub:
-		return inbound.NewGitHubVerifier(cfg.Secret, base...)
+		v, verifierErr := inbound.NewGitHubVerifier(cfg.Secret, base...)
+		if verifierErr != nil {
+			return nil, verifierErr
+		}
+
+		return v, nil
 	case ProviderHMAC:
-		return inbound.NewHMACVerifier(&inbound.HMACScheme{
+		v, verifierErr := inbound.NewHMACVerifier(&inbound.HMACScheme{
 			Provider: cfg.HMAC.Provider,
 			Header:   cfg.HMAC.Header,
 			Prefix:   cfg.HMAC.Prefix,
 			Digest:   inbound.Digest(normalize(cfg.HMAC.Digest)),
 			Encoding: inbound.Encoding(normalize(cfg.HMAC.Encoding)),
 		}, cfg.Secret, base...)
+		if verifierErr != nil {
+			return nil, verifierErr
+		}
+
+		return v, nil
 	default:
 		// Unreachable: validation already rejected anything else. It is here
 		// because a provider added to the constants and forgotten here should

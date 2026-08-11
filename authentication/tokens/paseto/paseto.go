@@ -18,8 +18,13 @@ const (
 	name = "paseto_signer"
 )
 
+var _ tokens.Issuer = (*Signer)(nil)
+
 type (
-	signer struct {
+	// Signer is the PASETO tokens.Issuer implementation. It is exported, and
+	// returned by NewSigner, so a caller who has chosen PASETO can depend on that
+	// choice rather than on the interface every token format shares.
+	Signer struct {
 		o11y       observability.Observer
 		issuer     string
 		audience   string
@@ -31,14 +36,14 @@ type (
 //
 // An empty signingKey is rejected: a zero-length key is not a secret, and the
 // tokens minted under one are forgeable by anyone who notices.
-func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (tokens.Issuer, error) {
+func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (*Signer, error) {
 	if len(signingKey) == 0 {
 		return nil, platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "PASETO signing key")
 	}
 
 	o := newOptions(opts)
 
-	s := &signer{
+	s := &Signer{
 		issuer:     issuer,
 		audience:   audience,
 		signingKey: signingKey,
@@ -52,7 +57,7 @@ func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (toke
 // (exp, nbf, iat, aud, iss, sub, jti); callers supply any application-specific
 // claims via extraClaims. Passing a reserved-claim key in extraClaims returns
 // ErrReservedClaim.
-func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
+func (s *Signer) IssueToken(ctx context.Context, subject string, expiry time.Duration, extraClaims map[string]any) (tokenStr, jti string, err error) {
 	_, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -93,7 +98,7 @@ func (s *signer) IssueToken(ctx context.Context, subject string, expiry time.Dur
 }
 
 // ParseToken parses and decrypts a PASETO token and returns its claims.
-func (s *signer) ParseToken(ctx context.Context, providedToken string) (tokens.Claims, error) {
+func (s *Signer) ParseToken(ctx context.Context, providedToken string) (tokens.Claims, error) {
 	_, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -105,7 +110,7 @@ func (s *signer) ParseToken(ctx context.Context, providedToken string) (tokens.C
 	return pasetoClaims(parsed), nil
 }
 
-func (s *signer) decryptToken(op observability.Operation, providedToken string) (map[string]any, error) {
+func (s *Signer) decryptToken(op observability.Operation, providedToken string) (map[string]any, error) {
 	var (
 		parsedToken map[string]any
 		footer      string

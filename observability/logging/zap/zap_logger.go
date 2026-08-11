@@ -12,21 +12,33 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// logger is our log wrapper.
-type zapLogger struct {
+var _ logging.Logger = (*Logger)(nil)
+
+// Logger is the zap logging.Logger implementation. It is exported, and
+// returned by NewZapLogger, so a caller who has chosen zap can depend on that
+// choice rather than on the interface every backend shares — most concretely
+// SetLevel, which logging.Logger does not carry and which was unreachable for
+// as long as this constructor returned the interface.
+//
+// The AtomicLevel is shared with every logger WithName derives from this one,
+// so a SetLevel here re-levels the whole tree. Those derived loggers are
+// logging.Logger values, because that is what the interface's method returns:
+// hold on to the Logger this constructor handed back if you intend to re-level
+// at runtime.
+type Logger struct {
 	requestIDFunc logging.RequestIDFunc
 	logger        *zap.Logger
 	atomicLevel   zap.AtomicLevel
 }
 
-// NewZapLogger builds a new zapLogger.
+// NewZapLogger builds a zap-backed Logger.
 //
 // It returns an error rather than degrading to a noop logger with a warning on
 // stderr. A service that asked for zap and silently got nothing logs nothing
 // for its whole life, and the one line saying so scrolls past in the first
 // second of startup — which is the same failure the config packages refuse when
 // they will not substitute a provider nobody named.
-func NewZapLogger(lvl logging.Level) (logging.Logger, error) {
+func NewZapLogger(lvl logging.Level) (*Logger, error) {
 	atomicLevel := zap.NewAtomicLevel()
 
 	var cfg zap.Config
@@ -53,17 +65,17 @@ func NewZapLogger(lvl logging.Level) (logging.Logger, error) {
 		return nil, errors.Wrap(err, "building zap logger")
 	}
 
-	return &zapLogger{logger: l, atomicLevel: atomicLevel}, nil
+	return &Logger{logger: l, atomicLevel: atomicLevel}, nil
 }
 
 // WithName is our obligatory contract fulfillment function.
-func (l *zapLogger) WithName(name string) logging.Logger {
+func (l *Logger) WithName(name string) logging.Logger {
 	l2 := l.logger.With(zap.String(logging.LoggerNameKey, name))
-	return &zapLogger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
 }
 
 // SetLevel sets the log level for our zap logger.
-func (l *zapLogger) SetLevel(level logging.Level) {
+func (l *Logger) SetLevel(level logging.Level) {
 	var lvl zapcore.Level
 
 	switch level {
@@ -81,24 +93,24 @@ func (l *zapLogger) SetLevel(level logging.Level) {
 }
 
 // SetRequestIDFunc sets the request ID retrieval function.
-func (l *zapLogger) SetRequestIDFunc(f logging.RequestIDFunc) {
+func (l *Logger) SetRequestIDFunc(f logging.RequestIDFunc) {
 	if f != nil {
 		l.requestIDFunc = f
 	}
 }
 
 // Info satisfies our contract for the logging.Logger Info method.
-func (l *zapLogger) Info(input string) {
+func (l *Logger) Info(input string) {
 	l.logger.Info(input)
 }
 
 // Debug satisfies our contract for the logging.Logger Debug method.
-func (l *zapLogger) Debug(input string) {
+func (l *Logger) Debug(input string) {
 	l.logger.Debug(input)
 }
 
 // Error satisfies our contract for the logging.Logger Error method.
-func (l *zapLogger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
+func (l *Logger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
 	if err != nil {
 		l.logger.Error(whatWasHappeningWhenErrorOccurred, zap.Error(err))
 		return
@@ -107,44 +119,44 @@ func (l *zapLogger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
 }
 
 // Clone satisfies our contract for the logging.Logger WithValue method.
-func (l *zapLogger) Clone() logging.Logger {
+func (l *Logger) Clone() logging.Logger {
 	l2 := l.logger.With()
-	return &zapLogger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
 }
 
 // WithValue satisfies our contract for the logging.Logger WithValue method.
-func (l *zapLogger) WithValue(key string, value any) logging.Logger {
+func (l *Logger) WithValue(key string, value any) logging.Logger {
 	l2 := l.logger.With(zap.Any(key, value))
-	return &zapLogger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
 }
 
 // WithValues satisfies our contract for the logging.Logger WithValues method.
-func (l *zapLogger) WithValues(values map[string]any) logging.Logger {
+func (l *Logger) WithValues(values map[string]any) logging.Logger {
 	var l2 = l.logger.With()
 
 	for key, val := range values {
 		l2 = l2.With(zap.Any(key, val))
 	}
 
-	return &zapLogger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
 }
 
 // WithError satisfies our contract for the logging.Logger WithError method.
-func (l *zapLogger) WithError(err error) logging.Logger {
+func (l *Logger) WithError(err error) logging.Logger {
 	l2 := l.logger.With(zap.Error(err))
-	return &zapLogger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
 }
 
 // WithSpan satisfies our contract for the logging.Logger WithSpan method.
-func (l *zapLogger) WithSpan(span trace.Span) logging.Logger {
+func (l *Logger) WithSpan(span trace.Span) logging.Logger {
 	si := logging.ExtractSpanInfo(span)
 
 	l2 := l.logger.With(zap.String(keys.SpanIDKey, si.SpanID), zap.String(keys.TraceIDKey, si.TraceID))
 
-	return &zapLogger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
 }
 
-func (l *zapLogger) attachRequestToLog(req *http.Request) *zap.Logger {
+func (l *Logger) attachRequestToLog(req *http.Request) *zap.Logger {
 	ri := logging.ExtractRequestInfo(req, l.requestIDFunc)
 	if req == nil {
 		return l.logger
@@ -166,16 +178,16 @@ func (l *zapLogger) attachRequestToLog(req *http.Request) *zap.Logger {
 }
 
 // WithRequest satisfies our contract for the logging.Logger WithRequest method.
-func (l *zapLogger) WithRequest(req *http.Request) logging.Logger {
-	return &zapLogger{requestIDFunc: l.requestIDFunc, logger: l.attachRequestToLog(req), atomicLevel: l.atomicLevel}
+func (l *Logger) WithRequest(req *http.Request) logging.Logger {
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l.attachRequestToLog(req), atomicLevel: l.atomicLevel}
 }
 
 // WithResponse satisfies our contract for the logging.Logger WithResponse method.
-func (l *zapLogger) WithResponse(res *http.Response) logging.Logger {
+func (l *Logger) WithResponse(res *http.Response) logging.Logger {
 	l2 := l.logger.With()
 	if res != nil {
 		l2 = l.attachRequestToLog(res.Request).With(zap.Int(keys.ResponseStatusKey, res.StatusCode))
 	}
 
-	return &zapLogger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
+	return &Logger{requestIDFunc: l.requestIDFunc, logger: l2, atomicLevel: l.atomicLevel}
 }

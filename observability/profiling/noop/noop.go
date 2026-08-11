@@ -12,7 +12,7 @@ var _ profiling.Provider = (*Provider)(nil)
 type Provider struct{}
 
 // NewProvider returns a no-op Provider.
-func NewProvider() profiling.Provider {
+func NewProvider() *Provider {
 	return &Provider{}
 }
 

@@ -41,7 +41,10 @@ type CryptoKeyClient interface {
 	Decrypt(ctx context.Context, params *kms.DecryptInput, optFns ...func(*kms.Options)) (*kms.DecryptOutput, error)
 }
 
-type awsKeyWrapper struct {
+// KeyWrapper is the AWS KMS encryption.KeyWrapper implementation. It is
+// exported, and returned by NewKeyWrapper, so a caller who has chosen AWS KMS
+// can depend on that choice rather than on the interface every wrapper shares.
+type KeyWrapper struct {
 	o11y         observability.Observer
 	client       CryptoKeyClient
 	wrapCounter  metrics.Int64Counter
@@ -50,7 +53,7 @@ type awsKeyWrapper struct {
 	keyID        string
 }
 
-var _ encryption.KeyWrapper = (*awsKeyWrapper)(nil)
+var _ encryption.KeyWrapper = (*KeyWrapper)(nil)
 
 // NewKeyWrapper builds a KeyWrapper backed by AWS KMS.
 //
@@ -61,7 +64,7 @@ var _ encryption.KeyWrapper = (*awsKeyWrapper)(nil)
 // prefer this over the local wrapper, and also why every wrap and unwrap is a
 // network round trip — a per-subject data key should be unwrapped once and
 // cached, not unwrapped per row read.
-func NewKeyWrapper(ctx context.Context, cfg *Config, client CryptoKeyClient, opts ...Option) (encryption.KeyWrapper, error) {
+func NewKeyWrapper(ctx context.Context, cfg *Config, client CryptoKeyClient, opts ...Option) (*KeyWrapper, error) {
 	if cfg == nil {
 		return nil, errors.New("aws kms key wrapper: config is required")
 	}
@@ -99,7 +102,7 @@ func NewKeyWrapper(ctx context.Context, cfg *Config, client CryptoKeyClient, opt
 		client = kms.NewFromConfig(awsCfg)
 	}
 
-	return &awsKeyWrapper{
+	return &KeyWrapper{
 		o11y:         o11y,
 		client:       client,
 		wrapCounter:  wrapCounter,
@@ -109,7 +112,7 @@ func NewKeyWrapper(ctx context.Context, cfg *Config, client CryptoKeyClient, opt
 	}, nil
 }
 
-func (w *awsKeyWrapper) Wrap(ctx context.Context, key, associatedData []byte) ([]byte, error) {
+func (w *KeyWrapper) Wrap(ctx context.Context, key, associatedData []byte) ([]byte, error) {
 	ctx, op := w.o11y.Begin(ctx)
 	defer op.End()
 
@@ -131,7 +134,7 @@ func (w *awsKeyWrapper) Wrap(ctx context.Context, key, associatedData []byte) ([
 	return out.CiphertextBlob, nil
 }
 
-func (w *awsKeyWrapper) Unwrap(ctx context.Context, wrapped, associatedData []byte) ([]byte, error) {
+func (w *KeyWrapper) Unwrap(ctx context.Context, wrapped, associatedData []byte) ([]byte, error) {
 	ctx, op := w.o11y.Begin(ctx)
 	defer op.End()
 
@@ -175,6 +178,6 @@ func encryptionContext(associatedData []byte) map[string]string {
 	}
 }
 
-func (w *awsKeyWrapper) recordLatency(ctx context.Context, start time.Time) {
+func (w *KeyWrapper) recordLatency(ctx context.Context, start time.Time) {
 	w.latencyHist.Record(ctx, float64(time.Since(start).Milliseconds()))
 }

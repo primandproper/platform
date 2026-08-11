@@ -14,7 +14,7 @@ import (
 // base64'd its result because it returned a string; a []byte surface has
 // nothing to escape, and a caller that needs text can encode once at the
 // boundary that needs it rather than paying a third in size at rest.
-func (e *aesImpl) Seal(ctx context.Context, plaintext, associatedData []byte) ([]byte, error) {
+func (e *Cipher) Seal(ctx context.Context, plaintext, associatedData []byte) ([]byte, error) {
 	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(plaintext)))
 	defer op.End()
 

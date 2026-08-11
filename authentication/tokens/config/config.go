@@ -82,6 +82,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // ValidateWithContext a composition root would run — the issuer, audience and
 // signing key are what every token carries, and none of those rules were
 // reachable from here before.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *jwt.Signer into a
+// non-nil tokens.Issuer on the error path, and a caller testing the result against
+// nil would find an issuer that panics on first use.
 func (cfg *Config) NewTokenIssuer(ctx context.Context, opts ...Option) (tokens.Issuer, error) {
 	o := newOptions(opts)
 	logger, tracerProvider := o.logger, o.tracerProvider
@@ -107,9 +113,19 @@ func (cfg *Config) NewTokenIssuer(ctx context.Context, opts ...Option) (tokens.I
 
 	switch provider {
 	case ProviderJWT:
-		return jwt.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, jwt.WithLogger(logger), jwt.WithTracerProvider(tracerProvider))
+		signer, signerErr := jwt.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, jwt.WithLogger(logger), jwt.WithTracerProvider(tracerProvider))
+		if signerErr != nil {
+			return nil, signerErr
+		}
+
+		return signer, nil
 	case ProviderPASETO:
-		return paseto.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, paseto.WithLogger(logger), paseto.WithTracerProvider(tracerProvider))
+		signer, signerErr := paseto.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, paseto.WithLogger(logger), paseto.WithTracerProvider(tracerProvider))
+		if signerErr != nil {
+			return nil, signerErr
+		}
+
+		return signer, nil
 	default:
 		return nil, errors.Wrapf(errors.ErrUnknownProvider, "token issuer provider %q", cfg.Provider)
 	}

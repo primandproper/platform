@@ -29,7 +29,7 @@ func TestDispatcherOptions(T *testing.T) {
 	T.Run("WithCatalog", func(t *testing.T) {
 		t.Parallel()
 
-		d := &dispatcher{catalog: Catalog{}}
+		d := &StoreDispatcher{catalog: Catalog{}}
 
 		WithCatalog(testCatalog)(d)
 		test.True(t, d.catalog.Known("order.created"))
@@ -43,7 +43,7 @@ func TestDispatcherOptions(T *testing.T) {
 		t.Parallel()
 
 		original := clock.NewClock()
-		d := &dispatcher{clock: original}
+		d := &StoreDispatcher{clock: original}
 
 		replacement := clock.NewClock()
 		WithDispatcherClock(replacement)(d)
@@ -56,7 +56,7 @@ func TestDispatcherOptions(T *testing.T) {
 	T.Run("WithDispatcherURLChecker", func(t *testing.T) {
 		t.Parallel()
 
-		d := &dispatcher{checkURL: CheckEndpointURL}
+		d := &StoreDispatcher{checkURL: CheckEndpointURL}
 
 		WithDispatcherURLChecker(allowAnyURL)(d)
 		test.NoError(t, d.checkURL(t.Context(), "http://127.0.0.1/hooks"))
@@ -69,7 +69,7 @@ func TestDispatcherOptions(T *testing.T) {
 	T.Run("WithDispatcherLogger", func(t *testing.T) {
 		t.Parallel()
 
-		d := &dispatcher{}
+		d := &StoreDispatcher{}
 
 		logger := logging.EnsureLogger(nil)
 		WithDispatcherLogger(logger)(d)
@@ -79,7 +79,7 @@ func TestDispatcherOptions(T *testing.T) {
 	T.Run("WithDispatcherTracerProvider", func(t *testing.T) {
 		t.Parallel()
 
-		d := &dispatcher{}
+		d := &StoreDispatcher{}
 
 		WithDispatcherTracerProvider(tracingnoop.NewTracerProvider())(d)
 		test.NotNil(t, d.tracerProvider)
@@ -88,7 +88,7 @@ func TestDispatcherOptions(T *testing.T) {
 	T.Run("WithDispatcherMetricsProvider", func(t *testing.T) {
 		t.Parallel()
 
-		d := &dispatcher{}
+		d := &StoreDispatcher{}
 
 		WithDispatcherMetricsProvider(metrics.EnsureMetricsProvider(nil))(d)
 		test.NotNil(t, d.metricsProvider)
@@ -212,7 +212,7 @@ func TestSQLStoreOptions(T *testing.T) {
 	T.Run("WithTablePrefix", func(t *testing.T) {
 		t.Parallel()
 
-		s := &sqlStore{tables: newTables(DefaultTablePrefix)}
+		s := &SQLStore{tables: newTables(DefaultTablePrefix)}
 
 		WithTablePrefix("acme_hook")(s)
 		test.EqOp(t, "acme_hook_webhooks_dispatches", s.tables.dispatches)

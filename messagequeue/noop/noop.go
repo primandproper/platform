@@ -7,64 +7,64 @@ import (
 )
 
 var (
-	_ messagequeue.PublisherProvider = (*publisherProvider)(nil)
-	_ messagequeue.Publisher         = (*publisher)(nil)
-	_ messagequeue.ConsumerProvider  = (*consumerProvider)(nil)
-	_ messagequeue.Consumer          = (*consumer)(nil)
+	_ messagequeue.PublisherProvider = (*PublisherProvider)(nil)
+	_ messagequeue.Publisher         = (*Publisher)(nil)
+	_ messagequeue.ConsumerProvider  = (*ConsumerProvider)(nil)
+	_ messagequeue.Consumer          = (*Consumer)(nil)
 )
 
-// publisherProvider is a no-op implementation of PublisherProvider.
-type publisherProvider struct{}
+// PublisherProvider is the no-op messagequeue.PublisherProvider.
+type PublisherProvider struct{}
 
 // NewPublisherProvider returns a no-op PublisherProvider.
-func NewPublisherProvider() messagequeue.PublisherProvider {
-	return &publisherProvider{}
+func NewPublisherProvider() *PublisherProvider {
+	return &PublisherProvider{}
 }
 
-func (n *publisherProvider) Close() {}
+func (n *PublisherProvider) Close() {}
 
-func (n *publisherProvider) Ping(context.Context) error { return nil }
+func (n *PublisherProvider) Ping(context.Context) error { return nil }
 
-func (n *publisherProvider) NewPublisher(context.Context, string) (messagequeue.Publisher, error) {
+func (n *PublisherProvider) NewPublisher(context.Context, string) (messagequeue.Publisher, error) {
 	return NewPublisher(), nil
 }
 
-// publisher is a no-op implementation of Publisher.
-type publisher struct{}
+// Publisher is the no-op messagequeue.Publisher.
+type Publisher struct{}
 
 // NewPublisher returns a no-op Publisher.
-func NewPublisher() messagequeue.Publisher {
-	return &publisher{}
+func NewPublisher() *Publisher {
+	return &Publisher{}
 }
 
-func (n *publisher) Stop() {}
+func (n *Publisher) Stop() {}
 
-func (n *publisher) Publish(context.Context, any) error {
+func (n *Publisher) Publish(context.Context, any) error {
 	return nil
 }
 
-func (n *publisher) PublishAsync(context.Context, any) {}
+func (n *Publisher) PublishAsync(context.Context, any) {}
 
-// consumerProvider is a no-op implementation of ConsumerProvider.
-type consumerProvider struct{}
+// ConsumerProvider is the no-op messagequeue.ConsumerProvider.
+type ConsumerProvider struct{}
 
 // NewConsumerProvider returns a no-op ConsumerProvider.
-func NewConsumerProvider() messagequeue.ConsumerProvider {
-	return &consumerProvider{}
+func NewConsumerProvider() *ConsumerProvider {
+	return &ConsumerProvider{}
 }
 
-func (n *consumerProvider) Close() {}
+func (n *ConsumerProvider) Close() {}
 
-func (n *consumerProvider) NewConsumer(context.Context, string, messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
+func (n *ConsumerProvider) NewConsumer(context.Context, string, messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
 	return NewConsumer(), nil
 }
 
-// consumer is a no-op implementation of Consumer.
-type consumer struct{}
+// Consumer is the no-op messagequeue.Consumer.
+type Consumer struct{}
 
 // NewConsumer returns a no-op Consumer.
-func NewConsumer() messagequeue.Consumer {
-	return &consumer{}
+func NewConsumer() *Consumer {
+	return &Consumer{}
 }
 
-func (n *consumer) Consume(context.Context, chan<- error) {}
+func (n *Consumer) Consume(context.Context, chan<- error) {}

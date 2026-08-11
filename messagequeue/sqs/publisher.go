@@ -110,7 +110,13 @@ func provideSQSPublisher(logger logging.Logger, sqsClient messagePublisher, trac
 	}, nil
 }
 
-type publisherProvider struct {
+var _ messagequeue.PublisherProvider = (*PublisherProvider)(nil)
+
+// PublisherProvider is the Amazon SQS messagequeue.PublisherProvider implementation. It is
+// exported, and returned by NewSQSPublisherProvider, so a caller who has chosen
+// Amazon SQS can depend on that choice rather than on the interface every
+// broker shares.
+type PublisherProvider struct {
 	o11y              observability.Observer
 	publisherCache    map[string]messagequeue.Publisher
 	sqsClient         messagePublisher
@@ -120,7 +126,7 @@ type publisherProvider struct {
 }
 
 // NewSQSPublisherProvider returns a PublisherProvider for a given address.
-func NewSQSPublisherProvider(ctx context.Context, queueCfg Config, opts ...Option) (messagequeue.PublisherProvider, error) {
+func NewSQSPublisherProvider(ctx context.Context, queueCfg Config, opts ...Option) (*PublisherProvider, error) {
 	o := newOptions(opts)
 
 	var loadOpts []func(*config.LoadOptions) error
@@ -139,7 +145,7 @@ func NewSQSPublisherProvider(ctx context.Context, queueCfg Config, opts ...Optio
 	}
 	svc := sqs.NewFromConfig(cfg)
 
-	return &publisherProvider{
+	return &PublisherProvider{
 		o11y:            observability.NewObserver("sqs_publisher_provider", o.logger, o.tracerProvider),
 		sqsClient:       svc,
 		publisherCache:  map[string]messagequeue.Publisher{},
@@ -149,7 +155,7 @@ func NewSQSPublisherProvider(ctx context.Context, queueCfg Config, opts ...Optio
 }
 
 // NewPublisher returns a Publisher for a given topic.
-func (p *publisherProvider) NewPublisher(ctx context.Context, topic string) (messagequeue.Publisher, error) {
+func (p *PublisherProvider) NewPublisher(ctx context.Context, topic string) (messagequeue.Publisher, error) {
 	if topic == "" {
 		return nil, messagequeue.ErrEmptyTopicName
 	}
@@ -171,8 +177,8 @@ func (p *publisherProvider) NewPublisher(ctx context.Context, topic string) (mes
 }
 
 // Ping is a no-op for SQS (SQS is a managed service).
-func (p *publisherProvider) Ping(context.Context) error { return nil }
+func (p *PublisherProvider) Ping(context.Context) error { return nil }
 
 // Close is a no-op: the SQS client is a stateless HTTP client with nothing to
 // release.
-func (p *publisherProvider) Close() {}
+func (p *PublisherProvider) Close() {}

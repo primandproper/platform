@@ -128,6 +128,6 @@ func TestProvider_InterfaceCompliance(T *testing.T) {
 	T.Run("implements profiling.Provider", func(t *testing.T) {
 		t.Parallel()
 
-		var _ profiling.Provider = (*provider)(nil)
+		var _ profiling.Provider = (*Provider)(nil)
 	})
 }

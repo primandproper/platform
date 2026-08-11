@@ -100,7 +100,13 @@ func (r *redisConsumer) Consume(ctx context.Context, errs chan<- error) {
 	}
 }
 
-type consumerProvider struct {
+var _ messagequeue.ConsumerProvider = (*ConsumerProvider)(nil)
+
+// ConsumerProvider is the Redis messagequeue.ConsumerProvider implementation. It is
+// exported, and returned by NewRedisConsumerProvider, so a caller who has chosen
+// Redis can depend on that choice rather than on the interface every
+// broker shares.
+type ConsumerProvider struct {
 	o11y            observability.Observer
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
@@ -116,7 +122,7 @@ type consumerProvider struct {
 // refuses is a startup error. Without either, a config naming no
 // QueueAddresses built cleanly and the provider came back holding a nil
 // client — which nothing noticed until the first Ping panicked.
-func NewRedisConsumerProvider(ctx context.Context, cfg Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
+func NewRedisConsumerProvider(ctx context.Context, cfg Config, opts ...Option) (*ConsumerProvider, error) {
 	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, platformerrors.Wrap(err, "validating redis consumer config")
 	}
@@ -136,7 +142,7 @@ func NewRedisConsumerProvider(ctx context.Context, cfg Config, opts ...Option) (
 		return nil, platformerrors.Wrap(err, "building redis client")
 	}
 
-	return &consumerProvider{
+	return &ConsumerProvider{
 		o11y:            o11y,
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
@@ -147,7 +153,7 @@ func NewRedisConsumerProvider(ctx context.Context, cfg Config, opts ...Option) (
 
 // Close closes the shared Redis client, mirroring the publisher provider. Cached
 // consumers close their own subscriptions when their Consume loops exit.
-func (p *consumerProvider) Close() {
+func (p *ConsumerProvider) Close() {
 	if closer, ok := p.redisClient.(io.Closer); ok {
 		if err := closer.Close(); err != nil {
 			p.o11y.Logger().Error("closing redis consumer client", err)
@@ -156,7 +162,7 @@ func (p *consumerProvider) Close() {
 }
 
 // NewConsumer returns a Consumer for a given topic.
-func (p *consumerProvider) NewConsumer(ctx context.Context, topic string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
+func (p *ConsumerProvider) NewConsumer(ctx context.Context, topic string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
 	logger := p.o11y.Logger().WithValue(keys.TopicKey, topic)
 
 	if topic == "" {

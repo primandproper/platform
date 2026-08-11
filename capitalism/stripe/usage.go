@@ -29,7 +29,7 @@ const (
 )
 
 var (
-	_ capitalism.UsageReporter = (*stripeUsageReporter)(nil)
+	_ capitalism.UsageReporter = (*UsageReporter)(nil)
 
 	// ErrEmptyCustomerID indicates a report with no customer to bill. Stripe's
 	// meter events key on a customer rather than on a subscription item, so an
@@ -62,8 +62,12 @@ var (
 	ErrEmptyUsageIdempotencyKey = platformerrors.New("empty stripe usage idempotency key")
 )
 
-// stripeUsageReporter posts meter events to Stripe's usage-based billing API.
-type stripeUsageReporter struct {
+var _ capitalism.UsageReporter = (*UsageReporter)(nil)
+
+// UsageReporter posts meter events to Stripe's usage-based billing API. It is
+// exported, and returned by NewUsageReporter, so a caller who has chosen Stripe
+// can depend on that choice rather than on the capitalism.UsageReporter seam.
+type UsageReporter struct {
 	o11y   observability.Observer
 	client *client.API
 }
@@ -73,7 +77,7 @@ type stripeUsageReporter struct {
 // Unlike NewPaymentManager, the API key is required: there is no inbound path
 // here, so a reporter without one could do nothing at all and would fail on its
 // first flush rather than at startup.
-func NewUsageReporter(cfg *Config, opts ...Option) (capitalism.UsageReporter, error) {
+func NewUsageReporter(cfg *Config, opts ...Option) (*UsageReporter, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -87,7 +91,7 @@ func NewUsageReporter(cfg *Config, opts ...Option) (capitalism.UsageReporter, er
 	sc := &client.API{}
 	sc.Init(cfg.APIKey, nil)
 
-	return &stripeUsageReporter{
+	return &UsageReporter{
 		client: sc,
 		o11y:   observability.NewObserver(usageImplementationName, o.logger, o.tracerProvider),
 	}, nil
@@ -103,7 +107,7 @@ func NewUsageReporter(cfg *Config, opts ...Option) (capitalism.UsageReporter, er
 // different timestamps left the smaller total standing beside the larger rather
 // than replacing it — and leaves the same discipline in place: post the delta
 // since the last flush, under a key derived from the flush's sequence number.
-func (s *stripeUsageReporter) ReportUsage(ctx context.Context, input *capitalism.UsageReportInput) error {
+func (s *UsageReporter) ReportUsage(ctx context.Context, input *capitalism.UsageReportInput) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 

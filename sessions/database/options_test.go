@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/encoding"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
@@ -35,7 +36,7 @@ func TestOptions(T *testing.T) {
 			codec encoding.Codec = encoding.NewClientEncoder(encoding.ContentTypeJSON)
 			c     clock.Clock    = newFakeClock()
 		)
-		logger := loggingnoop.NewLogger()
+		var logger logging.Logger = loggingnoop.NewLogger()
 		tracerProvider := tracingnoop.NewTracerProvider()
 		metricsProvider := metricsnoop.NewMetricsProvider()
 

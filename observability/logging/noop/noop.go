@@ -16,7 +16,7 @@ var logger = &Logger{}
 type Logger struct{}
 
 // NewLogger returns a no-op Logger.
-func NewLogger() logging.Logger {
+func NewLogger() *Logger {
 	return logger
 }
 

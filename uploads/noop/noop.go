@@ -18,10 +18,12 @@ var (
 )
 
 // UploadManager is a no-op UploadManager.
+var _ uploads.UploadManager = (*UploadManager)(nil)
+
 type UploadManager struct{}
 
 // NewUploadManager returns a no-op UploadManager.
-func NewUploadManager() uploads.UploadManager {
+func NewUploadManager() *UploadManager {
 	return &UploadManager{}
 }
 

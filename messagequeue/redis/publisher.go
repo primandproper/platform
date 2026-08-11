@@ -113,7 +113,13 @@ func provideRedisPublisher(logger logging.Logger, tracerProvider tracing.Provide
 	}, nil
 }
 
-type publisherProvider struct {
+var _ messagequeue.PublisherProvider = (*PublisherProvider)(nil)
+
+// PublisherProvider is the Redis messagequeue.PublisherProvider implementation. It is
+// exported, and returned by NewRedisPublisherProvider, so a caller who has chosen
+// Redis can depend on that choice rather than on the interface every
+// broker shares.
+type PublisherProvider struct {
 	o11y              observability.Observer
 	publisherCache    map[string]messagequeue.Publisher
 	redisClient       messagePublisher
@@ -130,7 +136,7 @@ type publisherProvider struct {
 // QueueAddresses built cleanly and the provider came back holding a nil
 // client — which nothing noticed until the first Publish panicked, in
 // whichever goroutine happened to make it.
-func NewRedisPublisherProvider(ctx context.Context, cfg Config, opts ...Option) (messagequeue.PublisherProvider, error) {
+func NewRedisPublisherProvider(ctx context.Context, cfg Config, opts ...Option) (*PublisherProvider, error) {
 	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, platformerrors.Wrap(err, "validating redis publisher config")
 	}
@@ -153,7 +159,7 @@ func NewRedisPublisherProvider(ctx context.Context, cfg Config, opts ...Option) 
 
 	logger.Info("redis publisher setup complete")
 
-	return &publisherProvider{
+	return &PublisherProvider{
 		o11y:            o11y,
 		redisClient:     client,
 		publisherCache:  map[string]messagequeue.Publisher{},
@@ -163,7 +169,7 @@ func NewRedisPublisherProvider(ctx context.Context, cfg Config, opts ...Option) 
 }
 
 // NewPublisher returns a Publisher for a given topic.
-func (p *publisherProvider) NewPublisher(ctx context.Context, topic string) (messagequeue.Publisher, error) {
+func (p *PublisherProvider) NewPublisher(ctx context.Context, topic string) (messagequeue.Publisher, error) {
 	if topic == "" {
 		return nil, messagequeue.ErrEmptyTopicName
 	}
@@ -186,12 +192,12 @@ func (p *publisherProvider) NewPublisher(ctx context.Context, topic string) (mes
 }
 
 // Ping pings the underlying Redis client.
-func (p *publisherProvider) Ping(ctx context.Context) error {
+func (p *PublisherProvider) Ping(ctx context.Context) error {
 	return p.redisClient.Ping(ctx).Err()
 }
 
 // Close closes the publisher.
-func (p *publisherProvider) Close() {
+func (p *PublisherProvider) Close() {
 	if err := p.redisClient.Close(); err != nil {
 		p.o11y.Logger().Error("closing redis publisher", err)
 	}

@@ -61,6 +61,13 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
+// NewFeatureFlagManager builds the configured feature flag manager.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *launchdarkly.FeatureFlagManager into a
+// non-nil featureflags.FeatureFlagManager on the error path, and a caller testing the result against
+// nil would find a manager that panics on first use.
 func (c *Config) NewFeatureFlagManager(ctx context.Context, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (featureflags.FeatureFlagManager, error) {
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
@@ -73,9 +80,19 @@ func (c *Config) NewFeatureFlagManager(ctx context.Context, httpClient *http.Cli
 
 	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
 	case ProviderLaunchDarkly:
-		return launchdarkly.NewFeatureFlagManager(c.LaunchDarkly, httpClient, circuitBreaker, launchdarkly.WithLogger(logger), launchdarkly.WithTracerProvider(tracerProvider), launchdarkly.WithMetricsProvider(metricsProvider))
+		m, managerErr := launchdarkly.NewFeatureFlagManager(c.LaunchDarkly, httpClient, circuitBreaker, launchdarkly.WithLogger(logger), launchdarkly.WithTracerProvider(tracerProvider), launchdarkly.WithMetricsProvider(metricsProvider))
+		if managerErr != nil {
+			return nil, managerErr
+		}
+
+		return m, nil
 	case ProviderPostHog:
-		return posthog.NewFeatureFlagManager(c.PostHog, circuitBreaker, posthog.WithLogger(logger), posthog.WithTracerProvider(tracerProvider), posthog.WithMetricsProvider(metricsProvider))
+		m, managerErr := posthog.NewFeatureFlagManager(c.PostHog, circuitBreaker, posthog.WithLogger(logger), posthog.WithTracerProvider(tracerProvider), posthog.WithMetricsProvider(metricsProvider))
+		if managerErr != nil {
+			return nil, managerErr
+		}
+
+		return m, nil
 	case ProviderNoop:
 		return noop.NewFeatureFlagManager(), nil
 	default:

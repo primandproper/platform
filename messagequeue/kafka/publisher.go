@@ -117,7 +117,11 @@ func provideKafkaPublisher(logger logging.Logger, tracerProvider tracing.Provide
 	}, nil
 }
 
-type publisherProvider struct {
+// PublisherProvider is the Kafka messagequeue.PublisherProvider implementation. It is
+// exported, and returned by NewKafkaPublisherProvider, so a caller who has chosen
+// Kafka can depend on that choice rather than on the interface every
+// broker shares.
+type PublisherProvider struct {
 	logger            logging.Logger
 	publisherCache    map[string]messagequeue.Publisher
 	tracerProvider    tracing.Provider
@@ -126,15 +130,15 @@ type publisherProvider struct {
 	publisherCacheHat sync.RWMutex
 }
 
-var _ messagequeue.PublisherProvider = (*publisherProvider)(nil)
+var _ messagequeue.PublisherProvider = (*PublisherProvider)(nil)
 
 // NewKafkaPublisherProvider returns a PublisherProvider backed by Kafka.
-func NewKafkaPublisherProvider(cfg Config, opts ...Option) messagequeue.PublisherProvider {
+func NewKafkaPublisherProvider(cfg Config, opts ...Option) *PublisherProvider {
 	o := newOptions(opts)
 	logger := logging.EnsureLogger(o.logger)
 	logger.WithValue("brokers", cfg.Brokers).Info("setting up kafka publisher")
 
-	return &publisherProvider{
+	return &PublisherProvider{
 		logger:          logger,
 		brokers:         cfg.Brokers,
 		publisherCache:  map[string]messagequeue.Publisher{},
@@ -144,7 +148,7 @@ func NewKafkaPublisherProvider(cfg Config, opts ...Option) messagequeue.Publishe
 }
 
 // NewPublisher returns a Publisher for the given topic.
-func (p *publisherProvider) NewPublisher(_ context.Context, topic string) (messagequeue.Publisher, error) {
+func (p *PublisherProvider) NewPublisher(_ context.Context, topic string) (messagequeue.Publisher, error) {
 	if topic == "" {
 		return nil, messagequeue.ErrEmptyTopicName
 	}
@@ -166,7 +170,7 @@ func (p *publisherProvider) NewPublisher(_ context.Context, topic string) (messa
 }
 
 // Ping checks connectivity by attempting to dial a broker.
-func (p *publisherProvider) Ping(ctx context.Context) error {
+func (p *PublisherProvider) Ping(ctx context.Context) error {
 	if len(p.brokers) == 0 {
 		return fmt.Errorf("no kafka brokers configured")
 	}
@@ -179,7 +183,7 @@ func (p *publisherProvider) Ping(ctx context.Context) error {
 }
 
 // Close closes all cached publishers.
-func (p *publisherProvider) Close() {
+func (p *PublisherProvider) Close() {
 	p.publisherCacheHat.Lock()
 	defer p.publisherCacheHat.Unlock()
 	for _, pub := range p.publisherCache {

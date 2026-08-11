@@ -42,11 +42,13 @@ const maxShredAttempts = 3
 // that subject is being erased.
 var ErrShredContended = platformerrors.New("shredding key row changed under the shred repeatedly")
 
-var _ Store = (*sqlStore)(nil)
+var _ Store = (*SQLStore)(nil)
 
-// sqlStore is the SQL-backed Store, against the schema
-// cryptography/shredding/migrations renders.
-type sqlStore struct {
+// SQLStore is the SQL-backed Store, against the schema
+// cryptography/shredding/migrations renders. It is exported, and returned by
+// NewSQLStore, so a caller who has chosen SQL storage can depend on that choice
+// rather than on the Store seam every backing shares.
+type SQLStore struct {
 	client database.Client
 	tables *tables
 	o11y   observability.Observer
@@ -74,7 +76,7 @@ type sqlStore struct {
 // still match the one the migrations were rendered with — nothing here can check
 // that, and a mismatch surfaces as a missing table on the first query rather
 // than at construction.
-func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) {
+func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
 	}
@@ -84,7 +86,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "shredding dialect %q", d)
 	}
 
-	s := &sqlStore{
+	s := &SQLStore{
 		client:  client,
 		dialect: d,
 		tables:  newTables(DefaultTablePrefix),
@@ -117,7 +119,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 	return s, nil
 }
 
-func (s *sqlStore) Load(ctx context.Context, subject Subject) (*Record, error) {
+func (s *SQLStore) Load(ctx context.Context, subject Subject) (*Record, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(subjectIDKey, subject.ID),
 		observability.WithValue(subjectTypeKey, subject.Type),
@@ -147,7 +149,7 @@ func (s *sqlStore) Load(ctx context.Context, subject Subject) (*Record, error) {
 	return record, nil
 }
 
-func (s *sqlStore) Insert(ctx context.Context, record *Record) (bool, error) {
+func (s *SQLStore) Insert(ctx context.Context, record *Record) (bool, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -181,7 +183,7 @@ func (s *sqlStore) Insert(ctx context.Context, record *Record) (bool, error) {
 	return affected > 0, nil
 }
 
-func (s *sqlStore) Shred(ctx context.Context, subject Subject, at time.Time) (Receipt, error) {
+func (s *SQLStore) Shred(ctx context.Context, subject Subject, at time.Time) (Receipt, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(subjectIDKey, subject.ID),
 		observability.WithValue(subjectTypeKey, subject.Type),
@@ -213,7 +215,7 @@ func (s *sqlStore) Shred(ctx context.Context, subject Subject, at time.Time) (Re
 // An unsettled pass means a key was minted for this subject between the update
 // and the tombstone insert. The next pass finds that row and destroys it, and
 // no third mint can intervene because the loser of an insert race never retries.
-func (s *sqlStore) shredOnce(ctx context.Context, subject Subject, at time.Time) (Receipt, bool, error) {
+func (s *SQLStore) shredOnce(ctx context.Context, subject Subject, at time.Time) (Receipt, bool, error) {
 	query, args := s.tables.buildShred(s.dialect, subject, at)
 
 	affected, err := s.exec(ctx, query, args)
@@ -259,7 +261,7 @@ func (s *sqlStore) shredOnce(ctx context.Context, subject Subject, at time.Time)
 }
 
 // exec runs a write and reports the rows it touched.
-func (s *sqlStore) exec(ctx context.Context, query string, args []any) (int64, error) {
+func (s *SQLStore) exec(ctx context.Context, query string, args []any) (int64, error) {
 	result, err := s.client.Writer().ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err

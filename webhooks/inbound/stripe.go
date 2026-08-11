@@ -36,13 +36,13 @@ const (
 	providerStripe = "stripe"
 )
 
-// stripeVerifier verifies Stripe's t=…,v1=… scheme.
-type stripeVerifier struct {
+// StripeVerifier verifies Stripe's t=…,v1=… scheme.
+type StripeVerifier struct {
 	cfg     *verifierConfig
 	hashers []hashing.Hasher
 }
 
-var _ Verifier = (*stripeVerifier)(nil)
+var _ Verifier = (*StripeVerifier)(nil)
 
 // NewStripeVerifier builds a Verifier for Stripe's Stripe-Signature header.
 //
@@ -60,7 +60,7 @@ var _ Verifier = (*stripeVerifier)(nil)
 // enough. Stripe emits one per active endpoint secret during its own secret
 // rollover, so rejecting on the first mismatch would fail every delivery for
 // the length of a rotation the receiver has no say in.
-func NewStripeVerifier(secret string, opts ...VerifierOption) (Verifier, error) {
+func NewStripeVerifier(secret string, opts ...VerifierOption) (*StripeVerifier, error) {
 	cfg := newVerifierConfig(opts)
 
 	secrets := cfg.secretsWith(secret)
@@ -73,11 +73,11 @@ func NewStripeVerifier(secret string, opts ...VerifierOption) (Verifier, error) 
 		hashers = append(hashers, hmac.NewHMACSHA256Hasher([]byte(s)))
 	}
 
-	return &stripeVerifier{cfg: cfg, hashers: hashers}, nil
+	return &StripeVerifier{cfg: cfg, hashers: hashers}, nil
 }
 
 // Provider returns "stripe".
-func (v *stripeVerifier) Provider() string { return providerStripe }
+func (v *StripeVerifier) Provider() string { return providerStripe }
 
 // Verify checks the Stripe-Signature header against body.
 //
@@ -87,7 +87,7 @@ func (v *stripeVerifier) Provider() string { return providerStripe }
 // forged timestamp only ever moves a delivery out of the window or leaves it
 // signed under a payload whose MAC will not match, so nothing is decided on an
 // unverified value.
-func (v *stripeVerifier) Verify(_ context.Context, headers http.Header, body []byte) error {
+func (v *StripeVerifier) Verify(_ context.Context, headers http.Header, body []byte) error {
 	// A nil header bag reads as an absent header rather than a special case, which is what
 	// http.Header.Get already does.
 	presented := headers.Get(StripeSignatureHeader)

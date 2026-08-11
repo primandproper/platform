@@ -32,9 +32,14 @@ var (
 	ErrMissingSDKKey     = platformerrors.New("missing SDK key")
 )
 
+var _ featureflags.FeatureFlagManager = (*FeatureFlagManager)(nil)
+
 type (
-	// featureFlagManager implements the feature flag interface using OpenFeature.
-	featureFlagManager struct {
+	// FeatureFlagManager is the LaunchDarkly featureflags.FeatureFlagManager
+	// implementation, by way of OpenFeature. It is exported, and returned by
+	// NewFeatureFlagManager, so a caller who has chosen LaunchDarkly can depend on
+	// that choice rather than on the interface every flag backend shares.
+	FeatureFlagManager struct {
 		circuitBreaker  circuitbreaking.CircuitBreaker
 		o11y            observability.Observer
 		evalCounter     metrics.Int64Counter
@@ -47,8 +52,9 @@ type (
 	}
 )
 
-// NewFeatureFlagManager constructs a new featureFlagManager backed by OpenFeature.
-func NewFeatureFlagManager(cfg *Config, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (featureflags.FeatureFlagManager, error) {
+// NewFeatureFlagManager constructs a LaunchDarkly FeatureFlagManager backed by
+// OpenFeature.
+func NewFeatureFlagManager(cfg *Config, httpClient *http.Client, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (*FeatureFlagManager, error) {
 	if httpClient == nil {
 		return nil, ErrMissingHTTPClient
 	}
@@ -130,7 +136,7 @@ func NewFeatureFlagManager(cfg *Config, httpClient *http.Client, circuitBreaker 
 
 	ofClient := openfeature.NewClient(domain)
 
-	ffm := &featureFlagManager{
+	ffm := &FeatureFlagManager{
 		o11y:            o11y,
 		domain:          domain,
 		circuitBreaker:  circuitBreaker,
@@ -165,7 +171,7 @@ func toOpenFeatureContext(evalCtx featureflags.EvaluationContext) openfeature.Ev
 // SDK's pre-evaluation short circuits, which return empty resolution details and so
 // arrive here with an empty code: an unready or fatally broken provider is exactly
 // what the breaker is for.
-func (f *featureFlagManager) evaluationError(ctx context.Context, feature string, code openfeature.ErrorCode, err error) error {
+func (f *FeatureFlagManager) evaluationError(ctx context.Context, feature string, code openfeature.ErrorCode, err error) error {
 	if code == openfeature.FlagNotFoundCode {
 		f.notFoundCounter.Add(ctx, 1)
 		f.circuitBreaker.Succeeded()
@@ -181,7 +187,7 @@ func (f *featureFlagManager) evaluationError(ctx context.Context, feature string
 
 // CanUseFeature returns whether the supplied evaluation context is permitted to use
 // the named feature.
-func (f *featureFlagManager) CanUseFeature(ctx context.Context, feature string, evalCtx featureflags.EvaluationContext) (bool, error) {
+func (f *FeatureFlagManager) CanUseFeature(ctx context.Context, feature string, evalCtx featureflags.EvaluationContext) (bool, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -208,7 +214,7 @@ func (f *featureFlagManager) CanUseFeature(ctx context.Context, feature string, 
 
 // GetStringValue returns the string value of a feature flag, falling back to
 // defaultValue on error.
-func (f *featureFlagManager) GetStringValue(ctx context.Context, feature, defaultValue string, evalCtx featureflags.EvaluationContext) (string, error) {
+func (f *FeatureFlagManager) GetStringValue(ctx context.Context, feature, defaultValue string, evalCtx featureflags.EvaluationContext) (string, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -235,7 +241,7 @@ func (f *featureFlagManager) GetStringValue(ctx context.Context, feature, defaul
 
 // GetInt64Value returns the int64 value of a feature flag, falling back to
 // defaultValue on error.
-func (f *featureFlagManager) GetInt64Value(ctx context.Context, feature string, defaultValue int64, evalCtx featureflags.EvaluationContext) (int64, error) {
+func (f *FeatureFlagManager) GetInt64Value(ctx context.Context, feature string, defaultValue int64, evalCtx featureflags.EvaluationContext) (int64, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -262,7 +268,7 @@ func (f *featureFlagManager) GetInt64Value(ctx context.Context, feature string, 
 
 // GetFloat64Value returns the float64 value of a feature flag, falling back to
 // defaultValue on error.
-func (f *featureFlagManager) GetFloat64Value(ctx context.Context, feature string, defaultValue float64, evalCtx featureflags.EvaluationContext) (float64, error) {
+func (f *FeatureFlagManager) GetFloat64Value(ctx context.Context, feature string, defaultValue float64, evalCtx featureflags.EvaluationContext) (float64, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -289,7 +295,7 @@ func (f *featureFlagManager) GetFloat64Value(ctx context.Context, feature string
 
 // GetObjectValue returns the object (JSON) value of a feature flag, falling back
 // to defaultValue on error.
-func (f *featureFlagManager) GetObjectValue(ctx context.Context, feature string, defaultValue any, evalCtx featureflags.EvaluationContext) (any, error) {
+func (f *FeatureFlagManager) GetObjectValue(ctx context.Context, feature string, defaultValue any, evalCtx featureflags.EvaluationContext) (any, error) {
 	ctx, op := f.o11y.Begin(ctx,
 		observability.WithValue(keys.UserIDKey, evalCtx.TargetingKey),
 		observability.WithValue("feature", feature),
@@ -321,7 +327,7 @@ func (f *featureFlagManager) GetObjectValue(ctx context.Context, feature string,
 // closed, and the process accumulated them until it exited. Replacing the
 // registration with the no-op provider releases the client; the (small,
 // clientless) map entry itself is not removable and is left behind.
-func (f *featureFlagManager) Close() error {
+func (f *FeatureFlagManager) Close() error {
 	var errs []error
 
 	if err := openfeature.SetNamedProvider(f.domain, openfeature.NoopProvider{}); err != nil {

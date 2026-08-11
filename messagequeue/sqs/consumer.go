@@ -169,7 +169,13 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 	}
 }
 
-type consumerProvider struct {
+var _ messagequeue.ConsumerProvider = (*ConsumerProvider)(nil)
+
+// ConsumerProvider is the Amazon SQS messagequeue.ConsumerProvider implementation. It is
+// exported, and returned by NewSQSConsumerProvider, so a caller who has chosen
+// Amazon SQS can depend on that choice rather than on the interface every
+// broker shares.
+type ConsumerProvider struct {
 	o11y            observability.Observer
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
@@ -179,7 +185,7 @@ type consumerProvider struct {
 }
 
 // NewSQSConsumerProvider returns a ConsumerProvider for SQS.
-func NewSQSConsumerProvider(ctx context.Context, queueCfg Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
+func NewSQSConsumerProvider(ctx context.Context, queueCfg Config, opts ...Option) (*ConsumerProvider, error) {
 	o := newOptions(opts)
 
 	var loadOpts []func(*config.LoadOptions) error
@@ -194,7 +200,7 @@ func NewSQSConsumerProvider(ctx context.Context, queueCfg Config, opts ...Option
 	}
 	svc := sqs.NewFromConfig(cfg)
 
-	return &consumerProvider{
+	return &ConsumerProvider{
 		o11y:            observability.NewObserver("sqs_consumer_provider", o.logger, o.tracerProvider),
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
@@ -205,10 +211,10 @@ func NewSQSConsumerProvider(ctx context.Context, queueCfg Config, opts ...Option
 
 // Close is a no-op: the SQS client is a stateless HTTP client with nothing to
 // release.
-func (p *consumerProvider) Close() {}
+func (p *ConsumerProvider) Close() {}
 
 // NewConsumer returns a Consumer for the given topic (queue URL).
-func (p *consumerProvider) NewConsumer(ctx context.Context, topic string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
+func (p *ConsumerProvider) NewConsumer(ctx context.Context, topic string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
 	_, op := p.o11y.Begin(ctx)
 	defer op.End()
 

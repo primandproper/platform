@@ -180,11 +180,8 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 
-		cp, ok := provider.(*consumerProvider)
-		must.True(t, ok)
-
 		obs := observability.NewRecordingObserver()
-		cp.o11y = obs
+		provider.o11y = obs
 
 		topic := "https://sqs.us-east-1.amazonaws.com/123/test"
 		actual, err := provider.NewConsumer(ctx, topic, nil)
@@ -228,11 +225,8 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 		must.NoError(t, err)
 		must.NotNil(t, provider)
 
-		cp, ok := provider.(*consumerProvider)
-		must.True(t, ok)
-
 		obs := observability.NewRecordingObserver()
-		cp.o11y = obs
+		provider.o11y = obs
 
 		actual, err := provider.NewConsumer(ctx, "", nil)
 		test.Error(t, err)

@@ -199,10 +199,7 @@ func TestGCPKeyWrapper_Close(T *testing.T) {
 		w, err := NewKeyWrapper(t.Context(), validConfig(), client)
 		must.NoError(t, err)
 
-		closer, ok := w.(interface{ Close() error })
-		must.True(t, ok)
-
-		must.NoError(t, closer.Close())
+		must.NoError(t, w.Close())
 		test.True(t, client.closed)
 	})
 }

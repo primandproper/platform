@@ -105,7 +105,13 @@ func (c *pubSubConsumer) Consume(ctx context.Context, errs chan<- error) {
 	}
 }
 
-type pubsubConsumerProvider struct {
+var _ messagequeue.ConsumerProvider = (*ConsumerProvider)(nil)
+
+// ConsumerProvider is the Google Cloud Pub/Sub messagequeue.ConsumerProvider implementation. It is
+// exported, and returned by NewPubSubConsumerProvider, so a caller who has chosen
+// Google Cloud Pub/Sub can depend on that choice rather than on the interface every
+// broker shares.
+type ConsumerProvider struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
@@ -115,10 +121,10 @@ type pubsubConsumerProvider struct {
 }
 
 // NewPubSubConsumerProvider returns a ConsumerProvider for a given address.
-func NewPubSubConsumerProvider(client *pubsub.Client, opts ...Option) messagequeue.ConsumerProvider {
+func NewPubSubConsumerProvider(client *pubsub.Client, opts ...Option) *ConsumerProvider {
 	o := newOptions(opts)
 
-	return &pubsubConsumerProvider{
+	return &ConsumerProvider{
 		logger:          logging.EnsureLogger(o.logger),
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
@@ -128,14 +134,14 @@ func NewPubSubConsumerProvider(client *pubsub.Client, opts ...Option) messageque
 }
 
 // Close closes the connection topic.
-func (p *pubsubConsumerProvider) Close() {
+func (p *ConsumerProvider) Close() {
 	if err := p.pubsubClient.Close(); err != nil {
 		p.logger.Error("closing pubsub connection", err)
 	}
 }
 
 // NewConsumer returns a pubSubConsumer for a given topic.
-func (p *pubsubConsumerProvider) NewConsumer(_ context.Context, topic string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
+func (p *ConsumerProvider) NewConsumer(_ context.Context, topic string, handlerFunc messagequeue.ConsumerFunc) (messagequeue.Consumer, error) {
 	if topic == "" {
 		return nil, messagequeue.ErrEmptyTopicName
 	}

@@ -85,13 +85,19 @@ type redisClient interface {
 }
 
 var (
-	_ ratelimiting.RateLimiter = (*rateLimiter)(nil)
-	_ ratelimiting.RetryHinter = (*rateLimiter)(nil)
+	_ ratelimiting.RateLimiter = (*RateLimiter)(nil)
+	_ ratelimiting.RetryHinter = (*RateLimiter)(nil)
 )
 
 const redisName = "redis_rate_limiter"
 
-type rateLimiter struct {
+var _ ratelimiting.RateLimiter = (*RateLimiter)(nil)
+
+// RateLimiter is the Redis ratelimiting.RateLimiter implementation. It is
+// exported, and returned by NewRedisRateLimiter, so a caller who has chosen
+// Redis can depend on that choice rather than on the interface every limiter
+// shares.
+type RateLimiter struct {
 	o11y            observability.Observer
 	client          redisClient
 	allowedCounter  metrics.Int64Counter
@@ -107,7 +113,7 @@ type rateLimiter struct {
 // rather than through a restatement of one of its rules: the address check here
 // used to be spelled out by hand, which is how it came to be the only rule of
 // the three that ran.
-func NewRedisRateLimiter(ctx context.Context, cfg Config, requestsPerSec float64, burstSize int, opts ...Option) (ratelimiting.RateLimiter, error) {
+func NewRedisRateLimiter(ctx context.Context, cfg Config, requestsPerSec float64, burstSize int, opts ...Option) (*RateLimiter, error) {
 	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, errors.Wrap(err, "validating redis rate limiter config")
 	}
@@ -140,7 +146,7 @@ func NewRedisRateLimiter(ctx context.Context, cfg Config, requestsPerSec float64
 		return nil, errors.Wrap(err, "creating error counter")
 	}
 
-	return &rateLimiter{
+	return &RateLimiter{
 		o11y:            observability.NewObserver(redisName, o.logger, o.tracerProvider),
 		client:          client,
 		requestsPerSec:  requestsPerSec,
@@ -152,7 +158,7 @@ func NewRedisRateLimiter(ctx context.Context, cfg Config, requestsPerSec float64
 }
 
 // Allow returns true if the key is within the rate limit.
-func (r *rateLimiter) Allow(ctx context.Context, key string) (bool, error) {
+func (r *RateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
 
@@ -198,7 +204,7 @@ func (r *rateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 // The estimate can be beaten. Nothing reserves the slot it describes, so a
 // caller that waits exactly this long may find another has taken it — which is
 // why RetryHinter documents the answer as a floor.
-func (r *rateLimiter) RetryAfter(ctx context.Context, key string) (time.Duration, bool) {
+func (r *RateLimiter) RetryAfter(ctx context.Context, key string) (time.Duration, bool) {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
 
@@ -234,7 +240,7 @@ func (r *rateLimiter) RetryAfter(ctx context.Context, key string) (time.Duration
 //
 // Allow and RetryAfter both read it, so the window the hint measures against is
 // always the window the decision was made in.
-func (r *rateLimiter) window() (limit, windowMS int64) {
+func (r *RateLimiter) window() (limit, windowMS int64) {
 	limit = max(int64(r.burstSize), 1)
 
 	perSec := r.requestsPerSec
@@ -251,6 +257,6 @@ func redisKey(key string) string {
 }
 
 // Close closes the underlying Redis client.
-func (r *rateLimiter) Close() error {
+func (r *RateLimiter) Close() error {
 	return r.client.Close()
 }

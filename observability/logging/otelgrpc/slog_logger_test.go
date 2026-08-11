@@ -251,11 +251,8 @@ func Test_zerologLogger_WithRequest(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger, err := NewOtelSlogLogger(ctx, logging.DebugLevel, t.Name(), &Config{})
+		l, err := NewOtelSlogLogger(ctx, logging.DebugLevel, t.Name(), &Config{})
 		must.NoError(t, err)
-
-		l, ok := logger.(*otelSlogLogger)
-		must.True(t, ok)
 
 		l.requestIDFunc = func(*http.Request) string {
 			return t.Name()
@@ -335,7 +332,7 @@ func Test_otelSlogLogger_requestIDFuncSurvivesDerivation(T *testing.T) {
 		t.Parallel()
 
 		var buf bytes.Buffer
-		root := &otelSlogLogger{logger: slog.New(slog.NewJSONHandler(&buf, nil))}
+		root := &Logger{logger: slog.New(slog.NewJSONHandler(&buf, nil))}
 		root.SetRequestIDFunc(func(*http.Request) string { return "req-123" })
 
 		u, err := url.ParseRequestURI("https://example.com/path?things=stuff")
@@ -356,11 +353,8 @@ func Test_otelSlogLogger_Shutdown(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		logger, err := NewOtelSlogLogger(ctx, logging.DebugLevel, t.Name(), &Config{})
+		l, err := NewOtelSlogLogger(ctx, logging.DebugLevel, t.Name(), &Config{})
 		must.NoError(t, err)
-
-		l, ok := logger.(*otelSlogLogger)
-		must.True(t, ok)
 		test.Nil(t, l.loggerProvider)
 		test.NoError(t, l.Shutdown(ctx))
 	})
@@ -374,11 +368,8 @@ func Test_otelSlogLogger_Shutdown(T *testing.T) {
 			Insecure:          true,
 		}
 
-		logger, err := NewOtelSlogLogger(ctx, logging.DebugLevel, t.Name(), cfg)
+		l, err := NewOtelSlogLogger(ctx, logging.DebugLevel, t.Name(), cfg)
 		must.NoError(t, err)
-
-		l, ok := logger.(*otelSlogLogger)
-		must.True(t, ok)
 		must.NotNil(t, l.loggerProvider)
 
 		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)

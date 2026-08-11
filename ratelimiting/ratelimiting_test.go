@@ -84,17 +84,14 @@ func TestInMemoryRateLimiter_Allow(T *testing.T) {
 		_, err = limiter.Allow(ctx, "key2")
 		must.NoError(t, err)
 
-		impl, ok := limiter.(*inMemoryRateLimiter)
-		must.True(t, ok)
-
 		countBefore := 0
-		impl.limiters.Range(func(_, _ any) bool { countBefore++; return true })
+		limiter.limiters.Range(func(_, _ any) bool { countBefore++; return true })
 		test.EqOp(t, 2, countBefore)
 
 		must.NoError(t, limiter.Close())
 
 		countAfter := 0
-		impl.limiters.Range(func(_, _ any) bool { countAfter++; return true })
+		limiter.limiters.Range(func(_, _ any) bool { countAfter++; return true })
 		test.EqOp(t, 0, countAfter)
 	})
 }

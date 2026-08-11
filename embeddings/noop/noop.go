@@ -13,7 +13,7 @@ var _ embeddings.Embedder = (*Embedder)(nil)
 type Embedder struct{}
 
 // NewEmbedder returns a no-op Embedder.
-func NewEmbedder() embeddings.Embedder {
+func NewEmbedder() *Embedder {
 	return &Embedder{}
 }
 

@@ -26,15 +26,12 @@ import (
 
 // newRecordingEmbedder builds an embedder with a RecordingObserver swapped in, so
 // a test can both drive GenerateEmbedding and assert which fields it observed.
-func newRecordingEmbedder(t *testing.T, cfg *Config) (*embedder, *observability.RecordingObserver) {
+func newRecordingEmbedder(t *testing.T, cfg *Config) (*Embedder, *observability.RecordingObserver) {
 	t.Helper()
 
-	emb, err := NewEmbedder(t.Context(), cfg, WithTracerProvider(tracingnoop.NewTracerProvider()))
+	e, err := NewEmbedder(t.Context(), cfg, WithTracerProvider(tracingnoop.NewTracerProvider()))
 	must.NoError(t, err)
-	must.NotNil(t, emb)
-
-	e, ok := emb.(*embedder)
-	must.True(t, ok)
+	must.NotNil(t, e)
 
 	obs := observability.NewRecordingObserver()
 	e.o11y = obs
@@ -63,31 +60,31 @@ func TestNewEmbedder(T *testing.T) {
 	T.Run("with nil config", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), nil, WithTracerProvider(tracingnoop.NewTracerProvider()))
+		e, err := NewEmbedder(t.Context(), nil, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.Error(t, err)
-		must.Nil(t, emb)
+		must.Nil(t, e)
 	})
 
 	T.Run("with missing API key", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{}, WithTracerProvider(tracingnoop.NewTracerProvider()))
+		e, err := NewEmbedder(t.Context(), &Config{}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.Error(t, err)
-		must.Nil(t, emb)
+		must.Nil(t, e)
 	})
 
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithTracerProvider(tracingnoop.NewTracerProvider()))
+		e, err := NewEmbedder(t.Context(), &Config{APIKey: "test-key"}, WithTracerProvider(tracingnoop.NewTracerProvider()))
 		must.NoError(t, err)
-		must.NotNil(t, emb)
+		must.NotNil(t, e)
 	})
 
 	T.Run("with timeout", func(t *testing.T) {
 		t.Parallel()
 
-		emb, err := NewEmbedder(
+		e, err := NewEmbedder(
 			t.Context(),
 			&Config{
 				APIKey:  "test-key",
@@ -96,7 +93,7 @@ func TestNewEmbedder(T *testing.T) {
 			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 		must.NoError(t, err)
-		must.NotNil(t, emb)
+		must.NotNil(t, e)
 	})
 }
 
@@ -131,13 +128,13 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, obs := newRecordingEmbedder(t, &Config{
+		e, obs := newRecordingEmbedder(t, &Config{
 			APIKey:  "test-key",
 			BaseURL: ts.URL,
 		})
 
 		ctx := t.Context()
-		result, err := emb.GenerateEmbedding(ctx, &embeddings.Input{
+		result, err := e.GenerateEmbedding(ctx, &embeddings.Input{
 			Content: "hello world",
 		})
 
@@ -167,7 +164,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(
+		e, err := NewEmbedder(
 			t.Context(),
 			&Config{
 				APIKey:       "test-key",
@@ -179,7 +176,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		must.NoError(t, err)
 
 		ctx := t.Context()
-		result, err := emb.GenerateEmbedding(ctx, &embeddings.Input{
+		result, err := e.GenerateEmbedding(ctx, &embeddings.Input{
 			Content: "hello",
 			Model:   "text-embedding-3-large",
 		})
@@ -197,13 +194,13 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, obs := newRecordingEmbedder(t, &Config{
+		e, obs := newRecordingEmbedder(t, &Config{
 			APIKey:  "test-key",
 			BaseURL: ts.URL,
 		})
 
 		ctx := t.Context()
-		result, err := emb.GenerateEmbedding(ctx, &embeddings.Input{
+		result, err := e.GenerateEmbedding(ctx, &embeddings.Input{
 			Content: "hello",
 		})
 
@@ -227,7 +224,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(
+		e, err := NewEmbedder(
 			t.Context(),
 			&Config{
 				APIKey:  "test-key",
@@ -238,7 +235,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		must.NoError(t, err)
 
 		ctx := t.Context()
-		result, err := emb.GenerateEmbedding(ctx, &embeddings.Input{
+		result, err := e.GenerateEmbedding(ctx, &embeddings.Input{
 			Content: "hello",
 		})
 
@@ -257,7 +254,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(
+		e, err := NewEmbedder(
 			t.Context(),
 			&Config{
 				APIKey:  "test-key",
@@ -268,7 +265,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		must.NoError(t, err)
 
 		ctx := t.Context()
-		result, err := emb.GenerateEmbedding(ctx, &embeddings.Input{
+		result, err := e.GenerateEmbedding(ctx, &embeddings.Input{
 			Content: "hello",
 		})
 
@@ -282,7 +279,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		ts.Close()
 
-		emb, err := NewEmbedder(
+		e, err := NewEmbedder(
 			t.Context(),
 			&Config{
 				APIKey:  "test-key",
@@ -293,7 +290,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		must.NoError(t, err)
 
 		ctx := t.Context()
-		result, err := emb.GenerateEmbedding(ctx, &embeddings.Input{
+		result, err := e.GenerateEmbedding(ctx, &embeddings.Input{
 			Content: "hello",
 		})
 
@@ -313,7 +310,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		}))
 		t.Cleanup(ts.Close)
 
-		emb, err := NewEmbedder(
+		e, err := NewEmbedder(
 			t.Context(),
 			&Config{
 				APIKey:       "test-key",
@@ -325,7 +322,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		must.NoError(t, err)
 
 		ctx := t.Context()
-		result, err := emb.GenerateEmbedding(ctx, &embeddings.Input{
+		result, err := e.GenerateEmbedding(ctx, &embeddings.Input{
 			Content: "hello",
 		})
 
@@ -337,7 +334,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 	T.Run("with default base URL", func(t *testing.T) {
 		t.Parallel()
 
-		e := &embedder{
+		e := &Embedder{
 			requestCounter: metricstest.Int64Counter(t, "requests"),
 			errorCounter:   metricstest.Int64Counter(t, "errors"),
 			latencyHist:    metricstest.Float64Histogram(t, "latency"),
@@ -364,7 +361,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 	T.Run("with request building error", func(t *testing.T) {
 		t.Parallel()
 
-		e := &embedder{
+		e := &Embedder{
 			requestCounter: metricstest.Int64Counter(t, "requests"),
 			errorCounter:   metricstest.Int64Counter(t, "errors"),
 			latencyHist:    metricstest.Float64Histogram(t, "latency"),
@@ -383,7 +380,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 		t.Parallel()
 
 		body := `{"data":[{"embedding":[0.1,0.2]}]}`
-		e := &embedder{
+		e := &Embedder{
 			requestCounter: metricstest.Int64Counter(t, "requests"),
 			errorCounter:   metricstest.Int64Counter(t, "errors"),
 			latencyHist:    metricstest.Float64Histogram(t, "latency"),
@@ -408,7 +405,7 @@ func TestEmbedder_GenerateEmbedding(T *testing.T) {
 	T.Run("with error reading error response body", func(t *testing.T) {
 		t.Parallel()
 
-		e := &embedder{
+		e := &Embedder{
 			requestCounter: metricstest.Int64Counter(t, "requests"),
 			errorCounter:   metricstest.Int64Counter(t, "errors"),
 			latencyHist:    metricstest.Float64Histogram(t, "latency"),
@@ -508,7 +505,7 @@ func TestEmbedder_GenerateEmbeddings_Batch(T *testing.T) {
 	T.Run("no inputs makes no request", func(t *testing.T) {
 		t.Parallel()
 
-		e := &embedder{
+		e := &Embedder{
 			requestCounter: metricstest.Int64Counter(t, "requests"),
 			errorCounter:   metricstest.Int64Counter(t, "errors"),
 			latencyHist:    metricstest.Float64Histogram(t, "latency"),
@@ -527,7 +524,7 @@ func TestEmbedder_GenerateEmbeddings_Batch(T *testing.T) {
 	T.Run("a batch spanning two models is refused", func(t *testing.T) {
 		t.Parallel()
 
-		e := &embedder{
+		e := &Embedder{
 			requestCounter: metricstest.Int64Counter(t, "requests"),
 			errorCounter:   metricstest.Int64Counter(t, "errors"),
 			latencyHist:    metricstest.Float64Histogram(t, "latency"),

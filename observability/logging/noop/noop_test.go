@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -74,7 +75,7 @@ func TestLogger_Clone(T *testing.T) {
 	T.Run("returns same logger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewLogger()
+		var l logging.Logger = NewLogger()
 		test.Eq(t, l, l.Clone())
 	})
 }
@@ -85,7 +86,7 @@ func TestLogger_WithName(T *testing.T) {
 	T.Run("returns same logger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewLogger()
+		var l logging.Logger = NewLogger()
 		test.Eq(t, l, l.WithName("name"))
 	})
 }
@@ -96,7 +97,7 @@ func TestLogger_WithValues(T *testing.T) {
 	T.Run("returns same logger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewLogger()
+		var l logging.Logger = NewLogger()
 		test.Eq(t, l, l.WithValues(map[string]any{"key": "value"}))
 	})
 }
@@ -107,7 +108,7 @@ func TestLogger_WithValue(T *testing.T) {
 	T.Run("returns same logger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewLogger()
+		var l logging.Logger = NewLogger()
 		test.Eq(t, l, l.WithValue("key", "value"))
 	})
 }
@@ -118,7 +119,7 @@ func TestLogger_WithRequest(T *testing.T) {
 	T.Run("returns same logger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewLogger()
+		var l logging.Logger = NewLogger()
 		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 		test.Eq(t, l, l.WithRequest(r))
 	})
@@ -130,7 +131,7 @@ func TestLogger_WithResponse(T *testing.T) {
 	T.Run("returns same logger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewLogger()
+		var l logging.Logger = NewLogger()
 		test.Eq(t, l, l.WithResponse(&http.Response{}))
 	})
 }
@@ -141,7 +142,7 @@ func TestLogger_WithError(T *testing.T) {
 	T.Run("returns same logger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewLogger()
+		var l logging.Logger = NewLogger()
 		test.Eq(t, l, l.WithError(errors.New("err")))
 	})
 }
@@ -152,7 +153,7 @@ func TestLogger_WithSpan(T *testing.T) {
 	T.Run("returns same logger", func(t *testing.T) {
 		t.Parallel()
 
-		l := NewLogger()
+		var l logging.Logger = NewLogger()
 		test.Eq(t, l, l.WithSpan(nil))
 	})
 }

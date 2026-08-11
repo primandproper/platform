@@ -92,21 +92,21 @@ type HMACScheme struct {
 	Encoding Encoding
 }
 
-// hmacVerifier verifies a single-header HMAC over the raw body.
-type hmacVerifier struct {
+// HMACVerifier verifies a single-header HMAC over the raw body.
+type HMACVerifier struct {
 	decode  func(string) ([]byte, error)
 	scheme  HMACScheme
 	hashers []hashing.Hasher
 }
 
-var _ Verifier = (*hmacVerifier)(nil)
+var _ Verifier = (*HMACVerifier)(nil)
 
 // NewGitHubVerifier builds a Verifier for GitHub's X-Hub-Signature-256, which
 // is an HMAC-SHA-256 over the raw body, hex-encoded, prefixed "sha256=".
 //
 // The secret is the webhook secret configured on the repository, organization,
 // or app. Reads WithAdditionalSecrets.
-func NewGitHubVerifier(secret string, opts ...VerifierOption) (Verifier, error) {
+func NewGitHubVerifier(secret string, opts ...VerifierOption) (*HMACVerifier, error) {
 	return NewHMACVerifier(&HMACScheme{
 		Provider: providerGitHub,
 		Header:   GitHubSignatureHeader,
@@ -122,7 +122,7 @@ func NewGitHubVerifier(secret string, opts ...VerifierOption) (Verifier, error) 
 // Reads WithAdditionalSecrets. The timestamp options do nothing here: a scheme
 // with no signed timestamp has no freshness to check, and pretending otherwise
 // by reading some unsigned header would check a value an attacker can edit.
-func NewHMACVerifier(scheme *HMACScheme, secret string, opts ...VerifierOption) (Verifier, error) {
+func NewHMACVerifier(scheme *HMACScheme, secret string, opts ...VerifierOption) (*HMACVerifier, error) {
 	if scheme == nil {
 		return nil, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil HMAC scheme")
 	}
@@ -169,14 +169,14 @@ func NewHMACVerifier(scheme *HMACScheme, secret string, opts ...VerifierOption) 
 		hashers = append(hashers, newHasher([]byte(key)))
 	}
 
-	return &hmacVerifier{decode: decode, scheme: s, hashers: hashers}, nil
+	return &HMACVerifier{decode: decode, scheme: s, hashers: hashers}, nil
 }
 
 // Provider returns the scheme's provider label.
-func (v *hmacVerifier) Provider() string { return v.scheme.Provider }
+func (v *HMACVerifier) Provider() string { return v.scheme.Provider }
 
 // Verify checks the scheme's header against body.
-func (v *hmacVerifier) Verify(_ context.Context, headers http.Header, body []byte) error {
+func (v *HMACVerifier) Verify(_ context.Context, headers http.Header, body []byte) error {
 	// A nil header bag reads as an absent header rather than a special case, which is what
 	// http.Header.Get already does.
 	presented := headers.Get(v.scheme.Header)
@@ -209,7 +209,7 @@ func (v *hmacVerifier) Verify(_ context.Context, headers http.Header, body []byt
 }
 
 // hasherFactory returns the keyed-hasher constructor for a digest.
-func hasherFactory(d Digest) (func(key []byte) hashing.Hasher, error) {
+func hasherFactory(d Digest) (func(key []byte) *hmac.Hasher, error) {
 	switch d {
 	case DigestSHA256:
 		return hmac.NewHMACSHA256Hasher, nil

@@ -139,6 +139,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 }
 
 // NewCollector provides a collector.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *segment.EventReporter into a
+// non-nil analytics.EventReporter on the error path, and a caller testing the result against
+// nil would find a reporter that panics on first use.
 func (cfg *SourceConfig) NewCollector(
 	ctx context.Context,
 	opts ...Option,
@@ -174,7 +180,12 @@ func (cfg *SourceConfig) NewCollector(
 		if cfg.Segment == nil {
 			return nil, errors.New("segment provider configured but segment config is nil")
 		}
-		return segment.NewEventReporter(cfg.Segment.APIToken, cb, segment.WithLogger(logger), segment.WithTracerProvider(tracerProvider), segment.WithMetricsProvider(metricsProvider))
+		r, reporterErr := segment.NewEventReporter(cfg.Segment.APIToken, cb, segment.WithLogger(logger), segment.WithTracerProvider(tracerProvider), segment.WithMetricsProvider(metricsProvider))
+		if reporterErr != nil {
+			return nil, reporterErr
+		}
+
+		return r, nil
 	case ProviderPostHog:
 		if cfg.Posthog == nil {
 			return nil, errors.New("posthog provider configured but posthog config is nil")
@@ -184,7 +195,12 @@ func (cfg *SourceConfig) NewCollector(
 			endpoint := cfg.Posthog.Endpoint
 			modifiers = append(modifiers, func(c *posthogsdk.Config) { c.Endpoint = endpoint })
 		}
-		return posthog.NewEventReporter(cfg.Posthog.APIKey, cb, posthog.WithLogger(logger), posthog.WithTracerProvider(tracerProvider), posthog.WithMetricsProvider(metricsProvider), posthog.WithConfigModifiers(modifiers...))
+		r, reporterErr := posthog.NewEventReporter(cfg.Posthog.APIKey, cb, posthog.WithLogger(logger), posthog.WithTracerProvider(tracerProvider), posthog.WithMetricsProvider(metricsProvider), posthog.WithConfigModifiers(modifiers...))
+		if reporterErr != nil {
+			return nil, reporterErr
+		}
+
+		return r, nil
 	case ProviderNoop:
 		return noop.NewEventReporter(), nil
 	default:

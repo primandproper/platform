@@ -24,8 +24,13 @@ var (
 	ErrEmptyAPIToken = platformerrors.New("empty Segment API token")
 )
 
+var _ analytics.EventReporter = (*EventReporter)(nil)
+
 type (
-	// EventReporter is a Segment-backed EventReporter.
+	// EventReporter is the Segment analytics.EventReporter implementation. It is
+	// exported, and returned by NewEventReporter, so a caller who has chosen
+	// Segment can depend on that choice rather than on the interface every
+	// reporter shares.
 	EventReporter struct {
 		o11y           observability.Observer
 		client         segment.Client
@@ -60,7 +65,7 @@ func (cb *breakerCallback) Failure(_ segment.Message, err error) {
 }
 
 // NewEventReporter returns a new Segment-backed EventReporter.
-func NewEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (analytics.EventReporter, error) {
+func NewEventReporter(apiKey string, circuitBreaker circuitbreaking.CircuitBreaker, opts ...Option) (*EventReporter, error) {
 	if apiKey == "" {
 		return nil, ErrEmptyAPIToken
 	}

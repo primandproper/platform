@@ -9,11 +9,14 @@ import (
 	"github.com/primandproper/platform-go/v10/cryptography/hashing"
 )
 
-var _ hashing.Hasher = (*hmacHasher)(nil)
+var _ hashing.Hasher = (*Hasher)(nil)
 
-// hmacHasher is a hashing.Hasher that authenticates rather than merely digests:
-// its output depends on a key fixed at construction as well as on the content.
-type hmacHasher struct {
+// Hasher is the HMAC hashing.Hasher implementation: it authenticates rather
+// than merely digests, its output depending on a key fixed at construction as
+// well as on the content. It is exported, and returned by both constructors, so
+// a caller who has chosen a keyed MAC can depend on that choice rather than on
+// the interface every digest algorithm shares.
+type Hasher struct {
 	newHash func() hash.Hash
 	key     []byte
 }
@@ -25,18 +28,18 @@ type hmacHasher struct {
 // here would put an error return on a constructor that has nothing else to fail
 // on. It is not a meaningful MAC — callers deriving keys from configuration
 // should check for emptiness themselves.
-func NewHMACSHA256Hasher(key []byte) hashing.Hasher {
+func NewHMACSHA256Hasher(key []byte) *Hasher {
 	return newHasher(key, sha256.New)
 }
 
 // NewHMACSHA512Hasher returns a hashing.Hasher computing HMAC-SHA-512 under key,
 // on the same terms as NewHMACSHA256Hasher.
-func NewHMACSHA512Hasher(key []byte) hashing.Hasher {
+func NewHMACSHA512Hasher(key []byte) *Hasher {
 	return newHasher(key, sha512.New)
 }
 
-func newHasher(key []byte, newHash func() hash.Hash) *hmacHasher {
-	return &hmacHasher{
+func newHasher(key []byte, newHash func() hash.Hash) *Hasher {
+	return &Hasher{
 		newHash: newHash,
 		key:     append([]byte(nil), key...),
 	}
@@ -48,7 +51,7 @@ func newHasher(key []byte, newHash func() hash.Hash) *hmacHasher {
 // is what makes the hasher safe to share across goroutines — a delivery worker
 // signs concurrently from one endpoint's hasher, and shared internal state
 // would interleave two payloads into one signature.
-func (h *hmacHasher) Hash(content []byte) []byte {
+func (h *Hasher) Hash(content []byte) []byte {
 	mac := hmac.New(h.newHash, h.key)
 
 	// hash.Hash documents Write as never returning an error, which is what lets

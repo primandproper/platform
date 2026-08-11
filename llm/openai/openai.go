@@ -26,10 +26,10 @@ const (
 	fallbackModel = "gpt-4o-mini"
 )
 
-var _ llm.Provider = (*openaiProvider)(nil)
+var _ llm.Provider = (*Provider)(nil)
 
 // NewProvider creates a new OpenAI-backed LLM provider.
-func NewProvider(cfg *Config, opts ...Option) (llm.Provider, error) {
+func NewProvider(cfg *Config, opts ...Option) (*Provider, error) {
 	if cfg == nil {
 		return nil, errors.New("openai config is required")
 	}
@@ -67,7 +67,7 @@ func NewProvider(cfg *Config, opts ...Option) (llm.Provider, error) {
 		return nil, errors.Wrap(err, "creating latency histogram")
 	}
 
-	return &openaiProvider{
+	return &Provider{
 		o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
 		requestCounter: requestCounter,
 		errorCounter:   errorCounter,
@@ -77,7 +77,10 @@ func NewProvider(cfg *Config, opts ...Option) (llm.Provider, error) {
 	}, nil
 }
 
-type openaiProvider struct {
+// Provider is the OpenAI llm.Provider implementation. It is exported, and
+// returned by NewProvider, so a caller who has chosen OpenAI can depend on that
+// choice rather than on the interface every model provider shares.
+type Provider struct {
 	o11y           observability.Observer
 	requestCounter metrics.Int64Counter
 	errorCounter   metrics.Int64Counter
@@ -90,12 +93,12 @@ type openaiProvider struct {
 }
 
 // Name implements llm.Provider.
-func (*openaiProvider) Name() string {
+func (*Provider) Name() string {
 	return providerName
 }
 
 // Capabilities implements llm.Provider.
-func (*openaiProvider) Capabilities() llm.Capabilities {
+func (*Provider) Capabilities() llm.Capabilities {
 	return llm.Capabilities{
 		Streaming:        true,
 		Tools:            true,
@@ -111,7 +114,7 @@ func (*openaiProvider) Capabilities() llm.Capabilities {
 // llm.ErrRateLimited — usually a *llm.RateLimitError carrying the provider's
 // advice about how long to wait — and choosing a backoff against that advice is
 // the caller's job, since only the caller knows its own deadline.
-func (p *openaiProvider) Completion(ctx context.Context, req *llm.CompletionRequest) (*llm.CompletionResponse, error) {
+func (p *Provider) Completion(ctx context.Context, req *llm.CompletionRequest) (*llm.CompletionResponse, error) {
 	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
@@ -152,7 +155,7 @@ func (p *openaiProvider) Completion(ctx context.Context, req *llm.CompletionRequ
 // finish hook instead of a defer here. A consumer that abandons the stream
 // without closing it leaves both open; llm.Stream documents Close as mandatory
 // for exactly this reason.
-func (p *openaiProvider) Stream(ctx context.Context, req *llm.CompletionRequest) (llm.Stream, error) {
+func (p *Provider) Stream(ctx context.Context, req *llm.CompletionRequest) (llm.Stream, error) {
 	ctx, op := p.o11y.Begin(ctx)
 
 	params, err := p.params(req, op)
@@ -190,7 +193,7 @@ func (p *openaiProvider) Stream(ctx context.Context, req *llm.CompletionRequest)
 
 // params resolves the model and translates the request, recording what was
 // asked for on the operation either way.
-func (p *openaiProvider) params(req *llm.CompletionRequest, op observability.Operation) (anyllm.CompletionParams, error) {
+func (p *Provider) params(req *llm.CompletionRequest, op observability.Operation) (anyllm.CompletionParams, error) {
 	model := ""
 	messageCount := 0
 	if req != nil {

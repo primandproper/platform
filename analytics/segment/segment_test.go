@@ -56,12 +56,9 @@ func TestBreakerCallback(T *testing.T) {
 func newRecordingEventReporter(t *testing.T) (*EventReporter, *observability.RecordingObserver) {
 	t.Helper()
 
-	reporter, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
+	c, err := NewEventReporter(t.Name(), cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
-	must.NotNil(t, reporter)
-
-	c, ok := reporter.(*EventReporter)
-	must.True(t, ok)
+	must.NotNil(t, c)
 
 	obs := observability.NewRecordingObserver()
 	c.o11y = obs

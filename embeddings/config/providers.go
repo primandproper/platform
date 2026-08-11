@@ -19,6 +19,12 @@ import (
 // The empty provider is the one exception: embeddings are an optional
 // capability, so leaving them unconfigured is a supported deployment and yields
 // the noop embedder, which ProviderNoop also names explicitly.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *openai.Embedder into a
+// non-nil embeddings.Embedder on the error path, and a caller testing the result against
+// nil would find an embedder that panics on first use.
 func NewEmbedder(
 	ctx context.Context,
 	c *Config,
@@ -42,23 +48,38 @@ func NewEmbedder(
 
 	switch provider {
 	case ProviderOpenAI:
-		return openai.NewEmbedder(ctx, c.OpenAI,
+		e, embedErr := openai.NewEmbedder(ctx, c.OpenAI,
 			openai.WithLogger(logger),
 			openai.WithTracerProvider(tracerProvider),
 			openai.WithMetricsProvider(metricsProvider),
 		)
+		if embedErr != nil {
+			return nil, embedErr
+		}
+
+		return e, nil
 	case ProviderOllama:
-		return ollama.NewEmbedder(ctx, c.Ollama,
+		e, embedErr := ollama.NewEmbedder(ctx, c.Ollama,
 			ollama.WithLogger(logger),
 			ollama.WithTracerProvider(tracerProvider),
 			ollama.WithMetricsProvider(metricsProvider),
 		)
+		if embedErr != nil {
+			return nil, embedErr
+		}
+
+		return e, nil
 	case ProviderCohere:
-		return cohere.NewEmbedder(ctx, c.Cohere,
+		e, embedErr := cohere.NewEmbedder(ctx, c.Cohere,
 			cohere.WithLogger(logger),
 			cohere.WithTracerProvider(tracerProvider),
 			cohere.WithMetricsProvider(metricsProvider),
 		)
+		if embedErr != nil {
+			return nil, embedErr
+		}
+
+		return e, nil
 	case ProviderNoop, "":
 		return embeddingsnoop.NewEmbedder(), nil
 	default:

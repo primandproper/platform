@@ -34,7 +34,9 @@ func TestPillars_Deps(T *testing.T) {
 	T.Run("returns what it holds", func(t *testing.T) {
 		t.Parallel()
 
-		l, tp, mp := loggingnoop.NewLogger(), tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider()
+		var l logging.Logger = loggingnoop.NewLogger()
+
+		tp, mp := tracingnoop.NewTracerProvider(), metricsnoop.NewMetricsProvider()
 
 		logger, tracerProvider, metricsProvider := (&Pillars{
 			Logger:          l,

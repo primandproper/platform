@@ -10,12 +10,12 @@ import (
 )
 
 // Option configures Keys.
-type Option func(*keys)
+type Option func(*KeyManager)
 
 // WithClock swaps the clock stamping mint and destruction times, and deciding
 // when a cached key has expired.
 func WithClock(c clock.Clock) Option {
-	return func(k *keys) {
+	return func(k *KeyManager) {
 		if c != nil {
 			k.clock = c
 		}
@@ -29,21 +29,21 @@ func WithClock(c clock.Clock) Option {
 // the difference between "erasure completes in milliseconds" and "erasure
 // completes in five minutes" is visible only in a counter.
 func WithLogger(logger logging.Logger) Option {
-	return func(k *keys) {
+	return func(k *KeyManager) {
 		k.logger = logger
 	}
 }
 
 // WithTracerProvider attaches a tracer provider.
 func WithTracerProvider(tracerProvider tracing.Provider) Option {
-	return func(k *keys) {
+	return func(k *KeyManager) {
 		k.tracerProvider = tracerProvider
 	}
 }
 
 // WithMetricsProvider attaches a metrics provider.
 func WithMetricsProvider(metricsProvider metrics.Provider) Option {
-	return func(k *keys) {
+	return func(k *KeyManager) {
 		k.metricsProvider = metricsProvider
 	}
 }
@@ -59,7 +59,7 @@ func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 // Zero turns the cache off. Every operation then costs an unwrap, and erasure
 // completes on the call.
 func WithKeyTTL(ttl time.Duration) Option {
-	return func(k *keys) {
+	return func(k *KeyManager) {
 		if ttl >= 0 {
 			k.ttl = ttl
 		}
@@ -70,7 +70,7 @@ func WithKeyTTL(ttl time.Duration) Option {
 // once. At the cap an arbitrary key is dropped to make room; a dropped key costs
 // one unwrap to get back.
 func WithMaxCachedKeys(maxKeys int) Option {
-	return func(k *keys) {
+	return func(k *KeyManager) {
 		if maxKeys >= 0 {
 			k.maxCached = maxKeys
 		}
@@ -85,7 +85,7 @@ func WithMaxCachedKeys(maxKeys int) Option {
 // redis provider is at-most-once by construction, so the TTL stays the number a
 // deployment can promise.
 func WithBroadcaster(broadcaster Broadcaster) Option {
-	return func(k *keys) {
+	return func(k *KeyManager) {
 		if broadcaster != nil {
 			k.broadcaster = broadcaster
 		}
@@ -122,13 +122,13 @@ func WithInvalidationMetricsProvider(metricsProvider metrics.Provider) Invalidat
 }
 
 // SQLStoreOption configures a SQL Store.
-type SQLStoreOption func(*sqlStore)
+type SQLStoreOption func(*SQLStore)
 
 // WithTablePrefix overrides DefaultTablePrefix. It must be a plain SQL
 // identifier fragment: it is interpolated into the query text, not bound as a
 // parameter, and it must match the prefix the migrations were rendered with.
 func WithTablePrefix(prefix string) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		if prefix != "" {
 			s.tables = newTables(prefix)
 		}
@@ -137,21 +137,21 @@ func WithTablePrefix(prefix string) SQLStoreOption {
 
 // WithStoreLogger attaches a logger.
 func WithStoreLogger(logger logging.Logger) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.logger = logger
 	}
 }
 
 // WithStoreTracerProvider attaches a tracer provider.
 func WithStoreTracerProvider(tracerProvider tracing.Provider) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.tracerProvider = tracerProvider
 	}
 }
 
 // WithStoreMetricsProvider attaches a metrics provider.
 func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.metricsProvider = metricsProvider
 	}
 }

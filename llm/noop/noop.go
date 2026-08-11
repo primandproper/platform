@@ -22,7 +22,7 @@ const name = "noop"
 type Provider struct{}
 
 // NewProvider returns a no-op Provider.
-func NewProvider() llm.Provider {
+func NewProvider() *Provider {
 	return &Provider{}
 }
 

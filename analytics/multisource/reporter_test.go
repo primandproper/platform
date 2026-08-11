@@ -110,7 +110,7 @@ func TestMultiSourceEventReporter_getReporter(T *testing.T) {
 	T.Run("returns reporter for known source", func(t *testing.T) {
 		t.Parallel()
 
-		expected := noop.NewEventReporter()
+		var expected analytics.EventReporter = noop.NewEventReporter()
 		reporters := map[string]analytics.EventReporter{
 			"ios": expected,
 		}

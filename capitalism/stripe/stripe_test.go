@@ -58,7 +58,7 @@ func TestNewPaymentManager(T *testing.T) {
 
 // withWebhookSecret points pm's verifier at secret, standing in for the construction the
 // config path does.
-func withWebhookSecret(t *testing.T, pm *stripePaymentManager, secret string) {
+func withWebhookSecret(t *testing.T, pm *PaymentManager, secret string) {
 	t.Helper()
 
 	verifier, err := inbound.NewStripeVerifier(secret)
@@ -75,7 +75,7 @@ func withWebhookSecret(t *testing.T, pm *stripePaymentManager, secret string) {
 //
 // It must be called before any test swaps pm's encoder for a mock — the bytes that get signed
 // are the ones the real encoder produces.
-func signedWebhookRequest(t *testing.T, pm *stripePaymentManager, secret string, event *stripe.Event) *http.Request {
+func signedWebhookRequest(t *testing.T, pm *PaymentManager, secret string, event *stripe.Event) *http.Request {
 	t.Helper()
 
 	ctx := t.Context()
@@ -95,18 +95,15 @@ func signedWebhookRequest(t *testing.T, pm *stripePaymentManager, secret string,
 
 // newWebhookManager builds a manager whose verifier trusts a freshly generated secret, and
 // returns both.
-func newWebhookManager(t *testing.T) (pm *stripePaymentManager, secret string) {
+func newWebhookManager(t *testing.T) (pm *PaymentManager, secret string) {
 	t.Helper()
 
 	secret, err := random.GenerateHexEncodedString(t.Context(), 32)
 	must.NoError(t, err)
 	must.NotEq(t, "", secret)
 
-	pmIface, err := NewPaymentManager(&Config{}, nil)
+	manager, err := NewPaymentManager(&Config{}, nil)
 	must.NoError(t, err)
-
-	manager, ok := pmIface.(*stripePaymentManager)
-	must.True(t, ok)
 
 	withWebhookSecret(t, manager, secret)
 
@@ -159,9 +156,8 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pmIface, err := NewPaymentManager(&Config{}, nil)
+		pm, err := NewPaymentManager(&Config{}, nil)
 		must.NoError(t, err)
-		pm := pmIface.(*stripePaymentManager)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader([]byte(`{}`)))
 		must.NoError(t, err)

@@ -18,10 +18,13 @@ import (
 	"github.com/primandproper/platform-go/v10/cryptography/hashing"
 )
 
-var _ hashing.Hasher = (*adler32Hasher)(nil)
+var _ hashing.Hasher = (*Hasher)(nil)
 
+// Hasher is the Adler-32 hashing.Hasher implementation. It is exported, and
+// returned by NewAdler32Hasher, so a caller who has chosen Adler-32 can depend
+// on that choice rather than on the interface every digest algorithm shares.
 type (
-	adler32Hasher struct{}
+	Hasher struct{}
 )
 
 // NewAdler32Hasher returns a hashing.Hasher backed by the Adler-32 checksum,
@@ -31,10 +34,10 @@ type (
 //
 // WARNING: this is a NON-CRYPTOGRAPHIC checksum and MUST NOT be used for
 // security, password, or tamper-resistance purposes. See the package doc.
-func NewAdler32Hasher() hashing.Hasher {
-	return &adler32Hasher{}
+func NewAdler32Hasher() *Hasher {
+	return &Hasher{}
 }
 
-func (s *adler32Hasher) Hash(content []byte) []byte {
+func (s *Hasher) Hash(content []byte) []byte {
 	return binary.BigEndian.AppendUint32(nil, adler32.Checksum(content))
 }

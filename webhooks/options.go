@@ -10,7 +10,7 @@ import (
 )
 
 // DispatcherOption configures a Dispatcher.
-type DispatcherOption func(*dispatcher)
+type DispatcherOption func(*StoreDispatcher)
 
 // WithCatalog supplies the set of event types the application publishes.
 //
@@ -19,7 +19,7 @@ type DispatcherOption func(*dispatcher)
 // subscriptions to typo'd event types that then never fire, and diagnosing that
 // means noticing an absence.
 func WithCatalog(catalog Catalog) DispatcherOption {
-	return func(d *dispatcher) {
+	return func(d *StoreDispatcher) {
 		if catalog != nil {
 			d.catalog = catalog
 		}
@@ -32,7 +32,7 @@ func WithCatalog(catalog Catalog) DispatcherOption {
 // registration and refused at delivery sits in the backlog until it dies, so
 // the two halves must agree. See URLChecker for what replacing it costs.
 func WithDispatcherURLChecker(checker URLChecker) DispatcherOption {
-	return func(d *dispatcher) {
+	return func(d *StoreDispatcher) {
 		if checker != nil {
 			d.checkURL = checker
 		}
@@ -41,7 +41,7 @@ func WithDispatcherURLChecker(checker URLChecker) DispatcherOption {
 
 // WithDispatcherClock swaps the clock stamping deliveries.
 func WithDispatcherClock(c clock.Clock) DispatcherOption {
-	return func(d *dispatcher) {
+	return func(d *StoreDispatcher) {
 		if c != nil {
 			d.clock = c
 		}
@@ -50,7 +50,7 @@ func WithDispatcherClock(c clock.Clock) DispatcherOption {
 
 // WithDispatcherLogger attaches a logger.
 func WithDispatcherLogger(logger logging.Logger) DispatcherOption {
-	return func(d *dispatcher) {
+	return func(d *StoreDispatcher) {
 		d.logger = logger
 	}
 }
@@ -58,7 +58,7 @@ func WithDispatcherLogger(logger logging.Logger) DispatcherOption {
 // WithDispatcherTracerProvider attaches a tracer provider, so a Dispatch shows
 // up as a child of the span that owns the transaction.
 func WithDispatcherTracerProvider(tracerProvider tracing.Provider) DispatcherOption {
-	return func(d *dispatcher) {
+	return func(d *StoreDispatcher) {
 		d.tracerProvider = tracerProvider
 	}
 }
@@ -67,19 +67,19 @@ func WithDispatcherTracerProvider(tracerProvider tracing.Provider) DispatcherOpt
 // Worker's: dispatch rate against delivery rate is what says whether the worker
 // is keeping up, and neither number answers that alone.
 func WithDispatcherMetricsProvider(metricsProvider metrics.Provider) DispatcherOption {
-	return func(d *dispatcher) {
+	return func(d *StoreDispatcher) {
 		d.metricsProvider = metricsProvider
 	}
 }
 
 // SQLStoreOption configures a SQL Store.
-type SQLStoreOption func(*sqlStore)
+type SQLStoreOption func(*SQLStore)
 
 // WithTablePrefix overrides DefaultTablePrefix. It must be a plain SQL
 // identifier fragment: it is interpolated into the query text, not bound as a
 // parameter, and it must match the prefix the migrations were rendered with.
 func WithTablePrefix(prefix string) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		if prefix != "" {
 			s.tables = newTables(prefix)
 		}

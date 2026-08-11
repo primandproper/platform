@@ -18,8 +18,10 @@ const name = "aes_cipher"
 // accident, and nothing here is short of entropy.
 const KeyLength = 32
 
-// aesImpl is an AES-256-GCM Cipher.
-type aesImpl struct {
+// Cipher is the AES-256-GCM encryption.Cipher implementation. It is exported,
+// and returned by NewCipher, so a caller who has chosen AES-256-GCM can depend
+// on that choice rather than on the interface every cipher shares.
+type Cipher struct {
 	o11y observability.Observer
 	aead cipher.AEAD
 	// random is the nonce source, always crypto/rand.Reader outside this
@@ -29,14 +31,14 @@ type aesImpl struct {
 	random io.Reader
 }
 
-var _ encryption.Cipher = (*aesImpl)(nil)
+var _ encryption.Cipher = (*Cipher)(nil)
 
 // NewCipher builds an AES-256-GCM Cipher over key.
 //
 // The AEAD is constructed once here rather than per operation. Key schedule
 // setup is not free, and doing it on every Encrypt was a per-row cost paid for
 // nothing.
-func NewCipher(key []byte, opts ...Option) (encryption.Cipher, error) {
+func NewCipher(key []byte, opts ...Option) (*Cipher, error) {
 	if len(key) != KeyLength {
 		return nil, errors.Wrapf(encryption.ErrIncorrectKeyLength, "aes cipher: want %d bytes, got %d", KeyLength, len(key))
 	}
@@ -58,7 +60,7 @@ func NewCipher(key []byte, opts ...Option) (encryption.Cipher, error) {
 		return nil, errors.Wrap(err, "aes cipher: creating gcm")
 	}
 
-	return &aesImpl{
+	return &Cipher{
 		o11y:   observability.NewObserver(name, o.logger, o.tracerProvider),
 		aead:   aead,
 		random: rand.Reader,

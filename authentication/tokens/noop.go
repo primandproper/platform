@@ -5,20 +5,26 @@ import (
 	"time"
 )
 
-type noopTokenIssuer struct{}
+var _ Issuer = (*NoopIssuer)(nil)
+
+// NoopIssuer is the Issuer that mints and parses nothing. It is exported, and
+// returned by NewNoopTokenIssuer, so a caller can depend on the issuer it built
+// rather than on the Issuer seam.
+type NoopIssuer struct{}
 
 // IssueToken implements the interface.
-func (n *noopTokenIssuer) IssueToken(context.Context, string, time.Duration, map[string]any) (tokenStr, jti string, err error) {
+func (n *NoopIssuer) IssueToken(context.Context, string, time.Duration, map[string]any) (tokenStr, jti string, err error) {
 	return "", "", nil
 }
 
 // ParseToken implements the interface.
-func (n *noopTokenIssuer) ParseToken(context.Context, string) (Claims, error) {
+func (n *NoopIssuer) ParseToken(context.Context, string) (Claims, error) {
 	return noopClaims{}, nil
 }
 
-func NewNoopTokenIssuer() Issuer {
-	return &noopTokenIssuer{}
+// NewNoopTokenIssuer returns an Issuer that mints and parses nothing.
+func NewNoopTokenIssuer() *NoopIssuer {
+	return &NoopIssuer{}
 }
 
 // noopClaims is an empty Claims implementation.

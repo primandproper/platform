@@ -20,16 +20,13 @@ import (
 )
 
 // newRecordingReporter builds an EventReporter with a RecordingObserver swapped
-// in, so a test can both drive the reporter and assert which fields it observed.
+// in, so a test can both drive the c and assert which fields it observed.
 func newRecordingReporter(t *testing.T, apiKey string) (*EventReporter, *observability.RecordingObserver) {
 	t.Helper()
 
-	reporter, err := NewEventReporter(apiKey, cbnoop.NewCircuitBreaker())
+	c, err := NewEventReporter(apiKey, cbnoop.NewCircuitBreaker())
 	must.NoError(t, err)
-	must.NotNil(t, reporter)
-
-	c, ok := reporter.(*EventReporter)
-	must.True(t, ok)
+	must.NotNil(t, c)
 
 	obs := observability.NewRecordingObserver()
 	c.o11y = obs

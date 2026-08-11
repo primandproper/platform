@@ -305,8 +305,7 @@ func TestManager_CreateUser(T *testing.T) {
 		t.Parallel()
 
 		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
-			mgr, ok := NewManager(adminDB).(*manager)
-			must.True(t, ok)
+			mgr := NewManager(adminDB)
 
 			cause := &mysqldriver.MySQLError{
 				Number:  cannotUser,

@@ -27,10 +27,12 @@ var (
 	ErrNilInvalidator = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil shredding invalidator")
 )
 
-var _ Broadcaster = (*queueBroadcaster)(nil)
+var _ Broadcaster = (*QueueBroadcaster)(nil)
 
-// queueBroadcaster announces shreds over a message queue.
-type queueBroadcaster struct {
+// QueueBroadcaster announces shreds over a message queue. It is exported, and
+// returned by NewQueueBroadcaster, so a caller can depend on the broadcaster it
+// built rather than on the Broadcaster seam.
+type QueueBroadcaster struct {
 	publisher messagequeue.Publisher
 }
 
@@ -47,16 +49,16 @@ type queueBroadcaster struct {
 // TTL, which is the bound this is an improvement on rather than a replacement
 // for. The at-least-once providers may deliver twice, which is harmless:
 // dropping a key that is already gone is what Invalidate does anyway.
-func NewQueueBroadcaster(publisher messagequeue.Publisher) (Broadcaster, error) {
+func NewQueueBroadcaster(publisher messagequeue.Publisher) (*QueueBroadcaster, error) {
 	if publisher == nil {
 		return nil, ErrNilPublisher
 	}
 
-	return &queueBroadcaster{publisher: publisher}, nil
+	return &QueueBroadcaster{publisher: publisher}, nil
 }
 
 // Broadcast implements Broadcaster.
-func (b *queueBroadcaster) Broadcast(ctx context.Context, subject Subject) error {
+func (b *QueueBroadcaster) Broadcast(ctx context.Context, subject Subject) error {
 	if err := subject.validate(); err != nil {
 		return err
 	}

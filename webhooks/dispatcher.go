@@ -28,10 +28,12 @@ type Dispatcher interface {
 	Register(ctx context.Context, endpoint *Endpoint) error
 }
 
-var _ Dispatcher = (*dispatcher)(nil)
+var _ Dispatcher = (*StoreDispatcher)(nil)
 
-// dispatcher is the production Dispatcher.
-type dispatcher struct {
+// StoreDispatcher is the Dispatcher backed by a Store. It is exported, and
+// returned by NewDispatcher, so a caller can depend on the dispatcher it built
+// rather than on the Dispatcher seam.
+type StoreDispatcher struct {
 	store    Store
 	clock    clock.Clock
 	o11y     observability.Observer
@@ -51,12 +53,12 @@ type dispatcher struct {
 }
 
 // NewDispatcher builds a Dispatcher over the given Store.
-func NewDispatcher(store Store, opts ...DispatcherOption) (Dispatcher, error) {
+func NewDispatcher(store Store, opts ...DispatcherOption) (*StoreDispatcher, error) {
 	if store == nil {
 		return nil, ErrNilStore
 	}
 
-	d := &dispatcher{
+	d := &StoreDispatcher{
 		store:    store,
 		clock:    clock.NewClock(),
 		catalog:  Catalog{},
@@ -93,7 +95,7 @@ func NewDispatcher(store Store, opts ...DispatcherOption) (Dispatcher, error) {
 // consequence of skipping it is not a bad row — it is a server that will make
 // authenticated requests to whatever URL was submitted. There is no variant of
 // this that stores without checking.
-func (d *dispatcher) Register(ctx context.Context, endpoint *Endpoint) error {
+func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) error {
 	ctx, op := d.o11y.Begin(ctx)
 	defer op.End()
 
@@ -145,7 +147,7 @@ func (d *dispatcher) Register(ctx context.Context, endpoint *Endpoint) error {
 // An event nobody subscribes to is not an error and writes nothing. That is the
 // common case for most event types most of the time, and making it an error
 // would have every publisher branch on it.
-func (d *dispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery) error {
+func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery) error {
 	ctx, op := d.o11y.Begin(ctx)
 	defer op.End()
 
@@ -222,7 +224,7 @@ func (d *dispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecutor, 
 //
 // The attempt count is reset, so a dead dispatch gets a full budget rather than
 // dying again on its next attempt.
-func (d *dispatcher) Replay(ctx context.Context, deliveryID, endpointID string) error {
+func (d *StoreDispatcher) Replay(ctx context.Context, deliveryID, endpointID string) error {
 	ctx, op := d.o11y.Begin(ctx,
 		observability.WithValue(deliveryIDKey, deliveryID),
 		observability.WithValue(endpointIDKey, endpointID),

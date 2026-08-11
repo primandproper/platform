@@ -121,6 +121,12 @@ func (cfg *Config) prepare(ctx context.Context) error {
 //
 // Explicit options run after the config-derived ones, so a caller can still
 // override anything.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *shredding.SQLStore into a
+// non-nil shredding.Store on the error path, and a caller testing the result against
+// nil would find a store that panics on first use.
 func NewStore(
 	ctx context.Context,
 	cfg *Config,
@@ -140,7 +146,12 @@ func NewStore(
 		shredding.WithStoreMetricsProvider(o.metricsProvider),
 	}
 
-	return shredding.NewSQLStore(client, append(storeOpts, o.store...)...)
+	store, storeErr := shredding.NewSQLStore(client, append(storeOpts, o.store...)...)
+	if storeErr != nil {
+		return nil, storeErr
+	}
+
+	return store, nil
 }
 
 // NewKeys builds the per-subject encryption surface.
@@ -153,6 +164,12 @@ func NewStore(
 // this constructor has no way to invent, so a deployment that wants one builds
 // it with NewBroadcaster and passes it through WithKeysOptions — or lets the DI
 // registration do it.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *shredding.KeyManager into a
+// non-nil shredding.Keys on the error path, and a caller testing the result against
+// nil would find a Keys that panics on first use.
 func NewKeys(
 	ctx context.Context,
 	cfg *Config,
@@ -174,7 +191,12 @@ func NewKeys(
 		shredding.WithMetricsProvider(o.metricsProvider),
 	}
 
-	return shredding.NewKeys(store, wrapper, append(keysOpts, o.keys...)...)
+	k, keysErr := shredding.NewKeys(store, wrapper, append(keysOpts, o.keys...)...)
+	if keysErr != nil {
+		return nil, keysErr
+	}
+
+	return k, nil
 }
 
 // NewBroadcaster builds the shred announcement over the configured topic.
@@ -188,6 +210,12 @@ func NewKeys(
 // a publish call and a topic name; it has nothing to log, trace, or count that
 // the publisher underneath it — or the Keys that counts its calls — does not
 // already.
+//
+// Each provider is built into a variable and returned only once its error is
+// known to be nil. The provider constructors return their own concrete types,
+// so returning one straight through would convert a nil *shredding.QueueBroadcaster into a
+// non-nil shredding.Broadcaster on the error path, and a caller testing the result against
+// nil would find a broadcaster that panics on first use.
 func NewBroadcaster(
 	ctx context.Context,
 	cfg *Config,
@@ -206,7 +234,12 @@ func NewBroadcaster(
 		return nil, errors.Wrapf(err, "creating shredding invalidation publisher for topic %q", cfg.InvalidationTopic)
 	}
 
-	return shredding.NewQueueBroadcaster(publisher)
+	b, broadcasterErr := shredding.NewQueueBroadcaster(publisher)
+	if broadcasterErr != nil {
+		return nil, broadcasterErr
+	}
+
+	return b, nil
 }
 
 // NewInvalidationConsumer builds the subscribing half: the consumer that hears

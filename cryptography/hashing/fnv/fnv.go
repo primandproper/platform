@@ -18,13 +18,17 @@ import (
 )
 
 var (
-	_ hashing.Hasher = (*fnv64aHasher)(nil)
-	_ hashing.Hasher = (*fnv128aHasher)(nil)
+	_ hashing.Hasher = (*Hasher64a)(nil)
+	_ hashing.Hasher = (*Hasher128a)(nil)
 )
 
+// Hasher64a and Hasher128a are the FNV-1a hashing.Hasher implementations, 64-
+// and 128-bit respectively. They are exported, and returned by NewFNV64aHasher
+// and NewFNV128aHasher, so a caller who has chosen a width can depend on that
+// choice rather than on the interface every digest algorithm shares.
 type (
-	fnv64aHasher  struct{}
-	fnv128aHasher struct{}
+	Hasher64a  struct{}
+	Hasher128a struct{}
 )
 
 // NewFNV64aHasher returns a hashing.Hasher backed by the FNV-1a (64-bit) hash,
@@ -34,11 +38,11 @@ type (
 //
 // WARNING: this is a NON-CRYPTOGRAPHIC hash and MUST NOT be used for security,
 // password, or tamper-resistance purposes. See the package doc.
-func NewFNV64aHasher() hashing.Hasher {
-	return &fnv64aHasher{}
+func NewFNV64aHasher() *Hasher64a {
+	return &Hasher64a{}
 }
 
-func (s *fnv64aHasher) Hash(content []byte) []byte {
+func (s *Hasher64a) Hash(content []byte) []byte {
 	return binary.BigEndian.AppendUint64(nil, Sum64a(content))
 }
 
@@ -49,11 +53,11 @@ func (s *fnv64aHasher) Hash(content []byte) []byte {
 //
 // WARNING: this is a NON-CRYPTOGRAPHIC hash and MUST NOT be used for security,
 // password, or tamper-resistance purposes. See the package doc.
-func NewFNV128aHasher() hashing.Hasher {
-	return &fnv128aHasher{}
+func NewFNV128aHasher() *Hasher128a {
+	return &Hasher128a{}
 }
 
-func (s *fnv128aHasher) Hash(content []byte) []byte {
+func (s *Hasher128a) Hash(content []byte) []byte {
 	sum := Sum128a(content)
 
 	return sum[:]

@@ -29,18 +29,15 @@ import (
 // it has exited. A sweeper that outlived its limiter would hang the test rather
 // than leak quietly, so "the sweeper stops on Close" is a property every test
 // here exercises, not only the one that names it.
-func newTestLimiter(t *testing.T, requestsPerSec float64, burstSize int, opts ...Option) *inMemoryRateLimiter {
+func newTestLimiter(t *testing.T, requestsPerSec float64, burstSize int, opts ...Option) *InMemoryRateLimiter {
 	t.Helper()
 
 	limiter, err := NewInMemoryRateLimiter(requestsPerSec, burstSize, opts...)
 	must.NoError(t, err)
 
-	impl, ok := limiter.(*inMemoryRateLimiter)
-	must.True(t, ok)
-
 	t.Cleanup(func() { must.NoError(t, limiter.Close()) })
 
-	return impl
+	return limiter
 }
 
 // heldKeys returns the keys the limiter is physically holding.
@@ -48,7 +45,7 @@ func newTestLimiter(t *testing.T, requestsPerSec float64, burstSize int, opts ..
 // Every assertion about eviction reads the map directly. Asking through Allow
 // would create whatever it asked about, so a test written that way would pass
 // against a limiter that evicts nothing at all.
-func heldKeys(r *inMemoryRateLimiter) []string {
+func heldKeys(r *InMemoryRateLimiter) []string {
 	var keys []string
 
 	r.limiters.Range(func(key, _ any) bool {
@@ -64,7 +61,7 @@ func heldKeys(r *inMemoryRateLimiter) []string {
 
 // held reports how many limiters are resident, and checks the counter the bound
 // is enforced against still agrees with the map it is counting.
-func held(t *testing.T, r *inMemoryRateLimiter) int {
+func held(t *testing.T, r *InMemoryRateLimiter) int {
 	t.Helper()
 
 	keys := heldKeys(r)
@@ -80,7 +77,7 @@ func held(t *testing.T, r *inMemoryRateLimiter) int {
 // can catch it halfway through the map. Wait parks every other goroutine
 // without moving the clock, which is what makes these counts exact rather than
 // eventual.
-func resident(t *testing.T, r *inMemoryRateLimiter) int {
+func resident(t *testing.T, r *InMemoryRateLimiter) int {
 	t.Helper()
 
 	synctest.Wait()
@@ -90,7 +87,7 @@ func resident(t *testing.T, r *inMemoryRateLimiter) int {
 
 // residentKeys is heldKeys, settled the same way and ordered so it can be
 // compared against a literal.
-func residentKeys(r *inMemoryRateLimiter) []string {
+func residentKeys(r *InMemoryRateLimiter) []string {
 	synctest.Wait()
 
 	return slices.Sorted(slices.Values(heldKeys(r)))
@@ -99,7 +96,7 @@ func residentKeys(r *inMemoryRateLimiter) []string {
 // allow spends one token for key, failing the test if the limiter errors. The
 // verdict is ignored: these tests are about what the limiter retains, not what
 // it permits.
-func allow(t *testing.T, r *inMemoryRateLimiter, key string) {
+func allow(t *testing.T, r *InMemoryRateLimiter, key string) {
 	t.Helper()
 
 	_, err := r.Allow(context.Background(), key)
