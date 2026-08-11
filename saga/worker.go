@@ -8,7 +8,6 @@ import (
 	"slices"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/database"
@@ -870,23 +869,5 @@ func stepAttrs(definitionName, step, phase string) metric.MeasurementOption {
 
 // truncateError renders an error for storage, bounded.
 func truncateError(err error) string {
-	if err == nil {
-		return ""
-	}
-
-	return truncate(err.Error(), maxStoredErrorLength)
-}
-
-// truncate cuts s to at most limit bytes without splitting a rune, so a
-// truncated error is still valid UTF-8 and still stores.
-func truncate(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-
-	for limit > 0 && !utf8.RuneStart(s[limit]) {
-		limit--
-	}
-
-	return s[:limit]
+	return platformerrors.TruncateError(err, maxStoredErrorLength)
 }

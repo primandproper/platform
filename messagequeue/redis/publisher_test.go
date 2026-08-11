@@ -51,7 +51,8 @@ func buildRedisBackedPublisher(t *testing.T, cfg *Config, topic string) messageq
 	t.Helper()
 
 	ctx := t.Context()
-	provider := NewRedisPublisherProvider(*cfg)
+	provider, err := NewRedisPublisherProvider(*cfg)
+	must.NoError(t, err)
 
 	publisher, err := provider.NewPublisher(ctx, topic)
 	must.NoError(t, err)
@@ -70,7 +71,8 @@ func Test_redisPublisher_Publish(T *testing.T) {
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := NewRedisPublisherProvider(cfg)
+		provider, err := NewRedisPublisherProvider(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, provider)
 
 		a, err := provider.NewPublisher(ctx, t.Name())
@@ -115,7 +117,8 @@ func Test_redisPublisher_Publish(T *testing.T) {
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := NewRedisPublisherProvider(cfg)
+		provider, err := NewRedisPublisherProvider(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, provider)
 
 		a, err := provider.NewPublisher(ctx, t.Name())
@@ -152,7 +155,8 @@ func Test_redisPublisher_Stop(T *testing.T) {
 
 		ctx := t.Context()
 
-		provider := NewRedisPublisherProvider(Config{QueueAddresses: []string{t.Name()}})
+		provider, err := NewRedisPublisherProvider(Config{QueueAddresses: []string{t.Name()}})
+		must.NoError(t, err)
 		pp, ok := provider.(*publisherProvider)
 		must.True(t, ok)
 
@@ -189,7 +193,8 @@ func Test_redisPublisher_PublishAsync(T *testing.T) {
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := NewRedisPublisherProvider(cfg)
+		provider, err := NewRedisPublisherProvider(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, provider)
 
 		a, err := provider.NewPublisher(ctx, t.Name())
@@ -226,7 +231,8 @@ func Test_redisPublisher_PublishAsync(T *testing.T) {
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := NewRedisPublisherProvider(cfg)
+		provider, err := NewRedisPublisherProvider(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, provider)
 
 		a, err := provider.NewPublisher(ctx, t.Name())
@@ -255,8 +261,18 @@ func TestNewRedisPublisherProvider(T *testing.T) {
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		actual := NewRedisPublisherProvider(cfg)
+		actual, err := NewRedisPublisherProvider(cfg)
+		test.NoError(t, err)
 		test.NotNil(t, actual)
+	})
+
+	T.Run("no addresses is an error, not a provider with a nil client", func(t *testing.T) {
+		t.Parallel()
+
+		// This used to build cleanly and panic on the first Publish.
+		actual, err := NewRedisPublisherProvider(Config{})
+		test.Error(t, err)
+		test.Nil(t, actual)
 	})
 }
 
@@ -271,7 +287,8 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := NewRedisPublisherProvider(cfg)
+		provider, err := NewRedisPublisherProvider(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewPublisher(ctx, t.Name())
@@ -287,7 +304,8 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := NewRedisPublisherProvider(cfg)
+		provider, err := NewRedisPublisherProvider(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewPublisher(ctx, t.Name())
@@ -307,7 +325,8 @@ func Test_publisherProvider_NewPublisher(T *testing.T) {
 		cfg := Config{
 			QueueAddresses: []string{t.Name()},
 		}
-		provider := NewRedisPublisherProvider(cfg)
+		provider, err := NewRedisPublisherProvider(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, provider)
 
 		actual, err := provider.NewPublisher(ctx, "")

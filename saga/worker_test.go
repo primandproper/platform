@@ -1022,20 +1022,21 @@ func TestWorker_AdvanceBudget(T *testing.T) {
 func TestTruncate(T *testing.T) {
 	T.Parallel()
 
-	T.Run("leaves a short string alone", func(t *testing.T) {
+	T.Run("leaves a short error alone", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, "short", truncate("short", 100))
+		test.EqOp(t, "short", truncateError(platformerrors.New("short")))
 	})
 
-	T.Run("cuts a long string without splitting a rune", func(t *testing.T) {
+	T.Run("cuts a long error without splitting a rune", func(t *testing.T) {
 		t.Parallel()
 
-		long := strings.Repeat("é", 100)
-		got := truncate(long, 11)
+		// A truncated error still has to be valid UTF-8 or the row will not store.
+		long := platformerrors.New(strings.Repeat("é", maxStoredErrorLength))
+		got := truncateError(long)
 
-		test.True(t, len(got) <= 11)
-		test.EqOp(t, strings.Repeat("é", 5), got)
+		test.True(t, len(got) <= maxStoredErrorLength)
+		test.EqOp(t, strings.Repeat("é", maxStoredErrorLength/2), got)
 	})
 
 	T.Run("renders a nil error as empty", func(t *testing.T) {

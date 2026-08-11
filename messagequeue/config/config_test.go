@@ -6,6 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue/kafka"
 	"github.com/primandproper/platform-go/v10/messagequeue/pubsub"
+	"github.com/primandproper/platform-go/v10/messagequeue/redis"
 	"github.com/primandproper/platform-go/v10/messagequeue/sqs"
 
 	"github.com/shoenig/test"
@@ -39,12 +40,28 @@ func TestNewConsumerProvider(T *testing.T) {
 		cfg := &Config{
 			Consumer: MessageQueueConfig{
 				Provider: ProviderRedis,
+				Redis:    redis.Config{QueueAddresses: []string{"localhost:6379"}},
 			},
 		}
 
 		p, err := NewConsumerProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
+	})
+
+	T.Run("with a redis provider naming no addresses", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Consumer: MessageQueueConfig{
+				Provider: ProviderRedis,
+			},
+		}
+
+		// This used to hand back a provider whose client was nil.
+		p, err := NewConsumerProvider(t.Context(), cfg)
+		test.Error(t, err)
+		test.Nil(t, p)
 	})
 
 	T.Run("with SQS provider", func(t *testing.T) {
@@ -146,12 +163,28 @@ func TestNewPublisherProvider(T *testing.T) {
 		cfg := &Config{
 			Publisher: MessageQueueConfig{
 				Provider: ProviderRedis,
+				Redis:    redis.Config{QueueAddresses: []string{"localhost:6379"}},
 			},
 		}
 
 		p, err := NewPublisherProvider(t.Context(), cfg)
 		test.NoError(t, err)
 		test.NotNil(t, p)
+	})
+
+	T.Run("with a redis provider naming no addresses", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Publisher: MessageQueueConfig{
+				Provider: ProviderRedis,
+			},
+		}
+
+		// This used to hand back a provider whose client was nil.
+		p, err := NewPublisherProvider(t.Context(), cfg)
+		test.Error(t, err)
+		test.Nil(t, p)
 	})
 
 	T.Run("with SQS provider", func(t *testing.T) {

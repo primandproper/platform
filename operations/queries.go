@@ -3,8 +3,8 @@ package operations
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/database/ddl"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 )
@@ -474,18 +474,10 @@ func blobOrNil(b []byte) any {
 // truncated rather than refused: losing the tail of an error message is not
 // worth failing the operation that produced it.
 //
-// The cut is on a rune boundary. A message reaches an API client as JSON, and
-// half a multi-byte rune is not a shorter string — it is one that fails to
-// encode, turning a truncated message into a failed response.
+// The cut is on a rune boundary, which charset.TruncateUTF8 is what guarantees.
+// A message reaches an API client as JSON, and half a multi-byte rune is not a
+// shorter string — it is one that fails to encode, turning a truncated message
+// into a failed response.
 func truncate(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-
-	return s[:cut]
+	return charset.TruncateUTF8(s, limit)
 }

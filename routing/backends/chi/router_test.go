@@ -61,7 +61,7 @@ func TestBackend_Use(T *testing.T) {
 
 		b := newTestBackend(t, &Config{ServiceName: t.Name()})
 
-		// nil is filtered by convertMiddleware; the real middleware sets a header.
+		// nil is filtered by httpmw.Convert; the real middleware sets a header.
 		b.Use(nil, func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("X-Middleware", "on")

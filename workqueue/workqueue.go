@@ -815,15 +815,15 @@ func isRetryable(err error) bool {
 
 // truncateError renders a cause for the last_error column, bounded so that a
 // pathological driver error cannot bloat the row.
+//
+// The column is nullable and a nil cause renders as NULL rather than the empty
+// string, which is why this is not platformerrors.TruncateError outright: the
+// row distinguishes "has not failed" from "failed", and ” would collapse the
+// two. The bounding itself is shared, so the cut stays on a rune boundary.
 func truncateError(err error) any {
 	if err == nil {
 		return nil
 	}
 
-	s := err.Error()
-	if len(s) > maxStoredErrLen {
-		s = s[:maxStoredErrLen]
-	}
-
-	return s
+	return platformerrors.TruncateError(err, maxStoredErrLen)
 }

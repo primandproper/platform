@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -63,7 +64,7 @@ func subscriptionNameForTopic(projectID, topic string) string {
 	return fmt.Sprintf("projects/%s/subscriptions/%s", projectID, topic)
 }
 
-func (c *pubSubConsumer) Consume(ctx context.Context, errors chan<- error) {
+func (c *pubSubConsumer) Consume(ctx context.Context, errs chan<- error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -74,12 +75,8 @@ func (c *pubSubConsumer) Consume(ctx context.Context, errors chan<- error) {
 	})
 	if err != nil {
 		c.o11y.Logger().Error(fmt.Sprintf("getting %s subscription", subscriptionName), err)
-		if errors != nil {
-			select {
-			case errors <- err:
-			case <-ctx.Done():
-			}
-		}
+		consumererr.Send(ctx, errs, err)
+
 		return
 	}
 
@@ -99,12 +96,7 @@ func (c *pubSubConsumer) Consume(ctx context.Context, errors chan<- error) {
 		if handleErr := c.handlerFunc(msgCtx, m.Data); handleErr != nil {
 			op.Acknowledge(handleErr, "handling pubsub message")
 			m.Nack()
-			if errors != nil {
-				select {
-				case errors <- handleErr:
-				case <-msgCtx.Done():
-				}
-			}
+			consumererr.Send(msgCtx, errs, handleErr)
 		} else {
 			m.Ack()
 		}

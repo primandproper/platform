@@ -102,7 +102,7 @@ func NewConsumerProvider(ctx context.Context, c *Config, opts ...Option) (messag
 
 	switch cleanString(string(c.Consumer.Provider)) {
 	case string(ProviderRedis):
-		return redis.NewRedisConsumerProvider(c.Consumer.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider)), nil
+		return redis.NewRedisConsumerProvider(c.Consumer.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider))
 	case string(ProviderSQS):
 		return sqs.NewSQSConsumerProvider(ctx, c.Consumer.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
 	case string(ProviderKafka):
@@ -134,7 +134,7 @@ func NewPublisherProvider(ctx context.Context, c *Config, opts ...Option) (messa
 
 	switch cleanString(string(c.Publisher.Provider)) {
 	case string(ProviderRedis):
-		return redis.NewRedisPublisherProvider(c.Publisher.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider)), nil
+		return redis.NewRedisPublisherProvider(c.Publisher.Redis, redis.WithLogger(logger), redis.WithTracerProvider(tracerProvider), redis.WithMetricsProvider(metricsProvider))
 	case string(ProviderSQS):
 		return sqs.NewSQSPublisherProvider(ctx, c.Publisher.SQS, sqs.WithLogger(logger), sqs.WithTracerProvider(tracerProvider), sqs.WithMetricsProvider(metricsProvider))
 	case string(ProviderKafka):

@@ -26,17 +26,18 @@ type StackConfig struct {
 	SilenceRouteLogging    bool
 }
 
-// Standard returns the ordered middleware every non-chi backend installs around
-// its mux, matching the chi backend's stack: request ID and real client IP
-// first (so logs and spans see them), then recovery, OpenTelemetry
-// tracing/metrics, request logging, a request timeout, CORS, and server-timing.
-// The slice is ordered outermost-first for Chain.
+// Standard returns the ordered middleware the stdlib, httprouter and gin
+// backends install around their mux: request ID and real client IP first (so
+// logs and spans see them), then recovery, OpenTelemetry tracing/metrics,
+// request logging, a request timeout, CORS, and server-timing. The slice is
+// ordered outermost-first for Chain.
 //
-// Unlike the chi backend, path cleaning is not included: chi's CleanPath
-// middleware requires chi's own RouteContext in the request context and panics
-// under any other mux. Each backend here delegates path normalization to the
-// underlying router (net/http.ServeMux redirects unclean paths; httprouter and
-// gin normalize via their redirect options).
+// The chi backend builds the same order itself, because two of the steps differ
+// for it: otelMiddleware below is otelchi there, and chi adds CleanPath, which
+// requires chi's own RouteContext in the request context and panics under any
+// other mux. The backends here delegate path normalization to the underlying
+// router instead (net/http.ServeMux redirects unclean paths; httprouter and gin
+// normalize via their redirect options).
 func Standard(o11y observability.Observer, cfg *StackConfig) []func(http.Handler) http.Handler {
 	return []func(http.Handler) http.Handler{
 		// RequestID and RealIP must run before the observability middleware so that
@@ -79,8 +80,7 @@ func otelMiddleware(cfg *StackConfig) func(http.Handler) http.Handler {
 
 // CORS builds the shared CORS middleware. Credentialed requests are allowed, so
 // non-localhost origins must be https and their host must be in validDomains;
-// localhost may use http when enableLocalhost is set. The behavior mirrors the
-// chi backend exactly.
+// localhost may use http when enableLocalhost is set.
 func CORS(o11y observability.Observer, validDomains []string, enableLocalhost bool) func(http.Handler) http.Handler {
 	return cors.New(cors.Options{
 		AllowOriginFunc: func(_ *http.Request, origin string) bool {

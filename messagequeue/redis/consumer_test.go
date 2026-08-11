@@ -24,7 +24,8 @@ import (
 func buildRedisBackedConsumer(t *testing.T, cfg *Config, topic string, handlerFunc func(context.Context, []byte) error) messagequeue.Consumer {
 	t.Helper()
 
-	provider := NewRedisConsumerProvider(*cfg)
+	provider, err := NewRedisConsumerProvider(*cfg)
+	must.NoError(t, err)
 
 	consumer, err := provider.NewConsumer(t.Context(), topic, handlerFunc)
 	must.NoError(t, err)
@@ -191,7 +192,8 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			}
 		}()
 
-		conPro := NewRedisConsumerProvider(*cfg)
+		conPro, err := NewRedisConsumerProvider(*cfg)
+		must.NoError(t, err)
 		must.NotNil(t, conPro)
 
 		hf := func(context.Context, []byte) error { return nil }
@@ -215,7 +217,8 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			}
 		}()
 
-		conPro := NewRedisConsumerProvider(*cfg)
+		conPro, err := NewRedisConsumerProvider(*cfg)
+		must.NoError(t, err)
 		must.NotNil(t, conPro)
 
 		hf := func(context.Context, []byte) error { return nil }
@@ -239,7 +242,8 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			QueueAddresses: []string{t.Name()},
 		}
 
-		conPro := NewRedisConsumerProvider(cfg)
+		conPro, err := NewRedisConsumerProvider(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, conPro)
 
 		actual, err := conPro.NewConsumer(t.Context(), "", nil)

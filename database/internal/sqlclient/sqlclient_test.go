@@ -1,4 +1,4 @@
-package sqlite
+package sqlclient
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 // closingConnector is a driver.Connector whose Close reports closeErr, so the
-// failure branches of closePools can be exercised without a live database.
+// failure branches of ClosePools can be exercised without a live database.
 type closingConnector struct {
 	closeErr error
 	closed   *int
@@ -43,7 +43,7 @@ func TestClosePools(T *testing.T) {
 
 		cause := errors.New("original")
 
-		test.ErrorIs(t, closePools(cause, nil, nil), cause)
+		test.ErrorIs(t, ClosePools(cause, nil, nil), cause)
 	})
 
 	T.Run("a shared read/write handle is closed once", func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestClosePools(T *testing.T) {
 		cause := errors.New("original")
 		db := newDB(t, nil, &closed)
 
-		test.ErrorIs(t, closePools(cause, db, db), cause)
+		test.ErrorIs(t, ClosePools(cause, db, db), cause)
 		test.EqOp(t, 1, closed)
 	})
 
@@ -63,7 +63,7 @@ func TestClosePools(T *testing.T) {
 		var readClosed, writeClosed int
 		cause := errors.New("original")
 
-		test.ErrorIs(t, closePools(cause, newDB(t, nil, &readClosed), newDB(t, nil, &writeClosed)), cause)
+		test.ErrorIs(t, ClosePools(cause, newDB(t, nil, &readClosed), newDB(t, nil, &writeClosed)), cause)
 		test.EqOp(t, 1, readClosed)
 		test.EqOp(t, 1, writeClosed)
 	})
@@ -78,7 +78,7 @@ func TestClosePools(T *testing.T) {
 
 		// Losing the cause here would report a cleanup problem in place of the
 		// failure that triggered the cleanup.
-		err := closePools(cause, newDB(t, readCloseErr, &readClosed), newDB(t, writeCloseErr, &writeClosed))
+		err := ClosePools(cause, newDB(t, readCloseErr, &readClosed), newDB(t, writeCloseErr, &writeClosed))
 		test.ErrorIs(t, err, cause)
 		test.ErrorIs(t, err, readCloseErr)
 		test.ErrorIs(t, err, writeCloseErr)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/messagequeue/internal/consumererr"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
@@ -70,28 +71,6 @@ func instrumentName(queueURL string) string {
 	}, name)
 }
 
-// sendErr delivers err on errs without wedging: it also selects on ctx so a
-// consumer whose error channel is no longer being drained still unblocks when the
-// context is canceled during shutdown.
-func (c *sqsConsumer) sendErr(ctx context.Context, errs chan<- error, err error) {
-	if errs == nil {
-		return
-	}
-
-	// Prefer delivering the error whenever the channel can accept it right now, so a
-	// canceled ctx doesn't race the send (both select cases ready) and drop the error.
-	select {
-	case errs <- err:
-		return
-	default:
-	}
-
-	select {
-	case errs <- err:
-	case <-ctx.Done():
-	}
-}
-
 func provideSQSConsumer(
 	logger logging.Logger,
 	tracerProvider tracing.Provider,
@@ -140,7 +119,7 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 			}
 
 			c.o11y.Logger().Error("receiving SQS messages", err)
-			c.sendErr(ctx, errs, err)
+			consumererr.Send(ctx, errs, err)
 
 			// Back off before retrying. Long polling normally paces this loop, but
 			// a receive that fails returns immediately — so a persistent failure
@@ -173,7 +152,7 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 			c.consumedCounter.Add(msgCtx, 1)
 			if err = c.handlerFunc(msgCtx, body); err != nil {
 				op.Acknowledge(err, "handling SQS message")
-				c.sendErr(msgCtx, errs, err)
+				consumererr.Send(msgCtx, errs, err)
 				op.End()
 				continue
 			}
@@ -183,7 +162,7 @@ func (c *sqsConsumer) Consume(ctx context.Context, errs chan<- error) {
 				ReceiptHandle: msg.ReceiptHandle,
 			}); err != nil {
 				op.Acknowledge(err, "deleting SQS message")
-				c.sendErr(msgCtx, errs, err)
+				consumererr.Send(msgCtx, errs, err)
 			}
 			op.End()
 		}

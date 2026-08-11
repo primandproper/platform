@@ -526,7 +526,8 @@ func TestBuildRedisClient(T *testing.T) {
 	T.Run("single address builds standalone client", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Addresses: []string{"localhost:6379"}}
-		c := buildRedisClient(cfg)
+		c, err := buildRedisClient(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, c)
 		_, ok := c.(*redis.Client)
 		test.True(t, ok)
@@ -536,11 +537,19 @@ func TestBuildRedisClient(T *testing.T) {
 	T.Run("multiple addresses builds cluster client", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Addresses: []string{"localhost:6379", "localhost:6380"}}
-		c := buildRedisClient(cfg)
+		c, err := buildRedisClient(cfg)
+		must.NoError(t, err)
 		must.NotNil(t, c)
 		_, ok := c.(*redis.ClusterClient)
 		test.True(t, ok)
 		_ = c.Close()
+	})
+
+	T.Run("no addresses is an error, not a nil client", func(t *testing.T) {
+		t.Parallel()
+		c, err := buildRedisClient(&Config{})
+		test.Error(t, err)
+		test.Nil(t, c)
 	})
 }
 

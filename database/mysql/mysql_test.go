@@ -88,7 +88,7 @@ func buildTestClient(t *testing.T) (*Client, sqlmock.Sqlmock) {
 			pingWaitPeriod:  time.Second,
 		},
 		o11y:     observability.NewObserverForTest("test"),
-		timeFunc: defaultTimeFunc,
+		timeFunc: time.Now,
 	}
 
 	return c, sqlMock
@@ -525,7 +525,7 @@ func TestDefaultTimeFunc(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		test.False(t, defaultTimeFunc().IsZero())
+		test.False(t, (&Client{}).CurrentTime().IsZero())
 	})
 }
 

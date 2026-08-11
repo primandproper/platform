@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/database/internal/sqlclient"
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 
@@ -86,7 +87,7 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 		if err != nil {
 			// Don't leak the read side when the write side fails to construct —
 			// the same fix postgres already carries.
-			return nil, closePools(errors.Wrap(err, "connecting to write mysql database"), readDB, nil)
+			return nil, sqlclient.ClosePools(errors.Wrap(err, "connecting to write mysql database"), readDB, nil)
 		}
 	}
 
@@ -105,12 +106,12 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 		// Both pools are open by this point, so every failure path below has to
 		// close them; returning early here leaked a fully-connected pool pair.
 		if _, err = otelsql.RegisterDBStatsMetrics(readDB, otelsql.WithAttributes(semconv.DBSystemMySQL)); err != nil {
-			return nil, closePools(errors.Wrap(err, "registering readDB stats metrics"), readDB, writeDB)
+			return nil, sqlclient.ClosePools(errors.Wrap(err, "registering readDB stats metrics"), readDB, writeDB)
 		}
 
 		if readDB != writeDB {
 			if _, err = otelsql.RegisterDBStatsMetrics(writeDB, otelsql.WithAttributes(semconv.DBSystemMySQL)); err != nil {
-				return nil, closePools(errors.Wrap(err, "registering writeDB stats metrics"), readDB, writeDB)
+				return nil, sqlclient.ClosePools(errors.Wrap(err, "registering writeDB stats metrics"), readDB, writeDB)
 			}
 		}
 	}
@@ -120,29 +121,10 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 		writeDB:  writeDB,
 		config:   cfg,
 		o11y:     o11y,
-		timeFunc: defaultTimeFunc,
+		timeFunc: time.Now,
 	}
 
 	return c, nil
-}
-
-// closePools releases whatever was opened, for the failure paths after a
-// successful connect. Read and write may be the same handle when only one
-// connection string is configured, so it is closed once.
-func closePools(cause error, readDB, writeDB *sql.DB) error {
-	if readDB != nil {
-		if closeErr := readDB.Close(); closeErr != nil {
-			cause = errors.Join(cause, errors.Wrap(closeErr, "closing read database"))
-		}
-	}
-
-	if writeDB != nil && writeDB != readDB {
-		if closeErr := writeDB.Close(); closeErr != nil {
-			cause = errors.Join(cause, errors.Wrap(closeErr, "closing write database"))
-		}
-	}
-
-	return cause
 }
 
 func connect(connStr string, cfg database.ClientConfig, opts []otelsql.Option) (*sql.DB, error) {
@@ -188,33 +170,12 @@ func (q *Client) Writer() database.SQLQueryExecutor {
 // WithTransaction runs fn inside a transaction on the write database, committing on a
 // nil return and rolling back on error or panic. See database.RunInTransaction.
 func (q *Client) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutor) error) error {
-	ctx, op := q.o11y.Begin(ctx)
-	defer op.End()
-
-	return database.RunInTransaction(ctx, q.writeDB, q.RollbackTransaction, fn)
+	return sqlclient.WithTransaction(ctx, q.o11y, q.writeDB, q.RollbackTransaction, fn)
 }
 
 // Close closes the database connection.
 func (q *Client) Close() error {
-	logger := q.o11y.Logger()
-
-	var errs error
-
-	if err := q.readDB.Close(); err != nil {
-		logger.Error("closing read database connection", err)
-		errs = errors.Join(errs, err)
-	}
-
-	// Always attempt to close the write pool even if the read pool failed to close,
-	// so a read-close error can't leak the write connection.
-	if q.writeDB != q.readDB {
-		if err := q.writeDB.Close(); err != nil {
-			logger.Error("closing write database connection", err)
-			errs = errors.Join(errs, err)
-		}
-	}
-
-	return errs
+	return sqlclient.Close(q.o11y, q.readDB, q.writeDB)
 }
 
 // IsReady returns whether the database is ready for the querier.
@@ -222,70 +183,20 @@ func (q *Client) IsReady(ctx context.Context) bool {
 	ctx, op := q.o11y.Begin(ctx)
 	defer op.End()
 
-	maxAttempts := int(q.config.GetMaxPingAttempts())
-	waitPeriod := q.config.GetPingWaitPeriod()
-
-	op.Set("db.ping.max_attempts", maxAttempts).Set("db.ping.wait_period", waitPeriod)
-
-	readReady := q.waitForPing(ctx, op, q.readDB, "read", maxAttempts, waitPeriod)
-	if !readReady {
-		return false
-	}
-
-	if q.writeDB != q.readDB {
-		return q.waitForPing(ctx, op, q.writeDB, "write", maxAttempts, waitPeriod)
-	}
-
-	return true
+	return sqlclient.IsReady(ctx, op, q.config, q.readDB, q.writeDB)
 }
 
-func (q *Client) waitForPing(ctx context.Context, op observability.Operation, db *sql.DB, connectionName string, maxAttempts int, waitPeriod time.Duration) bool {
-	logger := op.Logger().WithValue("connection", connectionName)
-
-	for attemptCount := range maxAttempts {
-		if err := db.PingContext(ctx); err == nil {
-			return true
-		}
-
-		logger.WithValue("attempt_count", attemptCount).Info("ping failed, waiting for db")
-
-		// Don't sleep after the final attempt, and abort promptly if the caller's
-		// context is canceled rather than sleeping through it.
-		if attemptCount == maxAttempts-1 {
-			break
-		}
-
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(waitPeriod):
-		}
-	}
-
-	return false
-}
-
-func defaultTimeFunc() time.Time {
-	return time.Now()
-}
-
+// CurrentTime reads the clock this client was built with.
 func (q *Client) CurrentTime() time.Time {
-	if q == nil || q.timeFunc == nil {
-		return defaultTimeFunc()
+	if q == nil {
+		return sqlclient.Now(nil)
 	}
 
-	return q.timeFunc()
+	return sqlclient.Now(q.timeFunc)
 }
 
+// RollbackTransaction rolls tx back, recording a failure on a span rather than
+// returning it.
 func (q *Client) RollbackTransaction(ctx context.Context, tx database.SQLQueryExecutorAndTransactionManager) {
-	_, op := q.o11y.Begin(ctx)
-	defer op.End()
-
-	op.Logger().Debug("rolling back transaction")
-
-	if err := tx.Rollback(); err != nil {
-		op.Acknowledge(err, "rolling back transaction")
-	}
-
-	op.Logger().Debug("transaction rolled back")
+	sqlclient.RollbackTransaction(ctx, q.o11y, tx)
 }
