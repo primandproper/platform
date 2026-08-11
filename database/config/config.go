@@ -374,7 +374,7 @@ func NewDatabase(
 			sqlite.WithTracerProvider(tracerProvider),
 			sqlite.WithMetricsProvider(dbMetricsProvider))
 	default:
-		return nil, errors.Newf("invalid database provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "database provider %q", cfg.Provider)
 	}
 
 	if err != nil {

@@ -13,9 +13,12 @@ var _ llm.Provider = (*Provider)(nil)
 // instead of losing the dimension.
 const name = "noop"
 
-// Provider is a no-op Provider. It is what llm/config hands back when no
-// provider is configured, so that a service without LLM credentials starts and
-// runs — answering nothing — rather than failing at construction.
+// Provider is a no-op Provider: it answers nothing, successfully.
+//
+// llm/config hands it back only when a config names it, never as a stand-in for
+// a provider it did not recognize — an unknown provider name is
+// errors.ErrUnknownProvider there. Reach for this where doing no LLM work is
+// the intent, such as a test or an environment with no credentials to spend.
 type Provider struct{}
 
 // NewProvider returns a no-op Provider.

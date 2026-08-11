@@ -48,7 +48,7 @@ func NewEventStreamUpgrader(_ context.Context, cfg *Config, opts ...Option) (eve
 	case ProviderWebSocket:
 		return websocket.NewUpgrader(cfg.WebSocket, websocket.WithLogger(logger), websocket.WithTracerProvider(tracerProvider)), nil
 	default:
-		return nil, errors.Newf("invalid eventstream provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "eventstream provider %q", cfg.Provider)
 	}
 }
 
@@ -63,6 +63,6 @@ func NewBidirectionalEventStreamUpgrader(_ context.Context, cfg *Config, opts ..
 	case ProviderWebSocket:
 		return websocket.NewUpgrader(cfg.WebSocket, websocket.WithLogger(logger), websocket.WithTracerProvider(tracerProvider)), nil
 	default:
-		return nil, errors.Newf("invalid eventstream provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "eventstream provider %q", cfg.Provider)
 	}
 }

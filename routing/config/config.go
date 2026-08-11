@@ -65,7 +65,7 @@ func NewBackend(_ context.Context, cfg *Config, opts ...Option) (routing.Backend
 	case ProviderGin:
 		return gin.NewBackend(cfg.Gin, gin.WithLogger(logger), gin.WithTracerProvider(tracerProvider), gin.WithMetricsProvider(metricProvider)), nil
 	default:
-		return nil, errors.Newf("unknown provider: %s", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "routing provider %q", cfg.Provider)
 	}
 }
 

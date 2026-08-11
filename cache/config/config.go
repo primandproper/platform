@@ -142,6 +142,6 @@ func NewCache[T any](ctx context.Context, cfg *Config, opts ...Option) (cache.Ca
 
 		return c, nil
 	default:
-		return nil, errors.Newf("invalid cache provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "cache provider %q", cfg.Provider)
 	}
 }

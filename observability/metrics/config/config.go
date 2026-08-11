@@ -42,18 +42,24 @@ func (c *Config) NewMetricsProvider(ctx context.Context, opts ...Option) (metric
 	// otelgrpc provider logs what it set up.
 	logger := logging.EnsureLogger(newOptions(opts).logger)
 
-	if !c.Enabled {
-		return metricsnoop.NewMetricsProvider(), nil
-	}
-
-	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
-	case ProviderOtel:
-		return otelgrpc.NewMetricsProvider(ctx, logger, c.ServiceName, c.Otel)
-	case "", ProviderNoop:
-		return metricsnoop.NewMetricsProvider(), nil
+	// The provider name is checked before Enabled, not after. Enabled=false used
+	// to short-circuit ahead of the switch, so a typo'd provider validated, built
+	// a noop, and stayed wrong until somebody flipped the flag on — at which
+	// point the config that had "worked" for months failed to start.
+	p := strings.TrimSpace(strings.ToLower(c.Provider))
+	switch p {
+	case ProviderOtel, ProviderNoop, "":
+		// Recognized. Whether it runs is Enabled's business, below.
 	default:
 		return nil, errors.Wrapf(errors.ErrUnknownProvider, "metrics provider %q", c.Provider)
 	}
+
+	// Either metrics are switched off, or the provider named is the opt-out.
+	if !c.Enabled || p != ProviderOtel {
+		return metricsnoop.NewMetricsProvider(), nil
+	}
+
+	return otelgrpc.NewMetricsProvider(ctx, logger, c.ServiceName, c.Otel)
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
@@ -66,7 +72,9 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 	cfgnorm.ZeroToNil(&c.Otel)
 
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.When(c.Enabled, validation.In("", ProviderNoop, ProviderOtel))),
+		// Constrained whether or not metrics are Enabled, matching the sibling
+		// pillars: a disabled config still names a provider somebody will enable.
+		validation.Field(&c.Provider, validation.In("", ProviderNoop, ProviderOtel)),
 		validation.Field(&c.Otel, validation.When(c.Enabled && c.Provider == ProviderOtel, validation.Required).Else(validation.Nil)),
 	)
 }

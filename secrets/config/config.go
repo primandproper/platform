@@ -203,7 +203,7 @@ func (cfg *Config) newProviderSource(ctx context.Context, o *options) (secrets.S
 
 		return s, nil
 	default:
-		return nil, errors.Newf("unknown secret source provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "secrets provider %q", cfg.Provider)
 	}
 }
 

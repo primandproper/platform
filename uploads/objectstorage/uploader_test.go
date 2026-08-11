@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 
 	"github.com/shoenig/test"
@@ -409,7 +410,7 @@ func TestUploader_selectBucket(T *testing.T) {
 			Provider:   "something_unknown",
 		}
 
-		test.ErrorIs(t, u.selectBucket(ctx, cfg), ErrUnknownProvider)
+		test.ErrorIs(t, u.selectBucket(ctx, cfg), platformerrors.ErrUnknownProvider)
 	})
 
 	T.Run("gcp provider fails without credentials", func(t *testing.T) {

@@ -124,8 +124,15 @@ func TestNewKeyring(T *testing.T) {
 	T.Run("rejects a keyset missing the current key", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewKeyring(t.Context(), validConfig(), encryption.Keyset{"k2": keyTwo})
+		ed, err := NewKeyring(t.Context(), validConfig(), encryption.Keyset{"k2": keyTwo})
 		test.ErrorIs(t, err, encryption.ErrNoCurrentKey)
+
+		// Compared against nil directly rather than with test.Nil, which is
+		// satisfied by a nil pointer inside a non-nil interface — the exact
+		// value this asserts is absent. Returning encryption.NewKeyring's
+		// (*Keyring, error) straight through produced one, and a caller's
+		// `if ed != nil` accepted it and panicked on the first Encrypt.
+		test.True(t, ed == nil)
 	})
 
 	T.Run("surfaces a key the provider will not accept", func(t *testing.T) {

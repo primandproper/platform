@@ -97,13 +97,23 @@ func NewKeyring(
 		ringKeys = append(ringKeys, encryption.RingKey{ID: id, Cipher: cipher})
 	}
 
-	return encryption.NewKeyring(
+	// Built into a variable and returned only once err is known to be nil:
+	// encryption.NewKeyring hands back a *Keyring, and returning it straight
+	// through would make a nil one a non-nil EncryptorDecryptor on the error
+	// path — a value a caller's != nil check accepts and the first Encrypt
+	// panics on.
+	keyring, err := encryption.NewKeyring(
 		encryption.KeyID(cfg.CurrentKeyID),
 		ringKeys,
 		encryption.WithLogger(o.logger),
 		encryption.WithTracerProvider(o.tracerProvider),
 		encryption.WithMetricsProvider(o.metricsProvider),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	return keyring, nil
 }
 
 // newCipher dispatches on the configured provider.

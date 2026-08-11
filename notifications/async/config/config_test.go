@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/notifications/async/ably"
 	"github.com/primandproper/platform-go/v10/notifications/async/pusher"
 	asyncws "github.com/primandproper/platform-go/v10/notifications/async/websocket"
@@ -33,6 +34,15 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		}
 
 		must.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("with unset provider", func(t *testing.T) {
+		t.Parallel()
+
+		// Notifying nobody is selected by naming noop. An unset provider used to
+		// do it silently, which is indistinguishable from a deployment that
+		// meant to notify somebody and typed the name in the wrong variable.
+		must.Error(t, (&Config{}).ValidateWithContext(t.Context()))
 	})
 
 	T.Run("pusher requires config", func(t *testing.T) {
@@ -207,7 +217,28 @@ func TestConfig_NewAsyncNotifier(T *testing.T) {
 
 		actual, err := cfg.NewAsyncNotifier(nil)
 		test.Nil(t, actual)
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+	})
+
+	T.Run("with unset provider", func(t *testing.T) {
+		t.Parallel()
+
+		actual, err := (&Config{}).NewAsyncNotifier(nil)
+		test.Nil(t, actual)
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
+	})
+
+	T.Run("a failed provider yields a nil interface, not a typed nil", func(t *testing.T) {
+		t.Parallel()
+
+		// Compared against nil directly rather than with test.Nil, which is
+		// satisfied by a nil pointer inside a non-nil interface — the exact
+		// value this asserts is absent. Returning pusher.NewNotifier's
+		// (*Notifier, error) straight through produced one, and a caller's
+		// `if n != nil` accepted it and panicked on the first publish.
+		actual, err := (&Config{Provider: ProviderPusher}).NewAsyncNotifier(nil)
 		test.Error(t, err)
+		test.True(t, actual == nil)
 	})
 }
 

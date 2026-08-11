@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/encoding"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/routing/backends/chi"
 	"github.com/primandproper/platform-go/v10/routing/backends/gin"
 	"github.com/primandproper/platform-go/v10/routing/backends/httprouter"
@@ -73,7 +74,7 @@ func TestNewBackend(T *testing.T) {
 
 		backend, err := NewBackend(t.Context(), cfg)
 		test.Nil(t, backend)
-		test.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 }
 
@@ -102,6 +103,6 @@ func TestNewRouter(T *testing.T) {
 
 		router, err := NewRouter(t.Context(), cfg, testEncoder())
 		test.Nil(t, router)
-		test.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 	})
 }

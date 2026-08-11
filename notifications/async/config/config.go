@@ -136,7 +136,11 @@ func (cfg *Config) validateTopology() error {
 // Pusher's and Ably's credentials were required at once and no config could load.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	if err := validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderPusher, ProviderAbly, ProviderWebSocket, ProviderSSE, ProviderNoop, "")),
+		// Required as well as constrained: ozzo's In skips empty values, so an
+		// unset provider used to validate cleanly and then select noop, which is
+		// indistinguishable from a deployment that meant to turn notifications
+		// off. Not sending them has to be asked for by name.
+		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderPusher, ProviderAbly, ProviderWebSocket, ProviderSSE, ProviderNoop)),
 		validation.Field(&cfg.Topology, validation.In(TopologySingleReplica, TopologyFleet, "")),
 		validation.Field(&cfg.Pusher, validation.Skip.When(cfg.Provider != ProviderPusher), validation.Required),
 		validation.Field(&cfg.Ably, validation.Skip.When(cfg.Provider != ProviderAbly), validation.Required),
@@ -152,6 +156,11 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 //
 // A self-hosted provider without an agreeing Topology is refused here as well
 // as in ValidateWithContext, since this is reachable without it.
+//
+// Each branch builds into a variable and returns only once the error is known
+// to be nil: the provider constructors hand back their own concrete pointer
+// type, and returning one straight through would turn a nil *Notifier into a
+// non-nil async.AsyncNotifier on the error path.
 func (cfg *Config) NewAsyncNotifier(opts ...Option) (async.AsyncNotifier, error) {
 	if err := cfg.validateTopology(); err != nil {
 		return nil, err
@@ -162,16 +171,38 @@ func (cfg *Config) NewAsyncNotifier(opts ...Option) (async.AsyncNotifier, error)
 
 	switch cleanProvider(cfg.Provider) {
 	case ProviderPusher:
-		return pusher.NewNotifier(cfg.Pusher, pusher.WithLogger(logger), pusher.WithTracerProvider(tracerProvider), pusher.WithMetricsProvider(metricsProvider))
+		n, err := pusher.NewNotifier(cfg.Pusher, pusher.WithLogger(logger), pusher.WithTracerProvider(tracerProvider), pusher.WithMetricsProvider(metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return n, nil
 	case ProviderAbly:
-		return ably.NewNotifier(cfg.Ably, ably.WithLogger(logger), ably.WithTracerProvider(tracerProvider), ably.WithMetricsProvider(metricsProvider))
+		n, err := ably.NewNotifier(cfg.Ably, ably.WithLogger(logger), ably.WithTracerProvider(tracerProvider), ably.WithMetricsProvider(metricsProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return n, nil
 	case ProviderWebSocket:
-		return asyncws.NewNotifier(cfg.WebSocket, asyncws.WithLogger(logger), asyncws.WithTracerProvider(tracerProvider))
+		n, err := asyncws.NewNotifier(cfg.WebSocket, asyncws.WithLogger(logger), asyncws.WithTracerProvider(tracerProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return n, nil
 	case ProviderSSE:
-		return asyncsse.NewNotifier(cfg.SSE, asyncsse.WithLogger(logger), asyncsse.WithTracerProvider(tracerProvider))
-	case "", ProviderNoop:
+		n, err := asyncsse.NewNotifier(cfg.SSE, asyncsse.WithLogger(logger), asyncsse.WithTracerProvider(tracerProvider))
+		if err != nil {
+			return nil, err
+		}
+
+		return n, nil
+	case ProviderNoop:
+		// Only by name. An unset provider falls through to the error below,
+		// because "notify nobody, forever" is a decision somebody has to make.
 		return noop.NewAsyncNotifier()
 	default:
-		return nil, errors.Newf("unknown async notifications provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "async notifications provider %q", cfg.Provider)
 	}
 }

@@ -3,12 +3,12 @@ package tokenscfg
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"strings"
 
 	"github.com/primandproper/platform-go/v10/authentication/tokens"
 	"github.com/primandproper/platform-go/v10/authentication/tokens/jwt"
 	"github.com/primandproper/platform-go/v10/authentication/tokens/paseto"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -18,6 +18,10 @@ const (
 	ProviderJWT = "jwt"
 	// ProviderPASETO represents PASETO.
 	ProviderPASETO = "paseto"
+
+	// signingKeyLength is how many bytes both signers require of a decoded
+	// signing key.
+	signingKeyLength = 32
 )
 
 type (
@@ -51,11 +55,11 @@ func (cfg *Config) NewTokenIssuer(opts ...Option) (tokens.Issuer, error) {
 
 	decryptedSigningKey, err := base64.URLEncoding.DecodeString(cfg.Base64EncodedSigningKey)
 	if err != nil {
-		return nil, fmt.Errorf("decoding json web token signing key: %w", err)
+		return nil, errors.Wrap(err, "decoding token signing key")
 	}
 
-	if len(decryptedSigningKey) != 32 {
-		return nil, fmt.Errorf("decoding json web token signing key must be 32 bytes")
+	if len(decryptedSigningKey) != signingKeyLength {
+		return nil, errors.Newf("token signing key must be %d bytes, got %d", signingKeyLength, len(decryptedSigningKey))
 	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
@@ -64,6 +68,6 @@ func (cfg *Config) NewTokenIssuer(opts ...Option) (tokens.Issuer, error) {
 	case ProviderPASETO:
 		return paseto.NewSigner(cfg.Issuer, cfg.Audience, decryptedSigningKey, paseto.WithLogger(logger), paseto.WithTracerProvider(tracerProvider))
 	default:
-		return nil, fmt.Errorf("unknown token issuer provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "token issuer provider %q", cfg.Provider)
 	}
 }

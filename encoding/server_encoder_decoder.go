@@ -78,31 +78,44 @@ func (t *tomlDecoder) Decode(v any) error {
 	return toml.Unmarshal(x, v)
 }
 
-// DecodeBytes decodes bytes into values.
-func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, dest any) error {
-	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(data)))
-	defer op.End()
-
-	var d decoder
-	switch e.contentType {
-	case ContentTypeXML:
-		d = xml.NewDecoder(bytes.NewReader(data))
-	case ContentTypeTOML:
-		d = newTomlDecoder(bytes.NewReader(data))
-	case ContentTypeYAML:
-		d = yaml.NewDecoder(bytes.NewReader(data))
-	case ContentTypeCBOR:
-		d = cbormode.NewDecoder(bytes.NewReader(data))
-	case ContentTypeEmoji:
-		d = newEmojiDecoder(bytes.NewReader(data))
-	default:
-		dec := json.NewDecoder(bytes.NewReader(data))
+// decoderFor returns the streaming decoder for a content type.
+//
+// JSON is a case like any other rather than the default: a content type this
+// package does not implement is ErrUnsupportedContentType, not a JSON decoder
+// quietly pointed at somebody else's wire format.
+func decoderFor(ct ContentType, r io.Reader) (decoder, error) {
+	switch ct {
+	case ContentTypeJSON:
+		dec := json.NewDecoder(r)
 
 		// Unknown fields are rejected rather than ignored, so a typo'd or stale
 		// field in a payload surfaces as a decode error instead of a zero value.
 		dec.DisallowUnknownFields()
 
-		d = dec
+		return dec, nil
+	case ContentTypeXML:
+		return xml.NewDecoder(r), nil
+	case ContentTypeTOML:
+		return newTomlDecoder(r), nil
+	case ContentTypeYAML:
+		return yaml.NewDecoder(r), nil
+	case ContentTypeCBOR:
+		return cbormode.NewDecoder(r), nil
+	case ContentTypeEmoji:
+		return newEmojiDecoder(r), nil
+	default:
+		return nil, errors.Wrapf(ErrUnsupportedContentType, "decoding %q", ct)
+	}
+}
+
+// DecodeBytes decodes bytes into values.
+func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, dest any) error {
+	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(data)))
+	defer op.End()
+
+	d, err := decoderFor(e.contentType, bytes.NewReader(data))
+	if err != nil {
+		return observability.PrepareError(err, op.Span(), "decoding content")
 	}
 
 	return d.Decode(dest)
@@ -130,12 +143,23 @@ func (e *serverEncoderDecoder) encodeResponse(ctx context.Context, res http.Resp
 	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.ResponseStatusKey, statusCode))
 	defer op.End()
 
+	// Resolved before anything is written. A response this encoder cannot
+	// produce is a server fault, and a 200 with an empty body would tell the
+	// client the opposite — which is not recoverable once the status is out.
+	marshalFunc, err := marshalFuncFor(e.contentType)
+	if err != nil {
+		op.Acknowledge(err, "encoding response")
+		res.WriteHeader(http.StatusInternalServerError)
+
+		return
+	}
+
 	// choose the encoder from the configured content type, not the writer's pre-set header,
 	// so a configured encoder is honored even when the handler never sets a header.
 	res.Header().Set(ContentTypeHeaderKey, e.contentType.String())
 	res.WriteHeader(statusCode)
 
-	out, err := marshalFuncFor(e.contentType)(v)
+	out, err := marshalFunc(v)
 	if err != nil {
 		op.Acknowledge(err, "encoding response")
 
@@ -164,7 +188,12 @@ func (e *serverEncoderDecoder) MustEncode(ctx context.Context, v any) []byte {
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	out, err := marshalFuncFor(e.contentType)(v)
+	marshalFunc, err := marshalFuncFor(e.contentType)
+	if err != nil {
+		e.panicker.Panic(errors.Wrapf(err, "encoding %s content", e.contentType))
+	}
+
+	out, err := marshalFunc(v)
 	if err != nil {
 		e.panicker.Panic(errors.Wrapf(err, "encoding %s content", e.contentType))
 	}
@@ -193,38 +222,29 @@ func (e *serverEncoderDecoder) DecodeRequest(ctx context.Context, req *http.Requ
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	var d decoder
-	switch contentTypeFromRequestHeader(req.Header.Get(ContentTypeHeaderKey)) {
-	case ContentTypeXML:
-		d = xml.NewDecoder(req.Body)
-	case ContentTypeTOML:
-		d = newTomlDecoder(req.Body)
-	case ContentTypeYAML:
-		d = yaml.NewDecoder(req.Body)
-	case ContentTypeCBOR:
-		d = cbormode.NewDecoder(req.Body)
-	case ContentTypeEmoji:
-		d = newEmojiDecoder(req.Body)
-	default:
-		dec := json.NewDecoder(req.Body)
-
-		// Unknown fields are rejected rather than ignored, so a typo'd or stale
-		// field in a payload surfaces as a decode error instead of a zero value.
-		dec.DisallowUnknownFields()
-
-		d = dec
-	}
-
 	defer func() {
 		if err := req.Body.Close(); err != nil {
 			op.Logger().Error("closing request body", err)
 		}
 	}()
 
+	// contentTypeFromRequestHeader only ever yields a supported ContentType — an
+	// unlabeled or unrecognized request body is JSON by documented, inbound-only
+	// design — so decoderFor cannot fail here. The error is still checked rather
+	// than dropped, because the day that stops being true it should say so.
+	d, err := decoderFor(contentTypeFromRequestHeader(req.Header.Get(ContentTypeHeaderKey)), req.Body)
+	if err != nil {
+		return observability.PrepareError(err, op.Span(), "decoding request")
+	}
+
 	return d.Decode(v)
 }
 
 // NewServerEncoderDecoder provides a ServerEncoderDecoder.
+//
+// As with NewClientEncoder, an unsupported ContentType is reported from every
+// operation as ErrUnsupportedContentType rather than silently served as JSON.
+// Resolve configuration through ParseContentType, which refuses it up front.
 func NewServerEncoderDecoder(contentType ContentType, opts ...Option) ServerEncoderDecoder {
 	cfg := newOptions(opts)
 

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	"github.com/primandproper/platform-go/v10/random"
 
@@ -129,7 +130,7 @@ func TestConfig_NewTokenIssuer(T *testing.T) {
 		}
 
 		actual, err := cfg.NewTokenIssuer()
-		test.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnknownProvider)
 		test.Nil(t, actual)
 	})
 

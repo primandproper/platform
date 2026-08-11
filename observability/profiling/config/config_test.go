@@ -128,12 +128,12 @@ func TestConfig_NewProfilingProvider(T *testing.T) {
 		must.NoError(t, p.Shutdown(t.Context()))
 	})
 
-	T.Run("pyroscope with nil config returns noop", func(t *testing.T) {
+	T.Run("pyroscope with nil config is an error, not a noop", func(t *testing.T) {
 		t.Parallel()
 		c := &Config{Provider: ProviderPyroscope}
 		p, err := c.NewProfilingProvider(t.Context(), WithLogger(logger))
-		must.NoError(t, err)
-		test.NotNil(t, p)
+		test.ErrorIs(t, err, ErrPyroscopeConfigRequired)
+		test.Nil(t, p)
 	})
 
 	T.Run("pyroscope with config sets default upload rate", func(t *testing.T) {

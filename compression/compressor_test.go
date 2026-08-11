@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/encoding"
+	"github.com/primandproper/platform-go/v10/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -289,5 +290,27 @@ func TestCompressor_DecompressBytes_boundsConcatenatedFrames(T *testing.T) {
 		out, err := c.DecompressBytes(concatenated)
 		test.ErrorIs(t, err, ErrDecompressedTooLarge)
 		test.Nil(t, out)
+	})
+}
+
+func TestErrInvalidAlgorithm(T *testing.T) {
+	T.Parallel()
+
+	// Algorithm is a runtime-config selection seam like any provider name, so
+	// startup code that branches on the one platform sentinel catches a bad
+	// compression algorithm too.
+	T.Run("wraps the platform unknown-provider sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, ErrInvalidAlgorithm, errors.ErrUnknownProvider)
+	})
+
+	T.Run("an unknown algorithm reports both", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := NewCompressor("brotli")
+		test.Nil(t, c)
+		test.ErrorIs(t, err, ErrInvalidAlgorithm)
+		test.ErrorIs(t, err, errors.ErrUnknownProvider)
 	})
 }

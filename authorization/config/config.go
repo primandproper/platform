@@ -222,7 +222,7 @@ func NewPolicyResolver(
 			static.WithLogger(logger),
 		}, o.static...)...)
 	default:
-		return nil, errors.Newf("invalid authorization provider: %q", cfg.Provider)
+		return nil, errors.Wrapf(errors.ErrUnknownProvider, "authorization provider %q", cfg.Provider)
 	}
 
 	if err != nil {
@@ -233,12 +233,21 @@ func NewPolicyResolver(
 		return resolver, nil
 	}
 
-	return cached.NewResolver(resolver, c, append([]cached.Option{
+	// Built into a variable and returned only once err is known to be nil, as
+	// the switch above does: cached.NewResolver returns a *cached.Resolver, and
+	// returning it straight through would hand back a non-nil PolicyResolver
+	// wrapping a nil pointer whenever it failed.
+	cachedResolver, err := cached.NewResolver(resolver, c, append([]cached.Option{
 		cached.WithLogger(logger),
 		cached.WithTracerProvider(tracerProvider),
 		cached.WithMetricsProvider(metricsProvider),
 		cached.WithTTL(cfg.CacheTTL),
 	}, o.cached...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return cachedResolver, nil
 }
 
 // normalize trims and lowercases a provider name, so that configuration

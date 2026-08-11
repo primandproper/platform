@@ -69,20 +69,48 @@ type (
 // what makes MustEncodeJSON(v) equal json.Marshal(v) exactly — this package
 // passes the marshaler's output through untouched. It says nothing about
 // whether a given marshaler encodes a value the same way twice; see doc.go.
-func marshalFuncFor(ct ContentType) func(v any) ([]byte, error) {
+//
+// JSON is a case like any other rather than the default. A content type this
+// package does not implement is ErrUnsupportedContentType, which is what the
+// ContentType documentation has always promised: nothing here silently stands
+// in for JSON, least of all on a value an operator typed.
+func marshalFuncFor(ct ContentType) (func(v any) ([]byte, error), error) {
 	switch ct {
+	case ContentTypeJSON:
+		return json.Marshal, nil
 	case ContentTypeXML:
-		return xml.Marshal
+		return xml.Marshal, nil
 	case ContentTypeTOML:
-		return tomlMarshalFunc
+		return tomlMarshalFunc, nil
 	case ContentTypeYAML:
-		return yaml.Marshal
+		return yaml.Marshal, nil
 	case ContentTypeCBOR:
-		return cbormode.Marshal
+		return cbormode.Marshal, nil
 	case ContentTypeEmoji:
-		return marshalEmoji
+		return marshalEmoji, nil
 	default:
-		return json.Marshal
+		return nil, errors.Wrapf(ErrUnsupportedContentType, "marshaling %q", ct)
+	}
+}
+
+// unmarshalFuncFor is marshalFuncFor's counterpart, and refuses an unknown
+// content type for the same reason.
+func unmarshalFuncFor(ct ContentType) (func(data []byte, v any) error, error) {
+	switch ct {
+	case ContentTypeJSON:
+		return json.Unmarshal, nil
+	case ContentTypeXML:
+		return xml.Unmarshal, nil
+	case ContentTypeTOML:
+		return toml.Unmarshal, nil
+	case ContentTypeYAML:
+		return yaml.Unmarshal, nil
+	case ContentTypeCBOR:
+		return cbormode.Unmarshal, nil
+	case ContentTypeEmoji:
+		return unmarshalEmoji, nil
+	default:
+		return nil, errors.Wrapf(ErrUnsupportedContentType, "unmarshaling %q", ct)
 	}
 }
 
@@ -90,24 +118,12 @@ func (e *clientEncoder) Unmarshal(ctx context.Context, data []byte, v any) error
 	_, op := e.o11y.Begin(ctx, observability.WithValue("data_length", len(data)))
 	defer op.End()
 
-	var unmarshalFunc func(data []byte, v any) error
-
-	switch e.contentType {
-	case ContentTypeXML:
-		unmarshalFunc = xml.Unmarshal
-	case ContentTypeEmoji:
-		unmarshalFunc = unmarshalEmoji
-	case ContentTypeTOML:
-		unmarshalFunc = toml.Unmarshal
-	case ContentTypeYAML:
-		unmarshalFunc = yaml.Unmarshal
-	case ContentTypeCBOR:
-		unmarshalFunc = cbormode.Unmarshal
-	default:
-		unmarshalFunc = json.Unmarshal
+	unmarshalFunc, err := unmarshalFuncFor(e.contentType)
+	if err != nil {
+		return observability.PrepareError(err, op.Span(), "unmarshaling content")
 	}
 
-	if err := unmarshalFunc(data, v); err != nil {
+	if err = unmarshalFunc(data, v); err != nil {
 		return observability.PrepareError(err, op.Span(), "unmarshaling content")
 	}
 
@@ -121,7 +137,12 @@ func (e *clientEncoder) Marshal(ctx context.Context, v any) ([]byte, error) {
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
-	out, err := marshalFuncFor(e.contentType)(v)
+	marshalFunc, err := marshalFuncFor(e.contentType)
+	if err != nil {
+		return nil, observability.PrepareError(err, op.Span(), "marshaling content")
+	}
+
+	out, err := marshalFunc(v)
 	if err != nil {
 		return nil, observability.PrepareError(err, op.Span(), "marshaling content")
 	}
@@ -196,6 +217,12 @@ func (e *clientEncoder) EncodeReader(ctx context.Context, data any) (io.Reader, 
 }
 
 // NewClientEncoder provides a ClientEncoder.
+//
+// It takes an already-resolved ContentType rather than a string, so the place
+// to turn configuration into one is ParseContentType, which reports an
+// unrecognized media type. An encoder built on a hand-made ContentType this
+// package does not implement returns ErrUnsupportedContentType from every
+// operation; it does not fall back to JSON.
 func NewClientEncoder(encoding ContentType, opts ...Option) ClientEncoder {
 	cfg := newOptions(opts)
 

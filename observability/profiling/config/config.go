@@ -28,6 +28,11 @@ const (
 	ProviderNoop = "noop"
 )
 
+// ErrPyroscopeConfigRequired is returned when the pyroscope provider is named
+// with no pyroscope config to go with it. It wraps errors.ErrNilInputParameter,
+// so a caller may check either.
+var ErrPyroscopeConfigRequired = errors.Wrap(errors.ErrNilInputParameter, "pyroscope profiling provider selected with no pyroscope config")
+
 type (
 	// Config contains settings related to profiling.
 	Config struct {
@@ -49,8 +54,12 @@ func (c *Config) NewProfilingProvider(ctx context.Context, opts ...Option) (prof
 
 	switch p {
 	case ProviderPyroscope:
+		// A named provider with nothing to configure it is an error rather than a
+		// silent noop. There is no server address to send profiles to, and the
+		// process would otherwise run its whole life unprofiled while looking to
+		// every reader of the config like it was reporting to Pyroscope.
 		if c.Pyroscope == nil {
-			return profilingnoop.NewProvider(), nil
+			return nil, ErrPyroscopeConfigRequired
 		}
 		// Set default upload rate if not specified.
 		if c.Pyroscope.UploadRate == 0 {
