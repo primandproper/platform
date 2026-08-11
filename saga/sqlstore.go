@@ -12,14 +12,12 @@ import (
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/filtering"
+	"github.com/primandproper/platform-go/v10/internal/sqlguard"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	"github.com/primandproper/platform-go/v10/saga/migrations"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // DefaultTablePrefix is the namespace the saga tables carry when none is
@@ -46,6 +44,10 @@ type sqlStore struct {
 	o11y   observability.Observer
 
 	guardMissCounter metrics.Int64Counter
+
+	// guard is what a guarded write means in this package when it matches no
+	// row. See internal/sqlguard.
+	guard sqlguard.Guard
 
 	// What the options wrote, kept only until the observer is built from it.
 	// Read s.o11y.Logger() for the logger this store actually uses; this one
@@ -104,14 +106,16 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 		return nil, platformerrors.Wrap(err, "creating saga store guard miss counter")
 	}
 
-	return s, nil
-}
+	s.guard = sqlguard.Guard{
+		MissCounter: s.guardMissCounter,
+		NotFound:    ErrInstanceNotFound,
+		Namespace:   "saga",
+		IDKey:       instanceIDKey,
+		Message:     "saga instance left the active set before its progress could be recorded",
+		Reason:      "saga instance %q is no longer advanceable",
+	}
 
-// storeOpAttr labels a guard miss with the operation that missed, so the metric
-// distinguishes an operator resuming twice from a worker losing an advance race
-// — one is routine and one wants looking at.
-func storeOpAttr(operation string) metric.MeasurementOption {
-	return metric.WithAttributes(attribute.String(storeOpKey, operation))
+	return s, nil
 }
 
 func (s *sqlStore) Save(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error {
@@ -329,7 +333,7 @@ func (s *sqlStore) Advance(ctx context.Context, q database.SQLQueryExecutor, ins
 
 	query, args := s.tables.buildAdvance(s.dialect, inst, nextAttempt, inst.UpdatedAt)
 
-	return s.execExpectingRow(ctx, op, q, query, args, inst.ID, "advance", "advancing saga instance")
+	return s.guard.Exec(ctx, op, q, query, args, inst.ID, "advance", "advancing saga instance")
 }
 
 func (s *sqlStore) Reschedule(
@@ -349,7 +353,7 @@ func (s *sqlStore) Reschedule(
 
 	query, args := s.tables.buildReschedule(s.dialect, instanceID, attempts, nextAttempt, lastErr, at)
 
-	return s.execExpectingRow(ctx, op, s.client.Writer(), query, args, instanceID, "reschedule", "rescheduling saga instance")
+	return s.guard.Exec(ctx, op, s.client.Writer(), query, args, instanceID, "reschedule", "rescheduling saga instance")
 }
 
 func (s *sqlStore) Release(ctx context.Context, instanceID string, at time.Time) error {
@@ -403,7 +407,7 @@ func (s *sqlStore) Requeue(
 		// logged as an error, because from here the two are indistinguishable
 		// and it is the caller that knows whether losing this race matters.
 		op.Set(guardMissedKey, true)
-		s.guardMissCounter.Add(ctx, 1, storeOpAttr("requeue"))
+		s.guardMissCounter.Add(ctx, 1, s.guard.OpAttr("requeue"))
 
 		return nil, platformerrors.Wrapf(ErrInstanceNotFound, "saga instance %q in expected status", instanceID)
 	}
@@ -416,49 +420,6 @@ func (s *sqlStore) Requeue(
 // say nothing the client's does not.
 func (s *sqlStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
 	return s.client.WithTransaction(ctx, fn)
-}
-
-// execExpectingRow runs a guarded UPDATE and reports one that matched nothing.
-//
-// The distinction matters more here than it looks. An advance that matches no
-// rows means the instance left the active set while the worker was mid-step —
-// finished by another worker after a lease lapsed, or marked stuck by an
-// operator — and treating that as success would have the worker carry on
-// running steps against a saga the database says is over.
-func (s *sqlStore) execExpectingRow(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	query string,
-	args []any,
-	instanceID, operation, description string,
-) error {
-	result, err := q.ExecContext(ctx, query, args...)
-	if err != nil {
-		return op.Error(err, "%s", description)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return op.Error(err, "reading result of %s", description)
-	}
-
-	op.Set(rowsAffectedKey, affected)
-
-	if affected == 0 {
-		// Logged rather than merely counted, because this one is worth reading.
-		// The step already ran — the charge is posted, the object is written —
-		// and the row that should record it has moved on without us. Everything
-		// needed to find the instance by hand goes in the line.
-		op.Set(guardMissedKey, true)
-		s.guardMissCounter.Add(ctx, 1, storeOpAttr(operation))
-		op.Logger().WithValue(instanceIDKey, instanceID).
-			Info("saga instance left the active set before its progress could be recorded")
-
-		return platformerrors.Wrapf(ErrInstanceNotFound, "saga instance %q is no longer advanceable", instanceID)
-	}
-
-	return nil
 }
 
 // statusStrings renders a status set for a span attribute. Spans take scalars
@@ -474,51 +435,13 @@ func statusStrings(statuses []Status) string {
 }
 
 // scanIDs drains a single-column ID projection.
-func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (ids []string, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing saga instance ID rows")
-		}
-	}()
-
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-
-		ids = append(ids, id)
-	}
-
-	return ids, rows.Err()
+func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]string, error) {
+	return database.ScanStrings(ctx, q, "saga instance ID", query, args)
 }
 
 // scanInstances drains an instance projection.
-func scanInstances(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (instances []*Record, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing saga instance rows")
-		}
-	}()
-
-	for rows.Next() {
-		inst, scanErr := scanInstance(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-
-		instances = append(instances, inst)
-	}
-
-	return instances, rows.Err()
+func scanInstances(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]*Record, error) {
+	return database.ScanAll(ctx, q, "saga instance", query, args, scanInstance)
 }
 
 // scanInstance reads one row of instanceColumns.

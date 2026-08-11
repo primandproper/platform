@@ -10,14 +10,12 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/sqlguard"
 	"github.com/primandproper/platform-go/v10/metering/migrations"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // DefaultTablePrefix is the namespace the metering tables carry when none is
@@ -48,6 +46,10 @@ type SQLStore struct {
 	o11y   observability.Observer
 
 	guardMissCounter metrics.Int64Counter
+
+	// guard is what a guarded write means in this package when it matches no
+	// row. See internal/sqlguard.
+	guard sqlguard.Guard
 
 	// What the options wrote, kept only until the observer is built from it.
 	// Read s.o11y.Logger() for the logger this store actually uses; this one
@@ -106,14 +108,18 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		return nil, platformerrors.Wrap(err, "creating metering store guard miss counter")
 	}
 
-	return s, nil
-}
+	// The meter reaches the line here where it did not before: a total that
+	// moved on is one row among a deployment's many, and a line that named none
+	// of them left an operator nothing to look the total up by.
+	s.guard = sqlguard.Guard{
+		MissCounter: s.guardMissCounter,
+		Namespace:   "metering",
+		IDKey:       meterKey,
+		Message:     "metering total moved on before its flush could be settled",
+		Reason:      "metering total for meter %q is no longer at the expected flush sequence",
+	}
 
-// storeOpAttr labels a guard miss with the operation that missed, so the metric
-// distinguishes a lapsed flush lease from a settle that raced another flusher —
-// one is routine and one wants looking at.
-func storeOpAttr(operation string) metric.MeasurementOption {
-	return metric.WithAttributes(attribute.String(storeOpKey, operation))
+	return s, nil
 }
 
 func (s *SQLStore) Record(ctx context.Context, entries []Entry, at time.Time) (RecordResult, error) {
@@ -532,7 +538,7 @@ func (s *SQLStore) MarkFlushed(ctx context.Context, total *Total, flushed int64,
 
 	query, args := s.tables.buildMarkFlushed(s.dialect, total, flushed, at)
 
-	return s.execExpectingRow(ctx, op, query, args, "mark_flushed",
+	return s.guard.Exec(ctx, op, s.client.Writer(), query, args, total.Meter, "mark_flushed",
 		"marking metering total flushed")
 }
 
@@ -555,7 +561,7 @@ func (s *SQLStore) ReleaseFlush(ctx context.Context, total *Total, lastErr strin
 
 	query, args := s.tables.buildReleaseFlush(s.dialect, total, lastErr, nextFlush, nextFlush)
 
-	return s.execExpectingRow(ctx, op, query, args, "release_flush",
+	return s.guard.Exec(ctx, op, s.client.Writer(), query, args, total.Meter, "release_flush",
 		"releasing metering flush lease")
 }
 
@@ -589,41 +595,6 @@ func (s *SQLStore) ReapEvents(ctx context.Context, before time.Time, limit int) 
 // nothing the client's does not.
 func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
 	return s.client.WithTransaction(ctx, fn)
-}
-
-// execExpectingRow runs a guarded UPDATE and reports one that matched nothing.
-//
-// The distinction matters more here than it looks. A settle that matches no rows
-// means the total's flush sequence moved while this flusher was posting — its
-// lease lapsed and somebody else took over — and treating that as success would
-// have two flushers each believe they own the next sequence number.
-func (s *SQLStore) execExpectingRow(
-	ctx context.Context,
-	op observability.Operation,
-	query string,
-	args []any,
-	operation, description string,
-) error {
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
-	if err != nil {
-		return op.Error(err, "%s", description)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return op.Error(err, "reading result of %s", description)
-	}
-
-	op.Set(rowsAffectedKey, affected)
-
-	if affected == 0 {
-		s.guardMissCounter.Add(ctx, 1, storeOpAttr(operation))
-		op.Logger().Info("metering total moved on before its flush could be settled")
-
-		return platformerrors.Newf("metering total is no longer at the expected flush sequence")
-	}
-
-	return nil
 }
 
 // entryGroup is one period's worth of accepted records for one subject and meter,
@@ -710,52 +681,22 @@ func overageOf(used, limit int64) int64 {
 }
 
 // scanTotalKeys drains a composite-key projection.
-func scanTotalKeys(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (keys []totalKey, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing metering total key rows")
-		}
-	}()
-
-	for rows.Next() {
+func scanTotalKeys(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]totalKey, error) {
+	return database.ScanAll(ctx, q, "metering total key", query, args, func(scanner database.Scanner) (totalKey, error) {
 		var k totalKey
-		if err = rows.Scan(&k.subject, &k.meter, &k.periodStart); err != nil {
-			return nil, err
+		if err := scanner.Scan(&k.subject, &k.meter, &k.periodStart); err != nil {
+			return totalKey{}, err
 		}
 
 		k.periodStart = k.periodStart.UTC()
-		keys = append(keys, k)
-	}
 
-	return keys, rows.Err()
+		return k, nil
+	})
 }
 
 // scanTotals drains a total projection.
-func scanTotals(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (totals []*Total, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing metering total rows")
-		}
-	}()
-
-	for rows.Next() {
-		total, scanErr := scanTotal(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-
-		totals = append(totals, total)
-	}
-
-	return totals, rows.Err()
+func scanTotals(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]*Total, error) {
+	return database.ScanAll(ctx, q, "metering total", query, args, scanTotal)
 }
 
 // scanTotal reads one row of totalColumns.

@@ -577,48 +577,40 @@ func (t *Timers[K]) claim(ctx context.Context, limit int, lease time.Duration) (
 }
 
 // claimOnce is one attempt of claim.
-func (t *Timers[K]) claimOnce(ctx context.Context, limit int, lease time.Duration) (due []Due[K], err error) {
+func (t *Timers[K]) claimOnce(ctx context.Context, limit int, lease time.Duration) ([]Due[K], error) {
 	// The writer, not the reader: this is an UPDATE that happens to return rows,
 	// and a read replica would both fail it and lose every lease it handed out.
-	rows, err := t.client.Writer().QueryContext(ctx, buildClaim(t.cfg.resolvedTable()),
-		t.cfg.Name, t.cfg.attemptCeiling(), limit, lease.Microseconds())
+	due, err := database.ScanAll(ctx, t.client.Writer(), "claimed timer",
+		buildClaim(t.cfg.resolvedTable()),
+		[]any{t.cfg.Name, t.cfg.attemptCeiling(), limit, lease.Microseconds()},
+		func(scanner database.Scanner) (Due[K], error) {
+			var (
+				encoded    string
+				lateMicros int64
+				fired      Due[K]
+			)
+
+			if scanErr := scanner.Scan(&encoded, &fired.Payload, &fired.RunAt,
+				&lateMicros, &fired.Attempts, &fired.Reclaimed); scanErr != nil {
+				return fired, platformerrors.Wrap(scanErr, "scanning claimed timer")
+			}
+
+			fired.Late = max(time.Duration(lateMicros)*time.Microsecond, 0)
+
+			// A key that will not decode is the one failure here a caller cannot act
+			// on and must not be hidden: it means the table holds rows written under
+			// a different key type or codec, and every claim will keep leasing them.
+			// Failing the whole batch is the loud version of that, and the lease
+			// lapses on its own.
+			var decodeErr error
+			if fired.Key, decodeErr = t.codec.DecodeKey(encoded); decodeErr != nil {
+				return fired, platformerrors.Wrapf(decodeErr, "decoding claimed timer key %q", encoded)
+			}
+
+			return fired, nil
+		})
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "leasing due timers")
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing claimed timer rows")
-		}
-	}()
-
-	for rows.Next() {
-		var (
-			encoded    string
-			lateMicros int64
-			fired      Due[K]
-		)
-
-		if err = rows.Scan(&encoded, &fired.Payload, &fired.RunAt,
-			&lateMicros, &fired.Attempts, &fired.Reclaimed); err != nil {
-			return nil, platformerrors.Wrap(err, "scanning claimed timer")
-		}
-
-		fired.Late = max(time.Duration(lateMicros)*time.Microsecond, 0)
-
-		// A key that will not decode is the one failure here a caller cannot act
-		// on and must not be hidden: it means the table holds rows written under
-		// a different key type or codec, and every claim will keep leasing them.
-		// Failing the whole batch is the loud version of that, and the lease
-		// lapses on its own.
-		if fired.Key, err = t.codec.DecodeKey(encoded); err != nil {
-			return nil, platformerrors.Wrapf(err, "decoding claimed timer key %q", encoded)
-		}
-
-		due = append(due, fired)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, platformerrors.Wrap(err, "reading claimed timers")
 	}
 
 	return due, nil

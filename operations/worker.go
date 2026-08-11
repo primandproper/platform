@@ -475,14 +475,7 @@ func classify(err error) *Error {
 }
 
 // isCancelled reports whether the reporter's cancellation channel is closed.
-func isCancelled(rep *reporter) bool {
-	select {
-	case <-rep.Cancelled():
-		return true
-	default:
-		return false
-	}
-}
+func isCancelled(rep *reporter) bool { return Cancelled(rep) }
 
 // errorOf renders a structured Error back into a Go error, for the queue's own
 // last_error column. A queue item's error is an operator's breadcrumb rather

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 
 	"github.com/shoenig/test"
@@ -376,9 +377,9 @@ func TestBlobOrNilAndEncodeDimensions(T *testing.T) {
 	// Nil and empty collapse deliberately: they say the same thing, and storing
 	// two renderings would make the round trip depend on which call site wrote
 	// the row.
-	test.Nil(T, blobOrNil(nil))
-	test.Nil(T, blobOrNil([]byte{}))
-	test.NotNil(T, blobOrNil([]byte(`{"a":"b"}`)))
+	test.Nil(T, database.BlobOrNil(nil))
+	test.Nil(T, database.BlobOrNil([]byte{}))
+	test.NotNil(T, database.BlobOrNil([]byte(`{"a":"b"}`)))
 
 	empty, err := encodeDimensions(nil)
 	must.NoError(T, err)

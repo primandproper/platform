@@ -249,12 +249,4 @@ func TestQueryHelpers(T *testing.T) {
 		test.EqOp(t, " WHERE a = 1", wherePrefix("a = 1"))
 	})
 
-	T.Run("blobOrNil collapses empty and absent", func(t *testing.T) {
-		t.Parallel()
-
-		test.Nil(t, blobOrNil(nil))
-		test.Nil(t, blobOrNil([]byte{}))
-
-		must.NotNil(t, blobOrNil([]byte("x")))
-	})
 }

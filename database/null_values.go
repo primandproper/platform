@@ -265,3 +265,34 @@ func CoerceTime(v any) (time.Time, bool) {
 
 	return time.Time{}, false
 }
+
+// BlobOrNil maps an empty encoding to a SQL NULL rather than an empty blob.
+//
+// "No value" and "an empty value" mean the same thing in every column in this
+// module that holds an encoded payload — no request, no failure map, no
+// snapshot — and storing two renderings of it would make the round trip depend
+// on which call site wrote the row: one reader gets nil back and another gets a
+// zero-length slice, from rows that were written to mean the same thing.
+func BlobOrNil(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+
+	return b
+}
+
+// CursorOrder reports the ORDER BY direction and the comparison operator a
+// keyset-paginated read uses for a given sort direction.
+//
+// It is one function because the two halves have to agree and nothing checks
+// that they do. A descending page that kept "id > cursor" reads the wrong side
+// of the boundary: the first page comes back, and every page after it skips
+// straight past the rows the caller asked for. That failure produces no error
+// and no empty result — just a listing quietly missing its middle.
+func CursorOrder(descending bool) (direction, comparison string) {
+	if descending {
+		return "DESC", " < "
+	}
+
+	return "ASC", " > "
+}

@@ -8,18 +8,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/filtering"
+	"github.com/primandproper/platform-go/v10/internal/sqlguard"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	"github.com/primandproper/platform-go/v10/operations/migrations"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // storeName scopes the store's spans and logger. It is deliberately not
@@ -38,7 +37,11 @@ type sqlStore struct {
 	o11y   observability.Observer
 
 	guardMissCounter metrics.Int64Counter
-	notifyCounter    metrics.Int64Counter
+
+	// guard is what a guarded write means in this package when it matches no
+	// row. See internal/sqlguard.
+	guard         sqlguard.Guard
+	notifyCounter metrics.Int64Counter
 
 	// What the options wrote, kept only until the observer is built from it.
 	// Read s.o11y.Logger() for the logger this store actually uses; this one may
@@ -108,14 +111,16 @@ func NewSQLStore(client database.Client, opts ...StoreOption) (Store, error) {
 		return nil, platformerrors.Wrap(err, "creating operations store notify failure counter")
 	}
 
-	return s, nil
-}
+	s.guard = sqlguard.Guard{
+		MissCounter: s.guardMissCounter,
+		NotFound:    ErrOperationNotFound,
+		Namespace:   "operations",
+		IDKey:       operationIDKey,
+		Message:     "operation left the active set before its outcome could be recorded",
+		Reason:      "operation %q is no longer active",
+	}
 
-// storeOpAttr labels a measurement with the operation that produced it, so a
-// guard miss distinguishes a caller cancelling twice from a worker losing a
-// lease race — one is routine and one wants looking at.
-func storeOpAttr(operation string) metric.MeasurementOption {
-	return metric.WithAttributes(attribute.String(storeOpKey, operation))
+	return s, nil
 }
 
 func (s *sqlStore) Insert(ctx context.Context, q database.SQLQueryExecutor, op *Operation) (*Operation, error) {
@@ -292,7 +297,7 @@ func (s *sqlStore) Begin(ctx context.Context, id string, attempts int, lease tim
 			// logged as an error, because from here the three are the same
 			// answer — not ours to run — and only one of them is interesting.
 			span.Set(guardMissedKey, true)
-			s.guardMissCounter.Add(ctx, 1, storeOpAttr("begin"))
+			s.guardMissCounter.Add(ctx, 1, s.guard.OpAttr("begin"))
 
 			return nil, platformerrors.Wrapf(ErrOperationNotFound, "operation %q is not claimable", id)
 		}
@@ -318,9 +323,9 @@ func (s *sqlStore) Progress(ctx context.Context, id string, progress Progress, l
 	query, args := s.tables.buildProgress(id, progressRow{
 		unitsTotal: progress.UnitsTotal,
 		unitsDone:  progress.UnitsDone,
-		unit:       truncate(progress.Unit, MaxMessageLength),
+		unit:       charset.TruncateUTF8(progress.Unit, MaxMessageLength),
 		count:      progress.Count,
-		message:    truncate(progress.Message, MaxMessageLength),
+		message:    charset.TruncateUTF8(progress.Message, MaxMessageLength),
 	}, lease.Microseconds())
 
 	var ack Ack
@@ -334,7 +339,7 @@ func (s *sqlStore) Progress(ctx context.Context, id string, progress Progress, l
 			// error here would have every Runner's progress call fail at the one
 			// moment the Runner most needs to hear a plain "stop".
 			span.Set(guardMissedKey, true)
-			s.guardMissCounter.Add(ctx, 1, storeOpAttr("progress"))
+			s.guardMissCounter.Add(ctx, 1, s.guard.OpAttr("progress"))
 
 			return Ack{}, nil
 		}
@@ -377,7 +382,7 @@ func (s *sqlStore) Finish(
 
 	if opErr != nil {
 		truncated := *opErr
-		truncated.Message = truncate(truncated.Message, MaxMessageLength)
+		truncated.Message = charset.TruncateUTF8(truncated.Message, MaxMessageLength)
 		opErr = &truncated
 	}
 
@@ -398,7 +403,7 @@ func (s *sqlStore) Release(ctx context.Context, id string, opErr *Error) error {
 
 	var code, message string
 	if opErr != nil {
-		code, message = opErr.Code, truncate(opErr.Message, MaxMessageLength)
+		code, message = opErr.Code, charset.TruncateUTF8(opErr.Message, MaxMessageLength)
 	}
 
 	query, args := s.tables.buildRelease(id, code, message)
@@ -505,10 +510,10 @@ func (s *sqlStore) notify(ctx context.Context) {
 	}
 }
 
-// execExpectingRow runs a guarded UPDATE and reports one that matched nothing.
+// execExpectingRow runs a guarded UPDATE and wakes the watchers when it lands.
 //
-// The distinction matters more here than it looks. A finish that matches no rows
-// means the operation left the active set while the Runner was working —
+// The guard's distinction matters more here than it looks. A finish that matches
+// no rows means the operation left the active set while the Runner was working —
 // finished by another worker after a lease lapsed, or cancelled outright — and
 // treating that as success would have the worker report a result the database
 // never recorded, to a client that will poll the row and see something else.
@@ -519,29 +524,8 @@ func (s *sqlStore) execExpectingRow(
 	args []any,
 	id, operation, description string,
 ) error {
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
-	if err != nil {
-		return span.Error(err, "%s", description)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return span.Error(err, "reading result of %s", description)
-	}
-
-	span.Set(rowsAffectedKey, affected)
-
-	if affected == 0 {
-		// Logged rather than merely counted, because this one is worth reading.
-		// The work already ran — the export is written, the index is rebuilt —
-		// and the row that should record it has moved on without us. Everything
-		// needed to find the operation by hand goes in the line.
-		span.Set(guardMissedKey, true)
-		s.guardMissCounter.Add(ctx, 1, storeOpAttr(operation))
-		span.Logger().WithValue(operationIDKey, id).
-			Info("operation left the active set before its outcome could be recorded")
-
-		return platformerrors.Wrapf(ErrOperationNotFound, "operation %q is no longer active", id)
+	if err := s.guard.Exec(ctx, span, s.client.Writer(), query, args, id, operation, description); err != nil {
+		return err
 	}
 
 	s.notify(ctx)
@@ -567,27 +551,8 @@ func scanOperations(
 	q database.SQLQueryExecutor,
 	query string,
 	args []any,
-) (ops []*Operation, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing operation rows")
-		}
-	}()
-
-	for rows.Next() {
-		op, scanErr := scanOperation(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-
-		ops = append(ops, op)
-	}
-
-	return ops, rows.Err()
+) ([]*Operation, error) {
+	return database.ScanAll(ctx, q, "operation", query, args, scanOperation)
 }
 
 // scanOperation reads one row of operationColumns.

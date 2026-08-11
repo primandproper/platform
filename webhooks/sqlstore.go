@@ -595,54 +595,21 @@ func (s *SQLStore) Reap(ctx context.Context, before time.Time, limit int) (int64
 }
 
 // subscriptionsFor reads one endpoint's event types.
-func (s *SQLStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) (events []string, err error) {
+func (s *SQLStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) ([]string, error) {
 	query := "SELECT event_type FROM " + s.tables.subscriptions +
 		" WHERE endpoint_id = " + s.dialect.Placeholder(1) + " ORDER BY event_type"
 
-	rows, err := q.QueryContext(ctx, query, endpointID)
+	events, err := database.ScanStrings(ctx, q, "webhook subscription", query, []any{endpointID})
 	if err != nil {
 		return nil, platformerrors.Wrapf(err, "reading subscriptions for webhook endpoint %q", endpointID)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing webhook subscription rows")
-		}
-	}()
 
-	for rows.Next() {
-		var event string
-		if err = rows.Scan(&event); err != nil {
-			return nil, err
-		}
-
-		events = append(events, event)
-	}
-
-	return events, rows.Err()
+	return events, nil
 }
 
 // scanEndpoints projects endpoint rows, without their subscriptions.
-func (s *SQLStore) scanEndpoints(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (endpoints []*Endpoint, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing webhook endpoint rows")
-		}
-	}()
-
-	for rows.Next() {
-		endpoint, scanErr := scanEndpoint(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-
-		endpoints = append(endpoints, endpoint)
-	}
-
-	return endpoints, rows.Err()
+func (s *SQLStore) scanEndpoints(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]*Endpoint, error) {
+	return database.ScanAll(ctx, q, "webhook endpoint", query, args, scanEndpoint)
 }
 
 // scanEndpoint reads one endpoint row. The column list comes from
@@ -676,18 +643,8 @@ func scanEndpoint(scanner database.Scanner) (*Endpoint, error) {
 
 // scanClaimed projects claimed dispatches joined to their delivery and
 // endpoint. The column list comes from dispatchColumns.
-func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (claimed []ClaimedDispatch, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing claimed webhook dispatch rows")
-		}
-	}()
-
-	for rows.Next() {
+func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]ClaimedDispatch, error) {
+	return database.ScanAll(ctx, q, "claimed webhook dispatch", query, args, func(scanner database.Scanner) (ClaimedDispatch, error) {
 		var (
 			row         ClaimedDispatch
 			endpoint    Endpoint
@@ -696,46 +653,34 @@ func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor,
 			headers     []byte
 		)
 
-		if err = rows.Scan(
+		if err := scanner.Scan(
 			&row.ID, &row.DeliveryID, &row.EndpointID, &orderingKey, &row.Attempts,
 			&row.EventType, &row.Payload,
 			&endpoint.ID, &endpoint.URL, &endpoint.ContentType,
 			&endpoint.Secret.Current, &previous, &headers, &endpoint.Disabled,
 		); err != nil {
-			return nil, err
+			return ClaimedDispatch{}, err
 		}
 
 		endpoint.Secret.Previous = previous
 
 		if len(headers) > 0 {
-			if err = json.Unmarshal(headers, &endpoint.Headers); err != nil {
-				return nil, platformerrors.Wrapf(err, "unmarshaling headers for webhook endpoint %q", endpoint.ID)
+			if err := json.Unmarshal(headers, &endpoint.Headers); err != nil {
+				return ClaimedDispatch{}, platformerrors.Wrapf(err, "unmarshaling headers for webhook endpoint %q", endpoint.ID)
 			}
 		}
 
 		row.OrderingKey = orderingKey.String
 		row.Endpoint = &endpoint
 
-		claimed = append(claimed, row)
-	}
-
-	return claimed, rows.Err()
+		return row, nil
+	})
 }
 
 // scanAttempts projects delivery log rows. The column list comes from
 // attemptColumns.
-func (s *SQLStore) scanAttempts(ctx context.Context, query string, args []any) (attempts []*Attempt, err error) {
-	rows, err := s.client.Reader().QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing webhook attempt rows")
-		}
-	}()
-
-	for rows.Next() {
+func (s *SQLStore) scanAttempts(ctx context.Context, query string, args []any) ([]*Attempt, error) {
+	return database.ScanAll(ctx, s.client.Reader(), "webhook attempt", query, args, func(scanner database.Scanner) (*Attempt, error) {
 		var (
 			attempt     Attempt
 			failure     sql.NullString
@@ -743,7 +688,7 @@ func (s *SQLStore) scanAttempts(ctx context.Context, query string, args []any) (
 			attemptedAt any
 		)
 
-		if err = rows.Scan(
+		if err := scanner.Scan(
 			&attempt.ID, &attempt.DeliveryID, &attempt.EndpointID, &attempt.AttemptCount,
 			&attempt.StatusCode, &failure, &durationMS, &attemptedAt,
 		); err != nil {
@@ -757,34 +702,13 @@ func (s *SQLStore) scanAttempts(ctx context.Context, query string, args []any) (
 			attempt.AttemptedAt = at.UTC()
 		}
 
-		attempts = append(attempts, &attempt)
-	}
-
-	return attempts, rows.Err()
+		return &attempt, nil
+	})
 }
 
 // scanIDs runs a single-column query and collects the results. A close failure
 // is surfaced only when nothing worse already went wrong, so the real cause is
 // never masked by the cleanup.
-func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (ids []string, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing webhook dispatch id rows")
-		}
-	}()
-
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-
-		ids = append(ids, id)
-	}
-
-	return ids, rows.Err()
+func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]string, error) {
+	return database.ScanStrings(ctx, q, "webhook dispatch id", query, args)
 }

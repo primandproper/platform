@@ -518,7 +518,7 @@ func (f *Fulfiller) export(
 	// Checked before the fan-out rather than only after it, because collection
 	// is the expensive half: every registered domain runs a query against the
 	// application's own database on behalf of a request somebody has withdrawn.
-	if cancelled(rep) {
+	if operations.Cancelled(rep) {
 		return nil, f.stop(ctx, req, "stopped before collecting")
 	}
 
@@ -531,7 +531,7 @@ func (f *Fulfiller) export(
 	// units is to stop at a place that can be described, and "collected but not
 	// delivered" is describable in a way that "half an object in a bucket" is
 	// not.
-	if cancelled(rep) {
+	if operations.Cancelled(rep) {
 		return nil, f.stop(ctx, req, "stopped after collecting %d sections", len(doc.Data))
 	}
 
@@ -802,7 +802,7 @@ func (f *Fulfiller) erase(
 
 	rep.SetUnits(len(keys))
 
-	if cancelled(rep) {
+	if operations.Cancelled(rep) {
 		return nil, f.stop(ctx, req, "stopped before erasing")
 	}
 
@@ -1020,15 +1020,6 @@ func containedPanic(op observability.Operation, err, sentinel error) error {
 	return platformerrors.Wrapf(sentinel, "%v", pe.Value)
 }
 
-// cancelled reports whether somebody has asked the operation to stop.
-func cancelled(rep operations.Reporter) bool {
-	select {
-	case <-rep.Cancelled():
-		return true
-	default:
-		return false
-	}
-}
 
 // stop records a request the runner abandoned because it was asked to, and
 // renders the error it returns.

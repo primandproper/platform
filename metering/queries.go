@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/database/ddl"
+	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 )
 
@@ -71,7 +72,7 @@ const totalKeyColumns = "subject, meter, period_start"
 func (t *tables) buildInsertEvent(d dialect.Dialect, e *Entry, dimensions []byte, at time.Time) (query string, args []any) {
 	args = []any{
 		e.IdempotencyKey, e.Subject, e.Meter, e.Quantity,
-		e.OccurredAt.UTC(), at.UTC(), e.Bounds.Start.UTC(), blobOrNil(dimensions),
+		e.OccurredAt.UTC(), at.UTC(), e.Bounds.Start.UTC(), database.BlobOrNil(dimensions),
 	}
 
 	query = fmt.Sprintf(
@@ -486,14 +487,3 @@ func (t *tables) buildReapEvents(d dialect.Dialect, before time.Time, limit int)
 	return fmt.Sprintf("DELETE FROM %s WHERE idempotency_key IN (%s)", t.events, inner), args
 }
 
-// blobOrNil maps an empty encoding to a SQL NULL rather than an empty blob, so
-// "no dimensions" and "an empty dimension map" cannot be distinguished in the
-// column by accident — they mean the same thing, and storing two renderings of it
-// would make the round trip depend on which call site wrote the row.
-func blobOrNil(b []byte) any {
-	if len(b) == 0 {
-		return nil
-	}
-
-	return b
-}

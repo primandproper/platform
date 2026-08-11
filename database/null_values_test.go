@@ -571,3 +571,48 @@ func TestCoerceTime(T *testing.T) {
 		}
 	})
 }
+
+func TestBlobOrNil(T *testing.T) {
+	T.Parallel()
+
+	// Nil and empty collapse deliberately: they say the same thing, and storing
+	// two renderings would make the round trip depend on which call site wrote
+	// the row.
+	T.Run("an absent or empty encoding is NULL", func(t *testing.T) {
+		t.Parallel()
+
+		test.Nil(t, BlobOrNil(nil))
+		test.Nil(t, BlobOrNil([]byte{}))
+	})
+
+	T.Run("a non-empty encoding is the bytes", func(t *testing.T) {
+		t.Parallel()
+
+		test.Eq(t, []byte(`{"a":"b"}`), BlobOrNil([]byte(`{"a":"b"}`)).([]byte))
+	})
+}
+
+func TestCursorOrder(T *testing.T) {
+	T.Parallel()
+
+	// The halves have to agree and nothing checks that they do: a DESC page
+	// keyed on "id > cursor" reads the wrong side of the boundary and skips
+	// every row after the first page, with no error to show for it.
+	T.Run("ascending pages forward", func(t *testing.T) {
+		t.Parallel()
+
+		direction, comparison := CursorOrder(false)
+
+		test.EqOp(t, "ASC", direction)
+		test.EqOp(t, " > ", comparison)
+	})
+
+	T.Run("descending pages backward", func(t *testing.T) {
+		t.Parallel()
+
+		direction, comparison := CursorOrder(true)
+
+		test.EqOp(t, "DESC", direction)
+		test.EqOp(t, " < ", comparison)
+	})
+}

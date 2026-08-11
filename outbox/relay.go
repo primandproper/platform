@@ -615,55 +615,25 @@ func truncateError(err error) string {
 // scanIDs runs a single-column query and collects the results. A close failure
 // is surfaced only when nothing worse already went wrong, so the real cause is
 // never masked by the cleanup.
-func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (ids []string, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing outbox id rows")
-		}
-	}()
-
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-
-		ids = append(ids, id)
-	}
-
-	return ids, rows.Err()
+func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]string, error) {
+	return database.ScanStrings(ctx, q, "outbox id", query, args)
 }
 
 // scanMessages projects claimed rows. The column list comes from
 // messageColumns so the query and this scan cannot drift.
-func scanMessages(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (msgs []claimedMessage, err error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing outbox message rows")
-		}
-	}()
-
-	for rows.Next() {
+func scanMessages(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]claimedMessage, error) {
+	return database.ScanAll(ctx, q, "outbox message", query, args, func(scanner database.Scanner) (claimedMessage, error) {
 		var (
 			msg claimedMessage
 			key sql.NullString
 		)
 
-		if err = rows.Scan(&msg.id, &msg.topic, &key, &msg.payload, &msg.attempts); err != nil {
-			return nil, err
+		if err := scanner.Scan(&msg.id, &msg.topic, &key, &msg.payload, &msg.attempts); err != nil {
+			return claimedMessage{}, err
 		}
 
 		msg.key = key.String
-		msgs = append(msgs, msg)
-	}
 
-	return msgs, rows.Err()
+		return msg, nil
+	})
 }

@@ -334,3 +334,21 @@ func (r *reporter) close(ctx context.Context) {
 		r.flush(ctx)
 	})
 }
+
+// Cancelled reports whether somebody has asked the operation to stop, without
+// waiting for it.
+//
+// It is exported because it is what every long-running step does between units
+// of work, and it is one line of select away from being written wrong: a
+// receive without a default blocks until cancellation arrives, which turns a
+// progress check into a deadlock in the one case where the operation is fine.
+// A Runner that cannot see Cancelled's channel — every one outside this
+// package — would otherwise write that select itself.
+func Cancelled(rep Reporter) bool {
+	select {
+	case <-rep.Cancelled():
+		return true
+	default:
+		return false
+	}
+}

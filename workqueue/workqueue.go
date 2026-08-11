@@ -504,44 +504,36 @@ func (q *Queue[K]) claim(ctx context.Context, limit int, lease time.Duration) ([
 }
 
 // claimOnce is one attempt of claim.
-func (q *Queue[K]) claimOnce(ctx context.Context, limit int, lease time.Duration) (items []Item[K], err error) {
+func (q *Queue[K]) claimOnce(ctx context.Context, limit int, lease time.Duration) ([]Item[K], error) {
 	// The writer, not the reader: this is an UPDATE that happens to return rows,
 	// and a read replica would both fail it and lose every lease it handed out.
-	rows, err := q.client.Writer().QueryContext(ctx, buildClaim(q.cfg.resolvedTable()),
-		q.cfg.Name, q.cfg.attemptCeiling(), limit, lease.Microseconds())
+	items, err := database.ScanAll(ctx, q.client.Writer(), "claimed work queue",
+		buildClaim(q.cfg.resolvedTable()),
+		[]any{q.cfg.Name, q.cfg.attemptCeiling(), limit, lease.Microseconds()},
+		func(scanner database.Scanner) (Item[K], error) {
+			var (
+				encoded string
+				item    Item[K]
+			)
+
+			if scanErr := scanner.Scan(&encoded, &item.Priority, &item.Attempts, &item.Reclaimed); scanErr != nil {
+				return item, platformerrors.Wrap(scanErr, "scanning claimed work queue item")
+			}
+
+			// A key that will not decode is the one failure here a caller cannot
+			// act on and must not be hidden: it means the table holds rows written
+			// under a different key type or codec, and every claim will keep
+			// leasing them. Failing the whole batch is the loud version of that,
+			// and the lease lapses on its own.
+			var decodeErr error
+			if item.Key, decodeErr = q.codec.DecodeKey(encoded); decodeErr != nil {
+				return item, platformerrors.Wrapf(decodeErr, "decoding claimed work queue key %q", encoded)
+			}
+
+			return item, nil
+		})
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "leasing work queue items")
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = platformerrors.Wrap(closeErr, "closing claimed work queue rows")
-		}
-	}()
-
-	for rows.Next() {
-		var (
-			encoded string
-			item    Item[K]
-		)
-
-		if err = rows.Scan(&encoded, &item.Priority, &item.Attempts, &item.Reclaimed); err != nil {
-			return nil, platformerrors.Wrap(err, "scanning claimed work queue item")
-		}
-
-		// A key that will not decode is the one failure here a caller cannot
-		// act on and must not be hidden: it means the table holds rows written
-		// under a different key type or codec, and every claim will keep
-		// leasing them. Failing the whole batch is the loud version of that,
-		// and the lease lapses on its own.
-		if item.Key, err = q.codec.DecodeKey(encoded); err != nil {
-			return nil, platformerrors.Wrapf(err, "decoding claimed work queue key %q", encoded)
-		}
-
-		items = append(items, item)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, platformerrors.Wrap(err, "reading claimed work queue items")
 	}
 
 	return items, nil
