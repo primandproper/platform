@@ -42,21 +42,30 @@ func NewVerifier(opts ...Option) *TOTPVerifier {
 	o := newOptions(opts)
 
 	return &TOTPVerifier{
-		o11y: observability.NewObserver(serviceName, nil, o.tracerProvider),
+		o11y: observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}
 }
 
 // Verify implements Verifier.
+//
+// A rejection is recorded on the span and logged, because a second factor that
+// fails is the interesting half of this package: a password that worked
+// followed by a code that did not is what a stuffing run looks like from the
+// inside, and the sentinel alone leaves that to whoever remembered to log it.
+//
+// Neither the code nor the secret reaches telemetry. What is recorded is that a
+// verification failed and why, which is what a deployment can alert on without
+// putting a live second factor in a log aggregator.
 func (v *TOTPVerifier) Verify(ctx context.Context, secret, code string) error {
 	_, op := v.o11y.Begin(ctx)
 	defer op.End()
 
 	if code == "" {
-		return ErrCodeRequired
+		return op.Error(ErrCodeRequired, "verifying TOTP code")
 	}
 
 	if !totp.Validate(code, secret) {
-		return ErrInvalidCode
+		return op.Error(ErrInvalidCode, "verifying TOTP code")
 	}
 
 	return nil

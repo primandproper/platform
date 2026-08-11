@@ -80,7 +80,7 @@ func NewCookieManager(cfg *Config, opts ...Option) (Manager, error) {
 		lifetime:     cfg.Lifetime,
 		sameSite:     sameSiteMode(cfg.SameSite),
 		secureOnly:   cfg.SecureOnly,
-		o11y:         observability.NewObserver("cookie_manager", nil, o.tracerProvider),
+		o11y:         observability.NewObserver("cookie_manager", o.logger, o.tracerProvider),
 	}, nil
 }
 
@@ -91,7 +91,7 @@ func (m *manager) Encode(ctx context.Context, name string, value any) (string, e
 
 	encoded, err := m.secureCookie.Encode(name, value)
 	if err != nil {
-		return "", observability.PrepareError(err, op.Span(), "encoding cookie")
+		return "", op.Error(err, "encoding cookie")
 	}
 
 	return encoded, nil
@@ -107,7 +107,7 @@ func (m *manager) BuildCookie(ctx context.Context, name string, value any) (*htt
 
 	encoded, err := m.secureCookie.Encode(name, value)
 	if err != nil {
-		return nil, observability.PrepareError(err, op.Span(), "encoding cookie")
+		return nil, op.Error(err, "encoding cookie")
 	}
 
 	cookie := &http.Cookie{
@@ -134,7 +134,7 @@ func (m *manager) Decode(ctx context.Context, name, value string, dst any) error
 	defer op.End()
 
 	if err := m.secureCookie.Decode(name, value, dst); err != nil {
-		return observability.PrepareError(err, op.Span(), "decoding cookie")
+		return op.Error(err, "decoding cookie")
 	}
 
 	return nil

@@ -6,10 +6,14 @@ import (
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	textsearch "github.com/primandproper/platform-go/v10/search/text"
 
 	algolia "github.com/algolia/algoliasearch-client-go/v3/algolia/search"
 )
+
+// serviceName scopes this backend's instrument names.
+const serviceName = "algolia_index"
 
 var (
 	_ textsearch.Index[any] = (*indexManager[any])(nil)
@@ -22,6 +26,7 @@ type (
 		o11y           observability.Observer
 		circuitBreaker circuitbreaking.CircuitBreaker
 		client         *algolia.Index
+		instruments    *textsearch.Instruments
 	}
 )
 
@@ -48,10 +53,17 @@ func NewIndexManager[T any](
 		clientConfig.WriteTimeout = cfg.Timeout
 	}
 
+	instruments, err := textsearch.NewInstruments(serviceName, indexName, o.metricsProvider)
+	if err != nil {
+		return nil, err
+	}
+
 	im := &indexManager[T]{
-		o11y:           observability.NewObserver(fmt.Sprintf("search_%s", indexName), o.logger, o.tracerProvider),
+		o11y: observability.NewObserverWithValues(fmt.Sprintf("search_%s", indexName), o.logger, o.tracerProvider,
+			map[string]any{keys.IndexNameKey: indexName}),
 		client:         algolia.NewClientWithConfig(clientConfig).InitIndex(indexName),
 		circuitBreaker: circuitBreaker,
+		instruments:    instruments,
 	}
 
 	return im, nil

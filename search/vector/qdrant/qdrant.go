@@ -153,7 +153,7 @@ func NewIndex[T any](
 	im := &indexManager[T]{
 		o11y:           observability.NewObserverWithValues(fmt.Sprintf("%s_%s", serviceName, collection), o.logger, o.tracerProvider, map[string]any{keys.IndexNameKey: collection}),
 		httpClient:     &http.Client{Timeout: timeout},
-		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb),
+		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb, circuitbreakingcfg.WithLogger(o.logger)),
 		upsertCounter:  upsertCounter,
 		deleteCounter:  deleteCounter,
 		wipeCounter:    wipeCounter,

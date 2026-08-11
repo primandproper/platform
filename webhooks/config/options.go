@@ -29,6 +29,7 @@ type options struct {
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
+	store      []webhooks.SQLStoreOption
 	dispatcher []webhooks.DispatcherOption
 	worker     []webhooks.WorkerOption
 }
@@ -70,6 +71,13 @@ func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 // its pillars and then override one of them.
 func WithPillars(p *observability.Pillars) Option {
 	return func(o *options) { o.logger, o.tracerProvider, o.metricsProvider = p.Deps() }
+}
+
+// WithStoreOptions passes opts to NewStore, which applies them after the options
+// it derives from configuration — so a caller can override anything, the table
+// prefix included. The other constructors ignore them.
+func WithStoreOptions(opts ...webhooks.SQLStoreOption) Option {
+	return func(o *options) { o.store = append(o.store, opts...) }
 }
 
 // WithDispatcherOptions passes opts to NewDispatcher, which applies them after the options it

@@ -3,6 +3,7 @@ package totp
 import (
 	"testing"
 
+	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
 	"github.com/shoenig/test"
@@ -61,5 +62,27 @@ func TestWithTracerProvider(T *testing.T) {
 
 		must.NotNil(t, o)
 		test.Nil(t, o.tracerProvider)
+	})
+}
+
+func TestWithLogger(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the logger", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithLogger(loggingnoop.NewLogger())})
+
+		must.NotNil(t, o)
+		test.NotNil(t, o.logger)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithLogger(loggingnoop.NewLogger()), WithLogger(nil)})
+
+		must.NotNil(t, o)
+		test.Nil(t, o.logger)
 	})
 }

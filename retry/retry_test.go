@@ -83,3 +83,46 @@ func TestIsTerminal(T *testing.T) {
 		test.False(t, IsTerminal(t.Context(), attemptCtx.Err()))
 	})
 }
+
+func TestExhausted(T *testing.T) {
+	T.Parallel()
+
+	T.Run("carries the count and keeps the cause matchable", func(t *testing.T) {
+		t.Parallel()
+
+		cause := errors.New("connection refused")
+
+		err := Exhausted(4, cause)
+		must.Error(t, err)
+		test.ErrorIs(t, err, cause)
+		test.ErrorIs(t, err, ErrExhausted)
+
+		attempts, ok := Attempts(err)
+		must.True(t, ok)
+		test.EqOp(t, uint(4), attempts)
+	})
+
+	T.Run("a loop that succeeded exhausted nothing", func(t *testing.T) {
+		t.Parallel()
+
+		test.Nil(t, Exhausted(3, nil))
+	})
+
+	T.Run("an ordinary error does not know its attempt count", func(t *testing.T) {
+		t.Parallel()
+
+		attempts, ok := Attempts(errors.New("connection refused"))
+		test.False(t, ok)
+		test.EqOp(t, uint(0), attempts)
+
+		attempts, ok = Attempts(nil)
+		test.False(t, ok)
+		test.EqOp(t, uint(0), attempts)
+	})
+
+	T.Run("says how many attempts in its message", func(t *testing.T) {
+		t.Parallel()
+
+		test.StrContains(t, Exhausted(4, errors.New("nope")).Error(), "after 4 attempts")
+	})
+}

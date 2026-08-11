@@ -30,7 +30,7 @@ var providers = []any{"", ProviderExponential, ProviderNoop}
 // An unrecognized provider is an error rather than a policy that quietly does
 // not retry, which is indistinguishable from a working one until the first
 // transient failure.
-func NewPolicy(ctx context.Context, cfg *Config) (retry.Policy, error) {
+func NewPolicy(ctx context.Context, cfg *Config, opts ...Option) (retry.Policy, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -41,7 +41,16 @@ func NewPolicy(ctx context.Context, cfg *Config) (retry.Policy, error) {
 
 	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
 	case ProviderExponential, "":
-		return NewExponentialBackoffPolicy(*cfg), nil
+		// Built into a variable and returned only once its error is known nil:
+		// returning the call directly would turn a nil
+		// *ExponentialBackoffPolicy into a non-nil retry.Policy on the error
+		// path.
+		policy, err := NewExponentialBackoffPolicy(*cfg, opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		return policy, nil
 	case ProviderNoop:
 		return noop.NewPolicy(), nil
 	default:

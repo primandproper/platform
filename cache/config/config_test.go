@@ -169,7 +169,7 @@ func TestNewCache(T *testing.T) {
 
 		mp := &metricsmock.ProviderMock{
 			NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				test.EqOp(t, "redis-cache-breaker_circuit_breaker_tripped", name)
+				test.EqOp(t, circuitbreakingcfg.TrippedCounterName, name)
 				return nil, errors.New("counter init failure")
 			},
 		}

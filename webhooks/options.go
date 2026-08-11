@@ -86,6 +86,41 @@ func WithTablePrefix(prefix string) SQLStoreOption {
 	}
 }
 
+// WithStoreClock swaps the clock stamping endpoint updates and archivals. The
+// dispatcher and worker take one already; this is the third of the three, so a
+// deployment that injects time injects all of it.
+func WithStoreClock(c clock.Clock) SQLStoreOption {
+	return func(s *SQLStore) {
+		if c != nil {
+			s.clock = c
+		}
+	}
+}
+
+// WithStoreLogger attaches a logger.
+func WithStoreLogger(logger logging.Logger) SQLStoreOption {
+	return func(s *SQLStore) {
+		s.logger = logger
+	}
+}
+
+// WithStoreTracerProvider attaches a tracer provider.
+//
+// Worth setting. The store's spans are where a slow dispatch turns out to be a
+// slow claim, which is otherwise a gap inside the worker's own span.
+func WithStoreTracerProvider(tracerProvider tracing.Provider) SQLStoreOption {
+	return func(s *SQLStore) {
+		s.tracerProvider = tracerProvider
+	}
+}
+
+// WithStoreMetricsProvider attaches a metrics provider.
+func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
+	return func(s *SQLStore) {
+		s.metricsProvider = metricsProvider
+	}
+}
+
 // WorkerOption configures a Worker.
 type WorkerOption func(*Worker)
 

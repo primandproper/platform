@@ -63,3 +63,30 @@ func TestVerifier_Verify_observability(T *testing.T) {
 		must.True(t, obs.Operations[0].Ended)
 	})
 }
+
+func TestTOTPVerifier_RecordsFailures(T *testing.T) {
+	T.Parallel()
+
+	// A failed second factor is the interesting half of this package, so it has
+	// to reach the pillars rather than only the caller.
+	for _, tc := range []struct {
+		name     string
+		code     string
+		sentinel error
+	}{
+		{name: "an absent code", code: "", sentinel: ErrCodeRequired},
+		{name: "a code that does not validate", code: "000000", sentinel: ErrInvalidCode},
+	} {
+		T.Run(tc.name+" is recorded", func(t *testing.T) {
+			t.Parallel()
+
+			v, obs := newRecordingVerifier(t)
+
+			test.ErrorIs(t, v.Verify(t.Context(), exampleInternalSecret, tc.code), tc.sentinel)
+
+			must.SliceLen(t, 1, obs.Operations)
+			must.SliceLen(t, 1, obs.Operations[0].Errors)
+			test.ErrorIs(t, obs.Operations[0].Errors[0], tc.sentinel)
+		})
+	}
+}

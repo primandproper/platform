@@ -16,10 +16,16 @@ import (
 // injector before the Store is invoked.
 func RegisterStore(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (webhooks.Store, error) {
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
 		return NewStore(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
 			do.MustInvoke[database.Client](i),
+			WithPillars(pillars),
 		)
 	})
 }

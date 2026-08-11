@@ -17,6 +17,7 @@ func RegisterCookieManager(i do.Injector) {
 
 		return cookies.NewCookieManager(
 			do.MustInvoke[*cookies.Config](i),
+			cookies.WithLogger(pillars.Logger),
 			cookies.WithTracerProvider(pillars.TracerProvider),
 		)
 	})

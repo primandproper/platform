@@ -91,7 +91,7 @@ func NewEventStreamUpgrader(ctx context.Context, cfg *Config, opts ...Option) (e
 
 	switch provider {
 	case ProviderSSE:
-		return sse.NewUpgrader(sse.WithTracerProvider(tracerProvider)), nil
+		return sse.NewUpgrader(sse.WithLogger(logger), sse.WithTracerProvider(tracerProvider)), nil
 	case ProviderWebSocket:
 		return websocket.NewUpgrader(cfg.WebSocket, websocket.WithLogger(logger), websocket.WithTracerProvider(tracerProvider)), nil
 	default:

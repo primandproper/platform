@@ -128,7 +128,7 @@ func Test_adopt(T *testing.T) {
 	T.Run("a component nobody registered contributes nothing", func(t *testing.T) {
 		t.Parallel()
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 
 		must.NoError(t, adopt(do.New(), registry, func(string) healthcheck.Checker {
 			t.Error("wrap was called for a component that was never registered")
@@ -147,7 +147,7 @@ func Test_adopt(T *testing.T) {
 		i := do.New()
 		do.ProvideValue(i, "present")
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 
 		must.NoError(t, adopt(i, registry, func(string) healthcheck.Checker { return nil }))
 
@@ -162,7 +162,7 @@ func Test_adopt(T *testing.T) {
 		i := do.New()
 		do.Provide(i, func(do.Injector) (string, error) { return "", errBuild })
 
-		err := adopt(i, healthcheck.NewRegistry(), func(string) healthcheck.Checker { return nil })
+		err := adopt(i, newHealthRegistry(t), func(string) healthcheck.Checker { return nil })
 		must.Error(t, err)
 		test.ErrorIs(t, err, errBuild)
 	})
@@ -258,4 +258,14 @@ func TestWithHealthChecks(T *testing.T) {
 		_, err := New(i)
 		test.NoError(t, err)
 	})
+}
+
+// newHealthRegistry builds an uninstrumented health registry for a test.
+func newHealthRegistry(t *testing.T) *healthcheck.CheckerRegistry {
+	t.Helper()
+
+	registry, err := healthcheck.NewRegistry()
+	must.NoError(t, err)
+
+	return registry
 }

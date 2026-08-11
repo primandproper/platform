@@ -44,11 +44,9 @@ type healthService struct {
 // reports the registry's aggregate. Any other name is looked up among the
 // registered checkers, so a client that cares about one dependency can ask about
 // that one by the name it was registered under.
+// A nil registry has nothing to check, and therefore reports SERVING for the
+// process and SERVICE_UNKNOWN for every name asked of it.
 func NewHealthService(registry healthcheck.Registry) grpc_health_v1.HealthServer {
-	if registry == nil {
-		registry = healthcheck.NewRegistry()
-	}
-
 	return &healthService{registry: registry, interval: defaultWatchInterval}
 }
 
@@ -68,7 +66,7 @@ func (h *healthService) Check(ctx context.Context, req *grpc_health_v1.HealthChe
 // List reports every checker's status in one snapshot, alongside the aggregate
 // under the empty name the protocol reserves for the process as a whole.
 func (h *healthService) List(ctx context.Context, _ *grpc_health_v1.HealthListRequest) (*grpc_health_v1.HealthListResponse, error) {
-	result := h.registry.CheckAll(ctx)
+	result := healthcheck.Check(ctx, h.registry)
 
 	statuses := make(map[string]*grpc_health_v1.HealthCheckResponse, len(result.Components)+1)
 	statuses[""] = &grpc_health_v1.HealthCheckResponse{Status: servingStatus(result.Status)}
@@ -124,7 +122,7 @@ func (h *healthService) Watch(req *grpc_health_v1.HealthCheckRequest, stream grp
 // statusFor runs the checks and reads the answer for one service name, where the
 // empty name is the aggregate and an unregistered one is SERVICE_UNKNOWN.
 func (h *healthService) statusFor(ctx context.Context, name string) grpc_health_v1.HealthCheckResponse_ServingStatus {
-	result := h.registry.CheckAll(ctx)
+	result := healthcheck.Check(ctx, h.registry)
 
 	if name == "" {
 		return servingStatus(result.Status)

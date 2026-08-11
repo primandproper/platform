@@ -14,7 +14,11 @@ func (c *simpleChecker) Name() string                  { return c.name }
 func (c *simpleChecker) Check(_ context.Context) error { return nil }
 
 func ExampleRegistry() {
-	reg := healthcheck.NewRegistry()
+	reg, err := healthcheck.NewRegistry()
+	if err != nil {
+		panic(err)
+	}
+
 	reg.Register(&simpleChecker{name: "database"})
 
 	result := reg.CheckAll(context.Background())

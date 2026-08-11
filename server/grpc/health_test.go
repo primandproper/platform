@@ -86,7 +86,7 @@ func TestHealthService_Check(T *testing.T) {
 	T.Run("the empty service name is the whole process", func(t *testing.T) {
 		t.Parallel()
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(&flakyChecker{name: "database"})
 
 		res, err := NewHealthService(registry).Check(t.Context(), &grpc_health_v1.HealthCheckRequest{})
@@ -97,7 +97,7 @@ func TestHealthService_Check(T *testing.T) {
 	T.Run("one component down takes the process down with it", func(t *testing.T) {
 		t.Parallel()
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(&flakyChecker{name: "database"})
 		registry.Register(&flakyChecker{name: "message_queue", err: errors.New("no broker")})
 
@@ -111,7 +111,7 @@ func TestHealthService_Check(T *testing.T) {
 
 		// The aggregate is down, but the component asked about is not — a client
 		// watching one dependency should not be told about another's outage.
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(&flakyChecker{name: "database"})
 		registry.Register(&flakyChecker{name: "message_queue", err: errors.New("no broker")})
 
@@ -131,7 +131,7 @@ func TestHealthService_Check(T *testing.T) {
 
 		// A client that typoed a component name has to hear that it did.
 		// NOT_SERVING would read as a real outage of a real dependency.
-		_, err := NewHealthService(healthcheck.NewRegistry()).
+		_, err := NewHealthService(newHealthRegistry(t)).
 			Check(t.Context(), &grpc_health_v1.HealthCheckRequest{Service: "nonexistent"})
 		must.Error(t, err)
 		test.EqOp(t, codes.NotFound, status.Code(err))
@@ -152,7 +152,7 @@ func TestHealthService_List(T *testing.T) {
 	T.Run("reports every component alongside the aggregate", func(t *testing.T) {
 		t.Parallel()
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(&flakyChecker{name: "database"})
 		registry.Register(&flakyChecker{name: "message_queue", err: errors.New("no broker")})
 
@@ -175,7 +175,7 @@ func TestHealthService_Watch(T *testing.T) {
 
 		checker := &flakyChecker{name: "database"}
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(checker)
 
 		svc := &healthService{registry: registry, interval: time.Millisecond}
@@ -215,7 +215,7 @@ func TestHealthService_Watch(T *testing.T) {
 
 		// The protocol is explicit that a name may become known later, so the
 		// call stays open rather than making the client reconnect to find out.
-		svc := &healthService{registry: healthcheck.NewRegistry(), interval: time.Millisecond}
+		svc := &healthService{registry: newHealthRegistry(t), interval: time.Millisecond}
 
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -238,7 +238,7 @@ func TestNewGRPCServer_health(T *testing.T) {
 	T.Run("registers the health service when given a registry", func(t *testing.T) {
 		t.Parallel()
 
-		srv, err := NewGRPCServer(t.Context(), &Config{}, nil, nil, nil, WithHealthRegistry(healthcheck.NewRegistry()))
+		srv, err := NewGRPCServer(t.Context(), &Config{}, nil, nil, nil, WithHealthRegistry(newHealthRegistry(t)))
 		must.NoError(t, err)
 
 		_, registered := srv.grpcServer.GetServiceInfo()[grpc_health_v1.Health_ServiceDesc.ServiceName]
@@ -256,4 +256,14 @@ func TestNewGRPCServer_health(T *testing.T) {
 		_, registered := srv.grpcServer.GetServiceInfo()[grpc_health_v1.Health_ServiceDesc.ServiceName]
 		test.False(t, registered)
 	})
+}
+
+// newHealthRegistry builds an uninstrumented health registry for a test.
+func newHealthRegistry(t *testing.T) *healthcheck.CheckerRegistry {
+	t.Helper()
+
+	registry, err := healthcheck.NewRegistry()
+	must.NoError(t, err)
+
+	return registry
 }

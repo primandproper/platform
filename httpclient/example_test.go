@@ -19,12 +19,15 @@ import (
 func ExampleNewHTTPClient_resilience() {
 	ctx := context.Background()
 
-	policy := retrycfg.NewExponentialBackoffPolicy(retrycfg.Config{
+	policy, err := retrycfg.NewExponentialBackoffPolicy(retrycfg.Config{
 		MaxAttempts:  4,
 		InitialDelay: 100 * time.Millisecond,
 		MaxDelay:     2 * time.Second,
 		UseJitter:    true,
-	})
+	}, retrycfg.WithName("payments"))
+	if err != nil {
+		panic(err)
+	}
 
 	breaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &circuitbreakingcfg.Config{
 		Name:                   "payments",

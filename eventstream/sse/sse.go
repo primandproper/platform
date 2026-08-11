@@ -33,7 +33,7 @@ func NewUpgrader(opts ...Option) *Upgrader {
 	o := newOptions(opts)
 
 	return &Upgrader{
-		o11y: observability.NewObserver(name, nil, o.tracerProvider),
+		o11y: observability.NewObserver(name, o.logger, o.tracerProvider),
 	}
 }
 

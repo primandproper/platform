@@ -18,6 +18,9 @@ import (
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 )
 
+// serviceName scopes this backend's instrument names.
+const serviceName = "elasticsearch_index"
+
 var (
 	_ textsearch.Index[any] = (*indexManager[any])(nil)
 )
@@ -27,6 +30,7 @@ type (
 		o11y                  observability.Observer
 		circuitBreaker        circuitbreaking.CircuitBreaker
 		esClient              *elasticsearch.Client
+		instruments           *textsearch.Instruments
 		indexName             string
 		indexOperationTimeout time.Duration
 	}
@@ -61,8 +65,8 @@ func NewIndexManager[T any](ctx context.Context, cfg *Config, indexName string, 
 	o := newOptions(opts)
 	logger := logging.EnsureLogger(o.logger)
 
-	if ready := elasticsearchIsReadyToInit(ctx, cfg, logger, 10); !ready {
-		return nil, errors.New("elasticsearch not ready")
+	if err = elasticsearchIsReadyToInit(ctx, cfg, logger, 10); err != nil {
+		return nil, err
 	}
 
 	// Elasticsearch index names must be lowercase. Normalize once so create,
@@ -72,10 +76,16 @@ func NewIndexManager[T any](ctx context.Context, cfg *Config, indexName string, 
 	// name the requests below actually carry.
 	normalizedIndex := strings.ToLower(indexName)
 
+	instruments, err := textsearch.NewInstruments(serviceName, normalizedIndex, o.metricsProvider)
+	if err != nil {
+		return nil, err
+	}
+
 	im := &indexManager[T]{
 		o11y: observability.NewObserverWithValues(fmt.Sprintf("search_%s", indexName), logger, o.tracerProvider,
 			map[string]any{keys.IndexNameKey: normalizedIndex}),
 		esClient:              c,
+		instruments:           instruments,
 		indexOperationTimeout: cfg.IndexOperationTimeout,
 		indexName:             normalizedIndex,
 		circuitBreaker:        circuitBreaker,
@@ -88,12 +98,20 @@ func NewIndexManager[T any](ctx context.Context, cfg *Config, indexName string, 
 	return im, nil
 }
 
+// ErrNotReady indicates a cluster that did not answer a ping within the
+// attempts allowed.
+var ErrNotReady = errors.New("elasticsearch not ready")
+
+// elasticsearchIsReadyToInit pings the cluster until it answers, reporting why
+// it gave up rather than a bare bool — "the config is wrong", "the cluster
+// never came up", and "the caller went away" are three different answers, and
+// only the first two are this package's fault.
 func elasticsearchIsReadyToInit(
 	ctx context.Context,
 	cfg *Config,
 	l logging.Logger,
 	maxAttempts uint8,
-) bool {
+) error {
 	attemptCount := 0
 
 	logger := l.WithValues(map[string]any{
@@ -111,28 +129,42 @@ func elasticsearchIsReadyToInit(
 		// either — the config is wrong, and no amount of waiting fixes it.
 		logger.WithValue("attempt_count", attemptCount).Error("client setup failed, cannot probe elasticsearch", err)
 
-		return false
+		return errors.Wrap(err, "building elasticsearch readiness probe client")
 	}
 
 	for {
+		// Checked before the ping as well as during the wait: a context that was
+		// already done should not buy the caller one more round trip.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return errors.Wrap(ctxErr, "waiting for elasticsearch")
+		}
+
 		res, pingErr := (esapi.InfoRequest{}).Do(ctx, c)
 		ready := pingErr == nil && res != nil && !res.IsError()
+
 		if res != nil {
 			_ = res.Body.Close() //nolint:errcheck // best-effort close of the readiness-probe response body
 		}
 
 		if ready {
-			return true
+			return nil
 		}
 
 		logger.WithValue("attempt_count", attemptCount).Debug("ping failed, waiting for elasticsearch")
 
 		attemptCount++
 		if attemptCount >= int(maxAttempts) {
-			return false
+			return errors.Wrapf(ErrNotReady, "after %d attempts", attemptCount)
 		}
 
-		time.Sleep(time.Second)
+		// A sleep that ignores cancellation makes construction take ten seconds
+		// to notice a caller that has already given up, which for a startup
+		// probe is the whole of a shutdown deadline.
+		select {
+		case <-ctx.Done():
+			return errors.Wrap(ctx.Err(), "waiting for elasticsearch")
+		case <-time.After(time.Second):
+		}
 	}
 }
 

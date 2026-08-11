@@ -3,7 +3,7 @@ package circuitbreakingcfg
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"sync/atomic"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/circuitbreaking/noop"
@@ -16,6 +16,28 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+const (
+	// DefaultName is what a breaker with no configured name is defaulted to. It
+	// is a placeholder, not an identity: see NewCircuitBreaker.
+	DefaultName = "UNKNOWN"
+
+	// The instruments every breaker records into. They do not carry the
+	// breaker's name — that is NameAttributeKey — so that "how often is anything
+	// tripping" is one series to read rather than one per breaker, and so a
+	// breaker nobody named cannot create an instrument nobody expected.
+	//
+	// They are exported for the same reason the attribute key is: a dashboard
+	// querying them has to spell them, and a constant is better than a string
+	// repeated across a query builder and a test.
+	TrippedCounterName = "circuit_breaker_tripped"
+	FailedCounterName  = "circuit_breaker_failed"
+	ResetCounterName   = "circuit_breaker_reset"
+)
+
+// unnamedBreakers numbers the breakers built without a name, so that two of them
+// are two series instead of one.
+var unnamedBreakers atomic.Uint64
+
 type Config struct {
 	Name                   string  `env:"NAME"                     json:"name,omitempty"                                     yaml:"name,omitempty"`
 	ErrorRate              float64 `env:"ERROR_RATE"               json:"circuitBreakerErrorPercentage,omitempty"            yaml:"circuitBreakerErrorPercentage,omitempty"`
@@ -24,7 +46,7 @@ type Config struct {
 
 func (cfg *Config) EnsureDefaults() {
 	if cfg.Name == "" {
-		cfg.Name = "UNKNOWN"
+		cfg.Name = DefaultName
 	}
 
 	if cfg.ErrorRate == 0 {
@@ -44,10 +66,34 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
+// identityFor returns the name a breaker records and logs under.
+//
+// A configured name is that name. An unconfigured one has been defaulted to the
+// shared placeholder by EnsureDefaults, and two breakers nobody named are still
+// two breakers — their trips summed together describe neither of them — so each
+// gets an ordinal instead. The ordinal is not a name: it says only which unnamed
+// breaker this process built first. It is an identity, which is what the shared
+// placeholder was not.
+func identityFor(configured string) string {
+	if configured != DefaultName {
+		return configured
+	}
+
+	return fmt.Sprintf("%s_%d", DefaultName, unnamedBreakers.Add(1))
+}
+
 // EnsureCircuitBreaker ensures a valid CircuitBreaker is made available.
-func EnsureCircuitBreaker(breaker circuitbreaking.CircuitBreaker) circuitbreaking.CircuitBreaker {
+//
+// Substituting a noop is worth saying out loud — a component that believes it is
+// protected and is not is the whole failure mode this package exists to prevent
+// — so pass WithLogger and hear about it. It used to say so through a bare
+// slog.Info, which meant a library writing to whatever the process had made
+// global rather than to the logger the caller configured, in the format the
+// caller configured it in.
+func EnsureCircuitBreaker(breaker circuitbreaking.CircuitBreaker, opts ...Option) circuitbreaking.CircuitBreaker {
 	if breaker == nil {
-		slog.Info("NOOP CircuitBreaker implementation in use.")
+		logging.EnsureLogger(newOptions(opts).logger).Info("NOOP CircuitBreaker implementation in use.")
+
 		return noop.NewCircuitBreaker()
 	}
 
@@ -75,6 +121,11 @@ func (b *baseImplementation) CannotProceed() bool {
 }
 
 // NewCircuitBreaker provides a CircuitBreaker.
+//
+// Name it. A breaker's name is its identity in every measurement it records and
+// every line it logs, and an unnamed one gets a numbered placeholder — enough to
+// keep two of them from adding into the same series, and no help at all to
+// whoever is looking at the series later.
 func (cfg *Config) NewCircuitBreaker(ctx context.Context, opts ...Option) (circuitbreaking.CircuitBreaker, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
@@ -88,25 +139,27 @@ func (cfg *Config) NewCircuitBreaker(ctx context.Context, opts ...Option) (circu
 	// take effect and validation pass.
 	cfg.EnsureDefaults()
 
-	logger := logging.EnsureLogger(options.logger).WithValue("circuit_breaker", cfg.Name)
-
 	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, errors.Wrap(err, "validating circuit breaker config")
 	}
 
+	name := identityFor(cfg.Name)
+
+	logger := logging.EnsureLogger(options.logger).WithValue("circuit_breaker", name)
+
 	metricsProvider := metrics.EnsureMetricsProvider(options.metricsProvider)
 
-	brokenCounter, err := metricsProvider.NewInt64Counter(fmt.Sprintf("%s_circuit_breaker_tripped", cfg.Name))
+	brokenCounter, err := metricsProvider.NewInt64Counter(TrippedCounterName)
 	if err != nil {
 		return nil, err
 	}
 
-	failureCounter, err := metricsProvider.NewInt64Counter(fmt.Sprintf("%s_circuit_breaker_failed", cfg.Name))
+	failureCounter, err := metricsProvider.NewInt64Counter(FailedCounterName)
 	if err != nil {
 		return nil, err
 	}
 
-	resetCounter, err := metricsProvider.NewInt64Counter(fmt.Sprintf("%s_circuit_breaker_reset", cfg.Name))
+	resetCounter, err := metricsProvider.NewInt64Counter(ResetCounterName)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +176,7 @@ func (cfg *Config) NewCircuitBreaker(ctx context.Context, opts ...Option) (circu
 
 	events := cb.Subscribe()
 
-	go handleCircuitBreakerEvents(ctx, logger, events, failureCounter, resetCounter, brokenCounter, options.addOptions()...)
+	go handleCircuitBreakerEvents(ctx, logger, events, failureCounter, resetCounter, brokenCounter, options.addOptions(name)...)
 
 	return &baseImplementation{
 		circuitBreaker: cb,
@@ -158,9 +211,19 @@ func handleCircuitBreakerEvents(
 			switch be {
 			case circuit.BreakerTripped:
 				brokenCounter.Add(ctx, 1, addOptions...)
+				// Logged, not just counted. A breaker tripping is the moment a
+				// dependency stopped being usable and this process started
+				// refusing work on its behalf, and reading that off a counter
+				// means already suspecting it; the log line is what puts it in
+				// front of whoever is reading the logs for another reason.
+				logger.Info("circuit breaker tripped")
 			case circuit.BreakerReset:
 				resetCounter.Add(ctx, 1, addOptions...)
+				logger.Info("circuit breaker reset")
 			case circuit.BreakerFail:
+				// Not logged: a failure is per-request, and a dependency that is
+				// down produces one per attempt for as long as it stays down.
+				// The trip above is the event; these are the evidence for it.
 				failureCounter.Add(ctx, 1, addOptions...)
 			case circuit.BreakerReady:
 				logger.Debug("circuit breaker is ready")

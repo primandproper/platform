@@ -19,7 +19,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 	T.Run("success on first attempt", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{MaxAttempts: 3})
+		policy := newPolicy(t, Config{MaxAttempts: 3})
 		ctx := context.Background()
 		attempts := 0
 
@@ -35,7 +35,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 	T.Run("success after retries", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  5,
 			InitialDelay: 1,
 			MaxDelay:     10,
@@ -59,7 +59,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 	T.Run("returns last error after max attempts", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  3,
 			InitialDelay: 1,
 			MaxDelay:     10,
@@ -85,7 +85,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 	T.Run("stops immediately when the loop's own context is canceled", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  5,
 			InitialDelay: time.Millisecond,
 			MaxDelay:     10 * time.Millisecond,
@@ -112,7 +112,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 	T.Run("retries a per-attempt deadline while the loop's context is live", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  5,
 			InitialDelay: time.Millisecond,
 			MaxDelay:     10 * time.Millisecond,
@@ -141,7 +141,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 	T.Run("stops immediately on an Unretryable error", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  5,
 			InitialDelay: time.Millisecond,
 			MaxDelay:     10 * time.Millisecond,
@@ -165,7 +165,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 	T.Run("does not panic when jitter delay is too small to halve", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  3,
 			InitialDelay: 1,
 			MaxDelay:     10,
@@ -186,7 +186,7 @@ func TestExponentialBackoffPolicy_Execute(T *testing.T) {
 	T.Run("respects context cancellation", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  10,
 			InitialDelay: time.Hour,
 			UseJitter:    false,
@@ -264,7 +264,7 @@ func TestExponentialBackoffPolicy_ContextCancellation(T *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		policy := NewExponentialBackoffPolicy(Config{MaxAttempts: 3, InitialDelay: time.Millisecond})
+		policy := newPolicy(t, Config{MaxAttempts: 3, InitialDelay: time.Millisecond})
 
 		attempts := 0
 		err := policy.Execute(ctx, func(context.Context) error {
@@ -285,7 +285,7 @@ func TestExponentialBackoffPolicy_ContextCancellation(T *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		t.Cleanup(cancel)
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  5,
 			InitialDelay: time.Hour, // long enough that cancellation wins the sleep
 			MaxDelay:     time.Hour,
@@ -310,7 +310,7 @@ func TestExponentialBackoffPolicy_ContextCancellation(T *testing.T) {
 	T.Run("exhausting every attempt returns the last error", func(t *testing.T) {
 		t.Parallel()
 
-		policy := NewExponentialBackoffPolicy(Config{
+		policy := newPolicy(t, Config{
 			MaxAttempts:  3,
 			InitialDelay: time.Nanosecond,
 			MaxDelay:     time.Nanosecond,
@@ -328,4 +328,15 @@ func TestExponentialBackoffPolicy_ContextCancellation(T *testing.T) {
 		test.EqOp(t, 3, attempts)
 		test.StrContains(t, err.Error(), "failure 3")
 	})
+}
+
+// newPolicy builds an uninstrumented policy, which is what a caller that names
+// no observability gets.
+func newPolicy(t *testing.T, cfg Config, opts ...Option) *ExponentialBackoffPolicy {
+	t.Helper()
+
+	policy, err := NewExponentialBackoffPolicy(cfg, opts...)
+	must.NoError(t, err)
+
+	return policy
 }

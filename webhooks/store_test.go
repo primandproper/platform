@@ -4,13 +4,17 @@ import (
 	"testing"
 	"time"
 
+	clockmock "github.com/primandproper/platform-go/v10/clock/mock"
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/filtering"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // bogusDialectClient reports a dialect this package cannot emit SQL for.
@@ -827,5 +831,67 @@ func TestCoerceTime(T *testing.T) {
 				test.False(t, ok)
 			})
 		}
+	})
+}
+
+// errStoreInstrument is what the failing provider returns for the one
+// instrument the store registers.
+var errStoreInstrument = platformerrors.New("instrument unavailable")
+
+func TestNewSQLStore_InstrumentFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("refuses to build without the unreported row count counter", func(t *testing.T) {
+		t.Parallel()
+
+		env := newSQLiteEnv(t)
+
+		provider := &metricsmock.ProviderMock{
+			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+				return nil, errStoreInstrument
+			},
+		}
+
+		store, err := NewSQLStore(env.client, WithStoreMetricsProvider(provider))
+		test.Nil(t, store)
+		test.ErrorIs(t, err, errStoreInstrument)
+	})
+}
+
+func TestSQLStore_UsesTheInjectedClock(T *testing.T) {
+	T.Parallel()
+
+	T.Run("endpoint timestamps come from the clock it was given", func(t *testing.T) {
+		t.Parallel()
+
+		env := newSQLiteEnv(t)
+
+		stamped := time.Date(2026, time.August, 11, 12, 0, 0, 0, time.UTC)
+
+		var asked int
+
+		injected := &clockmock.ClockMock{
+			NowFunc: func() time.Time {
+				asked++
+
+				return stamped
+			},
+		}
+
+		prefix := env.migrate(t)
+
+		store, err := NewSQLStore(env.client, WithTablePrefix(prefix), WithStoreClock(injected))
+		must.NoError(t, err)
+
+		must.NoError(t, store.SaveEndpoint(t.Context(), &Endpoint{
+			ID:     "endpoint",
+			URL:    "https://example.com/hook",
+			Secret: Secret{Current: []byte("s3cr3t")},
+			Events: []string{"user.created"},
+		}))
+		must.NoError(t, store.ArchiveEndpoint(t.Context(), "endpoint"))
+
+		// Both writes stamp through the clock rather than through time.Now.
+		test.EqOp(t, 2, asked)
 	})
 }

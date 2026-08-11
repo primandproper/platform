@@ -52,7 +52,7 @@ func TestRegisterGRPCServer(T *testing.T) {
 		do.ProvideValue(i, []grpc.UnaryServerInterceptor(nil))
 		do.ProvideValue(i, []grpc.StreamServerInterceptor(nil))
 		do.ProvideValue(i, []RegistrationFunc(nil))
-		do.ProvideValue(i, healthcheck.NewRegistry())
+		do.ProvideValue[healthcheck.Registry](i, newHealthRegistry(t))
 
 		RegisterGRPCServer(i)
 

@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	textsearch "github.com/primandproper/platform-go/v10/search/text"
 
@@ -43,12 +44,15 @@ var (
 )
 
 // Index implements our IndexManager interface.
-func (sm *indexManager[T]) Index(ctx context.Context, id string, value any) error {
+func (sm *indexManager[T]) Index(ctx context.Context, id string, value any) (err error) {
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 
+	started := time.Now()
+	defer func() { sm.instruments.Record(ctx, textsearch.OperationIndex, started, err) }()
+
 	if sm.circuitBreaker.CannotProceed() {
-		return circuitbreaking.ErrCircuitBroken
+		return op.Error(circuitbreaking.ErrCircuitBroken, "indexing value")
 	}
 
 	op.Set("id", id)
@@ -56,7 +60,7 @@ func (sm *indexManager[T]) Index(ctx context.Context, id string, value any) erro
 
 	b, err := json.Marshal(value)
 	if err != nil {
-		return err
+		return op.Error(err, "encoding value for indexing")
 	}
 
 	res, err := esapi.IndexRequest{
@@ -75,7 +79,7 @@ func (sm *indexManager[T]) Index(ctx context.Context, id string, value any) erro
 	}.Do(ctx, sm.esClient)
 	if err != nil {
 		sm.circuitBreaker.Failed()
-		return observability.PrepareError(err, op.Span(), "indexing value")
+		return op.Error(err, "indexing value")
 	}
 	defer func() {
 		if closeErr := res.Body.Close(); closeErr != nil {
@@ -85,7 +89,7 @@ func (sm *indexManager[T]) Index(ctx context.Context, id string, value any) erro
 
 	if res.StatusCode != http.StatusCreated && res.StatusCode != http.StatusOK {
 		sm.circuitBreaker.Failed()
-		return observability.PrepareError(platformerrors.New(res.String()), op.Span(), "indexing value")
+		return op.Error(platformerrors.New(res.String()), "indexing value")
 	}
 
 	sm.circuitBreaker.Succeeded()
@@ -97,19 +101,22 @@ func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 
+	started := time.Now()
+	defer func() { sm.instruments.Record(ctx, textsearch.OperationSearch, started, err) }()
+
 	if sm.circuitBreaker.CannotProceed() {
-		return nil, circuitbreaking.ErrCircuitBroken
+		return nil, op.Error(circuitbreaking.ErrCircuitBroken, "searching index")
 	}
 
 	op.Set(keys.SearchQueryKey, req.Query)
 
 	if req.Query == "" {
-		return nil, ErrEmptyQueryProvided
+		return nil, op.Error(ErrEmptyQueryProvided, "searching index")
 	}
 
 	from, err := textsearch.DecodeCursor(backendName, req.Cursor)
 	if err != nil {
-		return nil, observability.PrepareError(err, op.Span(), "decoding cursor")
+		return nil, op.Error(err, "decoding cursor")
 	}
 
 	size := textsearch.EffectiveLimit(req.Limit, maxSearchLimit)
@@ -118,7 +125,7 @@ func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 	// past that Elasticsearch rejects the request outright rather than
 	// returning a short page, so the refusal is raised here with a name.
 	if from+size > maxResultWindow {
-		return nil, observability.PrepareError(ErrResultWindowExceeded, op.Span(), "paginating beyond the result window")
+		return nil, op.Error(ErrResultWindowExceeded, "paginating beyond the result window")
 	}
 
 	op.Set("search.from", from).Set("search.size", size)
@@ -138,7 +145,7 @@ func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 
 	queryBody, err := json.Marshal(q)
 	if err != nil {
-		return nil, observability.PrepareError(err, op.Span(), "encodign search query")
+		return nil, op.Error(err, "encodign search query")
 	}
 
 	res, err := sm.esClient.Search(
@@ -156,32 +163,31 @@ func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 
 	if err != nil {
 		sm.circuitBreaker.Failed()
-		return nil, observability.PrepareError(err, op.Span(), "querying elasticsearch successfully")
+		return nil, op.Error(err, "querying elasticsearch successfully")
 	}
 
 	if res.IsError() {
-		var e map[string]any
-		if err = json.NewDecoder(res.Body).Decode(&e); err != nil {
-			sm.circuitBreaker.Failed()
-			return nil, observability.PrepareError(err, op.Span(), "invalid response from elasticsearch")
-		}
-
-		err = platformerrors.New(strings.Join(res.Warnings(), ", "))
 		sm.circuitBreaker.Failed()
-		return nil, observability.PrepareError(err, op.Span(), "querying elasticsearch")
+
+		// The body is where Elasticsearch says what was wrong with the query —
+		// which field does not exist, which shard failed — and it used to be
+		// decoded and thrown away in favour of res.Warnings(), a slice that is
+		// empty on almost every error. What came back was an error whose whole
+		// message was the empty string.
+		return nil, op.Error(decodeErrorBody(res.Body, res.Status()), "querying elasticsearch")
 	}
 
 	var r esResponse
 	if err = json.NewDecoder(res.Body).Decode(&r); err != nil {
 		sm.circuitBreaker.Failed()
-		return nil, observability.PrepareError(err, op.Span(), "decoding response")
+		return nil, op.Error(err, "decoding response")
 	}
 
 	for _, hit := range r.Hits.Hits {
 		var c *T
 		if err = json.Unmarshal(hit.Source, &c); err != nil {
 			sm.circuitBreaker.Failed()
-			return nil, observability.PrepareError(err, op.Span(), "decoding response")
+			return nil, op.Error(err, "decoding response")
 		}
 		resultIDs = append(resultIDs, c)
 	}
@@ -195,7 +201,7 @@ func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 	// so a short page is not the end of the result set.
 	if next := from + len(resultIDs); len(resultIDs) > 0 && next < r.Hits.Total.Value && next < maxResultWindow {
 		if out.NextCursor, err = textsearch.EncodeCursor(backendName, next); err != nil {
-			return nil, observability.PrepareError(err, op.Span(), "encoding next cursor")
+			return nil, op.Error(err, "encoding next cursor")
 		}
 	}
 
@@ -209,18 +215,54 @@ func (sm *indexManager[T]) Search(ctx context.Context, req textsearch.SearchRequ
 	return sm.search(ctx, req)
 }
 
+// errorResponse is the shape Elasticsearch reports a rejected request in.
+type errorResponse struct {
+	Error struct {
+		Type   string `json:"type"`
+		Reason string `json:"reason"`
+	} `json:"error"`
+}
+
+// decodeErrorBody turns an error response into an error that says what
+// Elasticsearch objected to.
+//
+// The status line alone does not: a 400 covers a malformed query, an unmapped
+// field, and a page past max_result_window, and only the body distinguishes
+// them. A body that will not decode is reported as such rather than swallowed,
+// because "the cluster answered something this client cannot read" is itself
+// worth knowing.
+func decodeErrorBody(body io.Reader, status string) error {
+	var decoded errorResponse
+	if err := json.NewDecoder(body).Decode(&decoded); err != nil {
+		return platformerrors.Wrapf(err, "elasticsearch responded %s with an undecodable body", status)
+	}
+
+	switch {
+	case decoded.Error.Type != "" && decoded.Error.Reason != "":
+		return platformerrors.Newf("elasticsearch responded %s: %s: %s", status, decoded.Error.Type, decoded.Error.Reason)
+	case decoded.Error.Reason != "":
+		return platformerrors.Newf("elasticsearch responded %s: %s", status, decoded.Error.Reason)
+	default:
+		return platformerrors.Newf("elasticsearch responded %s", status)
+	}
+}
+
 // Wipe implements our IndexManager interface. It removes all documents from the
 // index, leaving the index itself in place (matching the algolia/pgvector/qdrant
 // backends), via a match-all delete-by-query with an immediate refresh.
-func (sm *indexManager[T]) Wipe(ctx context.Context) error {
+func (sm *indexManager[T]) Wipe(ctx context.Context) (err error) {
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 
+	started := time.Now()
+	defer func() { sm.instruments.Record(ctx, textsearch.OperationWipe, started, err) }()
+
 	if sm.circuitBreaker.CannotProceed() {
-		return circuitbreaking.ErrCircuitBroken
+		return op.Error(circuitbreaking.ErrCircuitBroken, "wiping index")
 	}
 
 	refresh := true
+
 	res, err := esapi.DeleteByQueryRequest{
 		Index:   []string{sm.indexName},
 		Body:    strings.NewReader(`{"query":{"match_all":{}}}`),
@@ -228,7 +270,7 @@ func (sm *indexManager[T]) Wipe(ctx context.Context) error {
 	}.Do(ctx, sm.esClient)
 	if err != nil {
 		sm.circuitBreaker.Failed()
-		return observability.PrepareError(err, op.Span(), "wiping index")
+		return op.Error(err, "wiping index")
 	}
 	defer func() {
 		if closeErr := res.Body.Close(); closeErr != nil {
@@ -238,7 +280,7 @@ func (sm *indexManager[T]) Wipe(ctx context.Context) error {
 
 	if res.IsError() {
 		sm.circuitBreaker.Failed()
-		return observability.PrepareError(platformerrors.New(res.String()), op.Span(), "wiping index")
+		return op.Error(platformerrors.New(res.String()), "wiping index")
 	}
 
 	sm.circuitBreaker.Succeeded()
@@ -246,12 +288,15 @@ func (sm *indexManager[T]) Wipe(ctx context.Context) error {
 }
 
 // Delete implements our IndexManager interface.
-func (sm *indexManager[T]) Delete(ctx context.Context, id string) error {
+func (sm *indexManager[T]) Delete(ctx context.Context, id string) (err error) {
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 
+	started := time.Now()
+	defer func() { sm.instruments.Record(ctx, textsearch.OperationDelete, started, err) }()
+
 	if sm.circuitBreaker.CannotProceed() {
-		return circuitbreaking.ErrCircuitBroken
+		return op.Error(circuitbreaking.ErrCircuitBroken, "removing from index")
 	}
 
 	op.Set("id", id)
@@ -262,7 +307,7 @@ func (sm *indexManager[T]) Delete(ctx context.Context, id string) error {
 	}.Do(ctx, sm.esClient)
 	if err != nil {
 		sm.circuitBreaker.Failed()
-		return observability.PrepareError(err, op.Span(), "deleting from elasticsearch")
+		return op.Error(err, "deleting from elasticsearch")
 	}
 	defer func() {
 		if closeErr := res.Body.Close(); closeErr != nil {
@@ -285,7 +330,7 @@ func (sm *indexManager[T]) Delete(ctx context.Context, id string) error {
 	// failed delete would count as a success and leave the document in place.
 	if res.IsError() {
 		sm.circuitBreaker.Failed()
-		return observability.PrepareError(platformerrors.New(res.String()), op.Span(), "deleting from elasticsearch")
+		return op.Error(platformerrors.New(res.String()), "deleting from elasticsearch")
 	}
 
 	op.Logger().Debug("removed from index")

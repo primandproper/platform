@@ -6,6 +6,7 @@ import (
 	"github.com/primandproper/platform-go/v10/healthcheck"
 	"github.com/primandproper/platform-go/v10/internal/injection"
 	"github.com/primandproper/platform-go/v10/messagequeue"
+	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/samber/do/v2"
 )
@@ -39,7 +40,15 @@ const (
 // that starts empty.
 func registerHealth(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (healthcheck.Registry, error) {
-		registry := healthcheck.NewRegistry()
+		pillars, err := observability.InvokePillars(i)
+		if err != nil {
+			return nil, err
+		}
+
+		registry, err := healthcheck.NewRegistry(healthcheck.WithPillars(pillars))
+		if err != nil {
+			return nil, err
+		}
 
 		// Readiness is an optional capability of a Client rather than part of the
 		// interface — every provider this module ships has it, and one an

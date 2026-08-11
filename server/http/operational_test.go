@@ -55,7 +55,7 @@ func TestReadinessHandler(T *testing.T) {
 	T.Run("every component up is a 200", func(t *testing.T) {
 		t.Parallel()
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(&stubChecker{name: "database"})
 
 		res := serve(t, ReadinessHandler(registry), ReadinessPath)
@@ -74,7 +74,7 @@ func TestReadinessHandler(T *testing.T) {
 
 		// The body is the reason the probe is worth reading: an operator gets
 		// which component failed and what it said, not just the status.
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(&stubChecker{name: "database"})
 		registry.Register(&stubChecker{name: "message_queue", err: errors.New("no broker")})
 
@@ -135,7 +135,7 @@ func Test_mountOperationalEndpoints(T *testing.T) {
 		t.Parallel()
 
 		router := testRouter(t)
-		mountOperationalEndpoints(router.Backend(), healthcheck.NewRegistry(), true)
+		mountOperationalEndpoints(router.Backend(), newHealthRegistry(t), true)
 
 		test.EqOp(t, http.StatusOK, routeStatus(t, router, LivenessPath))
 		test.EqOp(t, http.StatusOK, routeStatus(t, router, ReadinessPath))
@@ -159,7 +159,7 @@ func Test_mountOperationalEndpoints(T *testing.T) {
 		t.Parallel()
 
 		router := testRouter(t)
-		mountOperationalEndpoints(router.Backend(), healthcheck.NewRegistry(), false)
+		mountOperationalEndpoints(router.Backend(), newHealthRegistry(t), false)
 
 		test.EqOp(t, http.StatusOK, routeStatus(t, router, LivenessPath))
 		test.EqOp(t, http.StatusNotFound, routeStatus(t, router, VersionPath))
@@ -172,7 +172,7 @@ func Test_mountOperationalEndpoints(T *testing.T) {
 		// should not have a ReadyzWithResponse method, and /readyz's body is the
 		// health registry's shape rather than part of this service's API.
 		router := testRouter(t)
-		mountOperationalEndpoints(router.Backend(), healthcheck.NewRegistry(), true)
+		mountOperationalEndpoints(router.Backend(), newHealthRegistry(t), true)
 
 		spec, err := router.MarshalSpec()
 		must.NoError(t, err)
@@ -189,7 +189,7 @@ func TestNewHTTPServer_operationalEndpoints(T *testing.T) {
 	T.Run("serves the probes from the registry it was given", func(t *testing.T) {
 		t.Parallel()
 
-		registry := healthcheck.NewRegistry()
+		registry := newHealthRegistry(t)
 		registry.Register(&stubChecker{name: "database", err: errors.New("down")})
 
 		router := testRouter(t)
@@ -206,7 +206,7 @@ func TestNewHTTPServer_operationalEndpoints(T *testing.T) {
 
 		// Mounting is the only thing NewHTTPServer does to the router it is
 		// handed, so a caller that has none must not be the one crash it causes.
-		_, err := NewHTTPServer(t.Context(), &Config{}, nil, WithHealthRegistry(healthcheck.NewRegistry()), WithVersionEndpoint())
+		_, err := NewHTTPServer(t.Context(), &Config{}, nil, WithHealthRegistry(newHealthRegistry(t)), WithVersionEndpoint())
 		must.NoError(t, err)
 	})
 }
@@ -224,4 +224,14 @@ func Test_isProbePath(T *testing.T) {
 		test.False(t, isProbePath(VersionPath))
 		test.False(t, isProbePath("/api/v1/things"))
 	})
+}
+
+// newHealthRegistry builds an uninstrumented health registry for a test.
+func newHealthRegistry(t *testing.T) *healthcheck.CheckerRegistry {
+	t.Helper()
+
+	registry, err := healthcheck.NewRegistry()
+	must.NoError(t, err)
+
+	return registry
 }
