@@ -283,28 +283,3 @@ func TestListener_Close(T *testing.T) {
 	})
 }
 
-func TestJitter(T *testing.T) {
-	T.Parallel()
-
-	// The upper half, not full jitter: a delay that can collapse toward zero
-	// would have a fleet retrying a downed primary as fast as it could dial.
-	T.Run("stays within the upper half of the interval", func(t *testing.T) {
-		t.Parallel()
-
-		const d = time.Second
-
-		for range 100 {
-			got := jitter(d)
-
-			test.GreaterEq(t, d/2, got)
-			test.LessEq(t, d, got)
-		}
-	})
-
-	T.Run("a non-positive delay stays zero", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, time.Duration(0), jitter(0))
-		test.EqOp(t, time.Duration(0), jitter(-time.Second))
-	})
-}

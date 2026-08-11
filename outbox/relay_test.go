@@ -563,29 +563,3 @@ func TestNewRelay(T *testing.T) {
 	})
 }
 
-func TestRelay_backoffFor(T *testing.T) {
-	T.Parallel()
-
-	T.Run("grows exponentially and clamps at MaxDelay", func(t *testing.T) {
-		t.Parallel()
-
-		c := newStubClock()
-		relay, _ := newTestRelay(t, newTestClient(t), c, func(cfg *RelayConfig) {
-			cfg.Backoff = retrycfg.Config{
-				MaxAttempts:  10,
-				InitialDelay: time.Second,
-				MaxDelay:     10 * time.Second,
-				Multiplier:   2,
-			}
-		})
-
-		test.EqOp(t, time.Second, relay.backoffFor(1))
-		test.EqOp(t, 2*time.Second, relay.backoffFor(2))
-		test.EqOp(t, 4*time.Second, relay.backoffFor(3))
-		test.EqOp(t, 10*time.Second, relay.backoffFor(9))
-
-		// A zero or negative attempt count still yields the initial delay
-		// rather than a nonsensical fraction of it.
-		test.EqOp(t, time.Second, relay.backoffFor(0))
-	})
-}

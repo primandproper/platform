@@ -82,7 +82,7 @@ func (t *Timers[K]) Schedule(ctx context.Context, scheduled ...Timer[K]) error {
 
 	query, args := buildSchedule(t.cfg.resolvedTable(), t.cfg.Name, rows)
 
-	if err := t.withRetries(ctx, "schedule", func() error {
+	if err := t.retrier.Do(ctx, "schedule", func() error {
 		if _, execErr := t.client.Writer().ExecContext(ctx, query, args...); execErr != nil {
 			return platformerrors.Wrap(execErr, "writing timers")
 		}

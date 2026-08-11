@@ -524,7 +524,7 @@ func (s *SQLStore) Backlog(ctx context.Context) (depth int64, oldest time.Time, 
 
 	op.SpanOnly(backlogDepthKey, depth)
 
-	created, ok := coerceTime(raw)
+	created, ok := database.CoerceTime(raw)
 	if !ok {
 		return depth, time.Time{}, nil
 	}
@@ -753,7 +753,7 @@ func (s *SQLStore) scanAttempts(ctx context.Context, query string, args []any) (
 		attempt.Error = failure.String
 		attempt.Duration = time.Duration(durationMS) * time.Millisecond
 
-		if at, ok := coerceTime(attemptedAt); ok {
+		if at, ok := database.CoerceTime(attemptedAt); ok {
 			attempt.AttemptedAt = at.UTC()
 		}
 
@@ -787,49 +787,4 @@ func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, arg
 	}
 
 	return ids, rows.Err()
-}
-
-// coerceTime normalizes whatever a driver hands back for a timestamp read as
-// `any`.
-//
-// Timestamps are scanned as `any` rather than sql.NullTime because the drivers
-// disagree. pgx and go-sql-driver return a time.Time, but modernc's SQLite
-// driver stores a bound time.Time as Go's own String() rendering, and an
-// aggregate over such a column loses the declared DATETIME affinity — so it
-// comes back as a plain string that sql.NullTime refuses outright.
-//
-// A NULL reports false, and callers treat that as "no value" rather than as the
-// zero time.
-func coerceTime(v any) (time.Time, bool) {
-	var s string
-
-	switch typed := v.(type) {
-	case nil:
-		return time.Time{}, false
-	case time.Time:
-		return typed, true
-	case string:
-		s = typed
-	case []byte:
-		s = string(typed)
-	default:
-		return time.Time{}, false
-	}
-
-	// Go's String() layout comes first: it is what the SQLite path actually
-	// produces, and the others are here so a driver change does not silently
-	// zero the value.
-	for _, layout := range []string{
-		"2006-01-02 15:04:05.999999999 -0700 MST",
-		time.RFC3339Nano,
-		"2006-01-02 15:04:05.999999999-07:00",
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-	} {
-		if parsed, parseErr := time.Parse(layout, s); parseErr == nil {
-			return parsed, true
-		}
-	}
-
-	return time.Time{}, false
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
-	"math/rand/v2"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/clock"
@@ -14,6 +13,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/retry"
 )
 
 const (
@@ -107,7 +107,7 @@ func WithScopedPollBackoff(factor float64, maxInterval time.Duration) ScopedOpti
 	}
 }
 
-// WithScopedJitter replaces the source of randomness that spreads contended
+// WithScopedRand replaces the source of randomness that spreads contended
 // waiters apart. fn must return a value in [0,1]; the adapter sleeps for half
 // the current interval plus that fraction of the other half, so waiters that
 // started together do not re-collide on every round.
@@ -115,10 +115,10 @@ func WithScopedPollBackoff(factor float64, maxInterval time.Duration) ScopedOpti
 // The default draws from math/rand/v2 and needs no seeding. Tests wanting a
 // fixed schedule can pass func() float64 { return 1 }, which yields exactly
 // the un-jittered interval. A nil fn is ignored.
-func WithScopedJitter(fn func() float64) ScopedOption {
+func WithScopedRand(fn retry.Rand) ScopedOption {
 	return func(s *scopedLocker) {
 		if fn != nil {
-			s.jitter = fn
+			s.rand = fn
 		}
 	}
 }
@@ -165,7 +165,12 @@ type scopedLocker struct {
 	metricsProvider metrics.Provider
 	locker          Locker
 	clock           clock.Clock
-	jitter          func() float64
+	// jitter spreads waiters that started together, so they do not re-collide
+	// on every round. retry.Equal — half the interval, plus a random share of
+	// the other half — rather than retry.Full, which can draw a near-zero wait
+	// and turn a backing-off poller back into a hot one.
+	jitter          retry.Jitter
+	rand            retry.Rand
 	acquireCounter  metrics.Int64Counter
 	contendCounter  metrics.Int64Counter
 	errCounter      metrics.Int64Counter
@@ -176,16 +181,6 @@ type scopedLocker struct {
 	pollInterval    time.Duration
 	maxPollInterval time.Duration
 	pollBackoff     float64
-}
-
-// jitteredWait spreads waiters that started together, so they do not re-collide
-// on every round. Equal jitter — half the interval, plus a random share of the
-// other half — rather than full jitter, which can draw a near-zero wait and
-// turn a backing-off poller back into a hot one.
-func (s *scopedLocker) jitteredWait(interval time.Duration) time.Duration {
-	half := interval / 2
-
-	return half + time.Duration(s.jitter()*float64(half))
 }
 
 // grow advances the contended wait toward maxPollInterval. It is computed
@@ -220,9 +215,10 @@ func NewScopedLocker(locker Locker, opts ...ScopedOption) (ScopedLocker, error) 
 	}
 
 	s := &scopedLocker{
-		locker:          locker,
-		clock:           clock.NewClock(),
-		jitter:          rand.Float64,
+		locker: locker,
+		clock:  clock.NewClock(),
+		rand:   retry.DefaultRand,
+
 		ttl:             DefaultScopedLockTTL,
 		pollInterval:    DefaultScopedPollInterval,
 		maxPollInterval: DefaultScopedMaxPollInterval,
@@ -233,6 +229,8 @@ func NewScopedLocker(locker Locker, opts ...ScopedOption) (ScopedLocker, error) 
 			opt(s)
 		}
 	}
+
+	s.jitter = retry.Equal(s.rand)
 
 	// The TTL is fixed for this locker's lifetime and every operation it reports
 	// on is bounded by it, so it is stated here rather than at each Begin.
@@ -321,7 +319,7 @@ func (s *scopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 
 		polls++
 
-		if sleepErr := s.clock.Sleep(ctx, s.jitteredWait(wait)); sleepErr != nil {
+		if sleepErr := s.clock.Sleep(ctx, s.jitter(wait)); sleepErr != nil {
 			// Giving up still counts as contention — the caller waited and lost
 			// — but a canceled or expired context is the caller's deadline
 			// arriving, not an infrastructure failure, so it is traced without

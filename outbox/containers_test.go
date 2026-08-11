@@ -307,7 +307,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		// MIN over a timestamp column is the one value this package reads back
 		// as a time, and every driver renders it differently — which is the
-		// whole reason coerceTime exists and the reason this runs per dialect.
+		// whole reason database.CoerceTime exists and the reason this runs per dialect.
 		depth, age, err = relay.backlog(t.Context())
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), depth)

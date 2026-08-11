@@ -121,7 +121,7 @@ func (q *Queue[K]) upsert(ctx context.Context, rows []encodedEntry) error {
 
 	query, args := buildUpsert(q.cfg.resolvedTable(), q.cfg.Name, rows)
 
-	if err := q.withRetries(ctx, "enqueue", func() error {
+	if err := q.retrier.Do(ctx, "enqueue", func() error {
 		if _, execErr := q.client.Writer().ExecContext(ctx, query, args...); execErr != nil {
 			return platformerrors.Wrap(execErr, "upserting work queue items")
 		}

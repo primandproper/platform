@@ -5,7 +5,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"maps"
-	"math/rand/v2"
 	"slices"
 	"sync"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/panicking"
+	"github.com/primandproper/platform-go/v10/retry"
 
 	"golang.org/x/sync/singleflight"
 )
@@ -89,6 +89,12 @@ type cachingSource struct {
 	rotationCounter       metrics.Int64Counter
 	staleReadCounter      metrics.Int64Counter
 	stalenessGauge        metrics.Float64Gauge
+	// jitter spreads a fleet's refreshes apart, and only ever shortens the
+	// interval. retry.Equal is what gives it that property: a wait that could
+	// land *after* its configured interval could land after the TTL too, and
+	// the interval-shorter-than-TTL check at construction would then be
+	// promising something the scheduling does not deliver.
+	jitter retry.Jitter
 	// flight collapses concurrent resolutions of one name, so a cold-key
 	// stampede costs one backend call rather than one per caller.
 	flight      singleflight.Group
@@ -160,6 +166,7 @@ func NewCachingSource(source SecretSource, ttl time.Duration, opts ...Option) (C
 	c := &cachingSource{
 		o11y:    observability.NewObserver(cachingSourceName, o.logger, o.tracerProvider),
 		clock:   clock.NewClock(),
+		jitter:  retry.Equal(o.rand),
 		source:  source,
 		entries: make(map[string]cachedSecret),
 		hooks:   make(map[string]map[uint64]ChangeFunc),
@@ -382,7 +389,7 @@ func (c *cachingSource) refreshEvery(ctx context.Context, interval time.Duration
 	defer close(c.refreshDone)
 
 	for {
-		if err := c.clock.Sleep(ctx, jitter(interval)); err != nil {
+		if err := c.clock.Sleep(ctx, c.jitter(interval)); err != nil {
 			return
 		}
 
@@ -491,19 +498,4 @@ func (c *cachingSource) expired(entry cachedSecret) bool {
 // recordStaleness reports how old the value being served is.
 func (c *cachingSource) recordStaleness(ctx context.Context, entry cachedSecret) {
 	c.stalenessGauge.Record(ctx, c.clock.Since(entry.fetchedAt).Seconds())
-}
-
-// jitter shortens interval by up to half of it.
-//
-// It only ever shortens. Spreading a fleet's refreshes matters, but a wait that
-// could land *after* its configured interval could land after the TTL too, and
-// the interval-shorter-than-TTL check at construction would then be promising
-// something the scheduling does not deliver.
-func jitter(interval time.Duration) time.Duration {
-	half := interval / 2
-	if half <= 0 {
-		return interval
-	}
-
-	return interval - time.Duration(rand.Int64N(int64(half))) //nolint:gosec // G404: spreading refreshes does not require cryptographic randomness
 }

@@ -17,7 +17,6 @@ import (
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
-	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -235,54 +234,6 @@ func TestNewRelay_instrumentFailures(T *testing.T) {
 			test.StrContains(t, err.Error(), tc.wantErr)
 		})
 	}
-}
-
-func TestRelay_backoffFor_jitter(T *testing.T) {
-	T.Parallel()
-
-	T.Run("jitter keeps the delay within the un-jittered bound", func(t *testing.T) {
-		t.Parallel()
-
-		relay, _ := newTestRelay(t, newTestClient(t), newStubClock(), func(cfg *RelayConfig) {
-			cfg.Backoff = retrycfg.Config{
-				MaxAttempts:  10,
-				InitialDelay: time.Second,
-				MaxDelay:     10 * time.Second,
-				Multiplier:   2,
-				UseJitter:    true,
-			}
-		})
-
-		// Full jitter draws in (0, base], so repeated calls must stay inside that
-		// window — and never fall under the floor, however small the draw.
-		for range 200 {
-			got := relay.backoffFor(3)
-
-			must.True(t, got >= time.Millisecond, must.Sprintf("below the floor: %s", got))
-			must.True(t, got <= 4*time.Second, must.Sprintf("above the un-jittered delay: %s", got))
-		}
-	})
-
-	T.Run("the floor holds when jitter draws near zero", func(t *testing.T) {
-		t.Parallel()
-
-		// An initial delay under the floor: without the clamp this would return
-		// something a message could retry against immediately, spinning on
-		// whatever failure put it there.
-		relay, _ := newTestRelay(t, newTestClient(t), newStubClock(), func(cfg *RelayConfig) {
-			cfg.Backoff = retrycfg.Config{
-				MaxAttempts:  10,
-				InitialDelay: time.Microsecond,
-				MaxDelay:     time.Second,
-				Multiplier:   1,
-				UseJitter:    true,
-			}
-		})
-
-		for range 200 {
-			test.EqOp(t, time.Millisecond, relay.backoffFor(1))
-		}
-	})
 }
 
 func TestRelay_Close(T *testing.T) {

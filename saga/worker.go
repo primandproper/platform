@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/rand/v2"
 	"slices"
 	"sync"
 	"time"
@@ -653,7 +652,7 @@ func (w *Worker) markStuck(ctx context.Context, inst *Record, cause error) error
 func (w *Worker) reschedule(ctx context.Context, inst *Record, attempts int, phase string, cause error) error {
 	inst.Attempts = attempts
 
-	nextAttempt := w.clock.Now().UTC().Add(w.backoffFor(attempts, phase))
+	nextAttempt := w.clock.Now().UTC().Add(retrycfg.ScheduledDelayFor(w.cfg.budgetFor(phase), attempts))
 
 	w.o11y.Logger().WithValues(map[string]any{
 		instanceIDKey:  inst.ID,
@@ -809,36 +808,6 @@ func (w *Worker) exhausted(cause error, attempts int, phase string) bool {
 	}
 
 	return uint(attempts) >= w.cfg.budgetFor(phase).MaxAttempts
-}
-
-// backoffFor computes the delay before a step's next attempt.
-//
-// The schedule comes from retrycfg.DelayFor, so this and anything using a
-// retry.Policy grow their delays identically from the same Config. The wait is
-// persisted as a timestamp rather than slept through, so it survives a restart,
-// and the jitter is full rather than equal — several workers share this table,
-// and spreading their next attempts across the whole window is what keeps them
-// from re-colliding after one contended claim.
-func (w *Worker) backoffFor(attempts int, phase string) time.Duration {
-	if attempts < 1 {
-		attempts = 1
-	}
-
-	cfg := w.cfg.budgetFor(phase)
-
-	delay := float64(retrycfg.DelayFor(cfg, uint(attempts)))
-
-	if cfg.UseJitter {
-		// Full jitter. Not security-sensitive: this only decorrelates retry
-		// timing between workers.
-		delay *= rand.Float64() //nolint:gosec // jitter, not entropy
-	}
-
-	if delay < float64(time.Millisecond) {
-		delay = float64(time.Millisecond)
-	}
-
-	return time.Duration(delay)
 }
 
 // containedPanic turns a panic that panicking.Contain caught into this

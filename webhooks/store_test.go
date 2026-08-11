@@ -775,65 +775,6 @@ func idsOf(endpoints []*Endpoint) []string {
 	return ids
 }
 
-// coerceTime is where the three drivers disagree, so it is worth pinning
-// directly rather than only through the store paths that happen to call it.
-//
-// pgx and go-sql-driver hand back a time.Time; modernc's SQLite driver stores a
-// bound time.Time as Go's own String() rendering, and an aggregate over such a
-// column loses the declared DATETIME affinity — so it arrives as a plain string
-// that sql.NullTime refuses outright.
-func TestCoerceTime(T *testing.T) {
-	T.Parallel()
-
-	T.Run("passes a time.Time through", func(t *testing.T) {
-		t.Parallel()
-
-		got, ok := coerceTime(baseTime)
-		must.True(t, ok)
-		test.EqOp(t, baseTime, got)
-	})
-
-	T.Run("parses the renderings the drivers produce", func(t *testing.T) {
-		t.Parallel()
-
-		for name, raw := range map[string]any{
-			"go String()":      "2026-07-30 12:00:00 +0000 UTC",
-			"RFC3339Nano":      "2026-07-30T12:00:00Z",
-			"offset":           "2026-07-30 12:00:00+00:00",
-			"naive fractional": "2026-07-30 12:00:00.000000000",
-			"naive second":     "2026-07-30 12:00:00",
-			"byte slice":       []byte("2026-07-30 12:00:00 +0000 UTC"),
-		} {
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-
-				got, ok := coerceTime(raw)
-				must.True(t, ok)
-				test.EqOp(t, baseTime.Unix(), got.UTC().Unix())
-			})
-		}
-	})
-
-	// A NULL is "no value" rather than the zero time: an empty backlog has no
-	// oldest row, and reporting the zero time would show an age of 2,000 years.
-	T.Run("reports absence", func(t *testing.T) {
-		t.Parallel()
-
-		for name, raw := range map[string]any{
-			"nil":             nil,
-			"unparseable":     "not a timestamp",
-			"unexpected type": 42,
-		} {
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-
-				_, ok := coerceTime(raw)
-				test.False(t, ok)
-			})
-		}
-	})
-}
-
 // errStoreInstrument is what the failing provider returns for the one
 // instrument the store registers.
 var errStoreInstrument = platformerrors.New("instrument unavailable")

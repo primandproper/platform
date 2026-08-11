@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v10/retry"
 )
 
 // Option configures the caching source this package constructs. The zero
@@ -21,6 +22,7 @@ type options struct {
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	refreshInterval time.Duration
+	rand            retry.Rand
 }
 
 func newOptions(opts []Option) *options {
@@ -32,6 +34,20 @@ func newOptions(opts []Option) *options {
 	}
 
 	return o
+}
+
+// WithRand replaces the source that spreads a fleet's background refreshes
+// apart. fn must return a value in [0,1]; a value of 1 yields the un-jittered
+// interval, and every draw shortens rather than lengthens it.
+//
+// The default draws from math/rand/v2 and needs no seeding. A nil fn is
+// ignored.
+func WithRand(fn retry.Rand) Option {
+	return func(o *options) {
+		if fn != nil {
+			o.rand = fn
+		}
+	}
 }
 
 // WithLogger attaches a logger.

@@ -732,54 +732,6 @@ func TestWorker_cycle(T *testing.T) {
 	})
 }
 
-func TestWorker_backoffFor(T *testing.T) {
-	T.Parallel()
-
-	T.Run("grows with the attempt count", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &WorkerConfig{}
-		cfg.EnsureDefaults()
-		cfg.Backoff.UseJitter = false
-
-		w, err := NewWorker(t.Context(), cfg, &fakeStore{})
-		must.NoError(t, err)
-
-		first := w.backoffFor(1)
-		second := w.backoffFor(2)
-		third := w.backoffFor(3)
-
-		test.True(t, second > first)
-		test.True(t, third > second)
-	})
-
-	// A jittered delay can land arbitrarily close to zero, and a dispatch that
-	// becomes claimable immediately spins against the same failure.
-	T.Run("never returns less than a millisecond", func(t *testing.T) {
-		t.Parallel()
-
-		w := newTestWorker(t, &fakeStore{})
-
-		for range 200 {
-			test.True(t, w.backoffFor(1) >= time.Millisecond)
-		}
-	})
-
-	T.Run("treats a non-positive attempt as the first", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &WorkerConfig{}
-		cfg.EnsureDefaults()
-		cfg.Backoff.UseJitter = false
-
-		w, err := NewWorker(t.Context(), cfg, &fakeStore{})
-		must.NoError(t, err)
-
-		test.EqOp(t, w.backoffFor(1), w.backoffFor(0))
-		test.EqOp(t, w.backoffFor(1), w.backoffFor(-5))
-	})
-}
-
 func TestWorker_RunAndClose(T *testing.T) {
 	T.Parallel()
 
@@ -986,33 +938,3 @@ func newRefusingServer(t *testing.T) *httptest.Server {
 	return server
 }
 
-func TestWorker_backoffCap(T *testing.T) {
-	T.Parallel()
-
-	// The schedule is capped at MaxDelay, so a dispatch deep into its retries
-	// does not end up scheduled days out.
-	T.Run("does not exceed the configured maximum", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := &WorkerConfig{}
-		cfg.EnsureDefaults()
-		cfg.Backoff.UseJitter = false
-
-		w, err := NewWorker(t.Context(), cfg, &fakeStore{})
-		must.NoError(t, err)
-
-		test.EqOp(t, cfg.Backoff.MaxDelay, w.backoffFor(100))
-	})
-
-	// With jitter the delay is drawn from below the schedule, so it must still
-	// never exceed the cap.
-	T.Run("stays under the maximum with jitter", func(t *testing.T) {
-		t.Parallel()
-
-		w := newTestWorker(t, &fakeStore{})
-
-		for range 200 {
-			test.True(t, w.backoffFor(100) <= w.cfg.Backoff.MaxDelay)
-		}
-	})
-}
