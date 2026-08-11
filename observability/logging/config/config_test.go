@@ -27,7 +27,22 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 
-	T.Run("rejects missing service name", func(t *testing.T) {
+	// Only otelslog sends the service name anywhere, so it is the only provider
+	// that requires one. zerolog writes to stdout and never had a use for it.
+	T.Run("rejects a missing service name for otelslog", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		cfg := &Config{
+			Level:    logging.InfoLevel,
+			Provider: ProviderOtelSlog,
+			OtelSlog: &otelgrpc.Config{CollectorEndpoint: "0.0.0.0"},
+		}
+
+		test.Error(t, cfg.ValidateWithContext(ctx))
+	})
+
+	T.Run("accepts a missing service name for a provider that does not send one", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
@@ -36,7 +51,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 			Provider: ProviderZerolog,
 		}
 
-		test.Error(t, cfg.ValidateWithContext(ctx))
+		test.NoError(t, cfg.ValidateWithContext(ctx))
 	})
 
 	T.Run("accepts a level decoded from JSON", func(t *testing.T) {
@@ -123,7 +138,7 @@ func TestConfig_NewLogger(T *testing.T) {
 		cfg := &Config{
 			Provider:    ProviderOtelSlog,
 			ServiceName: t.Name(),
-			OtelSlog:    &otelgrpc.Config{},
+			OtelSlog:    &otelgrpc.Config{CollectorEndpoint: "0.0.0.0"},
 		}
 
 		l, err := cfg.NewLogger(ctx)

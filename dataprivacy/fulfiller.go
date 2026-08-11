@@ -190,7 +190,7 @@ func NewFulfiller(
 	opts ...FulfillerOption,
 ) (*Fulfiller, error) {
 	if cfg == nil {
-		return nil, platformerrors.New("nil dataprivacy fulfiller config provided")
+		return nil, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil dataprivacy fulfiller config")
 	}
 
 	if store == nil {

@@ -24,7 +24,7 @@ import (
 func buildRedisBackedConsumer(t *testing.T, cfg *Config, topic string, handlerFunc func(context.Context, []byte) error) messagequeue.Consumer {
 	t.Helper()
 
-	provider, err := NewRedisConsumerProvider(*cfg)
+	provider, err := NewRedisConsumerProvider(t.Context(), *cfg)
 	must.NoError(t, err)
 
 	consumer, err := provider.NewConsumer(t.Context(), topic, handlerFunc)
@@ -192,7 +192,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			}
 		}()
 
-		conPro, err := NewRedisConsumerProvider(*cfg)
+		conPro, err := NewRedisConsumerProvider(t.Context(), *cfg)
 		must.NoError(t, err)
 		must.NotNil(t, conPro)
 
@@ -217,7 +217,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			}
 		}()
 
-		conPro, err := NewRedisConsumerProvider(*cfg)
+		conPro, err := NewRedisConsumerProvider(t.Context(), *cfg)
 		must.NoError(t, err)
 		must.NotNil(t, conPro)
 
@@ -242,7 +242,7 @@ func Test_consumerProvider_NewConsumer(T *testing.T) {
 			QueueAddresses: []string{t.Name()},
 		}
 
-		conPro, err := NewRedisConsumerProvider(cfg)
+		conPro, err := NewRedisConsumerProvider(t.Context(), cfg)
 		must.NoError(t, err)
 		must.NotNil(t, conPro)
 

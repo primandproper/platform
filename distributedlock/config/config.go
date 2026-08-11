@@ -3,7 +3,6 @@ package distributedlockcfg
 import (
 	"context"
 	"slices"
-	"strings"
 
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v10/database"
@@ -13,6 +12,7 @@ import (
 	pglock "github.com/primandproper/platform-go/v10/distributedlock/postgres"
 	redislock "github.com/primandproper/platform-go/v10/distributedlock/redis"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -38,7 +38,7 @@ var providers = []string{RedisProvider, PostgresProvider, MemoryProvider, NoopPr
 // knownProvider reports whether p names an implementation, ignoring case and
 // surrounding space, exactly as the dispatch switches do.
 func knownProvider(p string) bool {
-	return slices.Contains(providers, strings.TrimSpace(strings.ToLower(p)))
+	return slices.Contains(providers, cfgnorm.Provider(p))
 }
 
 // Config dispatches to a distributedlock provider implementation.
@@ -51,6 +51,19 @@ type Config struct {
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
+
+// RequiresDatabase reports whether building a locker from cfg needs a
+// database.Client. Only the postgres locker does; every other provider takes
+// nil.
+//
+// It is a method rather than a comparison each caller writes out, because each
+// caller that wrote it out wrote it against the raw Provider string: a config
+// naming "POSTGRES" dispatched to the postgres locker and skipped the database
+// lookup, then failed with ErrNilDatabaseClient on a container that had one
+// registered all along.
+func (cfg *Config) RequiresDatabase() bool {
+	return cfg != nil && cfgnorm.Provider(cfg.Provider) == PostgresProvider
+}
 
 // ValidateWithContext validates a Config struct. Provider is required: the noop
 // locker is reachable only by naming it.
@@ -67,7 +80,7 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // knownProvider accepts and NewLocker dispatches on would otherwise skip the
 // very block it is about to use.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
-	provider := strings.TrimSpace(strings.ToLower(cfg.Provider))
+	provider := cfgnorm.Provider(cfg.Provider)
 
 	return validation.ValidateStructWithContext(ctx, cfg,
 		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
@@ -117,7 +130,7 @@ func NewLocker(
 	// known to be nil. The provider constructors return their own concrete types,
 	// so returning one straight from the constructor would convert a nil *Locker
 	// into a non-nil distributedlock.Locker on the error path.
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	switch cfgnorm.Provider(cfg.Provider) {
 	case RedisProvider:
 		l, lockerErr := redislock.NewRedisLocker(cfg.Redis, circuitBreaker,
 			redislock.WithLogger(logger),
@@ -184,7 +197,7 @@ func NewScopedLocker(
 		return nil, errors.Wrap(err, "validating distributedlock config")
 	}
 
-	switch strings.TrimSpace(strings.ToLower(cfg.Provider)) {
+	switch cfgnorm.Provider(cfg.Provider) {
 	case PostgresProvider:
 		circuitBreaker, err := circuitbreakingcfg.NewCircuitBreaker(ctx, &cfg.CircuitBreaker, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider))
 		if err != nil {

@@ -111,10 +111,16 @@ type consumerProvider struct {
 
 // NewRedisConsumerProvider returns a ConsumerProvider for a given address.
 //
-// It reports an error rather than returning a provider with no client behind
-// it: a config naming no queue addresses used to build cleanly here and panic
-// later, on the first Subscribe.
-func NewRedisConsumerProvider(cfg Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
+// It takes a context and reports an error so that the config's own
+// ValidateWithContext runs here, and so that an address list redisclient
+// refuses is a startup error. Without either, a config naming no
+// QueueAddresses built cleanly and the provider came back holding a nil
+// client — which nothing noticed until the first Ping panicked.
+func NewRedisConsumerProvider(ctx context.Context, cfg Config, opts ...Option) (messagequeue.ConsumerProvider, error) {
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, platformerrors.Wrap(err, "validating redis consumer config")
+	}
+
 	o := newOptions(opts)
 	o11y := observability.NewObserver("redis_consumer_provider", o.logger, o.tracerProvider)
 	o11y.Logger().WithValue("queue_addresses", cfg.QueueAddresses).

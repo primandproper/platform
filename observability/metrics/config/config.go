@@ -2,7 +2,7 @@ package metricscfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
@@ -24,6 +24,11 @@ const (
 	ProviderNoop = "noop"
 )
 
+// providers are every provider this package implements, plus the empty string,
+// which selects no metrics — the deliberate opt-out. Validation and
+// NewMetricsProvider both read it.
+var providers = []string{"", ProviderNoop, ProviderOtel}
+
 type (
 	// Config contains settings related to tracing.
 	Config struct {
@@ -42,11 +47,27 @@ func (c *Config) NewMetricsProvider(ctx context.Context, opts ...Option) (metric
 	// otelgrpc provider logs what it set up.
 	logger := logging.EnsureLogger(newOptions(opts).logger)
 
+	if c == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	provider, err := cfgnorm.SelectProvider(c.Provider, providers, "metrics provider")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = c.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating metrics config")
+	}
+
+	// Checked after validation rather than before: a config that is off but
+	// wrong is still wrong, and finding out about it when someone turns metrics
+	// on is finding out at the worst moment.
 	if !c.Enabled {
 		return metricsnoop.NewMetricsProvider(), nil
 	}
 
-	switch strings.TrimSpace(strings.ToLower(c.Provider)) {
+	switch provider {
 	case ProviderOtel:
 		return otelgrpc.NewMetricsProvider(ctx, logger, c.ServiceName, c.Otel)
 	case "", ProviderNoop:
@@ -65,8 +86,21 @@ func (c *Config) ValidateWithContext(ctx context.Context) error {
 	// "env parsing ran".
 	cfgnorm.ZeroToNil(&c.Otel)
 
+	provider := cfgnorm.Provider(c.Provider)
+
 	return validation.ValidateStructWithContext(ctx, c,
-		validation.Field(&c.Provider, validation.When(c.Enabled, validation.In("", ProviderNoop, ProviderOtel))),
-		validation.Field(&c.Otel, validation.When(c.Enabled && c.Provider == ProviderOtel, validation.Required).Else(validation.Nil)),
+		validation.Field(&c.Provider, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "OtelGRPC" while NewMetricsProvider built it. Checked
+			// whether or not metrics are Enabled, because a name nobody
+			// recognizes is a mistake in either state, and the state it is
+			// found in is not the state it will be discovered in.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "metrics provider %q", c.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&c.Otel, validation.When(c.Enabled && provider == ProviderOtel, validation.Required).Else(validation.Nil)),
 	)
 }

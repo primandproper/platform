@@ -13,16 +13,6 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-func Test_cleanString(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
-		t.Parallel()
-
-		test.NotEq(t, "", cleanString(t.Name()))
-	})
-}
-
 func TestNewConsumerProvider(T *testing.T) {
 	T.Parallel()
 
@@ -49,19 +39,16 @@ func TestNewConsumerProvider(T *testing.T) {
 		test.NotNil(t, p)
 	})
 
-	T.Run("with a redis provider naming no addresses", func(t *testing.T) {
+	// The redis provider used to fall through both of its client branches on an
+	// empty address list and hand back a provider holding a nil client.
+	T.Run("with redis provider and no addresses", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{
-			Consumer: MessageQueueConfig{
-				Provider: ProviderRedis,
-			},
-		}
+		cfg := &Config{Consumer: MessageQueueConfig{Provider: ProviderRedis}}
 
-		// This used to hand back a provider whose client was nil.
 		p, err := NewConsumerProvider(t.Context(), cfg)
-		test.Error(t, err)
 		test.Nil(t, p)
+		test.Error(t, err)
 	})
 
 	T.Run("with SQS provider", func(t *testing.T) {
@@ -85,7 +72,7 @@ func TestNewConsumerProvider(T *testing.T) {
 		cfg := &Config{
 			Consumer: MessageQueueConfig{
 				Provider: ProviderKafka,
-				Kafka:    kafka.Config{Brokers: []string{"localhost:9092"}},
+				Kafka:    kafka.Config{GroupID: "group", Brokers: []string{"localhost:9092"}},
 			},
 		}
 
@@ -172,19 +159,16 @@ func TestNewPublisherProvider(T *testing.T) {
 		test.NotNil(t, p)
 	})
 
-	T.Run("with a redis provider naming no addresses", func(t *testing.T) {
+	// The redis provider used to fall through both of its client branches on an
+	// empty address list and hand back a provider holding a nil client.
+	T.Run("with redis provider and no addresses", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{
-			Publisher: MessageQueueConfig{
-				Provider: ProviderRedis,
-			},
-		}
+		cfg := &Config{Publisher: MessageQueueConfig{Provider: ProviderRedis}}
 
-		// This used to hand back a provider whose client was nil.
 		p, err := NewPublisherProvider(t.Context(), cfg)
-		test.Error(t, err)
 		test.Nil(t, p)
+		test.Error(t, err)
 	})
 
 	T.Run("with SQS provider", func(t *testing.T) {
@@ -208,7 +192,7 @@ func TestNewPublisherProvider(T *testing.T) {
 		cfg := &Config{
 			Publisher: MessageQueueConfig{
 				Provider: ProviderKafka,
-				Kafka:    kafka.Config{Brokers: []string{"localhost:9092"}},
+				Kafka:    kafka.Config{GroupID: "group", Brokers: []string{"localhost:9092"}},
 			},
 		}
 

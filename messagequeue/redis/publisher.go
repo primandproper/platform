@@ -124,10 +124,17 @@ type publisherProvider struct {
 
 // NewRedisPublisherProvider returns a PublisherProvider for a given address.
 //
-// It reports an error rather than returning a provider with no client behind
-// it: a config naming no queue addresses used to build cleanly here and panic
-// later, on the first Publish, in whichever goroutine happened to make it.
-func NewRedisPublisherProvider(cfg Config, opts ...Option) (messagequeue.PublisherProvider, error) {
+// It takes a context and reports an error so that the config's own
+// ValidateWithContext runs here, and so that an address list redisclient
+// refuses is a startup error. Without either, a config naming no
+// QueueAddresses built cleanly and the provider came back holding a nil
+// client — which nothing noticed until the first Publish panicked, in
+// whichever goroutine happened to make it.
+func NewRedisPublisherProvider(ctx context.Context, cfg Config, opts ...Option) (messagequeue.PublisherProvider, error) {
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, platformerrors.Wrap(err, "validating redis publisher config")
+	}
+
 	o := newOptions(opts)
 	o11y := observability.NewObserver("redis_publisher_provider", o.logger, o.tracerProvider)
 	logger := o11y.Logger().WithValue("queue_addresses", cfg.QueueAddresses).

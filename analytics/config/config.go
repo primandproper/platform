@@ -2,7 +2,7 @@ package analyticscfg
 
 import (
 	"context"
-	"strings"
+	"slices"
 
 	"github.com/primandproper/platform-go/v10/analytics"
 	"github.com/primandproper/platform-go/v10/analytics/noop"
@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/analytics/segment"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
 	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	posthogsdk "github.com/posthog/posthog-go"
@@ -55,6 +56,10 @@ type (
 	}
 )
 
+// providers are every provider this package implements. Validation and
+// NewCollector both read it.
+var providers = []string{ProviderSegment, ProviderPostHog, ProviderNoop}
+
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // EnsureDefaults sets sensible defaults for zero-valued fields.
@@ -96,10 +101,20 @@ func (p ProxySourcesConfig) ToMap() map[string]*SourceConfig {
 // validation.When guard alone stops the Required rule and nothing else, so both
 // providers' credentials were required at once and no source could load.
 func (cfg *SourceConfig) ValidateWithContext(ctx context.Context) error {
+	provider := cfgnorm.Provider(cfg.Provider)
+
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.Required, validation.In(ProviderSegment, ProviderPostHog, ProviderNoop)),
-		validation.Field(&cfg.Segment, validation.Skip.When(cfg.Provider != ProviderSegment), validation.Required),
-		validation.Field(&cfg.Posthog, validation.Skip.When(cfg.Provider != ProviderPostHog), validation.Required),
+		validation.Field(&cfg.Provider, validation.Required, validation.By(func(any) error {
+			// Checked normalized, matching dispatch: validating the raw string
+			// rejected "Segment" and " posthog " while NewCollector built them.
+			if !slices.Contains(providers, provider) {
+				return errors.Wrapf(errors.ErrUnknownProvider, "analytics provider %q", cfg.Provider)
+			}
+
+			return nil
+		})),
+		validation.Field(&cfg.Segment, validation.Skip.When(provider != ProviderSegment), validation.Required),
+		validation.Field(&cfg.Posthog, validation.Skip.When(provider != ProviderPostHog), validation.Required),
 	)
 }
 
@@ -131,12 +146,30 @@ func (cfg *SourceConfig) NewCollector(
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	cfg.EnsureDefaults()
+
+	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "analytics provider")
+	if err != nil {
+		return nil, err
+	}
+
+	// Validated here as well as at the composition root, because a proxy source
+	// is built straight from its own SourceConfig: the credentials rules were
+	// reachable only for whoever validated the whole tree first.
+	if err = cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating analytics config")
+	}
+
 	cb, err := cfg.CircuitBreaker.NewCircuitBreaker(ctx, circuitbreakingcfg.WithLogger(logger), circuitbreakingcfg.WithMetricsProvider(metricsProvider))
 	if err != nil {
 		return nil, errors.Wrap(err, "could not create analytics circuit breaker")
 	}
 
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	switch provider {
 	case ProviderSegment:
 		if cfg.Segment == nil {
 			return nil, errors.New("segment provider configured but segment config is nil")

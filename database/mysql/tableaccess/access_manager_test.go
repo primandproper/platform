@@ -3,12 +3,15 @@ package tableaccess
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/testutils/containers/mysqltest"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -57,16 +60,25 @@ func hashStringToNumber(s string) uint64 {
 func runWithTestMySQL(t *testing.T, fn func(ctx context.Context, adminDB *sql.DB)) {
 	t.Helper()
 
-	dbUsername := fmt.Sprintf("u%d", hashStringToNumber(t.Name()))
-	dbPassword := reverseString(dbUsername)
-	dbName := splitReverseConcat(dbUsername)
-
-	mysqltest.Run(t, func(ctx context.Context, my *mysqltest.Instance) {
+	runWithTestMySQLInstance(t, func(ctx context.Context, my *mysqltest.Instance) {
 		// Connect as root for admin operations (CREATE USER, GRANT, etc.).
 		adminDB := my.Open(t, my.RootConnectionString(t, "allowCleartextPasswords=true", "multiStatements=true"))
 
 		fn(ctx, adminDB)
-	},
+	})
+}
+
+// runWithTestMySQLInstance is runWithTestMySQL without the root connection, for
+// the tests that need the container itself — to open a pool of their own
+// instrumentation, or to connect as a user they just created.
+func runWithTestMySQLInstance(t *testing.T, fn func(ctx context.Context, my *mysqltest.Instance)) {
+	t.Helper()
+
+	dbUsername := fmt.Sprintf("u%d", hashStringToNumber(t.Name()))
+	dbPassword := reverseString(dbUsername)
+	dbName := splitReverseConcat(dbUsername)
+
+	mysqltest.Run(t, fn,
 		mysqltest.WithImage(defaultMySQLImage),
 		mysqltest.WithCredentials(dbName, dbUsername, dbPassword),
 	)
@@ -264,7 +276,47 @@ func TestManager_CreateUser(T *testing.T) {
 			test.NoError(t, err)
 
 			err = mgr.CreateUser(ctx, username, password)
-			test.Error(t, err)
+			must.Error(t, err)
+
+			// The sentinel, not just any error: errors/http and errors/grpc both
+			// map it to a conflict, and the Postgres twin has reported it since
+			// the sentinel gained a producer. A caller should not have to know
+			// which driver is underneath to tell a name collision from a fault.
+			test.ErrorIs(t, err, database.ErrUserAlreadyExists)
+
+			// And the driver's error underneath it, because 1396 is what sent
+			// duplicateUserError looking and a caller should not have to re-run
+			// the statement to see it.
+			var myErr *mysqldriver.MySQLError
+			must.True(t, errors.As(err, &myErr))
+			test.EqOp(t, uint16(cannotUser), myErr.Number)
+		})
+	})
+
+	// 1396 is not duplication-specific — MySQL raises it for any "Operation
+	// CREATE USER failed" it declines to elaborate on. The read is what turns it
+	// into a finding, so a 1396 naming a user who does not exist keeps the error
+	// it arrived with; mapping on the number alone would answer this with a
+	// collision that never happened.
+	//
+	// The error is synthesized because a server cannot be talked into a
+	// non-collision 1396 on demand. The read that adjudicates it is real.
+	T.Run("1396 naming a user who does not exist is not a collision", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr, ok := NewManager(adminDB).(*manager)
+			must.True(t, ok)
+
+			cause := &mysqldriver.MySQLError{
+				Number:  cannotUser,
+				Message: "Operation CREATE USER failed for 'ghostuser'@'%'",
+			}
+
+			got := mgr.duplicateUserError(ctx, "ghostuser", cause)
+
+			test.False(t, errors.Is(got, database.ErrUserAlreadyExists))
+			test.ErrorIs(t, got, error(cause))
 		})
 	})
 }

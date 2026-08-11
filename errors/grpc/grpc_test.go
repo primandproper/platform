@@ -117,13 +117,6 @@ func TestPlatformMapper_Map(T *testing.T) {
 		test.EqOp(t, codes.InvalidArgument, code)
 	})
 
-	T.Run("ErrNilInputProvided maps to InvalidArgument", func(t *testing.T) {
-		t.Parallel()
-		code, ok := PlatformMapper.Map(platformerrors.ErrNilInputProvided)
-		test.True(t, ok)
-		test.EqOp(t, codes.InvalidArgument, code)
-	})
-
 	T.Run("ErrInvalidIDProvided maps to InvalidArgument", func(t *testing.T) {
 		t.Parallel()
 		code, ok := PlatformMapper.Map(platformerrors.ErrInvalidIDProvided)

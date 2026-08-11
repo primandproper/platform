@@ -12,10 +12,11 @@ import (
 // common request shape there is.
 //
 // The rows are chosen to separate the cost of the params that were sent from
-// the cost of the ones that were not. FromParams attempts every field
+// the cost of the ones that were not. FromParams used to attempt every field
 // unconditionally — four RFC3339Nano parses, two strconv parses, and a
-// ToLower — so a request carrying no filters at all still pays for all of
-// them. The "empty" row is that request, and it is the one most requests are.
+// ToLower — so a request carrying no filters at all paid for all of them. It
+// now skips what was not sent, and the "empty" row is what that is worth: it is
+// the shape most requests are.
 
 // benchParams is a fully populated query string: every field present and
 // parseable, which is the most work FromParams can be asked to do.
@@ -56,7 +57,7 @@ func BenchmarkQueryFilter_FromParams(b *testing.B) {
 		b.Run(c.name, func(b *testing.B) {
 			for b.Loop() {
 				qf := &QueryFilter{}
-				qf.FromParams(c.params)
+				errSink = qf.FromParams(c.params)
 				filterSink = qf
 			}
 		})
@@ -82,21 +83,21 @@ func BenchmarkQueryFilter_ExtractFromRequest(b *testing.B) {
 	b.Run("noQuery", func(b *testing.B) {
 		req := build(b, "")
 		for b.Loop() {
-			filterSink = ExtractQueryFilterFromRequest(req)
+			filterSink, errSink = ExtractQueryFilterFromRequest(req)
 		}
 	})
 
 	b.Run("typical", func(b *testing.B) {
 		req := build(b, "cursor=cursor_01HZY0000000000000&limit=50")
 		for b.Loop() {
-			filterSink = ExtractQueryFilterFromRequest(req)
+			filterSink, errSink = ExtractQueryFilterFromRequest(req)
 		}
 	})
 
 	b.Run("full", func(b *testing.B) {
 		req := build(b, benchParams().Encode())
 		for b.Loop() {
-			filterSink = ExtractQueryFilterFromRequest(req)
+			filterSink, errSink = ExtractQueryFilterFromRequest(req)
 		}
 	})
 }
@@ -144,5 +145,6 @@ var (
 	filterSink     *QueryFilter
 	valuesSink     url.Values
 	paginationSink Pagination
+	errSink        error
 	_              = time.RFC3339Nano
 )

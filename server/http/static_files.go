@@ -22,9 +22,12 @@ func RootLevelAssetsHandler(assetsDir string) http.HandlerFunc {
 
 		// Check if the file exists in the assets directory (guard against path traversal)
 		filePath := filepath.Clean(filepath.Join(assetsDir, r.URL.Path))
+		// Every failure to resolve a path answers 404, the same as a path that
+		// resolves cleanly to nothing. The alternative — reporting why — describes
+		// the server's filesystem to whoever asked for the file.
 		absAssets, err := filepath.Abs(assetsDir)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.NotFound(w, r)
 			return
 		}
 

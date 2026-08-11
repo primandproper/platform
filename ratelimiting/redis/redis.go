@@ -102,7 +102,16 @@ type rateLimiter struct {
 }
 
 // NewRedisRateLimiter returns a RateLimiter backed by Redis using a sliding window algorithm.
-func NewRedisRateLimiter(cfg Config, requestsPerSec float64, burstSize int, opts ...Option) (ratelimiting.RateLimiter, error) {
+//
+// It takes a context so the config goes through its own ValidateWithContext
+// rather than through a restatement of one of its rules: the address check here
+// used to be spelled out by hand, which is how it came to be the only rule of
+// the three that ran.
+func NewRedisRateLimiter(ctx context.Context, cfg Config, requestsPerSec float64, burstSize int, opts ...Option) (ratelimiting.RateLimiter, error) {
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating redis rate limiter config")
+	}
+
 	client, err := redisclient.New(redisclient.Config{
 		Username:  cfg.Username,
 		Password:  cfg.Password,

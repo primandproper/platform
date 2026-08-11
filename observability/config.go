@@ -74,7 +74,21 @@ func (p *Pillars) Deps() (logger logging.Logger, tracerProvider tracing.Provider
 }
 
 // NewPillars creates and returns all four observability pillars.
+//
+// The whole config is validated before any of them is built, rather than
+// leaving each constructor to validate its own on the way past. The pillars
+// have side effects — a logger that opens an exporter connection, a profiler
+// that starts an agent — and failing on the third one leaves the first two
+// running with nothing to shut them down.
 func (cfg *Config) NewPillars(ctx context.Context) (*Pillars, error) {
+	if cfg == nil {
+		return nil, errors.ErrNilInputParameter
+	}
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating observability config")
+	}
+
 	logger, err := cfg.Logging.NewLogger(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "setting up logger")

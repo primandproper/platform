@@ -20,6 +20,12 @@ import (
 
 const serviceName = "redis_distributed_lock"
 
+// redisKeyKey names the prefixed key this provider actually writes, which is not
+// the same datum as the lock's name and so does not belong under
+// keys.LockKeyKey. The lock's name is what correlates a trace across providers;
+// this is what an operator types into redis-cli.
+const redisKeyKey = "lock.redis_key"
+
 // releaseScript atomically deletes the lock key only if its current value matches
 // the supplied ownership token. Returns 1 on successful release, 0 if the caller
 // no longer owns the lock (expired, stolen, already released).
@@ -188,8 +194,11 @@ func (l *Locker) Close() error {
 }
 
 // release runs the compare-and-delete release script and translates the result.
-func (l *Locker) release(ctx context.Context, fullKey, token string) error {
-	ctx, op := l.o11y.Begin(ctx, observability.WithValue("lock.full_key", fullKey))
+func (l *Locker) release(ctx context.Context, key, fullKey, token string) error {
+	ctx, op := l.o11y.Begin(ctx,
+		observability.WithValue(keys.LockKeyKey, key),
+		observability.WithValue(redisKeyKey, fullKey),
+	)
 	defer op.End()
 
 	if l.circuitBreaker.CannotProceed() {
@@ -217,9 +226,10 @@ func (l *Locker) release(ctx context.Context, fullKey, token string) error {
 }
 
 // refresh runs the compare-and-pexpire refresh script and translates the result.
-func (l *Locker) refresh(ctx context.Context, fullKey, token string, ttl time.Duration) error {
+func (l *Locker) refresh(ctx context.Context, key, fullKey, token string, ttl time.Duration) error {
 	ctx, op := l.o11y.Begin(ctx,
-		observability.WithValue("lock.full_key", fullKey),
+		observability.WithValue(keys.LockKeyKey, key),
+		observability.WithValue(redisKeyKey, fullKey),
 		observability.WithValue(keys.LockTTLKey, ttl),
 	)
 	defer op.End()
@@ -268,12 +278,12 @@ func (l *lock) TTL() time.Duration { return l.ttl }
 
 // Release implements distributedlock.Lock.
 func (l *lock) Release(ctx context.Context) error {
-	return l.locker.release(ctx, l.fullKey, l.token)
+	return l.locker.release(ctx, l.key, l.fullKey, l.token)
 }
 
 // Refresh implements distributedlock.Lock.
 func (l *lock) Refresh(ctx context.Context, ttl time.Duration) error {
-	if err := l.locker.refresh(ctx, l.fullKey, l.token, ttl); err != nil {
+	if err := l.locker.refresh(ctx, l.key, l.fullKey, l.token, ttl); err != nil {
 		return err
 	}
 	l.ttl = ttl

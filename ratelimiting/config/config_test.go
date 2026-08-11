@@ -84,6 +84,8 @@ func TestNewRateLimiter(T *testing.T) {
 		must.NoError(t, err)
 		must.NotNil(t, limiter)
 
+		t.Cleanup(func() { must.NoError(t, limiter.Close()) })
+
 		allowed, err := limiter.Allow(context.Background(), "x")
 		must.NoError(t, err)
 		test.True(t, allowed)
@@ -91,6 +93,48 @@ func TestNewRateLimiter(T *testing.T) {
 		allowed, err = limiter.Allow(context.Background(), "x")
 		must.NoError(t, err)
 		test.False(t, allowed)
+	})
+
+	// MaxLimiters reaches the memory provider, which is only observable through
+	// what the bound does: a key evicted to make room is handed a fresh bucket,
+	// so the refusal it was sitting on is forgiven. The rate is slow enough that
+	// no bucket refills on its own during the test, and the window long enough
+	// that nothing goes idle.
+	T.Run("memory provider honors the limiter bound", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+
+		cfg := &Config{
+			Provider:       ProviderMemory,
+			RequestsPerSec: 0.001,
+			BurstSize:      1,
+			MaxLimiters:    2,
+		}
+		limiter, err := NewRateLimiter(ctx, cfg)
+		must.NoError(t, err)
+		must.NotNil(t, limiter)
+
+		t.Cleanup(func() { must.NoError(t, limiter.Close()) })
+
+		allowed, err := limiter.Allow(ctx, "first")
+		must.NoError(t, err)
+		must.True(t, allowed)
+
+		allowed, err = limiter.Allow(ctx, "first")
+		must.NoError(t, err)
+		must.False(t, allowed)
+
+		// Two more keys, the second of which crosses the bound and drops the
+		// least recently seen — "first".
+		for _, key := range []string{"second", "third"} {
+			_, err = limiter.Allow(ctx, key)
+			must.NoError(t, err)
+		}
+
+		allowed, err = limiter.Allow(ctx, "first")
+		must.NoError(t, err)
+		test.True(t, allowed, test.Sprint("the bound did not evict the least recently seen key"))
 	})
 
 	T.Run("redis provider returns redis limiter", func(t *testing.T) {

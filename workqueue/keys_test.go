@@ -1,6 +1,7 @@
 package workqueue
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -151,12 +152,16 @@ func TestEncodeKey(T *testing.T) {
 		test.NoError(t, err)
 	})
 
+	// The sentinel matters as much as the rejection. A key with a newline in it
+	// is malformed, not missing, and reporting it as ErrEmptyKey sent a caller
+	// looking for an unset field that was never unset.
 	T.Run("rejects control characters", func(t *testing.T) {
 		t.Parallel()
 
 		for _, key := range []string{"a\nb", "a\x00b", "a\rb"} {
 			_, err := encodeKey(DefaultKeyCodec[string](), key)
-			test.Error(t, err, test.Sprintf("key %q", key))
+			test.ErrorIs(t, err, ErrKeyContainsControlCharacter, test.Sprintf("key %q", key))
+			test.False(t, errors.Is(err, ErrEmptyKey), test.Sprintf("key %q", key))
 		}
 	})
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
@@ -98,7 +99,7 @@ func TestEnvSecretSource_GetSecret(T *testing.T) {
 
 		// The lookup key is observed; the secret value must never be.
 		obs.ObservedOperationWithData(t, map[string]any{
-			"secret_key": key,
+			keys.SecretNameKey: key,
 		})
 	})
 

@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/notifications/async"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 
 	ablyrest "github.com/ably/ably-go/ably"
@@ -78,8 +79,8 @@ func NewNotifier(cfg *Config, opts ...Option) (*Notifier, error) {
 // Publish sends an event to the given Ably channel.
 func (n *Notifier) Publish(ctx context.Context, channel string, event *async.Event) error {
 	ctx, op := n.o11y.Begin(ctx,
-		observability.WithValue("channel", channel),
-		observability.WithValue("event.type", event.Type),
+		observability.WithValue(keys.ChannelKey, channel),
+		observability.WithValue(keys.EventTypeKey, event.Type),
 	)
 	defer op.End()
 
