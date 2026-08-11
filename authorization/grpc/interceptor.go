@@ -71,7 +71,15 @@ type Enforcer struct {
 // Option configures an Enforcer.
 type Option func(*Enforcer)
 
-// WithLogger attaches a logger. Denials are logged; allows are not.
+// WithLogger attaches a logger, which the Enforcer uses for the denials that
+// mean something is misconfigured: an undeclared method, and an RPC that
+// requires authorization but carries no grants at all. It also carries the
+// audit-only announcement at construction.
+//
+// An ordinary denial, where the caller simply lacks a permission, is counted
+// and attached to the span and stops there. It is enforcement working as
+// designed, and a log line per occurrence is the wrong volume for that: the
+// number worth alerting on is the counter.
 func WithLogger(logger logging.Logger) Option {
 	return func(e *Enforcer) {
 		e.logger = logger
@@ -79,8 +87,8 @@ func WithLogger(logger logging.Logger) Option {
 }
 
 // WithMetricsProvider attaches a metrics provider, enabling the authorization
-// counters. Without it the counters are no-ops and a denial is visible only in
-// logs and traces.
+// counters. Without it the counters are no-ops and an ordinary denial is
+// visible only on the span, since nothing logs one.
 func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 	return func(e *Enforcer) {
 		e.metricsProvider = metricsProvider
