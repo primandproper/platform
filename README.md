@@ -14,11 +14,11 @@ A Go library providing infrastructure abstractions for cloud-native services. Ea
 This repository follows a deliberately conservative release model:
 
 - **Only tagged releases are supported.** If it isn't behind a version tag, it can change or break without notice, and no support or compatibility is promised for it.
-- **`main` moves ahead of the latest release.** New work — including breaking changes — lands on `main` well before it is deemed release-worthy. The current major module path is `/v9`, and the latest supported release is **`v8.0.0`**. `/v9` is unreleased: everything on `main` is subject to change until it is tagged.
-- **Semantic Versioning, enforced by Go's module paths.** Breaking changes increment the major version and the module import path (`/v8` → `/v9`), so a major bump can never silently break a consumer that hasn't opted in.
+- **`main` moves ahead of the latest release.** New work — including breaking changes — lands on `main` well before it is deemed release-worthy. Two facts locate you at any moment, and both are derived rather than written down here: the module path in `go.mod` is the major that `main` is currently building toward, and the highest version tag is the latest supported release. Whatever is on `main` but not yet in that tag is subject to change — and immediately after a major bump, that is the entire major.
+- **Semantic Versioning, enforced by Go's module paths.** Breaking changes increment the major version and the module import path (`/vN` → `/vN+1`), so a major bump can never silently break a consumer that hasn't opted in. The path bump lands in the same change that makes the break, never as a follow-up, which is why `main`'s major is frequently one ahead of anything you can fetch by tag.
 - **No stability guarantees on unreleased APIs.** Interfaces, config shapes, and package boundaries on `main` are subject to change until they ship in a release.
 
-If you depend on this library, pin to a released tag. If you want to track upcoming work, `main` is fair game — just don't expect it to hold still.
+If you depend on this library, pin to a released tag — and note that `@latest` against a major that has no tag yet resolves to a commit on `main` rather than to a release. If you want to track upcoming work, `main` is fair game — just don't expect it to hold still.
 
 ## Installation
 
@@ -97,7 +97,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `authorization`  | Role/permission policy, enforcement | static (default), database     |
 | `links`          | Signed, expiring, single-use action links | cache + distributedlock  |
 | `audit`          | Tamper-evident audit log            | postgres, mysql, sqlite        |
-| `cryptography`   | Cryptographic primitives            | —                              |
+| `cryptography`   | Cryptographic primitives            | encryption (aes, kms), hashing |
 | `cryptography/requestsigning` | HMAC request signing & verification | v1                             |
 | `cryptography/shredding` | Per-subject data keys that can be destroyed | postgres, mysql, sqlite |
 | `random`         | Secure randomness                   | —                              |
@@ -109,7 +109,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | Package        | Purpose                      | Implementations               |
 |----------------|------------------------------|-------------------------------|
 | `llm`          | Large language model clients | anthropic, openai             |
-| `embeddings`   | Embedding generation         | —                             |
+| `embeddings`   | Embedding generation         | cohere, ollama, openai        |
 | `search`       | Vector / text search         | vector, text                  |
 | `analytics`    | Product analytics            | posthog, segment, multisource |
 | `featureflags` | Feature flagging             | launchdarkly, posthog         |
@@ -118,6 +118,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | Package           | Purpose                    | Implementations         |
 |-------------------|----------------------------|-------------------------|
 | `capitalism`      | Payments                   | stripe                  |
+| `entitlements`    | Feature access & remaining quota | —                 |
 | `saga`            | Linear durable sagas with compensations | postgres, mysql, sqlite |
 | `distributedlock` | Distributed locking        | memory, postgres, redis |
 | `workqueue`       | Leased work queue (`SKIP LOCKED` claim/complete/expire) | postgres |
@@ -125,11 +126,10 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | `operations`      | Long-running operations with durable state, two-tier progress, and streamed updates | postgres |
 | `filtering`       | Query filters / pagination | —                       |
 | `qrcodes`         | QR code generation         | —                       |
-| `artifacts`       | Artifact handling          | —                       |
-| `eventcapture`    | Recording domain events    | —                       |
+| `eventcapture`    | Recording domain events    | jsonl                   |
 
 ### Utilities
-`errors`, `pointer`, `numbers`, `bitmask`, `reflection`, `panicking`, `testutils`, `fake`.
+`errors`, `pointer`, `numbers`, `bitmask`, `charset`, `reflection`, `panicking`, `testutils`, `fake`.
 
 ## Development
 
