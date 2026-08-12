@@ -6,6 +6,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -96,6 +97,23 @@ func openSQLite(t *testing.T) *sql.DB {
 	t.Cleanup(func() { _ = db.Close() })
 
 	return db
+}
+
+// missingSchemaDSN points a connection's search_path at a schema that does not
+// exist. Postgres does not validate the setting when it is applied, so the
+// connection opens and pings like any other and current_schema() answers null —
+// which is the state resolveLockKey has to report rather than paper over.
+func missingSchemaDSN(t *testing.T, pg *pgtest.Instance) string {
+	t.Helper()
+
+	parsed, err := url.Parse(pg.ConnectionString)
+	must.NoError(t, err)
+
+	query := parsed.Query()
+	query.Set("search_path", "migrate_test_no_such_schema")
+	parsed.RawQuery = query.Encode()
+
+	return parsed.String()
 }
 
 func countRows(t *testing.T, db *sql.DB, table string) int {
@@ -495,12 +513,12 @@ func TestMigrator_resolveLockKey(T *testing.T) {
 		test.EqOp(t, "ignored", m.lockKey)
 	})
 
-	T.Run("reports a search_path that resolves to nothing", func(t *testing.T) {
+	T.Run("reports a failure reading the current schema", func(t *testing.T) {
 		t.Parallel()
 
-		// sqlite has no current_schema(), which is exactly the failure shape a
-		// null one produces: the query errors, and Migrate says so rather than
-		// silently falling back to the global key.
+		// sqlite has no current_schema() at all, so the read itself errors —
+		// the other half of the failure, alongside a null answer, that Migrate
+		// says out loud rather than silently falling back to the global key.
 		m, err := New(dialect.SQLite, testMigrations(t), WithSchemaScopedLockKey())
 		must.NoError(t, err)
 
@@ -536,6 +554,33 @@ func TestMigrator_SchemaScopedLockKey_PostgresContainer(T *testing.T) {
 			key, err := m.resolveLockKey(t.Context(), pg.DB)
 			must.NoError(t, err)
 			test.EqOp(t, "public", key)
+		})
+
+		T.Run("reports a search_path naming only schemas that do not exist", func(t *testing.T) {
+			t.Parallel()
+
+			m, err := New(dialect.Postgres, testMigrations(t), WithSchemaScopedLockKey())
+			must.NoError(t, err)
+
+			_, err = m.resolveLockKey(t.Context(), pg.Open(t, missingSchemaDSN(t, pg)))
+			test.ErrorContains(t, err, "no current schema")
+		})
+
+		T.Run("Migrate reports an unresolvable lock key instead of migrating", func(t *testing.T) {
+			t.Parallel()
+
+			// The connection is otherwise healthy, so nothing but the lock key
+			// stops this: unqualified DDL would have nowhere to land, and the
+			// failure names that rather than surfacing as a goose error two
+			// steps later.
+			m, err := New(dialect.Postgres, testMigrations(t),
+				WithSchemaScopedLockKey(),
+				WithLogger(loggingnoop.NewLogger()),
+			)
+			must.NoError(t, err)
+
+			err = m.Migrate(t.Context(), pg.Open(t, missingSchemaDSN(t, pg)))
+			test.ErrorContains(t, err, "resolving migration lock key")
 		})
 
 		T.Run("schema-isolated migrations run concurrently instead of queueing", func(t *testing.T) {
