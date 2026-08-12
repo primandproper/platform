@@ -4,8 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/shoenig/test"
@@ -31,43 +29,15 @@ func structTypeFromSource(t *testing.T, src string) *ast.StructType {
 	return st
 }
 
-func TestGetModulePath(T *testing.T) {
-	T.Parallel()
+// fileFromSource parses a whole file, for the helpers that read a file's
+// imports rather than one declaration.
+func fileFromSource(t *testing.T, src string) *ast.File {
+	t.Helper()
 
-	T.Run("reads module path from go.mod", func(t *testing.T) {
-		t.Parallel()
+	f, err := parser.ParseFile(token.NewFileSet(), "src.go", src, parser.SkipObjectResolution)
+	must.NoError(t, err)
 
-		dir := t.TempDir()
-		err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module github.com/example/test\n\ngo 1.21\n"), 0o600)
-		must.NoError(t, err)
-
-		path, err := GetModulePath(dir)
-
-		must.NoError(t, err)
-		test.EqOp(t, "github.com/example/test", path)
-	})
-
-	T.Run("returns error when go.mod does not exist", func(t *testing.T) {
-		t.Parallel()
-
-		path, err := GetModulePath(t.TempDir())
-
-		test.EqOp(t, "", path)
-		test.Error(t, err)
-	})
-
-	T.Run("returns error when no module directive found", func(t *testing.T) {
-		t.Parallel()
-
-		dir := t.TempDir()
-		err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("go 1.21\n"), 0o600)
-		must.NoError(t, err)
-
-		path, err := GetModulePath(dir)
-
-		test.EqOp(t, "", path)
-		test.Error(t, err)
-	})
+	return f
 }
 
 func TestBuildImportMap(T *testing.T) {
@@ -340,5 +310,69 @@ func TestGetStructFields(T *testing.T) {
 		test.EqOp(t, "*Embedded", fields["Embedded"])
 		test.EqOp(t, "pkg.Qualified", fields["Qualified"])
 		test.EqOp(t, "string", fields["Field"])
+	})
+}
+
+func TestResolveImports(T *testing.T) {
+	T.Parallel()
+
+	T.Run("keys this module's packages on their directory and everything else on its path", func(t *testing.T) {
+		t.Parallel()
+
+		file := fileFromSource(t, `package config
+
+import (
+	"strings"
+
+	"example.com/app"
+	"example.com/app/internal/database"
+	renamed "example.com/dep/observability"
+)
+`)
+
+		test.Eq(t, map[string]string{
+			"strings":  "strings",
+			"app":      ".",
+			"database": "internal/database",
+			"renamed":  "example.com/dep/observability",
+		}, ResolveImports(file, "example.com/app"))
+	})
+}
+
+func TestLookupTag(T *testing.T) {
+	T.Parallel()
+
+	T.Run("returns the value whole, commas included", func(t *testing.T) {
+		t.Parallel()
+
+		value, ok := LookupTag("`envDefault:\"a,b,c\"`", "envDefault")
+
+		must.True(t, ok)
+		test.EqOp(t, "a,b,c", value)
+	})
+
+	T.Run("distinguishes a declared empty value from an absent one", func(t *testing.T) {
+		t.Parallel()
+
+		value, ok := LookupTag("`envDefault:\"\"`", "envDefault")
+		must.True(t, ok)
+		test.EqOp(t, "", value)
+
+		_, ok = LookupTag("`env:\"X\"`", "envDefault")
+		test.False(t, ok)
+	})
+
+	T.Run("reads a value containing spaces, which splitting on spaces would not", func(t *testing.T) {
+		t.Parallel()
+
+		value, ok := LookupTag("`env:\"X\" envDefault:\"a b\" json:\"x\"`", "envDefault")
+		must.True(t, ok)
+		test.EqOp(t, "a b", value)
+
+		// The tag after the spaced value is still found, which is what a
+		// space-split parse loses.
+		value, ok = LookupTag("`env:\"X\" envDefault:\"a b\" json:\"x\"`", "json")
+		must.True(t, ok)
+		test.EqOp(t, "x", value)
 	})
 }
