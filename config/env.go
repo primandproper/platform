@@ -4,6 +4,11 @@
 // ...) already used throughout platform-go's per-package config subpackages,
 // giving callers a single, application-agnostic place to mount those tags onto
 // their config values.
+//
+// Those same tags make the set of variables a config can be overridden by a
+// closed, derivable set. The envvars subpackage derives it, so that a
+// deployment names a constant this module generated rather than a string
+// nothing checks.
 package config
 
 import (
