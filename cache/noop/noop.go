@@ -1,3 +1,19 @@
+// Package noop is the cache.Cache for a caller who wants no cache at all:
+// every read misses and every write is accepted and forgotten.
+//
+// The consequence is that the cache is a permanent miss rather than a cold one,
+// so whatever sits behind it must be able to serve every request from its
+// source of truth, at full traffic, forever. Get returns cache.ErrNotFound and
+// GetMany an empty map; the writes report success, because "stored" is a claim
+// about a store the caller already knows is absent.
+//
+// SetIfPresent is the deliberate exception and returns cache.ErrNotFound, so a
+// component whose correctness rests on a conditional write cannot be handed
+// this cache and appear to work. See that method for the full argument.
+//
+// cache/config never builds this — a caller who wants it constructs it
+// directly, which keeps "no cache" a decision written in code rather than a
+// configuration fall-through.
 package noop
 
 import (

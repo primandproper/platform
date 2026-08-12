@@ -1,3 +1,18 @@
+// Package noop is the metrics.Provider that exports nothing. The instruments it
+// builds are real objects with working Add and Record methods; every
+// measurement passed to them is dropped, so a caller writes no branch around
+// its instrumentation and pays an allocation per instrument for the privilege.
+//
+// Those instruments come from a locally constructed OTel noop MeterProvider
+// rather than from otel.Meter, and that distinction is the whole of it. The
+// process-global provider is a noop only until something installs a real one,
+// at which point instruments built through it would begin recording and
+// exporting — a provider named "noop" that quietly starts emitting metrics
+// partway through a process's life. See noopMeter.
+//
+// It is what constructors resolve to through metrics.EnsureMetricsProvider when
+// given none, and what observability/metrics/config builds for the "noop"
+// provider name or the empty string.
 package noop
 
 import (

@@ -1,3 +1,20 @@
+// Package noop is the eventstream implementation for a caller with no transport
+// to stream over. Send accepts and discards; Receive returns a channel nothing
+// ever sends on and nothing ever closes, so a bare range over it blocks
+// forever rather than terminating on a closed channel — a consumer has to
+// select against Done or its own context to get out.
+//
+// The upgraders are the part to read twice. UpgradeToEventStream and
+// UpgradeToBidirectionalStream take the http.ResponseWriter and never touch it:
+// no SSE preamble and no WebSocket handshake is written, and the connection is
+// never hijacked. The response therefore remains entirely the handler's to
+// complete, which is the opposite of what every real upgrader leaves behind. A
+// handler written against a real upgrader and run against this one will write a
+// body the client reads as an ordinary HTTP reply.
+//
+// Close closes the Done channel exactly once, so shutdown paths that wait on
+// Done still finish. eventstream/config offers only sse and websocket, so this
+// one is reached by naming it in code.
 package noop
 
 import (

@@ -1,3 +1,15 @@
+// Package noop is the textsearch.Index for a service with no search cluster:
+// Index, Delete, and Wipe all succeed and keep nothing, and Search returns zero
+// hits.
+//
+// Writes succeeding is what makes it usable — a handler that indexes a document
+// after saving it needs no branch — and it is equally what makes it quiet, since
+// a document that never reached Elasticsearch or Algolia looks exactly like one
+// that did. The empty results carry no next cursor, so a caller paging through
+// them terminates on the first call instead of looping over nothing.
+//
+// search/text/config builds it only for the "noop" provider name, which its
+// validation requires rather than defaults to.
 package noop
 
 import (

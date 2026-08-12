@@ -1,3 +1,20 @@
+// Package noop holds the capitalism implementations a deployment that does not
+// bill runs, and the two are deliberately unalike.
+//
+// NewPaymentManager is loud. CreateCustomer, CreatePaymentIntent, and
+// CreateSubscription all report capitalism.ErrPaymentsDisabled rather than the
+// empty IDs and nil errors they once returned, because an empty customer ID
+// stored as though it were real is a bug that surfaces months later against a
+// provider that has never heard of the account. Its webhook handler is the
+// exception and accepts what it is given: no provider exists to have sent the
+// event, so ignoring it is the honest answer.
+//
+// NewUsageReporter is quiet. ReportUsage succeeds and posts nowhere, which is
+// what a deployment that meters internally without billing wants — usage still
+// accumulates durably and quotas are still enforced. That is a normal
+// configuration rather than a degraded one, which is why it does not error.
+//
+// capitalism/config builds either for the "noop" provider name.
 package noop
 
 import (

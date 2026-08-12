@@ -1,3 +1,22 @@
+// Package noop is the uploads.UploadManager that stores nothing, and it is the
+// only implementation here that can still return an error.
+//
+// Save reads r to completion and discards it, reporting whatever the reader
+// reports. Draining is deliberate: an unread request body is a connection that
+// cannot be reused, and a caller who wants to know their upload stream was
+// intact still finds out. Everything downstream of that is empty rather than
+// absent — Open and OpenRange return readers over zero bytes, Attributes
+// returns a zero-valued struct, List yields no objects, and SignedURL returns
+// an empty string, which is not a URL a browser will resolve to anything useful.
+//
+// Exists is the honest one and reports false, so a caller that checks before
+// reading learns the truth, while a caller that reads without checking gets a
+// successful empty file. The type also satisfies uploads.RangeReader, URLSigner,
+// Attributer, and Lister, so a capability type switch finds them all present and
+// all inert.
+//
+// uploads/config selects among the objectstorage providers and never this one;
+// a caller who wants it names it in code.
 package noop
 
 import (

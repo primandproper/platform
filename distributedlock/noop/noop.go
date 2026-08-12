@@ -1,3 +1,24 @@
+// Package noop is the distributedlock implementation for a deployment with
+// nothing to coordinate with: Acquire always succeeds immediately, WithLock
+// always runs fn, and TryWithLock always reports the lock as taken.
+//
+// # This provider is correct at one replica
+//
+// It provides no mutual exclusion of any kind, which makes it correct at
+// exactly one process and silently wrong above that. Two replicas holding "the
+// same" lock both proceed into the critical section, and nothing here detects
+// the second one or reports the contention it did not arbitrate. It fails as a
+// double-processed job or a lost update rather than as an error. That is a
+// constraint on the deployment, not a tuning knob — a service that scales out
+// wants the redis or postgres provider instead, where the lock lives somewhere
+// both replicas can see it.
+//
+// Its lock handles are real enough to pass around: Key and TTL echo back what
+// Acquire was given, and Refresh updates the TTL it will echo. Nothing is
+// stored anywhere and no expiry is ever enforced, so a handle that outlives its
+// TTL is still held.
+//
+// distributedlock/config builds either type for the "noop" provider name.
 package noop
 
 import (
