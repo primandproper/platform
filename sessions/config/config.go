@@ -1,3 +1,15 @@
+// Package sessionscfg assembles a session store, and optionally a cookie-bound
+// manager, from environment configuration. Sessions live either in a cache — the
+// default — or in a SQL table.
+//
+// The choice is not a performance one. The database provider is for deployments
+// where losing the cache must not sign everybody out, and where a sign-out has
+// to be enforceable rather than very nearly enforceable; it is also the only
+// provider with rows to sweep, which is what SweepInterval is for.
+//
+// NewStore builds the store alone and never reads CookieName. Only NewManager
+// binds sessions to a cookie, which is why a caller that carries session
+// identifiers some other way never configures one.
 package sessionscfg
 
 import (

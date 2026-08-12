@@ -1,3 +1,14 @@
+// Package tracingcfg selects and builds a tracing.Provider from configuration:
+// the OTel gRPC exporter, GCP Cloud Trace, or no tracing at all.
+//
+// One of the four pillar config packages, so it has no WithPillars option —
+// observability imports it to build a Pillars.
+//
+// SpanCollectionProbability is the sampling rate every span in the process is
+// decided by, and it lives here rather than on each component because a trace
+// sampled at one hop and dropped at the next is not a trace. The empty provider
+// and "noop" both select no tracing, which is the deliberate opt-out; an
+// unrecognized name is an error rather than a third way to spell it.
 package tracingcfg
 
 import (

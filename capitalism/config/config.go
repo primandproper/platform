@@ -1,3 +1,12 @@
+// Package capitalismcfg builds both halves of the payments seam from one
+// configuration — a capitalism.PaymentManager and a capitalism.UsageReporter —
+// over Stripe or the noop provider.
+//
+// The two constructors share a validation path, so a deployment cannot build a
+// payment manager against a config the usage reporter would have rejected.
+// Naming the noop provider is what makes "meter everything, bill nothing" a
+// supported deployment; reaching it by leaving Provider unset is not, because a
+// manager that accepts every charge and moves no money looks like a working one.
 package capitalismcfg
 
 import (

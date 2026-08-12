@@ -1,3 +1,12 @@
+// Package emailcfg selects and builds an email.Emailer from configuration over
+// six vendors — SendGrid, Mailgun, Mailjet, Resend, Postmark, SES — or the noop
+// emailer.
+//
+// It is one of the few config seams that takes an *http.Client as a dependency
+// rather than an option: the vendor clients transport over HTTP, and the
+// timeouts and transport a deployment wants there are not this package's to
+// choose. The circuit breaker wrapped around whichever vendor is selected comes
+// from configuration, not from the caller.
 package emailcfg
 
 import (

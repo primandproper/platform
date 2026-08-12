@@ -1,3 +1,15 @@
+// Package eventstreamcfg selects and builds an eventstream upgrader from
+// configuration: SSE or WebSocket.
+//
+// The two constructors do not accept the same set of providers. SSE is
+// server-to-client only, so NewBidirectionalEventStreamUpgrader errors when it
+// is selected while NewEventStreamUpgrader builds it — a config valid for one
+// call is not necessarily valid for the other, and which one a service needs is
+// decided by the code, not by the environment.
+//
+// An absent WebSocket block is a configured WebSocket rather than a missing one:
+// every field of websocket.Config has a default, and the upgrader documents a
+// nil config as "use them".
 package eventstreamcfg
 
 import (

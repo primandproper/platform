@@ -1,3 +1,10 @@
+// Package messagequeuecfg selects and builds messagequeue publisher and consumer
+// providers from configuration, over Redis, SQS, GCP Pub/Sub, Kafka, or noop.
+//
+// The publishing and the consuming halves are configured independently — Config
+// holds a MessageQueueConfig for each, with its own provider and credentials —
+// so a service that reads from Kafka and writes to SQS is expressible, and so a
+// process that only publishes never has to name a consumer it will not build.
 package messagequeuecfg
 
 import (

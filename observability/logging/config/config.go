@@ -1,3 +1,16 @@
+// Package loggingcfg selects and builds a logging.Logger from configuration:
+// zerolog, zap, slog, the OTel-exporting slog, or none at all.
+//
+// It is one of the four pillar config packages, none of which offer the
+// WithPillars option their siblings do — observability imports them to build a
+// Pillars, so they cannot take one. This one goes further and declares no
+// Option type at all: the thing it builds is the logger every other constructor
+// would have been handed.
+//
+// The empty provider and "noop" both select no logging, and that opt-out stays
+// supported. What is not supported is a provider name this package does not
+// recognize, which used to disable logging silently and was indistinguishable
+// from asking for it.
 package loggingcfg
 
 import (

@@ -1,3 +1,12 @@
+// Package analyticscfg selects and builds an analytics.EventReporter from
+// configuration — Segment, PostHog, or the noop reporter — handing the vendor
+// implementations a circuit breaker built from the same config.
+//
+// It also carries ProxySources, per-source configuration keyed by a free-form
+// source name, which is what the multisource reporter fans out over. The set of
+// sources belongs to the application rather than to this module, so it is a map
+// rather than a field per source: adding one is a deployment's business and not
+// a change to an exported struct here.
 package analyticscfg
 
 import (

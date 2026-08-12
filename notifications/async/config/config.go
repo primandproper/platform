@@ -1,3 +1,17 @@
+// Package asynccfg selects and builds an async.AsyncNotifier from configuration:
+// Pusher, Ably, WebSocket, SSE, or noop.
+//
+// The providers split into two classes, and the split is a deployment constraint
+// rather than a preference. Pusher and Ably are fleet-safe, because a hosted
+// broker holds the connections. WebSocket and SSE hold them in this process's
+// memory and are therefore correct at exactly one replica.
+//
+// That is why this config carries Topology, which no sibling seam does. A
+// process cannot count its own replicas, so nothing here can tell a correct
+// single-replica deployment from one that silently stopped delivering half its
+// notifications when it scaled out. Selecting a self-hosted provider requires
+// declaring the topology, which turns the assumption into something somebody
+// wrote down.
 package asynccfg
 
 import (

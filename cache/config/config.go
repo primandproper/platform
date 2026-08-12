@@ -1,3 +1,12 @@
+// Package cachecfg selects and builds a cache.Cache[T] from configuration:
+// either the in-process memory cache or Redis.
+//
+// There is deliberately no default provider. Whether a cache lives in this
+// process or in Redis is a fact about a deployment rather than something a
+// library can pick, so an unset Provider fails validation instead of quietly
+// becoming a memory cache. Several fields — MaxEntries, EvictionPolicy,
+// JanitorInterval — are read only by the memory provider, which is the only one
+// holding entries in this process's heap.
 package cachecfg
 
 import (

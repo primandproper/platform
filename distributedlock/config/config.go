@@ -1,3 +1,16 @@
+// Package distributedlockcfg selects and builds a distributedlock.Locker, or a
+// ScopedLocker, from configuration: Redis, Postgres, memory, or noop.
+//
+// Only the Postgres provider needs the database.Client both constructors take;
+// every other provider is passed nil. Ask cfg.RequiresDatabase rather than
+// comparing Provider yourself — the comparison is against the normalized name,
+// and a config spelling "POSTGRES" dispatched to the Postgres locker while
+// skipping the database lookup that would have supplied it.
+//
+// The two constructors do not build the same thing from the same provider: the
+// Postgres ScopedLocker is the native transaction-scoped implementation, which
+// waits server-side and has no TTL, while Redis and memory get the generic
+// scoped adapter wrapped around their Locker.
 package distributedlockcfg
 
 import (

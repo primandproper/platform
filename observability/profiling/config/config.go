@@ -1,3 +1,15 @@
+// Package profilingcfg selects and builds a profiling.Provider from
+// configuration: Grafana Pyroscope, the Go-native pprof HTTP server, or no
+// profiling at all.
+//
+// One of the four pillar config packages, so it has no WithPillars option —
+// observability imports it to build a Pillars.
+//
+// It supplies Pyroscope's upload rate default, which is unusual: defaults
+// normally live with the config they belong to, and this one lives here because
+// pyroscope.Config has no defaults of its own to apply it alongside. Like every
+// default in this module it is applied before validation, so an unset rate is a
+// configured deployment rather than a rejected one.
 package profilingcfg
 
 import (

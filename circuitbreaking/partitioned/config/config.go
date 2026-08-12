@@ -1,3 +1,12 @@
+// Package partitionedcfg builds a partitioned.KeyedCircuitBreaker from one base
+// circuitbreakingcfg.Config: a breaker per declared key, plus a global one that
+// every undeclared key shares.
+//
+// Keys are declared rather than discovered, which is what keeps an unbounded key
+// space from becoming an unbounded number of breakers. Every breaker it builds
+// records into the base package's instruments, distinguished by a "partition"
+// attribute carrying the key — "global" for the fallback — so one partition
+// tripping is legible without one instrument per partition.
 package partitionedcfg
 
 import (

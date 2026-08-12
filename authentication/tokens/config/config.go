@@ -1,3 +1,10 @@
+// Package tokenscfg selects and builds a tokens.Issuer from configuration:
+// either the JWT signer or the PASETO one.
+//
+// The signing key is supplied base64-encoded and checked by its decoded length
+// rather than merely for being present, because 32 bytes is what both signers
+// need. A key that satisfied a Required rule here and was then refused by the
+// signer is the failure that buys.
 package tokenscfg
 
 import (

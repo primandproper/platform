@@ -1,3 +1,15 @@
+// Package featureflagscfg selects and builds a featureflags.FeatureFlagManager
+// from configuration: LaunchDarkly, PostHog, or the noop manager.
+//
+// The two vendor providers differ only in construction and shutdown — both
+// evaluate through the same OpenFeature client underneath — so the choice here
+// is about which service holds the flags rather than about how they are read.
+// The noop manager answers every flag with the default the caller passed, which
+// is why it has to be named: it is indistinguishable from a rollout that has not
+// started.
+//
+// The *http.Client is a dependency rather than an option, so the transport the
+// vendor SDK uses stays the deployment's to configure.
 package featureflagscfg
 
 import (
