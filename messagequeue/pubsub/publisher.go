@@ -24,6 +24,7 @@ type (
 	messagePublisher interface {
 		Stop()
 		Publish(context.Context, *pubsub.Message) *pubsub.PublishResult
+		ResumePublish(orderingKey string)
 	}
 
 	pubSubPublisher struct {
@@ -48,6 +49,8 @@ func buildPubSubPublisher(logger logging.Logger, pubsubClient *pubsub.Publisher,
 		instruments: instruments,
 	}, nil
 }
+
+var _ messagequeue.Publisher = (*pubSubPublisher)(nil)
 
 // Stop calls Stop on the topic.
 func (p *pubSubPublisher) Stop() {
@@ -122,6 +125,13 @@ func (p *PublisherProvider) NewPublisher(ctx context.Context, topicName string) 
 	// pubsub.topics.get (TopicAdminClient.GetTopic); pubsub.topics.publish is sufficient.
 	publisher := p.pubsubClient.Publisher(qualifiedName)
 
+	// Without this the client rejects any message carrying an ordering key
+	// before it reaches the wire, so messagequeue.WithOrderingKey would fail
+	// rather than order. Turning it on costs nothing for messages that carry no
+	// key: the client bundles those under the empty key, which it schedules
+	// exactly as it does with ordering off.
+	publisher.EnableMessageOrdering = true
+
 	pub, err := buildPubSubPublisher(logger, publisher, p.tracerProvider, p.metricsProvider, qualifiedName)
 	if err != nil {
 		return nil, err
@@ -131,11 +141,21 @@ func (p *PublisherProvider) NewPublisher(ctx context.Context, topicName string) 
 	return pub, nil
 }
 
-func (p *pubSubPublisher) Publish(ctx context.Context, data any) error {
+// Publish publishes a message to the topic and blocks until the server has
+// assigned it an ID.
+//
+// messagequeue.WithOrderingKey becomes the message's OrderingKey. Pub/Sub then
+// holds the key's messages to the order they were published, provided the
+// subscription reading them was created with message ordering enabled —
+// provisioning that subscription is outside this package, like the subscription
+// itself.
+func (p *pubSubPublisher) Publish(ctx context.Context, data any, opts ...messagequeue.PublishOption) error {
 	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
 	startTime := time.Now()
+
+	o := messagequeue.NewPublishOptions(opts...)
 
 	var b bytes.Buffer
 	if err := p.encoder.Encode(ctx, &b, data); err != nil {
@@ -145,7 +165,11 @@ func (p *pubSubPublisher) Publish(ctx context.Context, data any) error {
 
 	op.Set(keys.LengthKey, b.Len())
 
-	msg := &pubsub.Message{Data: b.Bytes()}
+	msg := &pubsub.Message{Data: b.Bytes(), OrderingKey: o.OrderingKey}
+	if o.OrderingKey != "" {
+		op.SpanOnly(messagequeue.OrderingKeyAttribute, o.OrderingKey)
+	}
+
 	result := p.publisher.Publish(ctx, msg)
 
 	<-result.Ready()
@@ -153,7 +177,21 @@ func (p *pubSubPublisher) Publish(ctx context.Context, data any) error {
 	// The Get method blocks until a server-generated ID or an error is returned for the published message.
 	serverID, err := result.Get(ctx)
 	if err != nil {
+		// A failed publish on an ordering key pauses that key: the client
+		// refuses every later message for it until ResumePublish is called, so
+		// that a message cannot jump ahead of a predecessor that never landed.
+		// That guard is for the client's asynchronous API, where later messages
+		// are already queued when the failure arrives. Publish here is
+		// synchronous and hands the error straight back, so nothing is queued
+		// behind this message and the caller is the one deciding what happens
+		// next — leaving the key paused would turn one transient failure into a
+		// permanently dead key that no error message explains.
+		if o.OrderingKey != "" {
+			p.publisher.ResumePublish(o.OrderingKey)
+		}
+
 		p.instruments.Failed(ctx)
+
 		return op.Error(err, "publishing pubsub message")
 	}
 
@@ -166,8 +204,8 @@ func (p *pubSubPublisher) Publish(ctx context.Context, data any) error {
 	return nil
 }
 
-func (p *pubSubPublisher) PublishAsync(ctx context.Context, data any) {
-	if err := p.Publish(ctx, data); err != nil {
+func (p *pubSubPublisher) PublishAsync(ctx context.Context, data any, opts ...messagequeue.PublishOption) {
+	if err := p.Publish(ctx, data, opts...); err != nil {
 		p.o11y.Logger().Error("publishing message", err)
 	}
 }

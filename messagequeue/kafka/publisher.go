@@ -44,11 +44,18 @@ func (p *kafkaPublisher) Stop() {
 }
 
 // Publish publishes a message to a Kafka topic.
-func (p *kafkaPublisher) Publish(ctx context.Context, data any) error {
+//
+// messagequeue.WithOrderingKey sets the message key, which the writer's
+// balancer hashes into a partition, so every message for one key lands on one
+// partition and Kafka's per-partition ordering carries. Without it the key is
+// left nil and the balancer places the message on a partition at random.
+func (p *kafkaPublisher) Publish(ctx context.Context, data any, opts ...messagequeue.PublishOption) error {
 	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
 	startTime := time.Now()
+
+	o := messagequeue.NewPublishOptions(opts...)
 
 	var b bytes.Buffer
 	if err := p.encoder.Encode(ctx, &b, data); err != nil {
@@ -58,7 +65,16 @@ func (p *kafkaPublisher) Publish(ctx context.Context, data any) error {
 
 	op.Set(keys.LengthKey, b.Len())
 
-	if err := p.writer.WriteMessages(ctx, kafka.Message{Value: b.Bytes()}); err != nil {
+	msg := kafka.Message{Value: b.Bytes()}
+	if o.OrderingKey != "" {
+		// Only a non-empty key becomes a Kafka key. An empty, non-nil key is a
+		// value as far as the balancer is concerned, and would hash every
+		// unkeyed message onto one partition.
+		msg.Key = []byte(o.OrderingKey)
+		op.SpanOnly(messagequeue.OrderingKeyAttribute, o.OrderingKey)
+	}
+
+	if err := p.writer.WriteMessages(ctx, msg); err != nil {
 		p.instruments.Failed(ctx)
 		return op.Error(err, "publishing message")
 	}
@@ -69,8 +85,8 @@ func (p *kafkaPublisher) Publish(ctx context.Context, data any) error {
 }
 
 // PublishAsync publishes a message to a Kafka topic without waiting for acknowledgement.
-func (p *kafkaPublisher) PublishAsync(ctx context.Context, data any) {
-	if err := p.Publish(ctx, data); err != nil {
+func (p *kafkaPublisher) PublishAsync(ctx context.Context, data any, opts ...messagequeue.PublishOption) {
+	if err := p.Publish(ctx, data, opts...); err != nil {
 		p.o11y.Logger().Error("publishing message", err)
 	}
 }
@@ -90,6 +106,16 @@ func provideKafkaPublisher(logger logging.Logger, tracerProvider tracing.Provide
 		// default BatchTimeout is 1s, so each single Publish would otherwise block ~1s
 		// waiting for the batch to flush. Keep it small to cut that latency floor.
 		BatchTimeout: 10 * time.Millisecond,
+		// The balancer has to be named for messagequeue.WithOrderingKey to mean
+		// anything: kafka-go's default is RoundRobin, which ignores the message
+		// key entirely, so a keyed message would still scatter across partitions.
+		// Murmur2 with Consistent left false is librdkafka's "murmur2_random" and
+		// hashes the same way as the Java producer, so a topic this package
+		// writes to partitions the same as one any other client writes to. A nil
+		// key — every publish that names no ordering key — takes the random path
+		// instead of hashing, which keeps unkeyed traffic spread rather than
+		// piled onto one partition.
+		Balancer: &kafka.Murmur2Balancer{},
 	}
 
 	return &kafkaPublisher{

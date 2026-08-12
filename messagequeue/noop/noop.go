@@ -1,16 +1,14 @@
 // Package noop is the messagequeue publisher and consumer pair for a service
 // with no broker. Publish and PublishAsync accept every message and drop it,
-// and the providers hand back further noops, so a wiring graph that fans out
-// into a dozen topics builds without a queue behind any of them.
+// every messagequeue.PublishOption included, and the providers hand back
+// further noops, so a wiring graph that fans out into a dozen topics builds
+// without a queue behind any of them.
 //
-// Consume is where this one departs from the interface it satisfies, and the
-// departure is worth knowing before it is discovered. The
-// messagequeue.Consumer contract is that Consume runs until ctx is done; this
-// implementation returns immediately, because there is nothing to poll and no
-// reason to hold a goroutine open. A caller that blocks on Consume as its run
-// loop therefore exits at once rather than serving, and a caller that starts it
-// in a goroutine sees that goroutine end quietly. No handler is ever invoked,
-// and nothing is ever sent on errs, so neither outcome is reported.
+// Consume keeps the messagequeue.Consumer contract: it runs until ctx is done.
+// There is nothing to poll, so it blocks on the context and nothing else — no
+// handler is ever invoked and nothing is ever sent on errs — but a service that
+// blocks on Consume as its run loop serves until it is cancelled, exactly as it
+// would with a real broker, rather than exiting at startup.
 //
 // messagequeue/config builds either provider for the "noop" provider name,
 // which has to be given.
@@ -55,11 +53,11 @@ func NewPublisher() *Publisher {
 
 func (n *Publisher) Stop() {}
 
-func (n *Publisher) Publish(context.Context, any) error {
+func (n *Publisher) Publish(context.Context, any, ...messagequeue.PublishOption) error {
 	return nil
 }
 
-func (n *Publisher) PublishAsync(context.Context, any) {}
+func (n *Publisher) PublishAsync(context.Context, any, ...messagequeue.PublishOption) {}
 
 // ConsumerProvider is the no-op messagequeue.ConsumerProvider.
 type ConsumerProvider struct{}
@@ -83,4 +81,14 @@ func NewConsumer() *Consumer {
 	return &Consumer{}
 }
 
-func (n *Consumer) Consume(context.Context, chan<- error) {}
+// Consume blocks until ctx is done, which is the messagequeue.Consumer
+// contract. It has nothing to poll, so blocking on the context is all it does:
+// the handler is never called and errs is never written to.
+//
+// It matters that it blocks rather than returning. A service whose run loop is
+// Consume treats a return as "the consumer stopped", so a noop that returned
+// immediately took the process down at startup — with no error to explain it,
+// because there was no error.
+func (n *Consumer) Consume(ctx context.Context, _ chan<- error) {
+	<-ctx.Done()
+}

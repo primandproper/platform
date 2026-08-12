@@ -38,7 +38,7 @@ func (v *stubVerifier) Verify(_ context.Context, _ http.Header, body []byte) err
 // capturingPublisher records what it was handed, or fails with err.
 func capturingPublisher(err error, published *[]*Delivery) messagequeue.Publisher {
 	return &mqmock.PublisherMock{
-		PublishFunc: func(_ context.Context, data any) error {
+		PublishFunc: func(_ context.Context, data any, _ ...messagequeue.PublishOption) error {
 			if err != nil {
 				return err
 			}

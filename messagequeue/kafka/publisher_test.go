@@ -27,12 +27,14 @@ import (
 type mockKafkaWriter struct {
 	writeMessagesFunc func(ctx context.Context, msgs ...kafka.Message) error
 	closeFunc         func() error
+	written           []kafka.Message
 	writeCalls        int
 	closeCalls        int
 }
 
 func (m *mockKafkaWriter) WriteMessages(ctx context.Context, msgs ...kafka.Message) error {
 	m.writeCalls++
+	m.written = append(m.written, msgs...)
 	if m.writeMessagesFunc == nil {
 		return nil
 	}
@@ -121,6 +123,84 @@ func Test_kafkaPublisher_Publish(T *testing.T) {
 		obs.ObservedOperationWithData(t, map[string]any{
 			keys.TopicKey: pub.topic,
 		})
+	})
+
+	T.Run("with an ordering key", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		pub, writer, _ := buildTestPublisher(t)
+
+		inputData := &struct {
+			Name string `json:"name"`
+		}{
+			Name: t.Name(),
+		}
+
+		err := pub.Publish(ctx, inputData, messagequeue.WithOrderingKey("account_123"))
+		test.NoError(t, err)
+
+		must.SliceLen(t, 1, writer.written)
+		test.Eq(t, []byte("account_123"), writer.written[0].Key)
+	})
+
+	T.Run("without an ordering key", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		pub, writer, _ := buildTestPublisher(t)
+
+		inputData := &struct {
+			Name string `json:"name"`
+		}{
+			Name: t.Name(),
+		}
+
+		err := pub.Publish(ctx, inputData)
+		test.NoError(t, err)
+
+		// Nil rather than empty: the balancer treats an empty non-nil key as a
+		// value to hash, which would put every unkeyed message on one partition.
+		must.SliceLen(t, 1, writer.written)
+		test.Nil(t, writer.written[0].Key)
+	})
+
+	T.Run("with an empty ordering key", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		pub, writer, _ := buildTestPublisher(t)
+
+		inputData := &struct {
+			Name string `json:"name"`
+		}{
+			Name: t.Name(),
+		}
+
+		err := pub.Publish(ctx, inputData, messagequeue.WithOrderingKey(""))
+		test.NoError(t, err)
+
+		must.SliceLen(t, 1, writer.written)
+		test.Nil(t, writer.written[0].Key)
+	})
+
+	T.Run("ignores a deduplication key", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		pub, writer, _ := buildTestPublisher(t)
+
+		inputData := &struct {
+			Name string `json:"name"`
+		}{
+			Name: t.Name(),
+		}
+
+		err := pub.Publish(ctx, inputData, messagequeue.WithDeduplicationKey("event_456"))
+		test.NoError(t, err)
+
+		must.SliceLen(t, 1, writer.written)
+		test.Nil(t, writer.written[0].Key)
 	})
 
 	T.Run("with encoding error", func(t *testing.T) {
@@ -239,6 +319,71 @@ func Test_kafkaPublisher_PublishAsync(T *testing.T) {
 		pub.PublishAsync(ctx, inputData)
 
 		test.EqOp(t, 1, writer.writeCalls)
+	})
+
+	T.Run("forwards an ordering key", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		pub, writer, _ := buildTestPublisher(t)
+
+		inputData := &struct {
+			Name string `json:"name"`
+		}{
+			Name: t.Name(),
+		}
+
+		pub.PublishAsync(ctx, inputData, messagequeue.WithOrderingKey("account_123"))
+
+		must.SliceLen(t, 1, writer.written)
+		test.Eq(t, []byte("account_123"), writer.written[0].Key)
+	})
+}
+
+// Test_provideKafkaPublisher_balancer guards the half of the ordering fix that
+// is not visible in a published message. kafka-go's default balancer is
+// RoundRobin, which ignores the key entirely, so a writer left with the default
+// would carry every key this package sets and still scatter the messages.
+func Test_provideKafkaPublisher_balancer(T *testing.T) {
+	T.Parallel()
+
+	T.Run("routes one key to one partition", func(t *testing.T) {
+		t.Parallel()
+
+		pub, err := provideKafkaPublisher(nil, nil, nil, []string{"localhost:9092"}, t.Name())
+		must.NoError(t, err)
+
+		writer, ok := pub.writer.(*kafka.Writer)
+		must.True(t, ok)
+		must.NotNil(t, writer.Balancer)
+
+		partitions := []int{0, 1, 2, 3, 4, 5, 6, 7}
+		keyed := kafka.Message{Key: []byte("account_123"), Value: []byte(`{}`)}
+
+		first := writer.Balancer.Balance(keyed, partitions...)
+		for range 16 {
+			test.EqOp(t, first, writer.Balancer.Balance(keyed, partitions...))
+		}
+	})
+
+	T.Run("separates two keys", func(t *testing.T) {
+		t.Parallel()
+
+		pub, err := provideKafkaPublisher(nil, nil, nil, []string{"localhost:9092"}, t.Name())
+		must.NoError(t, err)
+
+		writer, ok := pub.writer.(*kafka.Writer)
+		must.True(t, ok)
+
+		partitions := []int{0, 1, 2, 3, 4, 5, 6, 7}
+
+		// Two keys chosen because murmur2 puts them on different partitions of
+		// eight. The point is that the balancer reads the key at all, which a
+		// round-robin balancer does not.
+		a := writer.Balancer.Balance(kafka.Message{Key: []byte("account_1")}, partitions...)
+		b := writer.Balancer.Balance(kafka.Message{Key: []byte("account_2")}, partitions...)
+
+		test.NotEqOp(t, a, b)
 	})
 }
 

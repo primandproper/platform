@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/messagequeue"
 	messagequeuemock "github.com/primandproper/platform-go/v10/messagequeue/mock"
 
 	"github.com/shoenig/test"
@@ -29,7 +30,7 @@ func TestNewQueueBroadcaster(T *testing.T) {
 		var published any
 
 		publisher := &messagequeuemock.PublisherMock{
-			PublishFunc: func(_ context.Context, data any) error {
+			PublishFunc: func(_ context.Context, data any, _ ...messagequeue.PublishOption) error {
 				published = data
 
 				return nil
@@ -48,7 +49,7 @@ func TestNewQueueBroadcaster(T *testing.T) {
 
 		sentinel := errors.New("bus is down")
 		publisher := &messagequeuemock.PublisherMock{
-			PublishFunc: func(context.Context, any) error { return sentinel },
+			PublishFunc: func(context.Context, any, ...messagequeue.PublishOption) error { return sentinel },
 		}
 
 		broadcaster, err := NewQueueBroadcaster(publisher)
@@ -61,7 +62,7 @@ func TestNewQueueBroadcaster(T *testing.T) {
 		t.Parallel()
 
 		publisher := &messagequeuemock.PublisherMock{
-			PublishFunc: func(context.Context, any) error { return nil },
+			PublishFunc: func(context.Context, any, ...messagequeue.PublishOption) error { return nil },
 		}
 
 		broadcaster, err := NewQueueBroadcaster(publisher)
@@ -91,7 +92,7 @@ func TestNewInvalidationHandler(T *testing.T) {
 		var published any
 
 		publisher := &messagequeuemock.PublisherMock{
-			PublishFunc: func(_ context.Context, data any) error {
+			PublishFunc: func(_ context.Context, data any, _ ...messagequeue.PublishOption) error {
 				published = data
 
 				return nil

@@ -36,17 +36,28 @@ type (
 	}
 )
 
+var _ messagequeue.Publisher = (*sqsPublisher)(nil)
+
 // Stop does nothing.
 func (p *sqsPublisher) Stop() {}
 
 // Publish publishes a message onto an SQS event queue.
-func (p *sqsPublisher) Publish(ctx context.Context, data any) error {
+//
+// messagequeue.WithOrderingKey becomes the message's MessageGroupId, which a
+// FIFO queue requires on every message and which a standard queue reads as a
+// fair-queue tenant tag. messagequeue.WithDeduplicationKey becomes its
+// MessageDeduplicationId, which a FIFO queue also requires unless the queue has
+// ContentBasedDeduplication enabled. Neither is sent when its option is absent,
+// which is what a standard queue wants.
+func (p *sqsPublisher) Publish(ctx context.Context, data any, opts ...messagequeue.PublishOption) error {
 	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
 	startTime := time.Now()
 
 	op.Logger().Debug("publishing message")
+
+	o := messagequeue.NewPublishOptions(opts...)
 
 	var b bytes.Buffer
 	if err := p.encoder.Encode(ctx, &b, data); err != nil {
@@ -61,6 +72,18 @@ func (p *sqsPublisher) Publish(ctx context.Context, data any) error {
 		QueueUrl:    aws.String(p.topic),
 	}
 
+	// Absent has to stay a nil pointer: the SDK omits a nil field from the
+	// request entirely and serializes a pointer to "" as a present, empty
+	// parameter, which is not the same thing to a queue that reads either field.
+	if o.OrderingKey != "" {
+		input.MessageGroupId = aws.String(o.OrderingKey)
+		op.SpanOnly(messagequeue.OrderingKeyAttribute, o.OrderingKey)
+	}
+
+	if o.DeduplicationKey != "" {
+		input.MessageDeduplicationId = aws.String(o.DeduplicationKey)
+	}
+
 	if _, err := p.publisher.SendMessage(ctx, input); err != nil {
 		p.instruments.Failed(ctx)
 		return observability.PrepareError(err, op.Span(), "publishing message")
@@ -72,8 +95,8 @@ func (p *sqsPublisher) Publish(ctx context.Context, data any) error {
 }
 
 // PublishAsync publishes a message onto an SQS event queue.
-func (p *sqsPublisher) PublishAsync(ctx context.Context, data any) {
-	if err := p.Publish(ctx, data); err != nil {
+func (p *sqsPublisher) PublishAsync(ctx context.Context, data any, opts ...messagequeue.PublishOption) {
+	if err := p.Publish(ctx, data, opts...); err != nil {
 		p.o11y.Logger().Error("publishing message", err)
 	}
 }
