@@ -83,6 +83,40 @@ func WithEnforcerMetricsProvider(metricsProvider metrics.Provider) EnforcerOptio
 	}
 }
 
+// PlanLimitOption configures a PlanLimitSource.
+type PlanLimitOption func(*PlanLimitSource)
+
+// WithPlanLimitLogger attaches a logger. A subject entitled to a product the
+// limits table does not name is reported through it and nowhere else — the
+// request succeeds, on the unsubscribed limit, because a customer is not the
+// right person to tell about a plan somebody forgot to configure — so without
+// one, a tier enforcing the wrong number is visible only in metrics.
+func WithPlanLimitLogger(logger logging.Logger) PlanLimitOption {
+	return func(s *PlanLimitSource) {
+		s.logger = logger
+	}
+}
+
+// WithPlanLimitTracerProvider attaches a tracer provider. The span it produces
+// is where the EntitlementReader's lookup shows up — the one piece of I/O a
+// quota resolution does, and otherwise time the enforcer's own span cannot
+// account for.
+func WithPlanLimitTracerProvider(tracerProvider tracing.Provider) PlanLimitOption {
+	return func(s *PlanLimitSource) {
+		s.tracerProvider = tracerProvider
+	}
+}
+
+// WithPlanLimitMetricsProvider attaches a metrics provider, enabling the
+// unconfigured-product counter — which is the instrument worth alerting on here,
+// because anything it counts is a customer being enforced against the wrong
+// number.
+func WithPlanLimitMetricsProvider(metricsProvider metrics.Provider) PlanLimitOption {
+	return func(s *PlanLimitSource) {
+		s.metricsProvider = metricsProvider
+	}
+}
+
 // FlusherOption configures a Flusher.
 type FlusherOption func(*Flusher)
 
