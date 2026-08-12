@@ -19,7 +19,7 @@
 //
 //	envvars.Generate(ctx, envvars.Options{
 //		Dir:          ".",
-//		Prefix:       "DINNER_DONE_BETTER_",
+//		Prefix:       "EXAMPLE_",
 //		UnionKey:     "internal/config.configurations",
 //		Dependencies: []string{"github.com/primandproper/platform-go"},
 //		OutputPath:   "internal/config/envvars/env_vars.go",
@@ -29,7 +29,7 @@
 //
 //	// AnalyticsPosthogAPIKeyEnvVarKey is the environment variable name to set to override
 //	// `APIServiceConfig.Analytics.Posthog.APIKey`.
-//	AnalyticsPosthogAPIKeyEnvVarKey = "DINNER_DONE_BETTER_ANALYTICS_POSTHOG_API_KEY"
+//	AnalyticsPosthogAPIKeyEnvVarKey = "EXAMPLE_ANALYTICS_POSTHOG_API_KEY"
 //
 // # Source, not reflection
 //

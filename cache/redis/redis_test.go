@@ -1370,22 +1370,22 @@ func Test_Cache_CustomCodec_Unit(T *testing.T) {
 		client.SetFunc = func(_ context.Context, _ string, value any, _ time.Duration) *redis.StatusCmd {
 			s, isString := value.(string)
 			must.True(t, isString)
-			test.EqOp(t, "beeline", s)
+			test.EqOp(t, "spot", s)
 			cmd := redis.NewStatusCmd(ctx)
 			cmd.SetVal("OK")
 			return cmd
 		}
 		client.GetFunc = func(_ context.Context, _ string) *redis.StringCmd {
 			cmd := redis.NewStringCmd(ctx)
-			cmd.SetVal("beeline")
+			cmd.SetVal("spot")
 			return cmd
 		}
 
-		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "beeline"}))
+		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "spot"}))
 
 		got, err := impl.Get(ctx, exampleKey)
 		must.NoError(t, err)
-		test.EqOp(t, "beeline", got.Name)
+		test.EqOp(t, "spot", got.Name)
 	})
 
 	T.Run("nil codec option is ignored, keeping the gob default", func(t *testing.T) {
@@ -1404,7 +1404,7 @@ func Test_Cache_CustomCodec_Unit(T *testing.T) {
 		cb.CannotProceedFunc = func() bool { return false }
 		cb.SucceededFunc = func() {}
 
-		expected := gobEncodeExample(t, &example{Name: "beeline"})
+		expected := gobEncodeExample(t, &example{Name: "spot"})
 		client.SetFunc = func(_ context.Context, _ string, value any, _ time.Duration) *redis.StatusCmd {
 			s, isString := value.(string)
 			must.True(t, isString)
@@ -1414,7 +1414,7 @@ func Test_Cache_CustomCodec_Unit(T *testing.T) {
 			return cmd
 		}
 
-		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "beeline"}))
+		must.NoError(t, impl.Set(ctx, exampleKey, &example{Name: "spot"}))
 	})
 }
 
@@ -1426,20 +1426,20 @@ func Test_Cache_Namespace_Unit(T *testing.T) {
 
 		ctx := t.Context()
 		impl, client, cb, _ := buildTestImpl(t)
-		impl.namespace = "beeline:"
+		impl.namespace = "ns:"
 
 		cb.CannotProceedFunc = func() bool { return false }
 		cb.SucceededFunc = func() {}
 
 		client.SetFunc = func(_ context.Context, key string, _ any, _ time.Duration) *redis.StatusCmd {
-			test.EqOp(t, "beeline:"+exampleKey, key)
+			test.EqOp(t, "ns:"+exampleKey, key)
 			cmd := redis.NewStatusCmd(ctx)
 			cmd.SetVal("OK")
 			return cmd
 		}
 		client.MGetFunc = func(_ context.Context, keys ...string) *redis.SliceCmd {
 			must.SliceLen(t, 1, keys)
-			test.EqOp(t, "beeline:"+exampleKey, keys[0])
+			test.EqOp(t, "ns:"+exampleKey, keys[0])
 			cmd := redis.NewSliceCmd(ctx)
 			cmd.SetVal([]any{gobEncodeExample(t, &example{Name: "spot"})})
 			return cmd

@@ -23,7 +23,7 @@ func TestCBORCodec(T *testing.T) {
 		t.Parallel()
 
 		codec := NewCBORCodec[codecExample]()
-		original := &codecExample{Name: "beeline", Count: 42}
+		original := &codecExample{Name: "spot", Count: 42}
 
 		encoded, err := codec.Encode(original)
 		must.NoError(t, err)
@@ -133,7 +133,7 @@ func TestCBORCodec(T *testing.T) {
 	T.Run("encodes smaller than gob", func(t *testing.T) {
 		t.Parallel()
 
-		value := &codecExample{Name: "beeline", Count: 42}
+		value := &codecExample{Name: "spot", Count: 42}
 
 		cborEncoded, err := NewCBORCodec[codecExample]().Encode(value)
 		must.NoError(t, err)
