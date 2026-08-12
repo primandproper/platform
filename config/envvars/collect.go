@@ -5,9 +5,7 @@ import (
 	goast "go/ast"
 	"go/token"
 	"maps"
-	"reflect"
 	"slices"
-	"strings"
 
 	"github.com/primandproper/platform-go/v10/errors"
 	reflast "github.com/primandproper/platform-go/v10/reflection/ast"
@@ -186,22 +184,22 @@ func (w *walker) walkField(entry *structEntry, fieldType goast.Expr, tag, name, 
 		w.record(envPrefix+envName, path, tag)
 	}
 
-	if prefix, declared := lookupTag(tag, "envPrefix"); declared {
+	if prefix, declared := reflast.LookupTag(tag, "envPrefix"); declared {
 		envPrefix += prefix
 	}
 
-	if nested, isInline := inlineStruct(fieldType); isInline {
+	if nested, isInline := reflast.InlineStruct(fieldType); isInline {
 		w.walkStruct(entry, nested, envPrefix, path, visited, ancestors)
 
 		return
 	}
 
-	ref, isNamed := parseTypeRef(fieldType)
+	ref, isNamed := reflast.ParseTypeRef(fieldType)
 	if !isNamed {
 		return
 	}
 
-	key, resolvable := ref.key(entry.pkgKey, entry.imports)
+	key, resolvable := indexKey(ref, entry.pkgKey, entry.imports)
 	if !resolvable {
 		return
 	}
@@ -217,7 +215,7 @@ func (w *walker) walkField(entry *structEntry, fieldType goast.Expr, tag, name, 
 func (w *walker) record(name, path, tag string) {
 	v, found := w.vars[name]
 	if !found {
-		defaultValue, hasDefault := lookupTag(tag, "envDefault")
+		defaultValue, hasDefault := reflast.LookupTag(tag, "envDefault")
 		v = &variable{defaultValue: defaultValue, hasDefault: hasDefault}
 		w.vars[name] = v
 	}
@@ -263,12 +261,12 @@ func (w *walker) variables(prefix string) ([]Variable, error) {
 // skipped, having nothing to configure.
 func fieldNames(field *goast.Field) []string {
 	if len(field.Names) == 0 {
-		ref, ok := parseTypeRef(field.Type)
-		if !ok {
+		name := reflast.EmbeddedFieldName(field.Type)
+		if name == "" {
 			return nil
 		}
 
-		return []string{ref.name}
+		return []string{name}
 	}
 
 	names := make([]string, 0, len(field.Names))
@@ -279,13 +277,4 @@ func fieldNames(field *goast.Field) []string {
 	}
 
 	return names
-}
-
-// lookupTag reads a struct tag value whole, reporting whether it was declared
-// at all. Unlike reflection/ast's GetTagValue it does not stop at a comma,
-// which an envDefault is entitled to contain — a default for a slice field is
-// comma-separated — and it distinguishes a declared empty value from an absent
-// one, which for envDefault is a real difference.
-func lookupTag(tag, key string) (string, bool) {
-	return reflect.StructTag(strings.Trim(tag, "`")).Lookup(key)
 }

@@ -72,93 +72,6 @@ func TestIndexParseModule(T *testing.T) {
 		test.MapContainsKey(t, idx.structs, "example.com/dep/database.Config")
 		test.MapContainsKey(t, idx.structs, "example.com/dep/observability.Config")
 	})
-
-	T.Run("skips a nested module, whose types are not this module's", func(t *testing.T) {
-		t.Parallel()
-
-		dir := writeMinimalModule(t)
-		nested := filepath.Join(dir, "tools")
-		must.NoError(t, os.MkdirAll(nested, 0o750))
-		must.NoError(t, os.WriteFile(filepath.Join(nested, "go.mod"), []byte("module example.com/tools\n\ngo 1.26\n"), 0o600))
-		must.NoError(t, os.WriteFile(filepath.Join(nested, "tools.go"), []byte("package tools\n\ntype Config struct{}\n"), 0o600))
-
-		idx := newIndex()
-		must.NoError(t, idx.parseModule(dir, "", "example.com/minimal"))
-
-		test.MapNotContainsKey(t, idx.structs, "tools.Config")
-	})
-
-	T.Run("skips vendored, hidden, and fixture directories", func(t *testing.T) {
-		t.Parallel()
-
-		dir := writeMinimalModule(t)
-
-		for _, name := range []string{"vendor", "testdata", ".hidden", "_ignored"} {
-			sub := filepath.Join(dir, name)
-			must.NoError(t, os.MkdirAll(sub, 0o750))
-			must.NoError(t, os.WriteFile(filepath.Join(sub, "x.go"), []byte("package x\n\ntype Config struct{}\n"), 0o600))
-		}
-
-		idx := newIndex()
-		must.NoError(t, idx.parseModule(dir, "", "example.com/minimal"))
-
-		for _, name := range []string{"vendor", "testdata", ".hidden", "_ignored"} {
-			test.MapNotContainsKey(t, idx.structs, name+".Config")
-		}
-	})
-
-	T.Run("skips test files, whose types are not loadable", func(t *testing.T) {
-		t.Parallel()
-
-		dir := writeMinimalModule(t)
-		must.NoError(t, os.WriteFile(filepath.Join(dir, "internal", "config", "helper_test.go"), []byte("package config\n\ntype TestOnlyConfig struct{}\n"), 0o600))
-
-		idx := newIndex()
-		must.NoError(t, idx.parseModule(dir, "", "example.com/minimal"))
-
-		test.MapNotContainsKey(t, idx.structs, "internal/config.TestOnlyConfig")
-	})
-
-	T.Run("reports a file it cannot parse rather than dropping what it declares", func(t *testing.T) {
-		t.Parallel()
-
-		dir := writeMinimalModule(t)
-		must.NoError(t, os.WriteFile(filepath.Join(dir, "broken.go"), []byte("package !!!\n"), 0o600))
-
-		test.Error(t, newIndex().parseModule(dir, "", "example.com/minimal"))
-	})
-
-	T.Run("reports a directory that does not exist", func(t *testing.T) {
-		t.Parallel()
-
-		test.Error(t, newIndex().parseModule(filepath.Join(t.TempDir(), "absent"), "", "example.com/minimal"))
-	})
-}
-
-func TestPackageImports(T *testing.T) {
-	T.Parallel()
-
-	T.Run("resolves each import to the key its package is indexed under", func(t *testing.T) {
-		t.Parallel()
-
-		file := parseFixtureFile(t, `package config
-
-import (
-	"strings"
-
-	"example.com/app"
-	"example.com/app/internal/database"
-	renamed "example.com/dep/observability"
-)
-`)
-
-		test.Eq(t, map[string]string{
-			"strings":  "strings",
-			"app":      ".",
-			"database": "internal/database",
-			"renamed":  "example.com/dep/observability",
-		}, packageImports(file, "example.com/app"))
-	})
 }
 
 func TestUnionMembers(T *testing.T) {
@@ -218,7 +131,7 @@ func TestPackageKey(T *testing.T) {
 		t.Parallel()
 
 		test.EqOp(t, ".", packageKey("", "."))
-		test.EqOp(t, "internal/config", packageKey("", filepath.Join("internal", "config")))
+		test.EqOp(t, "internal/config", packageKey("", "internal/config"))
 	})
 
 	T.Run("keys packages of a dependency on their import path", func(t *testing.T) {

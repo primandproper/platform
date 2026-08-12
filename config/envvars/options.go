@@ -1,16 +1,14 @@
 package envvars
 
 import (
-	"bufio"
 	"context"
 	"go/token"
 	"maps"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/primandproper/platform-go/v10/errors"
+	reflast "github.com/primandproper/platform-go/v10/reflection/ast"
 )
 
 // Options configures Collect and Generate.
@@ -125,7 +123,7 @@ func (o *Options) dependencyDirs(ctx context.Context) (map[string]string, error)
 		return dirs, nil
 	}
 
-	discovered, err := o.discoverModules(ctx)
+	discovered, err := reflast.ModuleDirs(ctx, o.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -144,88 +142,6 @@ func (o *Options) dependencyDirs(ctx context.Context) (map[string]string, error)
 		if !anyMatches(dirs, prefix) {
 			return nil, errors.Newf("no module whose path begins with %q was found for %q; it is required by Dependencies", prefix, o.Dir)
 		}
-	}
-
-	return dirs, nil
-}
-
-// discoverModules locates the source of every module Dir depends on. A vendored
-// module has its source in the vendor directory and is not in the module cache,
-// and `go list -m all` refuses to answer at all while a vendor directory is
-// present, so the vendor directory is read directly when there is one.
-func (o *Options) discoverModules(ctx context.Context) (map[string]string, error) {
-	vendorDir := filepath.Join(o.Dir, "vendor")
-	if _, err := os.Stat(filepath.Join(vendorDir, "modules.txt")); err == nil {
-		return vendoredModules(vendorDir)
-	}
-
-	cmd := exec.CommandContext(ctx, "go", "list", "-m", "-f", "{{.Path}}\t{{.Dir}}", "all")
-	cmd.Dir = o.Dir
-
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, errors.Wrapf(err, "listing the modules %q depends on", o.Dir)
-	}
-
-	dirs := map[string]string{}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
-		importPath, dir, found := strings.Cut(line, "\t")
-		if !found || dir == "" {
-			// A module in the graph whose source has not been downloaded has no
-			// directory to parse. Whether that matters is decided by
-			// dependencyDirs, which reports a prefix that ends up matching
-			// nothing.
-			continue
-		}
-
-		dirs[importPath] = dir
-	}
-
-	return dirs, nil
-}
-
-// vendoredModules reads the module list out of a vendor directory's
-// modules.txt, mapping each module's path to the directory its packages were
-// vendored into.
-func vendoredModules(vendorDir string) (map[string]string, error) {
-	f, err := os.Open(filepath.Join(vendorDir, "modules.txt"))
-	if err != nil {
-		return nil, errors.Wrap(err, "opening vendor/modules.txt")
-	}
-
-	defer func() {
-		_ = f.Close() //nolint:errcheck // read-only file; close error is not actionable here
-	}()
-
-	dirs := map[string]string{}
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		// Module lines read "# <path> <version>", optionally with a "=> ..."
-		// replacement following. Package lines carry no marker, and "## " lines
-		// are annotations such as "## explicit".
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "# ") {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-
-		dir := filepath.Join(vendorDir, filepath.FromSlash(fields[1]))
-		//nolint:gosec // G703: the path is built from this module's own vendor/modules.txt, and is only stat'ed
-		if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
-			continue
-		}
-
-		dirs[fields[1]] = dir
-	}
-
-	if err = scanner.Err(); err != nil {
-		return nil, errors.Wrap(err, "scanning vendor/modules.txt")
 	}
 
 	return dirs, nil
