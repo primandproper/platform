@@ -2,7 +2,6 @@ package entitlements
 
 import (
 	"context"
-	"math"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/metering"
@@ -11,14 +10,18 @@ import (
 // UnlimitedLimit is the metering limit a QuotaSource reports for a grant with
 // Grant.Unlimited set, paired with metering.BehaviorAllowOverage.
 //
-// metering has no unlimited, deliberately: its Quota.Limit of zero means none
-// allowed, and a package that invoices cannot afford a value that means "do not
-// enforce". So an unlimited grant is expressed in the vocabulary metering does
-// have — a limit nobody reaches and a behavior that would let them past it
-// anyway. Check never reads it, because an unlimited grant short-circuits before
-// the enforcer is consulted; it exists for metering's own Consume path, which
-// has to be told something.
-const UnlimitedLimit int64 = math.MaxInt64
+// metering has no limit that means "do not enforce", deliberately: its
+// Quota.Limit of zero means none allowed, and a package that invoices cannot
+// afford a value every enforcement path has to remember to special-case. So an
+// unlimited grant is expressed in the vocabulary metering does have — a limit
+// nobody reaches, which is metering.Unlimited, and a behavior that would let
+// them past it anyway. Check never reads it, because an unlimited grant
+// short-circuits before the enforcer is consulted; it exists for metering's own
+// Consume path, which has to be told something.
+//
+// It is metering's constant rather than a second spelling of it, so the number
+// this package reports and the number metering enforces cannot come to differ.
+const UnlimitedLimit int64 = metering.Unlimited
 
 var _ metering.QuotaSource = (*QuotaSource)(nil)
 
