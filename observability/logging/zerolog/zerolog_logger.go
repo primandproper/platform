@@ -1,3 +1,18 @@
+// Package zerolog implements logging.Logger over rs/zerolog.
+//
+// What it takes care to avoid is zerolog's process-global configuration.
+// zerolog's own Timestamp and Caller read package-level variables —
+// TimestampFunc, TimeFieldFormat, CallerSkipFrameCount, CallerMarshalFunc —
+// which belong to whichever library in the process set them last. Setting those
+// at import time made this package's formatting choices everybody's. Timestamps
+// are written by a per-logger hook instead, in UTC and RFC 3339 with nanoseconds,
+// and call sites are resolved here with a local skip count, so what this logger
+// emits is decided by this logger and nothing else in the binary is affected.
+//
+// Caller paths are trimmed of this module's own prefix, which shows up only in
+// -trimpath builds; an untrimmed build reports the absolute path the runtime
+// gives it. A stack that cannot be walked yields "unknown" rather than an absent
+// field, so the caller key is always present.
 package zerolog
 
 import (

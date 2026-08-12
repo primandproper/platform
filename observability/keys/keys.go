@@ -1,3 +1,21 @@
+// Package keys is the module's attribute-name vocabulary: the string constants
+// every package uses when it puts a value on a span or a log line.
+//
+// The names are the point. A key is data that has to agree in two places at
+// once — the span attribute and the log field, written by different packages,
+// read together in whatever eventually queries them — and a second spelling of
+// one cannot be caught by the compiler. "user_id" against "userID" costs
+// nothing at build time and costs a correlation at 3am, so the spellings live
+// here and nothing else invents its own.
+//
+// The convention is lower snake case, dotted for a namespace and its member
+// ("request.method", "query_filter.cursor"), with ".id" for identifiers.
+//
+// This package deliberately holds nothing but constants: it is imported by
+// nearly everything that emits telemetry, so anything else in it would be
+// imported by nearly everything too. A key used in exactly one package can stay
+// a constant there — what belongs here is what two packages would otherwise
+// each spell for themselves.
 package keys
 
 const (

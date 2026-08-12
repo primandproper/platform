@@ -1,3 +1,27 @@
+// Package pyroscope implements profiling.Provider by pushing profiles
+// continuously to a Pyroscope server.
+//
+// It is the provider for profiles you did not know you would need: CPU, alloc,
+// in-use memory, and goroutine profiles are uploaded on a timer under the
+// service name, so the profile covering an incident exists whether or not
+// anyone was collecting during it. The pprof sibling is the opposite trade —
+// nothing leaves the process, but somebody has to fetch a profile while the
+// behavior is still happening.
+//
+// Profiling begins when the provider is constructed, not when Start is called;
+// Start is a no-op kept for the interface. That means construction is already
+// the side effect, and a provider built and discarded is still uploading until
+// Shutdown.
+//
+// Enabling the mutex or block profiles sets the runtime's sampling rate for the
+// whole process and adds the corresponding profile types to the upload set. Both
+// cost something on every contended lock, which is why they are off by default.
+//
+// The Insecure flag disables TLS certificate verification on uploads — the
+// pyroscope client exposes no such knob, so uploads are routed through an HTTP
+// client that skips it. It exists for a self-signed internal endpoint and
+// nothing else: it disables verification altogether rather than trusting a
+// particular certificate.
 package pyroscope
 
 import (

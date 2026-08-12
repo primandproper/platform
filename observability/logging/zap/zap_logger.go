@@ -1,3 +1,22 @@
+// Package zap implements logging.Logger over uber-go/zap.
+//
+// It is the backend to choose when the level has to move without a restart.
+// SetLevel is not on logging.Logger, so it is reachable only through the
+// *Logger the constructor returned — and because every logger derived by
+// WithName or WithValue shares the same underlying atomic level, one call
+// re-levels the whole tree. Narrowing the constructor's result to the interface
+// at the point of construction is what makes that unreachable.
+//
+// The requested level also selects zap's configuration preset, which decides
+// rather more than the threshold: debug builds the development config, with its
+// console encoding and stack traces on warnings, and every other level builds
+// the production config, which is JSON. A later SetLevel moves the threshold and
+// not the encoding, so a process started at info and lowered to debug logs debug
+// records in production's format.
+//
+// Construction reports an error rather than degrading to a noop. A service that
+// asked for zap and silently got nothing logs nothing for its whole life, and
+// the one line saying so scrolls past in the first second of startup.
 package zap
 
 import (
