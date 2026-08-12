@@ -131,6 +131,11 @@ func (l *Logger) Debug(input string) {
 	l.logger.Debug().Msg(input)
 }
 
+// Warn satisfies our contract for the logging.Logger Warn method.
+func (l *Logger) Warn(input string) {
+	l.logger.Warn().Msg(input)
+}
+
 // Error satisfies our contract for the logging.Logger Error method.
 func (l *Logger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
 	// Resolved here rather than in a helper, because the frame count has to be

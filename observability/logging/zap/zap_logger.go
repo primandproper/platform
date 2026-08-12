@@ -128,6 +128,11 @@ func (l *Logger) Debug(input string) {
 	l.logger.Debug(input)
 }
 
+// Warn satisfies our contract for the logging.Logger Warn method.
+func (l *Logger) Warn(input string) {
+	l.logger.Warn(input)
+}
+
 // Error satisfies our contract for the logging.Logger Error method.
 func (l *Logger) Error(whatWasHappeningWhenErrorOccurred string, err error) {
 	if err != nil {

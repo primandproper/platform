@@ -17,6 +17,9 @@ func (l *noopLogger) Info(string) {}
 // Debug satisfies our interface.
 func (l *noopLogger) Debug(string) {}
 
+// Warn satisfies our interface.
+func (l *noopLogger) Warn(string) {}
+
 // Error satisfies our interface.
 func (l *noopLogger) Error(string, error) {}
 

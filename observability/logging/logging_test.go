@@ -80,6 +80,12 @@ func TestNoopLogger(T *testing.T) {
 		noopLoggerSingleton.Debug("test")
 	})
 
+	T.Run("Warn", func(t *testing.T) {
+		t.Parallel()
+
+		noopLoggerSingleton.Warn("test")
+	})
+
 	T.Run("Error", func(t *testing.T) {
 		t.Parallel()
 

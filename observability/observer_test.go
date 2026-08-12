@@ -55,6 +55,7 @@ func (l *recordingLogger) WithResponse(*http.Response) logging.Logger { return l
 func (l *recordingLogger) WithError(error) logging.Logger             { return l }
 func (l *recordingLogger) Info(string)                                {}
 func (l *recordingLogger) Debug(string)                               {}
+func (l *recordingLogger) Warn(string)                                {}
 func (l *recordingLogger) Error(string, error)                        {}
 func (l *recordingLogger) SetRequestIDFunc(logging.RequestIDFunc)     {}
 
