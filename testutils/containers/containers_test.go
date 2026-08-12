@@ -241,4 +241,70 @@ func TestRun(T *testing.T) {
 			func(context.Context, *terminateRecorder) { ran = true },
 		)
 	})
+
+	T.Run("Required ignores the closed gate and starts anyway", func(t *testing.T) { //nolint:paralleltest // mutates the package-level RunningTests gate; must run serially
+		withRunningTests(t, false)
+
+		// The whole point of Required: a suite whose only backend is the
+		// container would rather fail on a missing daemon than report a pass for
+		// code nothing ran. Asserted after Run rather than in a Cleanup, because
+		// a skip would Goexit and a Cleanup would then assert against a run that
+		// never happened.
+		var started, ran bool
+
+		Run(t,
+			func(context.Context) (*terminateRecorder, error) {
+				started = true
+				return &terminateRecorder{}, nil
+			},
+			func(context.Context, *terminateRecorder) { ran = true },
+			Required(),
+		)
+
+		test.True(t, started)
+		test.True(t, ran)
+	})
+
+	T.Run("nil options are ignored", func(t *testing.T) { //nolint:paralleltest // mutates the package-level RunningTests gate; must run serially
+		withRunningTests(t, true)
+
+		var ran bool
+		Run(t,
+			func(context.Context) (*terminateRecorder, error) { return &terminateRecorder{}, nil },
+			func(context.Context, *terminateRecorder) { ran = true },
+			nil,
+		)
+
+		test.True(t, ran)
+	})
+}
+
+func TestNewRunOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("defaults to the skipping gate", func(t *testing.T) {
+		t.Parallel()
+
+		test.False(t, newRunOptions(nil).required)
+	})
+
+	T.Run("Required flips it", func(t *testing.T) {
+		t.Parallel()
+
+		test.True(t, newRunOptions([]RunOption{Required()}).required)
+	})
+}
+
+// TestRequireRunning is not parallel: it reads the package-level gate that its
+// sibling tests toggle, and the assertion is that it does not.
+//
+//nolint:paralleltest // reads state TestRun's subtests mutate; must run serially
+func TestRequireRunning(T *testing.T) {
+	T.Run("does not skip on a closed RUN_CONTAINER_TESTS gate", func(t *testing.T) { //nolint:paralleltest // reads state TestRun's subtests mutate; must run serially
+		withRunningTests(t, false)
+
+		RequireRunning(t)
+
+		test.False(t, t.Skipped())
+	})
 }

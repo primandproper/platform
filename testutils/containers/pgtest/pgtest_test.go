@@ -21,7 +21,30 @@ func TestNewOptions(T *testing.T) {
 		test.EqOp(t, defaultCredential, cfg.username)
 		test.EqOp(t, defaultCredential, cfg.password)
 		test.EqOp(t, 0, cfg.maxOpenConns)
+		test.EqOp(t, DefaultMaxConnections, cfg.maxConnections)
+		test.EqOp(t, "", cfg.dsnEnvVar)
+		test.False(t, cfg.required)
 		test.SliceEmpty(t, cfg.customizers)
+	})
+
+	T.Run("nil options are ignored", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := newOptions([]Option{nil, WithImage("postgres:16-alpine")})
+		test.EqOp(t, "postgres:16-alpine", cfg.image)
+	})
+
+	T.Run("ladder options", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := newOptions([]Option{
+			WithRequiredPostgres(),
+			WithDSNFromEnv("SOME_TEST_POSTGRES_DSN"),
+			WithMaxConnections(500),
+		})
+		test.True(t, cfg.required)
+		test.EqOp(t, "SOME_TEST_POSTGRES_DSN", cfg.dsnEnvVar)
+		test.EqOp(t, 500, cfg.maxConnections)
 	})
 
 	T.Run("options override defaults", func(t *testing.T) {
@@ -61,8 +84,82 @@ func TestOptions_containerOptions(T *testing.T) {
 		override := testcontainers.WithEnv(map[string]string{"FOO": "bar"})
 		got := newOptions([]Option{WithCustomizers(override)}).containerOptions()
 
-		// database, username, password, wait strategy, then the caller's own.
-		test.SliceLen(t, 5, got)
+		// database, username, password, wait strategy, max_connections, then the
+		// caller's own.
+		test.SliceLen(t, 6, got)
+	})
+
+	T.Run("max_connections is appended to the module's own command line", func(t *testing.T) {
+		t.Parallel()
+
+		req := &testcontainers.GenericContainerRequest{}
+		req.Cmd = []string{"postgres", "-c", "fsync=off"}
+
+		for _, customizer := range newOptions([]Option{WithMaxConnections(321)}).containerOptions() {
+			if apply, ok := customizer.(testcontainers.CustomizeRequestOption); ok {
+				must.NoError(t, apply(req))
+			}
+		}
+
+		test.Eq(t, []string{"postgres", "-c", "fsync=off", "-c", "max_connections=321"}, req.Cmd)
+	})
+
+	T.Run("a zero ceiling leaves the image's own default alone", func(t *testing.T) {
+		t.Parallel()
+
+		// database, username, password, wait strategy — and no -c.
+		test.SliceLen(t, 4, newOptions([]Option{WithMaxConnections(0)}).containerOptions())
+	})
+}
+
+// TestOptions_dsnFromEnv is not parallel, and neither are its subtests: t.Setenv
+// refuses to run anywhere under a parallel test.
+//
+//nolint:paralleltest // t.Setenv forbids it, here and in every parent
+func TestOptions_dsnFromEnv(T *testing.T) {
+	T.Run("empty when no variable was named", func(t *testing.T) { //nolint:paralleltest // t.Setenv forbids it
+		test.EqOp(t, "", newOptions(nil).dsnFromEnv())
+	})
+
+	T.Run("empty when the named variable is unset", func(t *testing.T) { //nolint:paralleltest // t.Setenv forbids it
+		test.EqOp(t, "", newOptions([]Option{WithDSNFromEnv("PGTEST_DSN_DEFINITELY_UNSET")}).dsnFromEnv())
+	})
+
+	T.Run("reads and trims the named variable", func(t *testing.T) { //nolint:paralleltest // t.Setenv forbids it
+		const name = "PGTEST_DSN_FOR_TEST"
+		t.Setenv(name, "  postgres://u:p@localhost:5432/db  ")
+
+		test.EqOp(t, "postgres://u:p@localhost:5432/db",
+			newOptions([]Option{WithDSNFromEnv(name)}).dsnFromEnv())
+	})
+
+	T.Run("whitespace only reads as unset", func(t *testing.T) { //nolint:paralleltest // t.Setenv forbids it
+		const name = "PGTEST_DSN_BLANK_FOR_TEST"
+		t.Setenv(name, "   ")
+
+		test.EqOp(t, "", newOptions([]Option{WithDSNFromEnv(name)}).dsnFromEnv())
+	})
+}
+
+func TestInstance_ConnectionStringFor(T *testing.T) {
+	T.Parallel()
+
+	T.Run("builds a DSN from the recorded host and port", func(t *testing.T) {
+		t.Parallel()
+
+		instance := &Instance{Host: "127.0.0.1", Port: "54321"}
+
+		test.EqOp(t, "postgres://someuser:somepass@127.0.0.1:54321/somedb",
+			instance.ConnectionStringFor(t, "somedb", "someuser", "somepass"))
+	})
+
+	T.Run("escapes credentials that would otherwise break the URL", func(t *testing.T) {
+		t.Parallel()
+
+		instance := &Instance{Host: "127.0.0.1", Port: "54321"}
+
+		test.EqOp(t, "postgres://user%40host:p%2Fss@127.0.0.1:54321/somedb",
+			instance.ConnectionStringFor(t, "somedb", "user@host", "p/ss"))
 	})
 }
 
