@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -526,5 +527,105 @@ func TestEmbedder_GenerateEmbeddings_Batch(T *testing.T) {
 		})
 		must.Error(t, err)
 		test.Nil(t, results)
+	})
+
+	T.Run("a batch spanning two purposes is refused", func(t *testing.T) {
+		t.Parallel()
+
+		e := &Embedder{
+			instruments: metricstest.OperationSet(t, "test"),
+			cfg:         &Config{},
+			o11y:        observability.NewObserverForTest("test"),
+			client:      nil,
+		}
+
+		// One request carries one input_type, so a batch that means two of them
+		// cannot be honored — and honoring only the first would embed half the
+		// batch on the wrong side of the space, silently.
+		results, err := e.GenerateEmbeddings(t.Context(), []*embeddings.Input{
+			{Content: "first", Purpose: embeddings.PurposeDocument},
+			{Content: "second", Purpose: embeddings.PurposeQuery},
+		})
+		must.Error(t, err)
+		test.Nil(t, results)
+	})
+}
+
+func TestEmbedder_Purpose(T *testing.T) {
+	T.Parallel()
+
+	cohereEmbeddingResponse := map[string]any{
+		"embeddings": map[string]any{
+			"float": [][]float64{
+				{0.1, 0.2, 0.3},
+			},
+		},
+	}
+
+	// A query must go out as "search_query" to land near the documents that
+	// answer it. Sending everything as a document is a ranking regression with
+	// no error to catch it, so the wire value is what gets asserted here.
+	for _, tc := range []struct {
+		name              string
+		expectedInputType string
+		purpose           embeddings.Purpose
+	}{
+		{name: "unset input is a document", purpose: embeddings.PurposeDocument, expectedInputType: inputTypeDocument},
+		{name: "query input is a query", purpose: embeddings.PurposeQuery, expectedInputType: inputTypeQuery},
+	} {
+		T.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var reqBody embeddingRequest
+				must.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+				must.EqOp(t, tc.expectedInputType, reqBody.InputType)
+				w.Header().Set("Content-Type", "application/json")
+				must.NoError(t, json.NewEncoder(w).Encode(cohereEmbeddingResponse))
+			}))
+			t.Cleanup(ts.Close)
+
+			e, obs := newRecordingEmbedder(t, &Config{APIKey: "test-key", BaseURL: ts.URL})
+
+			result, err := e.GenerateEmbedding(t.Context(), &embeddings.Input{
+				Content: "hello",
+				Purpose: tc.purpose,
+			})
+			must.NoError(t, err)
+			must.NotNil(t, result)
+
+			obs.ObservedOperationWithData(t, map[string]any{
+				"embedding.purpose": tc.purpose.String(),
+			})
+		})
+	}
+
+	T.Run("the zero value matches PurposeDocument", func(t *testing.T) {
+		t.Parallel()
+
+		// Existing callers set no purpose at all, and must keep getting the
+		// document side they were getting before the field existed.
+		var zero embeddings.Purpose
+		test.EqOp(t, embeddings.PurposeDocument, zero)
+	})
+
+	T.Run("an undefined purpose is refused", func(t *testing.T) {
+		t.Parallel()
+
+		e := &Embedder{
+			instruments: metricstest.OperationSet(t, "test"),
+			cfg:         &Config{APIKey: "test-key"},
+			o11y:        observability.NewObserverForTest("test"),
+			// A nil client would panic on a request, which is the assertion:
+			// an unrecognized purpose fails before the round trip.
+			client: nil,
+		}
+
+		result, err := e.GenerateEmbedding(t.Context(), &embeddings.Input{
+			Content: "hello",
+			Purpose: embeddings.Purpose(math.MaxUint8),
+		})
+		test.ErrorIs(t, err, embeddings.ErrUnknownPurpose)
+		test.Nil(t, result)
 	})
 }

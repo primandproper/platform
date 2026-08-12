@@ -28,6 +28,11 @@ const (
 	// the vendor rather than the component, since it is stored alongside the
 	// vector and read back to reason about the model.
 	providerName = "cohere"
+
+	// inputTypeDocument and inputTypeQuery are Cohere's names for the two sides
+	// of a retrieval comparison, which embeddings.Purpose spells generically.
+	inputTypeDocument = "search_document"
+	inputTypeQuery    = "search_query"
 )
 
 var _ embeddings.Embedder = (*Embedder)(nil)
@@ -87,12 +92,32 @@ type embeddingResponse struct {
 	} `json:"embeddings"`
 }
 
+// inputTypeFor translates a purpose into the input_type Cohere's v2 embed API
+// expects. A purpose this package does not recognize is an error rather than a
+// fallback to either side: picking one would produce a usable-looking vector on
+// the wrong half of the space, which is exactly the failure Purpose exists to
+// prevent.
+func inputTypeFor(p embeddings.Purpose) (string, error) {
+	switch p {
+	case embeddings.PurposeDocument:
+		return inputTypeDocument, nil
+	case embeddings.PurposeQuery:
+		return inputTypeQuery, nil
+	default:
+		return "", errors.Wrapf(embeddings.ErrUnknownPurpose, "purpose %s", p)
+	}
+}
+
 // GenerateEmbeddings implements embeddings.Embedder.
 //
-// Every input in a call must resolve to the same model, because Cohere embeds
-// one batch against one model; a batch spanning two models is rejected rather
-// than silently split, which would make the round-trip count depend on the
-// caller's ordering.
+// Every input in a call must resolve to the same model and the same
+// embeddings.Purpose, because Cohere embeds one batch against one model and one
+// input_type; a batch spanning two of either is rejected rather than silently
+// split, which would make the round-trip count depend on the caller's ordering.
+//
+// The purpose is what Cohere calls input_type, and it is the reason a query
+// embedded here matches the documents it should: PurposeDocument sends
+// "search_document" and PurposeQuery sends "search_query".
 //
 // Rate limiting: this method does not retry. A non-200 response (including 429 Too Many
 // Requests) is surfaced to the caller as an error carrying the status code; it is not
@@ -117,7 +142,10 @@ func (e *Embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 	}()
 
 	texts := make([]string, len(inputs))
-	var model string
+	var (
+		model   string
+		purpose embeddings.Purpose
+	)
 	for i, input := range inputs {
 		if input == nil {
 			return nil, embeddings.ErrNilInput
@@ -135,12 +163,23 @@ func (e *Embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 
 		if i == 0 {
 			model = m
-		} else if m != model {
-			return nil, op.Error(errors.Newf("batch spans models %q and %q", model, m), "mixed models in one batch")
+			purpose = input.Purpose
+		} else {
+			if m != model {
+				return nil, op.Error(errors.Newf("batch spans models %q and %q", model, m), "mixed models in one batch")
+			}
+			if input.Purpose != purpose {
+				return nil, op.Error(errors.Newf("batch spans purposes %s and %s", purpose, input.Purpose), "mixed purposes in one batch")
+			}
 		}
 	}
 
-	op.Set(keys.EmbeddingModelKey, model).Set(keys.LengthKey, len(inputs))
+	inputType, err := inputTypeFor(purpose)
+	if err != nil {
+		return nil, op.Error(err, "resolving cohere input type")
+	}
+
+	op.Set(keys.EmbeddingModelKey, model).Set(keys.LengthKey, len(inputs)).Set("embedding.purpose", purpose.String())
 
 	baseURL := e.cfg.BaseURL
 	if baseURL == "" {
@@ -150,7 +189,7 @@ func (e *Embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 	reqBody := embeddingRequest{
 		Texts:          texts,
 		Model:          model,
-		InputType:      "search_document",
+		InputType:      inputType,
 		EmbeddingTypes: []string{"float"},
 	}
 

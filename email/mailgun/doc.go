@@ -6,9 +6,11 @@ that domain's private API key — both required, both checked at construction.
 The caller supplies the *http.Client the SDK will use, so timeouts, proxying,
 and transport instrumentation stay the caller's.
 
-Nothing here sets Mailgun's API base, so the SDK's default host is where mail
-goes. An account provisioned in Mailgun's EU region is not reachable through
-this package.
+Which Mailgun to talk to is Config.BaseURL. Left empty it is the SDK's default
+host, which is the US region; an account provisioned in the EU must set it to
+BaseURLEU, since an EU domain does not exist under the US base and every send
+fails on a domain that is plainly there in the dashboard. The same field points
+the client at a test server.
 
 # What one send is
 
@@ -19,9 +21,9 @@ circuitbreaking.ErrCircuitBroken before touching the network. Addresses are
 rendered through email.FormatAddress, which quotes the display name so a comma
 in it cannot inject recipients.
 
-Mailgun's response carries a message ID, and this package discards it — unlike
-the postmark, resend, and ses siblings, which put it on the span. A send here is
-therefore not traceable into the provider's own logs from what this package
-records.
+Mailgun's response carries the message ID it assigned, which goes on the span as
+email.message_id — the same key the postmark, resend, and ses siblings use, so a
+send here is traceable into the provider's own logs from what this package
+records, and by the same query across providers.
 */
 package mailgun
