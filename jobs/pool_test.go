@@ -752,7 +752,7 @@ func TestNewTopicDeadLetter(T *testing.T) {
 		provider := &messagequeuemock.PublisherProviderMock{
 			NewPublisherFunc: func(context.Context, string) (messagequeue.Publisher, error) {
 				return &messagequeuemock.PublisherMock{
-					PublishFunc: func(_ context.Context, data any) error {
+					PublishFunc: func(_ context.Context, data any, _ ...messagequeue.PublishOption) error {
 						published <- data
 
 						return nil

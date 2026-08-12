@@ -2,8 +2,10 @@ package pubsub
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/identifiers"
 	"github.com/primandproper/platform-go/v10/messagequeue"
 	"github.com/primandproper/platform-go/v10/messagequeue/internal/mqmetrics"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -13,6 +15,7 @@ import (
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
+	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel/metric"
@@ -189,6 +192,80 @@ func TestPubSubPublisher_Container(T *testing.T) {
 				return ok && n > 0
 			}))
 			test.SliceEmpty(t, op.Errors)
+		})
+
+		// The client refuses a message carrying an ordering key unless the
+		// publisher was built with EnableMessageOrdering, and it refuses it
+		// locally, so this fails at Publish rather than at the server if the
+		// provider ever stops setting it.
+		T.Run("publishes with an ordering key", func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
+
+			provider := NewPubSubPublisherProvider(infra.client, infra.projectID)
+			must.NotNil(t, provider)
+
+			publisher, err := provider.NewPublisher(ctx, topicName)
+			must.NoError(t, err)
+			must.NotNil(t, publisher)
+
+			inputData := &struct {
+				Name string `json:"name"`
+			}{
+				Name: t.Name(),
+			}
+
+			for range 3 {
+				test.NoError(t, publisher.Publish(ctx, inputData, messagequeue.WithOrderingKey("account_123")))
+			}
+		})
+
+		// A failed publish on an ordering key pauses that key inside the client:
+		// every later message for it is refused until ResumePublish. Publish
+		// resumes the key itself, so a transient failure does not leave the key
+		// permanently dead.
+		T.Run("recovers an ordering key from a failed publish", func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+
+			// Deliberately not created yet, so the first publish fails.
+			topicName := fmt.Sprintf("projects/%s/topics/topic-%s", infra.projectID, identifiers.New())
+
+			provider := NewPubSubPublisherProvider(infra.client, infra.projectID)
+			must.NotNil(t, provider)
+
+			publisher, err := provider.NewPublisher(ctx, topicName)
+			must.NoError(t, err)
+
+			inputData := map[string]string{"name": t.Name()}
+
+			test.Error(t, publisher.Publish(ctx, inputData, messagequeue.WithOrderingKey("account_123")))
+
+			created, err := infra.client.TopicAdminClient.CreateTopic(ctx, &pubsubpb.Topic{Name: topicName})
+			must.NoError(t, err)
+			must.NotNil(t, created)
+
+			// Without the resume this is ErrPublishingPaused forever, whatever
+			// the topic does.
+			test.NoError(t, publisher.Publish(ctx, inputData, messagequeue.WithOrderingKey("account_123")))
+		})
+
+		T.Run("publishes with a deduplication key it ignores", func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			topicName := infra.newTopic(t)
+
+			provider := NewPubSubPublisherProvider(infra.client, infra.projectID)
+			must.NotNil(t, provider)
+
+			publisher, err := provider.NewPublisher(ctx, topicName)
+			must.NoError(t, err)
+
+			test.NoError(t, publisher.Publish(ctx, map[string]string{"name": t.Name()}, messagequeue.WithDeduplicationKey("event_456")))
 		})
 	})
 }

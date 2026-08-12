@@ -44,13 +44,21 @@ type (
 	}
 )
 
+var _ messagequeue.Publisher = (*redisPublisher)(nil)
+
 // Stop implements the Publisher interface. The underlying Redis client is shared
 // across every topic publisher, so stopping one topic must not close it; the
 // client is closed once by the provider's Close method.
 func (p *redisPublisher) Stop() {}
 
 // Publish implements the Publisher interface.
-func (p *redisPublisher) Publish(ctx context.Context, data any) error {
+//
+// Every messagequeue.PublishOption is accepted and ignored. Redis pub/sub has
+// nothing to map an ordering key onto — no partitions, no consumer groups, no
+// per-key sequencing — and nothing that deduplicates, so honoring either option
+// would mean claiming a guarantee this backend cannot keep. A caller that needs
+// ordering needs a different backend, not a different call.
+func (p *redisPublisher) Publish(ctx context.Context, data any, _ ...messagequeue.PublishOption) error {
 	ctx, op := p.o11y.Begin(ctx)
 	defer op.End()
 
@@ -77,8 +85,9 @@ func (p *redisPublisher) Publish(ctx context.Context, data any) error {
 	return nil
 }
 
-// PublishAsync implements the Publisher interface.
-func (p *redisPublisher) PublishAsync(ctx context.Context, data any) {
+// PublishAsync implements the Publisher interface. Like Publish, it accepts
+// every messagequeue.PublishOption and honors none.
+func (p *redisPublisher) PublishAsync(ctx context.Context, data any, _ ...messagequeue.PublishOption) {
 	if err := p.Publish(ctx, data); err != nil {
 		p.o11y.Logger().Error("publishing message", err)
 	}

@@ -24,12 +24,132 @@ import (
 
 type mockMessagePublisher struct {
 	sendMessageFunc  func(ctx context.Context, input *sqs.SendMessageInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error)
+	sent             []*sqs.SendMessageInput
 	sendMessageCalls int
 }
 
 func (m *mockMessagePublisher) SendMessage(ctx context.Context, input *sqs.SendMessageInput, optFns ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
 	m.sendMessageCalls++
+	m.sent = append(m.sent, input)
 	return m.sendMessageFunc(ctx, input, optFns...)
+}
+
+// buildPublisherWithMock returns a publisher whose SQS client is a mock that
+// succeeds and records what it was handed.
+func buildPublisherWithMock(t *testing.T) (*sqsPublisher, *mockMessagePublisher) {
+	t.Helper()
+
+	ctx := t.Context()
+
+	provider, err := NewSQSPublisherProvider(ctx, Config{})
+	must.NoError(t, err)
+
+	a, err := provider.NewPublisher(ctx, t.Name())
+	must.NoError(t, err)
+
+	pub, ok := a.(*sqsPublisher)
+	must.True(t, ok)
+
+	mmp := &mockMessagePublisher{
+		sendMessageFunc: func(_ context.Context, _ *sqs.SendMessageInput, _ ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
+			return &sqs.SendMessageOutput{}, nil
+		},
+	}
+	pub.publisher = mmp
+
+	return pub, mmp
+}
+
+func Test_sqsPublisher_Publish_fifoFields(T *testing.T) {
+	T.Parallel()
+
+	T.Run("with an ordering key", func(t *testing.T) {
+		t.Parallel()
+
+		pub, mmp := buildPublisherWithMock(t)
+
+		must.NoError(t, pub.Publish(t.Context(), map[string]string{"name": t.Name()}, messagequeue.WithOrderingKey("account_123")))
+
+		must.SliceLen(t, 1, mmp.sent)
+		must.NotNil(t, mmp.sent[0].MessageGroupId)
+		test.EqOp(t, "account_123", *mmp.sent[0].MessageGroupId)
+		test.Nil(t, mmp.sent[0].MessageDeduplicationId)
+	})
+
+	T.Run("with a deduplication key", func(t *testing.T) {
+		t.Parallel()
+
+		pub, mmp := buildPublisherWithMock(t)
+
+		must.NoError(t, pub.Publish(t.Context(), map[string]string{"name": t.Name()}, messagequeue.WithDeduplicationKey("event_456")))
+
+		must.SliceLen(t, 1, mmp.sent)
+		must.NotNil(t, mmp.sent[0].MessageDeduplicationId)
+		test.EqOp(t, "event_456", *mmp.sent[0].MessageDeduplicationId)
+		test.Nil(t, mmp.sent[0].MessageGroupId)
+	})
+
+	T.Run("with both, as a FIFO queue without content-based deduplication needs", func(t *testing.T) {
+		t.Parallel()
+
+		pub, mmp := buildPublisherWithMock(t)
+
+		must.NoError(t, pub.Publish(
+			t.Context(),
+			map[string]string{"name": t.Name()},
+			messagequeue.WithOrderingKey("account_123"),
+			messagequeue.WithDeduplicationKey("event_456"),
+		))
+
+		must.SliceLen(t, 1, mmp.sent)
+		must.NotNil(t, mmp.sent[0].MessageGroupId)
+		must.NotNil(t, mmp.sent[0].MessageDeduplicationId)
+		test.EqOp(t, "account_123", *mmp.sent[0].MessageGroupId)
+		test.EqOp(t, "event_456", *mmp.sent[0].MessageDeduplicationId)
+	})
+
+	T.Run("with neither", func(t *testing.T) {
+		t.Parallel()
+
+		pub, mmp := buildPublisherWithMock(t)
+
+		must.NoError(t, pub.Publish(t.Context(), map[string]string{"name": t.Name()}))
+
+		// Absent has to be nil, not a pointer to "": the SDK omits the first
+		// from the request and sends the second.
+		must.SliceLen(t, 1, mmp.sent)
+		test.Nil(t, mmp.sent[0].MessageGroupId)
+		test.Nil(t, mmp.sent[0].MessageDeduplicationId)
+	})
+
+	T.Run("with empty keys", func(t *testing.T) {
+		t.Parallel()
+
+		pub, mmp := buildPublisherWithMock(t)
+
+		must.NoError(t, pub.Publish(
+			t.Context(),
+			map[string]string{"name": t.Name()},
+			messagequeue.WithOrderingKey(""),
+			messagequeue.WithDeduplicationKey(""),
+		))
+
+		must.SliceLen(t, 1, mmp.sent)
+		test.Nil(t, mmp.sent[0].MessageGroupId)
+		test.Nil(t, mmp.sent[0].MessageDeduplicationId)
+	})
+
+	T.Run("PublishAsync forwards the options", func(t *testing.T) {
+		t.Parallel()
+
+		pub, mmp := buildPublisherWithMock(t)
+
+		pub.PublishAsync(t.Context(), map[string]string{"name": t.Name()}, messagequeue.WithOrderingKey("account_123"))
+
+		must.SliceLen(t, 1, mmp.sent)
+		must.NotNil(t, mmp.sent[0].MessageGroupId)
+		test.EqOp(t, "account_123", *mmp.sent[0].MessageGroupId)
+	})
 }
 
 func Test_sqsPublisher_Publish(T *testing.T) {

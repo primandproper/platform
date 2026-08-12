@@ -25,7 +25,7 @@ type recordingPublisher struct {
 	mu       sync.Mutex
 }
 
-func (p *recordingPublisher) Publish(_ context.Context, data any) error {
+func (p *recordingPublisher) Publish(_ context.Context, data any, _ ...messagequeue.PublishOption) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

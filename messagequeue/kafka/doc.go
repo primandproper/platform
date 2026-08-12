@@ -30,13 +30,32 @@ Missing topics are created automatically on publish, which is convenient in
 development and worth knowing about in production, where it means a typo in a
 topic name produces a new topic rather than an error.
 
-# No ordering key
+# Ordering
 
-Messages are written with a value and no key, so the writer's default balancer
-places them across partitions and no two messages are guaranteed to be ordered
-relative to each other. Per-entity ordering — all events for one account landing
-in one partition in order — is the usual reason to choose Kafka, and it is not
-available through this package as written.
+messagequeue.WithOrderingKey sets the Kafka message key, and the writer
+partitions on a murmur2 hash of it, so all events for one account land on one
+partition and arrive in the order they were published. That is the usual reason
+to choose Kafka, and it is the reason the writer names its balancer: kafka-go's
+default is RoundRobin, which ignores the key, so a key without a matching
+balancer would be carried to the broker and change nothing.
+
+The balancer is Murmur2 with Consistent left off, which is librdkafka's
+"murmur2_random" and hashes keys the way the Java producer does — a topic this
+package writes to partitions the same as one written by any other client. A
+publish that names no ordering key sends a nil key and is placed on a partition
+at random, so unkeyed traffic stays spread rather than piling onto whichever
+partition the empty key hashes to.
+
+Ordering survives to the consumer because Kafka assigns each partition to one
+member of a consumer group, and this package's consumer processes the messages
+it fetches one at a time. Two keys that hash to the same partition are ordered
+against each other as well; that is a consequence of partitioning, not a
+guarantee, and a key that needs its own sequence needs nothing more than being
+its own key.
+
+messagequeue.WithDeduplicationKey is accepted and ignored. Kafka's idempotent
+producer deduplicates on its own producer/sequence numbers, not on a
+caller-supplied key.
 
 # Lifecycle
 

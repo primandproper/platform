@@ -20,10 +20,10 @@ var _ messagequeue.Publisher = &PublisherMock{}
 //
 //		// make and configure a mocked messagequeue.Publisher
 //		mockedPublisher := &PublisherMock{
-//			PublishFunc: func(ctx context.Context, data any) error {
+//			PublishFunc: func(ctx context.Context, data any, opts ...messagequeue.PublishOption) error {
 //				panic("mock out the Publish method")
 //			},
-//			PublishAsyncFunc: func(ctx context.Context, data any)  {
+//			PublishAsyncFunc: func(ctx context.Context, data any, opts ...messagequeue.PublishOption)  {
 //				panic("mock out the PublishAsync method")
 //			},
 //			StopFunc: func()  {
@@ -37,10 +37,10 @@ var _ messagequeue.Publisher = &PublisherMock{}
 //	}
 type PublisherMock struct {
 	// PublishFunc mocks the Publish method.
-	PublishFunc func(ctx context.Context, data any) error
+	PublishFunc func(ctx context.Context, data any, opts ...messagequeue.PublishOption) error
 
 	// PublishAsyncFunc mocks the PublishAsync method.
-	PublishAsyncFunc func(ctx context.Context, data any)
+	PublishAsyncFunc func(ctx context.Context, data any, opts ...messagequeue.PublishOption)
 
 	// StopFunc mocks the Stop method.
 	StopFunc func()
@@ -53,6 +53,8 @@ type PublisherMock struct {
 			Ctx context.Context
 			// Data is the data argument value.
 			Data any
+			// Opts is the opts argument value.
+			Opts []messagequeue.PublishOption
 		}
 		// PublishAsync holds details about calls to the PublishAsync method.
 		PublishAsync []struct {
@@ -60,6 +62,8 @@ type PublisherMock struct {
 			Ctx context.Context
 			// Data is the data argument value.
 			Data any
+			// Opts is the opts argument value.
+			Opts []messagequeue.PublishOption
 		}
 		// Stop holds details about calls to the Stop method.
 		Stop []struct {
@@ -71,21 +75,23 @@ type PublisherMock struct {
 }
 
 // Publish calls PublishFunc.
-func (mock *PublisherMock) Publish(ctx context.Context, data any) error {
+func (mock *PublisherMock) Publish(ctx context.Context, data any, opts ...messagequeue.PublishOption) error {
 	if mock.PublishFunc == nil {
 		panic("PublisherMock.PublishFunc: method is nil but Publisher.Publish was just called")
 	}
 	callInfo := struct {
 		Ctx  context.Context
 		Data any
+		Opts []messagequeue.PublishOption
 	}{
 		Ctx:  ctx,
 		Data: data,
+		Opts: opts,
 	}
 	mock.lockPublish.Lock()
 	mock.calls.Publish = append(mock.calls.Publish, callInfo)
 	mock.lockPublish.Unlock()
-	return mock.PublishFunc(ctx, data)
+	return mock.PublishFunc(ctx, data, opts...)
 }
 
 // PublishCalls gets all the calls that were made to Publish.
@@ -95,10 +101,12 @@ func (mock *PublisherMock) Publish(ctx context.Context, data any) error {
 func (mock *PublisherMock) PublishCalls() []struct {
 	Ctx  context.Context
 	Data any
+	Opts []messagequeue.PublishOption
 } {
 	var calls []struct {
 		Ctx  context.Context
 		Data any
+		Opts []messagequeue.PublishOption
 	}
 	mock.lockPublish.RLock()
 	calls = mock.calls.Publish
@@ -107,21 +115,23 @@ func (mock *PublisherMock) PublishCalls() []struct {
 }
 
 // PublishAsync calls PublishAsyncFunc.
-func (mock *PublisherMock) PublishAsync(ctx context.Context, data any) {
+func (mock *PublisherMock) PublishAsync(ctx context.Context, data any, opts ...messagequeue.PublishOption) {
 	if mock.PublishAsyncFunc == nil {
 		panic("PublisherMock.PublishAsyncFunc: method is nil but Publisher.PublishAsync was just called")
 	}
 	callInfo := struct {
 		Ctx  context.Context
 		Data any
+		Opts []messagequeue.PublishOption
 	}{
 		Ctx:  ctx,
 		Data: data,
+		Opts: opts,
 	}
 	mock.lockPublishAsync.Lock()
 	mock.calls.PublishAsync = append(mock.calls.PublishAsync, callInfo)
 	mock.lockPublishAsync.Unlock()
-	mock.PublishAsyncFunc(ctx, data)
+	mock.PublishAsyncFunc(ctx, data, opts...)
 }
 
 // PublishAsyncCalls gets all the calls that were made to PublishAsync.
@@ -131,10 +141,12 @@ func (mock *PublisherMock) PublishAsync(ctx context.Context, data any) {
 func (mock *PublisherMock) PublishAsyncCalls() []struct {
 	Ctx  context.Context
 	Data any
+	Opts []messagequeue.PublishOption
 } {
 	var calls []struct {
 		Ctx  context.Context
 		Data any
+		Opts []messagequeue.PublishOption
 	}
 	mock.lockPublishAsync.RLock()
 	calls = mock.calls.PublishAsync
