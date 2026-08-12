@@ -134,6 +134,59 @@ func ExampleQuotaSource() {
 	// Output: 1000 1000000
 }
 
+// Between one set of limits for everybody and a QuotaSource written from
+// scratch, NewPlanLimitSource supplies the ladder: a meter the table does not
+// name is unlimited, a subject an EntitlementReader entitles gets their
+// product's limit, and everybody else gets the unsubscribed one.
+func ExampleNewPlanLimitSource() {
+	registry := metering.NewRegistry()
+
+	for _, name := range []string{"api_requests", "support_tickets"} {
+		if err := registry.RegisterMeter(metering.Meter{
+			Name: name, Aggregation: metering.AggregationSum, Period: metering.PeriodMonth,
+		}); err != nil {
+			panic(err)
+		}
+	}
+
+	// The application's subscription lookup. In production this reads the column
+	// the billing provider's webhook handler writes.
+	subscriptions := metering.EntitlementReaderFunc(func(_ context.Context, subject string) (string, bool, error) {
+		return map[string]string{"account-1": "prod_pro"}[subject], subject == "account-1", nil
+	})
+
+	quotas, err := metering.NewPlanLimitSource(registry, map[string]metering.PlanLimits{
+		"api_requests": {
+			ByProduct:    map[string]int64{"prod_pro": 1_000_000},
+			Behavior:     metering.BehaviorAllowOverage,
+			Unsubscribed: 1_000,
+		},
+	}, subscriptions)
+	if err != nil {
+		panic(err)
+	}
+
+	subscriber, err := quotas.QuotaFor(context.Background(), "account-1", "api_requests")
+	if err != nil {
+		panic(err)
+	}
+
+	lapsed, err := quotas.QuotaFor(context.Background(), "account-2", "api_requests")
+	if err != nil {
+		panic(err)
+	}
+
+	// A meter no plan varies is unlimited, and is answered without reading the
+	// subscription at all.
+	ungated, err := quotas.QuotaFor(context.Background(), "account-2", "support_tickets")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(subscriber.Limit, lapsed.Limit, ungated.Limit == metering.Unlimited)
+	// Output: 1000000 1000 true
+}
+
 // The key a flush carries to the provider is derived from the subject, meter,
 // period, and sequence — so a retry of the same post computes the same key and
 // the provider ignores it, while the next post computes a different one.
