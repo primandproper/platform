@@ -16,8 +16,7 @@ connections and every replica publishes through it.
 
 # Why there is no messagequeue backplane
 
-Fanning these events out over messagequeue was considered and rejected — see
-https://github.com/primandproper/platform-go/issues/113.
+Fanning these events out over messagequeue was considered and rejected.
 
 Such a backplane has to carry every event, including the ones bound for clients
 on the replica that published: delivering locally *and* over the queue would
