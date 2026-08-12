@@ -1,3 +1,19 @@
+// Package noop is the messagequeue publisher and consumer pair for a service
+// with no broker. Publish and PublishAsync accept every message and drop it,
+// and the providers hand back further noops, so a wiring graph that fans out
+// into a dozen topics builds without a queue behind any of them.
+//
+// Consume is where this one departs from the interface it satisfies, and the
+// departure is worth knowing before it is discovered. The
+// messagequeue.Consumer contract is that Consume runs until ctx is done; this
+// implementation returns immediately, because there is nothing to poll and no
+// reason to hold a goroutine open. A caller that blocks on Consume as its run
+// loop therefore exits at once rather than serving, and a caller that starts it
+// in a goroutine sees that goroutine end quietly. No handler is ever invoked,
+// and nothing is ever sent on errs, so neither outcome is reported.
+//
+// messagequeue/config builds either provider for the "noop" provider name,
+// which has to be given.
 package noop
 
 import (

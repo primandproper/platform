@@ -1,3 +1,19 @@
+// Package noop is the embeddings.Embedder for a deployment that runs no model,
+// and the thing to know is that it does not return nothing. It returns a
+// populated embeddings.Embedding whose Vector is empty and whose Dimensions is
+// zero, carrying the caller's SourceText and tagged with Model and Provider
+// "noop".
+//
+// So the consequence lands downstream rather than here. A zero-length vector
+// upserted into a vector index is a row with no coordinates, and a similarity
+// search against one has no distance to compute. Nothing in this package
+// refuses that: the only error it returns is embeddings.ErrNilInput, for a nil
+// input. A retrieval pipeline wired to this embedder therefore indexes
+// successfully and retrieves nothing, at every stage reporting success.
+//
+// embeddings/config selects it for the "noop" provider name or the empty
+// string, embeddings being an optional capability that a service may legitimately
+// not have.
 package noop
 
 import (

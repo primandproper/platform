@@ -1,3 +1,15 @@
+// Package noop is the vectorsearch.Index for a deployment running no vector
+// store: Upsert, Delete, and Wipe report success without keeping anything, and
+// Query returns an empty result slice.
+//
+// Paired with the embeddings noop it makes a retrieval pipeline that runs end
+// to end and retrieves nothing. That is the point when the feature is off, and
+// a trap when it was meant to be on, because neither half errors and the empty
+// result is shaped exactly like a query that legitimately matched nothing. A
+// caller that needs to know whether semantic search is live has to ask its
+// configuration; the results cannot tell it.
+//
+// search/vector/config builds it only for the "noop" provider name.
 package noop
 
 import (

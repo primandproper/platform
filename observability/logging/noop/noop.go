@@ -1,3 +1,17 @@
+// Package noop is the logging.Logger that writes nowhere. Info, Debug, and
+// Error are all discarded — Error included — so a process wired with it reports
+// its failures only through the values it returns.
+//
+// The With* methods hand back the same logger rather than a derived one, which
+// means the name, values, request, response, error, and span a caller attaches
+// are dropped at the call site. There is no accumulated context sitting
+// somewhere that a later swap to a real logger would flush. NewLogger returns a
+// shared instance for the same reason: the logger holds nothing worth a second
+// allocation.
+//
+// It is what every constructor in this module resolves to through
+// logging.EnsureLogger when handed no logger, so "no logger was named" and
+// "this logger was named" are the same runtime state.
 package noop
 
 import (

@@ -1,3 +1,17 @@
+// Package noop is the featureflags.FeatureFlagManager for a process with no
+// flag system: each typed getter returns the default value it was handed, and
+// CanUseFeature returns false.
+//
+// That asymmetry is the part to hold onto. The typed getters are given a
+// default and give it back; CanUseFeature takes no default, so "off" is the
+// only answer available, and every boolean-gated feature stays dark. A rollout
+// that consists of flipping one of those on will not flip, and will not say why.
+//
+// Nothing here reports featureflags.ErrFlagNotFound, though every flag it is
+// asked about is one it does not have — see NewFeatureFlagManager for why an
+// absent provider is a resolved answer rather than a missing flag.
+// featureflags/config builds it for the "noop" provider name, which its
+// validation requires be spelled out.
 package noop
 
 import (
