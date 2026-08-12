@@ -6,20 +6,21 @@ field, and to a network round trip per batch. The default model is
 embed-english-v3.0 when neither the request nor the config names one — English,
 which is a choice a multilingual corpus should override rather than inherit.
 
-# Everything is embedded as a document
+# Documents and queries are embedded differently
 
 Cohere's v3 models take an input_type, and embed a passage differently depending
-on whether it is being stored or being searched with. This package always sends
-"search_document". A query embedded here therefore gets the document-side
-embedding, not the query-side one, and there is no field on embeddings.Input to
-say otherwise.
+on whether it is being stored or being searched with. This package sends the one
+embeddings.Input.Purpose names: "search_document" for embeddings.PurposeDocument,
+"search_query" for embeddings.PurposeQuery. Purpose's zero value is the document
+side, so a caller indexing a corpus writes nothing and gets what it wants; a
+retrieval path that embeds the user's text at request time has to say
+PurposeQuery, and if it does not, both sides of the comparison are document
+embeddings — self-consistent, ranked worse, and with no error to notice.
 
-For a corpus that is embedded and stored, that is the right side and the
-asymmetry never comes up. For retrieval where the query is embedded at request
-time, it means both sides of the comparison are document embeddings — which is
-self-consistent, and is not what Cohere's retrieval quality numbers describe.
-That is the constraint to weigh against the openai and ollama siblings, neither
-of which has a query/document distinction to get wrong.
+A purpose outside those two constants fails the call with
+embeddings.ErrUnknownPurpose rather than defaulting to a side. This is the one
+place among the three providers here where the field is read at all: the openai
+and ollama siblings have symmetric models and ignore it.
 
 The response is requested as float only, and narrowed to float32 by
 embeddings.ToFloat32 like every other provider's.
@@ -32,10 +33,10 @@ number of texts. Results come back positionally, one per input and in order; a
 response whose length does not match the request is an error rather than a
 partly-filled slice. A nil input fails the whole call.
 
-Every input in one call must resolve to the same model — the request carries one
-model field. A batch spanning two is rejected rather than split, since splitting
-would make the number of requests depend on how the caller happened to order its
-inputs.
+Every input in one call must resolve to the same model and the same purpose —
+the request carries one of each. A batch spanning two of either is rejected
+rather than split, since splitting would make the number of requests depend on
+how the caller happened to order its inputs.
 
 # Rate limits and failures
 

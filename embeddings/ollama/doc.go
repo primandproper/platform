@@ -13,6 +13,11 @@ BaseURL is a per-call failure rather than a startup one. And because the wire is
 unauthenticated, whatever reaches that address can embed — which is a statement
 about the network the instance sits on, not about this package.
 
+The models Ollama serves here are used symmetrically — one request shape, no
+document/query distinction on the wire — so this package ignores
+embeddings.Input.Purpose entirely. Setting it costs nothing and keeps the same
+Input portable to the cohere sibling, which does read it.
+
 # Batching, and what a batch guarantees
 
 GenerateEmbeddings sends every input in one request to /api/embed, and

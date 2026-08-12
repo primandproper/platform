@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
 	"github.com/primandproper/platform-go/v10/email"
@@ -84,6 +85,14 @@ func NewMailgunEmailer(cfg *Config, client *http.Client, circuitBreaker circuitb
 	mg := mailgun.NewMailgun(cfg.Domain, cfg.PrivateAPIKey)
 	mg.SetClient(client)
 
+	// Left unset, the SDK sends to its own default host, which is the US
+	// region — so an EU-provisioned account has to name its base or never be
+	// reached. The trailing slash comes off because the SDK joins the base to
+	// each path with one of its own.
+	if base := strings.TrimSuffix(strings.TrimSpace(cfg.BaseURL), "/"); base != "" {
+		mg.SetAPIBase(base)
+	}
+
 	e := &Emailer{
 		o11y:           observability.NewObserver(name, o.logger, o.tracerProvider),
 		sendCounter:    sendCounter,
@@ -117,11 +126,14 @@ func (e *Emailer) SendEmail(ctx context.Context, details *email.OutboundEmailMes
 	)
 	msg.SetHTML(details.HTMLContent)
 
-	if _, _, err := e.client.Send(ctx, msg); err != nil {
+	_, messageID, err := e.client.Send(ctx, msg)
+	if err != nil {
 		e.circuitBreaker.Failed()
 		e.errorCounter.Add(ctx, 1)
 		return op.Error(err, "sending email")
 	}
+
+	op.Set("email.message_id", messageID)
 
 	e.circuitBreaker.Succeeded()
 	e.sendCounter.Add(ctx, 1)
