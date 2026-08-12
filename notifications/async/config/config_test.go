@@ -73,11 +73,11 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 	T.Run("self-hosted providers require a topology declaration", func(t *testing.T) {
 		t.Parallel()
 
-		// The #113 failure: a config that looks complete, loads without
-		// complaint, and silently drops notifications the moment a second
-		// replica exists. Nothing here can count replicas, so the only way to
-		// tell the correct deployment from the broken one is to make the
-		// operator say which it is.
+		// The failure: a config that looks complete, loads without complaint,
+		// and silently drops notifications the moment a second replica exists.
+		// Nothing here can count replicas, so the only way to tell the correct
+		// deployment from the broken one is to make the operator say which it
+		// is.
 		for _, provider := range []string{ProviderSSE, ProviderWebSocket} {
 			cfg := &Config{Provider: provider, SSE: &asyncsse.Config{}, WebSocket: &asyncws.Config{}}
 
