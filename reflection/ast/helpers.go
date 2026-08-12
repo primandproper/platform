@@ -1,72 +1,20 @@
-// Package ast reads Go source as text: the helpers a code generator or an
-// analysis tool needs to walk a repository's files and learn what is declared in
-// them.
-//
-// It is the compile-time counterpart to the parent reflection package, and the
-// distinction is which artifact each one inspects. reflection works on values
-// and types in a running program, so it can only see code that is linked into
-// the binary asking. This package works on parsed source, so it can describe a
-// package the tool using it does not import and does not compile — which is the
-// case a generator is always in.
-//
-// Nothing here runs on a request path. These are build-time tools, and they
-// touch the filesystem: GetModulePath reads a go.mod to answer what a directory's
-// module is called, which is what makes an import path classifiable as
-// module-internal or third-party.
-//
-// The type of a struct field is reported as the Go source that spells it —
-// "*pkg.T", "map[string]int", "Foo[T]" — rather than as a resolved type, because
-// resolution needs a type checker and a build, and a generator reading one file
-// has neither. An embedded field is keyed under the name Go gives it: the base
-// identifier, with any pointer and type arguments stripped.
-//
-// Struct tags are read with reflect.StructTag rather than by splitting on
-// spaces. A tag is not a space-separated list — a value may contain spaces, and
-// this repository writes several that do — so the conventional grammar, quoting
-// included, is the only parse that agrees with what the compiler and every
-// reflection-based decoder see.
 package ast
 
 import (
-	"bufio"
 	goast "go/ast"
 	"go/types"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
-
-	"github.com/primandproper/platform-go/v10/errors"
 )
-
-// GetModulePath reads the module path from the go.mod file in the given directory.
-func GetModulePath(dir string) (string, error) {
-	f, err := os.Open(filepath.Join(dir, "go.mod"))
-	if err != nil {
-		return "", errors.Wrap(err, "opening go.mod")
-	}
-	defer func() {
-		_ = f.Close() //nolint:errcheck // read-only file; close error is not actionable here
-	}()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if after, ok := strings.CutPrefix(line, "module "); ok {
-			return strings.TrimSpace(after), nil
-		}
-	}
-
-	if err = scanner.Err(); err != nil {
-		return "", errors.Wrap(err, "scanning go.mod")
-	}
-
-	return "", errors.New("no module directive found in go.mod")
-}
 
 // BuildImportMap returns a map from each import's local name (explicit alias or
 // inferred last path segment) to its full import path. Blank ("_") and dot (".")
 // imports are excluded.
+//
+// A dot import is excluded because it puts names into the file's scope under no
+// qualifier at all, so a reference that resolves through one is indistinguishable
+// from a reference to a type declared in the file's own package. There is nothing
+// to map it to.
 func BuildImportMap(file *goast.File) map[string]string {
 	result := make(map[string]string)
 
@@ -94,8 +42,41 @@ func BuildImportMap(file *goast.File) map[string]string {
 	return result
 }
 
+// ResolveImports maps each of a file's imports from its local name to the path
+// it should be keyed under, given the module the file belongs to: a
+// module-relative directory for one of that module's own packages ("." for the
+// module root), and the unchanged import path for anything else.
+//
+// The two cannot collide, which is what makes the result usable as a single
+// keyspace: a module-relative directory never begins with a domain name.
+//
+// Use FilterModuleImports instead when the external imports are genuinely not
+// wanted; this keeps them, so a type reference into a dependency resolves rather
+// than silently going missing.
+func ResolveImports(file *goast.File, modulePath string) map[string]string {
+	raw := BuildImportMap(file)
+	resolved := make(map[string]string, len(raw))
+
+	for localName, importPath := range raw {
+		switch {
+		case importPath == modulePath:
+			resolved[localName] = "."
+		case strings.HasPrefix(importPath, modulePath+"/"):
+			resolved[localName] = strings.TrimPrefix(importPath, modulePath+"/")
+		default:
+			resolved[localName] = importPath
+		}
+	}
+
+	return resolved
+}
+
 // FilterModuleImports filters an import map to only include module-internal imports
 // and converts the values from full import paths to module-relative directory paths.
+//
+// Note that an import of the module root itself is dropped rather than mapped,
+// since it has no relative directory below the root. ResolveImports is the
+// variant that keeps everything and maps that case to ".".
 func FilterModuleImports(imports map[string]string, modulePath string) map[string]string {
 	result := make(map[string]string)
 	prefix := modulePath + "/"
@@ -109,10 +90,8 @@ func FilterModuleImports(imports map[string]string, modulePath string) map[strin
 	return result
 }
 
-// GetTagValue extracts the value of a specific tag key from a raw struct field
-// tag string (with or without surrounding backticks). It returns the value before
-// any comma (i.e., omitting options like "omitempty"). Returns empty string if
-// the key is not found.
+// LookupTag reads a struct tag value whole, reporting whether the key was
+// declared at all.
 //
 // The lookup is reflect.StructTag's rather than a scan of this package's own,
 // because a struct tag is not a space-separated list: a value may itself contain
@@ -122,8 +101,27 @@ func FilterModuleImports(imports map[string]string, modulePath string) map[strin
 // key, so the field after it in the tag went missing too. reflect.StructTag.Lookup
 // implements the conventional grammar, quoting included, and is the definition
 // the compiler and every reflection-based decoder already agree on.
+//
+// The value is returned uncut, and the reported bool distinguishes a declared
+// empty value from an absent one. Both matter for tags whose grammar is not the
+// conventional "value,option,option": an `envDefault` for a slice field is
+// comma-separated all the way down, and declaring one empty is different from
+// declaring none, since a default that exists always wins over a value some
+// other layer supplied. GetTagValue is the narrower reading, for the tags that
+// do follow the convention.
+func LookupTag(tag, key string) (string, bool) {
+	return reflect.StructTag(strings.Trim(tag, "`")).Lookup(key)
+}
+
+// GetTagValue extracts the value of a specific tag key from a raw struct field
+// tag string (with or without surrounding backticks). It returns the value before
+// any comma (i.e., omitting options like "omitempty"). Returns empty string if
+// the key is not found.
+//
+// It is LookupTag narrowed to the conventional "value,option,option" grammar;
+// see there for why the underlying parse is reflect.StructTag's.
 func GetTagValue(tag, key string) string {
-	value, ok := reflect.StructTag(strings.Trim(tag, "`")).Lookup(key)
+	value, ok := LookupTag(tag, key)
 	if !ok {
 		return ""
 	}
@@ -151,7 +149,7 @@ func GetStructFields(structType *goast.StructType) map[string]string {
 
 		if len(field.Names) == 0 {
 			// Embedded/anonymous field: derive the name from the type itself.
-			if name := embeddedFieldName(field.Type); name != "" {
+			if name := EmbeddedFieldName(field.Type); name != "" {
 				fields[name] = fieldType
 			}
 			continue
@@ -167,22 +165,18 @@ func GetStructFields(structType *goast.StructType) map[string]string {
 	return fields
 }
 
-// embeddedFieldName derives the field name Go assigns to an embedded field from its
-// type expression: the base type identifier, ignoring any leading pointer and any
-// generic type arguments (e.g. "*pkg.Base[T]" is embedded as field "Base").
-func embeddedFieldName(expr goast.Expr) string {
-	switch t := expr.(type) {
-	case *goast.StarExpr:
-		return embeddedFieldName(t.X)
-	case *goast.Ident:
-		return t.Name
-	case *goast.SelectorExpr:
-		return t.Sel.Name
-	case *goast.IndexExpr:
-		return embeddedFieldName(t.X)
-	case *goast.IndexListExpr:
-		return embeddedFieldName(t.X)
-	default:
+// EmbeddedFieldName derives the field name Go assigns to an embedded field from
+// its type expression: the base type identifier, ignoring any leading pointer
+// and any generic type arguments (e.g. "*pkg.Base[T]" is embedded as field
+// "Base"). It returns "" for an expression that names no type.
+//
+// It is ParseTypeRef with the package qualifier dropped, which is what makes it
+// the field's *name*: an embedded pkg.Base is reached as .Base, not as .pkg.Base.
+func EmbeddedFieldName(expr goast.Expr) string {
+	ref, ok := ParseTypeRef(expr)
+	if !ok {
 		return ""
 	}
+
+	return ref.Name
 }
