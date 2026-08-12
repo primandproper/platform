@@ -1,6 +1,8 @@
 package jobs
 
 import (
+	"time"
+
 	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -108,5 +110,71 @@ func WithPoolRetryPolicy(policy retry.Policy) PoolOption {
 		if policy != nil {
 			p.policy = policy
 		}
+	}
+}
+
+// PoolGroupOption configures a PoolGroup.
+//
+// Everything here that a Pool also takes is applied to every pool in the group;
+// PoolSpec.Options is where one topic departs from the rest, and runs after
+// these so it can override them.
+type PoolGroupOption func(*PoolGroup)
+
+// WithPoolGroupDeadLetter sets where messages go once they have exhausted their
+// attempts, for every pool in the group. Read WithPoolDeadLetter for what
+// happens to a pool that has none.
+//
+// One destination for the whole group is the usual arrangement — a DeadLetter
+// carries the topic it came from, so a single dead-letter topic or table stays
+// attributable. A topic that wants its own sets one through PoolSpec.Options.
+func WithPoolGroupDeadLetter(fn DeadLetterFunc) PoolGroupOption {
+	return func(g *PoolGroup) {
+		if fn != nil {
+			g.deadLtr = fn
+		}
+	}
+}
+
+// WithPoolGroupDrainTimeout bounds the teardown of the pools that did start
+// when a later one failed to build. Zero or negative leaves DefaultDrainTimeout
+// in place.
+//
+// It is not the bound on Close, which is the caller's context: this one applies
+// only on the error path out of Start, where the process is about to exit and
+// the only thing worth waiting for is the handlers already in flight.
+func WithPoolGroupDrainTimeout(d time.Duration) PoolGroupOption {
+	return func(g *PoolGroup) {
+		if d > 0 {
+			g.drainTimeout = d
+		}
+	}
+}
+
+// WithPoolGroupLogger attaches a logger to the group and to every pool in it.
+// Without one, a group that failed to start reports why to its caller and a
+// group that dropped a message reports it nowhere.
+func WithPoolGroupLogger(logger logging.Logger) PoolGroupOption {
+	return func(g *PoolGroup) {
+		g.logger = logger
+	}
+}
+
+// WithPoolGroupTracerProvider attaches a tracer provider to the group and to
+// every pool in it. The group's own spans cover the start and the shutdown,
+// which is where a partial start is visible as one event rather than as a pool
+// that never logged again.
+func WithPoolGroupTracerProvider(tracerProvider tracing.Provider) PoolGroupOption {
+	return func(g *PoolGroup) {
+		g.tracerProvider = tracerProvider
+	}
+}
+
+// WithPoolGroupMetricsProvider attaches a metrics provider to every pool in the
+// group. The group adds no instruments of its own — every message it handles is
+// handled by one of its pools, which already counts it, carrying the topic
+// attribute that tells them apart.
+func WithPoolGroupMetricsProvider(metricsProvider metrics.Provider) PoolGroupOption {
+	return func(g *PoolGroup) {
+		g.metricsProvider = metricsProvider
 	}
 }
