@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,7 +50,18 @@ func sameSiteMode(s string) http.SameSite {
 	}
 }
 
+// aesKeyLengths are the decoded block-key sizes AES accepts, selecting
+// AES-128, AES-192, and AES-256 respectively.
+var aesKeyLengths = []int{16, 24, 32}
+
 // NewCookieManager returns a new Manager.
+//
+// The decoded block key is checked against the AES key sizes here rather than
+// left to the codec. securecookie.New runs BlockFunc(aes.NewCipher) internally
+// and stores the resulting error on the codec instead of returning it, so a
+// wrong-sized key built a manager with a nil error and failed on the first
+// Encode or Decode — at whichever request first needed a cookie, rather than at
+// startup where the key was configured.
 func NewCookieManager(cfg *Config, opts ...Option) (*SecureCookieManager, error) {
 	if cfg == nil {
 		return nil, perrors.ErrNilInputParameter
@@ -69,6 +81,12 @@ func NewCookieManager(cfg *Config, opts ...Option) (*SecureCookieManager, error)
 	decodedBlockKey, err := base64.StdEncoding.DecodeString(cfg.Base64EncodedBlockKey)
 	if err != nil {
 		return nil, fmt.Errorf("decoding BlockKey: %w", err)
+	}
+
+	// The length, never the key: this error reaches logs.
+	if !slices.Contains(aesKeyLengths, len(decodedBlockKey)) {
+		return nil, perrors.Wrapf(perrors.ErrUnrecognizedInputValue,
+			"cookie block key decodes to %d bytes, must be 16, 24, or 32", len(decodedBlockKey))
 	}
 
 	sc := securecookie.New(decodedHashkey, decodedBlockKey)

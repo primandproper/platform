@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/secrets"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -11,14 +13,14 @@ import (
 func TestSecretSource_GetSecret(T *testing.T) {
 	T.Parallel()
 
-	T.Run("standard", func(t *testing.T) {
+	T.Run("reports every name as absent", func(t *testing.T) {
 		t.Parallel()
 
 		source := NewSecretSource()
 		ctx := context.Background()
 
 		got, err := source.GetSecret(ctx, "any-key")
-		must.NoError(t, err)
+		test.ErrorIs(t, err, secrets.ErrSecretNotFound)
 		test.EqOp(t, "", got)
 	})
 }

@@ -25,9 +25,12 @@ the rest of the configuration intends.
 # Key handling
 
 The block key must be a valid AES key length — 16, 24, or 32 bytes decoded — and
-NewCookieManager does not check it. A wrong-sized key builds a manager without
-complaint and fails on the first Encode or Decode instead, so validate lengths
-where the keys are loaded if a startup failure is preferable to a runtime one.
+NewCookieManager checks it, wrapping errors.ErrUnrecognizedInputValue with the
+decoded length and never with the key. The check is here rather than left to the
+codec because securecookie stores its cipher error on the codec instead of
+returning it: a wrong-sized key used to build a manager without complaint and
+fail on the first Encode or Decode, which is a startup mistake surfacing at
+whichever request first needed a cookie.
 
 There is one key pair, not a ring. Rotating either key invalidates every
 outstanding cookie at once, and there is no window in which cookies signed under

@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/primandproper/platform-go/v10/secrets"
+
 	"github.com/shoenig/test/must"
 )
 
@@ -56,7 +58,7 @@ func TestNewSecretSourceFromConfig(T *testing.T) {
 		must.NotNil(t, source)
 
 		got, err := source.GetSecret(context.Background(), "any")
-		must.NoError(t, err)
+		must.ErrorIs(t, err, secrets.ErrSecretNotFound)
 		must.EqOp(t, "", got)
 	})
 
