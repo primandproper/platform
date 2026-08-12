@@ -1,8 +1,9 @@
 // Package noop is the eventstream implementation for a caller with no transport
 // to stream over. Send accepts and discards; Receive returns a channel nothing
-// ever sends on and nothing ever closes, so a bare range over it blocks
-// forever rather than terminating on a closed channel — a consumer has to
-// select against Done or its own context to get out.
+// ever sends on, closed by Close along with Done, so a bare range over it ends
+// when the stream does — the same moment the websocket and sse implementations
+// close theirs, and the reason a consumer written as a range loop terminates
+// here instead of parking a goroutine for the life of the process.
 //
 // The upgraders are the part to read twice. UpgradeToEventStream and
 // UpgradeToBidirectionalStream take the http.ResponseWriter and never touch it:
@@ -13,8 +14,8 @@
 // body the client reads as an ordinary HTTP reply.
 //
 // Close closes the Done channel exactly once, so shutdown paths that wait on
-// Done still finish. eventstream/config offers only sse and websocket, so this
-// one is reached by naming it in code.
+// Done still finish, and is idempotent on both channels. eventstream/config
+// offers only sse and websocket, so this one is reached by naming it in code.
 package noop
 
 import (
@@ -65,6 +66,7 @@ func (s *EventStream) Close() error {
 type BidirectionalEventStream struct {
 	receive chan *eventstream.Event
 	EventStream
+	receiveOnce sync.Once
 }
 
 // NewBidirectionalEventStream returns a no-op BidirectionalEventStream.
@@ -77,9 +79,23 @@ func NewBidirectionalEventStream() eventstream.BidirectionalEventStream {
 	}
 }
 
-// Receive returns a channel that never delivers events.
+// Receive returns a channel that never delivers an event and closes when the
+// stream does.
 func (s *BidirectionalEventStream) Receive() <-chan *eventstream.Event {
 	return s.receive
+}
+
+// Close terminates the stream, closing the receive channel as well as Done.
+//
+// The receive channel is closed because a consumer ranging over Receive has no
+// other way out: an open channel with no sender parks that goroutine for the
+// life of the process, and the closed one ends the range at the same point the
+// websocket and sse streams end theirs. Both closes are guarded, so Close stays
+// idempotent.
+func (s *BidirectionalEventStream) Close() error {
+	s.receiveOnce.Do(func() { close(s.receive) })
+
+	return s.EventStream.Close()
 }
 
 // EventStreamUpgrader is a no-op EventStreamUpgrader.

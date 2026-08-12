@@ -16,6 +16,10 @@ import (
 
 const (
 	name = "paseto_signer"
+
+	// signingKeyLength is what v2.local's XChaCha20-Poly1305 takes, and is fixed
+	// by the algorithm rather than chosen here.
+	signingKeyLength = 32
 )
 
 var _ tokens.Issuer = (*Signer)(nil)
@@ -36,9 +40,19 @@ type (
 //
 // An empty signingKey is rejected: a zero-length key is not a secret, and the
 // tokens minted under one are forgeable by anyone who notices.
+//
+// Any other length is rejected too, because v2.local seals tokens with
+// XChaCha20-Poly1305 and that cipher takes exactly 32 bytes. A 16- or 64-byte
+// key built a Signer that looked configured and failed at the first IssueToken,
+// which moves a startup mistake into the first request that needed a token.
 func NewSigner(issuer, audience string, signingKey []byte, opts ...Option) (*Signer, error) {
 	if len(signingKey) == 0 {
 		return nil, platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "PASETO signing key")
+	}
+
+	if len(signingKey) != signingKeyLength {
+		return nil, platformerrors.Wrapf(platformerrors.ErrUnrecognizedInputValue,
+			"PASETO signing key is %d bytes, must be %d", len(signingKey), signingKeyLength)
 	}
 
 	o := newOptions(opts)
@@ -91,7 +105,7 @@ func (s *Signer) IssueToken(ctx context.Context, subject string, expiry time.Dur
 
 	tokenStr, err = paseto.NewV2().Encrypt(s.signingKey, payload, "footer")
 	if err != nil {
-		return "", "", fmt.Errorf("signing token with key length %d: %w", len(s.signingKey), err)
+		return "", "", fmt.Errorf("signing token: %w", err)
 	}
 
 	return tokenStr, jti, nil

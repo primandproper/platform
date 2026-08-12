@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 
@@ -96,6 +97,36 @@ func TestNewCookieManager(T *testing.T) {
 		test.Nil(t, m)
 		// The error must never echo the (secret) key material back to logs.
 		test.StrNotContains(t, err.Error(), cfg.Base64EncodedBlockKey)
+	})
+
+	T.Run("rejects a block key that is not an AES key length", func(t *testing.T) {
+		t.Parallel()
+
+		// securecookie stores aes.NewCipher's error on the codec rather than
+		// returning it, so without the constructor's own check this built a
+		// manager and failed at the first Encode.
+		for _, length := range []int{1, 15, 17, 31, 33, 64} {
+			cfg := buildConfigForTest()
+			cfg.Base64EncodedBlockKey = base64.StdEncoding.EncodeToString(make([]byte, length))
+
+			m, err := NewCookieManager(cfg)
+			test.ErrorIs(t, err, platformerrors.ErrUnrecognizedInputValue, test.Sprintf("length %d", length))
+			test.Nil(t, m, test.Sprintf("length %d", length))
+			test.StrNotContains(t, err.Error(), cfg.Base64EncodedBlockKey, test.Sprintf("length %d", length))
+		}
+	})
+
+	T.Run("accepts every AES key length", func(t *testing.T) {
+		t.Parallel()
+
+		for _, length := range []int{16, 24, 32} {
+			cfg := buildConfigForTest()
+			cfg.Base64EncodedBlockKey = base64.StdEncoding.EncodeToString(make([]byte, length))
+
+			m, err := NewCookieManager(cfg)
+			must.NoError(t, err, must.Sprintf("length %d", length))
+			test.NotNil(t, m, test.Sprintf("length %d", length))
+		}
 	})
 }
 

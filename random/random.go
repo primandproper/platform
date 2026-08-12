@@ -8,10 +8,22 @@ import (
 	"encoding/hex"
 	"io"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 )
+
+// ErrNoRandomness is returned by a Generator that has no source of randomness to
+// draw from, and is what random/noop answers with for every call.
+//
+// It exists because the alternative is an empty value and a nil error, which is
+// indistinguishable at the call site from a successful draw. What this interface
+// produces becomes two-factor secrets, salts, session and API tokens, and
+// one-time codes, so a generator that yields the same empty value to every
+// caller — and to every attacker comparing two of them — has to say so in the
+// only channel a caller is obliged to check.
+var ErrNoRandomness = platformerrors.New("generator has no source of randomness")
 
 var (
 	_ Generator = (*StandardGenerator)(nil)

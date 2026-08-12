@@ -9,7 +9,7 @@ what points the package at an httptest server.
 # The context does not reach the wire
 
 This is the one emailer here whose vendor client takes no context. SendEmail
-accepts one, and uses it for the span and for the circuit-breaker check, but the
+accepts one, and uses it for the span and for the metrics it records, but the
 HTTP call underneath is issued without it: cancelling the context or letting its
 deadline lapse does not abort a send in flight. What bounds a send is the
 timeout on the *http.Client the caller supplied. Every other provider in this

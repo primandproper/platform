@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
 	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v10/secrets"
 	"github.com/primandproper/platform-go/v10/secrets/gcp"
 	"github.com/primandproper/platform-go/v10/secrets/kubernetes"
 	"github.com/primandproper/platform-go/v10/secrets/ssm"
@@ -181,7 +182,7 @@ func TestConfig_NewSecretSource(T *testing.T) {
 		must.NotNil(t, source)
 
 		got, err := source.GetSecret(context.Background(), "any")
-		must.NoError(t, err)
+		test.ErrorIs(t, err, secrets.ErrSecretNotFound)
 		test.EqOp(t, "", got)
 	})
 
