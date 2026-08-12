@@ -193,14 +193,18 @@ func TestRouter_WithErrorEncoder(T *testing.T) {
 
 		r := buildTestRouter(t, routing.WithErrorEncoder(flatEncoder), routing.WithTracerProvider(tp))
 		routing.Get(r, "/orgs/{orgID:uint64}", func(_ context.Context, _ getUserInput) (userOutput, error) {
-			return userOutput{}, sql.ErrNoRows
+			return userOutput{}, errors.New("the database is on fire")
 		})
 
-		test.EqOp(t, http.StatusNotFound, doRequest(t, r, http.MethodGet, "/orgs/1", "").Code)
+		test.EqOp(t, http.StatusInternalServerError, doRequest(t, r, http.MethodGet, "/orgs/1", "").Code)
 
 		// Rendering the error the service's way must not cost the service the
 		// router's error observability — the workaround this option replaces
 		// bypassed it entirely.
+		//
+		// A 500 rather than the 404 this once used, because the status is now what
+		// decides severity: a fault marks the span, a client mistake does not. See
+		// TestRouter_ErrorSeverity for the other side of that.
 		test.SliceContains(t, rec.errored(), "get_orgs_orgID")
 	})
 }

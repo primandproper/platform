@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/swaggest/openapi-go"
+	"github.com/swaggest/openapi-go/openapi3"
 )
 
 // Get registers a typed GET handler.
@@ -56,12 +57,33 @@ func register[In, Out any](r *Router, method, pattern string, h Handler[In, Out]
 		rc.operationID = defaultOperationID(method, plain)
 	}
 
-	r.recordOperation(method, plain, rc, new(In), responseStructure[Out](rc.envelope))
+	plan.maxBody = resolveMaxRequestBody(rc, plan.rawBody != nil)
+
+	r.recordOperation(method, plain, rc, new(In), responseStructure[Out](rc.envelope), plan.rawBody != nil)
 
 	handler := applyMiddleware(buildHTTPHandler(r, plan, rc, h), rc.middleware)
 	r.backend.Handle(method, plain, handler)
 
 	return &Route{Method: method, Path: plain, OperationID: rc.operationID}
+}
+
+// resolveMaxRequestBody settles the route's request-body bound: what it or its
+// Router asked for, or DefaultRawBodyLimit for a raw body nobody bounded. Zero
+// is no bound.
+func resolveMaxRequestBody(rc *routeConfig, raw bool) int64 {
+	if !rc.maxRequestBodySet {
+		if raw {
+			return DefaultRawBodyLimit
+		}
+
+		return 0
+	}
+
+	if rc.maxRequestBody < 0 {
+		return 0
+	}
+
+	return rc.maxRequestBody
 }
 
 // applyMiddleware wraps handler with the given middleware, outermost first.
@@ -76,7 +98,7 @@ func applyMiddleware(handler http.Handler, middleware []Middleware) http.Handler
 }
 
 // recordOperation feeds one registration into the OpenAPI reflector.
-func (r *Router) recordOperation(method, plain string, rc *routeConfig, reqStructure, respStructure any) {
+func (r *Router) recordOperation(method, plain string, rc *routeConfig, reqStructure, respStructure any, rawBody bool) {
 	oc, err := r.reflector.NewOperationContext(method, plain)
 	if err != nil {
 		r.errs.add(fmt.Errorf("building operation %s %s: %w", method, plain, err))
@@ -98,7 +120,7 @@ func (r *Router) recordOperation(method, plain string, rc *routeConfig, reqStruc
 		oc.SetIsDeprecated(true)
 	}
 
-	oc.AddReqStructure(reqStructure)
+	addRequestStructure(oc, rc, reqStructure, rawBody)
 
 	if respStructure != nil {
 		oc.AddRespStructure(respStructure, openapi.WithHTTPStatus(rc.successStatus))
@@ -114,6 +136,102 @@ func (r *Router) recordOperation(method, plain string, rc *routeConfig, reqStruc
 	if addErr := r.reflector.AddOperation(oc); addErr != nil {
 		r.errs.add(fmt.Errorf("adding operation %s %s: %w", method, plain, addErr))
 	}
+}
+
+const (
+	// rawContentType is the media type an unparsed body is documented under when
+	// the route does not name one: bytes nobody has declared anything about.
+	rawContentType = "application/octet-stream"
+	// jsonContentType is the media type the reflector files a decoded body
+	// under, and so the key WithRequestContentType renames.
+	jsonContentType = "application/json"
+)
+
+// addRequestStructure records the operation's request. For a route whose body is
+// an unparsed document that is two content units rather than one: the input type
+// contributes the parameters, and the body is described separately, because the
+// reflector cannot derive from a []byte field what the bytes are.
+//
+// The RawBody field contributes nothing to the first unit — the reflector skips
+// fields with no JSON name, which is exactly the shape newBindPlan requires one
+// to have — so the operation ends up with one request body rather than two.
+func addRequestStructure(oc openapi.OperationContext, rc *routeConfig, reqStructure any, rawBody bool) {
+	if !rawBody {
+		if rc.requestContentType == "" || rc.requestContentType == jsonContentType {
+			oc.AddReqStructure(reqStructure)
+
+			return
+		}
+
+		// Renamed after the fact rather than declared up front: a request unit
+		// carrying a media type of its own is reflected as an opaque body and
+		// nothing else, so declaring one would document the media type and lose
+		// every parameter on the route.
+		oc.AddReqStructure(reqStructure, renameRequestContentType(rc.requestContentType))
+
+		return
+	}
+
+	oc.AddReqStructure(reqStructure)
+
+	contentType := rc.requestContentType
+	if contentType == "" {
+		contentType = rawContentType
+	}
+
+	oc.AddReqStructure(new(RawBody), openapi.WithContentType(contentType), rawBodySchema(contentType))
+}
+
+// renameRequestContentType files a reflected request body under the media type
+// the route declares instead of the one the reflector assumes. The schema and
+// the operation's parameters are whatever reflection made of them; only the key
+// changes.
+func renameRequestContentType(to string) openapi.ContentOption {
+	return openapi.WithCustomize(func(cor openapi.ContentOrReference) {
+		body, ok := cor.(*openapi3.RequestBodyOrRef)
+		if !ok || body.RequestBody == nil {
+			return
+		}
+
+		media, ok := body.RequestBody.Content[jsonContentType]
+		if !ok {
+			return
+		}
+
+		delete(body.RequestBody.Content, jsonContentType)
+		body.RequestBody.Content[to] = media
+	})
+}
+
+// rawBodySchema replaces what the reflector makes of a []byte with what the body
+// actually is.
+//
+// Left alone it renders as `{"type": "string"}`, which is wrong in the way that
+// matters: a generated client reading that for a GeoJSON route sends a JSON
+// string containing a document instead of the document. A JSON media type is
+// documented as the empty schema — any JSON, which is what "the router does not
+// parse this" means — and anything else as a binary string, which is what
+// OpenAPI 3.0 spells an opaque payload.
+func rawBodySchema(contentType string) openapi.ContentOption {
+	return openapi.WithCustomize(func(cor openapi.ContentOrReference) {
+		body, ok := cor.(*openapi3.RequestBodyOrRef)
+		if !ok || body.RequestBody == nil {
+			return
+		}
+
+		media, ok := body.RequestBody.Content[contentType]
+		if !ok {
+			return
+		}
+
+		schema := openapi3.Schema{}
+		if !strings.Contains(contentType, "json") {
+			schema.WithType(openapi3.SchemaTypeString).WithFormat("binary")
+		}
+
+		media.Schema = &openapi3.SchemaOrRef{Schema: &schema}
+		body.RequestBody.Content[contentType] = media
+	})
 }
 
 // Handle registers a raw http.Handler on the backend — an escape hatch for routes

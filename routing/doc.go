@@ -36,6 +36,56 @@ and the body while leaving serialization to the route's encoder:
 		return http.StatusInternalServerError, legacyError{Error: err.Error()}
 	})
 
+How an error is recorded follows the status it is sent as: a 5xx is logged at
+ERROR and marks the span, a 4xx is logged at WARN and does not. The line between
+them is between the service failing and a client sending something the route was
+never going to accept — and on an unauthenticated route, recording the second as
+the first hands every caller a way to write ERROR lines and error-marked spans
+into the service's telemetry. A service that draws the line elsewhere passes
+WithErrorClassifier; DefaultErrorSeverity is the rule it replaces.
+
+# Response status
+
+The status a route registers is the one it answers with, per WithResponseStatus.
+The exception is a handler whose status is part of what it is reporting — a
+readiness probe returning one body shape with 200 or 503 — which names it per
+response with SetResponseStatus:
+
+	routing.Get(r, "/ready", func(ctx context.Context, _ routing.Empty) (report, error) {
+		rep := check(ctx)
+		if !rep.Ready {
+			routing.SetResponseStatus(ctx, http.StatusServiceUnavailable)
+		}
+
+		return rep, nil
+	}, routing.WithAdditionalResponse(http.StatusServiceUnavailable, new(report), "not ready"))
+
+Returning an error for the unhealthy case would say something different and
+untrue: the handler did what it was asked, and the error would be recorded as a
+service fault on every poll.
+
+# Request bodies
+
+A body is decoded into the input struct's JSON fields. The case that does not fit
+is a body that is itself a document — a GeoJSON polygon, a signed blob — on a
+route that also binds parameters: there is no field for it to land in next to the
+bound ones. A RawBody field receives it unparsed:
+
+	type putGeoJSON struct {
+		AreaID   uuid.UUID       `path:"areaID"`
+		Document routing.RawBody
+	}
+
+	routing.Put(r, "/areas/{areaID:uuid}/geojson", storeGeoJSON,
+		routing.WithRequestContentType("application/geo+json"),
+		routing.WithMaxRequestBody(4<<20))
+
+Every route's body can be bounded, raw or decoded, by WithMaxRequestBody for one
+route or WithDefaultMaxRequestBody for all of them; a request over the bound is
+answered 413 without the handler running. A RawBody route with no bound of its
+own gets DefaultRawBodyLimit, because nothing else between the socket and the
+handler's []byte forms an opinion about how much to read.
+
 Path parameters use an inline typed syntax — "/users/{id:uint64}" — which drives
 both runtime binding and the generated parameter schema. Query, header, cookie,
 and body values are bound from struct tags on the typed input.

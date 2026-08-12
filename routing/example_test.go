@@ -96,3 +96,92 @@ func Example() {
 	// status: 201
 	// body: {"data":{"name":"Ada","email":"ada@example.com","id":7001},"details":{"currentAccountID":"","traceID":""}}
 }
+
+// probeReport is one body shape reported with two statuses.
+type probeReport struct {
+	Detail string `json:"detail"`
+	Ready  bool   `json:"ready"`
+}
+
+// ExampleSetResponseStatus demonstrates a handler naming the status of one
+// response: a readiness probe reports the same body whether or not the service
+// is ready, and the status is part of the report.
+func ExampleSetResponseStatus() {
+	r := routing.New(chi.NewBackend(&chi.Config{ServiceName: "example-service"}),
+		encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON))
+
+	ready := false
+
+	routing.Get(r, "/ready", func(ctx context.Context, _ routing.Empty) (probeReport, error) {
+		report := probeReport{Ready: ready, Detail: "cache is cold"}
+
+		// Not a returned error: the handler succeeded at reporting, and an error
+		// would be recorded as a service fault on every poll.
+		if !report.Ready {
+			routing.SetResponseStatus(ctx, http.StatusServiceUnavailable)
+		}
+
+		return report, nil
+	},
+		routing.WithEnvelope(false),
+		// The registered status is the documented one; the other is declared.
+		routing.WithAdditionalResponse(http.StatusServiceUnavailable, new(probeReport), "not ready"),
+	)
+
+	if err := r.Err(); err != nil {
+		panic(err)
+	}
+
+	rec := httptest.NewRecorder()
+	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", http.NoBody))
+
+	fmt.Println("status:", rec.Code)
+	fmt.Println("body:", strings.TrimSpace(rec.Body.String()))
+
+	// Output:
+	// status: 503
+	// body: {"detail":"cache is cold","ready":false}
+}
+
+// storeArea takes a bound path parameter next to a body the router does not
+// parse.
+func storeArea(_ context.Context, in struct {
+	Document routing.RawBody
+	AreaID   uint64 `path:"areaID"`
+}) (routing.Empty, error) {
+	fmt.Println("area:", in.AreaID)
+	fmt.Println("document:", string(in.Document))
+
+	return routing.Empty{}, nil
+}
+
+// ExampleRawBody demonstrates a route whose body is a document rather than an
+// object with fields, bounded to a size the route chooses.
+func ExampleRawBody() {
+	r := routing.New(chi.NewBackend(&chi.Config{ServiceName: "example-service"}),
+		encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON))
+
+	routing.Put(r, "/areas/{areaID:uint64}/geojson", storeArea,
+		routing.WithRequestContentType("application/geo+json"),
+		routing.WithMaxRequestBody(4<<20),
+		routing.WithResponseStatus(http.StatusNoContent),
+	)
+
+	if err := r.Err(); err != nil {
+		panic(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/areas/12/geojson",
+		strings.NewReader(`{"type":"Point","coordinates":[0,0]}`))
+	req.Header.Set(encoding.ContentTypeHeaderKey, "application/geo+json")
+
+	rec := httptest.NewRecorder()
+	r.Handler().ServeHTTP(rec, req)
+
+	fmt.Println("status:", rec.Code)
+
+	// Output:
+	// area: 12
+	// document: {"type":"Point","coordinates":[0,0]}
+	// status: 204
+}

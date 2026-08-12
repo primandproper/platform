@@ -21,8 +21,13 @@ func buildHTTPHandler[In, Out any](r *Router, plan *bindPlan, rc *routeConfig, h
 		ctx, op := r.o11y.BeginCustom(req.Context(), operationID)
 		defer op.End()
 
+		// The cell SetResponseStatus writes into, installed before binding so
+		// that ctx carries it everywhere the handler's does.
+		chosen := &responseStatus{}
+		ctx = withResponseStatus(ctx, chosen)
+
 		var in In
-		if err := plan.bind(ctx, r, req, reflect.ValueOf(&in).Elem()); err != nil {
+		if err := plan.bind(ctx, r, res, req, reflect.ValueOf(&in).Elem()); err != nil {
 			r.writeError(ctx, res, op, enc, err)
 
 			return
@@ -35,8 +40,10 @@ func buildHTTPHandler[In, Out any](r *Router, plan *bindPlan, rc *routeConfig, h
 			return
 		}
 
+		status := chosen.resolve(successStatus)
+
 		if noBody {
-			res.WriteHeader(successStatus)
+			res.WriteHeader(status)
 
 			return
 		}
@@ -45,12 +52,12 @@ func buildHTTPHandler[In, Out any](r *Router, plan *bindPlan, rc *routeConfig, h
 			enc.EncodeResponseWithStatus(ctx, res, httpx.APIResponse[Out]{
 				Data:    out,
 				Details: detailsFromCtx(ctx),
-			}, successStatus)
+			}, status)
 
 			return
 		}
 
-		enc.EncodeResponseWithStatus(ctx, res, out, successStatus)
+		enc.EncodeResponseWithStatus(ctx, res, out, status)
 	}
 }
 
