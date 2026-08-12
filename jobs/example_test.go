@@ -67,6 +67,62 @@ func ExampleNewPool() {
 	// dead-lettered "malformed" after 1 attempt(s)
 }
 
+// ExampleNewPoolGroup drains three topics from one process, and shows what
+// happens when the third pool cannot be built: the two that came up are drained
+// rather than left consuming a process that is on its way out.
+func ExampleNewPoolGroup() {
+	ctx := context.Background()
+
+	// A real service passes the ConsumerProvider it built at startup. This one
+	// is this package's test double, and it has been told to refuse the third
+	// subscription — a broker that is briefly unreachable at exactly the wrong
+	// moment.
+	broker := newFakeBroker()
+	broker.refuse("emails", errBroker)
+
+	handled := make(chan string, 1)
+
+	spec := func(topic string) jobs.PoolSpec {
+		return jobs.PoolSpec{
+			Topic: topic,
+			// Nil would do here: a spec that names only its topic and handler
+			// takes the package defaults.
+			Config: &jobs.PoolConfig{Concurrency: 4, Retry: retrycfg.Config{MaxAttempts: 1}},
+			Handler: func(_ context.Context, payload []byte) error {
+				handled <- topic + ": " + string(payload)
+
+				return nil
+			},
+		}
+	}
+
+	group, err := jobs.NewPoolGroup(ctx, []jobs.PoolSpec{
+		spec("orders"),
+		spec("invoices"),
+		spec("emails"),
+	}, broker.provider())
+	if err != nil {
+		panic(err)
+	}
+
+	// Start is all-or-nothing. It brought up orders and invoices, failed on
+	// emails, and drained the first two before returning.
+	if err = group.Start(ctx); err != nil {
+		fmt.Println("start failed:", err)
+	}
+
+	// So there is nothing left consuming, and Close has nothing to do.
+	if err = group.Close(ctx); err != nil {
+		panic(err)
+	}
+
+	fmt.Println("topics:", group.Topics())
+
+	// Output:
+	// start failed: building job pool for topic "emails": building consumer for topic "emails": broker refused the subscription
+	// topics: [orders invoices emails]
+}
+
 // ExampleNewScheduler runs periodic work under a lease, so that only one
 // replica executes a given job per tick.
 func ExampleNewScheduler() {
