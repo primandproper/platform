@@ -68,7 +68,7 @@ type CachingSource interface {
 	OnChange(name string, fn ChangeFunc) (cancel func())
 }
 
-var _ CachingSource = (*cachingSource)(nil)
+var _ CachingSource = (*TTLCachingSource)(nil)
 
 // cachedSecret is one held value. fetchedAt is when the backend last answered
 // for it, which is both what the TTL is measured from and what the staleness
@@ -78,7 +78,11 @@ type cachedSecret struct {
 	value     string
 }
 
-type cachingSource struct {
+// TTLCachingSource is the CachingSource that holds each secret for a TTL and
+// refreshes it in the background. It is exported, and returned by
+// NewCachingSource, so a caller can depend on the source it built rather than on
+// the CachingSource seam.
+type TTLCachingSource struct {
 	o11y                  observability.Observer
 	clock                 clock.Clock
 	source                SecretSource
@@ -146,7 +150,7 @@ type cachingSource struct {
 // background refresh that fails leaves the entry alone and logs. Old secret
 // beats no secret for every purpose except revocation, and revocation outlives
 // any TTL a process could pick anyway.
-func NewCachingSource(source SecretSource, ttl time.Duration, opts ...Option) (CachingSource, error) {
+func NewCachingSource(source SecretSource, ttl time.Duration, opts ...Option) (*TTLCachingSource, error) {
 	if source == nil {
 		return nil, errors.New("caching secret source: source is required")
 	}
@@ -163,7 +167,7 @@ func NewCachingSource(source SecretSource, ttl time.Duration, opts ...Option) (C
 		return nil, errors.Wrapf(ErrInvalidRefreshInterval, "refresh interval %s, ttl %s", o.refreshInterval, ttl)
 	}
 
-	c := &cachingSource{
+	c := &TTLCachingSource{
 		o11y:    observability.NewObserver(cachingSourceName, o.logger, o.tracerProvider),
 		clock:   clock.NewClock(),
 		jitter:  retry.Equal(o.rand),
@@ -223,7 +227,7 @@ func NewCachingSource(source SecretSource, ttl time.Duration, opts ...Option) (C
 
 // GetSecret answers from the cache when it holds an unexpired value, and
 // resolves through the wrapped source otherwise.
-func (c *cachingSource) GetSecret(ctx context.Context, name string) (string, error) {
+func (c *TTLCachingSource) GetSecret(ctx context.Context, name string) (string, error) {
 	ctx, op := c.o11y.Begin(ctx)
 	defer op.End()
 
@@ -261,7 +265,7 @@ func (c *cachingSource) GetSecret(ctx context.Context, name string) (string, err
 }
 
 // OnChange registers a rotation hook for name.
-func (c *cachingSource) OnChange(name string, fn ChangeFunc) func() {
+func (c *TTLCachingSource) OnChange(name string, fn ChangeFunc) func() {
 	if fn == nil {
 		return func() {}
 	}
@@ -294,7 +298,7 @@ func (c *cachingSource) OnChange(name string, fn ChangeFunc) func() {
 // It is idempotent and reports the same error every time: closing the wrapped
 // source twice is the wrapped source's problem, and a decorator should not
 // create it.
-func (c *cachingSource) Close() error {
+func (c *TTLCachingSource) Close() error {
 	c.closeOnce.Do(func() {
 		if c.stopRefresh != nil {
 			c.stopRefresh()
@@ -315,7 +319,7 @@ func (c *cachingSource) Close() error {
 // giving up must not cancel the others' round-trip. A caller whose own context
 // ends first stops waiting and gets that context's error, while the fetch
 // continues for the rest.
-func (c *cachingSource) resolve(ctx context.Context, name string) (string, error) {
+func (c *TTLCachingSource) resolve(ctx context.Context, name string) (string, error) {
 	fetchCtx := context.WithoutCancel(ctx)
 
 	return c.join(ctx, name, func() (any, error) {
@@ -335,7 +339,7 @@ func (c *cachingSource) resolve(ctx context.Context, name string) (string, error
 
 // join runs fn under the flight for name and waits for whichever flight it
 // joined, giving up early if ctx ends.
-func (c *cachingSource) join(ctx context.Context, name string, fn func() (any, error)) (string, error) {
+func (c *TTLCachingSource) join(ctx context.Context, name string, fn func() (any, error)) (string, error) {
 	ch := c.flight.DoChan(name, fn)
 
 	select {
@@ -361,7 +365,7 @@ func (c *cachingSource) join(ctx context.Context, name string, fn func() (any, e
 // fetch reads name from the wrapped source and stores what it gets. It is the
 // only place the backend is called, and therefore the only place a change can
 // be observed.
-func (c *cachingSource) fetch(ctx context.Context, name string) (string, error) {
+func (c *TTLCachingSource) fetch(ctx context.Context, name string) (string, error) {
 	value, err := c.source.GetSecret(ctx, name)
 	if err != nil {
 		if stderrors.Is(err, ErrSecretNotFound) {
@@ -385,7 +389,7 @@ func (c *cachingSource) fetch(ctx context.Context, name string) (string, error) 
 // It sleeps rather than ticks because each wait is jittered independently, and
 // it sleeps through the injected clock, so inside a testing/synctest bubble the
 // refresh advances with the bubble's fake time and needs no test double.
-func (c *cachingSource) refreshEvery(ctx context.Context, interval time.Duration) {
+func (c *TTLCachingSource) refreshEvery(ctx context.Context, interval time.Duration) {
 	defer close(c.refreshDone)
 
 	for {
@@ -402,7 +406,7 @@ func (c *cachingSource) refreshEvery(ctx context.Context, interval time.Duration
 // The names are snapshotted first so the map is not held across the round
 // trips, and each one goes through the flight, so a refresh and a caller's cold
 // read of the same name cost one backend call between them rather than two.
-func (c *cachingSource) refresh(ctx context.Context) {
+func (c *TTLCachingSource) refresh(ctx context.Context) {
 	ctx, op := c.o11y.BeginCustom(ctx, "refresh")
 	defer op.End()
 
@@ -434,7 +438,7 @@ func (c *cachingSource) refresh(ctx context.Context) {
 // keep sweeping, or a read, which is somebody's request. Contained because a
 // hook is caller-supplied code — re-deriving a keyring, rebuilding a client —
 // and a panic in it should cost the rotation, not the process.
-func (c *cachingSource) notify(name, oldValue, newValue string) {
+func (c *TTLCachingSource) notify(name, oldValue, newValue string) {
 	c.hooksMu.RLock()
 	hooks := slices.Collect(maps.Values(c.hooks[name]))
 	c.hooksMu.RUnlock()
@@ -451,7 +455,7 @@ func (c *cachingSource) notify(name, oldValue, newValue string) {
 }
 
 // lookup returns the held entry for name, if there is one.
-func (c *cachingSource) lookup(name string) (cachedSecret, bool) {
+func (c *TTLCachingSource) lookup(name string) (cachedSecret, bool) {
 	c.entriesMu.RLock()
 	defer c.entriesMu.RUnlock()
 
@@ -464,7 +468,7 @@ func (c *cachingSource) lookup(name string) (cachedSecret, bool) {
 // comparison a caller makes against the returned value happens under the same
 // lock that installed the new one, so two fetches racing on a name cannot both
 // report the same change.
-func (c *cachingSource) store(name, value string) (oldValue string, existed bool) {
+func (c *TTLCachingSource) store(name, value string) (oldValue string, existed bool) {
 	c.entriesMu.Lock()
 	defer c.entriesMu.Unlock()
 
@@ -475,7 +479,7 @@ func (c *cachingSource) store(name, value string) (oldValue string, existed bool
 }
 
 // evict drops name's entry.
-func (c *cachingSource) evict(name string) {
+func (c *TTLCachingSource) evict(name string) {
 	c.entriesMu.Lock()
 	defer c.entriesMu.Unlock()
 
@@ -483,7 +487,7 @@ func (c *cachingSource) evict(name string) {
 }
 
 // names snapshots the held keys.
-func (c *cachingSource) names() []string {
+func (c *TTLCachingSource) names() []string {
 	c.entriesMu.RLock()
 	defer c.entriesMu.RUnlock()
 
@@ -491,11 +495,11 @@ func (c *cachingSource) names() []string {
 }
 
 // expired reports whether entry has outlived the TTL.
-func (c *cachingSource) expired(entry cachedSecret) bool {
+func (c *TTLCachingSource) expired(entry cachedSecret) bool {
 	return c.clock.Since(entry.fetchedAt) >= c.ttl
 }
 
 // recordStaleness reports how old the value being served is.
-func (c *cachingSource) recordStaleness(ctx context.Context, entry cachedSecret) {
+func (c *TTLCachingSource) recordStaleness(ctx context.Context, entry cachedSecret) {
 	c.stalenessGauge.Record(ctx, c.clock.Since(entry.fetchedAt).Seconds())
 }

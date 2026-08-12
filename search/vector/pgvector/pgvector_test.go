@@ -91,12 +91,12 @@ func provideTestIndex(t *testing.T, client database.Client, indexName string, di
 // a test can drive an operation and assert which fields it observed. It bypasses
 // NewIndex (and therefore the container-backed schema migration) by building
 // the struct directly, which the in-package test can do.
-func newRecordingIndex(t *testing.T) (*indexManager[doc], *observability.RecordingObserver) {
+func newRecordingIndex(t *testing.T) (*IndexManager[doc], *observability.RecordingObserver) {
 	t.Helper()
 
 	// Seeded as NewIndex seeds it: the index name is stated once at construction.
 	obs := observability.NewRecordingObserverWithValues(map[string]any{keys.IndexNameKey: t.Name()})
-	im := &indexManager[doc]{
+	im := &IndexManager[doc]{
 		o11y:           obs,
 		circuitBreaker: cbnoop.NewCircuitBreaker(),
 		upsertCounter:  metricnoop.Int64Counter{},

@@ -105,7 +105,7 @@ func Test_compressor_CompressBytes(T *testing.T) {
 		comp, err := NewCompressor(AlgorithmS2)
 		must.NoError(t, err)
 
-		comp.(*compressor).algo = "invalid"
+		comp.algo = "invalid"
 
 		x := &whatever{
 			Name: "testing",
@@ -170,7 +170,7 @@ func Test_compressor_DecompressBytes(T *testing.T) {
 		compressed, err := comp.CompressBytes(encoder.MustEncodeJSON(ctx, x))
 		test.NoError(t, err)
 
-		comp.(*compressor).algo = "invalid"
+		comp.algo = "invalid"
 
 		decompressed, err := comp.DecompressBytes(compressed)
 		test.Error(t, err)

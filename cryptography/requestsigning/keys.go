@@ -40,14 +40,16 @@ func StaticKeyring(keyring Keyring) KeySource {
 	return KeySourceFunc(func(context.Context) (Keyring, error) { return keyring, nil })
 }
 
-// secretKeySource reads a keyring out of a secrets.SecretSource by name.
-type secretKeySource struct {
+// SecretKeySource reads a keyring out of a secrets.SecretSource by name. It is
+// exported, and returned by NewSecretKeySource, so a caller can depend on the
+// source it built rather than on the KeySource seam.
+type SecretKeySource struct {
 	source       secrets.SecretSource
 	currentName  string
 	previousName string
 }
 
-var _ KeySource = (*secretKeySource)(nil)
+var _ KeySource = (*SecretKeySource)(nil)
 
 // NewSecretKeySource reads the keyring from source on every operation, so
 // signing material lives where secrets live rather than in a config file.
@@ -72,7 +74,7 @@ var _ KeySource = (*secretKeySource)(nil)
 // stored base64- or hex-encoded should be wrapped in a KeySourceFunc that
 // decodes it, so that what the store holds and what the HMAC consumes cannot
 // drift apart silently.
-func NewSecretKeySource(source secrets.SecretSource, currentName, previousName string) (KeySource, error) {
+func NewSecretKeySource(source secrets.SecretSource, currentName, previousName string) (*SecretKeySource, error) {
 	if source == nil {
 		return nil, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil secret source")
 	}
@@ -81,7 +83,7 @@ func NewSecretKeySource(source secrets.SecretSource, currentName, previousName s
 		return nil, platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "current signing key name")
 	}
 
-	return &secretKeySource{
+	return &SecretKeySource{
 		source:       source,
 		currentName:  currentName,
 		previousName: previousName,
@@ -89,7 +91,7 @@ func NewSecretKeySource(source secrets.SecretSource, currentName, previousName s
 }
 
 // Keyring resolves both names.
-func (s *secretKeySource) Keyring(ctx context.Context) (Keyring, error) {
+func (s *SecretKeySource) Keyring(ctx context.Context) (Keyring, error) {
 	current, err := s.source.GetSecret(ctx, s.currentName)
 	if err != nil {
 		return Keyring{}, platformerrors.Wrapf(err, "resolving signing key %q", s.currentName)

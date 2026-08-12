@@ -15,13 +15,16 @@ import (
 // on the Store, which is the layer that knows what an operation meant.
 const serviceName = "sessions_cache"
 
-// backend stores session records in a cache.Cache.
-type backend[T any] struct {
+// Backend stores session records in a cache.Cache. It is exported, and returned
+// by NewBackend, so a caller who has chosen cache-backed sessions can depend on
+// that choice rather than on the sessions.Backend seam — matching
+// sessions/database, whose NewBackend has always returned its own *Backend.
+type Backend[T any] struct {
 	cache cache.Cache[sessions.Record[T]]
 	o11y  observability.Observer
 }
 
-var _ sessions.Backend[struct{}] = (*backend[struct{}])(nil)
+var _ sessions.Backend[struct{}] = (*Backend[struct{}])(nil)
 
 // NewBackend builds a sessions.Backend over a cache.
 //
@@ -34,21 +37,21 @@ var _ sessions.Backend[struct{}] = (*backend[struct{}])(nil)
 // The cache's own default expiry is never used — every write carries the
 // deadline the Store computed from its Policy — so a cache built solely for
 // sessions can be configured with any expiry at all.
-func NewBackend[T any](c cache.Cache[sessions.Record[T]], opts ...Option) (sessions.Backend[T], error) {
+func NewBackend[T any](c cache.Cache[sessions.Record[T]], opts ...Option) (*Backend[T], error) {
 	if c == nil {
 		return nil, ErrNilCache
 	}
 
 	o := newOptions(opts)
 
-	return &backend[T]{
+	return &Backend[T]{
 		cache: c,
 		o11y:  observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}, nil
 }
 
 // Load reads the record stored under id.
-func (b *backend[T]) Load(ctx context.Context, id string) (*sessions.Record[T], error) {
+func (b *Backend[T]) Load(ctx context.Context, id string) (*sessions.Record[T], error) {
 	ctx, op := b.o11y.Begin(ctx)
 	defer op.End()
 
@@ -72,7 +75,7 @@ func (b *backend[T]) Load(ctx context.Context, id string) (*sessions.Record[T], 
 // trip on the hot path to defend against a collision that will not happen.
 // ErrIDConflict is therefore part of the Backend contract that only the
 // database backend can actually report.
-func (b *backend[T]) Create(ctx context.Context, id string, record *sessions.Record[T], ttl time.Duration) error {
+func (b *Backend[T]) Create(ctx context.Context, id string, record *sessions.Record[T], ttl time.Duration) error {
 	ctx, op := b.o11y.Begin(ctx)
 	defer op.End()
 
@@ -95,7 +98,7 @@ func (b *backend[T]) Create(ctx context.Context, id string, record *sessions.Rec
 // comes back as ErrNotFound, which translate turns into sessions.ErrNotFound —
 // the same answer a load would give, because a session that was revoked
 // mid-request is exactly a session that is not there.
-func (b *backend[T]) Update(ctx context.Context, id string, record *sessions.Record[T], ttl time.Duration) error {
+func (b *Backend[T]) Update(ctx context.Context, id string, record *sessions.Record[T], ttl time.Duration) error {
 	ctx, op := b.o11y.Begin(ctx)
 	defer op.End()
 
@@ -114,7 +117,7 @@ func (b *backend[T]) Update(ctx context.Context, id string, record *sessions.Rec
 // identifier valid, and the error says so, so the caller refuses the privilege
 // change rather than proceeding with a session an attacker may hold. Neither
 // order is atomic here — that is what sessions/database's transaction is for.
-func (b *backend[T]) Rename(
+func (b *Backend[T]) Rename(
 	ctx context.Context,
 	oldID, newID string,
 	record *sessions.Record[T],
@@ -142,7 +145,7 @@ func (b *backend[T]) Rename(
 }
 
 // Delete removes the record stored under id.
-func (b *backend[T]) Delete(ctx context.Context, id string) error {
+func (b *Backend[T]) Delete(ctx context.Context, id string) error {
 	ctx, op := b.o11y.Begin(ctx)
 	defer op.End()
 
@@ -154,7 +157,7 @@ func (b *backend[T]) Delete(ctx context.Context, id string) error {
 }
 
 // Close releases the cache.
-func (b *backend[T]) Close() error {
+func (b *Backend[T]) Close() error {
 	return b.cache.Close()
 }
 

@@ -140,7 +140,12 @@ func NewRecorder(
 		base = append(base, audit.WithRedaction(resourceType, cfg.Redactions[resourceType]))
 	}
 
-	return audit.NewRecorder(cfg.Dialect, append(base, o.recorder...)...)
+	recorder, err := audit.NewRecorder(cfg.Dialect, append(base, o.recorder...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return recorder, nil
 }
 
 // NewReader builds a Reader from configuration. client must be the database
@@ -172,7 +177,12 @@ func NewReader(
 		base = append(base, audit.WithReaderMetricsProvider(o.metricsProvider))
 	}
 
-	return audit.NewReader(client, append(base, o.reader...)...)
+	reader, err := audit.NewReader(client, append(base, o.reader...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return reader, nil
 }
 
 // NewPruneTarget builds the retention target that removes aged entries, for a

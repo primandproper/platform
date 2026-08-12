@@ -5,10 +5,12 @@ import (
 	"github.com/primandproper/platform-go/v10/internal/cbormode"
 )
 
-// cborCodec is the default Codec, using CBOR (RFC 8949).
-type cborCodec[T any] struct{}
+// CBORCodec is the default Codec, using CBOR (RFC 8949). It is exported, and
+// returned by NewCBORCodec, so a caller can depend on the codec it built rather
+// than on the Codec seam.
+type CBORCodec[T any] struct{}
 
-var _ Codec[struct{}] = cborCodec[struct{}]{}
+var _ Codec[struct{}] = CBORCodec[struct{}]{}
 
 // NewCBORCodec returns the default CBOR-backed Codec.
 //
@@ -27,12 +29,12 @@ var _ Codec[struct{}] = cborCodec[struct{}]{}
 // time.Time round-trips to the nanosecond, with its UTC offset. The named
 // location does not survive, here or in any other portable format, so compare
 // decoded times with time.Time.Equal rather than == .
-func NewCBORCodec[T any]() Codec[T] {
-	return cborCodec[T]{}
+func NewCBORCodec[T any]() CBORCodec[T] {
+	return CBORCodec[T]{}
 }
 
 // Encode implements Codec via CBOR.
-func (cborCodec[T]) Encode(value *T) ([]byte, error) {
+func (CBORCodec[T]) Encode(value *T) ([]byte, error) {
 	out, err := cbormode.Marshal(value)
 	if err != nil {
 		return nil, errors.Wrap(err, "cbor-encoding value")
@@ -42,7 +44,7 @@ func (cborCodec[T]) Encode(value *T) ([]byte, error) {
 }
 
 // Decode implements Codec via CBOR.
-func (cborCodec[T]) Decode(data []byte) (*T, error) {
+func (CBORCodec[T]) Decode(data []byte) (*T, error) {
 	var value *T
 	if err := cbormode.Unmarshal(data, &value); err != nil {
 		return nil, errors.Wrap(err, "cbor-decoding value")

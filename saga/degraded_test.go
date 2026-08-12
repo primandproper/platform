@@ -100,7 +100,7 @@ func TestRunner_Degraded(T *testing.T) {
 			return store.Advance(t.Context(), q, inst, baseTime)
 		}))
 
-		concrete, ok := store.(*sqlStore)
+		concrete, ok := store.(*SQLStore)
 		must.True(t, ok)
 
 		_, err := env.client.Writer().ExecContext(t.Context(),

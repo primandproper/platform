@@ -7,13 +7,15 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
-// verifier checks v1 signatures against a keyring it re-reads per request.
-type verifier struct {
+// V1Verifier checks v1 signatures against a keyring it re-reads per request. It
+// is exported, and returned by NewVerifier, so a caller can depend on the scheme
+// it built rather than on the Verifier seam.
+type V1Verifier struct {
 	keys KeySource
 	cfg  *config
 }
 
-var _ Verifier = (*verifier)(nil)
+var _ Verifier = (*V1Verifier)(nil)
 
 // NewVerifier builds the v1 Verifier: it checks the SignatureHeader value
 // against the body under every key the source holds.
@@ -23,16 +25,16 @@ var _ Verifier = (*verifier)(nil)
 // a window of its own.
 //
 // Reads WithClock, WithTolerance, and WithVerificationTime.
-func NewVerifier(keys KeySource, opts ...Option) (Verifier, error) {
+func NewVerifier(keys KeySource, opts ...Option) (*V1Verifier, error) {
 	if keys == nil {
 		return nil, ErrNilKeySource
 	}
 
-	return &verifier{keys: keys, cfg: newConfig(opts)}, nil
+	return &V1Verifier{keys: keys, cfg: newConfig(opts)}, nil
 }
 
 // Scheme returns SchemeV1.
-func (v *verifier) Scheme() string { return SchemeV1 }
+func (v *V1Verifier) Scheme() string { return SchemeV1 }
 
 // VerifyRequest checks req's SignatureHeader against its body.
 //
@@ -40,7 +42,7 @@ func (v *verifier) Scheme() string { return SchemeV1 }
 // wants to shed a stale request before reading a body at all; the value this
 // checks is the one inside the signed material, which is the only one an
 // attacker cannot edit.
-func (v *verifier) VerifyRequest(ctx context.Context, req *http.Request) error {
+func (v *V1Verifier) VerifyRequest(ctx context.Context, req *http.Request) error {
 	if req == nil {
 		return platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil request")
 	}

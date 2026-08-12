@@ -26,10 +26,12 @@ import (
 	servertiming "github.com/mitchellh/go-server-timing"
 )
 
-var _ routing.Backend = (*backend)(nil)
+var _ routing.Backend = (*Backend)(nil)
 
-// backend is a chi-based implementation of routing.Backend.
-type backend struct {
+// Backend is a chi-based implementation of routing.Backend. It is exported, and
+// returned by NewBackend, so a caller who has chosen chi can depend on that
+// choice rather than on the seam every router backend shares.
+type Backend struct {
 	mux chi.Router
 }
 
@@ -70,7 +72,7 @@ func buildChiMux(
 
 // NewBackend constructs a chi-backed routing.Backend with the standard middleware
 // and OpenTelemetry stack installed. Pass it to routing.New.
-func NewBackend(cfg *Config, opts ...Option) routing.Backend {
+func NewBackend(cfg *Config, opts ...Option) *Backend {
 	// A nil config is the zero config, not a panic. The config subpackage
 	// dispatches on Provider and hands whichever sub-config happens to be set —
 	// which is nil unless the deployment filled that provider's section in, so
@@ -82,19 +84,19 @@ func NewBackend(cfg *Config, opts ...Option) routing.Backend {
 	o := newOptions(opts)
 	o11y := observability.NewObserver("router", logging.EnsureLogger(o.logger), tracing.EnsureTracerProvider(o.tracerProvider))
 
-	return &backend{
+	return &Backend{
 		mux: buildChiMux(o11y, metrics.EnsureMetricsProvider(o.metricsProvider), cfg),
 	}
 }
 
 // Use installs global middleware. It must be called before Handle (chi forbids
 // adding middleware once routes are registered).
-func (b *backend) Use(middleware ...routing.Middleware) {
+func (b *Backend) Use(middleware ...routing.Middleware) {
 	b.mux.Use(httpmw.Convert(middleware...)...)
 }
 
 // Handle registers handler for method at pattern.
-func (b *backend) Handle(method, pattern string, handler http.Handler) {
+func (b *Backend) Handle(method, pattern string, handler http.Handler) {
 	b.mux.Method(method, pattern, handler)
 }
 
@@ -111,7 +113,7 @@ func (b *backend) Handle(method, pattern string, handler http.Handler) {
 // chi matched on the decoded path and the segment it captured is already the
 // answer. A request for "a%252Fb" is exactly that: the value is "a%2Fb", chi
 // hands back "a%2Fb", and decoding it again would quietly turn it into "a/b".
-func (b *backend) PathValue(req *http.Request, name string) string {
+func (b *Backend) PathValue(req *http.Request, name string) string {
 	value := chi.URLParam(req, name)
 	if req.URL.RawPath == "" {
 		return value
@@ -121,6 +123,6 @@ func (b *backend) PathValue(req *http.Request, name string) string {
 }
 
 // Handler returns the underlying chi mux.
-func (b *backend) Handler() http.Handler {
+func (b *Backend) Handler() http.Handler {
 	return b.mux
 }

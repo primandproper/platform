@@ -31,8 +31,8 @@ var (
 	ErrEmptyQueryProvided = platformerrors.New("empty search query provided")
 )
 
-// Index implements our indexManager interface.
-func (m *indexManager[T]) Index(ctx context.Context, id string, value any) (err error) {
+// Index implements textsearch.Index.
+func (m *IndexManager[T]) Index(ctx context.Context, id string, value any) (err error) {
 	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 
@@ -72,7 +72,7 @@ func (m *indexManager[T]) Index(ctx context.Context, id string, value any) (err 
 }
 
 // Search implements our IndexSearcher interface.
-func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchRequest) (_ *textsearch.SearchResults[T], err error) {
+func (m *IndexManager[T]) Search(ctx context.Context, req textsearch.SearchRequest) (_ *textsearch.SearchResults[T], err error) {
 	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 
@@ -152,8 +152,8 @@ func (m *indexManager[T]) Search(ctx context.Context, req textsearch.SearchReque
 	return out, nil
 }
 
-// Delete implements our indexManager interface.
-func (m *indexManager[T]) Delete(ctx context.Context, id string) (err error) {
+// Delete implements textsearch.Index.
+func (m *IndexManager[T]) Delete(ctx context.Context, id string) (err error) {
 	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 
@@ -179,8 +179,8 @@ func (m *indexManager[T]) Delete(ctx context.Context, id string) (err error) {
 	return nil
 }
 
-// Wipe implements our indexManager interface.
-func (m *indexManager[T]) Wipe(ctx context.Context) (err error) {
+// Wipe implements textsearch.Index.
+func (m *IndexManager[T]) Wipe(ctx context.Context) (err error) {
 	ctx, op := m.o11y.Begin(ctx)
 	defer op.End()
 

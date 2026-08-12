@@ -26,20 +26,17 @@ func buildConfigForTest() *Config {
 
 // newRecordingManager builds a manager with a RecordingObserver swapped in, so a
 // test can both drive a method and assert the operation it observed.
-func newRecordingManager(t *testing.T) (*manager, *observability.RecordingObserver) {
+func newRecordingManager(t *testing.T) (*SecureCookieManager, *observability.RecordingObserver) {
 	t.Helper()
 
 	m, err := NewCookieManager(buildConfigForTest())
 	must.NoError(t, err)
 	must.NotNil(t, m)
 
-	impl, ok := m.(*manager)
-	must.True(t, ok)
-
 	obs := observability.NewRecordingObserver()
-	impl.o11y = obs
+	m.o11y = obs
 
-	return impl, obs
+	return m, obs
 }
 
 func TestNewCookieManager(T *testing.T) {

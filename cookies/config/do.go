@@ -15,10 +15,15 @@ func RegisterCookieManager(i do.Injector) {
 			return nil, err
 		}
 
-		return cookies.NewCookieManager(
+		manager, err := cookies.NewCookieManager(
 			do.MustInvoke[*cookies.Config](i),
 			cookies.WithLogger(pillars.Logger),
 			cookies.WithTracerProvider(pillars.TracerProvider),
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		return manager, nil
 	})
 }

@@ -91,11 +91,12 @@ func (f PeriodResolverFunc) Resolve(ctx context.Context, subject string, p Perio
 	return f(ctx, subject, p, at)
 }
 
-var _ PeriodResolver = (*calendarResolver)(nil)
+var _ PeriodResolver = (*CalendarResolver)(nil)
 
-// calendarResolver resolves the calendar periods in UTC and refuses the billing
-// period.
-type calendarResolver struct {
+// CalendarResolver resolves the calendar periods in UTC and refuses the billing
+// period. It is exported, and returned by NewCalendarPeriodResolver, so a caller
+// can depend on the resolver it built rather than on the PeriodResolver seam.
+type CalendarResolver struct {
 	billing PeriodResolver
 }
 
@@ -113,12 +114,12 @@ type calendarResolver struct {
 // once, and a daily quota that is 25 hours long is a quota somebody will notice
 // on exactly one day and never reproduce. An application that must bill on local
 // midnights supplies its own resolver and owns that decision.
-func NewCalendarPeriodResolver(billing PeriodResolver) PeriodResolver {
-	return &calendarResolver{billing: billing}
+func NewCalendarPeriodResolver(billing PeriodResolver) *CalendarResolver {
+	return &CalendarResolver{billing: billing}
 }
 
 // Resolve implements PeriodResolver.
-func (r *calendarResolver) Resolve(ctx context.Context, subject string, p Period, at time.Time) (Bounds, error) {
+func (r *CalendarResolver) Resolve(ctx context.Context, subject string, p Period, at time.Time) (Bounds, error) {
 	utc := at.UTC()
 
 	switch p {

@@ -43,10 +43,15 @@ func RegisterOutboxEventPublisher(i do.Injector) {
 		cfg := do.MustInvoke[*Config](i)
 		cfg.EnsureDefaults()
 
-		return saga.NewOutboxPublisher(
+		publisher, err := saga.NewOutboxPublisher(
 			do.MustInvoke[*outbox.Writer](i),
 			saga.WithEventTopic(cfg.EventTopic),
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		return publisher, nil
 	})
 }
 

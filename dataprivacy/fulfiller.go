@@ -1200,7 +1200,7 @@ func NewArtifactURLSigner(
 	// other timestamp this package produces. Without one, a Fulfiller under a
 	// test clock sent a notification whose deadline was in wall-clock time, and
 	// the mismatch was only visible to whoever compared the two.
-	c := clock.NewClock()
+	var c clock.Clock = clock.NewClock()
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&c)

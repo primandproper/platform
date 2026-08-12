@@ -12,21 +12,29 @@ type DatabaseReadyChecker interface {
 	IsReady(ctx context.Context) bool
 }
 
+var (
+	_ Checker = (*DatabaseChecker)(nil)
+	_ Checker = (*PingChecker)(nil)
+)
+
 // NewDatabaseChecker returns a Checker that uses the given client's IsReady method.
-func NewDatabaseChecker(name string, client DatabaseReadyChecker) Checker {
-	return &databaseChecker{name: name, client: client}
+func NewDatabaseChecker(name string, client DatabaseReadyChecker) *DatabaseChecker {
+	return &DatabaseChecker{name: name, client: client}
 }
 
-type databaseChecker struct {
+// DatabaseChecker is the Checker over a DatabaseReadyChecker. It is exported,
+// and returned by NewDatabaseChecker, so a caller can depend on the checker it
+// built rather than on the Checker seam.
+type DatabaseChecker struct {
 	client DatabaseReadyChecker
 	name   string
 }
 
-func (d *databaseChecker) Name() string {
+func (d *DatabaseChecker) Name() string {
 	return d.name
 }
 
-func (d *databaseChecker) Check(ctx context.Context) error {
+func (d *DatabaseChecker) Check(ctx context.Context) error {
 	if d.client == nil {
 		return errors.New("database client is nil")
 	}
@@ -50,13 +58,13 @@ type CacheReadyChecker = Pinger
 type MessageQueueReadyChecker = Pinger
 
 // NewCacheChecker returns a Checker that pings the given cache client.
-func NewCacheChecker(name string, client CacheReadyChecker) Checker {
+func NewCacheChecker(name string, client CacheReadyChecker) *PingChecker {
 	return NewPingChecker(name, "cache", client)
 }
 
 // NewMessageQueueChecker returns a Checker that pings the given message queue
 // client.
-func NewMessageQueueChecker(name string, client MessageQueueReadyChecker) Checker {
+func NewMessageQueueChecker(name string, client MessageQueueReadyChecker) *PingChecker {
 	return NewPingChecker(name, "message queue", client)
 }
 
@@ -71,21 +79,24 @@ func NewMessageQueueChecker(name string, client MessageQueueReadyChecker) Checke
 // A nil client is an error rather than a pass. A probe reporting healthy for a
 // dependency it was never given is worse than no probe: it is a green check
 // covering a wiring mistake.
-func NewPingChecker(name, subject string, client Pinger) Checker {
-	return &pingChecker{name: name, subject: subject, client: client}
+func NewPingChecker(name, subject string, client Pinger) *PingChecker {
+	return &PingChecker{name: name, subject: subject, client: client}
 }
 
-type pingChecker struct {
+// PingChecker is the Checker over a Pinger. It is exported, and returned by
+// NewPingChecker, NewCacheChecker, and NewMessageQueueChecker, so a caller can
+// depend on the checker it built rather than on the Checker seam.
+type PingChecker struct {
 	client  Pinger
 	name    string
 	subject string
 }
 
-func (p *pingChecker) Name() string {
+func (p *PingChecker) Name() string {
 	return p.name
 }
 
-func (p *pingChecker) Check(ctx context.Context) error {
+func (p *PingChecker) Check(ctx context.Context) error {
 	if p.client == nil {
 		return errors.Newf("%s client is nil", p.subject)
 	}

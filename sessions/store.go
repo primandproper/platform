@@ -15,9 +15,12 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// store is the one Store implementation: a Policy, an identifier mint, and a
-// Backend.
-type store[T any] struct {
+var _ Store[struct{}] = (*BackendStore[struct{}])(nil)
+
+// BackendStore is the one Store implementation: a Policy, an identifier mint,
+// and a Backend. It is exported, and returned by NewStore, so a caller can
+// depend on the store it built rather than on the Store seam.
+type BackendStore[T any] struct {
 	backend Backend[T]
 	clock   clock.Clock
 	o11y    observability.Observer
@@ -41,7 +44,7 @@ type store[T any] struct {
 // work in every test and lose every session on deploy in production, which is
 // the failure mode that looks like intermittent sign-outs for a week before
 // anyone finds it.
-func NewStore[T any](backend Backend[T], opts ...Option) (Store[T], error) {
+func NewStore[T any](backend Backend[T], opts ...Option) (*BackendStore[T], error) {
 	if backend == nil {
 		return nil, ErrNilBackend
 	}
@@ -73,7 +76,7 @@ func NewStore[T any](backend Backend[T], opts ...Option) (Store[T], error) {
 		return nil, err
 	}
 
-	s := &store[T]{
+	s := &BackendStore[T]{
 		backend: backend,
 		clock:   o.clock,
 		policy:  policy,
@@ -115,12 +118,12 @@ func NewStore[T any](backend Backend[T], opts ...Option) (Store[T], error) {
 }
 
 // Policy reports the expiry rule this store enforces.
-func (s *store[T]) Policy() Policy {
+func (s *BackendStore[T]) Policy() Policy {
 	return s.policy
 }
 
 // New establishes a session around data.
-func (s *store[T]) New(ctx context.Context, data *T) (*Session[T], error) {
+func (s *BackendStore[T]) New(ctx context.Context, data *T) (*Session[T], error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 	defer s.observe(ctx, operationNew, s.clock.Now())
@@ -154,7 +157,7 @@ func (s *store[T]) New(ctx context.Context, data *T) (*Session[T], error) {
 
 // Get reads a session and refreshes its idle deadline when the touch interval
 // has elapsed.
-func (s *store[T]) Get(ctx context.Context, id string) (*Session[T], error) {
+func (s *BackendStore[T]) Get(ctx context.Context, id string) (*Session[T], error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 	defer s.observe(ctx, operationGet, s.clock.Now())
@@ -193,7 +196,7 @@ func (s *store[T]) Get(ctx context.Context, id string) (*Session[T], error) {
 }
 
 // Save replaces a session's payload.
-func (s *store[T]) Save(ctx context.Context, id string, data *T) error {
+func (s *BackendStore[T]) Save(ctx context.Context, id string, data *T) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 	defer s.observe(ctx, operationSave, s.clock.Now())
@@ -221,7 +224,7 @@ func (s *store[T]) Save(ctx context.Context, id string, data *T) error {
 // CreatedAt is carried across untouched, which is what keeps the absolute
 // timeout absolute: a caller renewing on every privilege change — the correct
 // thing to do — cannot thereby give a session an unbounded life.
-func (s *store[T]) Renew(ctx context.Context, oldID string) (string, error) {
+func (s *BackendStore[T]) Renew(ctx context.Context, oldID string) (string, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 	defer s.observe(ctx, operationRenew, s.clock.Now())
@@ -255,7 +258,7 @@ func (s *store[T]) Renew(ctx context.Context, oldID string) (string, error) {
 }
 
 // Delete ends a session.
-func (s *store[T]) Delete(ctx context.Context, id string) error {
+func (s *BackendStore[T]) Delete(ctx context.Context, id string) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 	defer s.observe(ctx, operationDelete, s.clock.Now())
@@ -276,7 +279,7 @@ func (s *store[T]) Delete(ctx context.Context, id string) error {
 }
 
 // Close releases the backend.
-func (s *store[T]) Close() error {
+func (s *BackendStore[T]) Close() error {
 	return s.backend.Close()
 }
 
@@ -285,7 +288,7 @@ func (s *store[T]) Close() error {
 //
 // It is the single place any of those three is decided, which is what makes
 // Get, Save, and Renew agree about what a live session is.
-func (s *store[T]) live(
+func (s *BackendStore[T]) live(
 	ctx context.Context,
 	op observability.Operation,
 	id string,
@@ -348,7 +351,7 @@ func (s *store[T]) live(
 // backend that cannot delete will expire the record on its own TTL. Surfacing
 // the failure would replace "your session ended" with "something broke", which
 // is both less true and less useful.
-func (s *store[T]) discard(ctx context.Context, op observability.Operation, id string) {
+func (s *BackendStore[T]) discard(ctx context.Context, op observability.Operation, id string) {
 	if err := s.backend.Delete(ctx, id); err != nil {
 		s.backendErrorsCounter.Add(ctx, 1)
 		op.Acknowledge(err, "discarding unusable session")
@@ -357,13 +360,13 @@ func (s *store[T]) discard(ctx context.Context, op observability.Operation, id s
 
 // now reads the clock at the resolution every stamped time uses. See
 // timeResolution for why the truncation is not cosmetic.
-func (s *store[T]) now() time.Time {
+func (s *BackendStore[T]) now() time.Time {
 	return s.clock.Now().UTC().Truncate(timeResolution)
 }
 
 // observe records one operation's latency. It reads the clock rather than
 // time.Now so that a synctest bubble measures bubble time.
-func (s *store[T]) observe(ctx context.Context, operation string, startedAt time.Time) {
+func (s *BackendStore[T]) observe(ctx context.Context, operation string, startedAt time.Time) {
 	s.latencyHist.Record(ctx,
 		float64(s.clock.Since(startedAt).Milliseconds()),
 		metric.WithAttributes(attribute.String(operationKey, operation)),

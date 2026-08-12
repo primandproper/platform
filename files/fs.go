@@ -41,7 +41,7 @@ func (osFS) ReadFile(name string) ([]byte, error) {
 // into a subtree via fs.Sub. An FS is safe to share once constructed; Sub returns a new handle
 // rather than mutating this one.
 type FS struct {
-	reader *standardReader
+	reader *StandardReader
 }
 
 // OpenFS returns a handle over fsys using noop observability, mirroring OpenDir.

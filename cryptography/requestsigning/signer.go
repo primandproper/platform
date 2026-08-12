@@ -8,13 +8,15 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
-// signer mints v1 signatures over a keyring it re-reads per request.
-type signer struct {
+// V1Signer mints v1 signatures over a keyring it re-reads per request. It is
+// exported, and returned by NewSigner, so a caller can depend on the scheme it
+// built rather than on the Signer seam.
+type V1Signer struct {
 	keys KeySource
 	cfg  *config
 }
 
-var _ Signer = (*signer)(nil)
+var _ Signer = (*V1Signer)(nil)
 
 // NewSigner builds the v1 Signer: it stamps SignatureHeader and
 // TimestampHeader over the request body, under every key the source holds.
@@ -25,16 +27,16 @@ var _ Signer = (*signer)(nil)
 //
 // Reads WithClock; WithTolerance and WithVerificationTime belong to the
 // verifying side and are ignored here.
-func NewSigner(keys KeySource, opts ...Option) (Signer, error) {
+func NewSigner(keys KeySource, opts ...Option) (*V1Signer, error) {
 	if keys == nil {
 		return nil, ErrNilKeySource
 	}
 
-	return &signer{keys: keys, cfg: newConfig(opts)}, nil
+	return &V1Signer{keys: keys, cfg: newConfig(opts)}, nil
 }
 
 // Scheme returns SchemeV1.
-func (s *signer) Scheme() string { return SchemeV1 }
+func (s *V1Signer) Scheme() string { return SchemeV1 }
 
 // SignRequest stamps the signature and timestamp headers over req's body.
 //
@@ -42,7 +44,7 @@ func (s *signer) Scheme() string { return SchemeV1 }
 // is set separately so a receiver can reject a stale request before spending an
 // HMAC on it; a receiver must still treat the signature as authoritative, since
 // only the copy inside the signed material is covered by the MAC.
-func (s *signer) SignRequest(ctx context.Context, req *http.Request) error {
+func (s *V1Signer) SignRequest(ctx context.Context, req *http.Request) error {
 	body, err := RequestBody(req)
 	if err != nil {
 		return platformerrors.Wrap(err, "reading the request body to sign it")

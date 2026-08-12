@@ -11,16 +11,21 @@ type Panicker interface {
 }
 
 // NewProductionPanicker produces a production-ready panicker that will actually panic when called.
-func NewProductionPanicker() Panicker {
-	return &standardPanicker{}
+func NewProductionPanicker() *StandardPanicker {
+	return &StandardPanicker{}
 }
 
-type standardPanicker struct{}
+var _ Panicker = (*StandardPanicker)(nil)
 
-func (p *standardPanicker) Panic(msg any) {
+// StandardPanicker is the Panicker that actually panics. It is exported, and
+// returned by NewProductionPanicker, so a caller can depend on the panicker it
+// built rather than on the Panicker seam.
+type StandardPanicker struct{}
+
+func (p *StandardPanicker) Panic(msg any) {
 	panic(msg)
 }
 
-func (p *standardPanicker) Panicf(format string, args ...any) {
+func (p *StandardPanicker) Panicf(format string, args ...any) {
 	p.Panic(fmt.Sprintf(format, args...))
 }
