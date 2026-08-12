@@ -79,6 +79,53 @@ channel — the same constraint the outbox package documents — and the failure
 the only reason the record exists, so the alternative of republishing the bare
 payload discards the point of it.
 
+# Draining several topics
+
+A worker process almost always drains more than one topic, and supervising
+several pools has a failure mode that running one does not. Building the third
+pool fails while the first two are already consuming: the constructor returns an
+error, the caller starts unwinding, and two pools are still holding broker
+connections and pulling messages off topics that nothing is going to finish
+handling. A process on its way out is still taking work.
+
+PoolGroup makes that start all-or-nothing:
+
+	group, err := jobs.NewPoolGroup(ctx, []jobs.PoolSpec{
+		{Topic: "orders", Config: &orderPool, Handler: handleOrder},
+		{Topic: "invoices", Config: &invoicePool, Handler: handleInvoice},
+		{Topic: "emails", Handler: handleEmail},
+	}, consumerProvider, jobs.WithPoolGroupDeadLetter(deadLetter))
+	if err != nil {
+		return err
+	}
+
+	if err = group.Start(ctx); err != nil {
+		return err
+	}
+	defer func() { _ = group.Close(shutdownCtx) }()
+
+Either every pool is running when Start returns nil, or none is when it returns
+an error: a build failure drains whatever came up before returning. That drain
+is bounded by WithPoolGroupDrainTimeout rather than by the caller's context, and
+the bound is the point — Start is about to return an error and the process is
+about to exit, so it only has to be long enough for the handlers already in
+flight, not for a graceful stop.
+
+Most of what can go wrong is settled before any of it, though. NewPoolGroup
+copies, defaults, and validates every config, and rejects a duplicate topic —
+a ConsumerProvider hands out one consumer per topic, so the second pool could
+not have been built anyway. What is left for Start is the broker itself. The
+copy is also why one *PoolConfig may back every spec: each pool gets its own
+topic written onto its own copy, rather than all of them ending up on whichever
+topic was assigned last.
+
+A group is single-use. Close is final, and so is a failed Start, because a Pool
+cannot be restarted either — its stop channel is closed for good.
+
+PoolGroup is not a service.Runner and cannot be one: Runner.Run reports nothing,
+which is exactly what an all-or-nothing start has to be able to do. A service
+starts its groups before Service.Run and closes them after it.
+
 # Periodic jobs
 
 Scheduler runs registered jobs on an interval, each execution held under a
