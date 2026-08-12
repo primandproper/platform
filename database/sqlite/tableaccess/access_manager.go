@@ -1,3 +1,20 @@
+// Package tableaccess is the SQLite database.Manager, and every one of its
+// operations refuses.
+//
+// SQLite has no users, no roles, no grants, and no notion of several databases
+// on one server: a database is a file, and access to it is access to the file.
+// There is nothing for the interface's methods to do, so each reports
+// ErrNotSupported rather than pretending to have provisioned something.
+//
+// It exists so that dialect selection stays uniform — a service configured
+// against SQLite still resolves a database.Manager — and so the refusal is
+// visible. Every method opens a span and records the error, because a caller
+// finding out at runtime which dialect it was handed should see the refusal in
+// the same trace it would have seen the grant in; a refusal that leaves no trace
+// cannot be told from a call that never happened.
+//
+// Provisioning a SQLite deployment is a filesystem matter: file permissions and
+// where the file lives, not statements sent to a server.
 package tableaccess
 
 import (

@@ -1,3 +1,21 @@
+// Package slog implements logging.Logger over the standard library's log/slog,
+// emitting JSON to stdout.
+//
+// It is the backend with no third-party dependency behind it, which is most of
+// the reason to choose it: the handler is the standard library's, so its output
+// format and its performance are whatever the Go release provides. It is also
+// the one with nothing to shut down — records go to stdout as they are written,
+// so there is no buffer to flush and nothing is lost when a process exits
+// abruptly. Collection is the deployment's problem rather than the process's.
+//
+// Source locations are attached only at debug level, and are resolved by walking
+// the stack in this package so they point at the caller of Info, Debug, or Error
+// rather than at this file — which is what a wrapper around slog otherwise
+// reports for every line it emits.
+//
+// log/slog has no named loggers, so logging.Logger's WithName is implemented as
+// an attribute on the derived logger rather than as a name slog itself knows
+// about.
 package slog
 
 import (

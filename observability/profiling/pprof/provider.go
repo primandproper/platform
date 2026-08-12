@@ -1,3 +1,28 @@
+// Package pprof implements profiling.Provider by serving net/http/pprof from a
+// dedicated HTTP server.
+//
+// # This endpoint is not authenticated
+//
+// The server listens on its own port (6060 by default) and serves
+// /debug/pprof/* to anyone who can reach it, with no credential of any kind.
+// Everything there is sensitive to some degree — a heap profile carries live
+// allocation shapes, /debug/pprof/cmdline returns the process's arguments, and a
+// CPU profile blocks for its whole duration, which anyone can request repeatedly.
+// So the port belongs on a loopback interface or behind whatever the deployment
+// uses to keep an admin port private. It must not be published alongside the
+// service's own listener.
+//
+// Profiles are pulled, not pushed: somebody has to fetch one while the
+// interesting behavior is still happening. For a profile that exists after the
+// fact, the pyroscope sibling pushes continuously instead.
+//
+// Enabling the mutex or block profiles sets the runtime's sampling rate for the
+// whole process, not for this server, and both cost something on every
+// contended lock. They are off by default for that reason.
+//
+// Start returns as soon as the listener goroutine is launched, so it does not
+// report a port already in use; that failure arrives on the logger instead.
+// Shutdown stops the server.
 package pprof
 
 import (

@@ -1,3 +1,15 @@
+// Package sha256 implements hashing.Hasher using SHA-256, producing a 32-byte
+// digest.
+//
+// It is a cryptographic hash: finding a second input with the same digest is
+// not practical, which is what makes it suitable for content addressing,
+// integrity checks, and fingerprints. Two things it is still not. It is
+// unkeyed, so anyone can recompute a digest over content they chose — proving
+// who computed it needs the hmac sibling. And it is fast, which is the wrong
+// property for a stored password; use authentication/argon2 there.
+//
+// Prefer it over sha512 when digest size matters, and sha512 when it does not:
+// on 64-bit hardware SHA-512 is usually the quicker of the two.
 package sha256
 
 import (

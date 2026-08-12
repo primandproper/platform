@@ -1,3 +1,37 @@
+// Package otelgrpc implements logging.Logger over log/slog, fanning every record
+// out to both stdout and an OTLP collector reached over gRPC.
+//
+// It is the backend for a deployment that wants its logs correlated with its
+// traces in one system rather than scraped from container output. Both
+// destinations always receive the record — stdout is not a fallback for a
+// collector that is down — so a collector outage costs the correlated copy and
+// nothing else.
+//
+// An empty CollectorEndpoint builds a logger that writes only to stdout, which
+// makes this backend usable in a local run without a collector standing by. Note
+// that this is the one thing the config's own validation rejects, so reaching
+// that state means constructing the Config directly rather than loading it.
+//
+// # Shutting down
+//
+// Records reach the collector through a batch processor, so they are buffered:
+// a process that exits without calling Shutdown loses whatever had not been
+// flushed, which on a crash path is usually the records explaining the crash.
+// The DI container calls it, and so does the observability package's
+// Pillars.Shutdown. Shutdown on a logger derived through With* is a no-op —
+// those do not own the provider — so the value to keep is the one the
+// constructor returned.
+//
+// Construction reports nothing about itself, deliberately. Announcing the
+// collector endpoint through log/slog's global default would route it to
+// whatever else in the process claimed that global, and routing it through the
+// logger being built makes the collector's first record one about having
+// configured the collector — which, on an unreachable endpoint, is a record
+// Shutdown then blocks trying to flush.
+//
+// Building this logger sets the OTel global logger provider, which is
+// process-wide state: it is a composition-root thing to construct, not something
+// to build twice.
 package otelgrpc
 
 import (

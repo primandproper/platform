@@ -1,3 +1,29 @@
+// Package otelgrpc implements metrics.Provider against an OTLP collector reached
+// over gRPC. It is the only non-noop metrics provider this module ships.
+//
+// Measurements are not pushed as they are taken. A periodic reader exports on
+// cfg.CollectionInterval, so that interval is both the resolution a dashboard
+// gets and the amount of measurement a process loses if it exits without
+// Shutdown — which flushes, and which the DI container and
+// observability.Pillars.Shutdown both call.
+//
+// Every instrument's name is prefixed with the service name at creation, so an
+// instrument a package registers as "cache_hits" arrives as
+// "<service>.cache_hits" and instruments of the same name from different
+// services stay distinct.
+//
+// # What it costs to build
+//
+// Constructing a provider sets the OpenTelemetry global meter provider, which is
+// process-wide: this belongs in a composition root, built once. Exemplars are
+// enabled unconditionally, which is what links a metric back to the trace that
+// produced it — and which means anything that samples traces changes what the
+// exemplars point at.
+//
+// Runtime and host instrumentation are opt-in per config. Both start collectors
+// that run for the life of the process rather than per request, and host metrics
+// in particular describe the machine, not the service — on a shared node, several
+// services reporting them describe the same node several times.
 package otelgrpc
 
 import (

@@ -1,3 +1,30 @@
+// Package filtering is the shared vocabulary for list queries: which slice of a
+// collection a caller asked for, and which slice they got.
+//
+// A QueryFilter carries the request half — a cursor, a page size, a sort
+// direction, created/updated time windows, and whether archived rows count — and
+// round-trips through URL query parameters, so the same value is what a handler
+// parses out of an *http.Request and what a client puts back on the wire. The
+// query-parameter names are exported constants rather than string literals
+// spelled out per handler, which is what keeps a client and a server agreeing on
+// them. Pagination is the response half, and is what an API response embeds
+// alongside its data to say what was applied and where the next page starts.
+//
+// It builds no SQL and touches no database. This package decides what a caller
+// asked for; translating that into a query belongs to whatever store answers it.
+//
+// Page size is clamped rather than rejected: a request for more than
+// MaxQueryFilterLimit gets MaxQueryFilterLimit, and an absent one gets
+// DefaultQueryFilterLimit. A parameter that is present and unreadable is a
+// different matter, and parsing reports it — every parameter is still attempted
+// and everything that parsed is applied, so the filter is always usable, but the
+// error is there because a mistyped filter that is silently dropped answers with
+// a plausible-looking page that excludes nothing. The handler decides which of
+// those it wants; the parse does not decide for it.
+//
+// A nil *QueryFilter is usable throughout: it renders as the default filter and
+// says so when attached to a logger, so handlers need no nil check before
+// passing one along.
 package filtering
 
 import (
