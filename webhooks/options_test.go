@@ -174,7 +174,7 @@ func TestWorkerOptions(T *testing.T) {
 			return cbnoop.NewCircuitBreaker(), nil
 		}
 
-		w := &Worker{breakers: map[string]circuitbreaking.CircuitBreaker{}}
+		w := &Worker{}
 
 		WithCircuitBreakerFactory(factory)(w)
 		must.NotNil(t, w.breaker)
@@ -193,7 +193,6 @@ func TestWorkerOptions(T *testing.T) {
 		t.Parallel()
 
 		w := &Worker{
-			breakers: map[string]circuitbreaking.CircuitBreaker{},
 			breaker: func(string) (circuitbreaking.CircuitBreaker, error) {
 				return nil, nil
 			},

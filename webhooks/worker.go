@@ -22,6 +22,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	"github.com/primandproper/platform-go/v10/retry"
 	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
+	"github.com/primandproper/platform-go/v10/syncmap"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -66,7 +67,7 @@ type Worker struct {
 	breaker  CircuitBreakerFactory
 	checkURL URLChecker
 
-	breakers map[string]circuitbreaking.CircuitBreaker
+	breakers syncmap.Map[string, circuitbreaking.CircuitBreaker]
 
 	stop chan struct{}
 	done chan struct{}
@@ -92,8 +93,7 @@ type Worker struct {
 
 	cfg WorkerConfig
 
-	breakersMu sync.Mutex
-	stopOnce   sync.Once
+	stopOnce sync.Once
 }
 
 // NewWorker builds a Worker. It does not start it; call Run.
@@ -114,7 +114,6 @@ func NewWorker(ctx context.Context, cfg *WorkerConfig, store Store, opts ...Work
 		cfg:      *cfg,
 		store:    store,
 		clock:    clock.NewClock(),
-		breakers: map[string]circuitbreaking.CircuitBreaker{},
 		checkURL: CheckEndpointURL,
 		breaker: func(string) (circuitbreaking.CircuitBreaker, error) {
 			return cbnoop.NewCircuitBreaker(), nil
@@ -580,25 +579,36 @@ func (w *Worker) recordFailure(ctx context.Context, dispatch *ClaimedDispatch, c
 
 // breakerFor resolves and caches one circuit breaker per endpoint.
 func (w *Worker) breakerFor(endpointID string) (circuitbreaking.CircuitBreaker, error) {
-	w.breakersMu.Lock()
-	defer w.breakersMu.Unlock()
+	var resolved circuitbreaking.CircuitBreaker
 
-	if breaker, ok := w.breakers[endpointID]; ok {
-		return breaker, nil
+	// Building under the lock is deliberate: two deliveries to the same new
+	// endpoint have to share one breaker, or each of them counts only its own
+	// half of the endpoint's failures.
+	if err := w.breakers.WithLock(func(breakers map[string]circuitbreaking.CircuitBreaker) error {
+		if breaker, ok := breakers[endpointID]; ok {
+			resolved = breaker
+
+			return nil
+		}
+
+		breaker, err := w.breaker(endpointID)
+		if err != nil {
+			return platformerrors.Wrapf(err, "building circuit breaker for webhook endpoint %q", endpointID)
+		}
+
+		if breaker == nil {
+			breaker = cbnoop.NewCircuitBreaker()
+		}
+
+		breakers[endpointID] = breaker
+		resolved = breaker
+
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
-	breaker, err := w.breaker(endpointID)
-	if err != nil {
-		return nil, platformerrors.Wrapf(err, "building circuit breaker for webhook endpoint %q", endpointID)
-	}
-
-	if breaker == nil {
-		breaker = cbnoop.NewCircuitBreaker()
-	}
-
-	w.breakers[endpointID] = breaker
-
-	return breaker, nil
+	return resolved, nil
 }
 
 // sampleBacklog records how far behind the worker is. These two gauges are the

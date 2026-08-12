@@ -19,6 +19,7 @@ import (
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
+	"github.com/primandproper/platform-go/v10/syncmap"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -66,7 +67,7 @@ type Relay struct {
 	clock   clock.Clock
 	o11y    observability.Observer
 
-	publishers map[string]messagequeue.Publisher
+	publishers syncmap.Map[string, messagequeue.Publisher]
 
 	// wakeup is nil unless WithRelayWakeup supplied one. A nil channel blocks
 	// forever in a select, so the loop below needs no branch for its absence —
@@ -96,8 +97,7 @@ type Relay struct {
 
 	cfg RelayConfig
 
-	publishersMu sync.Mutex
-	stopOnce     sync.Once
+	stopOnce sync.Once
 }
 
 // NewRelay builds a Relay. It does not start it; call Run.
@@ -126,14 +126,13 @@ func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, pro
 	}
 
 	r := &Relay{
-		cfg:        *cfg,
-		dialect:    d,
-		client:     client,
-		provider:   provider,
-		clock:      clock.NewClock(),
-		publishers: map[string]messagequeue.Publisher{},
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
+		cfg:      *cfg,
+		dialect:  d,
+		client:   client,
+		provider: provider,
+		clock:    clock.NewClock(),
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -285,15 +284,17 @@ func (r *Relay) Close(ctx context.Context) error {
 		return op.Error(ctx.Err(), "waiting for outbox relay to drain")
 	}
 
-	r.publishersMu.Lock()
-	defer r.publishersMu.Unlock()
+	// The sweep and the reset are one critical section, so a publisherFor
+	// cannot read a publisher out of the map while this loop is stopping it.
+	// The relay loop has drained by now, so there should be none left to try.
+	return r.publishers.WithLock(func(publishers map[string]messagequeue.Publisher) error {
+		for _, p := range publishers {
+			p.Stop()
+		}
+		clear(publishers)
 
-	for _, p := range r.publishers {
-		p.Stop()
-	}
-	r.publishers = map[string]messagequeue.Publisher{}
-
-	return nil
+		return nil
+	})
 }
 
 // cycle claims one batch and publishes it. Errors are logged and counted
@@ -380,21 +381,31 @@ func (r *Relay) publish(ctx context.Context, msg *claimedMessage) error {
 
 // publisherFor resolves and caches one Publisher per topic.
 func (r *Relay) publisherFor(ctx context.Context, topic string) (messagequeue.Publisher, error) {
-	r.publishersMu.Lock()
-	defer r.publishersMu.Unlock()
+	var publisher messagequeue.Publisher
 
-	if p, ok := r.publishers[topic]; ok {
-		return p, nil
+	// Building under the lock is deliberate: two cycles hitting the same new
+	// topic must not each stand up a publisher for it.
+	if err := r.publishers.WithLock(func(publishers map[string]messagequeue.Publisher) error {
+		if p, ok := publishers[topic]; ok {
+			publisher = p
+
+			return nil
+		}
+
+		p, err := r.provider.NewPublisher(ctx, topic)
+		if err != nil {
+			return platformerrors.Wrapf(err, "building publisher for topic %q", topic)
+		}
+
+		publishers[topic] = p
+		publisher = p
+
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
-	p, err := r.provider.NewPublisher(ctx, topic)
-	if err != nil {
-		return nil, platformerrors.Wrapf(err, "building publisher for topic %q", topic)
-	}
-
-	r.publishers[topic] = p
-
-	return p, nil
+	return publisher, nil
 }
 
 // claim selects a batch, leases it, and reads it back — all in one
