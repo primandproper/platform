@@ -156,6 +156,12 @@ because an event type is a string and strings are typo-prone: a subscription to
 "reciped.created" accepted silently produces an endpoint that never fires, and
 diagnosing it means noticing an absence.
 
+The same gate is why a hand-maintained catalog is a liability once an
+application publishes more than a handful of events: a forgotten entry is not a
+missing webhook but a failed Dispatch, inside the caller's transaction.
+webhooks/catalogen derives the catalog from the constants that declare the event
+types, and checks the committed one against them in CI.
+
 # Watching it
 
 The two that matter most are webhooks_backlog_depth and
