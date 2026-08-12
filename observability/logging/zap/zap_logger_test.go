@@ -171,6 +171,35 @@ func Test_zapLogger_Debug(T *testing.T) {
 	})
 }
 
+func Test_zapLogger_Warn(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		l := mustZapLogger(t, logging.DebugLevel)
+
+		l.Warn(t.Name())
+	})
+}
+
+func Test_zapLogger_warnLevelThreshold(T *testing.T) {
+	T.Parallel()
+
+	T.Run("warn sits between info and error", func(t *testing.T) {
+		t.Parallel()
+
+		l, ok := mustZapLogger(t, logging.WarnLevel).(*Logger)
+		must.True(t, ok)
+
+		core := l.logger.Core()
+		test.False(t, core.Enabled(zapcore.DebugLevel))
+		test.False(t, core.Enabled(zapcore.InfoLevel))
+		test.True(t, core.Enabled(zapcore.WarnLevel))
+		test.True(t, core.Enabled(zapcore.ErrorLevel))
+	})
+}
+
 func Test_zapLogger_Error(T *testing.T) {
 	T.Parallel()
 

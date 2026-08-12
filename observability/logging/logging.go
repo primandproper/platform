@@ -63,6 +63,7 @@ func (l Level) Valid() bool {
 type Logger interface {
 	Info(string)
 	Debug(string)
+	Warn(string)
 	Error(whatWasHappeningWhenErrorOccurred string, err error)
 
 	SetRequestIDFunc(RequestIDFunc)

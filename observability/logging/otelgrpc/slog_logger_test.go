@@ -148,6 +148,37 @@ func Test_zerologLogger_Debug(T *testing.T) {
 	})
 }
 
+func Test_otelSlogLogger_Warn(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		l, err := NewOtelSlogLogger(ctx, logging.DebugLevel, t.Name(), &Config{})
+		must.NoError(t, err)
+
+		l.Warn(t.Name())
+	})
+}
+
+func Test_otelSlogLogger_warnLevelThreshold(T *testing.T) {
+	T.Parallel()
+
+	T.Run("warn sits between info and error", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		l, err := NewOtelSlogLogger(ctx, logging.WarnLevel, t.Name(), &Config{})
+		must.NoError(t, err)
+
+		test.False(t, l.logger.Enabled(ctx, slog.LevelDebug))
+		test.False(t, l.logger.Enabled(ctx, slog.LevelInfo))
+		test.True(t, l.logger.Enabled(ctx, slog.LevelWarn))
+		test.True(t, l.logger.Enabled(ctx, slog.LevelError))
+	})
+}
+
 func Test_zerologLogger_Error(T *testing.T) {
 	T.Parallel()
 

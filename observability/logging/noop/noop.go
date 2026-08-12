@@ -1,6 +1,6 @@
-// Package noop is the logging.Logger that writes nowhere. Info, Debug, and
-// Error are all discarded — Error included — so a process wired with it reports
-// its failures only through the values it returns.
+// Package noop is the logging.Logger that writes nowhere. Info, Debug, Warn,
+// and Error are all discarded — Error included — so a process wired with it
+// reports its failures only through the values it returns.
 //
 // The With* methods hand back the same logger rather than a derived one, which
 // means the name, values, request, response, error, and span a caller attaches
@@ -39,6 +39,9 @@ func (*Logger) Info(string) {}
 
 // Debug is a no-op.
 func (*Logger) Debug(string) {}
+
+// Warn is a no-op.
+func (*Logger) Warn(string) {}
 
 // Error is a no-op.
 func (*Logger) Error(string, error) {}
