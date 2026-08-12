@@ -1,3 +1,16 @@
+// Package databasecfg selects and builds a database.Client — Postgres, MySQL, or
+// SQLite — and owns the connection strings each of them wants.
+//
+// That second job is why this package is larger than the other selection seams.
+// ConnectionDetails is parsed from discrete fields or from a URL and rendered as
+// a libpq keyword string, a MySQL DSN, or a SQLite DSN, so the quoting and the
+// SSL-mode handling live in one place rather than in each caller that assembles
+// a connection string by hand.
+//
+// Postgres is the default provider, applied by EnsureDefaults before validation
+// runs, so an unset provider is a configured deployment rather than a validation
+// failure — and so the provider list this package validates against never has to
+// carry the empty string.
 package databasecfg
 
 import (

@@ -1,3 +1,11 @@
+// Package textsearchcfg selects and builds a text search index from
+// configuration: Elasticsearch, Algolia, or noop.
+//
+// The index is generic over the document type and one index is built per index
+// name, so a service with several corpora calls NewIndex once each rather than
+// configuring several providers. Whichever backend is selected is wrapped in a
+// circuit breaker built from the same config, since both of them are a network
+// away.
 package textsearchcfg
 
 import (

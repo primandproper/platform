@@ -1,3 +1,14 @@
+// Package metricscfg selects and builds a metrics.Provider from configuration:
+// the OTel gRPC exporter, or no metrics at all.
+//
+// One of the four pillar config packages, so it has no WithPillars option —
+// observability imports it to build a Pillars. Its own logger arrives through
+// WithLogger and is optional, because a process may well configure metrics
+// before it configures logging.
+//
+// The empty provider and "noop" both select no metrics, which is the deliberate
+// opt-out. An unrecognized provider name is an error: it used to land in the
+// same place and looked exactly like having asked.
 package metricscfg
 
 import (

@@ -1,3 +1,10 @@
+// Package routingcfg selects and builds a routing backend from configuration:
+// chi, net/http's ServeMux, httprouter, or gin.
+//
+// Every backend requires a service name, and those rules are enforced from here
+// rather than left to the backend: a router built from a config that named only
+// a provider used to run with an empty service name on all of its spans, which
+// is the kind of thing nobody notices until they go looking for the traces.
 package routingcfg
 
 import (

@@ -1,3 +1,10 @@
+// Package llmcfg selects and builds an llm.Provider from configuration: OpenAI,
+// Anthropic, or the noop provider.
+//
+// The selected vendor's sub-config is validated here rather than trusted to have
+// been validated upstream, because that block is what carries the API key: a
+// deployment naming openai and supplying nothing used to get as far as its first
+// completion before finding out.
 package llmcfg
 
 import (

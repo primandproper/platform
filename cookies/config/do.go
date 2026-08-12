@@ -1,3 +1,10 @@
+// Package cookiescfg registers a cookies.Manager with a do injector.
+//
+// Unlike its sibling config subpackages it declares no Config and no Option of
+// its own: there is one cookie manager rather than a provider to select, and
+// cookies.Config lives beside it in the cookies package. What remains here is
+// the wiring — resolving the pillars an injector may or may not hold — which is
+// the only part a leaf package cannot do for itself.
 package cookiescfg
 
 import (

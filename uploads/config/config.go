@@ -1,3 +1,11 @@
+// Package uploadscfg carries the uploads configuration and hands its object
+// storage half to a do injector.
+//
+// It selects nothing. The backend choice — S3, GCS, R2, Backblaze B2, the
+// filesystem, memory — lives in objectstorage.Config, which this package wraps
+// and validates rather than restates. What it adds is the envelope the
+// environment is parsed into and RegisterStorageConfig, which extracts the inner
+// config so consumers depend on that rather than on this one.
 package uploadscfg
 
 import (

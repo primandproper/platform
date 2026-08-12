@@ -1,3 +1,17 @@
+// Package circuitbreakingcfg builds a circuitbreaking.CircuitBreaker from
+// configuration. There is one implementation and so no provider to name: what
+// is configured here is the trip threshold and the breaker's identity.
+//
+// The name is the load-bearing field. It is the breaker's identity in every log
+// line it writes and the value of the attribute on every counter it records, so
+// an unnamed breaker gets a numbered placeholder — enough to keep two of them
+// out of one series, and no help to whoever reads that series later. The
+// instrument names are exported here for the dashboards that query them.
+//
+// EnsureCircuitBreaker is the other half of this package: it substitutes a noop
+// for a nil breaker and says so through the caller's logger, because a
+// component that believes it is protected and is not is exactly what
+// circuitbreaking exists to prevent.
 package circuitbreakingcfg
 
 import (

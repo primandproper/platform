@@ -1,3 +1,10 @@
+// Package embeddingscfg selects and builds an embeddings.Embedder from
+// configuration: OpenAI, Ollama, Cohere, or the noop embedder.
+//
+// Unlike most selection seams in this module, the empty provider is accepted
+// here and selects the noop embedder. Embeddings are an optional capability
+// rather than one a service silently loses, so a deployment that never mentions
+// them is a configured deployment; the noop can also be named outright.
 package embeddingscfg
 
 import (

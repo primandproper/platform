@@ -1,3 +1,17 @@
+// Package secretscfg selects and builds a secrets.SecretSource from
+// configuration: environment variables, GCP Secret Manager, AWS SSM Parameter
+// Store, Kubernetes secrets, or noop. An empty provider selects the environment
+// source, which is the one that needs nothing standing up.
+//
+// It also decorates. CacheTTL wraps whichever source was selected in a caching
+// one, and RefreshInterval keeps those entries warm in the background rather
+// than making whichever caller arrives after an expiry pay for it. Leaving
+// CacheTTL unset means every GetSecret is a round trip — free for the env
+// source, and a network call for every other one.
+//
+// The vendor client fields exist so a caller can supply an already-authenticated
+// client instead of having one built; they carry no env tags and are excluded
+// from serialization.
 package secretscfg
 
 import (

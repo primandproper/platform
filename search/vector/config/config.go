@@ -1,3 +1,11 @@
+// Package vectorsearchcfg selects and builds a vector search index from
+// configuration: pgvector, Qdrant, or noop.
+//
+// Only pgvector needs the database.Client NewIndex takes — it stores vectors in
+// the service's own Postgres rather than in a separate system — so every other
+// provider is passed nil. The embedding dimension is part of the selected
+// provider's config and is not negotiable after the fact: it has to match
+// whatever produced the vectors being written.
 package vectorsearchcfg
 
 import (

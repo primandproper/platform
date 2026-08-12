@@ -1,3 +1,17 @@
+// Package retrycfg builds a retry.Policy from configuration — exponential
+// backoff, which an unset provider selects, or noop, which has to be named.
+//
+// Its Config is embedded in the configs of the packages that retry (outbox,
+// saga, metering, dataprivacy, jobs, webhooks) as well as read from the
+// environment directly, which is why its zero value is meaningful and why
+// EnsureDefaults clamps rather than merely zero-checks: the constructor returns
+// no error a nonsensical multiplier could travel out through.
+//
+// It also exports the schedule itself. DelayFor and ScheduledDelayFor exist for
+// callers that cannot retry by sleeping — a worker persisting "try again at T"
+// into a row has to survive the process — so the backoff a policy would have
+// waited and the backoff a row is scheduled for are computed once rather than
+// twice.
 package retrycfg
 
 import (

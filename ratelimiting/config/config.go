@@ -1,3 +1,11 @@
+// Package ratelimitingcfg selects and builds a rate limiter from configuration:
+// the in-process memory limiter, the Redis-backed one, or noop.
+//
+// The rate and burst are shared across providers, but they mean different
+// things: the memory limiter enforces them per replica, so a fleet of N allows
+// N times what the config says, while the Redis limiter enforces them once for
+// the fleet. MaxLimiters bounds how many per-key limiters the memory provider
+// retains and is ignored by the others, which keep no per-key state here.
 package ratelimitingcfg
 
 import (

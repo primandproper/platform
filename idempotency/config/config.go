@@ -1,3 +1,12 @@
+// Package idempotencycfg assembles an idempotency.Manager from environment
+// configuration.
+//
+// It selects nothing itself. What it configures is two other seams — a
+// cachecfg.Config for the record store and a distributedlockcfg.Config for the
+// lock guarding the claim — and the guarantee holds only if both are chosen for
+// a fleet: the memory cache is per-process, so replicas would not see each
+// other's records, and the noop locker acquires unconditionally, which leaves
+// replay working while quietly removing mutual exclusion.
 package idempotencycfg
 
 import (

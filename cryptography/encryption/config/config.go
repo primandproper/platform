@@ -1,3 +1,14 @@
+// Package encryptioncfg builds an encryption keyring over a caller-supplied
+// encryption.Keyset, with one cipher provider — AES-256-GCM today — governing
+// every key in the ring.
+//
+// A mixed ring is expressible in principle, since a ciphertext names its key and
+// the key determines its cipher, but nothing has wanted one and offering it
+// would mean every deployment configuring an algorithm per key forever.
+//
+// CurrentKeyID names the key new ciphertexts are written under and is required:
+// rotation works by changing it, so inferring a default would make the choice
+// invisible at the moment it matters most.
 package encryptioncfg
 
 import (
