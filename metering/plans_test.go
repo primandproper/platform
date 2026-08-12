@@ -2,6 +2,7 @@ package metering
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/primandproper/platform-go/v10/observability"
@@ -442,6 +443,87 @@ func TestPlanLimitSource_AgainstAnEnforcer(T *testing.T) {
 		test.False(t, decision.Allowed)
 		test.EqOp(t, int64(1), decision.Limit)
 	})
+}
+
+// TestPlanLimitSource_QuotaFor_concurrent walks the ladder from many goroutines
+// at once so the race detector has something to say about the limits table.
+//
+// Nothing writes to that table after construction today, so this asserts a guard
+// rather than reproducing a failure — which is the point of having it. The day
+// somebody gives this type a writer, this is the test that refuses to let the
+// write land unsynchronized.
+func TestPlanLimitSource_QuotaFor_concurrent(T *testing.T) {
+	T.Parallel()
+
+	const (
+		goroutines        = 16
+		iterations        = 64
+		entitledSubject   = "subject_entitled"
+		unentitledSubject = "subject_unentitled"
+		entitledLimit     = int64(5_000)
+		unsubscribedLimit = int64(100)
+	)
+
+	source, err := NewPlanLimitSource(
+		newPlanRegistry(T),
+		map[string]PlanLimits{
+			testMeter: {
+				ByProduct:    map[string]int64{testProduct: entitledLimit},
+				Behavior:     BehaviorBlock,
+				Unsubscribed: unsubscribedLimit,
+			},
+		},
+		EntitlementReaderFunc(func(_ context.Context, subject string) (string, bool, error) {
+			if subject == entitledSubject {
+				return testProduct, true, nil
+			}
+
+			return "", false, nil
+		}),
+	)
+	must.NoError(T, err)
+
+	ctx := T.Context()
+
+	var wg sync.WaitGroup
+
+	for i := range goroutines {
+		wg.Go(func() {
+			// Both sides of the ladder run concurrently, not just the branch that
+			// reads ByProduct: half these goroutines resolve through the product
+			// lookup and half fall to the unsubscribed limit.
+			subject, want := entitledSubject, entitledLimit
+			if i%2 == 1 {
+				subject, want = unentitledSubject, unsubscribedLimit
+			}
+
+			for range iterations {
+				q, quotaErr := source.QuotaFor(ctx, subject, testMeter)
+				if quotaErr != nil {
+					T.Error(quotaErr)
+
+					return
+				}
+
+				if q.Limit != want {
+					T.Errorf("subject %q: limit %d, want %d", subject, q.Limit, want)
+
+					return
+				}
+
+				// The meter the table does not name short circuits before the
+				// entitlement read, which is the one path that touches the table
+				// and nothing else.
+				if _, quotaErr = source.QuotaFor(ctx, subject, "daily_exports"); quotaErr != nil {
+					T.Error(quotaErr)
+
+					return
+				}
+			}
+		})
+	}
+
+	wg.Wait()
 }
 
 func TestEntitlementReaderFunc(T *testing.T) {

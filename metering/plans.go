@@ -3,6 +3,7 @@ package metering
 import (
 	"context"
 	"maps"
+	"sync"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -153,10 +154,15 @@ var _ QuotaSource = (*PlanLimitSource)(nil)
 // A PlanLimitSource is safe for concurrent use and takes a copy of the limits
 // table at construction, so a caller that goes on holding the map it passed
 // cannot change what is being enforced halfway through a request.
+//
+// mu guards limits and the ByProduct map inside each entry. Nothing writes to
+// either after construction, so the lock is uncontended in practice; it is here
+// because a library does not get to decide how concurrently it is called, and an
+// invariant that lives only in a comment is one a later writer breaks without
+// noticing. See meterLimits and productLimit for why the two reads are taken
+// separately rather than under one hold.
 type PlanLimitSource struct {
-	registry     *Registry
 	entitlements EntitlementReader
-	limits       map[string]PlanLimits
 	o11y         observability.Observer
 
 	unconfiguredCounter metrics.Int64Counter
@@ -167,6 +173,10 @@ type PlanLimitSource struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
+	registry        *Registry
+	limits          map[string]PlanLimits
+
+	mu sync.RWMutex
 }
 
 // NewPlanLimitSource builds a QuotaSource over a limits table and a subscription
@@ -251,6 +261,37 @@ func (s *PlanLimitSource) initInstruments() error {
 	return nil
 }
 
+// meterLimits reports what the table says about a meter, and whether it names it
+// at all.
+//
+// It hands back the two scalars rather than the PlanLimits holding them, because
+// returning the struct would let its ByProduct map escape the read lock. The
+// product lookup is productLimit, taken separately after the entitlement read —
+// holding a lock across that read would put a database round trip inside the
+// critical section, which is how an uncontended lock becomes a contended one.
+func (s *PlanLimitSource) meterLimits(meter string) (QuotaBehavior, int64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	limits, gated := s.limits[meter]
+
+	return limits.Behavior, limits.Unsubscribed, gated
+}
+
+// productLimit reports the limit configured for a product under a meter.
+//
+// A meter the table does not name yields no limit, which is the same answer as a
+// product it does not price. Only QuotaFor's ladder distinguishes them, and it
+// has already established the meter is gated before it asks.
+func (s *PlanLimitSource) productLimit(meter, product string) (int64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	limit, configured := s.limits[meter].ByProduct[product]
+
+	return limit, configured
+}
+
 // QuotaFor implements QuotaSource by walking the resolution ladder.
 //
 // A meter the table does not name is unlimited for every subject, and is
@@ -278,12 +319,12 @@ func (s *PlanLimitSource) QuotaFor(ctx context.Context, subject, meter string) (
 		return Quota{}, op.Error(platformerrors.Wrapf(ErrUnknownMeter, "meter %q", meter), "resolving plan limits")
 	}
 
-	limits, gated := s.limits[meter]
+	behavior, unsubscribed, gated := s.meterLimits(meter)
 	if !gated {
 		return unlimitedQuota(meter, m.Period), nil
 	}
 
-	limit := limits.Unsubscribed
+	limit := unsubscribed
 
 	productID, entitled, err := s.entitlements.EntitlingProduct(ctx, subject)
 	if err != nil {
@@ -296,8 +337,8 @@ func (s *PlanLimitSource) QuotaFor(ctx context.Context, subject, meter string) (
 	})
 
 	if entitled {
-		if productLimit, configured := limits.ByProduct[productID]; configured {
-			limit = productLimit
+		if configuredLimit, configured := s.productLimit(meter, productID); configured {
+			limit = configuredLimit
 		} else {
 			s.unconfiguredCounter.Add(ctx, 1, meterAttr(meter))
 			op.Logger().Info("no plan limit configured for product; applying the unsubscribed limit")
@@ -306,12 +347,12 @@ func (s *PlanLimitSource) QuotaFor(ctx context.Context, subject, meter string) (
 
 	op.SetValues(map[string]any{
 		limitKey:    limit,
-		behaviorKey: string(limits.Behavior),
+		behaviorKey: string(behavior),
 	})
 
 	return Quota{
 		Meter:    meter,
-		Behavior: limits.Behavior,
+		Behavior: behavior,
 		Period:   m.Period,
 		Limit:    limit,
 	}, nil
