@@ -13,6 +13,8 @@ import (
 	"github.com/primandproper/platform-go/v10/links"
 	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
+	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	vectorsearch "github.com/primandproper/platform-go/v10/search/vector"
 	"github.com/primandproper/platform-go/v10/sessions"
 
 	"google.golang.org/grpc/codes"
@@ -132,6 +134,32 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 		errors.Is(err, idempotency.ErrKeyRequired),
 		errors.Is(err, idempotency.ErrKeyTooLong),
 		errors.Is(err, idempotency.ErrKeyInvalid):
+		return codes.InvalidArgument, true
+	// OutOfRange rather than InvalidArgument, which is the distinction gRPC's own
+	// guidance draws between the two: InvalidArgument is an argument bad
+	// regardless of the system's state, OutOfRange is one that ran past the end
+	// of a range. A cursor at page 400 is well-formed and was well-formed when
+	// the index issued it; it is only past the end. The alternatives are worse in
+	// both directions — Internal turns a client-correctable refusal into a page
+	// alert, and OK with an empty page tells the client it has seen everything.
+	case errors.Is(err, textsearch.ErrResultWindowExceeded):
+		return codes.OutOfRange, true
+	// InvalidArgument for a cursor the index did not issue, which is the other
+	// half of that distinction: nothing about the system's state makes it valid,
+	// so it is bad input rather than exhausted range. Usually it is a cursor
+	// carried over from a database-backed page — the two kinds share a field —
+	// or one left over from a backend swap.
+	case errors.Is(err, textsearch.ErrInvalidCursor),
+		errors.Is(err, textsearch.ErrEmptyQueryProvided):
+		return codes.InvalidArgument, true
+	// The vector index's request-shaped refusals: a missing vector is a NotFound
+	// like any other, and the other two are queries the index cannot evaluate.
+	// Its construction-time sentinels are deliberately unmapped, for the reason
+	// the HTTP mapper spells out where it does the same.
+	case errors.Is(err, vectorsearch.ErrNotFound):
+		return codes.NotFound, true
+	case errors.Is(err, vectorsearch.ErrEmptyEmbedding),
+		errors.Is(err, vectorsearch.ErrDimensionMismatch):
 		return codes.InvalidArgument, true
 	case errors.Is(err, platformerrors.ErrNilInputParameter),
 		errors.Is(err, platformerrors.ErrEmptyInputParameter),

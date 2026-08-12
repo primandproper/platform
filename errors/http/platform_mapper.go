@@ -13,6 +13,8 @@ import (
 	"github.com/primandproper/platform-go/v10/links"
 	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
+	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	vectorsearch "github.com/primandproper/platform-go/v10/search/vector"
 	"github.com/primandproper/platform-go/v10/sessions"
 )
 
@@ -132,6 +134,49 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		errors.Is(err, idempotency.ErrKeyTooLong),
 		errors.Is(err, idempotency.ErrKeyInvalid):
 		return ErrValidatingRequestInput, "invalid idempotency key", true
+	// The three refusals a text index makes about the request rather than about
+	// itself. Each gets the code its remedy needs — see ErrInvalidSearchCursor
+	// and ErrSearchWindowExceeded on why two of them are not the general input
+	// code. None of the messages names the backend or the ceiling: which engine
+	// is behind the interface is not something a client should be branching on,
+	// and the depth at which paging stops is an implementation detail that
+	// changes with an index setting.
+	case errors.Is(err, textsearch.ErrInvalidCursor):
+		return ErrInvalidSearchCursor, "invalid search cursor", true
+	case errors.Is(err, textsearch.ErrResultWindowExceeded):
+		return ErrSearchWindowExceeded, "search pagination limit reached; narrow the query", true
+	case errors.Is(err, textsearch.ErrEmptyQueryProvided):
+		return ErrValidatingRequestInput, "search query must not be empty", true
+	// The vector index's request-shaped refusals. A missing vector is the same
+	// answer as a missing row, and the other two are a query the index cannot
+	// evaluate: a zero-length embedding, or one of the wrong width for the index
+	// it was sent to. The dimensions are not in the message — an index's width is
+	// a property of the model behind it, and a caller that got it wrong has it in
+	// their own request.
+	//
+	// The rest of the search sentinels are deliberately absent, and the audit
+	// that left them out is worth stating. vectorsearch's ErrNilConfig,
+	// ErrNilDatabaseClient, ErrInvalidMetric and ErrInvalidDimension, pgvector's
+	// ErrInvalidIdentifier and ErrInvalidFilter, qdrant's ErrUnsupportedID, and
+	// elasticsearch's ErrNotReady are all raised while wiring an index up or
+	// building a query in code, never in answer to something a client sent. They
+	// reach a client only through a service that shipped broken, and a 500 is the
+	// honest answer to that. qdrant's ErrUnexpectedStatus is the one that is
+	// neither: it is the index's own dependency misbehaving, which is a 500 for
+	// the same reason every other unwrapped provider failure is one.
+	//
+	// That they are all provider-package sentinels is not a coincidence. This
+	// mapper imports the packages it maps, and importing a provider would put
+	// that vendor's client — the whole Elasticsearch transport stack, in the worst
+	// case — into every binary that answers an error. The sentinels a client has
+	// to act on therefore live beside the interface, where both transports can
+	// reach them for the cost of the interface package.
+	case errors.Is(err, vectorsearch.ErrNotFound):
+		return ErrDataNotFound, "vector not found", true
+	case errors.Is(err, vectorsearch.ErrEmptyEmbedding):
+		return ErrValidatingRequestInput, "embedding must not be empty", true
+	case errors.Is(err, vectorsearch.ErrDimensionMismatch):
+		return ErrValidatingRequestInput, "embedding does not match the index dimension", true
 	case errors.Is(err, platformerrors.ErrNilInputParameter),
 		errors.Is(err, platformerrors.ErrEmptyInputParameter),
 		errors.Is(err, platformerrors.ErrInvalidIDProvided),
