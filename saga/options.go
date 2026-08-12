@@ -9,11 +9,11 @@ import (
 )
 
 // OutboxPublisherOption configures an outbox-backed EventPublisher.
-type OutboxPublisherOption func(*outboxPublisher)
+type OutboxPublisherOption func(*OutboxPublisher)
 
 // WithEventTopic overrides DefaultEventTopic.
 func WithEventTopic(topic string) OutboxPublisherOption {
-	return func(p *outboxPublisher) {
+	return func(p *OutboxPublisher) {
 		if topic != "" {
 			p.topic = topic
 		}
@@ -83,13 +83,13 @@ func WithRunnerMetricsProvider(metricsProvider metrics.Provider) RunnerOption {
 }
 
 // SQLStoreOption configures a SQL Store.
-type SQLStoreOption func(*sqlStore)
+type SQLStoreOption func(*SQLStore)
 
 // WithTablePrefix overrides DefaultTablePrefix. It must be a plain SQL
 // identifier fragment: it is interpolated into the query text, not bound as a
 // parameter, and it must match the prefix the migrations were rendered with.
 func WithTablePrefix(prefix string) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		if prefix != "" {
 			s.tables = newTables(prefix)
 		}
@@ -98,21 +98,21 @@ func WithTablePrefix(prefix string) SQLStoreOption {
 
 // WithStoreLogger attaches a logger.
 func WithStoreLogger(logger logging.Logger) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.logger = logger
 	}
 }
 
 // WithStoreTracerProvider attaches a tracer provider.
 func WithStoreTracerProvider(tracerProvider tracing.Provider) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.tracerProvider = tracerProvider
 	}
 }
 
 // WithStoreMetricsProvider attaches a metrics provider.
 func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
-	return func(s *sqlStore) {
+	return func(s *SQLStore) {
 		s.metricsProvider = metricsProvider
 	}
 }

@@ -15,12 +15,12 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// newRecordingBuilder builds a *builder with a RecordingObserver swapped in, so a
+// newRecordingBuilder builds a *StandardBuilder with a RecordingObserver swapped in, so a
 // test can both drive BuildQRCode and assert that it observed an operation.
-func newRecordingBuilder(t *testing.T) (*builder, *observability.RecordingObserver) {
+func newRecordingBuilder(t *testing.T) (*StandardBuilder, *observability.RecordingObserver) {
 	t.Helper()
 
-	b := NewBuilder("test-issuer").(*builder)
+	b := NewBuilder("test-issuer")
 	obs := observability.NewRecordingObserver()
 	b.o11y = obs
 
@@ -73,7 +73,7 @@ func Test_builder_BuildQRCode(T *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
-		b := NewBuilder("test-issuer").(*builder)
+		b := NewBuilder("test-issuer")
 		b.scale = func(barcode.Barcode, int, int) (barcode.Barcode, error) {
 			return nil, fmt.Errorf("scale error")
 		}
@@ -87,7 +87,7 @@ func Test_builder_BuildQRCode(T *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
-		b := NewBuilder("test-issuer").(*builder)
+		b := NewBuilder("test-issuer")
 		b.pngEncode = func(*bytes.Buffer, barcode.Barcode) error {
 			return fmt.Errorf("png encode error")
 		}
@@ -101,7 +101,7 @@ func Test_builder_BuildQRCode(T *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
-		b := NewBuilder("My & App").(*builder)
+		b := NewBuilder("My & App")
 
 		var captured string
 		b.qrEncode = func(content string, _ qr.ErrorCorrectionLevel, _ qr.Encoding) (barcode.Barcode, error) {

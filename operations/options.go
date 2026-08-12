@@ -9,29 +9,29 @@ import (
 )
 
 // StoreOption configures a SQL Store at construction.
-type StoreOption func(*sqlStore)
+type StoreOption func(*SQLStore)
 
 // WithStoreLogger attaches a logger to the store.
 func WithStoreLogger(logger logging.Logger) StoreOption {
-	return func(s *sqlStore) { s.logger = logger }
+	return func(s *SQLStore) { s.logger = logger }
 }
 
 // WithStoreTracerProvider attaches a tracer provider to the store.
 func WithStoreTracerProvider(tracerProvider tracing.Provider) StoreOption {
-	return func(s *sqlStore) { s.tracerProvider = tracerProvider }
+	return func(s *SQLStore) { s.tracerProvider = tracerProvider }
 }
 
 // WithStoreMetricsProvider attaches a metrics provider to the store. An absent
 // provider records nothing.
 func WithStoreMetricsProvider(metricsProvider metrics.Provider) StoreOption {
-	return func(s *sqlStore) { s.metricsProvider = metricsProvider }
+	return func(s *SQLStore) { s.metricsProvider = metricsProvider }
 }
 
 // WithStoreTablePrefix namespaces the operations table. It must match the
 // namespace the migrations were rendered with; nothing here can check that, and
 // a mismatch surfaces as a missing table on the first query.
 func WithStoreTablePrefix(prefix string) StoreOption {
-	return func(s *sqlStore) { s.tables = newTables(prefix) }
+	return func(s *SQLStore) { s.tables = newTables(prefix) }
 }
 
 // WithStoreNotifyChannel makes every write to an operation row emit a
@@ -42,7 +42,7 @@ func WithStoreTablePrefix(prefix string) StoreOption {
 // Without it the watch path still delivers every state an operation passes
 // through, a poll interval late.
 func WithStoreNotifyChannel(channel string) StoreOption {
-	return func(s *sqlStore) { s.notifyChannel = channel }
+	return func(s *SQLStore) { s.notifyChannel = channel }
 }
 
 type (

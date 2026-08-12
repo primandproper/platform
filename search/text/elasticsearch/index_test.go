@@ -29,7 +29,7 @@ type invalidJSON struct {
 	Channel chan int `json:"channel"`
 }
 
-func buildTestIndexManagerForUnit(t *testing.T, cb circuitbreaking.CircuitBreaker) (*indexManager[example], *observability.RecordingObserver) {
+func buildTestIndexManagerForUnit(t *testing.T, cb circuitbreaking.CircuitBreaker) (*IndexManager[example], *observability.RecordingObserver) {
 	t.Helper()
 
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
@@ -44,7 +44,7 @@ func buildTestIndexManagerForUnit(t *testing.T, cb circuitbreaking.CircuitBreake
 	instruments, err := textsearch.NewInstruments(serviceName, "test", nil)
 	must.NoError(t, err)
 
-	return &indexManager[example]{
+	return &IndexManager[example]{
 		o11y:           obs,
 		circuitBreaker: cb,
 		esClient:       client,
@@ -53,7 +53,7 @@ func buildTestIndexManagerForUnit(t *testing.T, cb circuitbreaking.CircuitBreake
 	}, obs
 }
 
-func buildTestIndexManagerWithServer(t *testing.T, server *httptest.Server, cb circuitbreaking.CircuitBreaker) (*indexManager[example], *observability.RecordingObserver) {
+func buildTestIndexManagerWithServer(t *testing.T, server *httptest.Server, cb circuitbreaking.CircuitBreaker) (*IndexManager[example], *observability.RecordingObserver) {
 	t.Helper()
 
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
@@ -68,7 +68,7 @@ func buildTestIndexManagerWithServer(t *testing.T, server *httptest.Server, cb c
 	instruments, err := textsearch.NewInstruments(serviceName, "test", nil)
 	must.NoError(t, err)
 
-	return &indexManager[example]{
+	return &IndexManager[example]{
 		o11y:           obs,
 		circuitBreaker: cb,
 		esClient:       client,

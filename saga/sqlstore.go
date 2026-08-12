@@ -35,10 +35,14 @@ const DefaultTablePrefix = ""
 // like a step execution in every span listing.
 const storeName = serviceName + "_store"
 
-var _ Store = (*sqlStore)(nil)
+var _ Store = (*SQLStore)(nil)
 
-// sqlStore is the SQL-backed Store, against the schema saga/migrations renders.
-type sqlStore struct {
+// SQLStore is the SQL-backed Store, against the schema saga/migrations renders.
+//
+// It is exported, and returned by NewSQLStore, so a caller who has chosen SQL
+// storage can depend on that choice rather than on the Store seam every backing
+// shares.
+type SQLStore struct {
 	client database.Client
 	tables *tables
 	o11y   observability.Observer
@@ -67,7 +71,7 @@ type sqlStore struct {
 //
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger, traces to a noop provider, and counts into a noop meter.
-func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) {
+func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
 	}
@@ -77,7 +81,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "saga dialect %q", d)
 	}
 
-	s := &sqlStore{
+	s := &SQLStore{
 		client:  client,
 		dialect: d,
 		tables:  newTables(DefaultTablePrefix),
@@ -118,7 +122,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (Store, error) 
 	return s, nil
 }
 
-func (s *sqlStore) Save(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error {
+func (s *SQLStore) Save(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -160,7 +164,7 @@ func encodeStepNames(names []string) []byte {
 	return encoded
 }
 
-func (s *sqlStore) Get(ctx context.Context, instanceID string) (*Record, error) {
+func (s *SQLStore) Get(ctx context.Context, instanceID string) (*Record, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(instanceIDKey, instanceID))
 	defer op.End()
 
@@ -186,7 +190,7 @@ func (s *sqlStore) Get(ctx context.Context, instanceID string) (*Record, error) 
 	return inst, nil
 }
 
-func (s *sqlStore) List(
+func (s *SQLStore) List(
 	ctx context.Context,
 	scope *ListScope,
 	filter *filtering.QueryFilter,
@@ -243,7 +247,7 @@ func (s *sqlStore) List(
 	), nil
 }
 
-func (s *sqlStore) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*Record, error) {
+func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*Record, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
 
@@ -311,7 +315,7 @@ func (s *sqlStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 	return claimed, nil
 }
 
-func (s *sqlStore) Advance(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error {
+func (s *SQLStore) Advance(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -336,7 +340,7 @@ func (s *sqlStore) Advance(ctx context.Context, q database.SQLQueryExecutor, ins
 	return s.guard.Exec(ctx, op, q, query, args, inst.ID, "advance", "advancing saga instance")
 }
 
-func (s *sqlStore) Reschedule(
+func (s *SQLStore) Reschedule(
 	ctx context.Context,
 	instanceID string,
 	attempts int,
@@ -356,7 +360,7 @@ func (s *sqlStore) Reschedule(
 	return s.guard.Exec(ctx, op, s.client.Writer(), query, args, instanceID, "reschedule", "rescheduling saga instance")
 }
 
-func (s *sqlStore) Release(ctx context.Context, instanceID string, at time.Time) error {
+func (s *SQLStore) Release(ctx context.Context, instanceID string, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(instanceIDKey, instanceID))
 	defer op.End()
 
@@ -369,7 +373,7 @@ func (s *sqlStore) Release(ctx context.Context, instanceID string, at time.Time)
 	return nil
 }
 
-func (s *sqlStore) Requeue(
+func (s *SQLStore) Requeue(
 	ctx context.Context,
 	instanceID string,
 	from []Status,
@@ -418,7 +422,7 @@ func (s *sqlStore) Requeue(
 // WithTransaction delegates to the client, which begins its own span for the
 // transaction. Wrapping it here would nest a second span around the first and
 // say nothing the client's does not.
-func (s *sqlStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
 	return s.client.WithTransaction(ctx, fn)
 }
 

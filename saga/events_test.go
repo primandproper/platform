@@ -246,9 +246,7 @@ func TestNewOutboxPublisher(T *testing.T) {
 		publisher, err := NewOutboxPublisher(writer, WithEventTopic("sagas"))
 		must.NoError(t, err)
 
-		concrete, ok := publisher.(*outboxPublisher)
-		must.True(t, ok)
-		test.EqOp(t, "sagas", concrete.topic)
+		test.EqOp(t, "sagas", publisher.topic)
 
 		test.NoError(t, publisher.Publish(t.Context(), nil))
 	})

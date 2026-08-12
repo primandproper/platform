@@ -52,12 +52,17 @@ type (
 		EncodeReader(ctx context.Context, data any) (io.Reader, error)
 	}
 
-	// clientEncoder is our concrete implementation of ClientEncoder.
-	clientEncoder struct {
+	// Encoder is our concrete implementation of ClientEncoder, speaking one
+	// ContentType for its whole life. It is exported, and returned by
+	// NewClientEncoder, so a caller can depend on the encoder it built rather
+	// than on the ClientEncoder seam.
+	Encoder struct {
 		o11y        observability.Observer
 		contentType ContentType
 	}
 )
+
+var _ ClientEncoder = (*Encoder)(nil)
 
 // marshalFuncFor returns the byte-oriented marshaler for a content type, and
 // is the single dispatch every encode path in this package routes through.
@@ -114,7 +119,7 @@ func unmarshalFuncFor(ct ContentType) (func(data []byte, v any) error, error) {
 	}
 }
 
-func (e *clientEncoder) Unmarshal(ctx context.Context, data []byte, v any) error {
+func (e *Encoder) Unmarshal(ctx context.Context, data []byte, v any) error {
 	_, op := e.o11y.Begin(ctx, observability.WithValue("data_length", len(data)))
 	defer op.End()
 
@@ -133,7 +138,7 @@ func (e *clientEncoder) Unmarshal(ctx context.Context, data []byte, v any) error
 }
 
 // Marshal renders v as bytes in this encoder's content type.
-func (e *clientEncoder) Marshal(ctx context.Context, v any) ([]byte, error) {
+func (e *Encoder) Marshal(ctx context.Context, v any) ([]byte, error) {
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -152,7 +157,7 @@ func (e *clientEncoder) Marshal(ctx context.Context, v any) ([]byte, error) {
 	return out, nil
 }
 
-func (e *clientEncoder) Encode(ctx context.Context, dest io.Writer, data any) error {
+func (e *Encoder) Encode(ctx context.Context, dest io.Writer, data any) error {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -204,7 +209,7 @@ func tomlMarshalFunc(v any) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func (e *clientEncoder) EncodeReader(ctx context.Context, data any) (io.Reader, error) {
+func (e *Encoder) EncodeReader(ctx context.Context, data any) (io.Reader, error) {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -223,10 +228,10 @@ func (e *clientEncoder) EncodeReader(ctx context.Context, data any) (io.Reader, 
 // unrecognized media type. An encoder built on a hand-made ContentType this
 // package does not implement returns ErrUnsupportedContentType from every
 // operation; it does not fall back to JSON.
-func NewClientEncoder(encoding ContentType, opts ...Option) ClientEncoder {
+func NewClientEncoder(encoding ContentType, opts ...Option) *Encoder {
 	cfg := newOptions(opts)
 
-	return &clientEncoder{
+	return &Encoder{
 		o11y:        observability.NewObserver("client_encoder", cfg.logger, cfg.tracerProvider),
 		contentType: encoding,
 	}

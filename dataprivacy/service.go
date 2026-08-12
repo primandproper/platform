@@ -27,10 +27,12 @@ import (
 // auditResourceType is what this package's audit entries are about.
 const auditResourceType = "dataprivacy_request"
 
-var _ Service = (*service)(nil)
+var _ Service = (*StoreService)(nil)
 
-// service is the request state machine.
-type service struct {
+// StoreService is the request state machine, over a Store and an operations
+// Service. It is exported, and returned by NewService, so a caller can depend on
+// the service it built rather than on the Service seam.
+type StoreService struct {
 	store      Store
 	operations operations.Service
 	clock      clock.Clock
@@ -97,7 +99,7 @@ func NewService(
 	store Store,
 	ops operations.Service,
 	opts ...ServiceOption,
-) (Service, error) {
+) (*StoreService, error) {
 	if cfg == nil {
 		return nil, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil dataprivacy service config")
 	}
@@ -112,7 +114,7 @@ func NewService(
 
 	cfg.EnsureDefaults()
 
-	s := &service{
+	s := &StoreService{
 		cfg:        *cfg,
 		store:      store,
 		operations: ops,
@@ -152,7 +154,7 @@ func NewService(
 	return s, nil
 }
 
-func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*Request, error) {
+func (s *StoreService) Submit(ctx context.Context, subject Subject, t RequestType) (*Request, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectIDKey:    subject.ID,
 		subjectTypeKey:  string(subject.Type),
@@ -231,7 +233,7 @@ func (s *service) Submit(ctx context.Context, subject Subject, t RequestType) (*
 // The operation's request payload is a Job carrying the request ID and nothing
 // else — see Job — and its owner is the subject, which is what lets
 // operations/http scope a status read to the person it is about.
-func (s *service) start(
+func (s *StoreService) start(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	req *Request,
@@ -259,7 +261,7 @@ func (s *service) start(
 // the operations recovery sweep picks up anything that was recorded and never
 // queued, and returning an error would tell a subject their request was not
 // accepted when the row says it was.
-func (s *service) enqueue(ctx context.Context, started *operations.Operation) {
+func (s *StoreService) enqueue(ctx context.Context, started *operations.Operation) {
 	if started == nil {
 		return
 	}
@@ -270,7 +272,7 @@ func (s *service) enqueue(ctx context.Context, started *operations.Operation) {
 	}
 }
 
-func (s *service) Get(ctx context.Context, requestID string) (*Request, error) {
+func (s *StoreService) Get(ctx context.Context, requestID string) (*Request, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -282,7 +284,7 @@ func (s *service) Get(ctx context.Context, requestID string) (*Request, error) {
 	return req, nil
 }
 
-func (s *service) List(
+func (s *StoreService) List(
 	ctx context.Context,
 	subject Subject,
 	filter *filtering.QueryFilter,
@@ -305,7 +307,7 @@ func (s *service) List(
 	return results, nil
 }
 
-func (s *service) Confirm(ctx context.Context, requestID string) (*Request, error) {
+func (s *StoreService) Confirm(ctx context.Context, requestID string) (*Request, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -349,7 +351,7 @@ func (s *service) Confirm(ctx context.Context, requestID string) (*Request, erro
 	return req, nil
 }
 
-func (s *service) Cancel(ctx context.Context, requestID string) (*Request, error) {
+func (s *StoreService) Cancel(ctx context.Context, requestID string) (*Request, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -392,7 +394,7 @@ func (s *service) Cancel(ctx context.Context, requestID string) (*Request, error
 // runner can describe, and the runner is what moves this row — so a caller that
 // wants to know whether it worked watches the operation, which is where a
 // cancellation has always been a request rather than a fact.
-func (s *service) cancelInFlight(
+func (s *StoreService) cancelInFlight(
 	ctx context.Context,
 	op observability.Operation,
 	req *Request,
@@ -424,7 +426,7 @@ func (s *service) cancelInFlight(
 // confirmation — it was already confirmed, already cancelled, or its window
 // lapsed while the subject was reading the mail. The caller is told which of
 // those it is, not merely that something did not happen.
-func (s *service) notAwaitingConfirmation(requestID string, err error) error {
+func (s *StoreService) notAwaitingConfirmation(requestID string, err error) error {
 	if errors.Is(err, ErrRequestNotFound) {
 		return platformerrors.Wrapf(ErrNotAwaitingConfirmation, "dataprivacy request %q", requestID)
 	}
@@ -432,7 +434,7 @@ func (s *service) notAwaitingConfirmation(requestID string, err error) error {
 	return err
 }
 
-func (s *service) Download(ctx context.Context, requestID string) (string, error) {
+func (s *StoreService) Download(ctx context.Context, requestID string) (string, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -477,7 +479,7 @@ func (s *service) Download(ctx context.Context, requestID string) (string, error
 	return url, nil
 }
 
-func (s *service) Open(ctx context.Context, requestID string) (io.ReadCloser, error) {
+func (s *StoreService) Open(ctx context.Context, requestID string) (io.ReadCloser, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
@@ -506,7 +508,7 @@ func (s *service) Open(ctx context.Context, requestID string) (io.ReadCloser, er
 }
 
 // artifactRequest resolves a request that actually has a fetchable artifact.
-func (s *service) artifactRequest(ctx context.Context, requestID string) (*Request, error) {
+func (s *StoreService) artifactRequest(ctx context.Context, requestID string) (*Request, error) {
 	if s.uploader == nil {
 		return nil, platformerrors.Wrap(ErrArtifactUnavailable, "no dataprivacy upload manager configured")
 	}
@@ -532,7 +534,7 @@ func (s *service) artifactRequest(ctx context.Context, requestID string) (*Reque
 
 // record appends an audit entry inside the caller's transaction. It is a no-op
 // without a Recorder.
-func (s *service) record(
+func (s *StoreService) record(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	req *Request,
@@ -548,7 +550,7 @@ func (s *service) record(
 
 // recordOutOfBand appends an audit entry in a transaction of its own, for the
 // reads that have none.
-func (s *service) recordOutOfBand(ctx context.Context, req *Request, event audit.EventType, metadata map[string]string) error {
+func (s *StoreService) recordOutOfBand(ctx context.Context, req *Request, event audit.EventType, metadata map[string]string) error {
 	if s.recorder == nil {
 		return nil
 	}
@@ -563,7 +565,7 @@ func (s *service) recordOutOfBand(ctx context.Context, req *Request, event audit
 // The subject's ID is recorded and nothing else about them is. An audit log is
 // durable by design, and copying a person's data into the log that records the
 // request to export it would defeat both.
-func (s *service) entryFor(ctx context.Context, req *Request, event audit.EventType, metadata map[string]string) *audit.Entry {
+func (s *StoreService) entryFor(ctx context.Context, req *Request, event audit.EventType, metadata map[string]string) *audit.Entry {
 	fields := map[string]string{
 		"request_type": string(req.Type),
 		"status":       string(req.Status),

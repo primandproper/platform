@@ -16,7 +16,7 @@ import (
 const o11yName = "files_reader"
 
 var (
-	_ Reader = (*standardReader)(nil)
+	_ Reader = (*StandardReader)(nil)
 
 	defaultReader = newStandardReader(loggingnoop.NewLogger(), tracingnoop.NewTracerProvider())
 )
@@ -32,7 +32,10 @@ type (
 		StreamChunksFile(ctx context.Context, name string, n int) (<-chan ChunkResult, error)
 	}
 
-	standardReader struct {
+	// StandardReader is the one Reader implementation, over any fs.FS. It is
+	// exported, and returned by NewReader and NewReaderFS, so a caller can depend
+	// on the reader it built rather than on the Reader seam.
+	StandardReader struct {
 		fsys           fs.FS
 		o11y           observability.Observer
 		logger         logging.Logger
@@ -43,7 +46,7 @@ type (
 // newStandardReader builds a Reader over the OS filesystem. It keeps the raw logger and tracer
 // provider around so the decode helpers can build an encoding.ClientEncoder that traces under the
 // same tracer as the file read.
-func newStandardReader(logger logging.Logger, tracerProvider tracing.Provider) *standardReader {
+func newStandardReader(logger logging.Logger, tracerProvider tracing.Provider) *StandardReader {
 	return newStandardReaderFS(osFS{}, logger, tracerProvider)
 }
 
@@ -53,10 +56,10 @@ func newStandardReader(logger logging.Logger, tracerProvider tracing.Provider) *
 // the retained field is used directly — closeQuietly logs through it — and
 // WithLogger is optional, so a Reader built without one would otherwise panic
 // on the close path instead of logging nowhere as the option documents.
-func newStandardReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider tracing.Provider) *standardReader {
+func newStandardReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider tracing.Provider) *StandardReader {
 	logger = logging.EnsureLogger(logger)
 
-	return &standardReader{
+	return &StandardReader{
 		fsys:           fsys,
 		o11y:           observability.NewObserver(o11yName, logger, tracerProvider),
 		logger:         logger,
@@ -66,7 +69,7 @@ func newStandardReaderFS(fsys fs.FS, logger logging.Logger, tracerProvider traci
 
 // NewReader builds a Reader that opens files on the OS filesystem, accepting any path os.Open would
 // (including absolute paths and ".."). Use NewReaderFS to read from an embed.FS or other fs.FS.
-func NewReader(opts ...Option) Reader {
+func NewReader(opts ...Option) *StandardReader {
 	o := newOptions(opts)
 
 	return newStandardReader(o.logger, o.tracerProvider)
@@ -76,7 +79,7 @@ func NewReader(opts ...Option) Reader {
 // archive/zip.Reader, or any other fs.FS. Names are interpreted by fsys and so must satisfy
 // fs.ValidPath (slash-separated, unrooted, no "."/".." elements). Every read, slice, stream, and
 // decode behavior is identical to NewReader; only the open is redirected.
-func NewReaderFS(fsys fs.FS, opts ...Option) Reader {
+func NewReaderFS(fsys fs.FS, opts ...Option) *StandardReader {
 	o := newOptions(opts)
 
 	return newStandardReaderFS(fsys, o.logger, o.tracerProvider)
@@ -84,7 +87,7 @@ func NewReaderFS(fsys fs.FS, opts ...Option) Reader {
 
 // closeQuietly closes c, logging any error. Closing a file opened only for reading practically never
 // fails and there is nothing actionable to do if it does, so the error is logged rather than returned.
-func (r *standardReader) closeQuietly(c io.Closer) {
+func (r *StandardReader) closeQuietly(c io.Closer) {
 	if err := c.Close(); err != nil {
 		r.logger.Error("closing file", err)
 	}

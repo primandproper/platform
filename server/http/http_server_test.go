@@ -254,7 +254,7 @@ func TestServer_Serve(T *testing.T) {
 	T.Run("serves HTTP and shuts down cleanly", func(t *testing.T) {
 		t.Parallel()
 
-		srv := &server{
+		srv := &APIServer{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			httpServer:     provideStdLibHTTPServer(&Config{}),
@@ -279,7 +279,7 @@ func TestServer_Serve(T *testing.T) {
 
 		certFile, keyFile := generateTestTLSCerts(t)
 
-		srv := &server{
+		srv := &APIServer{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			httpServer:     provideStdLibHTTPServer(&Config{}),
@@ -304,7 +304,7 @@ func TestServer_Serve(T *testing.T) {
 	T.Run("reports an HTTPS failure with invalid cert files", func(t *testing.T) {
 		t.Parallel()
 
-		srv := &server{
+		srv := &APIServer{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			httpServer:     provideStdLibHTTPServer(&Config{}),
@@ -332,7 +332,7 @@ func TestServer_Serve(T *testing.T) {
 
 		httpSrv := provideStdLibHTTPServer(&Config{Port: uint16(port)})
 
-		srv := &server{
+		srv := &APIServer{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			httpServer:     httpSrv,
@@ -350,7 +350,7 @@ func TestServer_listen(T *testing.T) {
 	T.Run("binds with StartupDeadline configured", func(t *testing.T) {
 		t.Parallel()
 
-		srv := &server{
+		srv := &APIServer{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			httpServer:     provideStdLibHTTPServer(&Config{Port: 0}),
@@ -367,7 +367,7 @@ func TestServer_listen(T *testing.T) {
 	T.Run("binds without StartupDeadline", func(t *testing.T) {
 		t.Parallel()
 
-		srv := &server{
+		srv := &APIServer{
 			logger:         loggingnoop.NewLogger(),
 			router:         testRouter(t),
 			httpServer:     provideStdLibHTTPServer(&Config{Port: 0}),

@@ -74,7 +74,10 @@ func scoreToDistance(distance string, score float32) float32 {
 	}
 }
 
-type indexManager[T any] struct {
+// IndexManager is the Qdrant vectorsearch.Index. It is exported, and returned by
+// NewIndex, so a caller who has chosen Qdrant can depend on that choice rather
+// than on the seam every vector index shares.
+type IndexManager[T any] struct {
 	o11y           observability.Observer
 	httpClient     *http.Client
 	circuitBreaker circuitbreaking.CircuitBreaker
@@ -91,7 +94,7 @@ type indexManager[T any] struct {
 	dimension      int
 }
 
-var _ vectorsearch.Index[any] = (*indexManager[any])(nil)
+var _ vectorsearch.Index[any] = (*IndexManager[any])(nil)
 
 // NewIndex builds a qdrant-backed vectorsearch.Index. The constructor performs
 // an idempotent collection-creation step (PUT /collections/{name}); existing
@@ -102,7 +105,7 @@ func NewIndex[T any](
 	collection string,
 	cb circuitbreaking.CircuitBreaker,
 	opts ...Option,
-) (vectorsearch.Index[T], error) {
+) (*IndexManager[T], error) {
 	if cfg == nil {
 		return nil, vectorsearch.ErrNilConfig
 	}
@@ -150,7 +153,7 @@ func NewIndex[T any](
 		timeout = 30 * time.Second
 	}
 
-	im := &indexManager[T]{
+	im := &IndexManager[T]{
 		o11y:           observability.NewObserverWithValues(fmt.Sprintf("%s_%s", serviceName, collection), o.logger, o.tracerProvider, map[string]any{keys.IndexNameKey: collection}),
 		httpClient:     &http.Client{Timeout: timeout},
 		circuitBreaker: circuitbreakingcfg.EnsureCircuitBreaker(cb, circuitbreakingcfg.WithLogger(o.logger)),
@@ -189,7 +192,7 @@ func metricToDistance(m vectorsearch.DistanceMetric) (string, error) {
 
 // ensureCollection creates the collection if it does not exist. PUT /collections/{name}
 // is idempotent in qdrant when the body matches the existing collection.
-func (i *indexManager[T]) ensureCollection(ctx context.Context) error {
+func (i *IndexManager[T]) ensureCollection(ctx context.Context) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
@@ -220,7 +223,7 @@ func (i *indexManager[T]) ensureCollection(ctx context.Context) error {
 	return nil
 }
 
-func (i *indexManager[T]) collectionExists(ctx context.Context) (bool, error) {
+func (i *IndexManager[T]) collectionExists(ctx context.Context) (bool, error) {
 	status, body, err := i.jsonReq(ctx, http.MethodGet, i.collectionPath(""), nil)
 	if err != nil {
 		return false, err
@@ -236,7 +239,7 @@ func (i *indexManager[T]) collectionExists(ctx context.Context) (bool, error) {
 }
 
 // Upsert implements vectorsearch.Index.
-func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Vector[T]) error {
+func (i *IndexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Vector[T]) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(vectors)))
 	defer op.End()
 
@@ -297,7 +300,7 @@ func (i *indexManager[T]) Upsert(ctx context.Context, vectors ...vectorsearch.Ve
 }
 
 // Delete implements vectorsearch.Index.
-func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
+func (i *IndexManager[T]) Delete(ctx context.Context, ids ...string) error {
 	ctx, op := i.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(ids)))
 	defer op.End()
 
@@ -343,7 +346,7 @@ func (i *indexManager[T]) Delete(ctx context.Context, ids ...string) error {
 // collection. This is faster than scrolling all IDs and batching deletes, and is
 // atomic from the caller's perspective since they hold the only handle to the
 // collection name.
-func (i *indexManager[T]) Wipe(ctx context.Context) error {
+func (i *IndexManager[T]) Wipe(ctx context.Context) error {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
@@ -376,7 +379,7 @@ func (i *indexManager[T]) Wipe(ctx context.Context) error {
 }
 
 // Query implements vectorsearch.Index.
-func (i *indexManager[T]) Query(ctx context.Context, req vectorsearch.QueryRequest) ([]vectorsearch.QueryResult[T], error) {
+func (i *IndexManager[T]) Query(ctx context.Context, req vectorsearch.QueryRequest) ([]vectorsearch.QueryResult[T], error) {
 	ctx, op := i.o11y.Begin(ctx)
 	defer op.End()
 
@@ -470,7 +473,7 @@ const maxResponseBytes = 10 * 1024 * 1024
 // bytes. The response body is always closed before returning. Transport, marshal,
 // and read errors are returned; HTTP status errors are NOT — callers inspect the
 // returned status code themselves so they can distinguish 404 from other failures.
-func (i *indexManager[T]) jsonReq(ctx context.Context, method, fullURL string, in any) (httpStatus int, respBody []byte, requestErr error) {
+func (i *IndexManager[T]) jsonReq(ctx context.Context, method, fullURL string, in any) (httpStatus int, respBody []byte, requestErr error) {
 	var reader io.Reader
 	if in != nil {
 		buf, marshalErr := json.Marshal(in)
@@ -513,7 +516,7 @@ func wrapStatusError(status int, body []byte) error {
 	return platformerrors.Wrapf(ErrUnexpectedStatus, "status=%d body=%s", status, strings.TrimSpace(string(body)))
 }
 
-func (i *indexManager[T]) collectionPath(suffix string) string {
+func (i *IndexManager[T]) collectionPath(suffix string) string {
 	return i.baseURL + "/collections/" + url.PathEscape(i.collection) + suffix
 }
 

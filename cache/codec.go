@@ -38,6 +38,10 @@ type Codec[T any] interface {
 // intend to cache should be round-tripped through this, not through a named
 // codec, so that the next change of default fails the test instead of the
 // deployment.
-func NewDefaultCodec[T any]() Codec[T] {
+//
+// The return type names today's default, so a caller that wrote the result into
+// a Codec[T] keeps compiling and a caller that named the concrete type finds out
+// at the next change rather than at the next deployment.
+func NewDefaultCodec[T any]() CBORCodec[T] {
 	return NewCBORCodec[T]()
 }

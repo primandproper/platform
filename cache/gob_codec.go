@@ -7,11 +7,12 @@ import (
 	"github.com/primandproper/platform-go/v10/errors"
 )
 
-// gobCodec is the opt-in Codec for values CBOR cannot carry, using
-// encoding/gob.
-type gobCodec[T any] struct{}
+// GobCodec is the opt-in Codec for values CBOR cannot carry, using
+// encoding/gob. It is exported, and returned by NewGobCodec, so a caller can
+// depend on the codec it built rather than on the Codec seam.
+type GobCodec[T any] struct{}
 
-var _ Codec[struct{}] = gobCodec[struct{}]{}
+var _ Codec[struct{}] = GobCodec[struct{}]{}
 
 // NewGobCodec returns the gob-backed Codec. Types must be gob-friendly:
 // exported fields only, and interface-typed fields need their concrete types
@@ -23,12 +24,12 @@ var _ Codec[struct{}] = gobCodec[struct{}]{}
 // decoding into a struct that has drifted from the one that was encoded. Reach
 // for it when a cached value has either property, and keep in mind that
 // entries written by one codec are unreadable through another.
-func NewGobCodec[T any]() Codec[T] {
-	return gobCodec[T]{}
+func NewGobCodec[T any]() GobCodec[T] {
+	return GobCodec[T]{}
 }
 
 // Encode implements Codec via encoding/gob.
-func (gobCodec[T]) Encode(value *T) ([]byte, error) {
+func (GobCodec[T]) Encode(value *T) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(value); err != nil {
 		return nil, errors.Wrap(err, "gob-encoding value")
@@ -38,7 +39,7 @@ func (gobCodec[T]) Encode(value *T) ([]byte, error) {
 }
 
 // Decode implements Codec via encoding/gob.
-func (gobCodec[T]) Decode(data []byte) (*T, error) {
+func (GobCodec[T]) Decode(data []byte) (*T, error) {
 	var value *T
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&value); err != nil {
 		return nil, errors.Wrap(err, "gob-decoding value")

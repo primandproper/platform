@@ -31,7 +31,7 @@ func TestServiceOptions(T *testing.T) {
 		t.Parallel()
 
 		original := clock.NewClock()
-		s := &service{clock: original}
+		s := &StoreService{clock: original}
 
 		replacement := clock.NewClock()
 		WithServiceClock(replacement)(s)
@@ -44,7 +44,7 @@ func TestServiceOptions(T *testing.T) {
 	T.Run("WithServiceLogger", func(t *testing.T) {
 		t.Parallel()
 
-		s := &service{}
+		s := &StoreService{}
 
 		logger := loggingnoop.NewLogger()
 		WithServiceLogger(logger)(s)
@@ -54,7 +54,7 @@ func TestServiceOptions(T *testing.T) {
 	T.Run("WithServiceTracerProvider", func(t *testing.T) {
 		t.Parallel()
 
-		s := &service{}
+		s := &StoreService{}
 
 		WithServiceTracerProvider(tracingnoop.NewTracerProvider())(s)
 		test.NotNil(t, s.tracerProvider)
@@ -63,7 +63,7 @@ func TestServiceOptions(T *testing.T) {
 	T.Run("WithServiceMetricsProvider", func(t *testing.T) {
 		t.Parallel()
 
-		s := &service{}
+		s := &StoreService{}
 
 		WithServiceMetricsProvider(metrics.EnsureMetricsProvider(nil))(s)
 		test.NotNil(t, s.metricsProvider)
@@ -73,7 +73,7 @@ func TestServiceOptions(T *testing.T) {
 		t.Parallel()
 
 		uploader := newMemoryUploader()
-		s := &service{}
+		s := &StoreService{}
 
 		WithServiceUploadManager(uploader)(s)
 		test.NotNil(t, s.uploader)
@@ -90,7 +90,7 @@ func TestServiceOptions(T *testing.T) {
 		compressor, err := compression.NewCompressor(compression.AlgorithmZstd)
 		must.NoError(t, err)
 
-		s := &service{}
+		s := &StoreService{}
 
 		WithServiceCompressor(compressor)(s)
 		test.NotNil(t, s.packager.compressor)
@@ -106,7 +106,7 @@ func TestServiceOptions(T *testing.T) {
 		decryptor, err := newTestEncryptorDecryptor([]byte("0123456789abcdef0123456789abcdef"))
 		must.NoError(t, err)
 
-		s := &service{}
+		s := &StoreService{}
 
 		WithServiceDecryptor(decryptor)(s)
 		test.NotNil(t, s.packager.decryptor)
@@ -122,7 +122,7 @@ func TestServiceOptions(T *testing.T) {
 	T.Run("WithServiceAuditRecorder", func(t *testing.T) {
 		t.Parallel()
 
-		s := &service{}
+		s := &StoreService{}
 
 		WithServiceAuditRecorder(&auditmock.RecorderMock{})(s)
 		test.NotNil(t, s.recorder)
@@ -135,7 +135,7 @@ func TestServiceOptions(T *testing.T) {
 	T.Run("WithActorResolver", func(t *testing.T) {
 		t.Parallel()
 
-		s := &service{actor: func(context.Context) audit.Actor {
+		s := &StoreService{actor: func(context.Context) audit.Actor {
 			return audit.Actor{ID: "original"}
 		}}
 
@@ -369,7 +369,7 @@ func TestSQLStoreOptions(T *testing.T) {
 	T.Run("WithTablePrefix", func(t *testing.T) {
 		t.Parallel()
 
-		s := &sqlStore{tables: newTables(DefaultTablePrefix)}
+		s := &SQLStore{tables: newTables(DefaultTablePrefix)}
 
 		WithTablePrefix("custom")(s)
 		test.EqOp(t, "custom", s.tables.prefix())
@@ -383,7 +383,7 @@ func TestSQLStoreOptions(T *testing.T) {
 	T.Run("observability options", func(t *testing.T) {
 		t.Parallel()
 
-		s := &sqlStore{tables: newTables(DefaultTablePrefix)}
+		s := &SQLStore{tables: newTables(DefaultTablePrefix)}
 
 		WithStoreLogger(loggingnoop.NewLogger())(s)
 		test.NotNil(t, s.logger)

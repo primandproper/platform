@@ -43,8 +43,8 @@ var (
 	ErrResultWindowExceeded = platformerrors.New("search result window exceeded")
 )
 
-// Index implements our IndexManager interface.
-func (sm *indexManager[T]) Index(ctx context.Context, id string, value any) (err error) {
+// Index implements textsearch.Index.
+func (sm *IndexManager[T]) Index(ctx context.Context, id string, value any) (err error) {
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 
@@ -97,7 +97,7 @@ func (sm *indexManager[T]) Index(ctx context.Context, id string, value any) (err
 }
 
 // search executes search queries.
-func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequest) (_ *textsearch.SearchResults[T], err error) {
+func (sm *IndexManager[T]) search(ctx context.Context, req textsearch.SearchRequest) (_ *textsearch.SearchResults[T], err error) {
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 
@@ -211,7 +211,7 @@ func (sm *indexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 }
 
 // Search implements our IndexSearcher interface.
-func (sm *indexManager[T]) Search(ctx context.Context, req textsearch.SearchRequest) (*textsearch.SearchResults[T], error) {
+func (sm *IndexManager[T]) Search(ctx context.Context, req textsearch.SearchRequest) (*textsearch.SearchResults[T], error) {
 	return sm.search(ctx, req)
 }
 
@@ -247,10 +247,10 @@ func decodeErrorBody(body io.Reader, status string) error {
 	}
 }
 
-// Wipe implements our IndexManager interface. It removes all documents from the
+// Wipe implements textsearch.Index. It removes all documents from the
 // index, leaving the index itself in place (matching the algolia/pgvector/qdrant
 // backends), via a match-all delete-by-query with an immediate refresh.
-func (sm *indexManager[T]) Wipe(ctx context.Context) (err error) {
+func (sm *IndexManager[T]) Wipe(ctx context.Context) (err error) {
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 
@@ -287,8 +287,8 @@ func (sm *indexManager[T]) Wipe(ctx context.Context) (err error) {
 	return nil
 }
 
-// Delete implements our IndexManager interface.
-func (sm *indexManager[T]) Delete(ctx context.Context, id string) (err error) {
+// Delete implements textsearch.Index.
+func (sm *IndexManager[T]) Delete(ctx context.Context, id string) (err error) {
 	ctx, op := sm.o11y.Begin(ctx)
 	defer op.End()
 

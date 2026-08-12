@@ -39,13 +39,12 @@ func (r *shortReader) Read(p []byte) (n int, err error) {
 	return 1, nil
 }
 
-// newRecordingGenerator builds a standardGenerator with a RecordingObserver swapped
+// newRecordingGenerator builds a StandardGenerator with a RecordingObserver swapped
 // in, so a test can both drive the generator and assert which fields it observed.
-func newRecordingGenerator(t *testing.T) (*standardGenerator, *observability.RecordingObserver) {
+func newRecordingGenerator(t *testing.T) (*StandardGenerator, *observability.RecordingObserver) {
 	t.Helper()
 
-	s, ok := NewGenerator().(*standardGenerator)
-	must.True(t, ok)
+	s := NewGenerator()
 
 	obs := observability.NewRecordingObserver()
 	s.o11y = obs
@@ -277,10 +276,10 @@ func TestMustGenerateHexEncodedString(T *testing.T) {
 	T.Run("panics on error", func(t *testing.T) { //nolint:paralleltest // mutates package-level defaultGenerator; subtests must run sequentially
 		ctx := t.Context()
 
-		original := defaultGenerator.(*standardGenerator).randReader
-		defaultGenerator.(*standardGenerator).randReader = &erroneousReader{}
+		original := defaultGenerator.randReader
+		defaultGenerator.randReader = &erroneousReader{}
 		t.Cleanup(func() {
-			defaultGenerator.(*standardGenerator).randReader = original
+			defaultGenerator.randReader = original
 		})
 
 		test.Panic(t, func() {

@@ -49,8 +49,11 @@ type (
 		MustEncodeJSON(ctx context.Context, v any) []byte
 	}
 
-	// serverEncoderDecoder is our concrete implementation of EncoderDecoder.
-	serverEncoderDecoder struct {
+	// EncoderDecoder is our concrete implementation of ServerEncoderDecoder,
+	// speaking one ContentType for its whole life. It is exported, and returned
+	// by NewServerEncoderDecoder, so a caller can depend on the encoder it built
+	// rather than on the ServerEncoderDecoder seam.
+	EncoderDecoder struct {
 		o11y        observability.Observer
 		panicker    panicking.Panicker
 		contentType ContentType
@@ -60,6 +63,8 @@ type (
 		Decode(v any) error
 	}
 )
+
+var _ ServerEncoderDecoder = (*EncoderDecoder)(nil)
 
 type tomlDecoder struct {
 	reader io.Reader
@@ -109,7 +114,7 @@ func decoderFor(ct ContentType, r io.Reader) (decoder, error) {
 }
 
 // DecodeBytes decodes bytes into values.
-func (e *serverEncoderDecoder) DecodeBytes(ctx context.Context, data []byte, dest any) error {
+func (e *EncoderDecoder) DecodeBytes(ctx context.Context, data []byte, dest any) error {
 	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.LengthKey, len(data)))
 	defer op.End()
 
@@ -139,7 +144,7 @@ func (e *emojiDecoder) Decode(v any) error {
 }
 
 // encodeResponse encodes responses.
-func (e *serverEncoderDecoder) encodeResponse(ctx context.Context, res http.ResponseWriter, v any, statusCode int) {
+func (e *EncoderDecoder) encodeResponse(ctx context.Context, res http.ResponseWriter, v any, statusCode int) {
 	_, op := e.o11y.Begin(ctx, observability.WithValue(keys.ResponseStatusKey, statusCode))
 	defer op.End()
 
@@ -171,7 +176,7 @@ func (e *serverEncoderDecoder) encodeResponse(ctx context.Context, res http.Resp
 	}
 }
 
-func (e *serverEncoderDecoder) MustEncodeJSON(ctx context.Context, v any) []byte {
+func (e *EncoderDecoder) MustEncodeJSON(ctx context.Context, v any) []byte {
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -184,7 +189,7 @@ func (e *serverEncoderDecoder) MustEncodeJSON(ctx context.Context, v any) []byte
 }
 
 // MustEncode encodes data or else.
-func (e *serverEncoderDecoder) MustEncode(ctx context.Context, v any) []byte {
+func (e *EncoderDecoder) MustEncode(ctx context.Context, v any) []byte {
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -202,7 +207,7 @@ func (e *serverEncoderDecoder) MustEncode(ctx context.Context, v any) []byte {
 }
 
 // RespondWithData encodes successful responses with data.
-func (e *serverEncoderDecoder) RespondWithData(ctx context.Context, res http.ResponseWriter, v any) {
+func (e *EncoderDecoder) RespondWithData(ctx context.Context, res http.ResponseWriter, v any) {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -210,7 +215,7 @@ func (e *serverEncoderDecoder) RespondWithData(ctx context.Context, res http.Res
 }
 
 // EncodeResponseWithStatus encodes responses and writes the provided status to the response.
-func (e *serverEncoderDecoder) EncodeResponseWithStatus(ctx context.Context, res http.ResponseWriter, v any, statusCode int) {
+func (e *EncoderDecoder) EncodeResponseWithStatus(ctx context.Context, res http.ResponseWriter, v any, statusCode int) {
 	ctx, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -218,7 +223,7 @@ func (e *serverEncoderDecoder) EncodeResponseWithStatus(ctx context.Context, res
 }
 
 // DecodeRequest decodes request bodies into values.
-func (e *serverEncoderDecoder) DecodeRequest(ctx context.Context, req *http.Request, v any) error {
+func (e *EncoderDecoder) DecodeRequest(ctx context.Context, req *http.Request, v any) error {
 	_, op := e.o11y.Begin(ctx)
 	defer op.End()
 
@@ -245,10 +250,10 @@ func (e *serverEncoderDecoder) DecodeRequest(ctx context.Context, req *http.Requ
 // As with NewClientEncoder, an unsupported ContentType is reported from every
 // operation as ErrUnsupportedContentType rather than silently served as JSON.
 // Resolve configuration through ParseContentType, which refuses it up front.
-func NewServerEncoderDecoder(contentType ContentType, opts ...Option) ServerEncoderDecoder {
+func NewServerEncoderDecoder(contentType ContentType, opts ...Option) *EncoderDecoder {
 	cfg := newOptions(opts)
 
-	return &serverEncoderDecoder{
+	return &EncoderDecoder{
 		// An encoder/decoder speaks one content type for its whole life, and every
 		// operation below is about it, so it is stated once here. Previously only
 		// DecodeBytes recorded it, which is exactly the "set at some call sites and

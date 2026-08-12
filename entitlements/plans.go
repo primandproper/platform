@@ -39,10 +39,12 @@ func (f PlanSourceFunc) PlanFor(ctx context.Context, account string) (string, er
 	return f(ctx, account)
 }
 
-var _ PlanSource = (*staticPlanSource)(nil)
+var _ PlanSource = (*StaticPlanSource)(nil)
 
-// staticPlanSource puts every account on one plan.
-type staticPlanSource struct {
+// StaticPlanSource puts every account on one plan. It is exported, and returned
+// by NewStaticPlanSource, so a caller can depend on the source it built rather
+// than on the PlanSource seam.
+type StaticPlanSource struct {
 	plan string
 }
 
@@ -57,12 +59,12 @@ type staticPlanSource struct {
 // a business rule, and it belongs in the application's own PlanSource where it
 // is visible next to the query that failed to find a subscription; expressing it
 // here would make every account free the day the subscription lookup broke.
-func NewStaticPlanSource(plan string) PlanSource {
-	return &staticPlanSource{plan: plan}
+func NewStaticPlanSource(plan string) *StaticPlanSource {
+	return &StaticPlanSource{plan: plan}
 }
 
 // PlanFor implements PlanSource.
-func (s *staticPlanSource) PlanFor(context.Context, string) (string, error) {
+func (s *StaticPlanSource) PlanFor(context.Context, string) (string, error) {
 	if s.plan == "" {
 		return "", platformerrors.Wrap(ErrNoPlan, "static plan source has no plan")
 	}

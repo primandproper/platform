@@ -193,7 +193,7 @@ type (
 )
 
 // session renders a stored record as the snapshot callers see.
-func (s *store[T]) session(id string, record *Record[T]) *Session[T] {
+func (s *BackendStore[T]) session(id string, record *Record[T]) *Session[T] {
 	return &Session[T]{
 		CreatedAt:  record.CreatedAt,
 		LastSeenAt: record.LastSeenAt,
