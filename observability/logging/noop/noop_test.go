@@ -49,6 +49,16 @@ func TestLogger_Debug(T *testing.T) {
 	})
 }
 
+func TestLogger_Warn(T *testing.T) {
+	T.Parallel()
+
+	T.Run("does not panic", func(t *testing.T) {
+		t.Parallel()
+
+		test.NotPanic(t, func() { NewLogger().Warn("message") })
+	})
+}
+
 func TestLogger_Error(T *testing.T) {
 	T.Parallel()
 

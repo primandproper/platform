@@ -75,6 +75,35 @@ func TestEmbedder_batchContract(T *testing.T) {
 	})
 }
 
+func TestPurpose_String(T *testing.T) {
+	T.Parallel()
+
+	T.Run("names the two defined sides", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "document", embeddings.PurposeDocument.String())
+		test.EqOp(t, "query", embeddings.PurposeQuery.String())
+	})
+
+	// An undefined value must not impersonate a side it isn't, since the whole
+	// point of the type is that the two sides are not interchangeable.
+	T.Run("an undefined purpose renders its number", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "Purpose(9)", embeddings.Purpose(9).String())
+	})
+
+	// Callers that predate the field set nothing, and must keep being treated
+	// as documents.
+	T.Run("the zero value is the document side", func(t *testing.T) {
+		t.Parallel()
+
+		var input embeddings.Input
+
+		test.EqOp(t, embeddings.PurposeDocument, input.Purpose)
+	})
+}
+
 func TestToFloat32(T *testing.T) {
 	T.Parallel()
 

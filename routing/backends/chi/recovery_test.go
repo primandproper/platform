@@ -64,6 +64,7 @@ func (l *captureLogger) capturedRequests() []*http.Request {
 
 func (l *captureLogger) Info(string)                                {}
 func (l *captureLogger) Debug(string)                               {}
+func (l *captureLogger) Warn(string)                                {}
 func (l *captureLogger) SetRequestIDFunc(logging.RequestIDFunc)     {}
 func (l *captureLogger) Clone() logging.Logger                      { return l }
 func (l *captureLogger) WithName(string) logging.Logger             { return l }

@@ -11,6 +11,9 @@
 // input. A retrieval pipeline wired to this embedder therefore indexes
 // successfully and retrieves nothing, at every stage reporting success.
 //
+// Having no model, it has no side of a retrieval comparison to be on, so
+// embeddings.Input.Purpose is ignored here as it is by the symmetric providers.
+//
 // embeddings/config selects it for the "noop" provider name or the empty
 // string, embeddings being an optional capability that a service may legitimately
 // not have.

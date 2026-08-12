@@ -2,6 +2,7 @@ package embeddings
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/errors"
@@ -9,6 +10,56 @@ import (
 
 // ErrNilInput indicates a nil *Input was passed to GenerateEmbedding.
 var ErrNilInput = errors.New("nil embedding input provided")
+
+// ErrUnknownPurpose indicates an Input carried a Purpose outside the constants
+// this package defines. Providers that act on Purpose return it rather than
+// guessing a side, since guessing wrong is the failure that has no symptom.
+var ErrUnknownPurpose = errors.New("unknown embedding purpose")
+
+// Purpose says which side of a retrieval comparison an Input is on: the corpus
+// being indexed, or the query being searched with.
+//
+// It exists because some models embed the two sides differently — Cohere's v3
+// models take an input_type and place a query and a passage in deliberately
+// different regions of the space, so that a query vector lands near the
+// passages that answer it rather than near the passages that resemble it. Get
+// the side wrong and both halves of the comparison are still vectors, the
+// search still returns results, and only the ranking is quietly worse. There is
+// no error to catch, which is why the caller has to be able to say.
+//
+// Providers whose models are symmetric — openai and ollama here — embed the
+// same text identically either way and ignore this field; each says so in its
+// package documentation. Setting it against them is harmless, and portable: the
+// same Input can be handed to a symmetric provider today and an asymmetric one
+// after a config change without the caller re-examining its call sites.
+type Purpose uint8
+
+const (
+	// PurposeDocument embeds content as a passage to be stored and later
+	// searched over. It is the zero value, so an Input that says nothing is
+	// embedded as a document — which is what every provider here did before
+	// this field existed, and what a corpus-indexing pipeline wants anyway.
+	PurposeDocument Purpose = iota
+
+	// PurposeQuery embeds content as a search query against a corpus that was
+	// embedded as documents. Retrieval paths that embed the user's text at
+	// request time want this one.
+	PurposeQuery
+)
+
+// String returns a stable, lowercase name for a Purpose, suitable for a span
+// attribute or a log field. An undefined value renders its number rather than
+// impersonating one of the two defined sides.
+func (p Purpose) String() string {
+	switch p {
+	case PurposeDocument:
+		return "document"
+	case PurposeQuery:
+		return "query"
+	default:
+		return fmt.Sprintf("Purpose(%d)", uint8(p))
+	}
+}
 
 // DefaultRequestTimeout bounds a single embedding HTTP request when a provider's
 // Config leaves Timeout unset, so a hung provider can't block a caller forever.
@@ -22,6 +73,11 @@ type Input struct {
 	// Model optionally overrides the provider's configured DefaultModel.
 	// Leave empty to use the default from the provider's Config.
 	Model string
+
+	// Purpose says whether this content is a document being indexed or a query
+	// being searched with. The zero value is PurposeDocument. Providers with
+	// symmetric models ignore it; see Purpose.
+	Purpose Purpose
 }
 
 // Embedding is the result of embedding a single piece of content.

@@ -65,6 +65,7 @@ func (l *recordingLogger) with(values map[string]any) logging.Logger {
 
 func (l *recordingLogger) Info(message string)  { l.record(logging.InfoLevel, message, nil) }
 func (l *recordingLogger) Debug(message string) { l.record(logging.DebugLevel, message, nil) }
+func (l *recordingLogger) Warn(message string)  { l.record(logging.WarnLevel, message, nil) }
 func (l *recordingLogger) Error(message string, err error) {
 	l.record(logging.ErrorLevel, message, err)
 }

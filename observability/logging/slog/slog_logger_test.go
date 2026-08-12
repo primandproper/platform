@@ -101,6 +101,46 @@ func Test_zerologLogger_Debug(T *testing.T) {
 	})
 }
 
+func Test_slogLogger_Warn(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		l := NewSlogLogger(logging.DebugLevel)
+
+		l.Warn(t.Name())
+	})
+
+	T.Run("emits at slog's warn level", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		l := &Logger{logger: slog.New(slog.NewJSONHandler(&buf, nil))}
+
+		l.Warn("careful")
+
+		test.StrContains(t, buf.String(), `"level":"WARN"`)
+		test.StrContains(t, buf.String(), "careful")
+	})
+}
+
+func Test_slogLogger_warnLevelThreshold(T *testing.T) {
+	T.Parallel()
+
+	T.Run("warn sits between info and error", func(t *testing.T) {
+		t.Parallel()
+
+		l := NewSlogLogger(logging.WarnLevel)
+		ctx := t.Context()
+
+		test.False(t, l.logger.Enabled(ctx, slog.LevelDebug))
+		test.False(t, l.logger.Enabled(ctx, slog.LevelInfo))
+		test.True(t, l.logger.Enabled(ctx, slog.LevelWarn))
+		test.True(t, l.logger.Enabled(ctx, slog.LevelError))
+	})
+}
+
 func Test_zerologLogger_Error(T *testing.T) {
 	T.Parallel()
 

@@ -2,6 +2,7 @@ package mailgun
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -122,11 +123,9 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 			}))
 		}))
 
-		cfg := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name()}
+		cfg := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name(), BaseURL: ts.URL + "/v4"}
 
 		c, obs := newRecordingEmailer(t, cfg, ts.Client())
-
-		c.client.SetAPIBase(ts.URL + "/v4")
 
 		details := testEmailMessage(t)
 		must.NoError(t, c.SendEmail(t.Context(), details))
@@ -143,10 +142,40 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 		test.EqOp(t, details.HTMLContent, gotForm.Get("html"))
 		test.EqOp(t, "", gotForm.Get("text"))
 
+		// The ID Mailgun assigned is what ties this send to the provider's own
+		// logs, and it goes on the span under the key the postmark, resend, and
+		// ses siblings use.
 		obs.ObservedOperationWithData(t, map[string]any{
 			keys.EmailSubjectKey:   details.Subject,
 			keys.EmailToAddressKey: details.ToAddress,
+			"email.message_id":     t.Name(),
 		})
+	})
+
+	T.Run("honors the configured API base", func(t *testing.T) {
+		t.Parallel()
+
+		// Without this the SDK's default host is where mail goes, which is the
+		// US region — the whole reason an EU account was unreachable.
+		var gotPath string
+		ts := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+			must.NoError(t, req.ParseMultipartForm(1<<20))
+			gotPath = req.URL.Path
+			must.NoError(t, json.NewEncoder(res).Encode(sendMessageResponse{
+				Message: "Queued. Thank you.",
+				Id:      t.Name(),
+			}))
+		}))
+		t.Cleanup(ts.Close)
+
+		// The trailing slash is deliberate: the SDK joins the base to each path
+		// with a separator of its own, so it must be trimmed off.
+		cfg := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name(), BaseURL: ts.URL + "/v4/"}
+
+		c, _ := newRecordingEmailer(t, cfg, ts.Client())
+
+		must.NoError(t, c.SendEmail(t.Context(), testEmailMessage(t)))
+		test.EqOp(t, fmt.Sprintf("/v4/%s/messages", exampleDomain), gotPath)
 	})
 
 	T.Run("with error executing request", func(t *testing.T) {
@@ -182,11 +211,9 @@ func TestMailgunEmailer_SendEmail(T *testing.T) {
 			res.WriteHeader(http.StatusInternalServerError)
 		}))
 
-		cfg := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name()}
+		cfg := &Config{Domain: exampleDomain, PrivateAPIKey: t.Name(), BaseURL: ts.URL + "/v4"}
 
 		c, obs := newRecordingEmailer(t, cfg, ts.Client())
-
-		c.client.SetAPIBase(ts.URL + "/v4")
 
 		details := testEmailMessage(t)
 		must.Error(t, c.SendEmail(t.Context(), details))

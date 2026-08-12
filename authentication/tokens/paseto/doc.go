@@ -12,10 +12,13 @@ claim is something the bearer should not be able to read.
 Symmetric still means one capability: any holder of the key can mint as well as
 verify, exactly as with HS256.
 
-The key must be 32 bytes. NewSigner rejects only an empty one, so a key of some
-other length builds a Signer successfully and fails on the first IssueToken with
-the cipher's own complaint and the key length in the message. Validate the
-length where the key is loaded if you would rather learn about it at startup.
+The key must be 32 bytes, and NewSigner checks that rather than merely checking
+for an empty one: an empty key is reported as errors.ErrEmptyInputParameter and
+any other wrong length as errors.ErrUnrecognizedInputValue, both naming the
+length and never the key. Before that check a 16- or 64-byte key built a Signer
+successfully and failed on the first IssueToken with the cipher's own complaint,
+which turned a misconfigured deployment into a runtime failure on whichever
+request first needed a token.
 
 # Claim validation is this package's job, not the library's
 

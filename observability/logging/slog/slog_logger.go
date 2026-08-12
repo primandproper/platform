@@ -9,8 +9,8 @@
 // abruptly. Collection is the deployment's problem rather than the process's.
 //
 // Source locations are attached only at debug level, and are resolved by walking
-// the stack in this package so they point at the caller of Info, Debug, or Error
-// rather than at this file — which is what a wrapper around slog otherwise
+// the stack in this package so they point at the caller of Info, Debug, Warn, or
+// Error rather than at this file — which is what a wrapper around slog otherwise
 // reports for every line it emits.
 //
 // log/slog has no named loggers, so logging.Logger's WithName is implemented as
@@ -81,8 +81,9 @@ func (l *Logger) SetRequestIDFunc(f logging.RequestIDFunc) {
 }
 
 // logAt emits a record whose source PC points at the caller of the exported
-// logging method rather than at this wrapper. Calling l.logger.Info/Debug/Error
-// directly makes slog's AddSource attribute every line to this file.
+// logging method rather than at this wrapper. Calling
+// l.logger.Info/Debug/Warn/Error directly makes slog's AddSource attribute every
+// line to this file.
 func (l *Logger) logAt(level slog.Level, msg string, attrs ...slog.Attr) {
 	ctx := context.Background()
 	if !l.logger.Enabled(ctx, level) {
@@ -90,8 +91,8 @@ func (l *Logger) logAt(level slog.Level, msg string, attrs ...slog.Attr) {
 	}
 
 	var pcs [1]uintptr
-	// Skip [runtime.Callers, logAt, the exported Info/Debug/Error method] so the
-	// captured PC is the caller of that exported method.
+	// Skip [runtime.Callers, logAt, the exported Info/Debug/Warn/Error method] so
+	// the captured PC is the caller of that exported method.
 	runtime.Callers(3, pcs[:])
 	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
 	r.AddAttrs(attrs...)
@@ -106,6 +107,11 @@ func (l *Logger) Info(input string) {
 // Debug satisfies our contract for the logging.Logger Debug method.
 func (l *Logger) Debug(input string) {
 	l.logAt(slog.LevelDebug, input)
+}
+
+// Warn satisfies our contract for the logging.Logger Warn method.
+func (l *Logger) Warn(input string) {
+	l.logAt(slog.LevelWarn, input)
 }
 
 // Error satisfies our contract for the logging.Logger Error method.

@@ -119,9 +119,12 @@ that do not.
 
 # Choosing a provider
 
-The llm/config subpackage builds a Provider from configuration, and returns the
-llm/noop provider when none is configured — so a service with no LLM
-credentials starts and runs rather than failing at construction.
+The llm/config subpackage builds a Provider from configuration, and the provider
+name is required: an unset or unrecognized one wraps errors.ErrUnknownProvider
+rather than standing something up. The llm/noop provider is selectable, by naming
+it, and a service that wants to run without LLM credentials has to say so —
+because a provider that quietly answers from a canned response looks like a
+healthy deployment whose answers have become useless.
 
 # Why the provider files look alike
 

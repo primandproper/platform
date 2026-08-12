@@ -8,11 +8,23 @@ import (
 
 type (
 	// Publisher writes messages onto a queue.
+	//
+	// # Per-message options
+	//
+	// Both methods take PublishOptions, which carry what the message is rather
+	// than how the publisher is built — today the ordering key and the
+	// deduplication key. They are per call because one publisher serves every
+	// entity on its topic, and the key belongs to the entity.
+	//
+	// An option a backend has no concept for is ignored rather than rejected, so
+	// that a caller can pass the same options to whichever publisher it was
+	// wired with. PublishOptions documents, field by field, which backends
+	// honor what.
 	Publisher interface {
 		// Stop halts all publishing.
 		Stop()
 		// Publish writes a message onto a message queue.
-		Publish(ctx context.Context, data any) error
+		Publish(ctx context.Context, data any, opts ...PublishOption) error
 		// PublishAsync writes a message onto a message queue, logging any error
 		// instead of returning it.
 		//
@@ -20,7 +32,7 @@ type (
 		// calling goroutine and returns when the publish has finished, exactly as
 		// Publish does. A caller that wants the publish off its own goroutine has
 		// to arrange that itself.
-		PublishAsync(ctx context.Context, data any)
+		PublishAsync(ctx context.Context, data any, opts ...PublishOption)
 	}
 
 	// PublisherProvider is a function that provides a Publisher for a given topic.

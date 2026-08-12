@@ -48,20 +48,18 @@ spliced verbatim into a JSON message rather than encoded into one. A publisher
 built with a non-JSON ClientEncoder would break it from the other side by
 double-encoding, so the Relay is JSON-only by contract.
 
-That contract is not enforced at runtime. messagequeue.Publisher is Publish(ctx,
-any) with no way to ask what encoding it speaks, so the Relay cannot check the
-publisher it is handed. It holds today because every publisher in this module —
+That contract is not enforced at runtime. messagequeue.Publisher takes its
+payload as an any and offers no way to ask what encoding it speaks, so the Relay
+cannot check the publisher it is handed. It holds today because every publisher in this module —
 kafka, redis, sqs, pubsub — constructs its encoder with encoding.ContentTypeJSON.
 
 # Delivery semantics
 
 At-least-once, and it cannot be otherwise: the broker and the database have no
 shared commit, so a crash between a successful publish and the row update
-redelivers on restart. Consumers must tolerate duplicates. Because
-messagequeue.Publisher carries no header channel, the outbox cannot attach a
-deduplication key without wrapping the payload and breaking the wire
-compatibility above — so callers who need dedupe put their own idempotency key
-inside the payload.
+redelivers on restart. Consumers must tolerate duplicates. messagequeue.Publisher
+does carry a per-message deduplication key, but the Relay does not set one, so
+callers who need dedupe still put their own idempotency key inside the payload.
 
 Ordering depends on the claim mode and on Message.Key. ClaimSkipLocked lets
 several relays run concurrently and interleave batches, which gives up global
@@ -72,6 +70,10 @@ so its successor cannot be published until it lands. Unkeyed messages skip that
 check and claim freely. ClaimLease serializes on a single relay and preserves
 global order. Postgres and MySQL support both modes; SQLite has no SKIP LOCKED
 and always uses ClaimLease.
+
+All of that holds up to the publish call and not past it. The Relay does not
+forward Message.Key as the publisher's ordering key, so what a broker does with
+two messages sharing a key is the broker's business, not the outbox's.
 
 # Waking the relay
 

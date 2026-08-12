@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/authentication/tokens"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -304,8 +305,25 @@ func TestNewSigner_rejectsAnEmptyKey(T *testing.T) {
 			t.Parallel()
 
 			issuer, err := NewSigner("platform-test", t.Name(), key)
-			test.Error(t, err)
+			test.ErrorIs(t, err, platformerrors.ErrEmptyInputParameter)
 			test.Nil(t, issuer)
+		})
+	}
+}
+
+func TestNewSigner_rejectsAWrongLengthKey(T *testing.T) {
+	T.Parallel()
+
+	// v2.local seals with XChaCha20-Poly1305, which takes exactly 32 bytes. A
+	// key of any other length used to build a Signer and fail at the first
+	// IssueToken instead.
+	for _, length := range []int{1, 16, 31, 33, 64} {
+		T.Run("rejects a signing key of the wrong length", func(t *testing.T) {
+			t.Parallel()
+
+			issuer, err := NewSigner("platform-test", t.Name(), make([]byte, length))
+			test.ErrorIs(t, err, platformerrors.ErrUnrecognizedInputValue, test.Sprintf("length %d", length))
+			test.Nil(t, issuer, test.Sprintf("length %d", length))
 		})
 	}
 }

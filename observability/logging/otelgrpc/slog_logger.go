@@ -187,10 +187,10 @@ func (l *Logger) SetRequestIDFunc(f logging.RequestIDFunc) {
 // logging method rather than at this wrapper.
 //
 // This is the same fix the log/slog backend carries, and this backend — a copy
-// of that one — was made before it. Calling l.logger.Info/Debug/Error directly
-// leaves slog to walk the stack itself, and it stops at this file, so AddSource
-// and the otelslog bridge's WithSource(true) both attribute every record in the
-// process to whichever of the three methods below emitted it.
+// of that one — was made before it. Calling l.logger.Info/Debug/Warn/Error
+// directly leaves slog to walk the stack itself, and it stops at this file, so
+// AddSource and the otelslog bridge's WithSource(true) both attribute every
+// record in the process to whichever of the four methods below emitted it.
 func (l *Logger) logAt(level slog.Level, msg string, attrs ...slog.Attr) {
 	ctx := context.Background()
 	if !l.logger.Enabled(ctx, level) {
@@ -198,8 +198,8 @@ func (l *Logger) logAt(level slog.Level, msg string, attrs ...slog.Attr) {
 	}
 
 	var pcs [1]uintptr
-	// Skip [runtime.Callers, logAt, the exported Info/Debug/Error method] so the
-	// captured PC is the caller of that exported method.
+	// Skip [runtime.Callers, logAt, the exported Info/Debug/Warn/Error method] so
+	// the captured PC is the caller of that exported method.
 	runtime.Callers(3, pcs[:])
 	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
 	r.AddAttrs(attrs...)
@@ -214,6 +214,11 @@ func (l *Logger) Info(input string) {
 // Debug satisfies our contract for the logging.Logger Debug method.
 func (l *Logger) Debug(input string) {
 	l.logAt(slog.LevelDebug, input)
+}
+
+// Warn satisfies our contract for the logging.Logger Warn method.
+func (l *Logger) Warn(input string) {
+	l.logAt(slog.LevelWarn, input)
 }
 
 // Error satisfies our contract for the logging.Logger Error method.

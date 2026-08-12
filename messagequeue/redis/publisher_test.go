@@ -181,6 +181,49 @@ func Test_redisPublisher_Stop(T *testing.T) {
 	})
 }
 
+func Test_redisPublisher_Publish_ignoresPublishOptions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("publishes the same message with or without options", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		provider, err := NewRedisPublisherProvider(ctx, Config{QueueAddresses: []string{t.Name()}})
+		must.NoError(t, err)
+
+		a, err := provider.NewPublisher(ctx, t.Name())
+		must.NoError(t, err)
+
+		actual, ok := a.(*redisPublisher)
+		must.True(t, ok)
+
+		mmp := &mockMessagePublisher{
+			publishFunc: func(_ context.Context, _ string, _ any) *redis.IntCmd { return &redis.IntCmd{} },
+		}
+		actual.publisher = mmp
+
+		inputData := map[string]string{"name": t.Name()}
+
+		must.NoError(t, actual.Publish(ctx, inputData))
+		must.NoError(t, actual.Publish(ctx, inputData,
+			messagequeue.WithOrderingKey("account_123"),
+			messagequeue.WithDeduplicationKey("event_456"),
+		))
+		actual.PublishAsync(ctx, inputData, messagequeue.WithOrderingKey("account_123"))
+
+		// Redis pub/sub has nothing to carry either key on, so all three
+		// publishes reach it as the same channel and the same bytes. The options
+		// are accepted so a caller can pass one set to any backend, not because
+		// this one honors them.
+		must.SliceLen(t, 3, mmp.publishArgs)
+		for _, call := range mmp.publishArgs {
+			test.EqOp(t, actual.topic, call.channel)
+			test.Eq(t, mmp.publishArgs[0].message, call.message)
+		}
+	})
+}
+
 func Test_redisPublisher_PublishAsync(T *testing.T) {
 	T.Parallel()
 

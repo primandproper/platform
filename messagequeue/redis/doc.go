@@ -30,6 +30,13 @@ consuming the same topic both run the handler for each message, which is the
 opposite of what a consumer group does. There is no partitioning and no
 ordering guarantee beyond what a single Redis connection happens to deliver.
 
+This is why the publisher accepts every messagequeue.PublishOption and honors
+none. There is nothing here for an ordering key to name — no partitions, no
+groups, no per-key sequencing — and nothing that deduplicates, so a key given to
+this publisher changes nothing. It is accepted rather than rejected so that a
+caller can pass the same options to whichever publisher it was wired with, but a
+caller who needs ordering needs kafka, pubsub or sqs, not a different call.
+
 # Lifecycle
 
 Both providers validate their config at construction and build the client there,

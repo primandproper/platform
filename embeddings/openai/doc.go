@@ -8,6 +8,11 @@ prepended to the request path, so any endpoint that speaks OpenAI's
 instead of api.openai.com. The default model is text-embedding-3-small when
 neither the request nor the config names one.
 
+OpenAI's embedding models are symmetric — a query and a passage are embedded the
+same way, and similarity between the two is the intended comparison — so this
+package ignores embeddings.Input.Purpose entirely. Setting it costs nothing and
+keeps the same Input portable to the cohere sibling, which does read it.
+
 # Batching, and what a batch guarantees
 
 GenerateEmbeddings sends every input in one request, and GenerateEmbedding is a

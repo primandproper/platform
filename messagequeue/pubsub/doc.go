@@ -19,6 +19,31 @@ the server has assigned a message ID, and returns that failure to the caller
 rather than deferring it to a background flush. Nothing here retries beyond what
 the client does internally.
 
+# Ordering
+
+messagequeue.WithOrderingKey becomes the message's OrderingKey, and every
+publisher this package builds is created with the client's EnableMessageOrdering
+set — without it the client rejects a keyed message locally, before it reaches
+the wire. Turning it on costs unkeyed publishes nothing: those bundle under the
+empty key, which the client schedules exactly as it does with ordering off.
+
+The publishing half is all this package can set. Ordered *delivery* also
+requires the subscription to have been created with message ordering enabled,
+which belongs to whatever provisions the subscription — the same place the
+subscription itself comes from. A key published to a subscription without it is
+carried and stored, and delivered in whatever order the subscription likes.
+
+A publish that fails on an ordering key pauses that key in the client: every
+later message for it is refused until ResumePublish. This package resumes the
+key itself on a failed publish. That guard exists for the client's asynchronous
+API, where messages are already queued behind the failing one; here Publish
+blocks and hands the error back, so nothing is queued and the caller is the one
+deciding what happens next — and leaving the key paused would turn one transient
+failure into a key that rejects everything with no explanation.
+
+messagequeue.WithDeduplicationKey is accepted and ignored. Pub/Sub does not
+deduplicate on a caller-supplied key.
+
 # Names, and what must already exist
 
 A short topic name is qualified to projects/{project}/topics/{name}; a name that

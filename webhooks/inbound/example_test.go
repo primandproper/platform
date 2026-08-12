@@ -14,9 +14,12 @@ type printingPublisher struct{}
 
 func (printingPublisher) Stop() {}
 
-func (printingPublisher) PublishAsync(ctx context.Context, data any) { _ = ctx; _ = data }
+func (printingPublisher) PublishAsync(ctx context.Context, data any, _ ...messagequeue.PublishOption) {
+	_ = ctx
+	_ = data
+}
 
-func (printingPublisher) Publish(_ context.Context, data any) error {
+func (printingPublisher) Publish(_ context.Context, data any, _ ...messagequeue.PublishOption) error {
 	delivery, ok := data.(*inbound.Delivery)
 	if !ok {
 		return fmt.Errorf("unexpected message %T", data)

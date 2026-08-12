@@ -72,7 +72,7 @@ func TestRegisterKeys(T *testing.T) {
 				topic = name
 
 				return &messagequeuemock.PublisherMock{
-					PublishFunc: func(_ context.Context, data any) error {
+					PublishFunc: func(_ context.Context, data any, _ ...messagequeue.PublishOption) error {
 						published <- data
 
 						return nil

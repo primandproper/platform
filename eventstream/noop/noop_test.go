@@ -118,6 +118,21 @@ func TestBidirectionalEventStream_Receive(T *testing.T) {
 		s := NewBidirectionalEventStream()
 		test.NotNil(t, s.Receive())
 	})
+
+	T.Run("a range over the channel terminates once the stream is closed", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewBidirectionalEventStream()
+		must.NoError(t, s.Close())
+
+		// Would park this goroutine forever if Close left the channel open.
+		received := 0
+		for range s.Receive() {
+			received++
+		}
+
+		test.EqOp(t, 0, received)
+	})
 }
 
 func TestBidirectionalEventStream_Close(T *testing.T) {
@@ -128,6 +143,27 @@ func TestBidirectionalEventStream_Close(T *testing.T) {
 
 		s := NewBidirectionalEventStream()
 		test.NoError(t, s.Close())
+	})
+
+	T.Run("idempotent", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewBidirectionalEventStream()
+		test.NoError(t, s.Close())
+		test.NoError(t, s.Close())
+	})
+
+	T.Run("closes Done as well as the receive channel", func(t *testing.T) {
+		t.Parallel()
+
+		s := NewBidirectionalEventStream()
+		must.NoError(t, s.Close())
+
+		select {
+		case <-s.Done():
+		default:
+			t.Fatal("expected Done channel to be closed")
+		}
 	})
 }
 

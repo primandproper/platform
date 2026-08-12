@@ -1,13 +1,14 @@
-// Package noop is the random.Generator that generates nothing: every method
-// returns an empty string or an empty byte slice, with a nil error.
+// Package noop is the random.Generator that has nothing to draw from: every
+// method returns random.ErrNoRandomness and no value.
 //
 // Read that against what the real generator is for. This interface backs
-// two-factor secrets, salts, session and API tokens, and one-time codes, and an
-// empty value with no error is indistinguishable at the call site from a
-// successful draw. A system wired with this generator issues the same empty
-// token to every caller, and comparing two of those tokens succeeds — so it is
-// not merely unrandom, it is an authentication bypass that reports success at
-// every step.
+// two-factor secrets, salts, session and API tokens, and one-time codes, so the
+// one thing this generator must not do is answer an empty value with a nil
+// error — that is indistinguishable at the call site from a successful draw, and
+// a system wired with it would issue the same empty token to every caller while
+// comparing two of those tokens succeeded. Failing every call instead keeps it
+// from being used by accident: whatever was going to hold the token gets an
+// error where it expected a secret.
 //
 // It exists for tests that need a Generator to satisfy a signature and never
 // read what it produced. There is no random/config, so nothing selects it from
@@ -31,22 +32,22 @@ func NewGenerator() random.Generator {
 	return &Generator{}
 }
 
-// GenerateHexEncodedString is a no-op.
+// GenerateHexEncodedString returns random.ErrNoRandomness.
 func (*Generator) GenerateHexEncodedString(context.Context, int) (string, error) {
-	return "", nil
+	return "", random.ErrNoRandomness
 }
 
-// GenerateBase32EncodedString is a no-op.
+// GenerateBase32EncodedString returns random.ErrNoRandomness.
 func (*Generator) GenerateBase32EncodedString(context.Context, int) (string, error) {
-	return "", nil
+	return "", random.ErrNoRandomness
 }
 
-// GenerateBase64EncodedString is a no-op.
+// GenerateBase64EncodedString returns random.ErrNoRandomness.
 func (*Generator) GenerateBase64EncodedString(context.Context, int) (string, error) {
-	return "", nil
+	return "", random.ErrNoRandomness
 }
 
-// GenerateRawBytes is a no-op.
+// GenerateRawBytes returns random.ErrNoRandomness.
 func (*Generator) GenerateRawBytes(context.Context, int) ([]byte, error) {
-	return []byte{}, nil
+	return nil, random.ErrNoRandomness
 }

@@ -700,6 +700,7 @@ func (l *spyLogger) Error(string, error) {
 
 func (l *spyLogger) Info(string)                                {}
 func (l *spyLogger) Debug(string)                               {}
+func (l *spyLogger) Warn(string)                                {}
 func (l *spyLogger) SetRequestIDFunc(logging.RequestIDFunc)     {}
 func (l *spyLogger) Clone() logging.Logger                      { return l }
 func (l *spyLogger) WithName(string) logging.Logger             { return l }
