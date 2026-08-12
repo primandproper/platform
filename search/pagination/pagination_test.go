@@ -51,7 +51,7 @@ func TestSearch(T *testing.T) {
 		expected := &textsearch.SearchResults[exampleHit]{Hits: []*exampleHit{{ID: "hit"}}}
 		index := &textsearchmock.IndexMock[exampleHit]{
 			SearchFunc: func(_ context.Context, req textsearch.SearchRequest) (*textsearch.SearchResults[exampleHit], error) {
-				test.EqOp(t, "carrots", req.Query)
+				test.EqOp(t, "widgets", req.Query)
 				test.EqOp(t, 17, req.Limit)
 				test.EqOp(t, textsearch.Cursor(cursor), req.Cursor)
 
@@ -59,7 +59,7 @@ func TestSearch(T *testing.T) {
 			},
 		}
 
-		actual, err := Search(ctx, index, "carrots", filter)
+		actual, err := Search(ctx, index, "widgets", filter)
 		must.NoError(t, err)
 		test.Eq(t, expected, actual)
 		test.SliceLen(t, 1, index.SearchCalls())
@@ -77,7 +77,7 @@ func TestSearch(T *testing.T) {
 			},
 		}
 
-		actual, err := Search(ctx, index, "carrots", nil)
+		actual, err := Search(ctx, index, "widgets", nil)
 		test.Nil(t, actual)
 		test.ErrorIs(t, err, expected)
 	})
@@ -85,7 +85,7 @@ func TestSearch(T *testing.T) {
 	T.Run("without an index", func(t *testing.T) {
 		t.Parallel()
 
-		actual, err := Search[exampleHit](t.Context(), nil, "carrots", nil)
+		actual, err := Search[exampleHit](t.Context(), nil, "widgets", nil)
 		test.Nil(t, actual)
 		test.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
 	})
@@ -102,8 +102,8 @@ func TestRequestFromFilter(T *testing.T) {
 		filter := filterWithCursor(t, cursor)
 		filter.MaxResponseSize = new(uint16(17))
 
-		actual := RequestFromFilter("carrots", filter)
-		test.EqOp(t, "carrots", actual.Query)
+		actual := RequestFromFilter("widgets", filter)
+		test.EqOp(t, "widgets", actual.Query)
 		test.EqOp(t, 17, actual.Limit)
 		test.EqOp(t, textsearch.Cursor(cursor), actual.Cursor)
 	})
@@ -111,8 +111,8 @@ func TestRequestFromFilter(T *testing.T) {
 	T.Run("with nil filter", func(t *testing.T) {
 		t.Parallel()
 
-		actual := RequestFromFilter("carrots", nil)
-		test.EqOp(t, "carrots", actual.Query)
+		actual := RequestFromFilter("widgets", nil)
+		test.EqOp(t, "widgets", actual.Query)
 		test.Zero(t, actual.Limit)
 		test.True(t, actual.Cursor.IsZero())
 	})
@@ -122,7 +122,7 @@ func TestRequestFromFilter(T *testing.T) {
 
 		// A client that sends cursor="" is asking for the first page, not resuming
 		// from a token the index would have to make sense of.
-		test.True(t, RequestFromFilter("carrots", filterWithCursor(t, "")).Cursor.IsZero())
+		test.True(t, RequestFromFilter("widgets", filterWithCursor(t, "")).Cursor.IsZero())
 	})
 }
 

@@ -28,9 +28,9 @@ var ErrIndexReturnedNothing = platformerrors.New("search index returned no resul
 // Both type parameters are inferred from the arguments, so a call site spells
 // neither:
 //
-//	page, err := searchpagination.Hydrated(ctx, m.vesselIndex, query, filter,
-//		func(v *indexing.VesselSubset) string { return v.ID },
-//		m.db.GetValidVesselsWithIDs,
+//	page, err := searchpagination.Hydrated(ctx, s.widgetIndex, query, filter,
+//		func(w *indexing.WidgetSubset) string { return w.ID },
+//		s.db.GetWidgetsWithIDs,
 //	)
 //
 // The resulting page carries the index's cursor, not the last row's ID, so a

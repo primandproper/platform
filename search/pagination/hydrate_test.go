@@ -42,7 +42,7 @@ func TestHydrated(T *testing.T) {
 			SearchFunc: func(_ context.Context, req textsearch.SearchRequest) (*textsearch.SearchResults[exampleHit], error) {
 				// The filter's page size and resumption point reach the index, which is
 				// the forgetting Search exists to prevent.
-				test.EqOp(t, "carrots", req.Query)
+				test.EqOp(t, "widgets", req.Query)
 				test.EqOp(t, 17, req.Limit)
 				test.EqOp(t, textsearch.Cursor(cursor), req.Cursor)
 
@@ -57,7 +57,7 @@ func TestHydrated(T *testing.T) {
 
 		rows := []*exampleRow{{ID: "first", Name: "carrot"}, {ID: "second", Name: "carrot cake"}}
 
-		actual, err := Hydrated(ctx, index, "carrots", filter, hitID,
+		actual, err := Hydrated(ctx, index, "widgets", filter, hitID,
 			func(_ context.Context, ids []string) ([]*exampleRow, error) {
 				hydratedWith = ids
 
@@ -84,7 +84,7 @@ func TestHydrated(T *testing.T) {
 
 		index := indexReturning([]*exampleHit{{ID: "first"}}, "next")
 
-		actual, err := Hydrated(t.Context(), index, "carrots", nil, hitID,
+		actual, err := Hydrated(t.Context(), index, "widgets", nil, hitID,
 			func(_ context.Context, _ []string) ([]*exampleRow, error) {
 				return []*exampleRow{{ID: "first"}}, nil
 			},
@@ -103,7 +103,7 @@ func TestHydrated(T *testing.T) {
 
 		hydrateCalls := 0
 
-		actual, err := Hydrated(t.Context(), index, "carrots", filtering.DefaultQueryFilter(), hitID,
+		actual, err := Hydrated(t.Context(), index, "widgets", filtering.DefaultQueryFilter(), hitID,
 			func(_ context.Context, _ []string) ([]*exampleRow, error) {
 				hydrateCalls++
 
@@ -127,7 +127,7 @@ func TestHydrated(T *testing.T) {
 
 		filter := filtering.DefaultQueryFilter()
 
-		actual, err := Hydrated(t.Context(), index, "carrots", filter, hitID,
+		actual, err := Hydrated(t.Context(), index, "widgets", filter, hitID,
 			func(_ context.Context, _ []string) ([]*exampleRow, error) {
 				return nil, nil
 			},
@@ -148,7 +148,7 @@ func TestHydrated(T *testing.T) {
 			},
 		}
 
-		actual, err := Hydrated(t.Context(), index, "carrots", filtering.DefaultQueryFilter(), hitID,
+		actual, err := Hydrated(t.Context(), index, "widgets", filtering.DefaultQueryFilter(), hitID,
 			func(_ context.Context, _ []string) ([]*exampleRow, error) {
 				return nil, platformerrors.New("should not have been called")
 			},
@@ -164,7 +164,7 @@ func TestHydrated(T *testing.T) {
 		expected := platformerrors.New("blah")
 		index := indexReturning([]*exampleHit{{ID: "first"}}, "next")
 
-		actual, err := Hydrated(t.Context(), index, "carrots", filtering.DefaultQueryFilter(), hitID,
+		actual, err := Hydrated(t.Context(), index, "widgets", filtering.DefaultQueryFilter(), hitID,
 			func(_ context.Context, _ []string) ([]*exampleRow, error) {
 				return nil, expected
 			},
@@ -182,7 +182,7 @@ func TestHydrated(T *testing.T) {
 			},
 		}
 
-		actual, err := Hydrated(t.Context(), index, "carrots", filtering.DefaultQueryFilter(), hitID,
+		actual, err := Hydrated(t.Context(), index, "widgets", filtering.DefaultQueryFilter(), hitID,
 			func(_ context.Context, _ []string) ([]*exampleRow, error) {
 				return nil, platformerrors.New("should not have been called")
 			},
@@ -194,7 +194,7 @@ func TestHydrated(T *testing.T) {
 	T.Run("without an index", func(t *testing.T) {
 		t.Parallel()
 
-		actual, err := Hydrated[exampleRow, exampleHit](t.Context(), nil, "carrots", nil, hitID,
+		actual, err := Hydrated[exampleRow, exampleHit](t.Context(), nil, "widgets", nil, hitID,
 			func(_ context.Context, _ []string) ([]*exampleRow, error) {
 				return nil, nil
 			},
@@ -208,7 +208,7 @@ func TestHydrated(T *testing.T) {
 
 		index := indexReturning([]*exampleHit{{ID: "first"}}, "next")
 
-		actual, err := Hydrated[exampleRow](t.Context(), index, "carrots", nil, nil,
+		actual, err := Hydrated[exampleRow](t.Context(), index, "widgets", nil, nil,
 			func(_ context.Context, _ []string) ([]*exampleRow, error) {
 				return nil, nil
 			},
@@ -222,7 +222,7 @@ func TestHydrated(T *testing.T) {
 
 		index := indexReturning([]*exampleHit{{ID: "first"}}, "next")
 
-		actual, err := Hydrated[exampleRow](t.Context(), index, "carrots", nil, hitID, nil)
+		actual, err := Hydrated[exampleRow](t.Context(), index, "widgets", nil, hitID, nil)
 		test.Nil(t, actual)
 		test.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
 	})
