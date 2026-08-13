@@ -118,6 +118,121 @@ func TestResult(T *testing.T) {
 	})
 }
 
+func TestResult_header(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a named header reaches the response", func(t *testing.T) {
+		t.Parallel()
+
+		r := resultRouter(t)
+		routing.Post(r, "/w", func(context.Context, routing.Empty) (routing.Result[widget], error) {
+			return routing.Result[widget]{
+				Value:  widget{ID: 3},
+				Status: http.StatusCreated,
+				Header: http.Header{"Location": {"/w/3"}},
+			}, nil
+		}, routing.WithEnvelope(false))
+
+		rec := call(t, r, http.MethodPost, "/w")
+
+		test.EqOp(t, http.StatusCreated, rec.Code)
+		test.EqOp(t, "/w/3", rec.Header().Get("Location"))
+	})
+
+	T.Run("a nil header sets nothing", func(t *testing.T) {
+		t.Parallel()
+
+		r := resultRouter(t)
+		routing.Get(r, "/w", func(context.Context, routing.Empty) (routing.Result[widget], error) {
+			return routing.Result[widget]{Value: widget{ID: 3}}, nil
+		}, routing.WithEnvelope(false))
+
+		test.EqOp(t, http.StatusOK, call(t, r, http.MethodGet, "/w").Code)
+	})
+
+	T.Run("a name is spelled in any case and still lands canonical", func(t *testing.T) {
+		t.Parallel()
+
+		r := resultRouter(t)
+		routing.Get(r, "/w", func(context.Context, routing.Empty) (routing.Result[widget], error) {
+			return routing.Result[widget]{
+				Value:  widget{ID: 3},
+				Header: http.Header{"retry-after": {"120"}},
+			}, nil
+		}, routing.WithEnvelope(false))
+
+		test.EqOp(t, "120", call(t, r, http.MethodGet, "/w").Header().Get("Retry-After"))
+	})
+
+	T.Run("multiple values under one name all survive", func(t *testing.T) {
+		t.Parallel()
+
+		r := resultRouter(t)
+		routing.Get(r, "/w", func(context.Context, routing.Empty) (routing.Result[widget], error) {
+			return routing.Result[widget]{
+				Value:  widget{ID: 3},
+				Header: http.Header{"Set-Cookie": {"a=1", "b=2"}},
+			}, nil
+		}, routing.WithEnvelope(false))
+
+		test.SliceLen(t, 2, call(t, r, http.MethodGet, "/w").Header().Values("Set-Cookie"))
+	})
+
+	T.Run("a reserved header is answered as a fault", func(t *testing.T) {
+		t.Parallel()
+
+		for _, name := range []string{"Content-Type", "content-length", "Transfer-Encoding", "Connection"} {
+			r := resultRouter(t)
+			routing.Get(r, "/w", func(context.Context, routing.Empty) (routing.Result[widget], error) {
+				return routing.Result[widget]{
+					Value:  widget{ID: 3},
+					Header: http.Header{name: {"whatever"}},
+				}, nil
+			}, routing.WithEnvelope(false))
+
+			test.EqOp(t, http.StatusInternalServerError, call(t, r, http.MethodGet, "/w").Code)
+		}
+	})
+
+	T.Run("one reserved header leaves the others unapplied", func(t *testing.T) {
+		t.Parallel()
+
+		r := resultRouter(t)
+		routing.Get(r, "/w", func(context.Context, routing.Empty) (routing.Result[widget], error) {
+			return routing.Result[widget]{
+				Value: widget{ID: 3},
+				Header: http.Header{
+					"Location":       {"/w/3"},
+					"Content-Length": {"99"},
+				},
+			}, nil
+		}, routing.WithEnvelope(false))
+
+		rec := call(t, r, http.MethodGet, "/w")
+
+		must.EqOp(t, http.StatusInternalServerError, rec.Code)
+		test.EqOp(t, "", rec.Header().Get("Location"))
+	})
+
+	T.Run("a header set on a bodyless response still reaches the client", func(t *testing.T) {
+		t.Parallel()
+
+		r := resultRouter(t)
+		routing.Delete(r, "/w", func(context.Context, routing.Empty) (routing.Result[routing.Empty], error) {
+			return routing.Result[routing.Empty]{
+				Status: http.StatusAccepted,
+				Header: http.Header{"Retry-After": {"5"}},
+			}, nil
+		})
+
+		rec := call(t, r, http.MethodDelete, "/w")
+
+		test.EqOp(t, http.StatusAccepted, rec.Code)
+		test.EqOp(t, "5", rec.Header().Get("Retry-After"))
+		test.EqOp(t, "", rec.Body.String())
+	})
+}
+
 // TestResult_unwrapping is the property the design rests on: a Result[T] is
 // answered exactly as a bare T would have been, so opting a route in changes
 // only its status.

@@ -117,14 +117,17 @@ func ExampleResult() {
 		created := !existing[in.ID]
 		existing[in.ID] = true
 
-		status := http.StatusOK
-		if created {
-			status = http.StatusCreated
+		out := person{ID: in.ID, Name: in.Name}
+		if !created {
+			return routing.Result[person]{Value: out}, nil
 		}
 
+		// Location is worth setting only on the response that created
+		// something, which is the same response that chose the 201.
 		return routing.Result[person]{
-			Value:  person{ID: in.ID, Name: in.Name},
-			Status: status,
+			Value:  out,
+			Status: http.StatusCreated,
+			Header: http.Header{"Location": {fmt.Sprintf("/users/%d", in.ID)}},
 		}, nil
 	},
 		routing.WithEnvelope(false),
@@ -143,12 +146,13 @@ func ExampleResult() {
 		rec := httptest.NewRecorder()
 		r.Handler().ServeHTTP(rec, req)
 
-		fmt.Println("status:", rec.Code, "body:", strings.TrimSpace(rec.Body.String()))
+		fmt.Println("status:", rec.Code, "location:", rec.Header().Get("Location"),
+			"body:", strings.TrimSpace(rec.Body.String()))
 	}
 
 	// Output:
-	// status: 200 body: {"name":"Ada","email":"","id":7}
-	// status: 201 body: {"name":"Ada","email":"","id":8}
+	// status: 200 location:  body: {"name":"Ada","email":"","id":7}
+	// status: 201 location: /users/8 body: {"name":"Ada","email":"","id":8}
 }
 
 // storeArea takes a bound path parameter next to a body the router does not

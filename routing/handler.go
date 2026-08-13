@@ -52,6 +52,15 @@ func buildHTTPHandler[In, Out any](r *Router, plan *bindPlan, rc *routeConfig, h
 			default:
 				status = named
 			}
+
+			// Before anything is written: a header set after WriteHeader is a
+			// header the client never sees, and writeError below still needs a
+			// response it can write in full.
+			if err = applyResponseHeader(res.Header(), result.responseHeader()); err != nil {
+				r.writeError(ctx, res, op, enc, err)
+
+				return
+			}
 		}
 
 		if noBody {

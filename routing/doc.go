@@ -57,18 +57,28 @@ Result instead of a bare value:
 			return routing.Result[user]{}, err
 		}
 
-		status := http.StatusOK
-		if created {
-			status = http.StatusCreated
+		if !created {
+			return routing.Result[user]{Value: u}, nil
 		}
 
-		return routing.Result[user]{Value: u, Status: status}, nil
+		return routing.Result[user]{
+			Value:  u,
+			Status: http.StatusCreated,
+			Header: http.Header{"Location": {"/users/" + u.ID.String()}},
+		}, nil
 	}, routing.WithAdditionalResponse(http.StatusCreated, new(user), "created"))
+
+A Result carries response headers for the same reason it carries the status:
+the ones worth setting per response are the ones a chosen status implies —
+Location on the 201, Retry-After on a 503. Content-Type, Content-Length,
+Transfer-Encoding, and Connection are refused rather than honored, because the
+encoder and net/http set those immediately afterwards and a handler's value
+would be overwritten or would truncate the body; see ErrReservedResponseHeader.
 
 Opting in changes nothing a client sees: the Result is unwrapped before
 encoding, so the envelope, the generated schema, and the bytes on the wire are
-the wrapped type's. A zero Status means the registered one, so the wrapper costs
-nothing on the paths that do not name a status.
+the wrapped type's. A zero Status means the registered one and a nil Header sets
+nothing, so the wrapper costs nothing on the paths that use neither.
 
 The status rides the return value because it is one. Reaching it through the
 context would put it where the signature says nothing can be, and would leave a
