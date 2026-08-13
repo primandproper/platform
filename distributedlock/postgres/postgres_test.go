@@ -13,6 +13,7 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/distributedlock"
+	"github.com/primandproper/platform-go/v10/distributedlock/distributedlocktest"
 	"github.com/primandproper/platform-go/v10/identifiers"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -762,123 +763,37 @@ func TestLocker_Acquire_PoolSaturation_Unit(T *testing.T) {
 
 // --------- container-backed integration tests ---------
 
+// TestPostgresLocker_Conformance runs the shared distributedlock.Locker suite
+// against a real postgres. Every case that used to live here and is not below
+// is in that suite now.
+func TestPostgresLocker_Conformance(T *testing.T) {
+	T.Parallel()
+
+	runWithContainerBackedPostgres(T, func(client *testDBClient) {
+		distributedlocktest.Run(T, func(tb testing.TB) distributedlock.Locker {
+			tb.Helper()
+
+			l, err := NewPostgresLocker(&Config{}, client, cbnoop.NewCircuitBreaker())
+			must.NoError(tb, err)
+			tb.Cleanup(func() { must.NoError(tb, l.Close()) })
+
+			return l
+		},
+			// Advisory locks have no server-side expiry: this provider's TTL
+			// stops its own holder from believing it still owns the lock, and
+			// does not hand the key to anybody else. See the package doc.
+			distributedlocktest.WithAdvisoryTTL(),
+		)
+	})
+}
+
 func TestPostgresLocker_Container(T *testing.T) {
 	T.Parallel()
 
-	// One container for the whole suite; the parallel subtests keep to their own
-	// lock keys, so they cannot collide.
 	runWithContainerBackedPostgres(T, func(client *testDBClient) {
-		T.Run("Acquire happy path", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			l := newTestLocker(t, client)
-			key := "happy_" + identifiers.New()
-
-			lock, err := l.Acquire(ctx, key, time.Minute)
-			must.NoError(t, err)
-			must.NotNil(t, lock)
-			test.EqOp(t, key, lock.Key())
-			test.EqOp(t, time.Minute, lock.TTL())
-			must.NoError(t, lock.Release(ctx))
-		})
-
-		T.Run("Acquire contended on the same Locker returns ErrLockNotAcquired", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			l := newTestLocker(t, client)
-			key := "contend_same_" + identifiers.New()
-
-			first, err := l.Acquire(ctx, key, time.Minute)
-			must.NoError(t, err)
-			t.Cleanup(func() { _ = first.Release(ctx) })
-
-			_, err = l.Acquire(ctx, key, time.Minute)
-			must.ErrorIs(t, err, distributedlock.ErrLockNotAcquired)
-		})
-
-		T.Run("Acquire contended across separate lockers returns ErrLockNotAcquired", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			l1 := newTestLocker(t, client)
-			l2 := newTestLocker(t, client)
-			key := "contend_cross_" + identifiers.New()
-
-			first, err := l1.Acquire(ctx, key, time.Minute)
-			must.NoError(t, err)
-			t.Cleanup(func() { _ = first.Release(ctx) })
-
-			_, err = l2.Acquire(ctx, key, time.Minute)
-			must.ErrorIs(t, err, distributedlock.ErrLockNotAcquired)
-		})
-
-		T.Run("Acquire rejects empty key", func(t *testing.T) {
-			t.Parallel()
-			l := newTestLocker(t, client)
-			_, err := l.Acquire(t.Context(), "", time.Minute)
-			must.ErrorIs(t, err, distributedlock.ErrEmptyKey)
-		})
-
-		T.Run("Acquire rejects zero TTL", func(t *testing.T) {
-			t.Parallel()
-			l := newTestLocker(t, client)
-			_, err := l.Acquire(t.Context(), "k", 0)
-			must.ErrorIs(t, err, distributedlock.ErrInvalidTTL)
-		})
-
-		T.Run("Released lock can be reacquired", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			l := newTestLocker(t, client)
-			key := "reacquire_" + identifiers.New()
-
-			first, err := l.Acquire(ctx, key, time.Minute)
-			must.NoError(t, err)
-			must.NoError(t, first.Release(ctx))
-
-			second, err := l.Acquire(ctx, key, time.Minute)
-			must.NoError(t, err)
-			must.NoError(t, second.Release(ctx))
-		})
-
-		T.Run("Double release returns ErrLockNotHeld on second call", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			l := newTestLocker(t, client)
-			key := "double_" + identifiers.New()
-
-			lock, err := l.Acquire(ctx, key, time.Minute)
-			must.NoError(t, err)
-			must.NoError(t, lock.Release(ctx))
-			must.ErrorIs(t, lock.Release(ctx), distributedlock.ErrLockNotHeld)
-		})
-
-		T.Run("Refresh succeeds and updates local TTL", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			l := newTestLocker(t, client)
-			key := "refresh_" + identifiers.New()
-
-			lock, err := l.Acquire(ctx, key, time.Minute)
-			must.NoError(t, err)
-			t.Cleanup(func() { _ = lock.Release(ctx) })
-
-			must.NoError(t, lock.Refresh(ctx, 5*time.Minute))
-			test.EqOp(t, 5*time.Minute, lock.TTL())
-		})
-
-		T.Run("Refresh after release returns ErrLockNotHeld", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			l := newTestLocker(t, client)
-			key := "refresh_after_release_" + identifiers.New()
-
-			lock, err := l.Acquire(ctx, key, time.Minute)
-			must.NoError(t, err)
-			must.NoError(t, lock.Release(ctx))
-
-			must.ErrorIs(t, lock.Refresh(ctx, time.Minute), distributedlock.ErrLockNotHeld)
-		})
-
+		// The suite deliberately says nothing about Close, because the
+		// providers answer differently and the interface permits both. This is
+		// this provider's answer: every outstanding advisory lock goes with it.
 		T.Run("Close releases all outstanding locks", func(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
@@ -900,12 +815,6 @@ func TestPostgresLocker_Container(T *testing.T) {
 			must.NoError(t, err)
 			_, err = l2.Acquire(ctx, keyB, time.Minute)
 			must.NoError(t, err)
-		})
-
-		T.Run("Ping success", func(t *testing.T) {
-			t.Parallel()
-			l := newTestLocker(t, client)
-			must.NoError(t, l.Ping(t.Context()))
 		})
 	})
 }
