@@ -7,6 +7,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/idempotency"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
+	textsearch "github.com/primandproper/platform-go/v10/search/text"
 )
 
 // codeToError inverts PlatformMapper for the codes that came from exactly one
@@ -22,9 +23,11 @@ var codeToError = map[ErrorCode]error{
 	ErrDataNotFound:           sql.ErrNoRows,
 	ErrIdempotencyKeyInFlight: idempotency.ErrInFlight,
 	ErrIdempotencyKeyReused:   idempotency.ErrFingerprintMismatch,
+	ErrInvalidSearchCursor:    textsearch.ErrInvalidCursor,
 	ErrNotEntitled:            platformerrors.ErrNotEntitled,
 	ErrQuotaExhausted:         platformerrors.ErrQuotaExhausted,
 	ErrResourceConflict:       platformerrors.ErrResourceInUse,
+	ErrSearchWindowExceeded:   textsearch.ErrResultWindowExceeded,
 	ErrTooManyRequests:        ratelimiting.ErrRateLimited,
 	ErrUserIsNotAuthorized:    platformerrors.ErrPermissionDenied,
 }

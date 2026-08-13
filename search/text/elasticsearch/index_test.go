@@ -220,7 +220,7 @@ func TestIndexManager_Search_CircuitBroken(T *testing.T) {
 		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: ""})
 		test.Error(t, err)
 		test.Nil(t, results)
-		test.ErrorIs(t, err, ErrEmptyQueryProvided)
+		test.ErrorIs(t, err, textsearch.ErrEmptyQueryProvided)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 	})
 
@@ -662,7 +662,7 @@ func TestIndexManager_Search_Pagination(T *testing.T) {
 		must.NoError(t, err)
 
 		results, searchErr := im.Search(context.Background(), textsearch.SearchRequest{Query: "test", Limit: 25, Cursor: cursor})
-		test.ErrorIs(t, searchErr, ErrResultWindowExceeded)
+		test.ErrorIs(t, searchErr, textsearch.ErrResultWindowExceeded)
 		test.Nil(t, results)
 	})
 

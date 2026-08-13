@@ -14,6 +14,8 @@ import (
 	"github.com/primandproper/platform-go/v10/links"
 	"github.com/primandproper/platform-go/v10/operations"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
+	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	vectorsearch "github.com/primandproper/platform-go/v10/search/vector"
 	"github.com/primandproper/platform-go/v10/sessions"
 
 	"github.com/shoenig/test"
@@ -70,6 +72,12 @@ var mappedSentinels = []error{
 	idempotency.ErrKeyRequired,
 	idempotency.ErrKeyTooLong,
 	idempotency.ErrKeyInvalid,
+	textsearch.ErrInvalidCursor,
+	textsearch.ErrEmptyQueryProvided,
+	textsearch.ErrResultWindowExceeded,
+	vectorsearch.ErrNotFound,
+	vectorsearch.ErrEmptyEmbedding,
+	vectorsearch.ErrDimensionMismatch,
 }
 
 func TestPlatformMappers_coverTheSameSentinels(T *testing.T) {

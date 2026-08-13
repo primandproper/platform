@@ -36,6 +36,17 @@ var codeToStatus = map[ErrorCode]int{
 	// invites a retry of a URL that will never work again, and every retry of a
 	// link is somebody clicking it a second time.
 	ErrActionLinkUnusable: http.StatusGone, // E120
+	// 400 for both search pagination refusals, and not 416, which was the other
+	// candidate. RFC 9110 scopes 416 to the Range header — a response carrying it
+	// is expected to carry Content-Range, and intermediaries and client libraries
+	// treat it as a byte-range answer — so borrowing it for a cursor the server
+	// itself issued means a status whose accompanying headers cannot be provided
+	// and whose meaning has to be documented away. 400 is also what gRPC's own
+	// OutOfRange maps to at every gateway, so a service exposing both transports
+	// answers the same refusal the same way. The distinction 416 was wanted for
+	// survives where clients can actually read it: in the two error codes.
+	ErrInvalidSearchCursor:  http.StatusBadRequest, // E121
+	ErrSearchWindowExceeded: http.StatusBadRequest, // E122
 }
 
 // HTTPStatusForCode returns the HTTP status code that corresponds to an ErrorCode.
