@@ -235,7 +235,7 @@ func TestIndexManager_Search(T *testing.T) {
 		results, err := im.Search(context.Background(), textsearch.SearchRequest{Query: ""})
 		test.Error(t, err)
 		test.Nil(t, results)
-		test.ErrorIs(t, err, ErrEmptyQueryProvided)
+		test.ErrorIs(t, err, textsearch.ErrEmptyQueryProvided)
 		test.SliceLen(t, 1, cb.CannotProceedCalls())
 	})
 

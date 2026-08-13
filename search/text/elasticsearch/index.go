@@ -32,17 +32,6 @@ const (
 	maxResultWindow = 10000
 )
 
-var (
-	// ErrEmptyQueryProvided indicates an empty query was provided as input.
-	ErrEmptyQueryProvided = platformerrors.New("empty search query provided")
-
-	// ErrResultWindowExceeded indicates pagination reached Elasticsearch's
-	// max_result_window. Deep paging past it needs search_after or a PIT, which
-	// this backend does not use yet — the opaque cursor exists so adding them
-	// will not change the interface.
-	ErrResultWindowExceeded = platformerrors.New("search result window exceeded")
-)
-
 // Index implements textsearch.Index.
 func (sm *IndexManager[T]) Index(ctx context.Context, id string, value any) (err error) {
 	ctx, op := sm.o11y.Begin(ctx)
@@ -111,7 +100,7 @@ func (sm *IndexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 	op.Set(keys.SearchQueryKey, req.Query)
 
 	if req.Query == "" {
-		return nil, op.Error(ErrEmptyQueryProvided, "searching index")
+		return nil, op.Error(textsearch.ErrEmptyQueryProvided, "searching index")
 	}
 
 	from, err := textsearch.DecodeCursor(backendName, req.Cursor)
@@ -123,9 +112,12 @@ func (sm *IndexManager[T]) search(ctx context.Context, req textsearch.SearchRequ
 
 	// from + size cannot exceed index.max_result_window (10,000 by default);
 	// past that Elasticsearch rejects the request outright rather than
-	// returning a short page, so the refusal is raised here with a name.
+	// returning a short page, so the refusal is raised here with a name. Deep
+	// paging past it needs search_after or a PIT, which this backend does not
+	// use yet — the opaque cursor exists so adding them will not change the
+	// interface.
 	if from+size > maxResultWindow {
-		return nil, op.Error(ErrResultWindowExceeded, "paginating beyond the result window")
+		return nil, op.Error(textsearch.ErrResultWindowExceeded, "paginating beyond the result window")
 	}
 
 	op.Set("search.from", from).Set("search.size", size)
