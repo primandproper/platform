@@ -174,15 +174,24 @@ func RunScoped(t *testing.T, newScopedLocker ScopedFactory) {
 	t.Run("TryWithLock reports fn's error with the lock still reported as acquired", func(t *testing.T) {
 		t.Parallel()
 
+		ctx := t.Context()
 		scoped := newScopedLocker(t)
+		key := uniqueKey("try_fn_error")
 
 		// The two return values answer different questions — did I get the
 		// lock, and how did my work go — and folding fn's failure into a false
 		// would tell the caller to retry work that already ran.
-		acquired, err := scoped.TryWithLock(t.Context(), uniqueKey("try_fn_error"), func(context.Context) error {
+		acquired, err := scoped.TryWithLock(ctx, key, func(context.Context) error {
 			return errFromFn
 		})
 		must.ErrorIs(t, err, errFromFn)
+		test.True(t, acquired)
+
+		// And the lock went back on fn's error path as it does on its happy
+		// one: a failing fn that stranded the lock would wedge every later
+		// caller of that key.
+		acquired, err = scoped.TryWithLock(ctx, key, func(context.Context) error { return nil })
+		must.NoError(t, err)
 		test.True(t, acquired)
 	})
 
