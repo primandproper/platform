@@ -9,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v10/encoding"
 	httpx "github.com/primandproper/platform-go/v10/errors/http"
 	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v10/observability/keys"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
 
@@ -89,17 +90,19 @@ type (
 // generic and Go does not permit generic interface methods. The swappable seam
 // is Backend; the Router is the one fixed orchestration layer above it.
 type Router struct {
-	backend    Backend
-	enc        encoding.ServerEncoderDecoder
-	errEncoder ErrorEncoder
-	o11y       observability.Observer
-	reflector  *openapi3.Reflector
+	backend       Backend
+	enc           encoding.ServerEncoderDecoder
+	errEncoder    ErrorEncoder
+	errClassifier ErrorClassifier
+	o11y          observability.Observer
+	reflector     *openapi3.Reflector
 
 	encoders *encoderCache
 	errs     *regErrors
 
 	prefix          string
 	tags            []string
+	maxRequestBody  int64
 	envelopeDefault bool
 }
 
@@ -158,10 +161,12 @@ type (
 		logger         logging.Logger
 		tracerProvider tracing.Provider
 		errEncoder     ErrorEncoder
+		errClassifier  ErrorClassifier
 		title          string
 		version        string
 		description    string
 		servers        []string
+		maxRequestBody int64
 		envelope       bool
 	}
 )
@@ -210,6 +215,37 @@ func WithErrorEncoder(encoder ErrorEncoder) RouterOption {
 	return func(c *routerConfig) { c.errEncoder = encoder }
 }
 
+// WithErrorClassifier replaces how returned errors are recorded, for a service
+// whose idea of which errors are its own fault differs from the status they are
+// sent as.
+//
+// Without it, severity follows the resolved status — see DefaultErrorSeverity
+// for what that means and why. With it, the classifier decides, and can reach
+// the error itself: a 502 from a dependency that is known to flap can be
+// recorded at WARN, and a 404 that should never happen on an internal route at
+// ERROR.
+//
+// It is an option on the Router rather than a per-route one for the same reason
+// WithErrorEncoder is: what a service considers its own fault is a property of
+// the service. A nil classifier leaves the default in place.
+func WithErrorClassifier(classifier ErrorClassifier) RouterOption {
+	return func(c *routerConfig) { c.errClassifier = classifier }
+}
+
+// WithDefaultMaxRequestBody bounds the request body every route will read, in
+// bytes, for routes that do not set their own with WithMaxRequestBody.
+//
+// Unset, there is no Router-wide bound and each route decides — which for all
+// but a RawBody route means no bound at all, as it always has. The reason to set
+// one is that the alternative is enforcing it in the encoder, where it is one
+// number for every endpoint the service has: the upload route and the login
+// route get the same ceiling, and it has to be the upload route's.
+//
+// A value of zero or less is no bound.
+func WithDefaultMaxRequestBody(n int64) RouterOption {
+	return func(c *routerConfig) { c.maxRequestBody = n }
+}
+
 // WithLogger attaches a logger.
 func WithLogger(logger logging.Logger) RouterOption {
 	return func(c *routerConfig) { c.logger = logger }
@@ -249,17 +285,19 @@ func New(
 	}
 
 	return &Router{
-		backend:    backend,
-		enc:        enc,
-		errEncoder: cfg.errEncoder,
-		o11y:       observability.NewObserver(observerName, logger, tracerProvider),
-		reflector:  reflector,
+		backend:       backend,
+		enc:           enc,
+		errEncoder:    cfg.errEncoder,
+		errClassifier: cfg.errClassifier,
+		o11y:          observability.NewObserver(observerName, logger, tracerProvider),
+		reflector:     reflector,
 		encoders: &encoderCache{
 			logger:         logger,
 			tracerProvider: tracerProvider,
 			byType:         map[encoding.ContentType]encoding.ServerEncoderDecoder{},
 		},
 		errs:            &regErrors{},
+		maxRequestBody:  cfg.maxRequestBody,
 		envelopeDefault: cfg.envelope,
 	}
 }
@@ -289,15 +327,25 @@ func (r *Router) encoderFor(contentType encoding.ContentType) encoding.ServerEnc
 	return r.encoders.get(contentType)
 }
 
+// errorDescription is what every recorded request failure is described as,
+// whatever severity it lands at.
+const errorDescription = "handling request"
+
+// The bounds of a status an http.ResponseWriter will accept.
+const (
+	minHTTPStatus = 100
+	maxHTTPStatus = 999
+)
+
 // writeError maps a handler or binding error to an HTTP status and body and
 // encodes it, through the Router's ErrorEncoder if it has one and
 // DefaultErrorBody if it does not.
 //
-// The error is acknowledged on the operation either way: a custom encoder
-// changes what the client is told, not what the service records.
+// The error is recorded either way: a custom encoder changes what the client is
+// told, not what the service records. It is recorded *after* the status is
+// resolved, because the status is what says whether this was the service's
+// fault — see recordError.
 func (r *Router) writeError(ctx context.Context, res http.ResponseWriter, op observability.Operation, enc encoding.ServerEncoderDecoder, err error) {
-	op.Acknowledge(err, "handling request")
-
 	encode := r.errEncoder
 	if encode == nil {
 		encode = DefaultErrorBody
@@ -307,9 +355,11 @@ func (r *Router) writeError(ctx context.Context, res http.ResponseWriter, op obs
 
 	// An out-of-range status would panic the ResponseWriter, taking down a
 	// request that was already failing in a way that was going to be reported.
-	if status < 100 || status > 999 {
+	if status < minHTTPStatus || status > maxHTTPStatus {
 		status = http.StatusInternalServerError
 	}
+
+	r.recordError(ctx, op, err, status)
 
 	if body == nil {
 		res.WriteHeader(status)
@@ -318,6 +368,40 @@ func (r *Router) writeError(ctx context.Context, res http.ResponseWriter, op obs
 	}
 
 	enc.EncodeResponseWithStatus(ctx, res, body, status)
+}
+
+// recordError records an outgoing error on the operation at the severity its
+// classifier chooses, with the status on the line so a reader of a WARN can see
+// what made it one.
+//
+// Only SeverityError marks the span. A 4xx is not a failed operation, and a span
+// marked as failed is what an alert counts.
+func (r *Router) recordError(ctx context.Context, op observability.Operation, err error, status int) {
+	classify := r.errClassifier
+	if classify == nil {
+		classify = DefaultErrorSeverity
+	}
+
+	severity := classify(ctx, err, status)
+	if severity == SeverityNone {
+		return
+	}
+
+	op.LogOnly(keys.ResponseStatusKey, status)
+
+	switch severity {
+	case SeverityWarn:
+		op.Logger().WithError(err).Warn(errorDescription)
+	case SeverityInfo:
+		op.Logger().WithError(err).Info(errorDescription)
+	default:
+		// SeverityError, and anything a classifier returns that this package does
+		// not know: an unrecognized severity is recorded rather than dropped.
+		//
+		// Acknowledge rather than a direct log line, so the one path that reports
+		// a service fault stays the one the rest of this module reports through.
+		op.Acknowledge(err, errorDescription)
+	}
 }
 
 // DefaultErrorBody is the rendering a Router uses when given no ErrorEncoder:
@@ -332,9 +416,14 @@ func (r *Router) writeError(ctx context.Context, res http.ResponseWriter, op obs
 // The message sent for a binding failure is the bindError's own, not its
 // Error() string: the wrapped cause is for the operation record, not for the
 // client.
+//
+// A binding failure is normally sent as the status its code maps to. The one
+// exception is a body over the route's limit, which is a 413: an ErrorEncoder
+// that wants to answer it the same way finds an *http.MaxBytesError in the
+// chain.
 func DefaultErrorBody(ctx context.Context, err error) (status int, body any) {
 	if be, ok := errors.AsType[*bindError](err); ok {
-		return httpx.HTTPStatusForCode(be.code), httpx.NewAPIErrorResponse(be.msg, be.code, detailsFromCtx(ctx))
+		return be.httpStatus(), httpx.NewAPIErrorResponse(be.msg, be.code, detailsFromCtx(ctx))
 	}
 
 	code, msg := httpx.ToAPIError(err)

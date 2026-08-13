@@ -6,6 +6,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -96,6 +97,23 @@ func openSQLite(t *testing.T) *sql.DB {
 	t.Cleanup(func() { _ = db.Close() })
 
 	return db
+}
+
+// missingSchemaDSN points a connection's search_path at a schema that does not
+// exist. Postgres does not validate the setting when it is applied, so the
+// connection opens and pings like any other and current_schema() answers null —
+// which is the state resolveLockKey has to report rather than paper over.
+func missingSchemaDSN(t *testing.T, pg *pgtest.Instance) string {
+	t.Helper()
+
+	parsed, err := url.Parse(pg.ConnectionString)
+	must.NoError(t, err)
+
+	query := parsed.Query()
+	query.Set("search_path", "migrate_test_no_such_schema")
+	parsed.RawQuery = query.Encode()
+
+	return parsed.String()
 }
 
 func countRows(t *testing.T, db *sql.DB, table string) int {
@@ -468,6 +486,159 @@ func TestLockID(T *testing.T) {
 		test.NotEqOp(t, lockID("a"), lockID("b"))
 		test.NotEqOp(t, lockID(""), lockID("a"))
 	})
+}
+
+func TestMigrator_resolveLockKey(T *testing.T) {
+	T.Parallel()
+
+	T.Run("returns the configured key without touching the database", func(t *testing.T) {
+		t.Parallel()
+
+		m, err := New(dialect.Postgres, testMigrations(t), WithLockKey("tenant-a"))
+		must.NoError(t, err)
+
+		// A nil *sql.DB proves the constant path never queries: it would panic.
+		key, err := m.resolveLockKey(t.Context(), nil)
+		must.NoError(t, err)
+		test.EqOp(t, "tenant-a", key)
+	})
+
+	T.Run("WithSchemaScopedLockKey sets the flag and overrides WithLockKey", func(t *testing.T) {
+		t.Parallel()
+
+		m, err := New(dialect.Postgres, testMigrations(t), WithLockKey("ignored"), WithSchemaScopedLockKey())
+		must.NoError(t, err)
+
+		test.True(t, m.schemaScopedLockKey)
+		test.EqOp(t, "ignored", m.lockKey)
+	})
+
+	T.Run("reports a failure reading the current schema", func(t *testing.T) {
+		t.Parallel()
+
+		// sqlite has no current_schema() at all, so the read itself errors —
+		// the other half of the failure, alongside a null answer, that Migrate
+		// says out loud rather than silently falling back to the global key.
+		m, err := New(dialect.SQLite, testMigrations(t), WithSchemaScopedLockKey())
+		must.NoError(t, err)
+
+		_, err = m.resolveLockKey(t.Context(), openSQLite(t))
+		test.Error(t, err)
+	})
+}
+
+func TestMigrator_SchemaScopedLockKey_PostgresContainer(T *testing.T) {
+	T.Parallel()
+
+	pgtest.Run(T, func(_ context.Context, pg *pgtest.Instance) {
+		T.Run("resolves to the schema the search_path names", func(t *testing.T) {
+			t.Parallel()
+
+			m, err := New(dialect.Postgres, testMigrations(t), WithSchemaScopedLockKey())
+			must.NoError(t, err)
+
+			schema := pg.Schema(t)
+
+			key, err := m.resolveLockKey(t.Context(), schema.DB)
+			must.NoError(t, err)
+			test.EqOp(t, schema.Name, key)
+			test.NotEqOp(t, lockID(""), lockID(key))
+		})
+
+		T.Run("resolves to public on a connection that names no schema", func(t *testing.T) {
+			t.Parallel()
+
+			m, err := New(dialect.Postgres, testMigrations(t), WithSchemaScopedLockKey())
+			must.NoError(t, err)
+
+			key, err := m.resolveLockKey(t.Context(), pg.DB)
+			must.NoError(t, err)
+			test.EqOp(t, "public", key)
+		})
+
+		T.Run("reports a search_path naming only schemas that do not exist", func(t *testing.T) {
+			t.Parallel()
+
+			m, err := New(dialect.Postgres, testMigrations(t), WithSchemaScopedLockKey())
+			must.NoError(t, err)
+
+			_, err = m.resolveLockKey(t.Context(), pg.Open(t, missingSchemaDSN(t, pg)))
+			test.ErrorContains(t, err, "no current schema")
+		})
+
+		T.Run("Migrate reports an unresolvable lock key instead of migrating", func(t *testing.T) {
+			t.Parallel()
+
+			// The connection is otherwise healthy, so nothing but the lock key
+			// stops this: unqualified DDL would have nowhere to land, and the
+			// failure names that rather than surfacing as a goose error two
+			// steps later.
+			m, err := New(dialect.Postgres, testMigrations(t),
+				WithSchemaScopedLockKey(),
+				WithLogger(loggingnoop.NewLogger()),
+			)
+			must.NoError(t, err)
+
+			err = m.Migrate(t.Context(), pg.Open(t, missingSchemaDSN(t, pg)))
+			test.ErrorContains(t, err, "resolving migration lock key")
+		})
+
+		T.Run("schema-isolated migrations run concurrently instead of queueing", func(t *testing.T) {
+			t.Parallel()
+
+			// The whole point: without the schema-scoped key these would all
+			// hash to lockID("") and serialize behind one advisory lock, so a
+			// suite's parallel setup would only be parallel on paper.
+			const schemas = 4
+
+			isolated := make([]*pgtest.Isolated, schemas)
+			for idx := range isolated {
+				isolated[idx] = pg.Schema(t)
+			}
+
+			errs := make([]error, schemas)
+
+			var wg sync.WaitGroup
+			for idx := range schemas {
+				wg.Go(func() {
+					m, newErr := New(dialect.Postgres, testMigrations(t),
+						WithSchemaScopedLockKey(),
+						WithLogger(loggingnoop.NewLogger()),
+					)
+					if newErr != nil {
+						errs[idx] = newErr
+
+						return
+					}
+
+					errs[idx] = m.Migrate(t.Context(), isolated[idx].DB)
+				})
+			}
+			wg.Wait()
+
+			for idx, migrateErr := range errs {
+				must.NoError(t, migrateErr, must.Sprintf("schema %d", idx))
+			}
+
+			// Each schema got its own copy of every table, goose's version table
+			// included, rather than one of them winning and the rest no-opping.
+			for _, schema := range isolated {
+				test.EqOp(t, 0, countRows(t, schema.DB, "migrate_test_users"))
+				test.EqOp(t, 0, countRows(t, schema.DB, "migrate_test_widgets"))
+				test.EqOp(t, 0, countRows(t, schema.DB, "migrate_test_orders"))
+				test.EqOp(t, 0, countRows(t, schema.DB, "migrate_test_order_items"))
+
+				// Asked of the schema by name rather than of the search_path:
+				// information_schema is not search-path filtered, so every
+				// schema's copy is visible from every connection.
+				var owned int
+				must.NoError(t, schema.DB.QueryRowContext(t.Context(),
+					"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'migrate_test_users'",
+					schema.Name).Scan(&owned))
+				test.EqOp(t, 1, owned)
+			}
+		})
+	}, pgtest.WithCredentials("schemalocktest", "schemalocktest", "schemalocktest"))
 }
 
 func TestMigrator_Migrate_PostgresContainer(T *testing.T) {

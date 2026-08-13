@@ -24,6 +24,8 @@ var (
 		string(ErrNotEntitled):                ErrNotEntitled,
 		string(ErrQuotaExhausted):             ErrQuotaExhausted,
 		string(ErrActionLinkUnusable):         ErrActionLinkUnusable,
+		string(ErrInvalidSearchCursor):        ErrInvalidSearchCursor,
+		string(ErrSearchWindowExceeded):       ErrSearchWindowExceeded,
 	}
 )
 
@@ -116,4 +118,27 @@ const (
 	// nobody is ever holding one they were not sent, and there is no guess for
 	// the difference between "expired" and "no such link" to be an oracle for.
 	ErrActionLinkUnusable ErrorCode = "E120"
+	// ErrInvalidSearchCursor is returned when a pagination cursor was not issued
+	// by the index being asked to resume it — it did not decode, or it came from
+	// a different backend.
+	//
+	// It is not ErrValidatingRequestInput, though it is also a 400, because the
+	// remedy is different and a client can act on it without a person reading
+	// the message. Bad input means the request was wrong and needs correcting;
+	// this means the request was fine and the *position* is unusable, and the
+	// answer is to drop the cursor and start the pagination again. A client that
+	// cannot tell the two apart either retries a cursor that will never work or
+	// abandons a query that would have.
+	ErrInvalidSearchCursor ErrorCode = "E121"
+	// ErrSearchWindowExceeded is returned when pagination reached the depth the
+	// index will serve. The cursor was valid; the page it names is past the end
+	// of what can be paged to.
+	//
+	// Distinct from ErrInvalidSearchCursor for the same reason that one is
+	// distinct from ErrValidatingRequestInput: same status, different remedy.
+	// Restarting pagination does not help here — every page up to the ceiling is
+	// still fine, and the only thing that reaches the rest of the result set is a
+	// narrower query. It is emphatically not a 200 with an empty page, which
+	// would tell the client it had seen everything.
+	ErrSearchWindowExceeded ErrorCode = "E122"
 )
