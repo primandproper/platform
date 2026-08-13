@@ -24,6 +24,7 @@ require (
 	github.com/boombuler/barcode v1.1.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cockroachdb/errors v1.12.0
+	github.com/codemodus/kace v0.5.1
 	github.com/dhaus67/openfeature-posthog-go v0.1.2
 	github.com/disintegration/imaging v1.6.2
 	github.com/elastic/go-elasticsearch/v8 v8.19.3

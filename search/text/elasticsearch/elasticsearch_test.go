@@ -319,7 +319,7 @@ func TestElasticsearch_Container(T *testing.T) {
 			results, err := im.Search(ctx, textsearch.SearchRequest{Query: ""})
 			test.Error(t, err)
 			test.Nil(t, results)
-			test.ErrorIs(t, err, ErrEmptyQueryProvided)
+			test.ErrorIs(t, err, textsearch.ErrEmptyQueryProvided)
 		})
 
 		T.Run("Search no results found", func(t *testing.T) {

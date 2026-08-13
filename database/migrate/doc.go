@@ -41,6 +41,21 @@ sharing a database serialize on the same key, while schema-isolated parallel
 tests pass distinct keys (their schema name) and migrate concurrently instead
 of queueing on a global ID.
 
+A schema-per-test harness cannot pass its schema name to WithLockKey, because
+the Migrator is usually built before anyone knows which schema a given test
+drew. WithSchemaScopedLockKey closes that gap by reading current_schema() off
+the connection when Migrate runs — the schema the DSN's search_path resolves to,
+and the one the migrations are about to write into:
+
+	m, err := migrate.New(dialect.Postgres, migrations, migrate.WithSchemaScopedLockKey())
+
+Deployments on the default schema all resolve to "public" and go on sharing one
+lock; test schemas resolve to themselves and never contend. Without it,
+schema-isolated tests queue on one global ID and their parallelism is only
+apparent. testutils/containers/pgtest's Instance.Schema is the harness this
+exists for. Databases cloned from a template need none of it: advisory locks are
+per-database, and the migration ran once into the template.
+
 Wire it through database/config by passing the Migrator to NewDatabase with
 RunMigrations enabled, or call Migrate directly with any *sql.DB.
 */

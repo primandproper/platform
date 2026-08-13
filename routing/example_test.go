@@ -96,3 +96,104 @@ func Example() {
 	// status: 201
 	// body: {"data":{"name":"Ada","email":"ada@example.com","id":7001},"details":{"currentAccountID":"","traceID":""}}
 }
+
+// upsertForm is the body of a PUT that creates or replaces.
+type upsertForm struct {
+	Name string `json:"name"`
+	ID   uint64 `path:"userID"`
+}
+
+// ExampleResult demonstrates a handler naming the status of one response: an
+// upsert answers 201 when it created the row and 200 when it replaced one, over
+// a body that looks the same either way.
+func ExampleResult() {
+	r := routing.New(chi.NewBackend(&chi.Config{ServiceName: "example-service"}),
+		encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON))
+
+	// Pretend the store already holds user 7 and nothing else.
+	existing := map[uint64]bool{7: true}
+
+	routing.Put(r, "/users/{userID:uint64}", func(_ context.Context, in upsertForm) (routing.Result[person], error) {
+		created := !existing[in.ID]
+		existing[in.ID] = true
+
+		out := person{ID: in.ID, Name: in.Name}
+		if !created {
+			return routing.Result[person]{Value: out}, nil
+		}
+
+		// Location is worth setting only on the response that created
+		// something, which is the same response that chose the 201.
+		return routing.Result[person]{
+			Value:  out,
+			Status: http.StatusCreated,
+			Header: http.Header{"Location": {fmt.Sprintf("/users/%d", in.ID)}},
+		}, nil
+	},
+		routing.WithEnvelope(false),
+		// The registered status is the documented one; the other is declared.
+		routing.WithAdditionalResponse(http.StatusCreated, new(person), "created"),
+	)
+
+	if err := r.Err(); err != nil {
+		panic(err)
+	}
+
+	for _, id := range []string{"7", "8"} {
+		req := httptest.NewRequest(http.MethodPut, "/users/"+id, strings.NewReader(`{"name":"Ada"}`))
+		req.Header.Set(encoding.ContentTypeHeaderKey, "application/json")
+
+		rec := httptest.NewRecorder()
+		r.Handler().ServeHTTP(rec, req)
+
+		fmt.Println("status:", rec.Code, "location:", rec.Header().Get("Location"),
+			"body:", strings.TrimSpace(rec.Body.String()))
+	}
+
+	// Output:
+	// status: 200 location:  body: {"name":"Ada","email":"","id":7}
+	// status: 201 location: /users/8 body: {"name":"Ada","email":"","id":8}
+}
+
+// storeArea takes a bound path parameter next to a body the router does not
+// parse.
+func storeArea(_ context.Context, in struct {
+	Document routing.RawBody
+	AreaID   uint64 `path:"areaID"`
+}) (routing.Empty, error) {
+	fmt.Println("area:", in.AreaID)
+	fmt.Println("document:", string(in.Document))
+
+	return routing.Empty{}, nil
+}
+
+// ExampleRawBody demonstrates a route whose body is a document rather than an
+// object with fields, bounded to a size the route chooses.
+func ExampleRawBody() {
+	r := routing.New(chi.NewBackend(&chi.Config{ServiceName: "example-service"}),
+		encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON))
+
+	routing.Put(r, "/areas/{areaID:uint64}/geojson", storeArea,
+		routing.WithRequestContentType("application/geo+json"),
+		routing.WithMaxRequestBody(4<<20),
+		routing.WithResponseStatus(http.StatusNoContent),
+	)
+
+	if err := r.Err(); err != nil {
+		panic(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/areas/12/geojson",
+		strings.NewReader(`{"type":"Point","coordinates":[0,0]}`))
+	req.Header.Set(encoding.ContentTypeHeaderKey, "application/geo+json")
+
+	rec := httptest.NewRecorder()
+	r.Handler().ServeHTTP(rec, req)
+
+	fmt.Println("status:", rec.Code)
+
+	// Output:
+	// area: 12
+	// document: {"type":"Point","coordinates":[0,0]}
+	// status: 204
+}

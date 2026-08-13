@@ -72,6 +72,9 @@ type Migrator struct {
 	unlockPeriod    uint64
 	unlockThreshold uint64
 	withoutLock     bool
+	// Resolved from the connection at Migrate time rather than from lockKey,
+	// because the schema a migration lands in is not known at construction.
+	schemaScopedLockKey bool
 }
 
 // Option configures a Migrator.
@@ -137,6 +140,26 @@ func WithGeneratedMigration(version uint64, name, body string) Option {
 func WithLockKey(key string) Option {
 	return func(m *Migrator) {
 		m.lockKey = key
+	}
+}
+
+// WithSchemaScopedLockKey derives the lock key from the connection's current
+// schema instead of a constant, by reading current_schema() when Migrate runs.
+//
+// It is WithLockKey for the case where the key is not known at construction: a
+// schema-per-test harness names its schema in the DSN's search_path, and the
+// Migrator is built before — often far before — anyone knows which schema this
+// particular test got. Deployments on the default schema all resolve to "public"
+// and keep sharing one lock; test schemas resolve to themselves and never
+// contend, so parallel setup stays parallel rather than becoming a queue.
+//
+// It overrides WithLockKey, and it does nothing outside Postgres, where there is
+// no advisory lock to partition. A search_path naming only schemas that do not
+// exist has no current schema, and Migrate fails rather than silently falling
+// back to the global key.
+func WithSchemaScopedLockKey() Option {
+	return func(m *Migrator) {
+		m.schemaScopedLockKey = true
 	}
 }
 
@@ -300,8 +323,15 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 	op.Set("migrate.locked", locked)
 
 	if locked {
-		id := lockID(m.lockKey)
-		op.Set(keys.LockKeyKey, m.lockKey).Set(keys.LockIDKey, id)
+		key, keyErr := m.resolveLockKey(ctx, db)
+		if keyErr != nil {
+			m.errCounter.Add(ctx, 1)
+
+			return op.Error(keyErr, "resolving migration lock key")
+		}
+
+		id := lockID(key)
+		op.Set(keys.LockKeyKey, key).Set(keys.LockIDKey, id)
 		op.Set("migrate.lock_timeout", m.lockTimeout)
 
 		locker, lockErr := lock.NewPostgresSessionLocker(
@@ -353,6 +383,32 @@ func (m *Migrator) Migrate(ctx context.Context, db *sql.DB) error {
 		Info("migrations applied")
 
 	return nil
+}
+
+// resolveLockKey answers with the configured lock key, or — under
+// WithSchemaScopedLockKey — with the schema this connection's search_path
+// actually resolves to.
+//
+// current_schema() is the first existing schema in the search path, which is
+// the one unqualified DDL lands in and therefore the one whose migrations need
+// serializing. It is null when the search path names nothing that exists, and
+// that is a caller error worth reporting: migrating there would fail anyway,
+// and quietly taking the global key would put every test back in one queue.
+func (m *Migrator) resolveLockKey(ctx context.Context, db *sql.DB) (string, error) {
+	if !m.schemaScopedLockKey {
+		return m.lockKey, nil
+	}
+
+	var schema sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&schema); err != nil {
+		return "", errors.Wrap(err, "reading current schema")
+	}
+
+	if !schema.Valid {
+		return "", errors.New("connection has no current schema; check the search_path names a schema that exists")
+	}
+
+	return schema.String, nil
 }
 
 // gooseProbe converts a probe interval and total timeout into the (period in

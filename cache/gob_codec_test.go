@@ -19,7 +19,7 @@ func TestGobCodec(T *testing.T) {
 		t.Parallel()
 
 		codec := NewGobCodec[codecExample]()
-		original := &codecExample{Name: "beeline", Count: 42}
+		original := &codecExample{Name: "spot", Count: 42}
 
 		encoded, err := codec.Encode(original)
 		must.NoError(t, err)
