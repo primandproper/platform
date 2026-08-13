@@ -7,10 +7,6 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
-// ErrInvalidCursor is returned when a cursor cannot be decoded, or was issued
-// by a different backend than the one being asked to resume it.
-var ErrInvalidCursor = platformerrors.New("invalid search cursor")
-
 // Cursor is an opaque resumption token. Callers pass it back verbatim and must
 // not construct, parse, or persist meaning from one: the encoding belongs to
 // the backend that issued it and is expected to change.

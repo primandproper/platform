@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/circuitbreaking"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability/keys"
 	textsearch "github.com/primandproper/platform-go/v10/search/text"
 
@@ -24,11 +23,6 @@ const (
 	// maxSearchLimit caps a single page. Algolia's own ceiling for
 	// hitsPerPage is 1000, which is far past useful.
 	maxSearchLimit = 200
-)
-
-var (
-	// ErrEmptyQueryProvided indicates an empty query was provided as input.
-	ErrEmptyQueryProvided = platformerrors.New("empty search query provided")
 )
 
 // Index implements textsearch.Index.
@@ -86,7 +80,7 @@ func (m *IndexManager[T]) Search(ctx context.Context, req textsearch.SearchReque
 	op.Set(keys.SearchQueryKey, req.Query)
 
 	if req.Query == "" {
-		return nil, op.Error(ErrEmptyQueryProvided, "searching index")
+		return nil, op.Error(textsearch.ErrEmptyQueryProvided, "searching index")
 	}
 
 	// Algolia paginates by page number, not document offset, so that is what
