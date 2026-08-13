@@ -55,6 +55,24 @@ func SkipIfNotRunning(tb testing.TB) {
 	}
 }
 
+// RequireRunning is SkipIfNotRunning's counterpart for a suite whose only
+// backend is the thing the container provides. It honors -short — that is the
+// caller asking for a fast answer — and consults nothing else, so a host with
+// no Docker daemon fails the test rather than passing an empty run.
+//
+// Both gates are legitimate and which one applies is the suite's call, not this
+// package's. RUN_CONTAINER_TESTS defaulting to skip is right for a library
+// whose consumers may have no daemon; it is wrong for a service whose Postgres
+// tests are the only coverage its Postgres backend has, where skipping quietly
+// reports success for code nothing ran.
+func RequireRunning(tb testing.TB) {
+	tb.Helper()
+
+	if testing.Short() {
+		tb.SkipNow()
+	}
+}
+
 // DefaultRetryConfig returns the retrycfg.Config used by StartWithRetry. Callers
 // that need bespoke retry behavior can start from this and tweak individual
 // fields before calling retrycfg.NewExponentialBackoffPolicy themselves.
@@ -133,6 +151,32 @@ func PingUntilReady(tb testing.TB, ctx context.Context, ping func(context.Contex
 	must.NoError(tb, policy.Execute(ctx, ping))
 }
 
+// RunOption configures Run.
+type RunOption func(*runOptions)
+
+type runOptions struct {
+	required bool
+}
+
+// Required swaps Run's gate from SkipIfNotRunning to RequireRunning, so a host
+// without a Docker daemon fails the test instead of skipping it. Pass it when
+// the container is the only backend under test and a skip would report success
+// for code nothing ran.
+func Required() RunOption {
+	return func(o *runOptions) { o.required = true }
+}
+
+func newRunOptions(opts []RunOption) *runOptions {
+	cfg := &runOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(cfg)
+		}
+	}
+
+	return cfg
+}
+
 // Terminable is the teardown half of the testcontainers container API — the only
 // thing Run needs in order to own a container's lifecycle. Every module container
 // type (*postgres.PostgresContainer, *redis.RedisContainer, …) satisfies it, as
@@ -165,14 +209,18 @@ type Terminable interface {
 // The flip side is that the container lives until the end of tb, not the end of fn,
 // so call Run from the narrowest test that needs the container rather than hoisting
 // it up to a parent that runs unrelated work afterwards.
-func Run[C Terminable](tb testing.TB, start func(ctx context.Context) (C, error), fn func(ctx context.Context, container C)) {
+func Run[C Terminable](tb testing.TB, start func(ctx context.Context) (C, error), fn func(ctx context.Context, container C), opts ...RunOption) {
 	tb.Helper()
 
 	if start == nil || fn == nil {
 		tb.Fatal("containers: Run requires a non-nil start and fn")
 	}
 
-	SkipIfNotRunning(tb)
+	if newRunOptions(opts).required {
+		RequireRunning(tb)
+	} else {
+		SkipIfNotRunning(tb)
+	}
 
 	ctx := tb.Context()
 

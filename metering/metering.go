@@ -2,6 +2,7 @@ package metering
 
 import (
 	"context"
+	"math"
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
@@ -37,6 +38,8 @@ const (
 	batchSizeKey   = "metering.batch_size"
 	staleKey       = "metering.stale"
 	cacheHitKey    = "metering.cache_hit"
+	productKey     = "metering.product"
+	entitledKey    = "metering.entitled"
 
 	// Store-layer keys. The database client traces the statement, but with the
 	// SQL text suppressed by default — so without these a trace shows an
@@ -141,6 +144,20 @@ var (
 	// quota saying so — BehaviorAllowOverage, or a limit nobody reaches — and the
 	// decision is then visible in the registry instead of implied by an absence.
 	ErrNoQuota = platformerrors.New("no quota registered for meter")
+
+	// ErrNilEntitlementReader indicates a PlanLimitSource built without an
+	// EntitlementReader. It wraps errors.ErrNilInputParameter, so a caller may
+	// check either.
+	ErrNilEntitlementReader = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil metering entitlement reader")
+
+	// ErrInvalidPlanLimits indicates a PlanLimits entry that cannot be served: a
+	// behavior that is not one of this package's, or a limit below zero.
+	//
+	// It is refused at construction rather than at the first request. A limits
+	// table is wiring, and the failure it produces on the request path — an
+	// endpoint that refuses a customer, or a limit nothing ever applies — is one
+	// nobody looks for until a bill is wrong.
+	ErrInvalidPlanLimits = platformerrors.New("invalid metering plan limits")
 
 	// ErrNilProviderMapper indicates a Flusher built without a ProviderMapper. It
 	// wraps errors.ErrNilInputParameter, so a caller may check either.
@@ -430,6 +447,25 @@ type Quota struct {
 	// switched off for a plan tier — and not a synonym for unlimited.
 	Limit int64
 }
+
+// Unlimited is the Quota.Limit for a meter nothing constrains, paired with
+// BehaviorAllowOverage.
+//
+// It is a spelling rather than a sentinel: nothing in this package special-cases
+// it, and the enforcer does the same arithmetic over it that it does over any
+// other number. That is deliberate. A value meaning "do not enforce" is a value
+// every enforcement path has to remember to check, and the day one of them
+// forgets is the day a customer is refused for exceeding infinity.
+//
+// It is named because the alternatives a caller reaches for are all wrong in
+// ways that are quiet. It is not the absence of a quota, which this package
+// reports as ErrNoQuota — unmetered and unlimited are different facts, and
+// reading one as the other is how a meter nobody has configured becomes a meter
+// nobody is charged for. It is not zero, which means no usage is allowed and is
+// a real configuration for a feature switched off on a tier. And it is not a
+// large round number somebody picked, which is a limit a customer can eventually
+// reach.
+const Unlimited int64 = math.MaxInt64
 
 // validate reports whether the quota can be registered against the given meter.
 func (q Quota) validate(m Meter) error {

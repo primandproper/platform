@@ -171,6 +171,43 @@ The default QuotaSource serves the Registry's static quotas to every subject,
 which is right for a deployment with one set of limits and wrong the moment two
 customers can buy different amounts.
 
+# The rung between those two
+
+Between "one set of limits for everybody" and "write a QuotaSource from scratch"
+there is a resolution ladder every subscription business implements identically,
+and NewPlanLimitSource is it:
+
+	source, err := metering.NewPlanLimitSource(registry, map[string]metering.PlanLimits{
+	    "llm_tokens": {
+	        ByProduct:    map[string]int64{"prod_pro": 5_000_000, "prod_team": 50_000_000},
+	        Unsubscribed: 100_000,
+	        Behavior:     metering.BehaviorAllowOverage,
+	    },
+	}, subscriptions)
+
+where subscriptions is an EntitlementReader — one method, answering which
+product entitles a subject right now. The application supplies the numbers and
+the subscription lookup, both of which are its own; the library supplies the
+order they resolve in:
+
+	meter absent from the table  → unlimited, without reading anything
+	subject entitled to product  → the limit for that product
+	subject not entitled         → PlanLimits.Unsubscribed
+
+and the three-way distinction that order depends on. Unlimited is
+metering.Unlimited paired with BehaviorAllowOverage — a limit nobody reaches, not
+a value the enforcer special-cases. Unmetered is a meter with no quota at all,
+which is ErrNoQuota and not a synonym for unlimited. Zero is no usage allowed,
+which is a real configuration for a feature switched off on a tier. Getting the
+three confused is either a customer blocked who should not be or a limit that
+silently never applies, and neither announces itself.
+
+It is still not a plan catalog: no products, no prices, no notion of what a
+subscription is beyond "there is one, and it names this". An application that
+wants a catalog — features that are not meters, one Check that answers "may this
+account use this at all" — wants the entitlements package, which holds one and
+serves metering a QuotaSource off it.
+
 # Dimensions describe; they do not enforce
 
 Usage.Dimensions — model, region, endpoint — are stored against the event for
