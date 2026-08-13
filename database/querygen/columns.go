@@ -115,8 +115,3 @@ func without(columns []string, excluded ...string) []string {
 
 	return out
 }
-
-// has reports whether the column set contains column.
-func has(columns []string, column string) bool {
-	return slices.Contains(columns, column)
-}

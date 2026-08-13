@@ -134,18 +134,6 @@ func TestWithout(T *testing.T) {
 	})
 }
 
-func TestHas(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
-		t.Parallel()
-
-		test.True(t, has([]string{"a", "b"}, "b"))
-		test.False(t, has([]string{"a", "b"}, "c"))
-		test.False(t, has(nil, "a"))
-	})
-}
-
 // columnsFor is the conventional column set used across the tests, in the order
 // a generated SELECT would list it.
 func columnsFor(extra ...string) []string {

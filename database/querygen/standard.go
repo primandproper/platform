@@ -176,7 +176,7 @@ func StandardCRUD(table string, columns []string, opts ...Option) []*Query {
 		mustIdentifier("ownership column", s.ownership)
 	}
 
-	if !has(columns, IDColumn) {
+	if !slices.Contains(columns, IDColumn) {
 		panic(platformerrors.Wrapf(ErrMissingIDColumn, "querygen: table %q", table))
 	}
 
@@ -204,13 +204,13 @@ func StandardCRUD(table string, columns []string, opts ...Option) []*Query {
 		queries = append(queries, s.query(UpdateQuery, ExecRowsType, updateStatement(table, columns, updateColumns, s.ownership)))
 	}
 
-	if has(columns, ArchivedAtColumn) {
+	if slices.Contains(columns, ArchivedAtColumn) {
 		queries = append(queries, s.query(ArchiveQuery, ExecRowsType, archiveStatement(table, s.ownership)))
 	}
 
 	// The scan filters on archived_at, so a table that is indexed but not
 	// soft-deletable would get a query naming a column it does not have.
-	if has(columns, LastIndexedAtColumn) && has(columns, ArchivedAtColumn) {
+	if slices.Contains(columns, LastIndexedAtColumn) && slices.Contains(columns, ArchivedAtColumn) {
 		queries = append(queries, s.query(ScanIDsForReindexQuery, ManyType, ReindexScanQuery(table)))
 	}
 
@@ -308,7 +308,7 @@ func updateStatement(table string, columns, updateColumns []string, ownership st
 		assignments = append(assignments, fmt.Sprintf("%s = sqlc.arg(%s)", column, column))
 	}
 
-	if has(columns, LastUpdatedAtColumn) {
+	if slices.Contains(columns, LastUpdatedAtColumn) {
 		assignments = append(assignments, fmt.Sprintf("%s = %s", LastUpdatedAtColumn, NowExpression))
 	}
 
@@ -356,7 +356,7 @@ func singleRowPredicates(table string, columns []string, ownership string, quali
 
 	var predicates []string
 
-	if has(columns, ArchivedAtColumn) {
+	if slices.Contains(columns, ArchivedAtColumn) {
 		predicates = append(predicates, name(ArchivedAtColumn)+" IS NULL")
 	}
 

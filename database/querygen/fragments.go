@@ -2,6 +2,7 @@ package querygen
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/primandproper/platform-go/v10/filtering"
@@ -146,7 +147,7 @@ func FilterCountSelect(table string, columns, joins []string, conditions ...stri
 func TotalCountSelect(table string, columns, joins []string, conditions ...string) string {
 	var predicates []string
 
-	if has(columns, ArchivedAtColumn) {
+	if slices.Contains(columns, ArchivedAtColumn) {
 		predicates = append(predicates, archivedPredicate(table))
 	}
 
@@ -190,21 +191,21 @@ func countSelect(alias, table string, joins, predicates []string) string {
 func filterPredicates(table string, columns []string, conditions ...string) []string {
 	var predicates []string
 
-	if has(columns, CreatedAtColumn) {
+	if slices.Contains(columns, CreatedAtColumn) {
 		predicates = append(predicates,
 			boundPredicate(Qualify(table, CreatedAtColumn), ">", CreatedAfterArg),
 			boundPredicate(Qualify(table, CreatedAtColumn), "<", CreatedBeforeArg),
 		)
 	}
 
-	if has(columns, LastUpdatedAtColumn) {
+	if slices.Contains(columns, LastUpdatedAtColumn) {
 		predicates = append(predicates,
 			nullableBoundPredicate(Qualify(table, LastUpdatedAtColumn), ">", UpdatedAfterArg),
 			nullableBoundPredicate(Qualify(table, LastUpdatedAtColumn), "<", UpdatedBeforeArg),
 		)
 	}
 
-	if has(columns, ArchivedAtColumn) {
+	if slices.Contains(columns, ArchivedAtColumn) {
 		predicates = append(predicates, archivedPredicate(table))
 	}
 
