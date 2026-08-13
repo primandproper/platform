@@ -97,50 +97,58 @@ func Example() {
 	// body: {"data":{"name":"Ada","email":"ada@example.com","id":7001},"details":{"currentAccountID":"","traceID":""}}
 }
 
-// probeReport is one body shape reported with two statuses.
-type probeReport struct {
-	Detail string `json:"detail"`
-	Ready  bool   `json:"ready"`
+// upsertForm is the body of a PUT that creates or replaces.
+type upsertForm struct {
+	Name string `json:"name"`
+	ID   uint64 `path:"userID"`
 }
 
-// ExampleSetResponseStatus demonstrates a handler naming the status of one
-// response: a readiness probe reports the same body whether or not the service
-// is ready, and the status is part of the report.
-func ExampleSetResponseStatus() {
+// ExampleResult demonstrates a handler naming the status of one response: an
+// upsert answers 201 when it created the row and 200 when it replaced one, over
+// a body that looks the same either way.
+func ExampleResult() {
 	r := routing.New(chi.NewBackend(&chi.Config{ServiceName: "example-service"}),
 		encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON))
 
-	ready := false
+	// Pretend the store already holds user 7 and nothing else.
+	existing := map[uint64]bool{7: true}
 
-	routing.Get(r, "/ready", func(ctx context.Context, _ routing.Empty) (probeReport, error) {
-		report := probeReport{Ready: ready, Detail: "cache is cold"}
+	routing.Put(r, "/users/{userID:uint64}", func(_ context.Context, in upsertForm) (routing.Result[person], error) {
+		created := !existing[in.ID]
+		existing[in.ID] = true
 
-		// Not a returned error: the handler succeeded at reporting, and an error
-		// would be recorded as a service fault on every poll.
-		if !report.Ready {
-			routing.SetResponseStatus(ctx, http.StatusServiceUnavailable)
+		status := http.StatusOK
+		if created {
+			status = http.StatusCreated
 		}
 
-		return report, nil
+		return routing.Result[person]{
+			Value:  person{ID: in.ID, Name: in.Name},
+			Status: status,
+		}, nil
 	},
 		routing.WithEnvelope(false),
 		// The registered status is the documented one; the other is declared.
-		routing.WithAdditionalResponse(http.StatusServiceUnavailable, new(probeReport), "not ready"),
+		routing.WithAdditionalResponse(http.StatusCreated, new(person), "created"),
 	)
 
 	if err := r.Err(); err != nil {
 		panic(err)
 	}
 
-	rec := httptest.NewRecorder()
-	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", http.NoBody))
+	for _, id := range []string{"7", "8"} {
+		req := httptest.NewRequest(http.MethodPut, "/users/"+id, strings.NewReader(`{"name":"Ada"}`))
+		req.Header.Set(encoding.ContentTypeHeaderKey, "application/json")
 
-	fmt.Println("status:", rec.Code)
-	fmt.Println("body:", strings.TrimSpace(rec.Body.String()))
+		rec := httptest.NewRecorder()
+		r.Handler().ServeHTTP(rec, req)
+
+		fmt.Println("status:", rec.Code, "body:", strings.TrimSpace(rec.Body.String()))
+	}
 
 	// Output:
-	// status: 503
-	// body: {"detail":"cache is cold","ready":false}
+	// status: 200 body: {"name":"Ada","email":"","id":7}
+	// status: 201 body: {"name":"Ada","email":"","id":8}
 }
 
 // storeArea takes a bound path parameter next to a body the router does not

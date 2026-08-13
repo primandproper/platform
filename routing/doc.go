@@ -46,23 +46,39 @@ WithErrorClassifier; DefaultErrorSeverity is the rule it replaces.
 
 # Response status
 
-The status a route registers is the one it answers with, per WithResponseStatus.
-The exception is a handler whose status is part of what it is reporting — a
-readiness probe returning one body shape with 200 or 503 — which names it per
-response with SetResponseStatus:
+The status a route registers is the one it answers with, per WithResponseStatus,
+and that is right for almost every route. Where it is not — an upsert answering
+201 or 200 over a body that looks the same either way — the handler returns a
+Result instead of a bare value:
 
-	routing.Get(r, "/ready", func(ctx context.Context, _ routing.Empty) (report, error) {
-		rep := check(ctx)
-		if !rep.Ready {
-			routing.SetResponseStatus(ctx, http.StatusServiceUnavailable)
+	routing.Put(r, "/users/{userID:uuid}", func(ctx context.Context, in upsertUser) (routing.Result[user], error) {
+		u, created, err := svc.Upsert(ctx, in)
+		if err != nil {
+			return routing.Result[user]{}, err
 		}
 
-		return rep, nil
-	}, routing.WithAdditionalResponse(http.StatusServiceUnavailable, new(report), "not ready"))
+		status := http.StatusOK
+		if created {
+			status = http.StatusCreated
+		}
 
-Returning an error for the unhealthy case would say something different and
-untrue: the handler did what it was asked, and the error would be recorded as a
-service fault on every poll.
+		return routing.Result[user]{Value: u, Status: status}, nil
+	}, routing.WithAdditionalResponse(http.StatusCreated, new(user), "created"))
+
+Opting in changes nothing a client sees: the Result is unwrapped before
+encoding, so the envelope, the generated schema, and the bytes on the wire are
+the wrapped type's. A zero Status means the registered one, so the wrapper costs
+nothing on the paths that do not name a status.
+
+The status rides the return value because it is one. Reaching it through the
+context would put it where the signature says nothing can be, and would leave a
+handler called directly in a test silently unable to set it.
+
+Returning an error instead is a different statement, and usually a false one: an
+unready readiness probe did what it was asked, and an error would be recorded as
+a service fault on every poll. What a status says is what the caller should do
+next — retry, re-authenticate, give up — which is also the line severity is drawn
+on above. Detail about what happened belongs in the body.
 
 # Request bodies
 
