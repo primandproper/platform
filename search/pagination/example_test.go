@@ -8,7 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v10/filtering"
 	searchpagination "github.com/primandproper/platform-go/v10/search/pagination"
 	textsearch "github.com/primandproper/platform-go/v10/search/text"
-	"github.com/primandproper/platform-go/v10/search/text/elasticsearch"
 )
 
 // widgetSubset is what the index holds: the handful of fields worth searching,
@@ -222,7 +221,7 @@ func Example_databaseFallback() {
 	// different model and would serve the first page of its own pagination instead
 	// of the page that was asked for, so this belongs in front of the client as its
 	// own status — stop paging, or narrow the query.
-	tooDeep := &exampleIndex{err: elasticsearch.ErrResultWindowExceeded}
+	tooDeep := &exampleIndex{err: textsearch.ErrResultWindowExceeded}
 
 	_, err = searchpagination.Search(ctx, tooDeep, "carrot", filter)
 	fmt.Println("cursor rejected:", searchpagination.CursorRejected(err))

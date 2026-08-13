@@ -7,7 +7,6 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/filtering"
 	textsearch "github.com/primandproper/platform-go/v10/search/text"
-	"github.com/primandproper/platform-go/v10/search/text/elasticsearch"
 )
 
 // Search runs one page of query against the index, taking the page size and the
@@ -111,16 +110,16 @@ func FilterForDatabaseFallback(filter *filtering.QueryFilter) *filtering.QueryFi
 // front of the client as their own status, so it can stop paging or narrow the
 // query, rather than as a page from somewhere else.
 //
-// The backend-specific refusals are enumerated here rather than folded into
-// textsearch.ErrInvalidCursor because they are not the same statement: an
-// invalid cursor is one this backend cannot read, and a depth limit is one it
-// read fine and will not honor. A backend that grows its own belongs in this
-// list.
+// The two are matched separately rather than folded into one because they are
+// not the same statement: an invalid cursor is one the index cannot read, and a
+// depth limit is one it read fine and will not honor. What they share is the
+// only thing this predicate asks about — the index declining the position it
+// was handed, whichever backend is installed.
 func CursorRejected(err error) bool {
 	if err == nil {
 		return false
 	}
 
 	return errors.Is(err, textsearch.ErrInvalidCursor) ||
-		errors.Is(err, elasticsearch.ErrResultWindowExceeded)
+		errors.Is(err, textsearch.ErrResultWindowExceeded)
 }

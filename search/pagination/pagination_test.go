@@ -7,7 +7,6 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/filtering"
 	textsearch "github.com/primandproper/platform-go/v10/search/text"
-	"github.com/primandproper/platform-go/v10/search/text/elasticsearch"
 	textsearchmock "github.com/primandproper/platform-go/v10/search/text/mock"
 
 	"github.com/shoenig/test"
@@ -257,13 +256,13 @@ func TestCursorRejected(T *testing.T) {
 	T.Run("with pagination past the result window", func(t *testing.T) {
 		t.Parallel()
 
-		test.True(t, CursorRejected(elasticsearch.ErrResultWindowExceeded))
+		test.True(t, CursorRejected(textsearch.ErrResultWindowExceeded))
 	})
 
 	T.Run("with a wrapped error", func(t *testing.T) {
 		t.Parallel()
 
-		test.True(t, CursorRejected(platformerrors.Wrap(elasticsearch.ErrResultWindowExceeded, "searching")))
+		test.True(t, CursorRejected(platformerrors.Wrap(textsearch.ErrResultWindowExceeded, "searching")))
 	})
 
 	T.Run("with an unrelated error", func(t *testing.T) {
