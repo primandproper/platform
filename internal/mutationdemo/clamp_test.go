@@ -23,7 +23,10 @@ func TestClamp(t *testing.T) {
 func TestBucket(t *testing.T) {
 	t.Parallel()
 
-	// Only either side of the threshold, never the threshold itself.
 	test.EqOp(t, "small", Bucket(4, 5))
 	test.EqOp(t, "large", Bucket(6, 5))
+
+	// The threshold itself, which is where `<` and `<=` disagree. This is the
+	// assertion the gate said was missing, and it kills that survivor.
+	test.EqOp(t, "large", Bucket(5, 5))
 }
