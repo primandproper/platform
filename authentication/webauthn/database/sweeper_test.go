@@ -81,6 +81,32 @@ func TestWithSweeper(T *testing.T) {
 		})
 	})
 
+	// A sweep is the one thing here with nobody waiting on it, so a failure has
+	// two ways to disappear: unlogged, and by taking the goroutine with it.
+	T.Run("logs a failed sweep and keeps sweeping", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			client := newTestClient(t)
+			logger := newRecordingLogger()
+
+			_, err := NewSessionStore(&Config{}, client,
+				WithLogger(logger), WithSweeper(t.Context(), time.Second))
+			must.NoError(t, err)
+
+			_, err = client.Writer().ExecContext(t.Context(), "DROP TABLE webauthn_sessions")
+			must.NoError(t, err)
+
+			time.Sleep(3 * time.Second)
+			synctest.Wait()
+
+			// More than one, because one would also be what a sweeper that died
+			// on its first failure produced.
+			logged := logger.count(backgroundSweepFailure)
+			test.True(t, logged > 1, test.Sprintf("logged %d failures", logged))
+		})
+	})
+
 	T.Run("starts nothing without a context or an interval", func(t *testing.T) {
 		t.Parallel()
 

@@ -112,6 +112,20 @@ func TestSessionStore_Save(T *testing.T) {
 		test.EqOp(t, 0, rowCount(t, store))
 	})
 
+	T.Run("reports a write the server refuses", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newTestStore(t)
+		ctx := t.Context()
+
+		_, err := store.db.Writer().ExecContext(ctx, "DROP TABLE webauthn_sessions")
+		must.NoError(t, err)
+
+		// A ceremony whose state was not stored cannot be finished, so the
+		// caller has to hear about it before it hands the client its options.
+		test.Error(t, store.Save(ctx, testSession("nowhere"), time.Minute))
+	})
+
 	T.Run("reports an encoding failure rather than storing nothing quietly", func(t *testing.T) {
 		t.Parallel()
 

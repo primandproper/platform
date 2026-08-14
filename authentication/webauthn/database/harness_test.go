@@ -13,11 +13,13 @@ import (
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	"github.com/primandproper/platform-go/v10/database/sqlite"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // testClientConfig is the minimum database.ClientConfig a client needs.
@@ -132,6 +134,56 @@ func newTestStore(tb testing.TB, opts ...Option) (*SessionStore, *fakeClock) {
 	must.NoError(tb, err)
 
 	return store, c
+}
+
+// recordingLogger counts what was logged as an error, for the one code path in
+// this package whose only effect is a log line: the background sweep, which
+// nothing is waiting on.
+type recordingLogger struct {
+	logging.Logger
+
+	errors []string
+
+	mu sync.Mutex
+}
+
+var _ logging.Logger = (*recordingLogger)(nil)
+
+func newRecordingLogger() *recordingLogger {
+	return &recordingLogger{Logger: loggingnoop.NewLogger()}
+}
+
+func (l *recordingLogger) Error(whatWasHappening string, _ error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.errors = append(l.errors, whatWasHappening)
+}
+
+// The derivation methods hand back this same recorder, so that a logger named
+// by observability.NewObserver still records.
+func (l *recordingLogger) Clone() logging.Logger                    { return l }
+func (l *recordingLogger) WithName(string) logging.Logger           { return l }
+func (l *recordingLogger) WithValue(string, any) logging.Logger     { return l }
+func (l *recordingLogger) WithValues(map[string]any) logging.Logger { return l }
+func (l *recordingLogger) WithError(error) logging.Logger           { return l }
+func (l *recordingLogger) WithSpan(trace.Span) logging.Logger       { return l }
+
+// count reports how often one message was logged as an error. It counts by
+// message rather than in total because Sweep records its own failure through
+// the same logger, and the loop's line is the one under test.
+func (l *recordingLogger) count(message string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var n int
+	for _, logged := range l.errors {
+		if logged == message {
+			n++
+		}
+	}
+
+	return n
 }
 
 // testSession is one ceremony's worth of state, in every field a Finish reads.

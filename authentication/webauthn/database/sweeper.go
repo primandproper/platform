@@ -12,6 +12,11 @@ import (
 // sweptKey is this store's one observability key beyond the challenge.
 const sweptKey = "webauthn.swept"
 
+// backgroundSweepFailure is what the background loop logs when a sweep fails.
+// It is a constant because a test asserts on it: the loop's only effect is this
+// line, so a loop that stopped emitting it would otherwise fail silently.
+const backgroundSweepFailure = "background sweep of expired webauthn ceremony session rows failed"
+
 // Sweep removes every row whose deadline has passed, reporting how many it
 // removed.
 //
@@ -65,8 +70,14 @@ func (s *SessionStore) sweepEvery(ctx context.Context, interval time.Duration) {
 			// Logged rather than returned: nothing is waiting on this
 			// goroutine, and a sweep that fails is a table that grows for
 			// another interval, not a ceremony that misbehaves.
+			//
+			// The message is the loop's own rather than Sweep's, which has
+			// already recorded the failure against its span. What this line
+			// adds is which sweep it was: a background one that nobody asked
+			// for and nobody will retry, as opposed to a scheduler's call that
+			// reported an error to a caller who can.
 			if _, err := s.Sweep(ctx); err != nil {
-				s.o11y.Logger().Error("sweeping expired webauthn ceremony session rows", err)
+				s.o11y.Logger().Error(backgroundSweepFailure, err)
 			}
 		}
 	}
