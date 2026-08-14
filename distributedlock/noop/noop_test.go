@@ -10,6 +10,17 @@ import (
 	"github.com/shoenig/test/must"
 )
 
+// This package runs no distributedlocktest suite, and the omission is the
+// point rather than an oversight. Mutual exclusion is the whole of what those
+// suites assert, and this provider arbitrates none of it by design: Acquire
+// always succeeds, Release always reports success, and no TTL is ever
+// enforced. Declaring enough deviations to get it through would leave a suite
+// that checks the shape of the methods, which the compiler already does.
+//
+// What is worth pinning here is that the handles are consistent with what
+// Acquire was asked for, which is all a caller can observe — and the tests
+// below are that.
+
 func TestNewLocker(T *testing.T) {
 	T.Parallel()
 
