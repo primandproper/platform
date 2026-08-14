@@ -87,6 +87,28 @@ itself once: the Fetcher that serves the change feed and the Scanner that serves
 the reindex are the same transform from row to document, so there is one
 definition of what a document is rather than two that can drift.
 
+# Implementing the two seams
+
+Fetcher and Scanner are two interfaces with a correctness relationship neither
+one states: both must produce the same document for the same row, or a reindex
+overwrites what the change feed wrote with a differently-shaped copy and the
+index holds two generations of schema at once with nothing to detect it.
+Implementing them separately, once per entity, makes that relationship invisible
+in exactly the places it has to hold.
+
+search/sync/source is the way not to. It builds both from the three functions
+they actually differ in — read one row, page over IDs, turn a row into the
+indexed subset — and implements the scan in terms of the fetch, so the two
+cannot disagree. It also handles the three things a from-scratch pair gets
+wrong: a row deleted between the event and its handling is omitted rather than
+failing the batch, a page that omission shortened is refilled rather than ending
+the walk, and the scanned IDs are checked against the byte ordering below rather
+than sorted into looking like it.
+
+An application whose documents come from somewhere other than a repository —
+several joined queries, an API, a computed embedding — implements the two
+interfaces directly, and owes them that agreement itself.
+
 # Consuming
 
 The Syncer owns no goroutine and reads from no queue. Handle is a jobs.Handler:
