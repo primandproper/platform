@@ -9,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v10/analytics"
 	analyticsmock "github.com/primandproper/platform-go/v10/analytics/mock"
 	"github.com/primandproper/platform-go/v10/database"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -324,7 +325,8 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 			},
 		}
 
-		recorder, store, _ := newTestRecorder(t, WithRecorderAnalytics(reporter))
+		logger := newRecordingLogger()
+		recorder, store, _ := newTestRecorder(t, WithRecorderAnalytics(reporter), WithRecorderLogger(logger))
 
 		// Analytics is a side channel: an ingest path that failed because a
 		// warehouse was unreachable would be a metering outage caused by a system
@@ -333,6 +335,33 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}))
 
 		test.EqOp(t, int64(3), totalOf(t, store))
+
+		// Swallowed is not the same as unreported. A warehouse that has stopped
+		// receiving events is invisible from the warehouse's end — nothing there
+		// knows what it should have been sent — so the ingest side saying so is
+		// the only notice anybody gets.
+		errors := logger.at(logging.ErrorLevel)
+		must.SliceLen(t, 1, errors)
+		test.ErrorIs(t, errors[0].err, errArbitrary)
+		test.EqOp(t, testMeter, errors[0].values[meterKey])
+	})
+
+	T.Run("reports nothing when the warehouse accepts the event", func(t *testing.T) {
+		t.Parallel()
+
+		reporter := &analyticsmock.EventReporterMock{
+			EventOccurredFunc: func(context.Context, string, string, map[string]any) error {
+				return nil
+			},
+		}
+
+		logger := newRecordingLogger()
+		recorder, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter), WithRecorderLogger(logger))
+
+		must.NoError(t, recorder.Record(t.Context(),
+			Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}))
+
+		test.SliceEmpty(t, logger.at(logging.ErrorLevel))
 	})
 
 	T.Run("emits nothing when a batch was entirely duplicate", func(t *testing.T) {
@@ -356,6 +385,34 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 		must.NoError(t, recorder.Record(t.Context(), usage))
 
 		test.EqOp(t, 1, calls)
+	})
+
+	T.Run("counts what the store accepted and what it had already", func(t *testing.T) {
+		t.Parallel()
+
+		instruments := newRecordingInstruments()
+		recorder, _, _ := newTestRecorder(t, WithRecorderMetricsProvider(instruments.provider()))
+
+		usage := Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}
+
+		must.NoError(t, recorder.Record(t.Context(), usage))
+
+		// The first pass is all new: one record accepted, nothing seen before.
+		test.Eq(t, []int64{1}, instruments.recorded("_usage_recorded"))
+		test.SliceEmpty(t, instruments.recorded("_usage_duplicates"))
+
+		must.NoError(t, recorder.Record(t.Context(), usage))
+
+		// The redelivery is all duplicate, and reports itself as such. Reporting
+		// a zero on the other counter instead would be worse than reporting
+		// nothing: a graph of ingest that never goes quiet cannot be told from
+		// one whose writes have stopped mattering.
+		test.Eq(t, []int64{1}, instruments.recorded("_usage_recorded"))
+		test.Eq(t, []int64{1}, instruments.recorded("_usage_duplicates"))
+
+		// The quantity counter is fed per entry either way — it measures what
+		// the caller reported, not what the store kept.
+		test.Eq(t, []int64{3, 3}, instruments.recorded("_usage_quantity"))
 	})
 
 	T.Run("ignores a nil reporter", func(t *testing.T) {

@@ -168,7 +168,26 @@ func TestUsage_validate(T *testing.T) {
 		// Bounded because it is the width of the primary key column; a longer
 		// one would be truncated by the driver into a collision with whatever
 		// shares its prefix.
-		test.ErrorIs(t, u.validate(), ErrEmptyIdempotencyKey)
+		//
+		// Its own sentinel rather than the empty one: a caller told "you must
+		// supply an idempotency key" about a key it did supply looks for the bug
+		// in the wrong place.
+		test.ErrorIs(t, u.validate(), ErrIdempotencyKeyTooLong)
+		test.False(t, errors.Is(u.validate(), ErrEmptyIdempotencyKey))
+	})
+
+	T.Run("accepts an idempotency key of exactly the bound", func(t *testing.T) {
+		t.Parallel()
+
+		// The bound is the width of the primary key column, and this is the
+		// length that says where it sits: one byte shorter is accepted by any
+		// reading of the check and one byte longer is refused by any. A bound
+		// that were one out would refuse the longest key the column can hold, or
+		// admit one the driver truncates into a collision.
+		u := valid
+		u.IdempotencyKey = strings.Repeat("k", MaxIdempotencyKeyLength)
+
+		test.NoError(t, u.validate())
 	})
 
 	T.Run("refuses a negative quantity", func(t *testing.T) {

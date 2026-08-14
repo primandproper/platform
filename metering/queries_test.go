@@ -151,6 +151,28 @@ func TestQueries_DialectSpelling(T *testing.T) {
 		test.StrNotContains(t, lite, "ON CONFLICT")
 	})
 
+	T.Run("the zero-total insert ignores a conflict in every dialect", func(t *testing.T) {
+		t.Parallel()
+
+		// Two writers can reach this insert for the same period at once, and the
+		// row they would both create is a zero — so the loser has to be ignored
+		// rather than reported. Postgres needs the trailing clause spelled out
+		// because its ignore verb is not in the INSERT itself; the other two
+		// already said it in the prefix, and repeating it there would be a
+		// syntax error rather than a redundancy.
+		pg, _ := tbl.buildInsertZeroTotal(dialect.Postgres, testSubject, testMeter,
+			AggregationSum, monthBounds, baseTime)
+		test.StrContains(t, pg, "ON CONFLICT ("+totalKeyColumns+") DO NOTHING")
+
+		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
+			query, _ := tbl.buildInsertZeroTotal(d, testSubject, testMeter,
+				AggregationSum, monthBounds, baseTime)
+
+			test.StrContains(t, query, "IGNORE INTO")
+			test.StrNotContains(t, query, "ON CONFLICT")
+		}
+	})
+
 	T.Run("an unknown dialect renders no ignore verb", func(t *testing.T) {
 		t.Parallel()
 
@@ -334,6 +356,12 @@ func TestTables(T *testing.T) {
 	test.EqOp(T, "custom_metering_totals", tbl.totals)
 }
 
+// The arithmetic in the args slices' capacity hints is not asserted here and
+// cannot be: a capacity is a hint to the allocator, and a builder that sized its
+// slice wrongly produces the same query and the same arguments after one more
+// growth. Mutation reports naming those expressions are naming equivalent
+// mutants; what this file asserts instead is the rendering and the arguments,
+// which is everything a caller and a driver can observe.
 func TestKeyTuples(T *testing.T) {
 	T.Parallel()
 

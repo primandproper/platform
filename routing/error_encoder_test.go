@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -121,6 +122,48 @@ func TestRouter_WithErrorEncoder(T *testing.T) {
 		var got flatError
 		must.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 		test.EqOp(t, "boom", got.Error)
+	})
+
+	T.Run("a status at the edge of the writable range is written as it is", func(t *testing.T) {
+		t.Parallel()
+
+		// 100 and 999 are the range a ResponseWriter accepts; the guard exists
+		// because anything outside it panics. Both edges are inside the range,
+		// so an encoder that names one is obeyed rather than clamped — which is
+		// the half of the guard that the 0 above cannot say anything about.
+		for _, status := range []int{100, 999} {
+			t.Run(strconv.Itoa(status), func(t *testing.T) {
+				t.Parallel()
+
+				r := buildTestRouter(t, routing.WithErrorEncoder(func(context.Context, error) (int, any) {
+					return status, flatError{Error: "boom"}
+				}))
+				routing.Get(r, "/orgs/{orgID:uint64}", func(_ context.Context, _ getUserInput) (userOutput, error) {
+					return userOutput{}, sql.ErrNoRows
+				})
+
+				test.EqOp(t, status, doRequest(t, r, http.MethodGet, "/orgs/1", "").Code)
+			})
+		}
+	})
+
+	T.Run("a status outside the writable range becomes a 500", func(t *testing.T) {
+		t.Parallel()
+
+		for _, status := range []int{99, 1000} {
+			t.Run(strconv.Itoa(status), func(t *testing.T) {
+				t.Parallel()
+
+				r := buildTestRouter(t, routing.WithErrorEncoder(func(context.Context, error) (int, any) {
+					return status, flatError{Error: "boom"}
+				}))
+				routing.Get(r, "/orgs/{orgID:uint64}", func(_ context.Context, _ getUserInput) (userOutput, error) {
+					return userOutput{}, sql.ErrNoRows
+				})
+
+				test.EqOp(t, http.StatusInternalServerError, doRequest(t, r, http.MethodGet, "/orgs/1", "").Code)
+			})
+		}
 	})
 
 	T.Run("an encoder can delegate to DefaultErrorBody", func(t *testing.T) {

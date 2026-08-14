@@ -110,9 +110,15 @@ func TestNewManager(T *testing.T) {
 	T.Run("ignores nil options and zero values", func(t *testing.T) {
 		t.Parallel()
 
-		m := newTestManager(t, nil, WithTTL(0), WithMaxKeyLength(-1), WithClock(nil))
+		// Zero, not a negative: "absent leaves the default" is a claim about
+		// where the boundary sits, and `> 0` and `>= 0` refuse a negative
+		// alike. Zero is the only value that tells them apart, and it is also
+		// the one a caller reaches by accident — an unset field of their own
+		// config struct arrives here as one.
+		m := newTestManager(t, nil, WithTTL(0), WithInFlightTTL(0), WithMaxKeyLength(0), WithClock(nil))
 
 		test.EqOp(t, DefaultTTL, m.ttl)
+		test.EqOp(t, DefaultInFlightTTL, m.inFlightTTL)
 		test.EqOp(t, DefaultMaxKeyLength, m.maxKeyLength)
 		test.NotNil(t, m.clock)
 	})

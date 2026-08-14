@@ -186,11 +186,21 @@ func TestRouter_MaxRequestBody(T *testing.T) {
 	T.Run("a bound of zero opts out", func(t *testing.T) {
 		t.Parallel()
 
-		r := buildTestRouter(t, routing.WithDefaultMaxRequestBody(16))
-		documentRoute(r, routing.WithMaxRequestBody(0))
-		must.NoError(t, r.Err())
+		// A negative bound is the same answer, deliberately: anything that is
+		// not a size means "no bound", so a caller forwarding a config field
+		// gets one reading rather than a route that is bounded at a nonsense
+		// number. resolveMaxRequestBody returns zero for both, which is why the
+		// test it does that with cannot distinguish the guard it is written
+		// with from one written `<= 0` — the two agree on every input, and a
+		// mutation report naming that line is reporting an equivalent mutant
+		// rather than a branch nothing asserts.
+		for _, bound := range []int64{0, -1} {
+			r := buildTestRouter(t, routing.WithDefaultMaxRequestBody(16))
+			documentRoute(r, routing.WithMaxRequestBody(bound))
+			must.NoError(t, r.Err())
 
-		test.EqOp(t, http.StatusOK, doRequest(t, r, http.MethodPut, "/areas/12/geojson", geoJSON).Code)
+			test.EqOp(t, http.StatusOK, doRequest(t, r, http.MethodPut, "/areas/12/geojson", geoJSON).Code)
+		}
 	})
 
 	T.Run("a raw body nobody bounded is bounded anyway", func(t *testing.T) {

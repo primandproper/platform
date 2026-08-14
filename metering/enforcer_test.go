@@ -9,6 +9,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/cache"
 	cachemock "github.com/primandproper/platform-go/v10/cache/mock"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -260,6 +261,39 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 		test.False(t, decision.Stale)
 	})
 
+	// Running without a cache is a supported configuration and an expensive one,
+	// and the difference between the two is a line at construction. Nobody reads
+	// a Check's latency and infers the cache was never wired; they read this.
+	T.Run("says so at construction when it has no cache", func(t *testing.T) {
+		t.Parallel()
+
+		store := newSQLiteEnv(t).newStore(t)
+		logger := newRecordingLogger()
+
+		_, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+			newTestRegistry(t, BehaviorBlock, 100),
+			WithEnforcerClock(newStubClock()), WithEnforcerLogger(logger))
+		must.NoError(t, err)
+
+		test.SliceContains(t, logger.messages(logging.InfoLevel),
+			"metering enforcer has no cache; every Check will read the durable total")
+	})
+
+	T.Run("says nothing at construction when it has one", func(t *testing.T) {
+		t.Parallel()
+
+		store := newSQLiteEnv(t).newStore(t)
+		logger := newRecordingLogger()
+		c := newStubClock()
+
+		_, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+			newTestRegistry(t, BehaviorBlock, 100),
+			WithEnforcerClock(c), WithEnforcerCache(newStubCache(c)), WithEnforcerLogger(logger))
+		must.NoError(t, err)
+
+		test.SliceEmpty(t, logger.at(logging.InfoLevel))
+	})
+
 	T.Run("carries on through a broken cache", func(t *testing.T) {
 		t.Parallel()
 
@@ -270,9 +304,12 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 			SetFunc: func(context.Context, string, *CachedTotal, ...cache.WriteOption) error { return errArbitrary },
 		}
 
+		instruments := newRecordingInstruments()
+
 		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 100),
-			WithEnforcerClock(newStubClock()), WithEnforcerCache(broken))
+			WithEnforcerClock(newStubClock()), WithEnforcerCache(broken),
+			WithEnforcerMetricsProvider(instruments.provider()))
 		must.NoError(t, err)
 
 		must.NoError(t, mustRecord(t, store, newEntry("seed", 40, AggregationSum)))
@@ -283,6 +320,29 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(41), decision.Used)
+
+		// Carrying on is the behavior; counting it is what keeps the cost
+		// visible. Every Check is now a durable read, and the counter is the
+		// only thing that says why. Twice for one Check: the read that could
+		// not be served and the refresh that could not be written are separate
+		// failures of the same cache, and a Check that stopped counting the
+		// second would under-report a cache that is up for reads and down for
+		// writes.
+		test.Eq(t, []int64{1, 1}, instruments.recorded("_cache_errors"))
+	})
+
+	T.Run("counts no cache error when the write lands", func(t *testing.T) {
+		t.Parallel()
+
+		instruments := newRecordingInstruments()
+		env := newTestEnforcer(t, BehaviorBlock, 100, WithEnforcerMetricsProvider(instruments.provider()))
+
+		must.NoError(t, mustRecord(t, env.store, newEntry("seed", 40, AggregationSum)))
+
+		_, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 1)
+		must.NoError(t, err)
+
+		test.SliceEmpty(t, instruments.recorded("_cache_errors"))
 	})
 
 	T.Run("treats a cache miss as a miss, not a failure", func(t *testing.T) {
@@ -441,6 +501,55 @@ func TestQuotaEnforcer_CheckFailurePolicy(T *testing.T) {
 		// of an answer derived from nothing.
 		test.EqOp(t, int64(0), decision.Used)
 		test.True(t, decision.Stale)
+	})
+}
+
+// The instruments a decision moves are how an overage is noticed at all: the
+// decision itself is returned to one caller and forgotten, and the counter is
+// what an invoice line is reconciled against.
+func TestQuotaEnforcer_observeDecision(T *testing.T) {
+	T.Parallel()
+
+	T.Run("counts the units let past the limit, and only those", func(t *testing.T) {
+		t.Parallel()
+
+		instruments := newRecordingInstruments()
+		env := newTestEnforcer(t, BehaviorAllowOverage, 100,
+			WithEnforcerMetricsProvider(instruments.provider()))
+
+		// Exactly at the limit is allowed and is not an overage. It is the one
+		// quantity that separates a counter of excess units from a counter of
+		// decisions: an overage of zero posted to the same series would put an
+		// invoice line on every subject who used their allowance exactly.
+		decision, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 100)
+		must.NoError(t, err)
+
+		test.True(t, decision.Allowed)
+		test.EqOp(t, int64(0), decision.Overage)
+		test.SliceEmpty(t, instruments.recorded("_overage"))
+		test.SliceEmpty(t, instruments.recorded("_denied"))
+
+		// One unit past it is one unit of overage, in the meter's unit rather
+		// than in events.
+		decision, err = env.enforcer.Consume(t.Context(), testSubject, testMeter, 1)
+		must.NoError(t, err)
+
+		test.EqOp(t, int64(1), decision.Overage)
+		test.Eq(t, []int64{1}, instruments.recorded("_overage"))
+	})
+
+	T.Run("counts a refusal", func(t *testing.T) {
+		t.Parallel()
+
+		instruments := newRecordingInstruments()
+		env := newTestEnforcer(t, BehaviorBlock, 100,
+			WithEnforcerMetricsProvider(instruments.provider()))
+
+		decision, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 101)
+		must.NoError(t, err)
+
+		test.False(t, decision.Allowed)
+		test.Eq(t, []int64{1}, instruments.recorded("_denied"))
 	})
 }
 

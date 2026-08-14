@@ -216,6 +216,26 @@ func TestSetString(T *testing.T) {
 		test.EqOp(t, "[]", Set{}.String())
 	})
 
+	// The top of the byte range is where a run has to be closed by the bound
+	// rather than by the next byte not being in the set, and it is the only
+	// place the two can be told apart: every other set this package ships stops
+	// short of 0xFF, so a renderer that walked one byte too far would render
+	// all of them correctly.
+	//
+	// Inverting that bound rather than widening it cannot be asserted at all: a
+	// scan that runs while `hi+1 >= 256` reaches the top of the range and then
+	// keeps going, because the byte after 0xFF wraps to one the set also
+	// contains. It is the same input that makes this test worth writing, and
+	// against that mutant it does not terminate — so a mutation report naming
+	// this line says TIMED OUT, which is a detected mutant wearing the same
+	// label as a cold build cache.
+	T.Run("renders a run that reaches the last byte", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, `[\x00-\xff]`, AllBytes.String())
+		test.EqOp(t, `[\xfe\xff]`, Range(0xFE, 0xFF).String())
+	})
+
 	T.Run("writes a run of two out rather than hyphenating it", func(t *testing.T) {
 		t.Parallel()
 

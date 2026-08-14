@@ -129,6 +129,17 @@ var (
 	// that produces wrong invoices. See the package documentation on choosing one.
 	ErrEmptyIdempotencyKey = platformerrors.New("empty metering idempotency key")
 
+	// ErrIdempotencyKeyTooLong indicates usage whose idempotency key exceeds
+	// MaxIdempotencyKeyLength.
+	//
+	// Distinct from ErrEmptyIdempotencyKey because the two are different bugs in
+	// the caller and have different fixes: one forgot to send a key, the other
+	// is deriving one from something too long to store — a request body, a URL —
+	// and needs to hash it instead. A caller matching the empty sentinel to tell
+	// its own client "you must supply an idempotency key" would say that to a
+	// client that supplied one.
+	ErrIdempotencyKeyTooLong = platformerrors.New("metering idempotency key too long")
+
 	// ErrNegativeQuantity indicates usage with a quantity below zero.
 	//
 	// Negative usage is a credit, and credits are a billing concept the provider
@@ -372,7 +383,7 @@ func (u *Usage) validate() error {
 	}
 
 	if len(u.IdempotencyKey) > MaxIdempotencyKeyLength {
-		return platformerrors.Wrapf(ErrEmptyIdempotencyKey, "idempotency key exceeds %d bytes", MaxIdempotencyKeyLength)
+		return platformerrors.Wrapf(ErrIdempotencyKeyTooLong, "idempotency key exceeds %d bytes", MaxIdempotencyKeyLength)
 	}
 
 	if u.Quantity < 0 {

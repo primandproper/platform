@@ -169,6 +169,19 @@ func TestWithMaxLength(T *testing.T) {
 
 		test.True(t, c.Valid("abcd"))
 	})
+
+	T.Run("a maximum of zero admits only the empty string", func(t *testing.T) {
+		t.Parallel()
+
+		// Zero is a bound like any other, and the only value that separates a
+		// bound from the unbounded sentinel: the check reads `maxLength >= 0`,
+		// so a rule stated as `> 0` would read a maximum of zero as "no maximum"
+		// and admit everything the alphabet allows.
+		c := New(ASCIILetters, AllowEmpty(), WithMaxLength(0))
+
+		test.True(t, c.Valid(""))
+		test.False(t, c.Valid("a"))
+	})
 }
 
 func TestWithExactLength(T *testing.T) {

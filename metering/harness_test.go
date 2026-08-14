@@ -3,7 +3,10 @@ package metering
 import (
 	"context"
 	"fmt"
+	"maps"
+	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,8 +21,13 @@ import (
 	"github.com/primandproper/platform-go/v10/database/sqlite"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/metering/migrations"
+	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v10/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
 
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // baseTime is the instant this suite works relative to. Deliberately mid-month
@@ -135,7 +143,7 @@ func (e *storeEnv) newStore(tb testing.TB) Store {
 
 // newStoreWithPrefix is newStore, also handing back the prefix so a test can
 // query the tables directly.
-func (e *storeEnv) newStoreWithPrefix(tb testing.TB) (store Store, prefix string) {
+func (e *storeEnv) newStoreWithPrefix(tb testing.TB, opts ...SQLStoreOption) (store Store, prefix string) {
 	tb.Helper()
 
 	prefix = fmt.Sprintf("mtr_%d", prefixCounter.Add(1))
@@ -149,10 +157,20 @@ func (e *storeEnv) newStoreWithPrefix(tb testing.TB) (store Store, prefix string
 		must.NoError(tb, execErr, must.Sprintf("executing %q", stmt))
 	}
 
-	store, err = NewSQLStore(e.client, WithTablePrefix(prefix))
+	store, err = NewSQLStore(e.client, append([]SQLStoreOption{WithTablePrefix(prefix)}, opts...)...)
 	must.NoError(tb, err)
 
 	return store, prefix
+}
+
+// newStoreWithLogger is newStore for the assertions about what a store writes to
+// the log.
+func (e *storeEnv) newStoreWithLogger(tb testing.TB, logger logging.Logger) Store {
+	tb.Helper()
+
+	store, _ := e.newStoreWithPrefix(tb, WithStoreLogger(logger))
+
+	return store
 }
 
 // testMeter is the meter most of this suite counts.
@@ -446,3 +464,173 @@ func countRows(t *testing.T, env *storeEnv, table string) int {
 
 // Close satisfies cache.Cache.
 func (s *stubCache) Close() error { return nil }
+
+// recordingInstruments keeps every measurement the component under test made,
+// keyed by instrument name. Nothing in this package asserted a measurement
+// before: an instrument that was never fed, or fed the wrong number, looked
+// exactly like one working — and these counters are what a metering deployment
+// is watched by, so "the code ran" is not the question worth answering about
+// them.
+type recordingInstruments struct {
+	values map[string][]int64
+	mu     sync.Mutex
+}
+
+func newRecordingInstruments() *recordingInstruments {
+	return &recordingInstruments{values: map[string][]int64{}}
+}
+
+// provider hands out instruments that record into i. Everything this package
+// builds and does not measure here — the histograms — is satisfied with a
+// discard.
+func (i *recordingInstruments) provider() metrics.Provider {
+	return &metricsmock.ProviderMock{
+		NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+			return &recordingInstrument{into: i, name: name}, nil
+		},
+		NewInt64GaugeFunc: func(name string, _ ...metric.Int64GaugeOption) (metrics.Int64Gauge, error) {
+			return &recordingInstrument{into: i, name: name}, nil
+		},
+		NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+			return &discardHistogram{}, nil
+		},
+	}
+}
+
+// recorded returns the measurements made on one instrument, in order. The name
+// is the suffix the component appends to its service name, so a test names
+// "_flushes" rather than repeating the prefix.
+func (i *recordingInstruments) recorded(suffix string) []int64 {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	for name, values := range i.values {
+		if strings.HasSuffix(name, suffix) {
+			return append([]int64(nil), values...)
+		}
+	}
+
+	return nil
+}
+
+func (i *recordingInstruments) record(name string, value int64) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	i.values[name] = append(i.values[name], value)
+}
+
+// recordingInstrument is both an Int64Counter and an Int64Gauge, which are the
+// same shape as far as a test that only wants the numbers is concerned.
+type recordingInstrument struct {
+	into *recordingInstruments
+	name string
+}
+
+func (c *recordingInstrument) Add(_ context.Context, incr int64, _ ...metric.AddOption) {
+	c.into.record(c.name, incr)
+}
+
+func (c *recordingInstrument) Record(_ context.Context, value int64, _ ...metric.RecordOption) {
+	c.into.record(c.name, value)
+}
+
+type discardHistogram struct{}
+
+func (*discardHistogram) Record(context.Context, float64, ...metric.RecordOption) {}
+
+// loggedLine is one message a component wrote, and the values its logger
+// carried when it did.
+type loggedLine struct {
+	err     error
+	values  map[string]any
+	message string
+	level   logging.Level
+}
+
+// recordingLogger keeps what it was told, so a test can assert on a line a
+// component writes and nothing else observes — the guard-miss line, the
+// backlog warning, the analytics failure that is deliberately swallowed.
+//
+// Derived loggers share the root's slice: Operation.Set replaces its logger
+// with a derived one for every value it records, so what a test wants to see is
+// everything that reached the root.
+type recordingLogger struct {
+	lines  *[]loggedLine
+	values map[string]any
+	mu     *sync.Mutex
+}
+
+func newRecordingLogger() *recordingLogger {
+	return &recordingLogger{lines: &[]loggedLine{}, values: map[string]any{}, mu: &sync.Mutex{}}
+}
+
+// at returns the lines recorded at one level.
+func (l *recordingLogger) at(level logging.Level) []loggedLine {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var found []loggedLine
+
+	for i := range *l.lines {
+		if recorded := (*l.lines)[i]; recorded.level == level {
+			found = append(found, recorded)
+		}
+	}
+
+	return found
+}
+
+// messages returns the messages recorded at one level.
+func (l *recordingLogger) messages(level logging.Level) []string {
+	lines := l.at(level)
+
+	messages := make([]string, 0, len(lines))
+	for i := range lines {
+		messages = append(messages, lines[i].message)
+	}
+
+	return messages
+}
+
+func (l *recordingLogger) record(level logging.Level, message string, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	*l.lines = append(*l.lines, loggedLine{
+		level:   level,
+		message: message,
+		err:     err,
+		values:  maps.Clone(l.values),
+	})
+}
+
+func (l *recordingLogger) with(values map[string]any) logging.Logger {
+	merged := make(map[string]any, len(l.values)+len(values))
+	maps.Copy(merged, l.values)
+	maps.Copy(merged, values)
+
+	return &recordingLogger{lines: l.lines, values: merged, mu: l.mu}
+}
+
+func (l *recordingLogger) Info(message string)  { l.record(logging.InfoLevel, message, nil) }
+func (l *recordingLogger) Debug(message string) { l.record(logging.DebugLevel, message, nil) }
+func (l *recordingLogger) Warn(message string)  { l.record(logging.WarnLevel, message, nil) }
+
+func (l *recordingLogger) Error(message string, err error) {
+	l.record(logging.ErrorLevel, message, err)
+}
+
+func (l *recordingLogger) WithValue(key string, value any) logging.Logger {
+	return l.with(map[string]any{key: value})
+}
+
+func (l *recordingLogger) WithValues(values map[string]any) logging.Logger { return l.with(values) }
+
+func (l *recordingLogger) SetRequestIDFunc(logging.RequestIDFunc)     {}
+func (l *recordingLogger) Clone() logging.Logger                      { return l.with(nil) }
+func (l *recordingLogger) WithName(string) logging.Logger             { return l.with(nil) }
+func (l *recordingLogger) WithRequest(*http.Request) logging.Logger   { return l.with(nil) }
+func (l *recordingLogger) WithResponse(*http.Response) logging.Logger { return l.with(nil) }
+func (l *recordingLogger) WithError(error) logging.Logger             { return l.with(nil) }
+func (l *recordingLogger) WithSpan(trace.Span) logging.Logger         { return l.with(nil) }
