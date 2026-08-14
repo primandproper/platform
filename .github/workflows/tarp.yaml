@@ -4,6 +4,13 @@ on:
   pull_request:
     paths:
       - '**/*.go'
+      # A change to the gate runs the gate. The threshold below is a number
+      # someone has to raise by hand, and a pull request that raises it past
+      # what the module actually grades should go red here rather than on the
+      # next pull request to touch Go source. For pull_request the filter reads
+      # the pull request's own diff, so without this line a change to this file
+      # alone reports nothing at all.
+      - .github/workflows/tarp.yaml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -57,7 +64,6 @@ jobs:
           key: tarp-gocache-${{ runner.os }}-${{ hashFiles('go.sum') }}
           restore-keys: tarp-gocache-${{ runner.os }}-
 
-      #
       # The version is an exact tag rather than a floating major. tarp is pre-1.0
       # and its notion of what counts as a direct reference may tighten; a
       # stricter analyzer arriving on its own would fail a pull request that
