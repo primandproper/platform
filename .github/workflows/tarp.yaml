@@ -1,0 +1,68 @@
+---
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**/*.go'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+name: tarp
+jobs:
+  tarp:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      # The report reaches the pull request as workflow commands the step writes
+      # itself — annotations and the job summary — so nothing here calls the API
+      # and a forked pull request's read-only token reports the same as any
+      # other.
+      contents: read
+    strategy:
+      matrix:
+        go-version: ['1.26.x']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      # No `make vendor` here, unlike the mutation and coverage jobs: tarp loads
+      # the module through go/packages against the module cache, so an absent
+      # vendor/ is not the inconsistent-vendoring failure it is for those two.
+      #
+      # The version is an exact tag rather than a floating major. tarp is pre-1.0
+      # and its notion of what counts as a direct reference may tighten; a
+      # stricter analyzer arriving on its own would fail a pull request that
+      # changed nothing.
+      - name: Find functions with no direct unit test
+        uses: primandproper/tarpaulin@v0.1.0
+        id: tarp
+        with:
+          package: ./...
+          # The strictest of the three: a reference has to live in the test file
+          # for the file that declares the function. The spread between this and
+          # `any` is 12 points across the module, which says most of the gap is
+          # genuinely untested rather than tested from somewhere else — so the
+          # level that says the most costs little.
+          strictness: file
+          # Reports, does not gate. The backlog this opens on is four figures,
+          # which is not something to point a blocking gate at on day one; the
+          # threshold gets set from what this reports over real diffs, the way
+          # the mutation gate's was.
+          failure_score_threshold: 0
+
+      - name: Upload the tarp report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarp-report
+          path: ${{ steps.tarp.outputs.report }}
+          if-no-files-found: ignore
