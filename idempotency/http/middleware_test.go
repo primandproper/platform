@@ -628,6 +628,32 @@ func TestNewMiddleware_Options(T *testing.T) {
 
 		test.EqOp(t, http.StatusCreated, do(wrapped, post(t.Context(), testKey, "/charges", "{}")).Code)
 	})
+
+	T.Run("a zero value leaves the default in place", func(t *testing.T) {
+		t.Parallel()
+
+		// Every option here follows the module's "absent means the default"
+		// convention, and each one draws that line at a guard. Zero is the
+		// value that says where the line was drawn — a negative limit is
+		// refused by `> 0` and `>= 0` alike, and an empty method list by
+		// `len(methods) > 0` and `>= 0` alike — so it is the only argument that
+		// distinguishes the convention from its absence. It is also the value a
+		// caller reaches by accident, forwarding an unset field of their own
+		// config struct.
+		cfg := newConfig(
+			WithHeaderName(""),
+			WithMethods(),
+			WithMaxRequestBodyBytes(0),
+			WithMaxResponseBytes(0),
+			WithRetryAfter(0),
+		)
+
+		test.EqOp(t, HeaderName, cfg.headerName)
+		test.Eq(t, defaultMethods, cfg.methods)
+		test.EqOp(t, int64(DefaultMaxRequestBodyBytes), cfg.maxRequestBody)
+		test.EqOp(t, DefaultMaxResponseBytes, cfg.maxResponseBytes)
+		test.EqOp(t, DefaultRetryAfter, cfg.retryAfter)
+	})
 }
 
 func TestMiddleware_TraceDetails(T *testing.T) {

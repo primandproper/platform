@@ -10,6 +10,8 @@ import (
 	capitalismnoop "github.com/primandproper/platform-go/v10/capitalism/noop"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/jobs"
+	"github.com/primandproper/platform-go/v10/observability/logging"
+	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -170,6 +172,11 @@ func TestFlusher_Flush(T *testing.T) {
 		test.EqOp(t, "1", posts[1].Metadata["metering_sequence"])
 	})
 
+	// A pass that collected no errors returns none. The check that reports them
+	// is a shortcut rather than a branch with behavior of its own — joining an
+	// empty set of errors is nil, and reporting a nil error is nil — so no
+	// assertion here can distinguish it from a pass that always reported. A
+	// mutation report naming that line is naming an equivalent mutant.
 	T.Run("posts nothing when there is nothing to post", func(t *testing.T) {
 		t.Parallel()
 
@@ -363,6 +370,60 @@ func TestFlusher_Flush(T *testing.T) {
 		test.EqOp(t, 0, exhausted.Claimed)
 	})
 
+	// The backlog is the one number in a flush pass that says whether the
+	// arrangement is working. Every other instrument counts work that happened;
+	// this one counts work that was claimed and did not, which is what a queue
+	// building up behind a steady flush rate looks like from the outside.
+	T.Run("records what a pass claimed and did not settle", func(t *testing.T) {
+		t.Parallel()
+
+		const otherSubject = "account-2"
+
+		instruments := newRecordingInstruments()
+		env := newTestFlusher(t, ProviderMapperFunc(
+			func(_ context.Context, subject, meter string) (ProviderRef, error) {
+				if subject == otherSubject {
+					return ProviderRef{}, platformerrors.Wrap(ErrNoProviderRef, "free plan")
+				}
+
+				return ProviderRef{CustomerID: "cus_123", MeterName: meter}, nil
+			}), WithFlusherMetricsProvider(instruments.provider()))
+
+		billed := newEntry("req-1", 42, AggregationSum)
+		free := newEntry("req-2", 7, AggregationSum)
+		free.Subject = otherSubject
+
+		must.NoError(t, mustRecord(t, env.store, billed, free))
+
+		result, err := env.flusher.Flush(t.Context())
+		must.NoError(t, err)
+
+		// Two claimed, one posted, one settled as unbillable: nothing is left
+		// owing, and the gauge has to read zero rather than two, or one, or the
+		// count of anything else this pass did.
+		test.EqOp(t, 2, result.Claimed)
+		test.EqOp(t, 1, result.Flushed)
+		test.EqOp(t, 1, result.Skipped)
+		test.Eq(t, []int64{0}, instruments.recorded("_flush_backlog"))
+	})
+
+	T.Run("records a backlog for what it could not post", func(t *testing.T) {
+		t.Parallel()
+
+		instruments := newRecordingInstruments()
+		env := newTestFlusher(t, staticMapper("cus_123"),
+			WithFlusherMetricsProvider(instruments.provider()))
+		env.reporter.err = errArbitrary
+
+		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+
+		result, err := env.flusher.Flush(t.Context())
+		must.NoError(t, err)
+
+		test.EqOp(t, 1, result.Failed)
+		test.Eq(t, []int64{1}, instruments.recorded("_flush_backlog"))
+	})
+
 	T.Run("reports a claim failure", func(t *testing.T) {
 		t.Parallel()
 
@@ -408,12 +469,20 @@ func TestFlusher_Flush(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
-		flushEnv := newTestFlusherOver(t, store, staticMapper("cus_123"))
+		instruments := newRecordingInstruments()
+		flushEnv := newTestFlusherOver(t, store, staticMapper("cus_123"),
+			WithFlusherMetricsProvider(instruments.provider()))
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
 
 		_, err := flushEnv.flusher.Flush(t.Context())
 		must.NoError(t, err)
+
+		// The pass before anything was old enough to reap reports no reaping at
+		// all, rather than reporting that it reaped nothing. A counter fed a
+		// zero on every interval is a series that never goes quiet, and a reap
+		// that has stopped working looks exactly like one with nothing to do.
+		test.SliceEmpty(t, instruments.recorded("_events_reaped"))
 
 		flushEnv.clock.advance(DefaultEventRetention + time.Hour)
 
@@ -422,6 +491,7 @@ func TestFlusher_Flush(T *testing.T) {
 
 		test.EqOp(t, int64(1), result.EventsReaped)
 		test.EqOp(t, 0, countRows(t, env, prefix+"_metering_events"))
+		test.Eq(t, []int64{1}, instruments.recorded("_events_reaped"))
 	})
 
 	T.Run("skips the reap when disabled", func(t *testing.T) {
@@ -485,7 +555,9 @@ func TestFlusher_Flush(T *testing.T) {
 		t.Parallel()
 
 		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, &failingReleaseStore{Store: store}, staticMapper("cus_123"))
+		logger := newRecordingLogger()
+		env := newTestFlusherOver(t, &failingReleaseStore{Store: store}, staticMapper("cus_123"),
+			WithFlusherLogger(logger))
 		env.reporter.err = errArbitrary
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
@@ -496,6 +568,47 @@ func TestFlusher_Flush(T *testing.T) {
 		must.NoError(t, err)
 
 		test.EqOp(t, 1, result.Failed)
+
+		// Survived is not swallowed. A release that keeps failing is a lease
+		// held to its full duration on every retry, which is a flush loop
+		// getting slower for a reason nothing else reports.
+		test.SliceContains(t, logger.messages(logging.ErrorLevel), "releasing metering flush lease")
+	})
+
+	// Where the ceiling sits is the only interesting property of an attempt
+	// budget, and it decides whether a total is retried forever or written off:
+	// the row is left unbilled either way, but the abandonment is the notice
+	// that somebody has to go and collect it by hand.
+	T.Run("abandons a total on the attempt that reaches the ceiling", func(t *testing.T) {
+		t.Parallel()
+
+		const abandoned = "abandoning metering flush after exhausting attempts; usage is recorded but unbilled"
+
+		store := newSQLiteEnv(t).newStore(t)
+		logger := newRecordingLogger()
+		instruments := newRecordingInstruments()
+		env := newTestFlusherOver(t, store, staticMapper("cus_123"),
+			WithFlusherLogger(logger), WithFlusherMetricsProvider(instruments.provider()))
+		env.flusher.cfg.MaxAttempts = 2
+		env.reporter.err = errArbitrary
+
+		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+
+		_, err := env.flusher.Flush(t.Context())
+		must.NoError(t, err)
+
+		// One attempt of a budget of two: retried, not written off.
+		test.SliceNotContains(t, logger.messages(logging.ErrorLevel), abandoned)
+		test.SliceEmpty(t, instruments.recorded("_flushes_abandoned"))
+
+		env.clock.advance(time.Hour)
+
+		_, err = env.flusher.Flush(t.Context())
+		must.NoError(t, err)
+
+		// The second is the last one it had, so this is where it stops.
+		test.SliceContains(t, logger.messages(logging.ErrorLevel), abandoned)
+		test.Eq(t, []int64{1}, instruments.recorded("_flushes_abandoned"))
 	})
 
 	T.Run("posts several totals concurrently", func(t *testing.T) {
@@ -643,6 +756,26 @@ func TestFlusher_backoff(T *testing.T) {
 		test.Greater(T, time.Duration(0), delay, test.Sprintf("attempts %d", attempts))
 		test.LessEq(T, env.flusher.cfg.Backoff.MaxDelay, delay, test.Sprintf("attempts %d", attempts))
 	}
+
+	// The floor, exercised rather than argued about. The loop above asks for a
+	// positive delay from a window wide enough that it would take a billion runs
+	// to draw the bottom of it, so it passes whether or not the floor is there;
+	// a window one nanosecond wide leaves the draw with nowhere to go and only
+	// the floor to answer with.
+	//
+	// Zero is the value that matters: nextFlush is a timestamp a fleet claims
+	// against, and a row scheduled for the instant it was released is claimed
+	// again by the same pass, spinning against whatever failed instead of
+	// waiting it out.
+	T.Run("floors the smallest window it can schedule", func(t *testing.T) {
+		t.Parallel()
+
+		floored := newTestFlusher(t, staticMapper("cus_123"))
+		floored.flusher.cfg.Backoff = retrycfg.Config{InitialDelay: 1, Multiplier: 1, MaxDelay: 1}
+
+		test.EqOp(t, time.Duration(1), floored.flusher.backoff(1))
+		test.EqOp(t, time.Duration(1), floored.flusher.backoff(100))
+	})
 }
 
 func TestTruncateError(T *testing.T) {
@@ -670,6 +803,30 @@ func TestTruncateError(T *testing.T) {
 
 		test.True(t, len(rendered) <= maxStoredErrorLength)
 		test.True(t, strings.ToValidUTF8(rendered, "") == rendered)
+	})
+
+	T.Run("keeps a rendering that is exactly the bound", func(t *testing.T) {
+		t.Parallel()
+
+		// The bound is inclusive, and this is the one length that says so: a
+		// rendering one byte shorter is kept by either reading of the check, and
+		// one byte longer is cut by either.
+		exact := strings.Repeat("x", maxStoredErrorLength)
+
+		test.EqOp(t, exact, truncateError(platformerrors.New(exact)))
+	})
+
+	T.Run("a rendering that is all continuation bytes cuts to empty", func(t *testing.T) {
+		t.Parallel()
+
+		// Not a string this package produces, but one a provider SDK can hand
+		// back: an error carrying a response body that was itself cut by bytes
+		// somewhere upstream. The backing-up loop stops at zero for it, and
+		// nothing else stops it — walking past the start would index at -1 and
+		// take down a flush pass while it was already reporting a failure.
+		rendered := truncateError(platformerrors.New(strings.Repeat("\x80", maxStoredErrorLength+1)))
+
+		test.EqOp(t, "", rendered)
 	})
 }
 

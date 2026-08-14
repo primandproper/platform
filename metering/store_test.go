@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -34,6 +35,75 @@ func TestSQLStore_SQLite(T *testing.T) {
 	T.Parallel()
 
 	runStoreSuite(T, newSQLiteEnv(T))
+}
+
+// A batch of nothing is answered by the store rather than asked of the
+// database. The query would be valid and would return nothing either way, so
+// the only way to tell the shortcut from its absence is to take the database
+// away: a deployment whose configuration resolved to zero should not be paying
+// a round trip per interval to be told what its own configuration already said.
+func TestSQLStore_NonPositiveLimits(T *testing.T) {
+	T.Parallel()
+
+	env := newSQLiteEnv(T)
+	store := env.newStore(T)
+
+	must.NoError(T, env.client.Close())
+
+	claimed, err := store.ClaimFlushable(T.Context(), baseTime, 0, 5, baseTime.Add(time.Minute))
+	test.NoError(T, err)
+	test.SliceEmpty(T, claimed)
+
+	reaped, err := store.ReapEvents(T.Context(), baseTime, 0)
+	test.NoError(T, err)
+	test.EqOp(T, int64(0), reaped)
+}
+
+// A pass that keeps coming back full is a pass that is not keeping up, and what
+// it is failing to post is revenue. Nothing else says so: the claim returns a
+// batch and the flusher posts it, and both look identical whether the batch was
+// everything there was or everything that fit.
+func TestSQLStore_ClaimFlushable_FullBatch(T *testing.T) {
+	T.Parallel()
+
+	const filled = "metering flush filled its batch; usage may be accumulating faster than it is flushed"
+
+	env := newSQLiteEnv(T)
+
+	T.Run("says so when the batch comes back full", func(t *testing.T) {
+		t.Parallel()
+
+		logger := newRecordingLogger()
+		store := env.newStoreWithLogger(t, logger)
+
+		for _, subject := range []string{"a", "b"} {
+			entry := newEntry("req-"+subject, 1, AggregationSum)
+			entry.Subject = subject
+
+			must.NoError(t, mustRecord(t, store, entry))
+		}
+
+		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 2, 5, baseTime.Add(time.Minute))
+		must.NoError(t, err)
+		must.SliceLen(t, 2, claimed)
+
+		test.SliceContains(t, logger.messages(logging.InfoLevel), filled)
+	})
+
+	T.Run("says nothing when the batch had room to spare", func(t *testing.T) {
+		t.Parallel()
+
+		logger := newRecordingLogger()
+		store := env.newStoreWithLogger(t, logger)
+
+		must.NoError(t, mustRecord(t, store, newEntry("req-1", 1, AggregationSum)))
+
+		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 2, 5, baseTime.Add(time.Minute))
+		must.NoError(t, err)
+		must.SliceLen(t, 1, claimed)
+
+		test.SliceNotContains(t, logger.messages(logging.InfoLevel), filled)
+	})
 }
 
 // bogusDialectClient reports a dialect this package cannot emit SQL for.

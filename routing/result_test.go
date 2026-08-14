@@ -53,6 +53,12 @@ func TestResult(T *testing.T) {
 			{name: "created", named: http.StatusCreated, want: http.StatusCreated},
 			{name: "ok over a registered 201", named: http.StatusOK, want: http.StatusOK},
 			{name: "unavailable", named: http.StatusServiceUnavailable, want: http.StatusServiceUnavailable},
+			// The two ends of the range a ResponseWriter accepts. They are here
+			// rather than with the out-of-range cases below because where the
+			// edge sits is the only interesting property of a bound, and a test
+			// that names 42 and 1000 cannot tell `< 100` from `<= 100`.
+			{name: "the lowest writable status", named: 100, want: 100},
+			{name: "the highest writable status", named: 999, want: 999},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()

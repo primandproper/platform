@@ -32,13 +32,27 @@ func TestFull(T *testing.T) {
 		test.EqOp(t, time.Duration(0), Full(func() float64 { return 0 })(time.Hour))
 	})
 
-	T.Run("a non-positive delay is returned unchanged", func(t *testing.T) {
+	T.Run("a non-positive delay is returned unchanged, and draws nothing", func(t *testing.T) {
 		t.Parallel()
 
-		j := Full(nil)
+		var draws int
+		j := Full(func() float64 {
+			draws++
+
+			return 0
+		})
 
 		test.EqOp(t, time.Duration(0), j(0))
 		test.EqOp(t, -time.Second, j(-time.Second))
+
+		// Returning before the draw, not merely returning the same number.
+		// Multiplying a zero delay by a draw yields zero either way, so the
+		// count is the only thing that distinguishes the guard from its
+		// absence — and it is a real difference to the caller the Rand
+		// parameter exists for: one replaying a schedule from a seeded source
+		// would find the sequence shifted by every zero delay that went
+		// through it.
+		test.EqOp(t, 0, draws)
 	})
 }
 

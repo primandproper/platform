@@ -1,6 +1,7 @@
 package filtering
 
 import (
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -8,11 +9,13 @@ import (
 	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	"github.com/primandproper/platform-go/v10/observability/keys"
+	"github.com/primandproper/platform-go/v10/observability/logging"
 	textsearch "github.com/primandproper/platform-go/v10/search/text"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestDefaultQueryFilter(T *testing.T) {
@@ -37,8 +40,6 @@ func TestQueryFilter_AttachToLogger(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
-
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
 			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
@@ -50,17 +51,92 @@ func TestQueryFilter_AttachToLogger(T *testing.T) {
 			IncludeArchived: new(true),
 		}
 
-		test.NotNil(t, qf.AttachToLogger(logger))
+		// Every set field, and only the set fields: what a nil guard is for is
+		// deciding which of these reach the line, so asserting that the returned
+		// logger is non-nil asserts nothing about any of them.
+		test.MapEq(t, map[string]any{
+			QueryKeyCursor:        qf.Cursor,
+			QueryKeyLimit:         qf.MaxResponseSize,
+			QueryKeySortBy:        qf.SortBy,
+			QueryKeyCreatedBefore: qf.CreatedBefore,
+			QueryKeyCreatedAfter:  qf.CreatedAfter,
+			QueryKeyUpdatedBefore: qf.UpdatedBefore,
+			QueryKeyUpdatedAfter:  qf.UpdatedAfter,
+		}, attachedValues(t, qf))
+	})
+
+	T.Run("attaches nothing for a filter that holds nothing", func(t *testing.T) {
+		t.Parallel()
+
+		// The other side of every guard: an unset field is absent from the line
+		// rather than present and nil, which is what makes a log of a filter
+		// readable as the filter that was applied.
+		test.MapLen(t, 0, attachedValues(t, &QueryFilter{}))
 	})
 
 	T.Run("with nil", func(t *testing.T) {
 		t.Parallel()
 
-		logger := loggingnoop.NewLogger()
+		// A nil filter says so and stops. Reading the fields of one would panic,
+		// so the early return is the whole method for this case.
+		test.MapEq(t, map[string]any{keys.FilterIsNilKey: true}, attachedValues(t, nil))
+	})
 
-		test.NotNil(t, (*QueryFilter)(nil).AttachToLogger(logger))
+	T.Run("with a nil logger", func(t *testing.T) {
+		t.Parallel()
+
+		test.NotNil(t, DefaultQueryFilter().AttachToLogger(nil))
 	})
 }
+
+// attachedValues runs qf.AttachToLogger against a recording logger and returns
+// the values it attached.
+func attachedValues(t *testing.T, qf *QueryFilter) map[string]any {
+	t.Helper()
+
+	attached, ok := qf.AttachToLogger(newRecordingLogger()).(*recordingLogger)
+	must.True(t, ok)
+
+	return attached.values
+}
+
+// recordingLogger keeps the values it is handed, so a test can assert what
+// AttachToLogger put on the line. Deriving a logger returns a new recorder
+// carrying the values accumulated so far, which is the shape the real backends
+// have: WithValue does not mutate the logger it was called on.
+type recordingLogger struct {
+	values map[string]any
+}
+
+func newRecordingLogger() *recordingLogger {
+	return &recordingLogger{values: map[string]any{}}
+}
+
+func (l *recordingLogger) with(values map[string]any) logging.Logger {
+	merged := make(map[string]any, len(l.values)+len(values))
+	maps.Copy(merged, l.values)
+	maps.Copy(merged, values)
+
+	return &recordingLogger{values: merged}
+}
+
+func (l *recordingLogger) Info(string)         {}
+func (l *recordingLogger) Debug(string)        {}
+func (l *recordingLogger) Warn(string)         {}
+func (l *recordingLogger) Error(string, error) {}
+
+func (l *recordingLogger) SetRequestIDFunc(logging.RequestIDFunc) {}
+
+func (l *recordingLogger) Clone() logging.Logger                      { return l.with(nil) }
+func (l *recordingLogger) WithName(string) logging.Logger             { return l.with(nil) }
+func (l *recordingLogger) WithValues(v map[string]any) logging.Logger { return l.with(v) }
+func (l *recordingLogger) WithValue(k string, v any) logging.Logger {
+	return l.with(map[string]any{k: v})
+}
+func (l *recordingLogger) WithRequest(*http.Request) logging.Logger   { return l.with(nil) }
+func (l *recordingLogger) WithResponse(*http.Response) logging.Logger { return l.with(nil) }
+func (l *recordingLogger) WithError(error) logging.Logger             { return l.with(nil) }
+func (l *recordingLogger) WithSpan(trace.Span) logging.Logger         { return l.with(nil) }
 
 func TestQueryFilter_FromParams(T *testing.T) {
 	T.Parallel()

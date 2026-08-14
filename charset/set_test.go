@@ -216,6 +216,25 @@ func TestSetString(T *testing.T) {
 		test.EqOp(t, "[]", Set{}.String())
 	})
 
+	// The top of the byte range is where a run has to be closed by the bound
+	// rather than by the next byte not being in the set, and it is the only
+	// place the two can be told apart: every other set this package ships stops
+	// short of 0xFF, so a renderer that walked one byte too far would render
+	// all of them correctly.
+	//
+	// The other half of that bound cannot be asserted at all. Widening the run
+	// scan's arithmetic instead of its comparison leaves the loop with nothing
+	// to stop it once a set reaches 0xFF and wraps to a byte it also contains,
+	// so the only input that separates it from the code as written does not
+	// terminate. A mutation report naming the scan is reporting either an
+	// equivalent mutant or a hang, never a missing assertion.
+	T.Run("renders a run that reaches the last byte", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, `[\x00-\xff]`, AllBytes.String())
+		test.EqOp(t, `[\xfe\xff]`, Range(0xFE, 0xFF).String())
+	})
+
 	T.Run("writes a run of two out rather than hyphenating it", func(t *testing.T) {
 		t.Parallel()
 

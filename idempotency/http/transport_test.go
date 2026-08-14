@@ -217,6 +217,26 @@ func TestTransport(T *testing.T) {
 
 		test.NotNil(t, NewTransport(&recordingRoundTripper{}, nil))
 	})
+
+	T.Run("a zero value leaves the default in place", func(t *testing.T) {
+		t.Parallel()
+
+		base := &recordingRoundTripper{}
+		ctx, key := idempotency.WithNewKey(t.Context())
+
+		// An empty name and an empty method list are what an unset config field
+		// forwards, and both guards have to refuse them: a transport that
+		// stamped an empty header name, or that stamped nothing at all, would
+		// leave the server side of this package with no key to deduplicate on
+		// while looking configured from here.
+		transport := NewTransport(base, WithTransportHeaderName(""), WithTransportMethods())
+
+		res, err := transport.RoundTrip(newRequest(t, ctx, http.MethodPost))
+		must.NoError(t, err)
+		t.Cleanup(func() { _ = res.Body.Close() })
+
+		test.EqOp(t, string(key), base.last().Header.Get(HeaderName))
+	})
 }
 
 // TestEndToEnd wires the client transport to the server middleware over a real
