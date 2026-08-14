@@ -222,12 +222,13 @@ func TestSetString(T *testing.T) {
 	// short of 0xFF, so a renderer that walked one byte too far would render
 	// all of them correctly.
 	//
-	// The other half of that bound cannot be asserted at all. Widening the run
-	// scan's arithmetic instead of its comparison leaves the loop with nothing
-	// to stop it once a set reaches 0xFF and wraps to a byte it also contains,
-	// so the only input that separates it from the code as written does not
-	// terminate. A mutation report naming the scan is reporting either an
-	// equivalent mutant or a hang, never a missing assertion.
+	// Inverting that bound rather than widening it cannot be asserted at all: a
+	// scan that runs while `hi+1 >= 256` reaches the top of the range and then
+	// keeps going, because the byte after 0xFF wraps to one the set also
+	// contains. It is the same input that makes this test worth writing, and
+	// against that mutant it does not terminate — so a mutation report naming
+	// this line says TIMED OUT, which is a detected mutant wearing the same
+	// label as a cold build cache.
 	T.Run("renders a run that reaches the last byte", func(t *testing.T) {
 		t.Parallel()
 
