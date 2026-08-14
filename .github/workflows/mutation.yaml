@@ -1,0 +1,92 @@
+---
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**/*.go'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+name: mutation
+jobs:
+  gremlins:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The survivors are posted as a pull request comment rather than gating the
+      # merge; see .scripts/mutation.sh for why the gate is not blocking on them.
+      pull-requests: write
+    strategy:
+      matrix:
+        go-version: ['1.26.x']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          # gremlins shells out to `git diff --merge-base <ref>`, which cannot
+          # resolve the base branch out of a shallow clone.
+          fetch-depth: 0
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      # vendor/ is gitignored, and gremlins' coverage gathering fails outright on
+      # inconsistent vendoring.
+      - name: Vendor dependencies
+        run: make vendor
+
+      # gremlins derives each mutant's timeout from how long the coverage run
+      # took, so a cold build cache is the condition under which every mutant
+      # times out — and a run of nothing but timeouts still reports a healthy
+      # efficacy figure. Restoring the cache is what keeps that from happening.
+      #
+      # Restore and save are separate steps so the save still runs when the job
+      # fails. actions/cache saves only on success, which for a gate that fails
+      # on timeouts would mean the run most in need of a warm cache is the one
+      # that never writes one.
+      - name: Restore the mutation build cache
+        id: gocache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/gremlins-gocache
+          key: gremlins-gocache-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: gremlins-gocache-${{ runner.os }}-
+
+      - name: Mutation testing
+        run: |
+          make mutate \
+            GREMLINS_CACHE="${RUNNER_TEMP}/gremlins-gocache" \
+            GREMLINS_DIFF_REF="origin/${GITHUB_BASE_REF:-main}"
+
+      - name: Save the mutation build cache
+        if: ${{ !cancelled() && steps.gocache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/gremlins-gocache
+          key: gremlins-gocache-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      # Forked pull requests get a read-only token, so the comment would fail;
+      # the survivors are still in the job log there.
+      - name: Report survivors on the pull request
+        if: >-
+          !cancelled() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.scripts/mutation_comment.sh "${{ github.event.pull_request.number }}" artifacts/gremlins.json
+
+      - name: Upload the mutation report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gremlins-report
+          path: artifacts/gremlins.json
+          if-no-files-found: ignore
