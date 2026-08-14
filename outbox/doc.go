@@ -25,6 +25,48 @@ with it:
 There is no way to enqueue outside a transaction by accident: holding a
 SQLQueryExecutor from WithTransaction means you are already in one.
 
+# Which events belong at the call site, and which belong in a registration
+
+Enqueue guarantees that the events a caller named live or die with the row
+change. It has nothing to say about the events the caller did not name, and that
+absence is the one gap in this design the outbox does not otherwise close: an
+index event a new repository method never enqueued is an event nothing
+downstream is waiting for, so the index is simply wrong until the next rebuild
+and no instrument separates that from a quiet period.
+
+A side effect registered at construction closes it, because the call site is not
+asked:
+
+	writer, err := outbox.NewWriter(client.Dialect(),
+	    outbox.WithWriterSideEffect("orders-index", indexEventsFor))
+
+It runs inside every Enqueue on the caller's executor, so rows it writes commit
+with the row change and messages it returns are written by the same statement as
+the caller's — a transaction owing three events still pays one round trip. An
+error from one aborts the enqueue and comes back to the caller, whose
+transaction rolls back with it.
+
+The line between the two is whether a call site could correctly decline. An
+event some writes emit and others do not is the call site's, and passing it to
+Enqueue is how that choice gets made: a targeted reindex after a manual repair,
+a delete event one branch of one method emits. An event that every write to this
+outbox owes — the search index event, a webhook dispatch row per subscribed
+endpoint, an audit row — is not being chosen by anybody, and leaving it a
+parameter means a method that omits it compiles, reviews clean, and is wrong.
+Register those.
+
+Side effects see the messages the caller passed and never what another side
+effect derived, so registration order fixes what runs when and nothing more.
+Registrations are refused at construction — unnamed, duplicated, or nil — rather
+than dropped, because a registration that silently vanishes is the forgotten
+event one level up. An Enqueue with no messages runs none of them: an effect
+derives from what the caller asked for, and a caller that asked for nothing
+changed nothing.
+
+The outbox never looks inside a Payload, so what an effect can derive from is
+the application's own message type, which the application asserts back out.
+search/sync's documentation works the index event through end to end.
+
 # Creating the table
 
 outbox/migrations renders the DDL for a dialect and table name. If you already
@@ -124,6 +166,14 @@ oldest message is four seconds old and an incident if it is four hours old.
 Quarantined rows are excluded from both, so a permanently broken message does not
 read as a permanently growing backlog.
 
+outbox_enqueue_fanout is how the section above is watched rather than trusted.
+It records how many messages each Enqueue wrote, sampled once per distinct topic
+in that enqueue, so a call site that has stopped emitting its index event shows
+up as the data-change topic's distribution shifting down by one. A distribution
+is what makes that visible: a rate falling is indistinguishable from a quiet
+period, and the events nobody enqueued are precisely the ones no consumer will
+report missing.
+
 The rest: outbox_messages_enqueued against outbox_messages_published (the gap is
 the rollback rate), outbox_messages_failed, outbox_messages_quarantined — alert on
 any increase, since a quarantined message is a dropped event — outbox_claim_errors,
@@ -132,8 +182,10 @@ and outbox_claimed_batch_size distributions. Everything per-message carries a to
 attribute, because one Relay serves every topic and a single broken publisher is
 invisible in the total.
 
-Spans cover Enqueue, each claim, each publish, and each reap. A cycle that claims
-nothing is not traced: a root span every poll interval is noise.
+Spans cover Enqueue, each claim, each publish, and each reap, and an Enqueue
+names the side effects that ran — including one that failed, since a trace that
+omits it describes an enqueue that did not happen. A cycle that claims nothing is
+not traced: a root span every poll interval is noise.
 
 # Failure
 

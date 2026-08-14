@@ -126,10 +126,29 @@ func WithWriterNotifyChannel(channel string) WriterOption {
 	}
 }
 
+// WithWriterSideEffect registers a named derived write, run inside every
+// Enqueue on the caller's executor and in registration order.
+//
+// It moves an obligation off the call sites and onto the wiring: an event every
+// write to this outbox owes — the search index event, a webhook dispatch row
+// per subscribed endpoint — cannot be forgotten by a repository method that was
+// never asked about it. outbox's package documentation draws the line between
+// what belongs here and what belongs in the Enqueue call.
+//
+// name identifies the effect on spans and in the error an effect's failure
+// returns. Unlike the other options, this one guards nothing: an unnamed,
+// duplicated, or nil registration is refused by NewWriter rather than quietly
+// dropped, since a registration that vanishes is the forgotten event again.
+func WithWriterSideEffect(name string, effect SideEffect) WriterOption {
+	return func(w *Writer) {
+		w.sideEffects = append(w.sideEffects, sideEffect{name: name, effect: effect})
+	}
+}
+
 // WithWriterMetricsProvider attaches a metrics provider, enabling
-// outbox_messages_enqueued. Pair it with the Relay's provider: enqueue rate
-// against publish rate is what tells you whether the relay is keeping up, and
-// neither number answers that alone.
+// outbox_messages_enqueued and outbox_enqueue_fanout. Pair it with the Relay's
+// provider: enqueue rate against publish rate is what tells you whether the
+// relay is keeping up, and neither number answers that alone.
 func WithWriterMetricsProvider(metricsProvider metrics.Provider) WriterOption {
 	return func(w *Writer) {
 		w.metricsProvider = metricsProvider
