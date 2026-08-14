@@ -47,7 +47,9 @@ body="$(
 		+ section("Survived"; "the tests pass with these lines changed, so either an assertion is missing or the mutant is equivalent"; "LIVED")
 		+ section("Not covered"; "no test reaches these lines"; "NOT COVERED")
 		+ section("Timed out"; "excluded from the efficacy figure, so this run proved less than it reports"; "TIMED OUT")
-		+ (if (.mutants_lived + .mutants_not_covered) == 0 then "\nEvery mutant on the changed lines was killed.\n" else "" end)
+		+ (if .mutants_total == 0 then "\nNothing mutable on the changed lines — gremlins does not mutate test files.\n"
+		   elif (.mutants_lived + .mutants_not_covered) == 0 then "\nEvery mutant on the changed lines was killed.\n"
+		   else "" end)
 	' "${REPORT}"
 )"
 

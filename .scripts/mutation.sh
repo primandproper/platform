@@ -162,6 +162,15 @@ lived_count="$(count_lines "${lived}")"
 not_covered_count="$(count_lines "${not_covered}")"
 
 echo
+
+# A diff of nothing but _test.go files produces no mutants at all, which is the
+# common case on a test-only change. Say that, rather than reporting 0% efficacy
+# and a clean sweep of an empty set.
+if [[ "$(jq -r '.mutants_total' "${REPORT}")" == "0" ]]; then
+	echo "mutation: nothing mutable on the changed lines — gremlins does not mutate test files"
+	exit 0
+fi
+
 jq -r '
 	"mutation: \(.mutants_killed) killed, \(.mutants_lived) lived, " +
 	"\(.mutants_not_covered) not covered, \(.mutants_not_viable) not viable " +
