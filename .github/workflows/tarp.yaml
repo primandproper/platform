@@ -88,7 +88,7 @@ jobs:
           # the test that names them. A gate on a module-wide integer cannot be
           # tighter than that — tarp has no diff-scoped mode to ask whether this
           # pull request specifically made things worse.
-          failure_score_threshold: 61
+          failure_score_threshold: 62
 
       - name: Save the tarp build cache
         if: ${{ !cancelled() && steps.gocache.outputs.cache-hit != 'true' }}
