@@ -81,20 +81,20 @@ jobs:
           # going the other way. Raise it as the score climbs — nothing lowers
           # it automatically.
           #
-          # 61 is what CI grades, and CI is the only grader that counts. A
-          # darwin checkout of the same commit reads 60: the build tags select
-          # different files, so the module is 4,513 functions here and 4,498
-          # there. Read a local number as advisory.
-          #
-          # It is also the highest value that passes, which at this size leaves
+          # 61 is the highest value that passes, and at this size that leaves
           # very little room. tarp floors the score to an integer, so 2,754 of
-          # 4,512 is 61.0% and the gate trips below 61.0% — three new functions
+          # 4,512 is 61.0% and the gate trips below 61.0%: three new functions
           # with no direct test, or two existing ones losing the test that
-          # names them. That is the strictest a module-wide integer can be
-          # asked to be; tarp has no diff-scoped mode, so it cannot ask whether
-          # this pull request in particular made things worse. A run that goes
-          # red names the functions in the job summary, and the fix is a test
-          # or a //tarp:ignore carrying its reason.
+          # names them. That is as tight as a module-wide integer gets — tarp
+          # has no diff-scoped mode, so it cannot ask whether this pull request
+          # in particular made things worse. A red run names the functions in
+          # the job summary; the fix is a test, or a //tarp:ignore carrying its
+          # reason.
+          #
+          # Grade the merge, not the branch, when checking this by hand. CI
+          # analyzes the pull request merged into main, so a checkout that has
+          # fallen behind grades a different module — which is exactly why the
+          # number here is 61 and a stale local tree said 60.
           failure_score_threshold: 61
 
       - name: Save the tarp build cache
