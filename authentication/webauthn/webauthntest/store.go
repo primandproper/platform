@@ -21,12 +21,20 @@ const (
 	liveTTL = time.Minute
 
 	// expiryTTL is the TTL the expiry case saves with, and expiryWait is how
-	// long it then waits before asserting the state has lapsed. The gap between
-	// them is the whole tolerance the suite has for a slow host, so it is wide:
-	// waiting three times the window costs a few seconds of wall clock in
-	// subtests that run in parallel anyway, and buys a case that does not flake.
-	expiryTTL  = time.Second
-	expiryWait = 3 * time.Second
+	// long it then waits before asserting the state has lapsed. The ratio
+	// between them is the whole tolerance the suite has for a slow host: four
+	// times the window, so a host would have to stall for a second and a half
+	// mid-case to produce a false pass.
+	//
+	// It is a single sleep rather than a poll because the only way to ask
+	// whether the state is still there is Consume, which would remove it — the
+	// first observation has to be the one after expiry. The window is therefore
+	// wall clock this suite always spends, which is why it is measured in
+	// hundreds of milliseconds rather than seconds: it lands in every package
+	// that runs the suite, including under a mutation run that re-runs the
+	// whole binary once per mutant.
+	expiryTTL  = 500 * time.Millisecond
+	expiryWait = 2 * time.Second
 
 	// contenders is how many goroutines race to consume one challenge in the
 	// case that proves exactly one of them wins.
