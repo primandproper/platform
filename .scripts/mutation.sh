@@ -136,13 +136,16 @@ mv "${compacted}" "${REPORT}"
 # Every listing below is (file:line:column, mutator), which is the identity a
 # survivor has to be adjudicated by. There is no stabler handle: gremlins has no
 # per-mutant identifier.
+#
+# Sorted by file then numerically by position, so a file's mutants read in the
+# order they appear in it. A plain sort puts line 11 above line 7.
 mutants_with_status() {
 	jq -r --arg want "${1}" '
 		.files[]? as $file
 		| $file.mutations[]?
 		| select(.status == $want)
 		| "  \($file.file_name):\(.line):\(.column)  \(.type)"
-	' "${REPORT}" | sort
+	' "${REPORT}" | sort -t: -k1,1 -k2,2n -k3,3n
 }
 
 count_lines() {
@@ -171,10 +174,13 @@ if [[ "$(jq -r '.mutants_total' "${REPORT}")" == "0" ]]; then
 	exit 0
 fi
 
+# mutants_total counts only the mutants gremlins actually ran — killed plus
+# lived plus not viable. NOT COVERED sits outside it, so the two are reported as
+# two figures rather than as four addends that do not sum to the total.
 jq -r '
 	"mutation: \(.mutants_killed) killed, \(.mutants_lived) lived, " +
-	"\(.mutants_not_covered) not covered, \(.mutants_not_viable) not viable " +
-	"of \(.mutants_total) in \(.elapsed_time | floor)s"
+	"\(.mutants_not_viable) not viable of \(.mutants_total) run; " +
+	"\(.mutants_not_covered) not covered (\(.elapsed_time | floor)s)"
 ' "${REPORT}"
 
 # The efficacy figure is printed but never gated on: --threshold-efficacy drops

@@ -27,12 +27,16 @@ fi
 
 body="$(
 	MARKER="${MARKER}" jq -r '
+		# Sorted by position rather than as text, so the mutants in a file read in
+		# the order they appear in it: a plain sort puts line 11 above line 7.
 		def rows($want):
 			[ .files[]? as $file
 			| $file.mutations[]?
 			| select(.status == $want)
-			| "| `\($file.file_name):\(.line):\(.column)` | `\(.type)` |"
-			] | sort;
+			| {file: $file.file_name, line: .line, column: .column, type: .type}
+			]
+			| sort_by([.file, .line, .column])
+			| map("| `\(.file):\(.line):\(.column)` | `\(.type)` |");
 
 		def section($title; $blurb; $want):
 			rows($want) as $r
@@ -40,9 +44,12 @@ body="$(
 			  else "\n**\($title)** (\($r | length)) — \($blurb)\n\n| location | mutator |\n| --- | --- |\n" + ($r | join("\n")) + "\n"
 			  end;
 
+		# mutants_total counts only what gremlins ran — killed plus lived plus
+		# not viable. NOT COVERED sits outside it, so it is reported separately
+		# rather than as a fourth addend that does not fit the total.
 		(env.MARKER) + "\n### Mutation testing\n\n"
-		+ "`\(.mutants_killed)` killed, `\(.mutants_lived)` lived, `\(.mutants_not_covered)` not covered, "
-		+ "`\(.mutants_not_viable)` not viable of `\(.mutants_total)` mutants on the changed lines "
+		+ "`\(.mutants_killed)` killed, `\(.mutants_lived)` lived, `\(.mutants_not_viable)` not viable "
+		+ "of `\(.mutants_total)` mutants run on the changed lines; `\(.mutants_not_covered)` not covered "
 		+ "(\(.elapsed_time | floor)s, \(.test_efficacy | . * 10 | round / 10)% efficacy).\n"
 		+ section("Survived"; "the tests pass with these lines changed, so either an assertion is missing or the mutant is equivalent"; "LIVED")
 		+ section("Not covered"; "no test reaches these lines"; "NOT COVERED")
