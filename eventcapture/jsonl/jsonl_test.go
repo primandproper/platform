@@ -332,6 +332,15 @@ func TestSink_RotationFailures(T *testing.T) {
 	T.Run("a rename failure surfaces on the write that triggered it", func(t *testing.T) {
 		t.Parallel()
 
+		// The only way this test makes the rename fail is by revoking write
+		// permission on the directory, and root ignores permission bits. Left
+		// unguarded the case does not merely lose its meaning, it fails: the
+		// rename succeeds and no error surfaces. Any run in a root container —
+		// the mutation gate's is one — would go red on it.
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses the directory permissions this case relies on")
+		}
+
 		dir := t.TempDir()
 		path := filepath.Join(dir, "capture.jsonl")
 		s := newTestSink(t, path, 40, 4)
