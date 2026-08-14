@@ -63,6 +63,44 @@ message with that key is still pending, so at most one event per document is in
 flight across the whole relay fleet, however many relays are running. Events for
 different documents stay free to interleave.
 
+# Registering the event rather than writing it
+
+The call above is correct and forgettable. Nothing about a repository method
+that writes an order says the write owes an index event, so the next one enqueues
+its data-change message alone, compiles, and passes review — and the index is
+wrong from then until the next rebuild, with nothing in between able to notice,
+because the event that went missing is one no consumer was waiting for.
+
+Register it on the Writer instead and the call site is never asked:
+
+	writer, err := outbox.NewWriter(client.Dialect(),
+	    outbox.WithWriterSideEffect("orders-index",
+	        func(_ context.Context, _ database.SQLQueryExecutor, msgs []outbox.Message) ([]outbox.Message, error) {
+	            events := make([]outbox.Message, 0, len(msgs))
+
+	            for _, msg := range msgs {
+	                changed, ok := msg.Payload.(OrderChanged)
+	                if !ok {
+	                    continue
+	                }
+
+	                events = append(events,
+	                    searchsync.NewEvent(searchsync.OpUpsert, changed.OrderID).Message("orders-index"))
+	            }
+
+	            return events, nil
+	        }))
+
+Every transaction that enqueues an order data-change now writes the index event
+too, by the same statement, whether or not whoever wrote it was thinking about
+the index. The derivation is the application's because the payload is: outbox
+never looks inside a Message.Payload, which is also why the dependency runs only
+one way — searchsync imports outbox, and outbox knows nothing of searchsync.
+
+Writing the event at the call site stays right where the call site is genuinely
+choosing: a targeted re-index after a manual repair, or an OpDelete one branch of
+one method emits. outbox's own documentation draws that line in full.
+
 # The event names a document; it does not carry one
 
 Every applied event reads the row back through the Fetcher. That is one source

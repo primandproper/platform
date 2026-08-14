@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/clock"
@@ -47,6 +48,29 @@ type Message struct {
 	Key string
 }
 
+// SideEffect derives further work from the messages a caller enqueued. It runs
+// inside Enqueue, on the caller's executor, so rows it writes commit with the
+// row change that prompted them and messages it returns are enqueued in the
+// same statement as the caller's own. Returning an error aborts the enqueue,
+// which leaves the caller's transaction to roll back with it.
+//
+// msgs holds what the caller passed to Enqueue and never what another side
+// effect derived. Registration order therefore fixes the order the effects run
+// in and the order their messages land in, and nothing else: an effect that
+// could read another's output would make the registration list an evaluation
+// order to reason about, and would let derived events derive events.
+//
+// The slice is this effect's own copy, so editing it changes neither what is
+// written nor what the next effect sees.
+type SideEffect func(ctx context.Context, q database.SQLQueryExecutor, msgs []Message) ([]Message, error)
+
+// sideEffect is one registration: an effect and the name it is reported under
+// on spans and in errors.
+type sideEffect struct {
+	effect SideEffect
+	name   string
+}
+
 // Writer enqueues messages into the outbox table. It holds no database handle:
 // every Enqueue takes the caller's executor, so one Writer serves every
 // transaction in the process.
@@ -62,6 +86,7 @@ type Writer struct {
 	marshaler encoding.Marshaler
 
 	enqueuedCounter metrics.Int64Counter
+	fanoutHist      metrics.Float64Histogram
 
 	// What the options wrote, kept only until the observer is built from it.
 	// Read w.o11y.Logger() for the logger this writer actually uses; this one may
@@ -76,6 +101,11 @@ type Writer struct {
 	// an empty one emits nothing: an outbox that has not asked for wakeups runs
 	// exactly the SQL it always did inside its callers' transactions.
 	notifyChannel string
+
+	// sideEffects are the derived writes registered at construction, run in
+	// this order inside every Enqueue. Empty unless WithWriterSideEffect was
+	// used, and an empty one costs an Enqueue nothing at all.
+	sideEffects []sideEffect
 }
 
 // NewWriter builds a Writer for the given dialect.
@@ -113,6 +143,27 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 		}
 	}
 
+	// Registrations are refused rather than dropped. A side effect exists
+	// because a call site cannot be relied on to remember the event; one
+	// silently discarded at construction reproduces exactly the failure it was
+	// added to prevent, a level up and with even less to see it by.
+	seen := make(map[string]struct{}, len(w.sideEffects))
+	for _, se := range w.sideEffects {
+		if se.name == "" {
+			return nil, ErrUnnamedSideEffect
+		}
+
+		if se.effect == nil {
+			return nil, platformerrors.Wrapf(ErrNilSideEffect, "outbox side effect %q", se.name)
+		}
+
+		if _, ok := seen[se.name]; ok {
+			return nil, platformerrors.Wrapf(ErrDuplicateSideEffect, "outbox side effect %q", se.name)
+		}
+
+		seen[se.name] = struct{}{}
+	}
+
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
 	w.marshaler = encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(w.o11y.Logger()), encoding.WithTracerProvider(w.tracerProvider))
 
@@ -121,6 +172,10 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 	var err error
 	if w.enqueuedCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_messages_enqueued", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating messages enqueued counter")
+	}
+
+	if w.fanoutHist, err = mp.NewFloat64Histogram(fmt.Sprintf("%s_enqueue_fanout", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating enqueue fanout histogram")
 	}
 
 	return w, nil
@@ -132,6 +187,12 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 //
 // Enqueue is deliberately not variadic-only sugar over a loop: a transaction
 // that emits three events should not pay three round trips inside a lock.
+//
+// Registered side effects run first, on the same executor, and whatever they
+// return is written by the same statement as the caller's messages — so an
+// enqueue that owes a derived event still costs one round trip. An Enqueue
+// with no messages runs none of them: a side effect derives from what the
+// caller asked for, and a caller that asked for nothing changed nothing.
 func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs ...Message) error {
 	ctx, op := w.o11y.Begin(ctx)
 	defer op.End()
@@ -144,18 +205,23 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 		return nil
 	}
 
-	op.Set(messageCountKey, len(msgs))
+	all, sideEffectErr := w.withSideEffects(ctx, op, q, msgs)
+	if sideEffectErr != nil {
+		return sideEffectErr
+	}
+
+	op.Set(messageCountKey, len(all))
 
 	now := w.clock.Now().UTC()
 
 	// Topics are recorded on the span so a transaction that fans out to several
 	// destinations is legible from the trace alone, without joining against the
 	// counter.
-	topics := make([]string, 0, len(msgs))
+	topics := make([]string, 0, len(all))
 
-	rows := make([]enqueueRow, 0, len(msgs))
-	for i := range msgs {
-		msg := msgs[i]
+	rows := make([]enqueueRow, 0, len(all))
+	for i := range all {
+		msg := all[i]
 
 		if msg.Topic == "" {
 			return op.Error(ErrEmptyTopic, "enqueuing outbox messages")
@@ -207,11 +273,69 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 	// back afterwards — so this counts intent to publish, not committed rows.
 	// The gap is exactly the rollback rate, and comparing this against
 	// outbox_messages_published is how you see it.
+	//
+	// The fan-out is the same number the span carries, recorded once per
+	// distinct topic in the enqueue rather than once per message: what it
+	// answers is whether a write of this kind still owes what it used to, so a
+	// call site that stopped emitting its index event shows up as the
+	// data-change topic's distribution shifting down by one. Per message the
+	// sample count would scale with the fan-out being measured, and a topic
+	// that vanished entirely would take its samples with it — which is the
+	// quiet-period ambiguity a rate already has.
+	fanout := float64(len(all))
+
+	counted := make(map[string]struct{}, len(topics))
 	for _, topic := range topics {
 		w.enqueuedCounter.Add(ctx, 1, topicAttr(topic))
+
+		if _, ok := counted[topic]; ok {
+			continue
+		}
+
+		counted[topic] = struct{}{}
+
+		w.fanoutHist.Record(ctx, fanout, topicAttr(topic))
 	}
 
 	return nil
+}
+
+// withSideEffects runs the registered side effects in order and returns the
+// caller's messages followed by whatever they derived. With none registered the
+// caller's own slice comes back untouched, so an outbox nobody has registered
+// against allocates nothing and runs exactly the statements it always did.
+func (w *Writer) withSideEffects(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	msgs []Message,
+) ([]Message, error) {
+	if len(w.sideEffects) == 0 {
+		return msgs, nil
+	}
+
+	// Named on the span however the enqueue ends: the effect that failed is
+	// one that ran, and a trace omitting it describes a different enqueue than
+	// the one that happened.
+	ran := make([]string, 0, len(w.sideEffects))
+	defer func() { op.Set(sideEffectsKey, ran) }()
+
+	// Cloned rather than appended to, because the variadic slice may be the
+	// caller's own and growing it in place would write into their array.
+	all := slices.Clone(msgs)
+
+	for _, se := range w.sideEffects {
+		ran = append(ran, se.name)
+
+		derived, err := se.effect(ctx, q, slices.Clone(msgs))
+		if err != nil {
+			return nil, op.Error(err, "running outbox side effect %q", se.name)
+		}
+
+		all = append(all, derived...)
+	}
+
+	return all, nil
 }
 
 // enqueueRow is one row's worth of bound parameters.
