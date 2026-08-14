@@ -93,6 +93,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 | Package          | Purpose                             | Implementations                |
 |------------------|-------------------------------------|--------------------------------|
 | `authentication` | Password hashing, TOTP, tokens      | argon2, totp, tokens           |
+| `authentication/webauthn` | Passkey registration & login, with ceremony state that outlives one replica | database, cache |
 | `sessions`       | Server-side sessions over cookies   | cache, database (+ http)       |
 | `authorization`  | Role/permission policy, enforcement | static (default), database     |
 | `links`          | Signed, expiring, single-use action links | cache + distributedlock  |
