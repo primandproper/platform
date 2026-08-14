@@ -374,6 +374,12 @@ func TestService_Run(T *testing.T) {
 
 		// Cancelling the parent cancels the context signal.NotifyContext
 		// derived from it, which is the same path SIGTERM takes.
+		//
+		// Both waits are needed. Run launches each loop with a bare `go` and
+		// has nothing to wait on, so on a loaded machine the runner goroutine
+		// can still be unscheduled when Run returns — and then the run:app
+		// assertion below fails on a service that behaved correctly.
+		waitFor(t, j, "run:app")
 		waitFor(t, j, "serve:http")
 		cancel()
 
@@ -382,10 +388,12 @@ func TestService_Run(T *testing.T) {
 		// Ingress is down before anything drains, and the client they both used
 		// outlives them.
 		//
-		// Startup is not asserted the same way, because Run's guarantee there
-		// is that it launches the loops before it binds the listeners, not that
-		// a loop's first tick beats the first request — a goroutine's start is
-		// the scheduler's business, and Runner has no readiness to wait on.
+		// Startup ordering is not asserted the same way, because Run's guarantee
+		// there is that it launches the loops before it binds the listeners, not
+		// that a loop's first tick beats the first request — a goroutine's start
+		// is the scheduler's business, and Runner has no readiness to wait on.
+		// That the loop ran at all is asserted, which is what the wait above
+		// buys.
 		events := j.all()
 		test.SliceContains(t, events, "run:app")
 		happensBefore(t, events, "shutdown:http", "close:app")
