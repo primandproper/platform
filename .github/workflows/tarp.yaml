@@ -75,11 +75,20 @@ jobs:
           # genuinely untested rather than tested from somewhere else — so the
           # level that says the most costs little.
           strictness: file
-          # Reports, does not gate. The backlog this opens on is four figures,
-          # which is not something to point a blocking gate at on day one; the
-          # threshold gets set from what this reports over real diffs, the way
-          # the mutation gate's was.
-          failure_score_threshold: 0
+          # A ratchet, set to the score as it stands: the 1,757 already here are
+          # a backlog to pay down when files are touched for other reasons, and
+          # what this gate is for is stopping the number going the other way.
+          # Raise it as the score climbs — that is the only way it moves, since
+          # nothing lowers it automatically.
+          #
+          # 60 is the highest value that passes today, not a margin below the
+          # real figure. tarp floors the score to an integer, so the true ratio
+          # is 2,741/4,498 = 60.9% and this trips at 60.0%: about 70 new
+          # untested functions in one pull request, or 43 existing ones losing
+          # the test that names them. A gate on a module-wide integer cannot be
+          # tighter than that — tarp has no diff-scoped mode to ask whether this
+          # pull request specifically made things worse.
+          failure_score_threshold: 60
 
       - name: Save the tarp build cache
         if: ${{ !cancelled() && steps.gocache.outputs.cache-hit != 'true' }}
