@@ -10,6 +10,7 @@ import (
 	circuitbreakingmock "github.com/primandproper/platform-go/v10/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v10/distributedlock"
+	"github.com/primandproper/platform-go/v10/distributedlock/distributedlocktest"
 	"github.com/primandproper/platform-go/v10/identifiers"
 	"github.com/primandproper/platform-go/v10/observability"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
@@ -555,67 +556,34 @@ func TestBuildRedisClient(T *testing.T) {
 
 // --------- container-backed integration tests ---------
 
+// TestRedisLocker_Conformance runs the shared distributedlock.Locker suite
+// against a real redis. Every case that used to live here and is not below is
+// in that suite now.
+func TestRedisLocker_Conformance(T *testing.T) {
+	T.Parallel()
+
+	cfg := buildContainerBackedRedisConfig(T)
+
+	// No deviations: the TTL is redis' own, and two Lockers against one server
+	// contend exactly as two replicas would.
+	distributedlocktest.Run(T, func(tb testing.TB) distributedlock.Locker {
+		tb.Helper()
+
+		l, err := NewRedisLocker(cfg, cbnoop.NewCircuitBreaker())
+		must.NoError(tb, err)
+		tb.Cleanup(func() { must.NoError(tb, l.Close()) })
+
+		return l
+	})
+}
+
 func TestRedisLocker_Container(T *testing.T) {
 	T.Parallel()
 
 	cfg := buildContainerBackedRedisConfig(T)
 
-	T.Run("Acquire happy path", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		l := newTestLocker(t, cfg)
-		key := "happy_" + identifiers.New()
-
-		lock, err := l.Acquire(ctx, key, time.Minute)
-		must.NoError(t, err)
-		must.NotNil(t, lock)
-		test.EqOp(t, key, lock.Key())
-		test.EqOp(t, time.Minute, lock.TTL())
-
-		must.NoError(t, lock.Release(ctx))
-	})
-
-	T.Run("Acquire contended returns ErrLockNotAcquired", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		l := newTestLocker(t, cfg)
-		key := "contended_" + identifiers.New()
-
-		first, err := l.Acquire(ctx, key, time.Minute)
-		must.NoError(t, err)
-		t.Cleanup(func() { _ = first.Release(ctx) })
-
-		_, err = l.Acquire(ctx, key, time.Minute)
-		must.ErrorIs(t, err, distributedlock.ErrLockNotAcquired)
-	})
-
-	T.Run("Acquire rejects empty key", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t, cfg)
-		_, err := l.Acquire(t.Context(), "", time.Minute)
-		must.ErrorIs(t, err, distributedlock.ErrEmptyKey)
-	})
-
-	T.Run("Acquire rejects zero TTL", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t, cfg)
-		_, err := l.Acquire(t.Context(), "k", 0)
-		must.ErrorIs(t, err, distributedlock.ErrInvalidTTL)
-	})
-
-	T.Run("Release after expiration returns ErrLockNotHeld", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		l := newTestLocker(t, cfg)
-		key := "expired_" + identifiers.New()
-
-		lock, err := l.Acquire(ctx, key, 100*time.Millisecond)
-		must.NoError(t, err)
-		time.Sleep(250 * time.Millisecond)
-
-		must.ErrorIs(t, lock.Release(ctx), distributedlock.ErrLockNotHeld)
-	})
-
+	// The one case the suite cannot express: it needs a second writer against
+	// the same key, which only this provider's key layout makes reachable.
 	T.Run("Release wrong owner returns ErrLockNotHeld", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
@@ -631,70 +599,5 @@ func TestRedisLocker_Container(T *testing.T) {
 		must.NoError(t, direct.Set(ctx, "lock:"+key, "someone-else", time.Minute).Err())
 
 		must.ErrorIs(t, lock.Release(ctx), distributedlock.ErrLockNotHeld)
-	})
-
-	T.Run("Refresh extends TTL", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		l := newTestLocker(t, cfg)
-		key := "refresh_" + identifiers.New()
-
-		lock, err := l.Acquire(ctx, key, 200*time.Millisecond)
-		must.NoError(t, err)
-		must.NoError(t, lock.Refresh(ctx, 5*time.Second))
-		t.Cleanup(func() { _ = lock.Release(ctx) })
-
-		// Sleep past the original TTL; lock should still be held.
-		time.Sleep(300 * time.Millisecond)
-
-		_, err = l.Acquire(ctx, key, time.Minute)
-		must.ErrorIs(t, err, distributedlock.ErrLockNotAcquired)
-		test.EqOp(t, 5*time.Second, lock.TTL())
-	})
-
-	T.Run("Refresh rejects invalid TTL", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		l := newTestLocker(t, cfg)
-		key := "refreshinv_" + identifiers.New()
-
-		lock, err := l.Acquire(ctx, key, time.Minute)
-		must.NoError(t, err)
-		t.Cleanup(func() { _ = lock.Release(ctx) })
-
-		must.ErrorIs(t, lock.Refresh(ctx, 0), distributedlock.ErrInvalidTTL)
-	})
-
-	T.Run("Double release returns ErrLockNotHeld on second call", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		l := newTestLocker(t, cfg)
-		key := "double_" + identifiers.New()
-
-		lock, err := l.Acquire(ctx, key, time.Minute)
-		must.NoError(t, err)
-		must.NoError(t, lock.Release(ctx))
-		must.ErrorIs(t, lock.Release(ctx), distributedlock.ErrLockNotHeld)
-	})
-
-	T.Run("Released lock can be reacquired", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-		l := newTestLocker(t, cfg)
-		key := "reacquire_" + identifiers.New()
-
-		first, err := l.Acquire(ctx, key, time.Minute)
-		must.NoError(t, err)
-		must.NoError(t, first.Release(ctx))
-
-		second, err := l.Acquire(ctx, key, time.Minute)
-		must.NoError(t, err)
-		must.NoError(t, second.Release(ctx))
-	})
-
-	T.Run("Ping success", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t, cfg)
-		must.NoError(t, l.Ping(t.Context()))
 	})
 }

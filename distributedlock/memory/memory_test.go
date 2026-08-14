@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v10/distributedlock"
+	"github.com/primandproper/platform-go/v10/distributedlock/distributedlocktest"
 	"github.com/primandproper/platform-go/v10/observability"
 
 	"github.com/shoenig/test"
@@ -64,25 +65,6 @@ func TestLocker_Acquire(T *testing.T) {
 		})
 	})
 
-	T.Run("contended", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		_, err := l.Acquire(t.Context(), "shared", time.Minute)
-		must.NoError(t, err)
-		_, err = l.Acquire(t.Context(), "shared", time.Minute)
-		must.ErrorIs(t, err, distributedlock.ErrLockNotAcquired)
-	})
-
-	T.Run("re-acquire after expiry", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		_, err := l.Acquire(t.Context(), "exp", 50*time.Millisecond)
-		must.NoError(t, err)
-		time.Sleep(80 * time.Millisecond)
-		_, err = l.Acquire(t.Context(), "exp", time.Second)
-		must.NoError(t, err)
-	})
-
 	T.Run("rejects empty key", func(t *testing.T) {
 		t.Parallel()
 		l, obs := newRecordingLocker(t)
@@ -106,13 +88,6 @@ func TestLocker_Acquire(T *testing.T) {
 			"lock.key": "k",
 			"lock.ttl": time.Duration(0),
 		})
-	})
-
-	T.Run("rejects negative TTL", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		_, err := l.Acquire(t.Context(), "k", -time.Second)
-		must.ErrorIs(t, err, distributedlock.ErrInvalidTTL)
 	})
 
 	T.Run("sweeps expired entries for other keys", func(t *testing.T) {
@@ -139,88 +114,6 @@ func TestLocker_Acquire(T *testing.T) {
 	})
 }
 
-func TestLocker_Release(T *testing.T) {
-	T.Parallel()
-
-	T.Run("happy path", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		lock, err := l.Acquire(t.Context(), "k", time.Minute)
-		must.NoError(t, err)
-		must.NoError(t, lock.Release(t.Context()))
-	})
-
-	T.Run("released lock can be reacquired", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		first, err := l.Acquire(t.Context(), "k", time.Minute)
-		must.NoError(t, err)
-		must.NoError(t, first.Release(t.Context()))
-		_, err = l.Acquire(t.Context(), "k", time.Minute)
-		must.NoError(t, err)
-	})
-
-	T.Run("double release returns ErrLockNotHeld", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		lock, err := l.Acquire(t.Context(), "k", time.Minute)
-		must.NoError(t, err)
-		must.NoError(t, lock.Release(t.Context()))
-		must.ErrorIs(t, lock.Release(t.Context()), distributedlock.ErrLockNotHeld)
-	})
-
-	T.Run("release after expiration returns ErrLockNotHeld", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		lock, err := l.Acquire(t.Context(), "k", 50*time.Millisecond)
-		must.NoError(t, err)
-		time.Sleep(80 * time.Millisecond)
-		must.ErrorIs(t, lock.Release(t.Context()), distributedlock.ErrLockNotHeld)
-	})
-}
-
-func TestLocker_Refresh(T *testing.T) {
-	T.Parallel()
-
-	T.Run("extends TTL", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		lock, err := l.Acquire(t.Context(), "k", 50*time.Millisecond)
-		must.NoError(t, err)
-		must.NoError(t, lock.Refresh(t.Context(), 5*time.Second))
-		// Even after the original TTL elapses, the lock is still held.
-		time.Sleep(80 * time.Millisecond)
-		_, err = l.Acquire(t.Context(), "k", time.Second)
-		must.ErrorIs(t, err, distributedlock.ErrLockNotAcquired)
-	})
-
-	T.Run("refresh after expiration returns ErrLockNotHeld", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		lock, err := l.Acquire(t.Context(), "k", 50*time.Millisecond)
-		must.NoError(t, err)
-		time.Sleep(80 * time.Millisecond)
-		must.ErrorIs(t, lock.Refresh(t.Context(), time.Second), distributedlock.ErrLockNotHeld)
-	})
-
-	T.Run("rejects invalid TTL", func(t *testing.T) {
-		t.Parallel()
-		l := newTestLocker(t)
-		lock, err := l.Acquire(t.Context(), "k", time.Minute)
-		must.NoError(t, err)
-		must.ErrorIs(t, lock.Refresh(t.Context(), 0), distributedlock.ErrInvalidTTL)
-	})
-}
-
-func TestLocker_Ping(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
-		t.Parallel()
-		must.NoError(t, newTestLocker(t).Ping(t.Context()))
-	})
-}
-
 func TestLocker_Close(T *testing.T) {
 	T.Parallel()
 
@@ -241,6 +134,9 @@ func TestLocker_Close(T *testing.T) {
 func TestLocker_Concurrency(T *testing.T) {
 	T.Parallel()
 
+	// The conformance suite races a handful of goroutines for one key; this
+	// races two orders of magnitude more, which is what a mutex-and-map wants
+	// checked and what a networked backend would only turn into a slow test.
 	T.Run("only one goroutine wins per key", func(t *testing.T) {
 		t.Parallel()
 		l := newTestLocker(t)
@@ -261,4 +157,27 @@ func TestLocker_Concurrency(T *testing.T) {
 
 		test.EqOp(t, int64(1), winners.Load())
 	})
+}
+
+// TestLocker_Conformance runs the shared distributedlock.Locker suite. This
+// implementation is the one the suite exists for: it is the double a good deal
+// of this repository's tests schedule against, so what it does when a lock
+// lapses or is released twice is a claim about redis and postgres, not just
+// about itself.
+func TestLocker_Conformance(T *testing.T) {
+	T.Parallel()
+
+	distributedlocktest.Run(T, func(tb testing.TB) distributedlock.Locker {
+		tb.Helper()
+
+		l, err := NewLocker()
+		must.NoError(tb, err)
+		tb.Cleanup(func() { must.NoError(tb, l.Close()) })
+
+		return l
+	},
+		// Each Locker owns its own map, so two of them share nothing: this
+		// provider coordinates goroutines, not replicas.
+		distributedlocktest.WithInstanceLocalStore(),
+	)
 }

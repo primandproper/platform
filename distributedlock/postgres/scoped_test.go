@@ -5,12 +5,11 @@ import (
 	"errors"
 	"regexp"
 	"testing"
-	"time"
 
 	circuitbreakingmock "github.com/primandproper/platform-go/v10/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v10/distributedlock"
-	"github.com/primandproper/platform-go/v10/identifiers"
+	"github.com/primandproper/platform-go/v10/distributedlock/distributedlocktest"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/shoenig/test"
@@ -311,100 +310,27 @@ func TestPostgresScopedLocker_TryWithLock_Unit(T *testing.T) {
 	})
 }
 
-func TestPostgresScopedLocker_Container(T *testing.T) {
+// TestPostgresScopedLocker_Conformance runs the shared
+// distributedlock.ScopedLocker suite against a real postgres. This is the
+// implementation that waits in the database rather than by polling, so it is
+// the half of the interface that proves the contract is about answers rather
+// than about a mechanism: the cases that used to live here — mutual exclusion
+// between concurrent holders, a queued WithLock proceeding once the holder
+// returns, a panicking fn leaving the lock free — are the suite's now, and the
+// polling adapter answers them the same way.
+func TestPostgresScopedLocker_Conformance(T *testing.T) {
 	T.Parallel()
 
 	runWithContainerBackedPostgres(T, func(client *testDBClient) {
-		T.Run("mutual exclusion across concurrent holders", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			s := newTestScopedLocker(t, client)
-			key := "scoped_mutex_" + identifiers.New()
+		distributedlocktest.RunScoped(T, func(tb testing.TB) distributedlock.ScopedLocker {
+			tb.Helper()
 
-			holding := make(chan struct{})
-			releaseHold := make(chan struct{})
-			holderDone := make(chan error, 1)
+			// Nothing to clean up: this implementation holds the lock for
+			// exactly as long as fn runs, in a transaction of its own.
+			s, err := NewPostgresScopedLocker(&Config{}, client, cbnoop.NewCircuitBreaker())
+			must.NoError(tb, err)
 
-			go func() {
-				holderDone <- s.WithLock(ctx, key, func(context.Context) error {
-					close(holding)
-					<-releaseHold
-					return nil
-				})
-			}()
-
-			<-holding
-
-			// While held, TryWithLock must refuse.
-			acquired, err := s.TryWithLock(ctx, key, func(context.Context) error { return nil })
-			must.NoError(t, err)
-			test.False(t, acquired)
-
-			close(releaseHold)
-			must.NoError(t, <-holderDone)
-
-			// Once released, TryWithLock succeeds.
-			acquired, err = s.TryWithLock(ctx, key, func(context.Context) error { return nil })
-			must.NoError(t, err)
-			test.True(t, acquired)
-		})
-
-		T.Run("WithLock queues behind a holder and proceeds when released", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			s := newTestScopedLocker(t, client)
-			key := "scoped_queue_" + identifiers.New()
-
-			holding := make(chan struct{})
-			releaseHold := make(chan struct{})
-			holderDone := make(chan error, 1)
-			waiterDone := make(chan error, 1)
-
-			go func() {
-				holderDone <- s.WithLock(ctx, key, func(context.Context) error {
-					close(holding)
-					<-releaseHold
-					return nil
-				})
-			}()
-
-			<-holding
-
-			go func() {
-				waiterDone <- s.WithLock(ctx, key, func(context.Context) error { return nil })
-			}()
-
-			// The waiter is queued server-side; releasing the holder lets it through.
-			close(releaseHold)
-			must.NoError(t, <-holderDone)
-
-			select {
-			case err := <-waiterDone:
-				must.NoError(t, err)
-			case <-time.After(30 * time.Second):
-				t.Fatal("queued WithLock never acquired after release")
-			}
-		})
-
-		T.Run("a panicking fn releases the lock", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			s := newTestScopedLocker(t, client)
-			key := "scoped_panic_" + identifiers.New()
-
-			func() {
-				defer func() {
-					must.NotNil(t, recover())
-				}()
-
-				_ = s.WithLock(ctx, key, func(context.Context) error {
-					panic("kaboom")
-				})
-			}()
-
-			acquired, err := s.TryWithLock(ctx, key, func(context.Context) error { return nil })
-			must.NoError(t, err)
-			test.True(t, acquired)
+			return s
 		})
 	})
 }

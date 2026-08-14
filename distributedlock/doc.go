@@ -38,4 +38,11 @@
 // enforce TTLs natively, while the postgres provider's TTL is advisory only — the
 // underlying pg_advisory_lock is held until either Release is called or the
 // dedicated session is closed. See distributedlock/postgres for details.
+//
+// Everything else about a Locker and a ScopedLocker is meant to be the same
+// answer whichever provider is configured, and distributedlock/distributedlocktest
+// is where that is written down and enforced: one suite, run against every
+// implementation here, and available to anyone writing another. A provider
+// that departs from the contract — the advisory TTL above is the only one that
+// does today — says so at its call to the suite rather than in prose.
 package distributedlock

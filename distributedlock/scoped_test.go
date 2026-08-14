@@ -9,6 +9,7 @@ import (
 
 	clockmock "github.com/primandproper/platform-go/v10/clock/mock"
 	"github.com/primandproper/platform-go/v10/distributedlock"
+	"github.com/primandproper/platform-go/v10/distributedlock/distributedlocktest"
 	"github.com/primandproper/platform-go/v10/distributedlock/memory"
 	distributedlockmock "github.com/primandproper/platform-go/v10/distributedlock/mock"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -561,85 +562,10 @@ func TestScopedLocker_TryWithLock(T *testing.T) {
 		must.NoError(t, err)
 		must.NoError(t, held.Release(ctx))
 	})
-
-	T.Run("contended lock reports false without running fn", func(t *testing.T) {
-		t.Parallel()
-
-		ctx := t.Context()
-		scoped, raw := newScopedFixture(t)
-
-		held, err := raw.Acquire(ctx, scopedTestKey, time.Minute)
-		must.NoError(t, err)
-		t.Cleanup(func() { _ = held.Release(ctx) })
-
-		acquired, err := scoped.TryWithLock(ctx, scopedTestKey, func(context.Context) error {
-			t.Fatal("fn must not run when the lock is contended")
-			return nil
-		})
-
-		must.NoError(t, err)
-		test.False(t, acquired)
-	})
-
-	T.Run("fn errors pass through and the lock is still released", func(t *testing.T) {
-		t.Parallel()
-
-		ctx := t.Context()
-		scoped, raw := newScopedFixture(t)
-		boom := errors.New("boom")
-
-		acquired, err := scoped.TryWithLock(ctx, scopedTestKey, func(context.Context) error {
-			return boom
-		})
-
-		test.True(t, acquired)
-		test.ErrorIs(t, err, boom)
-
-		held, err := raw.Acquire(ctx, scopedTestKey, time.Minute)
-		must.NoError(t, err)
-		must.NoError(t, held.Release(ctx))
-	})
-
-	T.Run("a panicking fn releases the lock and the panic propagates", func(t *testing.T) {
-		t.Parallel()
-
-		ctx := t.Context()
-		scoped, raw := newScopedFixture(t)
-
-		func() {
-			defer func() {
-				must.NotNil(t, recover())
-			}()
-
-			_, _ = scoped.TryWithLock(ctx, scopedTestKey, func(context.Context) error {
-				panic("kaboom")
-			})
-		}()
-
-		held, err := raw.Acquire(ctx, scopedTestKey, time.Minute)
-		must.NoError(t, err)
-		must.NoError(t, held.Release(ctx))
-	})
 }
 
 func TestScopedLocker_WithLock(T *testing.T) {
 	T.Parallel()
-
-	T.Run("acquires immediately when uncontended", func(t *testing.T) {
-		t.Parallel()
-
-		ctx := t.Context()
-		scoped, _ := newScopedFixture(t)
-
-		ran := false
-		err := scoped.WithLock(ctx, scopedTestKey, func(context.Context) error {
-			ran = true
-			return nil
-		})
-
-		must.NoError(t, err)
-		test.True(t, ran)
-	})
 
 	T.Run("waits out contention by polling", func(t *testing.T) {
 		t.Parallel()
@@ -726,5 +652,30 @@ func TestScopedLocker_WithLock(T *testing.T) {
 				t.Fatal("WithLock did not observe cancellation")
 			}
 		})
+	})
+}
+
+// TestScopedLocker_Conformance runs the shared distributedlock.ScopedLocker
+// suite against the generic adapter. The cases above describe how this
+// implementation reaches the contract — the poll schedule, the backoff, what a
+// canceled context does to a waiter — and none of that is visible to a caller
+// holding the interface. What the suite pins is what is: that a contended
+// TryWithLock is a false rather than an error, and that the postgres
+// implementation, which waits in the database instead of polling, answers the
+// same way.
+func TestScopedLocker_Conformance(T *testing.T) {
+	T.Parallel()
+
+	distributedlocktest.RunScoped(T, func(tb testing.TB) distributedlock.ScopedLocker {
+		tb.Helper()
+
+		raw, err := memory.NewLocker()
+		must.NoError(tb, err)
+		tb.Cleanup(func() { must.NoError(tb, raw.Close()) })
+
+		scoped, err := distributedlock.NewScopedLocker(raw)
+		must.NoError(tb, err)
+
+		return scoped
 	})
 }
