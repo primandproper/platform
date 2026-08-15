@@ -162,6 +162,91 @@ func ExampleWriter_Enqueue_rollback() {
 	// awaiting publication: 0
 }
 
+// orderChanged is the consumer's own message type — the payload a repository
+// method enqueues when it writes an order. The outbox never looks inside one,
+// which is what leaves a side effect free to assert it back out.
+type orderChanged struct {
+	OrderID string `json:"order_id"`
+}
+
+func messagesOnTopic(ctx context.Context, client database.Client, topic string) int {
+	var n int
+	if err := client.Reader().
+		QueryRowContext(ctx, "SELECT COUNT(*) FROM outbox_messages WHERE topic = ?", topic).
+		Scan(&n); err != nil {
+		panic(err)
+	}
+
+	return n
+}
+
+// ExampleWithWriterSideEffect shows the obligation moving off the call site.
+// The transaction below names one message and writes two: the index event is
+// registered on the Writer rather than remembered by whoever wrote the
+// repository method, which is what makes it impossible to omit — and an omitted
+// index event is one nothing downstream would have reported missing.
+func ExampleWithWriterSideEffect() {
+	ctx := context.Background()
+
+	client, cleanup, err := exampleDatabase(ctx)
+	if err != nil {
+		panic(err)
+	}
+	defer cleanup()
+
+	writer, err := outbox.NewWriter(dialect.SQLite,
+		outbox.WithWriterSideEffect("orders-index",
+			func(_ context.Context, _ database.SQLQueryExecutor, msgs []outbox.Message) ([]outbox.Message, error) {
+				events := make([]outbox.Message, 0, len(msgs))
+
+				for i := range msgs {
+					changed, ok := msgs[i].Payload.(orderChanged)
+					if !ok {
+						continue
+					}
+
+					// Keyed by document ID, which is what buys per-document
+					// ordering out of the relay. search/sync's Event.Message
+					// does exactly this against a real index.
+					events = append(events, outbox.Message{
+						Topic:   "orders-index",
+						Key:     changed.OrderID,
+						Payload: changed,
+					})
+				}
+
+				return events, nil
+			}))
+	if err != nil {
+		panic(err)
+	}
+
+	o := order{ID: "order-3", Total: 1500}
+
+	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		if insertErr := insertOrder(ctx, q, o); insertErr != nil {
+			return insertErr
+		}
+
+		// One message asked for. Both are written by this statement, inside
+		// this transaction, and roll back together if it fails.
+		return writer.Enqueue(ctx, q, outbox.Message{
+			Topic:   "orders",
+			Key:     o.ID,
+			Payload: orderChanged{OrderID: o.ID},
+		})
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("awaiting publication:", pendingMessages(ctx, client))
+	fmt.Println("index events:", messagesOnTopic(ctx, client, "orders-index"))
+	// Output:
+	// awaiting publication: 2
+	// index events: 1
+}
+
 // ExampleSQL shows the preferred way to create the table when you already run
 // database/migrate: the DDL is rendered from code and placed in your own
 // migration sequence at a version you choose, so nothing is copied into your

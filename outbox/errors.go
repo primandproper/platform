@@ -28,4 +28,17 @@ var (
 	// NewRelay. It wraps errors.ErrNilInputParameter, so a caller may check
 	// either.
 	ErrNilPublisherProvider = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil publisher provider")
+	// ErrUnnamedSideEffect indicates a side effect was registered without a
+	// name. The name is what spans and errors call it by, so an unnamed one is
+	// a derived write nothing can attribute.
+	ErrUnnamedSideEffect = platformerrors.New("unnamed outbox side effect")
+	// ErrNilSideEffect indicates a side effect was registered with a nil
+	// function. It wraps errors.ErrNilInputParameter, so a caller may check
+	// either.
+	ErrNilSideEffect = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil outbox side effect")
+	// ErrDuplicateSideEffect indicates two side effects were registered under
+	// one name. Names are how a trace tells them apart, and a repeated one is
+	// usually the same registration wired twice — which would derive the same
+	// event twice.
+	ErrDuplicateSideEffect = platformerrors.New("duplicate outbox side effect")
 )
