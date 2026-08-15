@@ -44,6 +44,7 @@ const (
 	retentionCutoffKey = "outbox.retention_cutoff"
 	reapedKey          = "outbox.reaped"
 	notifyChannelKey   = "outbox.notify_channel"
+	sideEffectsKey     = "outbox.side_effects"
 )
 
 // claimedMessage is one row the relay has taken ownership of.
