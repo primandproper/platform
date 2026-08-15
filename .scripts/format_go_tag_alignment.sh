@@ -11,9 +11,13 @@ set -euo pipefail
 MAX_PASSES="${1:-5}"
 # Keys absent from this list sort after every key in it, so a new tag key has to
 # be added here or the formatter and golangci-lint's tagalign — which sorts
-# alphabetically — will disagree forever, each undoing the other. "audit" is the
-# audit package's opt-out tag and sorts first for that reason, not by preference.
-TAG_ORDER="audit,env,envDefault,envPrefix,json,mapstructure,toml,yaml"
+# alphabetically — will disagree forever, each undoing the other. The list is
+# itself alphabetical for the same reason: it is the only ordering that can agree
+# with a linter that sorts that way. "audit" is the audit package's opt-out tag
+# and leads because it sorts there, not by preference; the JSON Schema
+# constraint keys are here because filtering's QueryFilter carries its schema in
+# its tags.
+TAG_ORDER="additionalProperties,audit,default,description,enum,env,envDefault,envPrefix,json,mapstructure,maximum,minimum,nullable,toml,yaml"
 
 marker="$(mktemp)"
 # shellcheck disable=SC2064
