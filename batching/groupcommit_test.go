@@ -111,7 +111,12 @@ func newTestGroupCommit(t *testing.T, w *recordingWriter, opts ...Option) *Group
 	g, err := NewGroupCommit(w.write, append([]Option{WithMerge(rowKey, mergeRows)}, opts...)...)
 	must.NoError(t, err)
 
-	t.Cleanup(func() { _ = g.Close(context.Background()) })
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+		defer cancel()
+
+		_ = g.Close(ctx)
+	})
 	// Registered last, so it runs first: the gate has to open before the Close
 	// above can finish, and a failed test never reaches its own close(gate).
 	t.Cleanup(w.release)
@@ -163,7 +168,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 		w := &recordingWriter{}
 		g := newTestGroupCommit(t, w)
 
-		must.NoError(t, g.Submit(t.Context(), row{key: "a", value: 3}))
+		must.NoError(t, g.Submit(loose(t), row{key: "a", value: 3}))
 
 		batches := w.rows()
 		must.SliceLen(t, 1, batches)
@@ -178,7 +183,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 		w := &recordingWriter{}
 		g := newTestGroupCommit(t, w)
 
-		must.NoError(t, g.Submit(t.Context()))
+		must.NoError(t, g.Submit(loose(t)))
 
 		test.EqOp(t, int64(0), w.started.Load())
 	})
@@ -193,7 +198,9 @@ func TestGroupCommit_Submit(T *testing.T) {
 
 		// The first caller occupies the flusher; everyone after it accumulates.
 		first := make(chan error, 1)
-		go func() { first <- g.Submit(context.Background(), row{key: "first"}) }()
+		submitCtx := loose(t)
+
+		go func() { first <- g.Submit(submitCtx, row{key: "first"}) }()
 
 		waitFor(t, func() bool { return w.started.Load() > 0 })
 
@@ -202,7 +209,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 		results := make([]error, 3)
 
 		for i, key := range []string{"a", "b", "c"} {
-			wg.Go(func() { results[i] = g.Submit(context.Background(), row{key: key}) })
+			wg.Go(func() { results[i] = g.Submit(submitCtx, row{key: key}) })
 		}
 
 		// Every merged caller has to be in the open batch before the gate opens,
@@ -210,14 +217,14 @@ func TestGroupCommit_Submit(T *testing.T) {
 		waitFor(t, func() bool { return g.Pending() == 3 })
 
 		w.release()
-		must.NoError(t, <-first)
+		must.NoError(t, awaitErr(t, first))
 		wg.Wait()
 
 		for _, err := range results {
 			test.NoError(t, err)
 		}
 
-		must.NoError(t, g.Close(t.Context()))
+		must.NoError(t, g.Close(loose(t)))
 
 		batches := w.rows()
 		must.SliceLen(t, 2, batches)
@@ -231,7 +238,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 		w := &recordingWriter{}
 		g := newTestGroupCommit(t, w)
 
-		must.NoError(t, g.Submit(t.Context(),
+		must.NoError(t, g.Submit(loose(t),
 			row{key: "a", value: 1},
 			row{key: "a", value: 7},
 			row{key: "a", value: 3},
@@ -251,7 +258,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 		w := &recordingWriter{}
 		g := newTestGroupCommit(t, w)
 
-		must.NoError(t, g.Submit(t.Context(), row{key: "c"}, row{key: "a"}, row{key: "b"}))
+		must.NoError(t, g.Submit(loose(t), row{key: "c"}, row{key: "a"}, row{key: "b"}))
 
 		batches := w.rows()
 		must.SliceLen(t, 1, batches)
@@ -269,9 +276,14 @@ func TestGroupCommit_Submit(T *testing.T) {
 		g, err := NewGroupCommit(w.write)
 		must.NoError(t, err)
 
-		t.Cleanup(func() { _ = g.Close(context.Background()) })
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+			defer cancel()
 
-		must.NoError(t, g.Submit(t.Context(), row{key: "c"}, row{key: "a"}, row{key: "c"}))
+			_ = g.Close(ctx)
+		})
+
+		must.NoError(t, g.Submit(loose(t), row{key: "c"}, row{key: "a"}, row{key: "c"}))
 
 		test.Eq(t, []string{"c", "a", "c"}, w.keys())
 	})
@@ -284,9 +296,14 @@ func TestGroupCommit_Submit(T *testing.T) {
 		g, err := NewGroupCommit(w.write, WithMerge(rowKey, nil))
 		must.NoError(t, err)
 
-		t.Cleanup(func() { _ = g.Close(context.Background()) })
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+			defer cancel()
 
-		must.NoError(t, g.Submit(t.Context(), row{key: "a", value: 1}, row{key: "a", value: 2}))
+			_ = g.Close(ctx)
+		})
+
+		must.NoError(t, g.Submit(loose(t), row{key: "a", value: 1}, row{key: "a", value: 2}))
 
 		batches := w.rows()
 		must.SliceLen(t, 1, batches)
@@ -301,7 +318,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 		w := &recordingWriter{}
 		g := newTestGroupCommit(t, w, WithOrder(func(a, b row) int { return b.value - a.value }))
 
-		must.NoError(t, g.Submit(t.Context(),
+		must.NoError(t, g.Submit(loose(t),
 			row{key: "a", value: 1},
 			row{key: "b", value: 9},
 			row{key: "c", value: 5},
@@ -318,7 +335,9 @@ func TestGroupCommit_Submit(T *testing.T) {
 		g := newTestGroupCommit(t, w)
 
 		first := make(chan error, 1)
-		go func() { first <- g.Submit(context.Background(), row{key: "first"}) }()
+		submitCtx := loose(t)
+
+		go func() { first <- g.Submit(submitCtx, row{key: "first"}) }()
 
 		waitFor(t, func() bool { return w.started.Load() > 0 })
 
@@ -327,13 +346,13 @@ func TestGroupCommit_Submit(T *testing.T) {
 		results := make([]error, 2)
 
 		for i, key := range []string{"a", "b"} {
-			wg.Go(func() { results[i] = g.Submit(context.Background(), row{key: key}) })
+			wg.Go(func() { results[i] = g.Submit(submitCtx, row{key: key}) })
 		}
 
 		waitFor(t, func() bool { return g.Pending() == 2 })
 
 		w.release()
-		test.ErrorIs(t, <-first, sentinel)
+		test.ErrorIs(t, awaitErr(t, first), sentinel)
 		wg.Wait()
 
 		for _, err := range results {
@@ -357,10 +376,10 @@ func TestGroupCommit_Submit(T *testing.T) {
 		waitFor(t, func() bool { return w.started.Load() > 0 })
 		cancel()
 
-		test.ErrorIs(t, <-done, context.Canceled)
+		test.ErrorIs(t, awaitErr(t, done), context.Canceled)
 
 		w.release()
-		must.NoError(t, g.Close(t.Context()))
+		must.NoError(t, g.Close(loose(t)))
 
 		// The items landed anyway, which is the right outcome: the work was
 		// still worth doing, and its other waiters were still waiting for it.
@@ -375,10 +394,11 @@ func TestGroupCommit_Submit(T *testing.T) {
 		w := &recordingWriter{}
 		g := newTestGroupCommit(t, w, WithFlushTimeout(time.Hour))
 
-		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
-		defer cancel()
-
-		must.NoError(t, g.Submit(ctx, row{key: "a"}))
+		// The caller's deadline is the short one — testDeadline against an hour
+		// — so what the write sees cannot have come from here. Short in the
+		// other direction too: a waiter that never gets its batch waits this out
+		// rather than the caller's whole patience.
+		must.NoError(t, g.Submit(loose(t), row{key: "a"}))
 
 		w.mu.Lock()
 		defer w.mu.Unlock()
@@ -430,7 +450,7 @@ func TestGroupCommit_Close(T *testing.T) {
 
 		g.join([]row{{key: "straggler"}})
 
-		must.NoError(t, g.Close(t.Context()))
+		must.NoError(t, g.Close(loose(t)))
 
 		test.Eq(t, []string{"straggler"}, w.keys())
 	})
@@ -447,7 +467,7 @@ func TestGroupCommit_Close(T *testing.T) {
 
 		g.join([]row{{key: "straggler"}})
 
-		test.ErrorIs(t, g.Close(t.Context()), sentinel)
+		test.ErrorIs(t, g.Close(loose(t)), sentinel)
 	})
 
 	T.Run("a waiter parked on the final batch is released", func(t *testing.T) {
@@ -460,12 +480,14 @@ func TestGroupCommit_Close(T *testing.T) {
 		<-g.done
 
 		done := make(chan error, 1)
-		go func() { done <- g.Submit(context.Background(), row{key: "parked"}) }()
+		submitCtx := loose(t)
+
+		go func() { done <- g.Submit(submitCtx, row{key: "parked"}) }()
 
 		waitFor(t, func() bool { return g.Pending() == 1 })
 
-		must.NoError(t, g.Close(t.Context()))
-		must.NoError(t, <-done)
+		must.NoError(t, g.Close(loose(t)))
+		must.NoError(t, awaitErr(t, done))
 	})
 
 	T.Run("submitting after close is refused rather than parked", func(t *testing.T) {
@@ -473,9 +495,9 @@ func TestGroupCommit_Close(T *testing.T) {
 
 		g := newTestGroupCommit(t, &recordingWriter{})
 
-		must.NoError(t, g.Close(t.Context()))
+		must.NoError(t, g.Close(loose(t)))
 
-		test.ErrorIs(t, g.Submit(t.Context(), row{key: "late"}), ErrClosed)
+		test.ErrorIs(t, g.Submit(loose(t), row{key: "late"}), ErrClosed)
 	})
 
 	T.Run("close is safe to call more than once", func(t *testing.T) {
@@ -483,9 +505,45 @@ func TestGroupCommit_Close(T *testing.T) {
 
 		g := newTestGroupCommit(t, &recordingWriter{})
 
-		must.NoError(t, g.Close(t.Context()))
-		must.NoError(t, g.Close(t.Context()))
+		must.NoError(t, g.Close(loose(t)))
+		must.NoError(t, g.Close(loose(t)))
 	})
+}
+
+// testDeadline is how long anything in this package's tests waits before it
+// gives up and fails. waitFor already worked this way; loose gives the same
+// bound to the waits that are not polls, and unbounded is the one thing none of
+// them may be — every wait here is on work another goroutine has to finish, and
+// a change that stops it happening should fail a case rather than park the
+// whole test binary until `go test` gives up on it.
+const testDeadline = 5 * time.Second
+
+// loose returns a context bounded by testDeadline, for the calls these tests
+// deliberately do not hand t.Context: a caller whose submission has to outlive
+// the assertion that started it. Not the test's context still has to mean a
+// context.
+func loose(t *testing.T) context.Context {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	t.Cleanup(cancel)
+
+	return ctx
+}
+
+// awaitErr receives one error, failing the test rather than blocking if the
+// goroutine that owes it never gets there.
+func awaitErr(t *testing.T, ch <-chan error) error {
+	t.Helper()
+
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(testDeadline):
+		t.Fatal("nothing arrived on the channel before the deadline")
+
+		return nil
+	}
 }
 
 // waitFor polls until cond holds, failing the test rather than hanging if it
@@ -493,7 +551,7 @@ func TestGroupCommit_Close(T *testing.T) {
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testDeadline)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return

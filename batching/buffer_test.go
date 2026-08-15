@@ -90,7 +90,12 @@ func newTestBuffer(t *testing.T, f *recordingFlusher, opts ...Option) *Buffer[st
 	}, opts...)...)
 	must.NoError(t, err)
 
-	t.Cleanup(func() { _ = b.Close(context.Background()) })
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+		defer cancel()
+
+		_ = b.Close(ctx)
+	})
 	// Registered last, so it runs first: the gate has to open before the Close
 	// above can finish, and a failed test never reaches its own close(gate).
 	t.Cleanup(f.release)
@@ -187,7 +192,7 @@ func TestBuffer_Add(T *testing.T) {
 		f := &recordingFlusher{}
 		b := newTestBuffer(t, f)
 
-		must.NoError(t, b.Close(t.Context()))
+		must.NoError(t, b.Close(loose(t)))
 
 		b.Add("a", "b")
 
@@ -208,13 +213,13 @@ func TestBuffer_Take(T *testing.T) {
 
 		b.Add("c", "a", "b")
 
-		taken, err := b.Take(t.Context(), "c", "a")
+		taken, err := b.Take(loose(t), "c", "a")
 		must.NoError(t, err)
 
 		test.Eq(t, []string{"a", "c"}, taken)
 		test.EqOp(t, 1, b.Pending())
 
-		must.NoError(t, b.Close(t.Context()))
+		must.NoError(t, b.Close(loose(t)))
 
 		// Only what was left behind is written; the taken keys are the caller's
 		// to write now, which is the whole point of taking them.
@@ -226,7 +231,7 @@ func TestBuffer_Take(T *testing.T) {
 
 		b := newTestBuffer(t, &recordingFlusher{}, WithFlushInterval(time.Hour))
 
-		taken, err := b.Take(t.Context(), "nothing")
+		taken, err := b.Take(loose(t), "nothing")
 
 		must.NoError(t, err)
 		test.SliceEmpty(t, taken)
@@ -237,7 +242,7 @@ func TestBuffer_Take(T *testing.T) {
 
 		b := newTestBuffer(t, &recordingFlusher{}, WithFlushInterval(time.Hour))
 
-		taken, err := b.Take(t.Context())
+		taken, err := b.Take(loose(t))
 
 		must.NoError(t, err)
 		test.SliceEmpty(t, taken)
@@ -291,7 +296,7 @@ func TestBuffer_Take(T *testing.T) {
 
 		b.Add("b")
 
-		taken, err := b.Take(t.Context(), "b")
+		taken, err := b.Take(loose(t), "b")
 
 		must.NoError(t, err)
 		test.Eq(t, []string{"b"}, taken)
@@ -333,7 +338,7 @@ func TestBuffer_Close(T *testing.T) {
 
 		b.Add("a", "b")
 
-		must.NoError(t, b.Close(t.Context()))
+		must.NoError(t, b.Close(loose(t)))
 
 		test.Eq(t, []string{"a", "b"}, f.keys())
 	})
@@ -347,7 +352,7 @@ func TestBuffer_Close(T *testing.T) {
 
 		b.Add("a")
 
-		test.ErrorIs(t, b.Close(t.Context()), sentinel)
+		test.ErrorIs(t, b.Close(loose(t)), sentinel)
 	})
 
 	T.Run("closing an empty buffer writes nothing", func(t *testing.T) {
@@ -356,7 +361,7 @@ func TestBuffer_Close(T *testing.T) {
 		f := &recordingFlusher{}
 		b := newTestBuffer(t, f, WithFlushInterval(time.Hour))
 
-		must.NoError(t, b.Close(t.Context()))
+		must.NoError(t, b.Close(loose(t)))
 
 		test.EqOp(t, int64(0), f.started.Load())
 	})
@@ -366,8 +371,8 @@ func TestBuffer_Close(T *testing.T) {
 
 		b := newTestBuffer(t, &recordingFlusher{}, WithFlushInterval(time.Hour))
 
-		must.NoError(t, b.Close(t.Context()))
-		must.NoError(t, b.Close(t.Context()))
+		must.NoError(t, b.Close(loose(t)))
+		must.NoError(t, b.Close(loose(t)))
 	})
 }
 
