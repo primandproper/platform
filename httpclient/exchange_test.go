@@ -237,16 +237,38 @@ func TestJSONStatusErrors(t *testing.T) {
 		test.StrNotContains(t, statusErr.Error(), "secret")
 	})
 
-	t.Run("a 3xx that survived the client is refused too", func(t *testing.T) {
+	// A 3xx reaching this means the client did not follow it — redirects were
+	// disabled, or exhausted — which is not an answer to decode. 300 is in the
+	// table because it is the boundary: one off in either direction and either
+	// a redirect decodes as a body or a 299 stops being an answer.
+	for _, code := range []int{
+		http.StatusMultipleChoices,
+		http.StatusNotModified,
+		http.StatusPermanentRedirect,
+	} {
+		t.Run(http.StatusText(code)+" is refused rather than decoded", func(t *testing.T) {
+			t.Parallel()
+
+			transport := &recordingTransport{resp: response(code, `{"id":"abc"}`)}
+
+			got, err := JSON[claim](t.Context(), exchangeClient(t, transport), http.MethodGet, "https://leader.example/v1/claim", nil)
+			test.EqOp(t, claim{}, got)
+
+			statusErr, ok := errors.AsType[*StatusError](err)
+			must.True(t, ok)
+			test.EqOp(t, code, statusErr.StatusCode)
+		})
+	}
+
+	// The other side of the same boundary: the last status that is an answer.
+	t.Run("a 299 is still an answer", func(t *testing.T) {
 		t.Parallel()
 
-		transport := &recordingTransport{resp: response(http.StatusNotModified, "")}
+		transport := &recordingTransport{resp: response(299, `{"id":"abc","count":1}`)}
 
-		_, err := JSON[claim](t.Context(), exchangeClient(t, transport), http.MethodGet, "https://leader.example/v1/claim", nil)
-
-		statusErr, ok := errors.AsType[*StatusError](err)
-		must.True(t, ok)
-		test.EqOp(t, http.StatusNotModified, statusErr.StatusCode)
+		got, err := JSON[claim](t.Context(), exchangeClient(t, transport), http.MethodGet, "https://leader.example/v1/claim", nil)
+		must.NoError(t, err)
+		test.EqOp(t, claim{ID: "abc", Count: 1}, got)
 	})
 
 	t.Run("an empty body leaves the message to the status alone", func(t *testing.T) {
