@@ -30,6 +30,20 @@ type recordingFlusher struct {
 	batches [][]string
 	started atomic.Int64
 	mu      sync.Mutex
+
+	gateOnce sync.Once
+}
+
+// release opens the gate, once, whether or not the test got as far as opening
+// it itself. A test that fails while a flush is held at the gate would
+// otherwise leave that flush parked there forever, and Close waits for it: the
+// failure would arrive as a hung test binary instead of as a failed case.
+func (f *recordingFlusher) release() {
+	if f.gate == nil {
+		return
+	}
+
+	f.gateOnce.Do(func() { close(f.gate) })
 }
 
 func (f *recordingFlusher) write(_ context.Context, keys []string) error {
@@ -77,6 +91,9 @@ func newTestBuffer(t *testing.T, f *recordingFlusher, opts ...Option) *Buffer[st
 	must.NoError(t, err)
 
 	t.Cleanup(func() { _ = b.Close(context.Background()) })
+	// Registered last, so it runs first: the gate has to open before the Close
+	// above can finish, and a failed test never reaches its own close(gate).
+	t.Cleanup(f.release)
 
 	return b
 }
@@ -252,9 +269,13 @@ func TestBuffer_Take(T *testing.T) {
 		case <-time.After(20 * time.Millisecond):
 		}
 
-		close(f.gate)
+		f.release()
 
-		<-returned
+		select {
+		case <-returned:
+		case <-time.After(time.Second):
+			t.Fatal("Take did not return once the flush carrying its key had finished")
+		}
 	})
 
 	// A flush that touches none of the caller's keys is nothing to wait for.
@@ -262,8 +283,6 @@ func TestBuffer_Take(T *testing.T) {
 		t.Parallel()
 
 		f := &recordingFlusher{gate: make(chan struct{})}
-		defer func() { close(f.gate) }()
-
 		b := newTestBuffer(t, f)
 
 		b.Add("a")
@@ -282,8 +301,6 @@ func TestBuffer_Take(T *testing.T) {
 		t.Parallel()
 
 		f := &recordingFlusher{gate: make(chan struct{})}
-		defer func() { close(f.gate) }()
-
 		b := newTestBuffer(t, f)
 
 		b.Add("a")

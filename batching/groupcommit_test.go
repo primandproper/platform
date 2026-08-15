@@ -49,6 +49,20 @@ type recordingWriter struct {
 	started atomic.Int64
 	flushes atomic.Int64
 	mu      sync.Mutex
+
+	gateOnce sync.Once
+}
+
+// release opens the gate, once, whether or not the test got as far as opening
+// it itself. A test that fails while a flush is held at the gate would
+// otherwise leave that flush parked there forever, and Close waits for it: the
+// failure would arrive as a hung test binary instead of as a failed case.
+func (w *recordingWriter) release() {
+	if w.gate == nil {
+		return
+	}
+
+	w.gateOnce.Do(func() { close(w.gate) })
 }
 
 func (w *recordingWriter) write(ctx context.Context, items []row) error {
@@ -98,6 +112,9 @@ func newTestGroupCommit(t *testing.T, w *recordingWriter, opts ...Option) *Group
 	must.NoError(t, err)
 
 	t.Cleanup(func() { _ = g.Close(context.Background()) })
+	// Registered last, so it runs first: the gate has to open before the Close
+	// above can finish, and a failed test never reaches its own close(gate).
+	t.Cleanup(w.release)
 
 	return g
 }
@@ -192,7 +209,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 		// or they would trickle into separate flushes and prove nothing.
 		waitFor(t, func() bool { return g.Pending() == 3 })
 
-		close(w.gate)
+		w.release()
 		must.NoError(t, <-first)
 		wg.Wait()
 
@@ -315,7 +332,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 
 		waitFor(t, func() bool { return g.Pending() == 2 })
 
-		close(w.gate)
+		w.release()
 		test.ErrorIs(t, <-first, sentinel)
 		wg.Wait()
 
@@ -342,7 +359,7 @@ func TestGroupCommit_Submit(T *testing.T) {
 
 		test.ErrorIs(t, <-done, context.Canceled)
 
-		close(w.gate)
+		w.release()
 		must.NoError(t, g.Close(t.Context()))
 
 		// The items landed anyway, which is the right outcome: the work was

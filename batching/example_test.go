@@ -12,6 +12,16 @@ import (
 	"github.com/primandproper/platform-go/v10/batching"
 )
 
+// exampleTimeout bounds every wait in this file.
+//
+// Examples are executable tests that run in the package's one test binary, and
+// they run it to completion: an example that blocks blocks every test after it,
+// where a unit test that blocks fails only its own case. Each wait below is a
+// wait on work another goroutine has to finish, so each of them is a wait that
+// something else in this package could stop happening — which is exactly what
+// mutation testing does to it on purpose.
+const exampleTimeout = 30 * time.Second
+
 // view is one row of a "times seen" table, the shape a hot read path writes.
 type view struct {
 	page  string
@@ -20,8 +30,6 @@ type view struct {
 
 // Concurrent callers block until their own rows have landed, and land together.
 func ExampleGroupCommit() {
-	ctx := context.Background()
-
 	var (
 		mu     sync.Mutex
 		totals = map[string]int{}
@@ -51,6 +59,11 @@ func ExampleGroupCommit() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Submit blocks until the caller's own rows have landed, so the context it
+	// is given is what decides how long it can be kept waiting.
+	ctx, cancel := context.WithTimeout(context.Background(), exampleTimeout)
+	defer cancel()
 
 	defer func() { _ = commit.Close(ctx) }()
 
@@ -89,8 +102,6 @@ func ExampleGroupCommit() {
 // A Buffer's callers never block, and a caller that has to write a key itself
 // takes it back first.
 func ExampleBuffer_Take() {
-	ctx := context.Background()
-
 	flushed := make(chan []string, 1)
 
 	buffer, err := batching.NewBuffer(func(_ context.Context, keys []string) error {
@@ -104,6 +115,11 @@ func ExampleBuffer_Take() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Take waits out a flush that is already carrying the key it wants, and this
+	// is the bound the doc comment promises that wait has.
+	ctx, cancel := context.WithTimeout(context.Background(), exampleTimeout)
+	defer cancel()
 
 	defer func() { _ = buffer.Close(ctx) }()
 
@@ -125,7 +141,15 @@ func ExampleBuffer_Take() {
 		log.Print(err)
 	}
 
-	fmt.Println("flushed:", strings.Join(<-flushed, " "))
+	// Close returns only once the write function has run, so the batch is in the
+	// channel by now or there was never going to be one — nothing to wait for
+	// either way.
+	select {
+	case keys := <-flushed:
+		fmt.Println("flushed:", strings.Join(keys, " "))
+	default:
+		fmt.Println("flushed: nothing")
+	}
 	// Output:
 	// taken: session-2
 	// flushed: session-1 session-3
