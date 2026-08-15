@@ -18,12 +18,11 @@ set -euo pipefail
 #                green trains people to click through it.
 #   NOT COVERED  reported, does not fail. That a mutant's line is unreached is a
 #                coverage fact, and coverage already has its own gate.
-#   TIMED OUT    fails the run. gremlins derives each mutant's timeout from the
-#                elapsed time of the coverage run, so a cold build cache is
-#                exactly the condition under which everything times out — and the
-#                JSON summary carries no mutants_timed_out field, so such a run
-#                reports high efficacy while having proved nothing. Silence there
-#                is worse than red.
+#   TIMED OUT    fails the run. The JSON summary carries no mutants_timed_out
+#                field, so a run where everything timed out still reports a
+#                healthy efficacy figure while having proved nothing. Silence
+#                there is worse than red. See TIMEOUT_COEFFICIENT for what the
+#                deadline is derived from, and why the derivation needs help.
 #
 # Usage: mutation.sh <mutate_command> [diff_ref] [report_path]
 #
@@ -34,6 +33,26 @@ MUTATE="${1:?missing mutate command}"
 DIFF_REF="${2:-origin/main}"
 REPORT="${3:-artifacts/gremlins.json}"
 WORKERS="${GREMLINS_WORKERS:-4}"
+
+# Each mutant's deadline is the elapsed time of the coverage run times this,
+# and the default of 3 is calibrated for a run where those two things are
+# comparable. Here they are not, in both directions:
+#
+#   - Every worker mutates its own full copy of the module, at a path the
+#     restored build cache has never seen, so the first mutant to reach a
+#     package pays for compiling and linking that package's test binary there.
+#     All the workers pay it at once, on the same package, and it is a cost the
+#     coverage run — which compiled once, in the checkout — never measured.
+#   - The coverage run is the thing the deadline scales with, and a warm cache
+#     is exactly what makes it quick. The gate therefore got *tighter* the
+#     better the cache worked, and a run that restored its cache on the nose
+#     timed out eight mutants whose tests fail in under four seconds.
+#
+# Ten leaves a warm run's deadline around three and a half minutes against
+# package tests that take a second or two, which is headroom for the compile
+# without being headroom for a genuine hang: those still land well inside the
+# workflow's own cap.
+TIMEOUT_COEFFICIENT="${GREMLINS_TIMEOUT_COEFFICIENT:-10}"
 
 # Path regexps, which is the only kind of exclusion gremlins offers.
 #
@@ -111,6 +130,7 @@ ${MUTATE} unleash \
 	--output "${REPORT}" \
 	--output-statuses lctkv \
 	--workers "${WORKERS}" \
+	--timeout-coefficient "${TIMEOUT_COEFFICIENT}" \
 	"${exclude_flags[@]}" \
 	. || status=$?
 
@@ -209,8 +229,11 @@ if [[ -n "${timed_out}" ]]; then
 	printf '%s\n' "${timed_out}" >&2
 	echo >&2
 	echo "mutation: timeouts are excluded from the efficacy figure, so this run proved" >&2
-	echo "mutation: less than it reports. The usual cause is a cold build cache — check" >&2
-	echo "mutation: that GOCACHE is mounted through and persisted between runs." >&2
+	echo "mutation: less than it reports. Two causes, and they are told apart by" >&2
+	echo "mutation: running the mutated line's package: a mutant whose tests fail in" >&2
+	echo "mutation: seconds timed out on build cost, and wants a larger" >&2
+	echo "mutation: GREMLINS_TIMEOUT_COEFFICIENT; a mutant that hangs there hangs" >&2
+	echo "mutation: because some wait in those tests has no bound, and wants that." >&2
 	exit 1
 fi
 

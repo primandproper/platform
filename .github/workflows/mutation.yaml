@@ -4,6 +4,14 @@ on:
   pull_request:
     paths:
       - '**/*.go'
+      # A change to the gate runs the gate, the same way the coverage one does.
+      # The timeout coefficient below is a number someone has to pick by hand,
+      # and a pull request that lowers it back to where mutants time out on
+      # build cost should go red here rather than on the next pull request to
+      # touch Go source. For pull_request the filter reads the pull request's
+      # own diff, so without these a change to the gate alone reports nothing.
+      - .github/workflows/mutation.yaml
+      - .scripts/mutation.sh
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
