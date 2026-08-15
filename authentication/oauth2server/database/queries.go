@@ -70,19 +70,22 @@ func tableName(prefix, suffix string) string {
 // `["read","write"]` being legible in a psql session outweighs anything a
 // binary encoding would save on rows this small. A codec option would be an
 // option to make that worse.
-func encodeStrings(values []string) (string, error) {
+//
+// It returns no error, unlike its decoding counterpart, because there is no
+// []string encoding/json refuses: a string is always marshalable, and invalid
+// UTF-8 is replaced rather than rejected. An error return here would be a branch
+// no test could reach and no caller could trigger.
+func encodeStrings(values []string) string {
 	if len(values) == 0 {
 		// "[]" rather than "" so the column is always valid JSON, and a reader
 		// never has to treat empty as a third case beside "none" and "some".
-		return "[]", nil
+		return "[]"
 	}
 
-	encoded, err := json.Marshal(values)
-	if err != nil {
-		return "", platformerrors.Wrap(err, "encoding string list")
-	}
+	//nolint:errcheck,errchkjson // json.Marshal cannot fail for []string; see the doc comment.
+	encoded, _ := json.Marshal(values)
 
-	return string(encoded), nil
+	return string(encoded)
 }
 
 // decodeStrings parses a string slice out of a text column.
@@ -104,17 +107,16 @@ func decodeStrings(encoded string) ([]string, error) {
 }
 
 // encodeClaims renders a Subject's application-shaped claims for a text column.
-func encodeClaims(claims map[string]string) (string, error) {
+// As with encodeStrings, a map[string]string has no encoding failure to report.
+func encodeClaims(claims map[string]string) string {
 	if len(claims) == 0 {
-		return "{}", nil
+		return "{}"
 	}
 
-	encoded, err := json.Marshal(claims)
-	if err != nil {
-		return "", platformerrors.Wrap(err, "encoding subject claims")
-	}
+	//nolint:errcheck,errchkjson // json.Marshal cannot fail for map[string]string.
+	encoded, _ := json.Marshal(claims)
 
-	return string(encoded), nil
+	return string(encoded)
 }
 
 // decodeClaims parses a Subject's claims out of a text column.
@@ -168,28 +170,8 @@ func buildSelectClient(d dialect.Dialect, table, clientID string) (query string,
 // The conflict clause is what makes ErrClientExists reportable without parsing
 // a driver's error: a duplicate primary key leaves zero rows affected instead
 // of raising a dialect-specific SQLSTATE.
-func buildInsertClient(d dialect.Dialect, table string, c *oauth2server.Client) (query string, args []any, err error) {
+func buildInsertClient(d dialect.Dialect, table string, c *oauth2server.Client) (query string, args []any) {
 	const columns = 10
-
-	redirectURIs, err := encodeStrings(c.RedirectURIs)
-	if err != nil {
-		return "", nil, err
-	}
-
-	grantTypes, err := encodeStrings(c.GrantTypes)
-	if err != nil {
-		return "", nil, err
-	}
-
-	responseTypes, err := encodeStrings(c.ResponseTypes)
-	if err != nil {
-		return "", nil, err
-	}
-
-	scopes, err := encodeStrings(c.Scopes)
-	if err != nil {
-		return "", nil, err
-	}
 
 	query = fmt.Sprintf("INSERT %sINTO %s (%s) VALUES (%s)",
 		ignorePrefix(d), table, clientColumns, d.Placeholders(1, columns))
@@ -199,9 +181,11 @@ func buildInsertClient(d dialect.Dialect, table string, c *oauth2server.Client) 
 	}
 
 	return query, []any{
-		c.ID, c.SecretHash, c.Name, redirectURIs, grantTypes, responseTypes, scopes,
+		c.ID, c.SecretHash, c.Name,
+		encodeStrings(c.RedirectURIs), encodeStrings(c.GrantTypes),
+		encodeStrings(c.ResponseTypes), encodeStrings(c.Scopes),
 		c.TokenEndpointAuthMethod, c.CreatedAt.UTC(), nullableTime(c.ExpiresAt),
-	}, nil
+	}
 }
 
 // buildDeleteClient renders the removal of one registration.
@@ -210,23 +194,8 @@ func buildDeleteClient(d dialect.Dialect, table, clientID string) (query string,
 }
 
 // buildInsertCode renders an issued authorization code.
-func buildInsertCode(d dialect.Dialect, table string, c *oauth2server.AuthorizationCode) (query string, args []any, err error) {
+func buildInsertCode(d dialect.Dialect, table string, c *oauth2server.AuthorizationCode) (query string, args []any) {
 	const columns = 12
-
-	claims, err := encodeClaims(c.Subject.Claims)
-	if err != nil {
-		return "", nil, err
-	}
-
-	scopes, err := encodeStrings(c.Scopes)
-	if err != nil {
-		return "", nil, err
-	}
-
-	resources, err := encodeStrings(c.Resources)
-	if err != nil {
-		return "", nil, err
-	}
 
 	query = fmt.Sprintf("INSERT %sINTO %s (%s) VALUES (%s)",
 		ignorePrefix(d), table, codeColumns, d.Placeholders(1, columns))
@@ -236,9 +205,10 @@ func buildInsertCode(d dialect.Dialect, table string, c *oauth2server.Authorizat
 	}
 
 	return query, []any{
-		c.Hash, c.ClientID, c.RedirectURI, c.CodeChallenge, c.Nonce, c.Subject.ID, claims,
-		scopes, resources, c.IssuedAt.UTC(), c.ExpiresAt.UTC(), nullableTime(c.RedeemedAt),
-	}, nil
+		c.Hash, c.ClientID, c.RedirectURI, c.CodeChallenge, c.Nonce, c.Subject.ID,
+		encodeClaims(c.Subject.Claims), encodeStrings(c.Scopes), encodeStrings(c.Resources),
+		c.IssuedAt.UTC(), c.ExpiresAt.UTC(), nullableTime(c.RedeemedAt),
+	}
 }
 
 // buildConsumeCode renders the one statement that makes an authorization code
@@ -264,23 +234,8 @@ func buildSelectCode(d dialect.Dialect, table, hash string) (query string, args 
 }
 
 // buildInsertAccess renders an issued access token.
-func buildInsertAccess(d dialect.Dialect, table string, t *oauth2server.AccessToken) (query string, args []any, err error) {
+func buildInsertAccess(d dialect.Dialect, table string, t *oauth2server.AccessToken) (query string, args []any) {
 	const columns = 10
-
-	claims, err := encodeClaims(t.Subject.Claims)
-	if err != nil {
-		return "", nil, err
-	}
-
-	scopes, err := encodeStrings(t.Scopes)
-	if err != nil {
-		return "", nil, err
-	}
-
-	audience, err := encodeStrings(t.Audience)
-	if err != nil {
-		return "", nil, err
-	}
 
 	query = fmt.Sprintf("INSERT %sINTO %s (%s) VALUES (%s)",
 		ignorePrefix(d), table, accessColumns, d.Placeholders(1, columns))
@@ -290,9 +245,10 @@ func buildInsertAccess(d dialect.Dialect, table string, t *oauth2server.AccessTo
 	}
 
 	return query, []any{
-		t.Hash, t.ClientID, t.FamilyID, t.Subject.ID, claims, scopes, audience,
+		t.Hash, t.ClientID, t.FamilyID, t.Subject.ID,
+		encodeClaims(t.Subject.Claims), encodeStrings(t.Scopes), encodeStrings(t.Audience),
 		t.IssuedAt.UTC(), t.ExpiresAt.UTC(), nullableTime(t.RevokedAt),
-	}, nil
+	}
 }
 
 // buildSelectAccess renders the read of one access token.
@@ -302,28 +258,8 @@ func buildSelectAccess(d dialect.Dialect, table, hash string) (query string, arg
 }
 
 // buildInsertRefresh renders an issued refresh token.
-func buildInsertRefresh(d dialect.Dialect, table string, t *oauth2server.RefreshToken) (query string, args []any, err error) {
+func buildInsertRefresh(d dialect.Dialect, table string, t *oauth2server.RefreshToken) (query string, args []any) {
 	const columns = 12
-
-	claims, err := encodeClaims(t.Subject.Claims)
-	if err != nil {
-		return "", nil, err
-	}
-
-	scopes, err := encodeStrings(t.Scopes)
-	if err != nil {
-		return "", nil, err
-	}
-
-	audience, err := encodeStrings(t.Audience)
-	if err != nil {
-		return "", nil, err
-	}
-
-	resources, err := encodeStrings(t.Resources)
-	if err != nil {
-		return "", nil, err
-	}
 
 	query = fmt.Sprintf("INSERT %sINTO %s (%s) VALUES (%s)",
 		ignorePrefix(d), table, refreshColumns, d.Placeholders(1, columns))
@@ -333,9 +269,11 @@ func buildInsertRefresh(d dialect.Dialect, table string, t *oauth2server.Refresh
 	}
 
 	return query, []any{
-		t.Hash, t.ClientID, t.FamilyID, t.Subject.ID, claims, scopes, audience, resources,
+		t.Hash, t.ClientID, t.FamilyID, t.Subject.ID,
+		encodeClaims(t.Subject.Claims), encodeStrings(t.Scopes),
+		encodeStrings(t.Audience), encodeStrings(t.Resources),
 		t.IssuedAt.UTC(), t.ExpiresAt.UTC(), nullableTime(t.RedeemedAt), nullableTime(t.RevokedAt),
-	}, nil
+	}
 }
 
 // buildConsumeRefresh renders the one statement that makes a refresh token

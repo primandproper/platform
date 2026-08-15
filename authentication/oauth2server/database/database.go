@@ -116,10 +116,7 @@ func (s *Store) CreateClient(ctx context.Context, client *oauth2server.Client) e
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args, err := buildInsertClient(s.dialect, s.clients, client)
-	if err != nil {
-		return op.Error(err, "encoding client registration")
-	}
+	query, args := buildInsertClient(s.dialect, s.clients, client)
 
 	affected, err := s.exec(ctx, s.db.Writer(), query, args)
 	if err != nil {
@@ -190,10 +187,7 @@ func (s *Store) CreateAuthorizationCode(ctx context.Context, code *oauth2server.
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args, err := buildInsertCode(s.dialect, s.codes, code)
-	if err != nil {
-		return op.Error(err, "encoding authorization code")
-	}
+	query, args := buildInsertCode(s.dialect, s.codes, code)
 
 	affected, err := s.exec(ctx, s.db.Writer(), query, args)
 	if err != nil {
@@ -283,10 +277,7 @@ func (s *Store) CreateAccessToken(ctx context.Context, token *oauth2server.Acces
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args, err := buildInsertAccess(s.dialect, s.access, token)
-	if err != nil {
-		return op.Error(err, "encoding access token")
-	}
+	query, args := buildInsertAccess(s.dialect, s.access, token)
 
 	affected, err := s.exec(ctx, s.db.Writer(), query, args)
 	if err != nil {
@@ -357,10 +348,7 @@ func (s *Store) CreateRefreshToken(ctx context.Context, token *oauth2server.Refr
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args, err := buildInsertRefresh(s.dialect, s.refresh, token)
-	if err != nil {
-		return op.Error(err, "encoding refresh token")
-	}
+	query, args := buildInsertRefresh(s.dialect, s.refresh, token)
 
 	affected, err := s.exec(ctx, s.db.Writer(), query, args)
 	if err != nil {

@@ -67,7 +67,7 @@ func (a *passwordAuthenticator) AuthenticateSubject(_ context.Context, req *http
 // front of it.
 type harness struct {
 	t             *testing.T
-	store         *memory.Store
+	store         oauth2server.Store
 	server        *oauth2server.Server
 	http          *httptest.Server
 	authenticator *passwordAuthenticator
@@ -95,11 +95,23 @@ func newHarnessWith(t *testing.T, authenticator oauth2server.SubjectAuthenticato
 	return (&harness{t: t}).build(t, authenticator, opts)
 }
 
+// newStoreHarness builds a server over a store the caller supplies, for the
+// cases about what a broken backend or a controllable clock does to the flow.
+func newStoreHarness(t *testing.T, store oauth2server.Store, opts ...oauth2server.Option) *harness {
+	t.Helper()
+
+	h := &harness{t: t, authenticator: &passwordAuthenticator{}, store: store}
+
+	return h.build(t, h.authenticator, opts)
+}
+
 // build wires a store, a server, and an httptest server together.
 func (h *harness) build(t *testing.T, authenticator oauth2server.SubjectAuthenticator, opts []oauth2server.Option) *harness {
 	t.Helper()
 
-	h.store = memory.NewStore()
+	if h.store == nil {
+		h.store = memory.NewStore()
+	}
 
 	server, err := oauth2server.NewServer(testIssuer, h.store, authenticator, append([]oauth2server.Option{
 		oauth2server.WithLogger(loggingnoop.NewLogger()),
@@ -318,24 +330,38 @@ func (h *harness) basicToken(clientID, secret string, form url.Values) *tokenRes
 	return out
 }
 
-// exchange runs the whole flow for a registered client and returns the token
-// response: register, authorize, sign in, redeem.
-func (h *harness) exchange(reg *registration) *tokenResponse {
+// redeem exchanges one authorization code, whatever the answer turns out to be.
+func (h *harness) redeem(reg *registration, code string) *tokenResponse {
 	h.t.Helper()
 
-	params := authorizeParams(reg.ClientID)
-	code := h.codeFrom(h.authorize(params, login()))
-
-	out := h.token(reg.ClientID, reg.ClientSecret, url.Values{
+	return h.token(reg.ClientID, reg.ClientSecret, url.Values{
 		"grant_type":    {oauth2server.GrantTypeAuthorizationCode},
 		"code":          {code},
 		"redirect_uri":  {testRedirectURI},
 		"code_verifier": {testVerifier},
 	})
+}
 
+// exchange runs the whole flow for a registered client and returns the token
+// response: register, authorize, sign in, redeem.
+func (h *harness) exchange(reg *registration) *tokenResponse {
+	h.t.Helper()
+
+	out := h.redeem(reg, h.codeFrom(h.authorize(authorizeParams(reg.ClientID), login())))
 	must.EqOp(h.t, http.StatusOK, out.status)
 
 	return out
+}
+
+// readBody reads a response body as a string, for the two endpoints that answer
+// in something other than JSON.
+func readBody(t *testing.T, res *http.Response) string {
+	t.Helper()
+
+	body, err := io.ReadAll(res.Body)
+	must.NoError(t, err)
+
+	return string(body)
 }
 
 // revoke posts a revocation request.

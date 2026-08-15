@@ -9,6 +9,8 @@ import (
 	"github.com/primandproper/platform-go/v10/authentication/oauth2server"
 	"github.com/primandproper/platform-go/v10/authentication/oauth2server/oauth2servertest"
 	"github.com/primandproper/platform-go/v10/clock"
+	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -106,6 +108,54 @@ func TestStore_Clock(T *testing.T) {
 
 		store := NewStore(WithClock(nil))
 		test.NotNil(t, store.clock)
+	})
+}
+
+func TestStore_Observability(T *testing.T) {
+	T.Parallel()
+
+	T.Run("absent means noop rather than nil", func(t *testing.T) {
+		t.Parallel()
+
+		// A store built with no observability at all still has to work. It is
+		// the ordinary case for this one: it is the store a test or a
+		// single-process deployment reaches for, and neither wires up pillars
+		// to get it.
+		o := newOptions(nil)
+		test.Nil(t, o.logger)
+		test.Nil(t, o.tracerProvider)
+
+		store := NewStore()
+		test.NoError(t, store.CreateClient(t.Context(), &oauth2server.Client{
+			CreatedAt: time.Now().UTC(),
+			ID:        "no_observability",
+		}))
+	})
+
+	T.Run("a supplied logger and tracer provider reach the observer", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{
+			WithLogger(loggingnoop.NewLogger()),
+			WithTracerProvider(tracingnoop.NewTracerProvider()),
+		})
+
+		test.NotNil(t, o.logger)
+		test.NotNil(t, o.tracerProvider)
+
+		// And a store built with them behaves the same way, which is what says
+		// the options are wiring rather than decoration.
+		store := NewStore(WithLogger(loggingnoop.NewLogger()), WithTracerProvider(tracingnoop.NewTracerProvider()))
+		test.NoError(t, store.CreateClient(t.Context(), &oauth2server.Client{
+			CreatedAt: time.Now().UTC(),
+			ID:        "observed",
+		}))
+	})
+
+	T.Run("a nil option is ignored rather than dereferenced", func(t *testing.T) {
+		t.Parallel()
+
+		test.NotNil(t, NewStore(nil))
 	})
 }
 

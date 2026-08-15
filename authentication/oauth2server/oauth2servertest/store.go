@@ -387,6 +387,30 @@ func runAuthorizationCodeCases(t *testing.T, newStore Factory) {
 		test.EqOp(t, int64(contenders-1), replayed.Load())
 	})
 
+	t.Run("a second code under one hash is refused", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, store := t.Context(), newStore(t)
+		code := newCode(future)
+
+		must.NoError(t, store.CreateAuthorizationCode(ctx, code))
+
+		// Not an overwrite, and the difference is a redemption. A code arriving
+		// at a hash that already holds one is either a collision in the
+		// generator or a caller reusing a value; overwriting would reset
+		// redeemed_at, which is the only record that the first one was spent.
+		second := newCode(future)
+		second.Hash = code.Hash
+		second.ClientID = "impostor"
+
+		test.ErrorIs(t, store.CreateAuthorizationCode(ctx, second), oauth2server.ErrRecordExists)
+
+		got, err := store.ConsumeAuthorizationCode(ctx, code.Hash)
+		must.NoError(t, err)
+		must.NotNil(t, got)
+		test.EqOp(t, code.ClientID, got.ClientID)
+	})
+
 	t.Run("an empty hash is refused rather than matching a row", func(t *testing.T) {
 		t.Parallel()
 
@@ -396,6 +420,13 @@ func runAuthorizationCodeCases(t *testing.T, newStore Factory) {
 		test.ErrorIs(t, err, oauth2server.ErrEmptyIdentifier)
 
 		test.ErrorIs(t, store.CreateAuthorizationCode(ctx, nil), oauth2server.ErrNilRecord)
+
+		// A record whose hash is empty is refused on the way in as well.
+		// Storing it would put a row under a key every empty-string lookup
+		// matches, which is the one credential nobody has to steal.
+		empty := newCode(future)
+		empty.Hash = ""
+		test.ErrorIs(t, store.CreateAuthorizationCode(ctx, empty), oauth2server.ErrEmptyIdentifier)
 	})
 }
 
@@ -476,6 +507,28 @@ func runAccessTokenCases(t *testing.T, newStore Factory) {
 		test.NoError(t, store.RevokeAccessToken(ctx, oauth2server.Hash(unique("nothing"))))
 	})
 
+	t.Run("a second access token under one hash is refused", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, store := t.Context(), newStore(t)
+		token := newAccessToken(future, unique("family"))
+
+		must.NoError(t, store.CreateAccessToken(ctx, token))
+
+		// An overwrite here would move a live token into another family, and
+		// the family is what a reuse detection revokes — so the token an
+		// attacker holds would survive the revocation of the session it
+		// belonged to.
+		second := newAccessToken(future, unique("family"))
+		second.Hash = token.Hash
+
+		test.ErrorIs(t, store.CreateAccessToken(ctx, second), oauth2server.ErrRecordExists)
+
+		got, err := store.GetAccessToken(ctx, token.Hash)
+		must.NoError(t, err)
+		test.EqOp(t, token.FamilyID, got.FamilyID)
+	})
+
 	t.Run("an empty hash is refused rather than matching a row", func(t *testing.T) {
 		t.Parallel()
 
@@ -485,6 +538,10 @@ func runAccessTokenCases(t *testing.T, newStore Factory) {
 		test.ErrorIs(t, err, oauth2server.ErrEmptyIdentifier)
 		test.ErrorIs(t, store.RevokeAccessToken(ctx, ""), oauth2server.ErrEmptyIdentifier)
 		test.ErrorIs(t, store.CreateAccessToken(ctx, nil), oauth2server.ErrNilRecord)
+
+		empty := newAccessToken(future, unique("family"))
+		empty.Hash = ""
+		test.ErrorIs(t, store.CreateAccessToken(ctx, empty), oauth2server.ErrEmptyIdentifier)
 	})
 }
 
@@ -663,6 +720,47 @@ func runRefreshTokenCases(t *testing.T, newStore Factory) {
 		test.ErrorIs(t, err, oauth2server.ErrExpired)
 	})
 
+	t.Run("an absent refresh token is ErrNotFound", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, store := t.Context(), newStore(t)
+
+		// Distinct from the expired and revoked cases above, and the
+		// distinction reaches /revoke: a token nobody issued is answered the
+		// same way as one that was, and a store reporting a fault for it would
+		// turn that endpoint into a 500.
+		got, err := store.GetRefreshToken(ctx, oauth2server.Hash(unique("nothing")))
+		test.ErrorIs(t, err, oauth2server.ErrNotFound)
+		test.Nil(t, got)
+
+		// And consuming one, which is the path /token takes. A rotation of a
+		// token that does not exist is a refusal, not a replay — calling it
+		// reuse would revoke a family over a credential this server never
+		// issued.
+		rotated, err := store.ConsumeRefreshToken(ctx, oauth2server.Hash(unique("nothing")))
+		test.ErrorIs(t, err, oauth2server.ErrNotFound)
+		test.False(t, stderrors.Is(err, oauth2server.ErrAlreadyRedeemed))
+		test.Nil(t, rotated)
+	})
+
+	t.Run("a second refresh token under one hash is refused", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, store := t.Context(), newStore(t)
+		token := newRefreshToken(future, unique("family"))
+
+		must.NoError(t, store.CreateRefreshToken(ctx, token))
+
+		second := newRefreshToken(future, unique("family"))
+		second.Hash = token.Hash
+
+		test.ErrorIs(t, store.CreateRefreshToken(ctx, second), oauth2server.ErrRecordExists)
+
+		got, err := store.GetRefreshToken(ctx, token.Hash)
+		must.NoError(t, err)
+		test.EqOp(t, token.FamilyID, got.FamilyID)
+	})
+
 	t.Run("an empty hash is refused rather than matching a row", func(t *testing.T) {
 		t.Parallel()
 
@@ -676,6 +774,10 @@ func runRefreshTokenCases(t *testing.T, newStore Factory) {
 
 		test.ErrorIs(t, store.RevokeRefreshToken(ctx, ""), oauth2server.ErrEmptyIdentifier)
 		test.ErrorIs(t, store.CreateRefreshToken(ctx, nil), oauth2server.ErrNilRecord)
+
+		empty := newRefreshToken(future, unique("family"))
+		empty.Hash = ""
+		test.ErrorIs(t, store.CreateRefreshToken(ctx, empty), oauth2server.ErrEmptyIdentifier)
 	})
 }
 

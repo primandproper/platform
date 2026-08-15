@@ -146,6 +146,24 @@ func TestNewStore(T *testing.T) {
 	})
 }
 
+func TestNewServer_StoreFailure(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a store that cannot be built is reported rather than skipped", func(t *testing.T) {
+		t.Parallel()
+
+		// NewServer builds the store first, and a server over a store that
+		// failed to build would be an authorization server with nowhere to keep
+		// an authorization code.
+		srv, err := NewServer(t.Context(),
+			&Config{Provider: ProviderDatabase, Issuer: "https://auth.example"},
+			nil, testAuthenticator)
+
+		test.Error(t, err)
+		test.Nil(t, srv)
+	})
+}
+
 func TestNewServer(T *testing.T) {
 	T.Parallel()
 

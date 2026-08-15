@@ -81,6 +81,23 @@ func TestRegisterStore(T *testing.T) {
 		_, err := do.Invoke[oauth2server.Store](i)
 		test.Error(t, err)
 	})
+
+	T.Run("a registered pillar that cannot build is an error rather than a noop", func(t *testing.T) {
+		t.Parallel()
+
+		i := newInjector(t, &Config{Provider: ProviderMemory})
+		do.Provide(i, func(do.Injector) (logging.Logger, error) {
+			return nil, errBrokenLogger
+		})
+		RegisterStore(i)
+
+		// The same distinction the database client gets: nobody registering a
+		// logger is fine, and a registered one whose exporter is misconfigured
+		// is not — a store that came up unobserved would look configured.
+		store, err := do.Invoke[oauth2server.Store](i)
+		test.Error(t, err)
+		test.Nil(t, store)
+	})
 }
 
 func TestRegisterServer(T *testing.T) {
@@ -97,6 +114,38 @@ func TestRegisterServer(T *testing.T) {
 		must.NoError(t, err)
 		must.NotNil(t, srv)
 		test.EqOp(t, "https://auth.example", srv.Issuer())
+	})
+
+	T.Run("a registered pillar that cannot build fails the server too", func(t *testing.T) {
+		t.Parallel()
+
+		i := newInjector(t, &Config{Provider: ProviderMemory, Issuer: "https://auth.example"})
+		do.ProvideValue[oauth2server.SubjectAuthenticator](i, testAuthenticator)
+		do.Provide(i, func(do.Injector) (logging.Logger, error) {
+			return nil, errBrokenLogger
+		})
+		RegisterServer(i)
+
+		srv, err := do.Invoke[*oauth2server.Server](i)
+		test.Error(t, err)
+		test.Nil(t, srv)
+	})
+
+	T.Run("a registered client that cannot build fails the server too", func(t *testing.T) {
+		t.Parallel()
+
+		i := newInjector(t, &Config{Provider: ProviderMemory, Issuer: "https://auth.example"})
+		do.ProvideValue[oauth2server.SubjectAuthenticator](i, testAuthenticator)
+		do.Provide(i, func(do.Injector) (database.Client, error) {
+			return nil, errBrokenClient
+		})
+		RegisterServer(i)
+
+		// Optional under the memory provider and still not something to
+		// swallow: the container was told to build a client and could not.
+		srv, err := do.Invoke[*oauth2server.Server](i)
+		test.Error(t, err)
+		test.Nil(t, srv)
 	})
 
 	T.Run("a container with no authenticator does not come up", func(t *testing.T) {
@@ -118,3 +167,7 @@ func TestRegisterServer(T *testing.T) {
 // errBrokenClient stands in for a database client whose own construction
 // failed.
 var errBrokenClient = platformerrors.New("the database client could not be built")
+
+// errBrokenLogger stands in for a pillar whose own construction failed — a
+// misconfigured exporter, most often.
+var errBrokenLogger = platformerrors.New("the logger could not be built")

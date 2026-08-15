@@ -15,9 +15,14 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// testClientConfig is the minimum database.ClientConfig a SQLite client needs.
+// testClientConfig is the minimum database.ClientConfig a client needs.
 type testClientConfig struct {
 	connectionString string
+
+	// maxOpenConns is zero for SQLite, which serializes on the file anyway, and
+	// set for the container runs — where the cases about two requests racing for
+	// one credential need two connections to race on.
+	maxOpenConns int
 }
 
 var _ database.ClientConfig = (*testClientConfig)(nil)
@@ -25,10 +30,18 @@ var _ database.ClientConfig = (*testClientConfig)(nil)
 func (c *testClientConfig) GetReadConnectionString() string  { return c.connectionString }
 func (c *testClientConfig) GetWriteConnectionString() string { return c.connectionString }
 
-func (c *testClientConfig) GetMaxPingAttempts() uint64        { return 30 }
-func (c *testClientConfig) GetPingWaitPeriod() time.Duration  { return time.Second }
-func (c *testClientConfig) GetMaxIdleConns() int              { return 2 }
-func (c *testClientConfig) GetMaxOpenConns() int              { return 1 }
+func (c *testClientConfig) GetMaxPingAttempts() uint64       { return 30 }
+func (c *testClientConfig) GetPingWaitPeriod() time.Duration { return time.Second }
+func (c *testClientConfig) GetMaxIdleConns() int             { return 2 }
+
+func (c *testClientConfig) GetMaxOpenConns() int {
+	if c.maxOpenConns > 0 {
+		return c.maxOpenConns
+	}
+
+	return 1
+}
+
 func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
 
 // newTestClient builds a SQLite-backed client with this package's four tables
