@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/batching"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 
 	"github.com/shoenig/test"
@@ -30,6 +31,20 @@ type recordingWriter struct {
 	started atomic.Int64
 	flushes atomic.Int64
 	mu      sync.Mutex
+
+	gateOnce sync.Once
+}
+
+// release opens the gate, once, whether or not the test got as far as opening
+// it itself. A test that fails while a flush is held at the gate would
+// otherwise leave that flush parked there forever, and Close waits for it: the
+// failure would arrive as a hung test binary instead of as a failed case.
+func (w *recordingWriter) release() {
+	if w.gate == nil {
+		return
+	}
+
+	w.gateOnce.Do(func() { close(w.gate) })
 }
 
 func (w *recordingWriter) write(_ context.Context, rows []encodedEntry) error {
@@ -59,6 +74,29 @@ func (w *recordingWriter) rows() [][]encodedEntry {
 	return out
 }
 
+// newTestBatcher builds the queue's batcher for a test and closes it afterwards.
+// The tests below exercise the merging through this package's configuration of
+// batching.GroupCommit rather than through a Queue, which would need a database
+// to say anything about how rows were merged before they reached one.
+func newTestBatcher(t *testing.T, w *recordingWriter) *batching.GroupCommit[encodedEntry] {
+	t.Helper()
+
+	b, err := newEnqueueBatcher(w.write)
+	must.NoError(t, err)
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+		defer cancel()
+
+		_ = b.Close(ctx)
+	})
+	// Registered last, so it runs first: the gate has to open before the Close
+	// above can finish, and a failed test never reaches its own close(gate).
+	t.Cleanup(w.release)
+
+	return b
+}
+
 func TestEnqueueBatcher(T *testing.T) {
 	T.Parallel()
 
@@ -66,10 +104,9 @@ func TestEnqueueBatcher(T *testing.T) {
 		t.Parallel()
 
 		w := &recordingWriter{}
-		b := newEnqueueBatcher(w.write)
-		t.Cleanup(func() { _ = b.close(t.Context()) })
+		b := newTestBatcher(t, w)
 
-		must.NoError(t, b.enqueue(t.Context(), []encodedEntry{{key: "a", priority: 3}}))
+		must.NoError(t, b.Submit(loose(t), encodedEntry{key: "a", priority: 3}))
 
 		batches := w.rows()
 		must.SliceLen(t, 1, batches)
@@ -84,11 +121,13 @@ func TestEnqueueBatcher(T *testing.T) {
 		t.Parallel()
 
 		w := &recordingWriter{gate: make(chan struct{})}
-		b := newEnqueueBatcher(w.write)
+		b := newTestBatcher(t, w)
 
 		// The first caller occupies the flusher; everyone after it accumulates.
+		submitCtx := loose(t)
+
 		first := make(chan error, 1)
-		go func() { first <- b.enqueue(context.Background(), []encodedEntry{{key: "first"}}) }()
+		go func() { first <- b.Submit(submitCtx, encodedEntry{key: "first"}) }()
 
 		waitFor(t, func() bool { return w.started.Load() > 0 })
 
@@ -97,23 +136,23 @@ func TestEnqueueBatcher(T *testing.T) {
 
 		for i, key := range []string{"a", "b", "c"} {
 			wg.Go(func() {
-				results[i] = b.enqueue(context.Background(), []encodedEntry{{key: key}})
+				results[i] = b.Submit(submitCtx, encodedEntry{key: key})
 			})
 		}
 
 		// Every merged caller has to be in the open batch before the gate opens,
 		// or they would trickle into separate flushes and prove nothing.
-		waitFor(t, func() bool { return b.pendingSize() == 3 })
+		waitFor(t, func() bool { return b.Pending() == 3 })
 
-		close(w.gate)
-		must.NoError(t, <-first)
+		w.release()
+		must.NoError(t, awaitErr(t, first))
 		wg.Wait()
 
 		for _, err := range results {
 			test.NoError(t, err)
 		}
 
-		must.NoError(t, b.close(t.Context()))
+		must.NoError(t, b.Close(loose(t)))
 
 		batches := w.rows()
 		must.SliceLen(t, 2, batches)
@@ -128,14 +167,13 @@ func TestEnqueueBatcher(T *testing.T) {
 		t.Parallel()
 
 		w := &recordingWriter{}
-		b := newEnqueueBatcher(w.write)
-		t.Cleanup(func() { _ = b.close(t.Context()) })
+		b := newTestBatcher(t, w)
 
-		must.NoError(t, b.enqueue(t.Context(), []encodedEntry{
-			{key: "a", priority: 1, delayMicros: 500},
-			{key: "a", priority: 7, delayMicros: 20},
-			{key: "a", priority: 3, delayMicros: 900},
-		}))
+		must.NoError(t, b.Submit(loose(t),
+			encodedEntry{key: "a", priority: 1, delayMicros: 500},
+			encodedEntry{key: "a", priority: 7, delayMicros: 20},
+			encodedEntry{key: "a", priority: 3, delayMicros: 900},
+		))
 
 		batches := w.rows()
 		must.SliceLen(t, 1, batches)
@@ -150,12 +188,11 @@ func TestEnqueueBatcher(T *testing.T) {
 		t.Parallel()
 
 		w := &recordingWriter{}
-		b := newEnqueueBatcher(w.write)
-		t.Cleanup(func() { _ = b.close(t.Context()) })
+		b := newTestBatcher(t, w)
 
-		must.NoError(t, b.enqueue(t.Context(), []encodedEntry{
-			{key: "c"}, {key: "a"}, {key: "b"},
-		}))
+		must.NoError(t, b.Submit(loose(t),
+			encodedEntry{key: "c"}, encodedEntry{key: "a"}, encodedEntry{key: "b"},
+		))
 
 		batches := w.rows()
 		must.SliceLen(t, 1, batches)
@@ -170,10 +207,9 @@ func TestEnqueueBatcher(T *testing.T) {
 
 		sentinel := platformerrors.New("upsert exploded")
 		w := &recordingWriter{err: sentinel}
-		b := newEnqueueBatcher(w.write)
-		t.Cleanup(func() { _ = b.close(t.Context()) })
+		b := newTestBatcher(t, w)
 
-		test.ErrorIs(t, b.enqueue(t.Context(), []encodedEntry{{key: "a"}}), sentinel)
+		test.ErrorIs(t, b.Submit(loose(t), encodedEntry{key: "a"}), sentinel)
 	})
 
 	// A caller that gives up must not cancel the flush the rest of the batch is
@@ -182,77 +218,97 @@ func TestEnqueueBatcher(T *testing.T) {
 		t.Parallel()
 
 		w := &recordingWriter{gate: make(chan struct{})}
-		b := newEnqueueBatcher(w.write)
+		b := newTestBatcher(t, w)
 
 		ctx, cancel := context.WithCancel(context.Background())
 
 		done := make(chan error, 1)
-		go func() { done <- b.enqueue(ctx, []encodedEntry{{key: "abandoned"}}) }()
+		go func() { done <- b.Submit(ctx, encodedEntry{key: "abandoned"}) }()
 
 		waitFor(t, func() bool { return w.started.Load() > 0 })
 		cancel()
 
-		test.ErrorIs(t, <-done, context.Canceled)
+		test.ErrorIs(t, awaitErr(t, done), context.Canceled)
 
-		close(w.gate)
-		must.NoError(t, b.close(t.Context()))
+		w.release()
+		must.NoError(t, b.Close(loose(t)))
 
 		// The keys landed anyway, which is the right outcome: the work was still
 		// worth doing, and its other waiters were still waiting for it.
 		test.True(t, w.flushes.Load() > 0)
 	})
 
-	T.Run("close flushes what was still accumulating", func(t *testing.T) {
+	// Whatever accumulated while the previous flush was in flight has to reach
+	// the database, whether the flusher picks it up on its next pass or Close
+	// writes it — a straggler dropped here is a unit of work nobody ever does.
+	T.Run("nothing still accumulating is lost at close", func(t *testing.T) {
 		t.Parallel()
 
-		w := &recordingWriter{}
-		b := newEnqueueBatcher(w.write)
+		w := &recordingWriter{gate: make(chan struct{})}
+		b := newTestBatcher(t, w)
 
-		// Written directly into the open batch so that nothing wakes the
-		// flusher; close is the only thing that can write it.
-		b.join([]encodedEntry{{key: "straggler"}})
-		b.drainWake()
+		submitCtx := loose(t)
 
-		must.NoError(t, b.close(t.Context()))
+		first := make(chan error, 1)
+		go func() { first <- b.Submit(submitCtx, encodedEntry{key: "first"}) }()
 
-		batches := w.rows()
-		must.SliceLen(t, 1, batches)
-		test.EqOp(t, "straggler", batches[0][0].key)
+		waitFor(t, func() bool { return w.started.Load() > 0 })
+
+		straggler := make(chan error, 1)
+		go func() { straggler <- b.Submit(submitCtx, encodedEntry{key: "straggler"}) }()
+
+		waitFor(t, func() bool { return b.Pending() == 1 })
+
+		closed := make(chan error, 1)
+		go func() { closed <- b.Close(submitCtx) }()
+
+		w.release()
+
+		must.NoError(t, awaitErr(t, first))
+		must.NoError(t, awaitErr(t, straggler))
+		must.NoError(t, awaitErr(t, closed))
+
+		var keys []string
+		for _, batch := range w.rows() {
+			for _, row := range batch {
+				keys = append(keys, row.key)
+			}
+		}
+
+		test.SliceContains(t, keys, "straggler")
 	})
 
 	T.Run("enqueue after close is refused rather than parked", func(t *testing.T) {
 		t.Parallel()
 
 		w := &recordingWriter{}
-		b := newEnqueueBatcher(w.write)
+		b := newTestBatcher(t, w)
 
-		must.NoError(t, b.close(t.Context()))
+		must.NoError(t, b.Close(loose(t)))
 
-		test.ErrorIs(t, b.enqueue(t.Context(), []encodedEntry{{key: "late"}}), ErrClosed)
+		test.ErrorIs(t, b.Submit(loose(t), encodedEntry{key: "late"}), batching.ErrClosed)
+	})
+
+	// Enqueue restates the batcher's refusal as this package's ErrClosed, which
+	// is only sound if the two are the same sentinel to errors.Is.
+	T.Run("ErrClosed wraps the batcher's sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, ErrClosed, batching.ErrClosed)
 	})
 
 	T.Run("close is safe to call more than once", func(t *testing.T) {
 		t.Parallel()
 
-		b := newEnqueueBatcher((&recordingWriter{}).write)
+		b := newTestBatcher(t, &recordingWriter{})
 
-		must.NoError(t, b.close(t.Context()))
-		must.NoError(t, b.close(t.Context()))
+		must.NoError(t, b.Close(loose(t)))
+		must.NoError(t, b.Close(loose(t)))
 	})
 }
 
 func TestMergeEntries(T *testing.T) {
 	T.Parallel()
-
-	T.Run("the first entry for a key is taken as-is", func(t *testing.T) {
-		t.Parallel()
-
-		merged := mergeEntries(encodedEntry{}, encodedEntry{key: "a", priority: 2, delayMicros: 9})
-
-		test.EqOp(t, "a", merged.key)
-		test.EqOp(t, 2, merged.priority)
-		test.EqOp(t, int64(9), merged.delayMicros)
-	})
 
 	T.Run("priority rises and delay falls", func(t *testing.T) {
 		t.Parallel()
@@ -283,33 +339,39 @@ func TestSortAndDedupe(T *testing.T) {
 	})
 }
 
-// pending exposes the open batch for the tests that have to observe merging as
-// it happens.
-func (b *enqueueBatcher) pending() *enqueueBatch {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// testDeadline is how long anything in this file waits before it gives up and
+// fails. waitFor already worked this way; loose and awaitErr give the same
+// bound to the waits that are not polls, and unbounded is the one thing none of
+// them may be — every wait here is on a flush another goroutine has to finish,
+// and a change that stops it happening should fail a case rather than park the
+// whole test binary until `go test` gives up on it.
+const testDeadline = 5 * time.Second
 
-	return b.open
+// loose returns a context bounded by testDeadline, for the submissions these
+// tests deliberately do not hand t.Context: a caller whose work has to outlive
+// the assertion that started it. Not the test's context still has to mean a
+// context.
+func loose(t *testing.T) context.Context {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	t.Cleanup(cancel)
+
+	return ctx
 }
 
-// pendingSize reports how many keys the open batch holds.
-func (b *enqueueBatcher) pendingSize() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// awaitErr receives one error, failing the test rather than blocking if the
+// goroutine that owes it never gets there.
+func awaitErr(t *testing.T, ch <-chan error) error {
+	t.Helper()
 
-	if b.open == nil {
-		return 0
-	}
-
-	return len(b.open.rows)
-}
-
-// drainWake consumes a pending wake token, so a test can put rows in the open
-// batch without the flusher picking them up.
-func (b *enqueueBatcher) drainWake() {
 	select {
-	case <-b.wake:
-	default:
+	case err := <-ch:
+		return err
+	case <-time.After(testDeadline):
+		t.Fatal("nothing arrived on the channel before the deadline")
+
+		return nil
 	}
 }
 
@@ -318,7 +380,7 @@ func (b *enqueueBatcher) drainWake() {
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testDeadline)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
