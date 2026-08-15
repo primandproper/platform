@@ -2,11 +2,11 @@ package workqueue
 
 import (
 	"context"
+	stderrors "errors"
 	"slices"
-	"strings"
-	"sync"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/batching"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
@@ -91,7 +91,15 @@ func (q *Queue[K]) Enqueue(ctx context.Context, entries ...Entry[K]) error {
 		})
 	}
 
-	if err := q.batcher.enqueue(ctx, rows); err != nil {
+	if err := q.batcher.Submit(ctx, rows...); err != nil {
+		// Restated in this package's vocabulary. A caller checking for
+		// ErrClosed is asking whether this queue is still open, and would not
+		// think to reach for the batcher's sentinel to find out; ErrClosed
+		// wraps it, so a check against either still holds.
+		if stderrors.Is(err, batching.ErrClosed) {
+			return op.Error(ErrClosed, "enqueuing work queue items")
+		}
+
 		return op.Error(err, "enqueuing work queue items")
 	}
 
@@ -154,184 +162,35 @@ func (q *Queue[K]) notify(ctx context.Context) {
 	}
 }
 
-// enqueueBatcher merges concurrent Enqueue calls into one upsert — group commit,
-// the same trick a write-ahead log plays on fsync, for the same reason.
+// newEnqueueBatcher builds the group-commit batcher every Enqueue funnels
+// through: one upsert in flight however many callers are enqueueing, one row per
+// key however many of them named it, and rows handed to the write in primary-key
+// order.
 //
-// The failure it exists to prevent is not slowness. A read path that enqueues on
-// every request issues one multi-row upsert per in-flight request against the
-// same handful of popular rows; those upserts take row locks in whatever order
-// each caller happened to build, deadlock against each other, and hold a pool
-// connection while they do. The pool empties, and endpoints with nothing to do
-// with the queue start failing. Merging fixes that at the root: one statement in
-// flight, one row per key however many callers named it, and — with the sort in
-// buildUpsert — one lock order.
+// That last part is not a tidiness. The failure this batcher exists to prevent
+// is a read path that enqueues on every request issuing one multi-row upsert per
+// in-flight request against the same handful of popular rows; those upserts take
+// row locks in whatever order each caller happened to build, deadlock against
+// each other, and hold a pool connection while they do, until the pool empties
+// and endpoints with nothing to do with the queue start failing. Merging under
+// one lock order fixes it at the root — see the batching package, which carries
+// the long form and the incident it came from.
 //
-// The batcher is deliberately not timer-driven. A flush starts as soon as the
-// previous one finishes, so an idle process pays no latency at all and a busy
-// one merges more the busier it gets. There is no interval to tune and no
-// configuration that can make it wrong.
-type enqueueBatcher struct {
-	// write is what a flush actually runs. Held as a function rather than a
-	// Queue so the batcher's merging can be exercised without a database — it
-	// has no other dependency on one.
-	write func(ctx context.Context, rows []encodedEntry) error
-
-	// open is the batch now accepting rows; the flusher swaps it out under mu,
-	// so a caller that captured it is guaranteed its keys ride that flush.
-	open *enqueueBatch
-
-	wake chan struct{}
-	stop chan struct{}
-	done chan struct{}
-
-	mu       sync.Mutex
-	closed   bool
-	stopOnce sync.Once
-}
-
-// enqueueBatch is one merged group of rows plus the result its waiters read.
-// Waiters read err only after done closes, which the flusher does last.
-type enqueueBatch struct {
-	rows map[string]encodedEntry
-	done chan struct{}
-	err  error
-}
-
-// newEnqueueBatcher starts a batcher that flushes through write.
-func newEnqueueBatcher(write func(ctx context.Context, rows []encodedEntry) error) *enqueueBatcher {
-	b := &enqueueBatcher{
-		write: write,
-		wake:  make(chan struct{}, 1),
-		stop:  make(chan struct{}),
-		done:  make(chan struct{}),
+// Options are appended rather than prepended, so a caller — which in practice
+// means a test — can override what is set here.
+func newEnqueueBatcher(
+	write func(ctx context.Context, rows []encodedEntry) error,
+	opts ...batching.Option,
+) (*batching.GroupCommit[encodedEntry], error) {
+	batcher, err := batching.NewGroupCommit(write, append([]batching.Option{
+		batching.WithMerge(func(row encodedEntry) string { return row.key }, mergeEntries),
+		batching.WithFlushTimeout(enqueueFlushTimeout),
+	}, opts...)...)
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building work queue enqueue batcher")
 	}
 
-	go b.run()
-
-	return b
-}
-
-// enqueue adds rows to the batch currently accepting them and blocks until that
-// batch has been written.
-func (b *enqueueBatcher) enqueue(ctx context.Context, rows []encodedEntry) error {
-	batch := b.join(rows)
-
-	select {
-	case <-batch.done:
-		return batch.err
-	case <-ctx.Done():
-		return platformerrors.Wrap(ctx.Err(), "waiting for work queue enqueue")
-	}
-}
-
-// join merges rows into the open batch — creating it if this is the first caller
-// — and nudges the flusher. The returned batch is the one those rows will ride,
-// captured under the same lock that lets the flusher swap it out.
-func (b *enqueueBatcher) join(rows []encodedEntry) *enqueueBatch {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.closed {
-		return closedBatch()
-	}
-
-	if b.open == nil {
-		b.open = &enqueueBatch{
-			rows: make(map[string]encodedEntry, len(rows)),
-			done: make(chan struct{}),
-		}
-	}
-
-	for i := range rows {
-		b.open.rows[rows[i].key] = mergeEntries(b.open.rows[rows[i].key], rows[i])
-	}
-
-	batch := b.open
-
-	select {
-	case b.wake <- struct{}{}:
-	default: // a flush is already pending; this batch is part of it
-	}
-
-	return batch
-}
-
-// take swaps the open batch out for flushing. Rows arriving after this point
-// start the next batch.
-func (b *enqueueBatcher) take() *enqueueBatch {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	batch := b.open
-	b.open = nil
-
-	return batch
-}
-
-// run flushes whatever has accumulated, one batch at a time, until close.
-func (b *enqueueBatcher) run() {
-	defer close(b.done)
-
-	for {
-		select {
-		case <-b.stop:
-			return
-		case <-b.wake:
-		}
-
-		b.flush(b.take())
-	}
-}
-
-// flush writes one batch and releases its waiters. Every exit path closes done
-// exactly once — a waiter parked on a batch that never completes would hold a
-// request open until its own context expired.
-//
-// The flush gets its own context rather than any caller's, for the same reason:
-// the batch is shared, so the first waiter to give up must not cancel the write
-// the rest are still waiting on.
-func (b *enqueueBatcher) flush(batch *enqueueBatch) {
-	if batch == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), enqueueFlushTimeout)
-	defer cancel()
-
-	batch.err = b.write(ctx, sortAndMergeRows(batch.rows))
-	close(batch.done)
-}
-
-// close stops the flusher and writes whatever was still accumulating, so a
-// caller blocked in Enqueue during shutdown gets a real answer instead of
-// hanging until its context expires. Safe to call more than once.
-func (b *enqueueBatcher) close(ctx context.Context) error {
-	b.stopOnce.Do(func() { close(b.stop) })
-
-	<-b.done // an in-flight flush finishes before run returns
-
-	b.mu.Lock()
-	b.closed = true
-	batch := b.open
-	b.open = nil
-	b.mu.Unlock()
-
-	if batch == nil {
-		return nil
-	}
-
-	batch.err = b.write(ctx, sortAndMergeRows(batch.rows))
-	close(batch.done)
-
-	return batch.err
-}
-
-// closedBatch is an already-completed batch carrying the shutdown error.
-func closedBatch() *enqueueBatch {
-	batch := &enqueueBatch{done: make(chan struct{}), err: ErrClosed}
-	close(batch.done)
-
-	return batch
+	return batcher, nil
 }
 
 // mergeEntries folds a new row into whatever the batch already held for that
@@ -342,32 +201,15 @@ func closedBatch() *enqueueBatch {
 // more permissive than merging against the table, two callers naming one key
 // would get a different result depending on whether they happened to land in the
 // same flush — which is the kind of bug that only appears under load.
+//
+// The batcher only calls it when there is something to fold into, so existing is
+// always a row that was really there.
 func mergeEntries(existing, incoming encodedEntry) encodedEntry {
-	if existing.key == "" {
-		return incoming
-	}
-
 	return encodedEntry{
 		key:         existing.key,
 		priority:    max(existing.priority, incoming.priority),
 		delayMicros: min(existing.delayMicros, incoming.delayMicros),
 	}
-}
-
-// sortAndMergeRows flattens a batch into the sorted, duplicate-free slice
-// buildUpsert requires. The sort is by key, which is the table's primary key
-// within a queue, and is the lock ordering the whole design rests on.
-func sortAndMergeRows(rows map[string]encodedEntry) []encodedEntry {
-	out := make([]encodedEntry, 0, len(rows))
-	for key := range rows {
-		out = append(out, rows[key])
-	}
-
-	slices.SortFunc(out, func(a, b encodedEntry) int {
-		return strings.Compare(a.key, b.key)
-	})
-
-	return out
 }
 
 // sortAndDedupe puts a batch of encoded keys into primary-key order and removes

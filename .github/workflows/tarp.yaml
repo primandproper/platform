@@ -1,0 +1,119 @@
+---
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**/*.go'
+      # A change to the gate runs the gate. The threshold below is a number
+      # someone has to raise by hand, and a pull request that raises it past
+      # what the module actually grades should go red here rather than on the
+      # next pull request to touch Go source. For pull_request the filter reads
+      # the pull request's own diff, so without this line a change to this file
+      # alone reports nothing at all.
+      - .github/workflows/tarp.yaml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+name: tarp
+jobs:
+  tarp:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      # The report reaches the pull request as workflow commands the step writes
+      # itself — annotations and the job summary — so nothing here calls the API
+      # and a forked pull request's read-only token reports the same as any
+      # other.
+      contents: read
+    strategy:
+      matrix:
+        go-version: ['1.26.x']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      # No `make vendor` here, unlike the mutation and coverage jobs: tarp loads
+      # the module through go/packages against the module cache, so an absent
+      # vendor/ is not the inconsistent-vendoring failure it is for those two.
+      #
+      # An analysis is almost entirely go/packages loading the module, and what
+      # that costs is decided by the Go build cache: 3m20s against a cold one,
+      # 4s against a warm one. setup-go's cache does not serve it — that one is
+      # keyed on go.sum and shared with the jobs that build against vendor/,
+      # whose entries this run cannot reuse, which is why the first run here
+      # took three minutes with a 1.16GB cache restored. A GOCACHE of its own is
+      # what keeps the job under a minute.
+      #
+      # Restore and save are separate steps, as in mutation.yaml: actions/cache
+      # saves only on success, and the run most in need of a warm cache is the
+      # one that failed.
+      - name: Restore the tarp build cache
+        id: gocache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/tarp-gocache
+          key: tarp-gocache-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: tarp-gocache-${{ runner.os }}-
+
+      # The version is an exact tag rather than a floating major. tarp is pre-1.0
+      # and its notion of what counts as a direct reference may tighten; a
+      # stricter analyzer arriving on its own would fail a pull request that
+      # changed nothing.
+      - name: Find functions with no direct unit test
+        uses: primandproper/tarpaulin@v0.1.0
+        id: tarp
+        env:
+          GOCACHE: ${{ runner.temp }}/tarp-gocache
+        with:
+          package: ./...
+          # The strictest of the three: a reference has to live in the test file
+          # for the file that declares the function. The spread between this and
+          # `any` is 12 points across the module, which says most of the gap is
+          # genuinely untested rather than tested from somewhere else — so the
+          # level that says the most costs little.
+          strictness: file
+          # A ratchet, set to the score as it stands: the functions with no
+          # direct test today are a backlog to pay down when files are touched
+          # for other reasons, and what this gate is for is stopping the number
+          # going the other way. Raise it as the score climbs — nothing lowers
+          # it automatically.
+          #
+          # 61 is the highest value that passes, and at this size that leaves
+          # very little room. tarp floors the score to an integer, so 2,754 of
+          # 4,512 is 61.0% and the gate trips below 61.0%: three new functions
+          # with no direct test, or two existing ones losing the test that
+          # names them. That is as tight as a module-wide integer gets — tarp
+          # has no diff-scoped mode, so it cannot ask whether this pull request
+          # in particular made things worse. A red run names the functions in
+          # the job summary; the fix is a test, or a //tarp:ignore carrying its
+          # reason.
+          #
+          # Grade the merge, not the branch, when checking this by hand. CI
+          # analyzes the pull request merged into main, so a checkout that has
+          # fallen behind grades a different module — which is exactly why the
+          # number here is 61 and a stale local tree said 60.
+          failure_score_threshold: 61
+
+      - name: Save the tarp build cache
+        if: ${{ !cancelled() && steps.gocache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/tarp-gocache
+          key: tarp-gocache-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Upload the tarp report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarp-report
+          path: ${{ steps.tarp.outputs.report }}
+          if-no-files-found: ignore

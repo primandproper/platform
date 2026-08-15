@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/batching"
 	"github.com/primandproper/platform-go/v10/database"
 	"github.com/primandproper/platform-go/v10/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
@@ -138,7 +139,7 @@ type Queue[K comparable] struct {
 	// is invisible beside the ones that are fine.
 	attrs metric.MeasurementOption
 
-	batcher *enqueueBatcher
+	batcher *batching.GroupCommit[encodedEntry]
 
 	// wakeup is nil unless WithWakeup supplied one. A nil channel blocks
 	// forever in a select, so Wait needs no branch for its absence.
@@ -192,7 +193,10 @@ func New[K comparable](
 		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "work queue notify channel %q", cfg.NotifyChannel)
 	}
 
-	o := newQueueOptions(opts)
+	var (
+		o   = newQueueOptions(opts)
+		err error
+	)
 
 	q := &Queue[K]{
 		cfg:    *cfg,
@@ -221,7 +225,7 @@ func New[K comparable](
 	q.o11y = observability.NewObserverWithValues(serviceName, o.logger, o.tracerProvider,
 		map[string]any{queueNameKey: cfg.Name})
 
-	if err := q.buildInstruments(o.metricsProvider); err != nil {
+	if err = q.buildInstruments(o.metricsProvider); err != nil {
 		return nil, err
 	}
 
@@ -235,9 +239,15 @@ func New[K comparable](
 	}
 
 	// The flush deliberately runs on a context of its own rather than any
-	// caller's; see enqueueBatcher.flush for why a shared batch cannot inherit
+	// caller's; see batching.GroupCommit for why a shared batch cannot inherit
 	// one waiter's cancellation.
-	q.batcher = newEnqueueBatcher(q.upsert) //nolint:contextcheck // see flush
+	if q.batcher, err = newEnqueueBatcher(q.upsert, //nolint:contextcheck // see batching.GroupCommit
+		batching.WithLogger(o.logger),
+		batching.WithTracerProvider(o.tracerProvider),
+		batching.WithMetricsProvider(o.metricsProvider),
+	); err != nil {
+		return nil, err
+	}
 
 	return q, nil
 }
@@ -324,7 +334,7 @@ func (q *Queue[K]) Close(ctx context.Context) error {
 	ctx, op := q.o11y.Begin(ctx)
 	defer op.End()
 
-	if err := q.batcher.close(ctx); err != nil {
+	if err := q.batcher.Close(ctx); err != nil {
 		return op.Error(err, "closing work queue")
 	}
 

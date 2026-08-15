@@ -1,6 +1,7 @@
 package workqueue
 
 import (
+	"github.com/primandproper/platform-go/v10/batching"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
@@ -60,5 +61,9 @@ var (
 
 	// ErrClosed indicates an Enqueue that arrived after Close. It is returned
 	// rather than parking the caller on a batch nothing will ever flush.
-	ErrClosed = platformerrors.New("work queue is closed")
+	//
+	// It wraps batching.ErrClosed, which is where the refusal actually
+	// originates, so a caller may check either — but the queue is what the
+	// caller closed, and the queue is what the error should name.
+	ErrClosed = platformerrors.Wrap(batching.ErrClosed, "work queue is closed")
 )
