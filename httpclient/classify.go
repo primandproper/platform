@@ -108,11 +108,25 @@ func DefaultRetryClassification(resp *http.Response) error {
 
 	err := platformerrors.Newf("server responded with %s", resp.Status)
 
-	if resp.StatusCode < http.StatusInternalServerError &&
-		resp.StatusCode != http.StatusRequestTimeout &&
-		resp.StatusCode != http.StatusTooManyRequests {
+	if terminalStatus(resp.StatusCode) {
 		return retry.Unretryable(err)
 	}
 
 	return err
+}
+
+// terminalStatus reports whether a status code is the server saying the request
+// itself is wrong, so repeating it unchanged cannot make it right — every 4xx
+// but the two that are about timing rather than about the request.
+//
+// It has a name because it has two readers. DefaultRetryClassification asks it
+// on behalf of the retry transport, which holds a response; StatusError.Is asks
+// it on behalf of a caller's own retry loop, which holds an error. A second
+// copy of this list would be a rule that can drift, and the drift would show up
+// as an outer loop re-sending a request the inner one had already given up on.
+func terminalStatus(code int) bool {
+	return code >= http.StatusBadRequest &&
+		code < http.StatusInternalServerError &&
+		code != http.StatusRequestTimeout &&
+		code != http.StatusTooManyRequests
 }
