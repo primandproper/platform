@@ -77,6 +77,7 @@ require (
 	github.com/shoenig/test v1.12.2
 	github.com/sideshow/apns2 v0.25.0
 	github.com/stripe/stripe-go/v81 v81.4.0
+	github.com/swaggest/jsonschema-go v0.3.79
 	github.com/swaggest/openapi-go v0.2.61
 	github.com/testcontainers/testcontainers-go v0.41.0
 	github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.41.0
@@ -158,7 +159,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sethvargo/go-retry v0.4.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	github.com/swaggest/jsonschema-go v0.3.79 // indirect
 	github.com/swaggest/refl v1.4.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect

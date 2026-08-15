@@ -141,10 +141,24 @@ func BenchmarkQueryFilter_ToPagination(b *testing.B) {
 	}
 }
 
+// BenchmarkQueryFilterSchema prices the decode QueryFilterSchema does per call
+// so that its caller owns the map it gets.
+//
+// Nothing calls it per request — a tool definition is built once at startup —
+// so this is here to confirm the copy is cheap enough that keeping callers from
+// editing each other's document never needs revisiting, not because anything is
+// tuning it.
+func BenchmarkQueryFilterSchema(b *testing.B) {
+	for b.Loop() {
+		schemaSink = QueryFilterSchema()
+	}
+}
+
 var (
 	filterSink     *QueryFilter
 	valuesSink     url.Values
 	paginationSink Pagination
 	errSink        error
+	schemaSink     map[string]any
 	_              = time.RFC3339Nano
 )
