@@ -19,6 +19,56 @@ overridden after it:
 The error reports only that the client could not be instrumented — the metrics
 provider refused an instrument. Nothing else here can fail.
 
+# The exchange
+
+A client is not the whole job. Every service-to-service JSON caller then writes
+the same layer on top of one — marshal, build the request, send it, check the
+status, read the body, close it, unmarshal — and writes it slightly differently.
+JSON is that layer, once:
+
+	claim, err := httpclient.JSON[ClaimResponse](ctx, client, http.MethodPost, url, request)
+
+It is generic over the response type. A nil request body sends nothing at all
+rather than a JSON null, and NoContent is the response type for a reply whose
+body is not read. Anything outside 2xx is a *StatusError carrying the status,
+the request path, and a bounded prefix of the body.
+
+That bound is the detail everyone forgets, and the reason it is here rather than
+at each call site. An error body goes into a log line, and a four-megabyte HTML
+error page from a proxy is how that becomes an incident of its own — so the
+limit is on the read and not merely on the string, and the cut lands on a rune
+boundary. WithErrorBodyLimit moves it; zero keeps the status and none of the
+body.
+
+Encoding is client-side and JSON, through the encoding package's client seam —
+not its ServerEncoderDecoder, which is about writing responses. The body is
+marshaled to bytes rather than streamed, so the request carries a GetBody and
+the retry transport below can replay it.
+
+BaseURLClient binds a client to one service's root, so a call site names a path:
+
+	leader, err := httpclient.NewBaseURLClient(client, "https://leader.internal/api")
+	claim, err := httpclient.JSON[ClaimResponse](ctx, leader, http.MethodPost, "/v1/claim", request)
+
+It is the other half every consumer rebuilds, and the joining is url.URL.JoinPath's
+rather than string concatenation, which is where the doubled slash and the
+missing one come from.
+
+# The exchange adds no resilience
+
+Retrying, breaking, limiting, and caching belong to the transports the client
+was built with, and are finished by the time the exchange reads a status. A
+helper that retried on top of them would give a client configured with
+WithRetryPolicy two nested loops and its caller no way to predict how many
+requests one call makes.
+
+What the error does carry is the classification those transports already use. A
+*StatusError whose status DefaultRetryClassification calls terminal matches
+retry.ErrUnretryable under errors.Is, so a caller wrapping a whole operation in
+a retry.Policy of its own stops on a 400 and keeps trying a 429 — the same rule,
+read from an error instead of from a response, rather than a second copy of it
+free to drift.
+
 # Resilience
 
 Retry, circuit breaking, rate limiting, and response caching are

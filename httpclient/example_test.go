@@ -2,8 +2,11 @@ package httpclient_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v10/cache/memory"
@@ -11,6 +14,7 @@ import (
 	"github.com/primandproper/platform-go/v10/httpclient"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
+	"github.com/primandproper/platform-go/v10/retry"
 	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
 )
 
@@ -148,4 +152,117 @@ func ExampleWithOutcomeClassifier() {
 	// success failure
 	// failure ignored
 	// failure failure
+}
+
+// claimRequest and claimResponse stand in for the typed bodies a service-to-
+// service caller already has.
+type claimRequest struct {
+	Worker string `json:"worker"`
+}
+
+type claimResponse struct {
+	ID    string `json:"id"`
+	Count int    `json:"count"`
+}
+
+// The exchange every JSON caller was writing by hand: marshal, send, check the
+// status, unmarshal.
+func ExampleJSON() {
+	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+		res.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(res, `{"id":"claim-7","count":3}`)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewHTTPClient()
+	if err != nil {
+		panic(err)
+	}
+
+	claim, err := httpclient.JSON[claimResponse](
+		context.Background(),
+		client,
+		http.MethodPost,
+		server.URL+"/v1/claim",
+		&claimRequest{Worker: "worker-1"},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(claim.ID, claim.Count)
+
+	// Output: claim-7 3
+}
+
+// A refused status is an error carrying what an operator needs and no more of
+// the body than a log line can afford.
+func ExampleStatusError() {
+	// The proxy's four-megabyte HTML error page, which is the reason the limit
+	// is on the read rather than on the string.
+	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+		res.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(res, "worker-1 is not registered for this area"+strings.Repeat(".", 4<<20))
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewHTTPClient()
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = httpclient.JSON[claimResponse](
+		context.Background(),
+		client,
+		http.MethodPost,
+		server.URL+"/v1/claim",
+		&claimRequest{Worker: "worker-1"},
+		httpclient.WithErrorBodyLimit(40),
+	)
+
+	var status *httpclient.StatusError
+	if errors.As(err, &status) {
+		fmt.Println(status.StatusCode, status.Path, status.Truncated)
+		fmt.Println(status.Body)
+	}
+
+	// A 400 is the server saying the request itself is wrong, so a caller's own
+	// retry loop stops on it — the same rule the retry transport applies to a
+	// response, read here from the error.
+	fmt.Println(errors.Is(err, retry.ErrUnretryable))
+
+	// Output:
+	// 400 /v1/claim true
+	// worker-1 is not registered for this area
+	// true
+}
+
+// The other half every consumer rebuilds: a base URL, so call sites name a path.
+func ExampleNewBaseURLClient() {
+	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		res.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(res, `{"id":%q,"count":1}`, req.URL.Path)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewHTTPClient()
+	if err != nil {
+		panic(err)
+	}
+
+	// The trailing slash on the base and the leading slash on the path are both
+	// fine, in any combination — which is the whole reason not to concatenate.
+	leader, err := httpclient.NewBaseURLClient(client, server.URL+"/api/")
+	if err != nil {
+		panic(err)
+	}
+
+	claim, err := httpclient.JSON[claimResponse](context.Background(), leader, http.MethodGet, "/v1/claim", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(claim.ID)
+
+	// Output: /api/v1/claim
 }
