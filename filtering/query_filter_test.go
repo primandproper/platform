@@ -541,3 +541,164 @@ func TestNewQueryFilteredResult(T *testing.T) {
 		test.Eq(t, expected, actual)
 	})
 }
+
+func TestQueryFilter_Normalize(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a nil filter normalizes to nothing", func(t *testing.T) {
+		t.Parallel()
+
+		var qf *QueryFilter
+
+		must.NoError(t, qf.Normalize())
+	})
+
+	T.Run("an absent page size gets the default", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{}
+
+		must.NoError(t, qf.Normalize())
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(DefaultQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("a zero page size gets the default", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{MaxResponseSize: new(uint16(0))}
+
+		must.NoError(t, qf.Normalize())
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(DefaultQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("an over-large page size clamps", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{MaxResponseSize: new(uint16(MaxQueryFilterLimit + 1))}
+
+		must.NoError(t, qf.Normalize())
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("the ceiling itself is not clamped past", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{MaxResponseSize: new(uint16(MaxQueryFilterLimit))}
+
+		must.NoError(t, qf.Normalize())
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("a page size between the default and the ceiling is left alone", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{MaxResponseSize: new(uint16(DefaultQueryFilterLimit + 1))}
+
+		must.NoError(t, qf.Normalize())
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(DefaultQueryFilterLimit+1), *qf.MaxResponseSize)
+	})
+
+	T.Run("an absent sort direction becomes ascending", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{}
+
+		must.NoError(t, qf.Normalize())
+		test.EqOp(t, SortAscending, qf.SortBy)
+	})
+
+	T.Run("a recognized sort direction becomes the canonical value", func(t *testing.T) {
+		t.Parallel()
+
+		// A wire format that carries a bare string can supply a casing the
+		// exported pointers do not use, and a caller comparing pointers should
+		// still find the one this package exports.
+		qf := &QueryFilter{SortBy: new("DESC")}
+
+		must.NoError(t, qf.Normalize())
+		test.EqOp(t, SortDescending, qf.SortBy)
+	})
+
+	T.Run("an unrecognized sort direction is reported, not corrected into silence", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{SortBy: new("name")}
+
+		err := qf.Normalize()
+		must.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnrecognizedInputValue)
+		test.StrContains(t, err.Error(), QueryKeySortBy)
+
+		// Still usable, and still normalized in every other respect: the caller
+		// that logs the error and lists anyway gets the ascending page.
+		test.EqOp(t, SortAscending, qf.SortBy)
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(DefaultQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("a filter that arrived by any route reaches what the HTTP path produces", func(t *testing.T) {
+		t.Parallel()
+
+		// The reason this method exists: a decoder that is not FromParams should
+		// not have to restate DefaultQueryFilterLimit or MaxQueryFilterLimit to
+		// land on the same filter.
+		decoded := &QueryFilter{}
+
+		must.NoError(t, decoded.Normalize())
+		test.Eq(t, DefaultQueryFilter(), decoded)
+	})
+}
+
+func TestNewQueryFilteredResult_cursorContract(T *testing.T) {
+	T.Parallel()
+
+	T.Run("the first page is an empty PreviousCursor, not a cursor comparison", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{MaxResponseSize: new(uint16(DefaultQueryFilterLimit))}
+		data := []*string{new("a"), new("b")}
+
+		actual := NewQueryFilteredResult(data, 2, 2, func(s *string) string { return *s }, qf)
+
+		test.EqOp(t, "", actual.PreviousCursor)
+		test.EqOp(t, "b", actual.Cursor)
+	})
+
+	T.Run("a later page echoes the cursor that reached it", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{
+			Cursor:          new("a"),
+			MaxResponseSize: new(uint16(DefaultQueryFilterLimit)),
+		}
+		data := []*string{new("b"), new("c")}
+
+		actual := NewQueryFilteredResult(data, 2, 2, func(s *string) string { return *s }, qf)
+
+		test.EqOp(t, "a", actual.PreviousCursor)
+		test.EqOp(t, "c", actual.Cursor)
+	})
+
+	T.Run("a page whose last row is the cursor that reached it is still a later page", func(t *testing.T) {
+		t.Parallel()
+
+		// The degenerate case a consumer's heuristic guarded by comparing the
+		// applied cursor against the result's: equality does not mean page one,
+		// and PreviousCursor reports the truth without the comparison.
+		qf := &QueryFilter{
+			Cursor:          new("z"),
+			MaxResponseSize: new(uint16(DefaultQueryFilterLimit)),
+		}
+		data := []*string{new("y"), new("z")}
+
+		actual := NewQueryFilteredResult(data, 2, 2, func(s *string) string { return *s }, qf)
+
+		test.EqOp(t, "z", actual.PreviousCursor)
+		test.EqOp(t, "z", actual.Cursor)
+	})
+}

@@ -26,6 +26,24 @@
 // says so when attached to a logger, so handlers need no nil check before
 // passing one along.
 //
+// Cursors are directional, and the two halves of a round trip do not carry the
+// same one. A QueryFilter's Cursor is the page being asked for. The Pagination
+// that answers it reports PreviousCursor as the cursor that reached this page
+// and Cursor as the one that reaches the next, so an empty PreviousCursor is
+// the first page. Nothing needs to compare the two against each other to work
+// that out, and a caller that does is inferring a contract stated here.
+//
+// The next cursor is the last row's identifier whenever the page held rows, so
+// it is empty only for an empty page. It is not a "there is more" signal: a
+// full page and the final page carry an equally non-empty Cursor, and the
+// counts are what distinguish them.
+//
+// Defaults and bounds apply to a filter however it arrived. Parsing one out of
+// query parameters is only the transport that has a parser here; Normalize is
+// the same rule for a filter decoded from anywhere else, and is what the
+// `default` and `maximum` tags on QueryFilter describe to a caller that will
+// never call it.
+//
 // QueryFilterSchema describes the request half as JSON Schema, for the surfaces
 // that ask for a filter in that dialect rather than in query parameters: a
 // tool-calling model, an MCP tool definition, an OpenAPI document. It is
@@ -33,7 +51,6 @@
 package filtering
 
 import (
-	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -94,13 +111,26 @@ const (
 type (
 	// Pagination represents a pagination request.
 	Pagination struct {
-		_                  struct{}     `json:"-"`
+		_ struct{} `json:"-"`
+
+		// AppliedQueryFilter is the filter this page was answered with, after
+		// defaults and bounds were applied — not necessarily the one the client
+		// sent.
 		AppliedQueryFilter *QueryFilter `json:"appliedQueryFilter"`
-		Cursor             string       `json:"cursor"`
-		PreviousCursor     string       `json:"previousCursor"`
-		FilteredCount      uint64       `json:"filteredCount"`
-		TotalCount         uint64       `json:"totalCount"`
-		MaxResponseSize    uint16       `json:"maxResponseSize"`
+
+		// Cursor reaches the page after this one. It is the last row's
+		// identifier, so it is empty only when this page held no rows and says
+		// nothing about whether a further page exists.
+		Cursor string `json:"cursor"`
+
+		// PreviousCursor is the cursor that reached this page, echoed back from
+		// the filter that was applied. It is empty on the first page, which is
+		// how the first page is recognized.
+		PreviousCursor string `json:"previousCursor"`
+
+		FilteredCount   uint64 `json:"filteredCount"`
+		TotalCount      uint64 `json:"totalCount"`
+		MaxResponseSize uint16 `json:"maxResponseSize"`
 	}
 
 	// QueryFilter represents all the filters a User could apply to a list query.
@@ -269,10 +299,7 @@ func (qf *QueryFilter) FromParams(params url.Values) error {
 		if err != nil {
 			errs = append(errs, unreadable(QueryKeyLimit, raw, err))
 		} else {
-			// Still clamped rather than rejected: MaxQueryFilterLimit documents an
-			// over-large limit as a clamp, and a client asking for more than the
-			// ceiling has asked a legible question with a legible answer.
-			qf.MaxResponseSize = new(uint16(math.Min(math.Max(float64(i), 0), MaxQueryFilterLimit)))
+			qf.MaxResponseSize = new(clampResponseSize(i))
 		}
 	}
 
@@ -306,6 +333,72 @@ func (qf *QueryFilter) FromParams(params url.Values) error {
 	}
 
 	return platformerrors.Join(errs...)
+}
+
+// clampResponseSize is the page-size ceiling, and the only place it is applied.
+//
+// Still clamped rather than rejected: MaxQueryFilterLimit documents an
+// over-large limit as a clamp, and a client asking for more than the ceiling has
+// asked a legible question with a legible answer. Zero is left alone here rather
+// than filled in — FromParams distinguishes a supplied value from an absent one
+// and Normalize is what supplies the default, so a clamp that also defaulted
+// would take that distinction away from both.
+func clampResponseSize(size uint64) uint16 {
+	return uint16(min(size, MaxQueryFilterLimit))
+}
+
+// Normalize applies the defaults and bounds a filter is answered under, so a
+// filter that did not arrive as query parameters is held to the same rule as one
+// that did.
+//
+// FromParams is the parser for one transport. This is the part that is not about
+// transport at all: an absent or zero page size becomes DefaultQueryFilterLimit,
+// an over-large one clamps to MaxQueryFilterLimit, and an absent sort direction
+// becomes SortAscending. A decoder for protobuf, a JSON body, or a tool call
+// reaches the same filter the HTTP path would have produced without restating
+// any of those numbers.
+//
+// A sort direction that is present and unrecognized is reported rather than
+// corrected, wrapping errors.ErrUnrecognizedInputValue exactly as FromParams
+// does — the filter is still usable and still normalized, because the caller
+// that logs and lists anyway should get the ascending page rather than none, but
+// the value is not quietly turned into one the caller did not ask for. That is
+// the failure this package is most careful about: the list comes back sorted the
+// other way, in full, and looks entirely successful.
+//
+// A nil filter normalizes to nothing, since a nil *QueryFilter already renders
+// as the default filter everywhere it is read.
+func (qf *QueryFilter) Normalize() error {
+	if qf == nil {
+		return nil
+	}
+
+	if qf.MaxResponseSize == nil || *qf.MaxResponseSize == 0 {
+		qf.MaxResponseSize = new(uint16(DefaultQueryFilterLimit))
+	} else {
+		qf.MaxResponseSize = new(clampResponseSize(uint64(*qf.MaxResponseSize)))
+	}
+
+	if qf.SortBy == nil {
+		qf.SortBy = SortAscending
+
+		return nil
+	}
+
+	switch strings.ToLower(*qf.SortBy) {
+	case sortAscendingString:
+		qf.SortBy = SortAscending
+	case sortDescendingString:
+		qf.SortBy = SortDescending
+	default:
+		raw := *qf.SortBy
+		qf.SortBy = SortAscending
+
+		return platformerrors.Wrapf(platformerrors.ErrUnrecognizedInputValue,
+			"reading %s parameter %q", QueryKeySortBy, raw)
+	}
+
+	return nil
 }
 
 // SetCursor sets the current page with certain constraints.
@@ -359,6 +452,11 @@ func (qf *QueryFilter) ToValues() url.Values {
 }
 
 // ToPagination returns a Pagination from a QueryFilter.
+//
+// The Cursor it carries is the requested one, because a filter on its own does
+// not know where the next page starts. NewQueryFilteredResult is what moves it
+// to PreviousCursor and fills Cursor from the data, so a Pagination built here
+// and returned directly reports the request rather than the result.
 func (qf *QueryFilter) ToPagination() Pagination {
 	if qf == nil {
 		return DefaultQueryFilter().ToPagination()
@@ -389,13 +487,11 @@ func ExtractQueryFilterFromRequest(req *http.Request) (*QueryFilter, error) {
 	qf := DefaultQueryFilter()
 	err := qf.FromParams(req.URL.Query())
 
-	if qf.MaxResponseSize != nil {
-		if *qf.MaxResponseSize == 0 {
-			qf.MaxResponseSize = new(uint16(DefaultQueryFilterLimit))
-		}
-	}
-
-	return qf, err
+	// FromParams has already reported an unrecognized sort direction and left the
+	// default in place, so Normalize finds nothing to report here; it is called
+	// for the page-size defaulting, and joined rather than discarded so that
+	// stays true if either side gains a check the other does not have.
+	return qf, platformerrors.Join(err, qf.Normalize())
 }
 
 // NewQueryFilteredResult creates a new QueryFilteredResult.
