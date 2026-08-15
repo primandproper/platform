@@ -64,11 +64,21 @@ GREMLINS_WORKERS  ?= 4
 #     the RUN_CONTAINER_TESTS gate and its testcontainers call panics outright
 #     when no daemon is reachable. Off plus a socket skips the gated tests and
 #     lets the handful of ungated ones connect.
+#
+# GOFLAGS carries a per-package test timeout, which is the floor under a mutant
+# that hangs. gremlins' own deadline is derived from the coverage run and scales
+# with it, so on a cold cache it lands beyond the workflow's twenty-minute cap
+# entirely — and a hung mutant then takes the whole job, reporting none of the
+# mutants that did run. `go test` stopping the binary itself makes that a KILLED
+# in bounded time, which is the honest verdict: a test suite that cannot finish
+# has not passed. Well clear of the slowest package here, which is a few seconds
+# clean and half a minute with a mutation making every bounded wait wait it out.
 MUTATE := $(RUN_CONTAINER) \
 	--volume /var/run/docker.sock:/var/run/docker.sock \
 	--volume $(GREMLINS_CACHE):/gocache \
 	--env GOCACHE=/gocache/build \
 	--env GOMODCACHE=/gocache/mod \
+	--env GOFLAGS=-timeout=180s \
 	--env RUN_CONTAINER_TESTS=false \
 	--env GIT_CONFIG_COUNT=1 \
 	--env GIT_CONFIG_KEY_0=safe.directory \
