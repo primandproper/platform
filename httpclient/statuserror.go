@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/primandproper/platform-go/v10/charset"
 	"github.com/primandproper/platform-go/v10/retry"
@@ -37,16 +38,37 @@ type StatusError struct {
 
 	// Body is the response body, whitespace-trimmed and cut to at most
 	// WithErrorBodyLimit bytes on a rune boundary. Truncated says whether the
-	// cut happened.
+	// cut happened; Binary says whether there was a body that is not here.
 	Body string
+
+	// ContentType is the response's Content-Type header as the server sent it,
+	// which may be empty. It is what makes a Binary error legible: the number of
+	// bytes alone does not say whether the server answered CBOR or a proxy
+	// answered a gzip stream.
+	ContentType string
 
 	// StatusCode is the response status code.
 	StatusCode int
+
+	// BodySize is how many bytes of the body were read — at most
+	// WithErrorBodyLimit, plus the one byte used to detect truncation. It is not
+	// the size of the body the server sent, which is the point: nothing here
+	// reads far enough to know that.
+	BodySize int
 
 	// Truncated reports whether the server's body was longer than the limit, so
 	// a reader knows the message ends because the bound was reached rather than
 	// because the server had nothing more to say.
 	Truncated bool
+
+	// Binary reports that the server sent a body which is not text, so Body is
+	// empty and BodySize and ContentType are all that is kept of it.
+	//
+	// An exchange over CBOR is the case this exists for. Its error bodies are
+	// bytes, and a bounded prefix of them run through a string is mojibake in a
+	// log line — the sort that arrives at a UTF-8 column or a JSON log encoder
+	// and fails there, one layer away from anything that explains why.
+	Binary bool
 }
 
 // newStatusError renders a refused response as an error, reading no more of its
@@ -58,6 +80,12 @@ type StatusError struct {
 // this is meant to prevent, not a smaller version of it. The cost is that the
 // connection is not reusable when a body is left unread, which is a fair price
 // on a path that has already failed.
+//
+// Whether the bytes are text is decided by looking at them rather than at the
+// exchange's content type, because the two are routinely different: a CBOR
+// endpoint's 502 comes from a proxy that has never heard of CBOR and answers
+// HTML, and a JSON endpoint behind a misconfigured gateway can answer a gzip
+// stream. What was actually read is the only thing that settles it.
 func newStatusError(req *http.Request, resp *http.Response, limit int) *StatusError {
 	// One byte past the limit, so a body that exactly fills it is not reported
 	// as cut. The read error, if any, is discarded: the status is the finding
@@ -65,17 +93,68 @@ func newStatusError(req *http.Request, resp *http.Response, limit int) *StatusEr
 	// still a 503.
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1)) //nolint:errcheck // the status is the finding; a short body does not change it.
 
-	return &StatusError{
-		Method:     req.Method,
-		Path:       req.URL.Path,
-		Status:     resp.Status,
-		Body:       charset.TruncateUTF8(strings.TrimSpace(string(raw)), limit),
-		StatusCode: resp.StatusCode,
-		Truncated:  len(raw) > limit,
+	statusErr := &StatusError{
+		Method:      req.Method,
+		Path:        req.URL.Path,
+		Status:      resp.Status,
+		ContentType: resp.Header.Get("Content-Type"),
+		StatusCode:  resp.StatusCode,
+		BodySize:    len(raw),
+		Truncated:   len(raw) > limit,
 	}
+
+	trimmed := strings.TrimSpace(string(raw))
+
+	switch {
+	case limit <= 0 || trimmed == "":
+		// Nothing was to be kept, so there is nothing to report about it. A zero
+		// limit is a caller saying this endpoint's failures are worthless or
+		// sensitive, and answering it with a byte count would be answering a
+		// question it declined to ask.
+	case isText(trimmed):
+		statusErr.Body = charset.TruncateUTF8(trimmed, limit)
+	default:
+		statusErr.Binary = true
+	}
+
+	return statusErr
+}
+
+// isText reports whether what was read is text, forgiving an incomplete rune at
+// the very end.
+//
+// The forgiveness is the whole point. The read is bounded in bytes and not in
+// runes, so a perfectly ordinary UTF-8 error document read up to the limit ends
+// mid-character about three times in four — and judging that invalid would
+// withhold exactly the long error bodies the bound exists to make affordable.
+//
+// Only the tail is forgiven, and only up to the longest rune. Real binary fails
+// at its first byte far more often than at its last: a gzip stream opens with
+// 0x1f 0x8b, and CBOR opens with a major-type byte that is a UTF-8 continuation.
+// Trimming the end cannot rescue either.
+func isText(s string) bool {
+	for cut := range utf8.UTFMax {
+		if cut > len(s) {
+			break
+		}
+
+		if utf8.ValidString(s[:len(s)-cut]) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (e *StatusError) Error() string {
+	if e.Binary {
+		if e.ContentType == "" {
+			return fmt.Sprintf("%s %s: server responded with %s: %d non-text bytes, unlabeled", e.Method, e.Path, e.Status, e.BodySize)
+		}
+
+		return fmt.Sprintf("%s %s: server responded with %s: %d non-text bytes of %s", e.Method, e.Path, e.Status, e.BodySize, e.ContentType)
+	}
+
 	if e.Body == "" {
 		return fmt.Sprintf("%s %s: server responded with %s", e.Method, e.Path, e.Status)
 	}

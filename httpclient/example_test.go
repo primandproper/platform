@@ -11,6 +11,7 @@ import (
 
 	"github.com/primandproper/platform-go/v10/cache/memory"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v10/encoding"
 	"github.com/primandproper/platform-go/v10/httpclient"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/ratelimiting"
@@ -165,9 +166,10 @@ type claimResponse struct {
 	Count int    `json:"count"`
 }
 
-// The exchange every JSON caller was writing by hand: marshal, send, check the
-// status, unmarshal.
-func ExampleJSON() {
+// The exchange every service-to-service caller was writing by hand: marshal,
+// send, check the status, unmarshal. Named no content type, it speaks
+// DefaultContentType.
+func ExampleExchange() {
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
 		res.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(res, `{"id":"claim-7","count":3}`)
@@ -179,7 +181,7 @@ func ExampleJSON() {
 		panic(err)
 	}
 
-	claim, err := httpclient.JSON[claimResponse](
+	claim, err := httpclient.Exchange[claimResponse](
 		context.Background(),
 		client,
 		http.MethodPost,
@@ -193,6 +195,51 @@ func ExampleJSON() {
 	fmt.Println(claim.ID, claim.Count)
 
 	// Output: claim-7 3
+}
+
+// Nothing about an exchange is written in terms of JSON. A service that speaks
+// CBOR — smaller on the wire than JSON, and readable outside Go — is one option
+// away, and so is every other encoding the encoding package implements.
+func ExampleWithContentType() {
+	cbor := encoding.NewClientEncoder(encoding.ContentTypeCBOR)
+
+	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		// One option set both directions: what the request body is, and what the
+		// caller will accept back.
+		fmt.Println(req.Header.Get("Content-Type"), req.Header.Get("Accept"))
+
+		raw, err := cbor.Marshal(req.Context(), &claimResponse{ID: "claim-7", Count: 3})
+		if err != nil {
+			panic(err)
+		}
+
+		res.Header().Set("Content-Type", encoding.ContentTypeCBOR.String())
+		_, _ = res.Write(raw)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewHTTPClient()
+	if err != nil {
+		panic(err)
+	}
+
+	claim, err := httpclient.Exchange[claimResponse](
+		context.Background(),
+		client,
+		http.MethodPost,
+		server.URL+"/v1/claim",
+		&claimRequest{Worker: "worker-1"},
+		httpclient.WithContentType(encoding.ContentTypeCBOR),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(claim.ID, claim.Count)
+
+	// Output:
+	// application/cbor application/cbor
+	// claim-7 3
 }
 
 // A refused status is an error carrying what an operator needs and no more of
@@ -211,7 +258,7 @@ func ExampleStatusError() {
 		panic(err)
 	}
 
-	_, err = httpclient.JSON[claimResponse](
+	_, err = httpclient.Exchange[claimResponse](
 		context.Background(),
 		client,
 		http.MethodPost,
@@ -257,7 +304,7 @@ func ExampleNewBaseURLClient() {
 		panic(err)
 	}
 
-	claim, err := httpclient.JSON[claimResponse](context.Background(), leader, http.MethodGet, "/v1/claim", nil)
+	claim, err := httpclient.Exchange[claimResponse](context.Background(), leader, http.MethodGet, "/v1/claim", nil)
 	if err != nil {
 		panic(err)
 	}

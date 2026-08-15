@@ -11,7 +11,7 @@ import (
 // and not a URL:
 //
 //	leader, err := httpclient.NewBaseURLClient(client, "https://leader.internal/api")
-//	claim, err := httpclient.JSON[ClaimResponse](ctx, leader, http.MethodPost, "/v1/claim", request)
+//	claim, err := httpclient.Exchange[ClaimResponse](ctx, leader, http.MethodPost, "/v1/claim", request)
 //
 // It is a Doer itself, so it goes anywhere one does and composes with nothing
 // else: the client it wraps keeps every transport it was built with, and this

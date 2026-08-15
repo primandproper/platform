@@ -11,20 +11,35 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
-// jsonCodec is the client-side encoder every exchange marshals and unmarshals
-// through, held once because it is stateless and its content type never
-// changes.
+// codecs is every encoding an exchange can speak, one client-side codec per
+// content type the encoding package implements.
 //
-// It is the encoding package's client seam rather than encoding/json directly,
-// which is what the rest of this module reaches for whenever a value has to
-// become bytes; its JSON output is byte-for-byte json.Marshal's. It is not the
-// ServerEncoderDecoder, which is about writing responses and has no business
-// here.
+// It is built from encoding.ContentTypes rather than from a list written out
+// here, so an encoding added there is reachable from an exchange without this
+// package being touched, and so the set this package speaks cannot drift from
+// the set that package implements. A lookup that misses is the only definition
+// of "unsupported" this package has.
+//
+// They are the encoding package's client seam rather than encoding/json and its
+// counterparts directly, which is what the rest of this module reaches for
+// whenever a value has to become bytes; the JSON codec's output is
+// byte-for-byte json.Marshal's. None of them is the ServerEncoderDecoder, which
+// is about writing responses and has no business here.
 //
 // No observability is attached, because there is nothing here for it to say
 // that the caller's own span does not already cover — a marshal of a struct the
 // caller just built, and an unmarshal of a body the transport already traced.
-var jsonCodec encoding.Codec = encoding.NewClientEncoder(encoding.ContentTypeJSON)
+var codecs = buildCodecs()
+
+func buildCodecs() map[encoding.ContentType]encoding.Codec {
+	built := make(map[encoding.ContentType]encoding.Codec, len(encoding.ContentTypes))
+
+	for _, contentType := range encoding.ContentTypes {
+		built[contentType] = encoding.NewClientEncoder(contentType)
+	}
+
+	return built
+}
 
 // Doer sends a prepared request and returns the response. *http.Client is the
 // implementation callers pass, and the one the rest of this package builds.
@@ -43,7 +58,7 @@ type Doer interface {
 // NoContent is the response type for an exchange whose reply body is not read
 // at all:
 //
-//	_, err := httpclient.JSON[httpclient.NoContent](ctx, client, http.MethodDelete, url, nil)
+//	_, err := httpclient.Exchange[httpclient.NoContent](ctx, client, http.MethodDelete, url, nil)
 //
 // It exists because "decode the body into Out" and "there is no body" are
 // different requests, and the alternative — inferring one from an empty body —
@@ -54,17 +69,41 @@ type Doer interface {
 // exchange its connection and nothing else.
 type NoContent struct{}
 
-// JSON performs one JSON exchange over doer: encode in, send it to url, check
-// the status, and decode the response into Out.
+// Exchange performs one encoded exchange over doer: encode in, send it to url,
+// check the status, and decode the response into Out.
 //
-//	claim, err := httpclient.JSON[ClaimResponse](ctx, client, http.MethodPost, url, request)
+//	claim, err := httpclient.Exchange[ClaimResponse](ctx, client, http.MethodPost, url, request)
 //
-// A nil in sends no body at all — not a JSON null — and sets no Content-Type.
-// Anything else is marshaled, and the bytes are held rather than streamed, so
-// the request carries a GetBody and a retrying client can replay it. Every
-// request asks for JSON back; a response is decoded whatever its Content-Type
-// says, because a server that answers JSON while labeling it text/plain is
-// common and refusing it here would help nobody.
+// # The encoding is a choice, and JSON is only its default
+//
+// WithContentType names the encoding, over any content type the encoding
+// package implements — JSON, XML, TOML, YAML, CBOR, Ecoji. Unnamed, it is
+// DefaultContentType, which is JSON because that is what the overwhelming
+// majority of these calls speak, not because this package treats JSON as the
+// encoding and the rest as exceptions.
+//
+// A content type this package cannot speak is an error rather than a fallback,
+// the same answer encoding.ParseContentType gives, and for the same reason:
+// silently standing in for JSON would turn a typo into a request that reaches a
+// real server and is misunderstood by it.
+//
+//	doc, err := httpclient.Exchange[Manifest](ctx, client, http.MethodGet, url, nil,
+//		httpclient.WithContentType(encoding.ContentTypeCBOR),
+//	)
+//
+// # The exchange itself
+//
+// A nil in sends no body at all — not an encoded null — and sets no
+// Content-Type. Anything else is marshaled, and the bytes are held rather than
+// streamed, so the request carries a GetBody and a retrying client can replay
+// it.
+//
+// Every request asks for its own content type back in Accept, and the reply is
+// decoded with that same codec whatever the response's Content-Type says. That
+// leniency is deliberate: a server that answers JSON while labeling it
+// text/plain is common, and reading the response header instead would refuse
+// precisely the case the leniency exists for. The codec is the caller's
+// statement of what it expects, not a guess at what arrived.
 //
 // A status outside 2xx is a *StatusError carrying the status, the request path,
 // and a bounded prefix of the body — see WithErrorBodyLimit. Out is the zero
@@ -85,16 +124,19 @@ type NoContent struct{}
 // retry.ErrUnretryable, so a caller wrapping a whole operation — several
 // exchanges, or an exchange plus the work around it — in a retry.Policy of its
 // own stops on a 400 and keeps trying a 429, without restating the rule.
-func JSON[Out any](ctx context.Context, doer Doer, method, url string, in any, opts ...ExchangeOption) (Out, error) {
+func Exchange[Out any](ctx context.Context, doer Doer, method, url string, in any, opts ...ExchangeOption) (Out, error) {
 	var out Out
 
 	if doer == nil {
-		return out, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "performing a JSON exchange without a client")
+		return out, platformerrors.Wrap(platformerrors.ErrNilInputParameter, "performing an exchange without a client")
 	}
 
-	cfg := newExchangeConfig(opts)
+	cfg, err := newExchangeConfig(opts)
+	if err != nil {
+		return out, err
+	}
 
-	req, err := jsonRequest(ctx, cfg, method, url, in)
+	req, err := buildRequest(ctx, cfg, method, url, in)
 	if err != nil {
 		return out, err
 	}
@@ -125,7 +167,7 @@ func JSON[Out any](ctx context.Context, doer Doer, method, url string, in any, o
 		return out, platformerrors.Wrapf(err, "reading the %s %s response", req.Method, req.URL.Path)
 	}
 
-	if err = jsonCodec.Unmarshal(ctx, raw, &out); err != nil {
+	if err = cfg.codec.Unmarshal(ctx, raw, &out); err != nil {
 		var zero Out
 
 		return zero, platformerrors.Wrapf(err, "decoding the %s %s response", req.Method, req.URL.Path)
@@ -134,15 +176,15 @@ func JSON[Out any](ctx context.Context, doer Doer, method, url string, in any, o
 	return out, nil
 }
 
-// jsonRequest builds the request an exchange sends: the encoded body, the two
+// buildRequest builds the request an exchange sends: the encoded body, the two
 // headers that describe it, and whatever the caller added on top.
-func jsonRequest(ctx context.Context, cfg *exchangeConfig, method, url string, in any) (*http.Request, error) {
+func buildRequest(ctx context.Context, cfg *exchangeConfig, method, url string, in any) (*http.Request, error) {
 	body := io.Reader(http.NoBody)
 
 	if in != nil {
-		raw, err := jsonCodec.Marshal(ctx, in)
+		raw, err := cfg.codec.Marshal(ctx, in)
 		if err != nil {
-			return nil, platformerrors.Wrapf(err, "encoding the %s request body", method)
+			return nil, platformerrors.Wrapf(err, "encoding the %s request body as %s", method, cfg.codec.ContentType())
 		}
 
 		// A bytes.Reader is what makes http.NewRequestWithContext populate
@@ -157,10 +199,10 @@ func jsonRequest(ctx context.Context, cfg *exchangeConfig, method, url string, i
 		return nil, platformerrors.Wrapf(err, "building the %s request", method)
 	}
 
-	req.Header.Set("Accept", jsonCodec.ContentType())
+	req.Header.Set("Accept", cfg.codec.ContentType())
 
 	if in != nil {
-		req.Header.Set("Content-Type", jsonCodec.ContentType())
+		req.Header.Set("Content-Type", cfg.codec.ContentType())
 	}
 
 	// Last, so a caller that has something else to say about either header —

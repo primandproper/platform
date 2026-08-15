@@ -87,7 +87,7 @@ func TestBaseURLClientResolution(t *testing.T) {
 			bound, err := NewBaseURLClient(exchangeClient(t, transport), tc.baseURL)
 			must.NoError(t, err)
 
-			_, err = JSON[claim](t.Context(), bound, http.MethodGet, tc.path, nil)
+			_, err = Exchange[claim](t.Context(), bound, http.MethodGet, tc.path, nil)
 			must.NoError(t, err)
 
 			test.EqOp(t, tc.want, transport.seen.URL.String())

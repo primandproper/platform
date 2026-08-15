@@ -21,34 +21,60 @@ provider refused an instrument. Nothing else here can fail.
 
 # The exchange
 
-A client is not the whole job. Every service-to-service JSON caller then writes
-the same layer on top of one — marshal, build the request, send it, check the
+A client is not the whole job. Every service-to-service caller then writes the
+same layer on top of one — marshal, build the request, send it, check the
 status, read the body, close it, unmarshal — and writes it slightly differently.
-JSON is that layer, once:
+Exchange is that layer, once:
 
-	claim, err := httpclient.JSON[ClaimResponse](ctx, client, http.MethodPost, url, request)
+	claim, err := httpclient.Exchange[ClaimResponse](ctx, client, http.MethodPost, url, request)
 
 It is generic over the response type. A nil request body sends nothing at all
-rather than a JSON null, and NoContent is the response type for a reply whose
-body is not read. Anything outside 2xx is a *StatusError carrying the status,
-the request path, and a bounded prefix of the body.
+rather than an encoded null, and NoContent is the response type for a reply
+whose body is not read. Anything outside 2xx is a *StatusError carrying the
+status, the request path, and a bounded prefix of the body.
 
 That bound is the detail everyone forgets, and the reason it is here rather than
 at each call site. An error body goes into a log line, and a four-megabyte HTML
 error page from a proxy is how that becomes an incident of its own — so the
 limit is on the read and not merely on the string, and the cut lands on a rune
 boundary. WithErrorBodyLimit moves it; zero keeps the status and none of the
-body.
+body. A body that is not text at all — a CBOR problem document, a gzip stream
+from a confused gateway — is reported as its size and media type rather than run
+through a string, because mojibake in a log line fails at a UTF-8 column one
+layer away from anything that explains it.
 
-Encoding is client-side and JSON, through the encoding package's client seam —
-not its ServerEncoderDecoder, which is about writing responses. The body is
-marshaled to bytes rather than streamed, so the request carries a GetBody and
-the retry transport below can replay it.
+# The encoding is a choice, and JSON is only its default
+
+Encoding is client-side, through the encoding package's client seam — not its
+ServerEncoderDecoder, which is about writing responses. Every content type that
+package implements is a peer here, named with WithContentType, which sets the
+request's Content-Type, the Accept it asks for, and the codec the reply is
+decoded with:
+
+	doc, err := httpclient.Exchange[Manifest](ctx, client, http.MethodGet, url, nil,
+		httpclient.WithContentType(encoding.ContentTypeCBOR),
+	)
+
+Unnamed, it is DefaultContentType, which is JSON. That is a default and not a
+rule — it reflects what the overwhelming majority of these calls speak, and
+nothing in an exchange is written in terms of JSON specifically. A content type
+the encoding package does not implement is an error rather than a fall back to
+JSON, which is the answer encoding.ParseContentType gives and for the same
+reason: silently standing in for JSON turns a typo into a request some server
+answers wrongly, with nothing to say so.
+
+The reply is decoded with the codec the caller named, whatever the response's
+Content-Type says. A server that answers JSON while labeling it text/plain is
+common, and reading the response header instead would refuse exactly the case
+that leniency exists for.
+
+The body is marshaled to bytes rather than streamed, so the request carries a
+GetBody and the retry transport below can replay it.
 
 BaseURLClient binds a client to one service's root, so a call site names a path:
 
 	leader, err := httpclient.NewBaseURLClient(client, "https://leader.internal/api")
-	claim, err := httpclient.JSON[ClaimResponse](ctx, leader, http.MethodPost, "/v1/claim", request)
+	claim, err := httpclient.Exchange[ClaimResponse](ctx, leader, http.MethodPost, "/v1/claim", request)
 
 It is the other half every consumer rebuilds, and the joining is url.URL.JoinPath's
 rather than string concatenation, which is where the doubled slash and the
