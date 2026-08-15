@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/clock"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
@@ -33,6 +34,7 @@ const challengeKey = "webauthn.challenge"
 type RelyingParty struct {
 	webauthn *gowebauthn.WebAuthn
 	store    SessionStore
+	clock    clock.Clock
 	o11y     observability.Observer
 
 	instruments *metrics.OperationSet
@@ -81,6 +83,7 @@ func NewRelyingParty(ctx context.Context, cfg *Config, store SessionStore, opts 
 	return &RelyingParty{
 		webauthn:        w,
 		store:           store,
+		clock:           o.clock,
 		o11y:            observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		instruments:     instruments,
 		ceremonyTimeout: cfg.CeremonyTimeout,
@@ -443,8 +446,14 @@ func (rp *RelyingParty) consume(
 // the ceremony moves its stored state with it. The configured timeout is the
 // fallback for a session with no deadline, which is what a caller building this
 // package's SessionStore into their own go-webauthn configuration can produce.
+//
+// A deadline that has exactly arrived is no deadline: a ceremony stored for
+// zero is a ceremony every store refuses, so the boundary falls on the side of
+// the configured timeout. The now it is measured against comes from the clock
+// rather than from time.Now, which is what lets a test sit on that boundary
+// instead of near it.
 func (rp *RelyingParty) ttl(session *SessionData) time.Duration {
-	if remaining := time.Until(session.Expires); remaining > 0 {
+	if remaining := session.Expires.Sub(rp.clock.Now()); remaining > 0 {
 		return remaining
 	}
 

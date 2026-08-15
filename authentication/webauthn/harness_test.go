@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v10/clock"
 	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
 	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
@@ -111,6 +112,19 @@ func (s *memoryStore) count() int {
 
 	return len(s.sessions)
 }
+
+// fixedClock is a Clock stopped at one instant, for the tests that need to
+// stand exactly on a ceremony's deadline rather than near it.
+type fixedClock struct {
+	now time.Time
+}
+
+var _ clock.Clock = (*fixedClock)(nil)
+
+func (c *fixedClock) Now() time.Time                                   { return c.now }
+func (c *fixedClock) Since(t time.Time) time.Duration                  { return c.now.Sub(t) }
+func (c *fixedClock) Sleep(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+func (c *fixedClock) NewTicker(_ time.Duration) clock.Ticker           { panic("not used") }
 
 // newTestRelyingParty builds a relying party over a store the test can inspect.
 func newTestRelyingParty(tb testing.TB, store SessionStore, opts ...Option) *RelyingParty {

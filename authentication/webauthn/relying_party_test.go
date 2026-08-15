@@ -493,6 +493,20 @@ func TestRelyingParty_ttl(T *testing.T) {
 		test.True(t, ttl > 25*time.Second && ttl <= 30*time.Second, test.Sprintf("ttl %v", ttl))
 	})
 
+	// The instant the deadline arrives, exactly. A wall clock cannot be stood on
+	// that instant, so nothing else here can tell "has a moment left" from "has
+	// nothing left" — and the difference is a ceremony stored for zero, which
+	// every store refuses, against one stored for the configured timeout.
+	T.Run("hands a ceremony whose deadline has just arrived the configured timeout", func(t *testing.T) {
+		t.Parallel()
+
+		now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+		rp := newTestRelyingParty(t, newMemoryStore(), WithClock(&fixedClock{now: now}))
+
+		test.EqOp(t, DefaultCeremonyTimeout, rp.ttl(&SessionData{Expires: now}))
+		test.EqOp(t, time.Nanosecond, rp.ttl(&SessionData{Expires: now.Add(time.Nanosecond)}))
+	})
+
 	// A session with no deadline is what a caller who built this package's
 	// store into their own go-webauthn configuration, with enforcement off,
 	// produces. It gets the configured ceremony timeout rather than a TTL of

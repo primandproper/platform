@@ -1,6 +1,7 @@
 package webauthn
 
 import (
+	"github.com/primandproper/platform-go/v10/clock"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	"github.com/primandproper/platform-go/v10/observability/metrics"
 	"github.com/primandproper/platform-go/v10/observability/tracing"
@@ -12,14 +13,16 @@ import (
 type Option func(*options)
 
 type options struct {
+	clock           clock.Clock
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 }
 
-// newOptions applies opts, ignoring nil entries.
+// newOptions applies opts over the defaults, ignoring nil entries.
 func newOptions(opts []Option) *options {
-	o := &options{}
+	o := &options{clock: clock.NewClock()}
+
 	for _, opt := range opts {
 		if opt != nil {
 			opt(o)
@@ -49,4 +52,18 @@ func WithTracerProvider(tracerProvider tracing.Provider) Option {
 // latency histogram. An absent provider records nothing.
 func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 	return func(o *options) { o.metricsProvider = metricsProvider }
+}
+
+// WithClock swaps the clock a ceremony's remaining life is measured against
+// when its state is stored.
+//
+// The deadline itself comes from the library, which reads the wall clock either
+// way, so this does not move a ceremony's expiry — it decides how much of that
+// expiry the store is told about.
+func WithClock(c clock.Clock) Option {
+	return func(o *options) {
+		if c != nil {
+			o.clock = c
+		}
+	}
 }
