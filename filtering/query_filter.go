@@ -25,6 +25,11 @@
 // A nil *QueryFilter is usable throughout: it renders as the default filter and
 // says so when attached to a logger, so handlers need no nil check before
 // passing one along.
+//
+// QueryFilterSchema describes the request half as JSON Schema, for the surfaces
+// that ask for a filter in that dialect rather than in query parameters: a
+// tool-calling model, an MCP tool definition, an OpenAPI document. It is
+// reflected off the struct, so it is the one description of this type there is.
 package filtering
 
 import (
@@ -99,17 +104,51 @@ type (
 	}
 
 	// QueryFilter represents all the filters a User could apply to a list query.
+	//
+	// The tags beyond `json` are the type's JSON Schema. QueryFilterSchema
+	// reflects them, and so does the OpenAPI reflector routing runs, so what a
+	// generated client is told about a filter and what a model on the other end
+	// of a tool call is told about one come from the same place and cannot
+	// disagree. Nothing about the schema is written out anywhere else — that is
+	// the point, because a second copy of this struct can be wrong and nothing
+	// would say so.
+	//
+	// The numbers are literals because a struct tag cannot name a constant.
+	// TestQueryFilterSchema_Bounds ties each one back to the constant it
+	// repeats, which is what keeps the tag and the clamp from drifting apart.
+	//
+	// `nullable:"false"` is on every field because these are optional, not
+	// nullable: an absent one filters nothing, and none of them is ever emitted
+	// as null — `omitempty` sees to that. Left alone the reflector reads the
+	// pointer and offers null as a value, which on SortBy would have contradicted
+	// its own enum.
+	//
+	// The fields are separated by blank lines because tagalign pads a run of
+	// adjacent ones out to the longest tag in it, and one description long
+	// enough to be worth writing puts a hundred spaces in front of every other
+	// field's `json`.
 	QueryFilter struct {
-		_ struct{} `json:"-"`
+		// The blank field carries the document-level keywords. Its `json:"-"`
+		// is gone rather than joined by them: the reflector discards a field
+		// tagged "-" before it reads anything else, and encoding/json skips a
+		// blank field whatever it is tagged.
+		_ struct{} `additionalProperties:"false" description:"The slice of a collection a caller is asking for: how many rows, where to resume, which direction, and optional windows on when a row was created or last updated. Every field is optional, and an absent one filters nothing."`
 
-		SortBy          *string    `json:"sortBy,omitempty"`
-		CreatedAfter    *time.Time `json:"createdAfter,omitempty"`
-		CreatedBefore   *time.Time `json:"createdBefore,omitempty"`
-		UpdatedAfter    *time.Time `json:"updatedAfter,omitempty"`
-		UpdatedBefore   *time.Time `json:"updatedBefore,omitempty"`
-		MaxResponseSize *uint16    `json:"maxResponseSize,omitempty"`
-		IncludeArchived *bool      `json:"includeArchived,omitempty"`
-		Cursor          *string    `json:"cursor,omitempty"`
+		SortBy *string `default:"asc" description:"Sort direction, not a column name: \"asc\" for oldest first, \"desc\" for newest first, and nothing else." enum:"asc,desc" json:"sortBy,omitempty" nullable:"false"`
+
+		CreatedAfter *time.Time `description:"Only rows created after this instant." json:"createdAfter,omitempty" nullable:"false"`
+
+		CreatedBefore *time.Time `description:"Only rows created before this instant." json:"createdBefore,omitempty" nullable:"false"`
+
+		UpdatedAfter *time.Time `description:"Only rows last updated after this instant." json:"updatedAfter,omitempty" nullable:"false"`
+
+		UpdatedBefore *time.Time `description:"Only rows last updated before this instant." json:"updatedBefore,omitempty" nullable:"false"`
+
+		MaxResponseSize *uint16 `default:"50" description:"Maximum number of rows in one page. Absent means 50. A value above the maximum is clamped to it rather than rejected, so asking for more than the ceiling is answered with the ceiling." json:"maxResponseSize,omitempty" maximum:"250" minimum:"0" nullable:"false"`
+
+		IncludeArchived *bool `default:"false" description:"Include archived rows. Absent leaves them out." json:"includeArchived,omitempty" nullable:"false"`
+
+		Cursor *string `description:"Opaque cursor from a previous response's cursor field. The page resumes after the row it names; absent starts at the beginning." json:"cursor,omitempty" nullable:"false"`
 	}
 
 	QueryFilteredResult[T any] struct {

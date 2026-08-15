@@ -137,6 +137,18 @@ Token introspection (RFC 7662) and consent screens beyond the login form. The
 first is discussed above; the second is application-shaped in the same way the
 login form is, and WithLoginRenderer is the seam for it.
 
+An adapter for any one protocol built on top of this. A remote MCP server is the
+case that prompted asking, because it has to be an authorization server and this
+is that; what is left over is smaller than it looks. An MCP server is an
+http.Handler, so putting it beside these endpoints is a Handle call on the same
+router. Its SDK wants a token verifier, which is a function that calls
+Authenticate and copies an AccessToken's Subject, Scopes, and ExpiresAt into
+whatever the SDK's own token type is. The 401 challenge the SDK's bearer
+middleware sends is the one ResourceMetadata.Challenge already builds, and the
+verified subject a tool handler needs is what the SDK then carries for it. A
+package holding a mount call and a fifteen-line copy would pin this module to
+one SDK's API in exchange for the fifteen lines.
+
 Rate limiting /register. It is unauthenticated by construction — RFC 7591
 requires that for discovery to work — so bounding it matters, but who a caller
 *is* depends on a deployment's proxy, gateway, and address handling in ways not
