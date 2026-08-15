@@ -212,42 +212,52 @@
         "properties": {
           "createdAfter": {
             "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "description": "Only rows created after this instant.",
+            "format": "date-time"
           },
           "createdBefore": {
             "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "description": "Only rows created before this instant.",
+            "format": "date-time"
           },
           "cursor": {
             "type": "string",
-            "nullable": true
+            "description": "Opaque cursor from a previous response's cursor field. The page resumes after the row it names; absent starts at the beginning."
           },
           "includeArchived": {
             "type": "boolean",
-            "nullable": true
+            "description": "Include archived rows. Absent leaves them out.",
+            "default": false
           },
           "maxResponseSize": {
+            "maximum": 250,
             "minimum": 0,
             "type": "integer",
-            "nullable": true
+            "description": "Maximum number of rows in one page. Absent means 50. A value above the maximum is clamped to it rather than rejected, so asking for more than the ceiling is answered with the ceiling.",
+            "default": 50
           },
           "sortBy": {
+            "enum": [
+              "asc",
+              "desc"
+            ],
             "type": "string",
-            "nullable": true
+            "description": "Sort direction, not a column name: \"asc\" for oldest first, \"desc\" for newest first, and nothing else.",
+            "default": "asc"
           },
           "updatedAfter": {
             "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "description": "Only rows last updated after this instant.",
+            "format": "date-time"
           },
           "updatedBefore": {
             "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "description": "Only rows last updated before this instant.",
+            "format": "date-time"
           }
-        }
+        },
+        "additionalProperties": false,
+        "description": "The slice of a collection a caller is asking for: how many rows, where to resume, which direction, and optional windows on when a row was created or last updated. Every field is optional, and an absent one filters nothing."
       },
       "HttpAPIError": {
         "type": "object",
