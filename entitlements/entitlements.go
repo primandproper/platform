@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/authorization"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/internal/plainname"
-	"github.com/primandproper/platform-go/v10/metering"
+	"github.com/primandproper/platform-go/v11/authorization"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/internal/plainname"
+	"github.com/primandproper/platform-go/v11/metering"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.

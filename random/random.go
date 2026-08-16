@@ -8,10 +8,10 @@ import (
 	"encoding/hex"
 	"io"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/keys"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/keys"
+	"github.com/primandproper/platform-go/v11/observability/tracing"
 )
 
 // ErrNoRandomness is returned by a Generator that has no source of randomness to

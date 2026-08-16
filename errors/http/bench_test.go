@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // Every error a handler returns passes through here on its way to the client,

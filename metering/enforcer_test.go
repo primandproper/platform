@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/cache"
-	cachemock "github.com/primandproper/platform-go/v10/cache/mock"
-	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v11/cache"
+	cachemock "github.com/primandproper/platform-go/v11/cache/mock"
+	"github.com/primandproper/platform-go/v11/observability/logging"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

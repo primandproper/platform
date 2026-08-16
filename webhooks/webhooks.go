@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/cryptography/requestsigning"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	perrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/keys"
+	perrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/keys"
 
 	"github.com/gorilla/securecookie"
 )

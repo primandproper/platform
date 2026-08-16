@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/dataprivacy"
-	dataprivacymock "github.com/primandproper/platform-go/v10/dataprivacy/mock"
-	"github.com/primandproper/platform-go/v10/operations"
-	uploadsnoop "github.com/primandproper/platform-go/v10/uploads/noop"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/dataprivacy"
+	dataprivacymock "github.com/primandproper/platform-go/v11/dataprivacy/mock"
+	"github.com/primandproper/platform-go/v11/operations"
+	uploadsnoop "github.com/primandproper/platform-go/v11/uploads/noop"
 )
 
 // A Collector returns one domain's view of a subject as already-encoded JSON.

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/encoding"
-	"github.com/primandproper/platform-go/v10/routing"
-	"github.com/primandproper/platform-go/v10/routing/backends/chi"
+	"github.com/primandproper/platform-go/v11/encoding"
+	"github.com/primandproper/platform-go/v11/routing"
+	"github.com/primandproper/platform-go/v11/routing/backends/chi"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

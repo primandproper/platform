@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/entitlements"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/metering"
+	"github.com/primandproper/platform-go/v11/entitlements"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/metering"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

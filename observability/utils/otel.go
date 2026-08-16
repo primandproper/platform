@@ -3,7 +3,7 @@ package o11yutils
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/errors"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"

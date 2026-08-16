@@ -11,15 +11,15 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/primandproper/platform-go/v10/capitalism"
-	"github.com/primandproper/platform-go/v10/clock"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/jobs"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
-	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
+	"github.com/primandproper/platform-go/v11/capitalism"
+	"github.com/primandproper/platform-go/v11/clock"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/jobs"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
+	"github.com/primandproper/platform-go/v11/observability/tracing"
+	retrycfg "github.com/primandproper/platform-go/v11/retry/config"
 )
 
 const (

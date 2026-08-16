@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v10/authentication/oauth2server/oauth2servertest"
-	"github.com/primandproper/platform-go/v10/clock"
-	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v11/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v11/authentication/oauth2server/oauth2servertest"
+	"github.com/primandproper/platform-go/v11/clock"
+	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v11/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

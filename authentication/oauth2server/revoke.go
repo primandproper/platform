@@ -5,7 +5,7 @@ import (
 	stderrors "errors"
 	"net/http"
 
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"

@@ -5,10 +5,10 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v11/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v11/observability/metrics/noop"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/shoenig/test"

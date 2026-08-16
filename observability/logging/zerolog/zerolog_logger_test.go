@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/logging"
 
 	"github.com/rs/zerolog"
 	"github.com/shoenig/test"

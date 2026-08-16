@@ -1,8 +1,8 @@
 package dataprivacycfg
 
 import (
-	"github.com/primandproper/platform-go/v10/cryptography/encryption"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption/aes"
 )
 
 // testKeyID names the single key in the test keyring.

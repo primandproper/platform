@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/database/querygen"
+	"github.com/primandproper/platform-go/v11/database/querygen"
 )
 
 // A table's generator names the table and its columns, and the standard set

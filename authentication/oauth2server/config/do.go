@@ -3,10 +3,10 @@ package oauth2servercfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/internal/injection"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/internal/injection"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"github.com/samber/do/v2"
 )

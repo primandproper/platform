@@ -1,8 +1,8 @@
 package aes
 
 import (
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/tracing"
 )
 
 // Option configures the encryptor this package constructs. The zero

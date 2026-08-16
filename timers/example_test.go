@@ -6,12 +6,12 @@ import (
 	"log"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	"github.com/primandproper/platform-go/v10/database/migrate"
-	"github.com/primandproper/platform-go/v10/database/postgres/pgnotify"
-	"github.com/primandproper/platform-go/v10/timers"
-	"github.com/primandproper/platform-go/v10/timers/migrations"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v11/database/migrate"
+	"github.com/primandproper/platform-go/v11/database/postgres/pgnotify"
+	"github.com/primandproper/platform-go/v11/timers"
+	"github.com/primandproper/platform-go/v11/timers/migrations"
 )
 
 // Every example here is compiled but not run, and carries a nolint saying so.

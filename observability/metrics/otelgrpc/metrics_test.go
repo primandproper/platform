@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
+	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/authentication/webauthn"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v11/authentication/webauthn"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

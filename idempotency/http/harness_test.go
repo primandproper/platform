@@ -8,13 +8,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/cache"
-	cachememory "github.com/primandproper/platform-go/v10/cache/memory"
-	cachemock "github.com/primandproper/platform-go/v10/cache/mock"
-	"github.com/primandproper/platform-go/v10/distributedlock"
-	dlmemory "github.com/primandproper/platform-go/v10/distributedlock/memory"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/idempotency"
+	"github.com/primandproper/platform-go/v11/cache"
+	cachememory "github.com/primandproper/platform-go/v11/cache/memory"
+	cachemock "github.com/primandproper/platform-go/v11/cache/mock"
+	"github.com/primandproper/platform-go/v11/distributedlock"
+	dlmemory "github.com/primandproper/platform-go/v11/distributedlock/memory"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/idempotency"
 
 	"github.com/shoenig/test/must"
 )

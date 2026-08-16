@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/testutils/containers"
+	"github.com/primandproper/platform-go/v11/testutils/containers"
 
 	"github.com/shoenig/test/must"
 	"github.com/testcontainers/testcontainers-go"

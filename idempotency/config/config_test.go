@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	cachecfg "github.com/primandproper/platform-go/v10/cache/config"
-	"github.com/primandproper/platform-go/v10/distributedlock"
-	distributedlockcfg "github.com/primandproper/platform-go/v10/distributedlock/config"
-	pglock "github.com/primandproper/platform-go/v10/distributedlock/postgres"
-	"github.com/primandproper/platform-go/v10/idempotency"
+	cachecfg "github.com/primandproper/platform-go/v11/cache/config"
+	"github.com/primandproper/platform-go/v11/distributedlock"
+	distributedlockcfg "github.com/primandproper/platform-go/v11/distributedlock/config"
+	pglock "github.com/primandproper/platform-go/v11/distributedlock/postgres"
+	"github.com/primandproper/platform-go/v11/idempotency"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

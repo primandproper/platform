@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/clock"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v11/clock"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption"
 )
 
 // keyCache holds unwrapped data keys in this process, and nowhere else.

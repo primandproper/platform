@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	"github.com/primandproper/platform-go/v10/timers"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v11/timers"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

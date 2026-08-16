@@ -5,11 +5,11 @@ import (
 	stderrors "errors"
 	"fmt"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	grpcerrors "github.com/primandproper/platform-go/v10/errors/grpc"
-	"github.com/primandproper/platform-go/v10/idempotency"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	grpcerrors "github.com/primandproper/platform-go/v11/errors/grpc"
+	"github.com/primandproper/platform-go/v11/idempotency"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

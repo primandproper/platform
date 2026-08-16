@@ -3,7 +3,7 @@ package sha256
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/cryptography/hashing"
+	"github.com/primandproper/platform-go/v11/cryptography/hashing"
 
 	"github.com/shoenig/test"
 )

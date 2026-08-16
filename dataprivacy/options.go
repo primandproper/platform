@@ -4,15 +4,15 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/audit"
-	"github.com/primandproper/platform-go/v10/clock"
-	"github.com/primandproper/platform-go/v10/compression"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption"
-	"github.com/primandproper/platform-go/v10/cryptography/shredding"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
-	"github.com/primandproper/platform-go/v10/uploads"
+	"github.com/primandproper/platform-go/v11/audit"
+	"github.com/primandproper/platform-go/v11/clock"
+	"github.com/primandproper/platform-go/v11/compression"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption"
+	"github.com/primandproper/platform-go/v11/cryptography/shredding"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
+	"github.com/primandproper/platform-go/v11/observability/tracing"
+	"github.com/primandproper/platform-go/v11/uploads"
 )
 
 // EmailNotifierOption configures an EmailNotifier.

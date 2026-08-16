@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/retry"
-	"github.com/primandproper/platform-go/v10/retry/noop"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/retry"
+	"github.com/primandproper/platform-go/v11/retry/noop"
 )
 
 const (

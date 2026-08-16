@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/keys"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/keys"
 )
 
 const (

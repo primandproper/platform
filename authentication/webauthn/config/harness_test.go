@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/authentication/webauthn"
-	"github.com/primandproper/platform-go/v10/authentication/webauthn/database/migrations"
-	cachecfg "github.com/primandproper/platform-go/v10/cache/config"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	"github.com/primandproper/platform-go/v10/database/sqlite"
+	"github.com/primandproper/platform-go/v11/authentication/webauthn"
+	"github.com/primandproper/platform-go/v11/authentication/webauthn/database/migrations"
+	cachecfg "github.com/primandproper/platform-go/v11/cache/config"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v11/database/sqlite"
 
 	"github.com/shoenig/test/must"
 )

@@ -16,7 +16,7 @@ package noop
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/qrcodes"
+	"github.com/primandproper/platform-go/v11/qrcodes"
 )
 
 var _ qrcodes.Builder = (*Builder)(nil)

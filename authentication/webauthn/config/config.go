@@ -15,13 +15,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/authentication/webauthn"
-	webauthncache "github.com/primandproper/platform-go/v10/authentication/webauthn/cache"
-	webauthndatabase "github.com/primandproper/platform-go/v10/authentication/webauthn/database"
-	cachecfg "github.com/primandproper/platform-go/v10/cache/config"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v11/authentication/webauthn"
+	webauthncache "github.com/primandproper/platform-go/v11/authentication/webauthn/cache"
+	webauthndatabase "github.com/primandproper/platform-go/v11/authentication/webauthn/database"
+	cachecfg "github.com/primandproper/platform-go/v11/cache/config"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

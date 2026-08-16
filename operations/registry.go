@@ -8,8 +8,8 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/primandproper/platform-go/v10/encoding"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/encoding"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // MaxKindLength bounds a kind name. It is the width of the column and the width

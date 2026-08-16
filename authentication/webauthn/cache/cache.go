@@ -34,9 +34,9 @@ import (
 	stderrors "errors"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/authentication/webauthn"
-	"github.com/primandproper/platform-go/v10/cache"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/authentication/webauthn"
+	"github.com/primandproper/platform-go/v11/cache"
+	"github.com/primandproper/platform-go/v11/observability"
 )
 
 // serviceName names the loggers and spans this store emits.

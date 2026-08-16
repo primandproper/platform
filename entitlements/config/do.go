@@ -3,12 +3,12 @@ package entitlementscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/cache"
-	"github.com/primandproper/platform-go/v10/entitlements"
-	"github.com/primandproper/platform-go/v10/featureflags"
-	"github.com/primandproper/platform-go/v10/internal/injection"
-	"github.com/primandproper/platform-go/v10/metering"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/cache"
+	"github.com/primandproper/platform-go/v11/entitlements"
+	"github.com/primandproper/platform-go/v11/featureflags"
+	"github.com/primandproper/platform-go/v11/internal/injection"
+	"github.com/primandproper/platform-go/v11/metering"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"github.com/samber/do/v2"
 )

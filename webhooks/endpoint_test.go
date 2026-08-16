@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
+	"github.com/primandproper/platform-go/v11/cryptography/requestsigning"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

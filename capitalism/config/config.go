@@ -13,11 +13,11 @@ import (
 	"context"
 	"slices"
 
-	"github.com/primandproper/platform-go/v10/capitalism"
-	"github.com/primandproper/platform-go/v10/capitalism/noop"
-	"github.com/primandproper/platform-go/v10/capitalism/stripe"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v11/capitalism"
+	"github.com/primandproper/platform-go/v11/capitalism/noop"
+	"github.com/primandproper/platform-go/v11/capitalism/stripe"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/authorization"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	errorsgrpc "github.com/primandproper/platform-go/v10/errors/grpc"
+	"github.com/primandproper/platform-go/v11/authorization"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	errorsgrpc "github.com/primandproper/platform-go/v11/errors/grpc"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

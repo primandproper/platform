@@ -17,13 +17,13 @@ import (
 	"slices"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/profiling"
-	profilingnoop "github.com/primandproper/platform-go/v10/observability/profiling/noop"
-	"github.com/primandproper/platform-go/v10/observability/profiling/pprof"
-	"github.com/primandproper/platform-go/v10/observability/profiling/pyroscope"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/profiling"
+	profilingnoop "github.com/primandproper/platform-go/v11/observability/profiling/noop"
+	"github.com/primandproper/platform-go/v11/observability/profiling/pprof"
+	"github.com/primandproper/platform-go/v11/observability/profiling/pyroscope"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

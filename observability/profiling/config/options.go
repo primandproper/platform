@@ -1,7 +1,7 @@
 package profilingcfg
 
 import (
-	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/logging"
 )
 
 // Option configures how NewProfilingProvider assembles its provider.

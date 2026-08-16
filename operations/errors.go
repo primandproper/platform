@@ -3,7 +3,7 @@ package operations
 import (
 	stderrors "errors"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // Failure codes this package writes into Error.Code when a Runner did not name

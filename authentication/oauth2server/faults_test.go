@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v11/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v11/observability/logging"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

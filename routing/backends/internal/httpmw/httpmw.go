@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/routing"
+	"github.com/primandproper/platform-go/v11/routing"
 )
 
 const (
