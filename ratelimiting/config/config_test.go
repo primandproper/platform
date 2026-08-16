@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/errors"
-	redisrl "github.com/primandproper/platform-go/v10/ratelimiting/redis"
+	"github.com/primandproper/platform-go/v11/errors"
+	redisrl "github.com/primandproper/platform-go/v11/ratelimiting/redis"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

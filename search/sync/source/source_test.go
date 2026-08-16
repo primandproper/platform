@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	searchsync "github.com/primandproper/platform-go/v10/search/sync"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	searchsync "github.com/primandproper/platform-go/v11/search/sync"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

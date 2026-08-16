@@ -3,12 +3,12 @@ package retentioncfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/audit"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
-	"github.com/primandproper/platform-go/v10/retention"
+	"github.com/primandproper/platform-go/v11/audit"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
+	"github.com/primandproper/platform-go/v11/observability/tracing"
+	"github.com/primandproper/platform-go/v11/retention"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

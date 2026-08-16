@@ -6,8 +6,8 @@ import (
 	"slices"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
 )
 
 const (

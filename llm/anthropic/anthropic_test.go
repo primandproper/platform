@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/llm"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
-	"github.com/primandproper/platform-go/v10/observability/metrics/metricstest"
-	metricsmock "github.com/primandproper/platform-go/v10/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v11/llm"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
+	"github.com/primandproper/platform-go/v11/observability/metrics/metricstest"
+	metricsmock "github.com/primandproper/platform-go/v11/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v11/observability/metrics/noop"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
 	anyllmerrors "github.com/mozilla-ai/any-llm-go/errors"

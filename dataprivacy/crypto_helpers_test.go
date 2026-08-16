@@ -1,8 +1,8 @@
 package dataprivacy
 
 import (
-	"github.com/primandproper/platform-go/v10/cryptography/encryption"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption/aes"
 )
 
 // testRequestID is the request identity the packager tests bind their

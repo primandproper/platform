@@ -33,9 +33,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/profiling"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/profiling"
 )
 
 // NewProfilingProvider creates a pprof-based profiling provider that exposes

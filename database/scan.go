@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // ScanAll runs a query and collects one value per row through scan.

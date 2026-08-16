@@ -5,12 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	"github.com/primandproper/platform-go/v10/database/sqlite"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/webhooks"
-	"github.com/primandproper/platform-go/v10/webhooks/migrations"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v11/database/sqlite"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/tenancy"
+	"github.com/primandproper/platform-go/v11/webhooks"
+	"github.com/primandproper/platform-go/v11/webhooks/migrations"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -186,10 +187,10 @@ func TestNewDispatcher(T *testing.T) {
 		// The catalog reached the dispatcher: an event outside it is refused.
 		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 			test.NoError(t, dispatcher.Dispatch(t.Context(), q, &webhooks.Delivery{
-				EventType: "order.created", Payload: []byte(`{}`),
+				Scope: tenancy.Global(), EventType: "order.created", Payload: []byte(`{}`),
 			}))
 			test.ErrorIs(t, dispatcher.Dispatch(t.Context(), q, &webhooks.Delivery{
-				EventType: "order.exploded", Payload: []byte(`{}`),
+				Scope: tenancy.Global(), EventType: "order.exploded", Payload: []byte(`{}`),
 			}), webhooks.ErrUnknownEventType)
 
 			return nil

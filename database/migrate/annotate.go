@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing/fstest"
 
-	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/errors"
 )
 
 // gooseUpAnnotation opens the Up section of a goose SQL migration.

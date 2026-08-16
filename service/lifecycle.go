@@ -3,13 +3,13 @@ package service
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/eventcapture"
-	"github.com/primandproper/platform-go/v10/jobs"
-	"github.com/primandproper/platform-go/v10/outbox"
-	"github.com/primandproper/platform-go/v10/saga"
-	grpcserver "github.com/primandproper/platform-go/v10/server/grpc"
-	httpserver "github.com/primandproper/platform-go/v10/server/http"
-	"github.com/primandproper/platform-go/v10/webhooks"
+	"github.com/primandproper/platform-go/v11/eventcapture"
+	"github.com/primandproper/platform-go/v11/jobs"
+	"github.com/primandproper/platform-go/v11/outbox"
+	"github.com/primandproper/platform-go/v11/saga"
+	grpcserver "github.com/primandproper/platform-go/v11/server/grpc"
+	httpserver "github.com/primandproper/platform-go/v11/server/http"
+	"github.com/primandproper/platform-go/v11/webhooks"
 )
 
 type (

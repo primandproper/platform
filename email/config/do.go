@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/primandproper/platform-go/v10/email"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/email"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"github.com/samber/do/v2"
 )

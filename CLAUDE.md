@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Go library/framework (`github.com/primandproper/platform-go/v10`) providing infrastructure abstractions for cloud-native services: database, caching, messaging, observability, secrets, uploads, email, payments, and more. Single module, ~40 packages, Go 1.26.
+Go library/framework (`github.com/primandproper/platform-go/v11`) providing infrastructure abstractions for cloud-native services: database, caching, messaging, observability, secrets, uploads, email, payments, and more. Single module, ~40 packages, Go 1.26.
 
 ## Common Commands
 
@@ -37,11 +37,11 @@ Linting runs in Docker (`golangci/golangci-lint` image). Formatting runs locally
 Import ordering uses `gci` with four sections, separated by blank lines:
 
 1. Standard library
-2. `github.com/primandproper/platform-go/v10` (this module)
+2. `github.com/primandproper/platform-go/v11` (this module)
 2. `github.com/primandproper` (org-level packages)
 4. Everything else (third-party)
 
-The Makefile `THIS` variable must be the full module path (`github.com/primandproper/platform-go/v10`). `format_imports.sh` derives the org prefix from it by stripping any trailing major-version suffix (e.g. `/v2`) and then taking `dirname`, yielding `github.com/primandproper`. If `THIS` is too short, the org prefix collapses toward `github.com`, creating a spurious `prefix(github.com)` gci section.
+The Makefile `THIS` variable must be the full module path (`github.com/primandproper/platform-go/v11`). `format_imports.sh` derives the org prefix from it by stripping any trailing major-version suffix (e.g. `/v2`) and then taking `dirname`, yielding `github.com/primandproper`. If `THIS` is too short, the org prefix collapses toward `github.com`, creating a spurious `prefix(github.com)` gci section.
 
 ## Architecture Patterns
 
@@ -52,6 +52,10 @@ The Makefile `THIS` variable must be the full module path (`github.com/primandpr
 Constructors call the validation their config defines, and apply defaults *before* validating: an unset field that has a documented default is not a validation failure, and validating first turns the common case into one. Selecting an implementation is deliberate — an unrecognized provider name returns `platformerrors.ErrUnknownProvider` rather than a working-looking noop. Where a noop is genuinely wanted it has to be named.
 
 **OpenTelemetry throughout:** Database, HTTP, gRPC, and messaging all instrument with OTel for traces, metrics, and logs.
+
+**Tenancy is a column, not a convention.** A component that stores consumer data stores it for somebody, and that somebody is a `tenancy.Scope` — an opaque owner identifier, deliberately not a `string`, so a scopeless call fails to compile rather than matching everything. `tenancy.Global()` is the scope of data belonging to no tenant; it matches only itself and is stored as the empty identifier a scope column defaults to, which is what lets a single-tenant application pass it everywhere and behave exactly as it did before.
+
+Three obligations, and the third is the one that gets skipped. Scope in the column (`TEXT NOT NULL DEFAULT ''`, never encoded into another column's value — a key like `"<accountID>:<eventType>"` scopes by construction and cannot be indexed, filtered, or enumerated as the two facts it is). Scope in the query, binding the `Scope` itself rather than a string derived from it, so an unset scope is a driver error instead of a wider result set. And **no read path that omits it** — not "a scoped variant exists": the caller who reaches for the unscoped one is the caller who has not thought about tenancy. A component's own machinery is the only exception, and it is narrow — a delivery worker draining a queue across every tenant is servicing itself, not answering a consumer read, and those methods say so in their documentation. `webhooks` is the worked example.
 
 **Error handling:** Uses `cockroachdb/errors` for rich error context. Platform-level sentinels are defined in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which import the packages whose sentinels they map — so nothing in those packages may import `errors/http` or `errors/grpc` back.
 

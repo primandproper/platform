@@ -3,15 +3,15 @@ package sessionscfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v10/sessions"
-	sessionscache "github.com/primandproper/platform-go/v10/sessions/cache"
-	sessionsdatabase "github.com/primandproper/platform-go/v10/sessions/database"
-	sessionshttp "github.com/primandproper/platform-go/v10/sessions/http"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v11/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v11/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v11/sessions"
+	sessionscache "github.com/primandproper/platform-go/v11/sessions/cache"
+	sessionsdatabase "github.com/primandproper/platform-go/v11/sessions/database"
+	sessionshttp "github.com/primandproper/platform-go/v11/sessions/http"
 
 	"github.com/shoenig/test"
 )

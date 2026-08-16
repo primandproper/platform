@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/circuitbreaking"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v11/circuitbreaking/config"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"

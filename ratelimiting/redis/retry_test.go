@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/ratelimiting"
+	"github.com/primandproper/platform-go/v11/ratelimiting"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/shoenig/test"

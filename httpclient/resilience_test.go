@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/circuitbreaking"
-	"github.com/primandproper/platform-go/v10/ratelimiting"
+	"github.com/primandproper/platform-go/v11/circuitbreaking"
+	"github.com/primandproper/platform-go/v11/ratelimiting"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

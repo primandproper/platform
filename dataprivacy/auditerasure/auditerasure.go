@@ -49,11 +49,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/database/ddl"
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	"github.com/primandproper/platform-go/v10/dataprivacy"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/database/ddl"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v11/dataprivacy"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // DefaultKey is the registry key this eraser is normally registered under. It

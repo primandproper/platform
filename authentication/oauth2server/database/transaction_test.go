@@ -8,11 +8,11 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	databasemock "github.com/primandproper/platform-go/v10/database/mock"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	databasemock "github.com/primandproper/platform-go/v11/database/mock"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

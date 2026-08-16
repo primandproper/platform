@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/errors"
-	vectorsearch "github.com/primandproper/platform-go/v10/search/vector"
+	"github.com/primandproper/platform-go/v11/errors"
+	vectorsearch "github.com/primandproper/platform-go/v11/search/vector"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

@@ -3,10 +3,10 @@ package operationscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/operations"
-	"github.com/primandproper/platform-go/v10/workqueue"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/operations"
+	"github.com/primandproper/platform-go/v11/workqueue"
 
 	"github.com/samber/do/v2"
 )

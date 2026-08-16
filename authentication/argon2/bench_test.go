@@ -3,7 +3,7 @@ package argon2_test
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/authentication/argon2"
+	"github.com/primandproper/platform-go/v11/authentication/argon2"
 
 	"github.com/shoenig/test/must"
 )

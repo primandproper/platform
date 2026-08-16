@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/encoding"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	messagequeuecfg "github.com/primandproper/platform-go/v10/messagequeue/config"
-	outboxcfg "github.com/primandproper/platform-go/v10/outbox/config"
-	secretscfg "github.com/primandproper/platform-go/v10/secrets/config"
+	"github.com/primandproper/platform-go/v11/encoding"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	messagequeuecfg "github.com/primandproper/platform-go/v11/messagequeue/config"
+	outboxcfg "github.com/primandproper/platform-go/v11/outbox/config"
+	secretscfg "github.com/primandproper/platform-go/v11/secrets/config"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/shoenig/test"

@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v10/capitalism"
+	"github.com/primandproper/platform-go/v11/capitalism"
 )
 
 // Ensure, that UsageReporterMock does implement capitalism.UsageReporter.

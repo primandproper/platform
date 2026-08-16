@@ -25,7 +25,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/distributedlock"
+	"github.com/primandproper/platform-go/v11/distributedlock"
 )
 
 var (

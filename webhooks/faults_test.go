@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	_ "github.com/primandproper/platform-go/v10/database/sqlite"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/filtering"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	_ "github.com/primandproper/platform-go/v11/database/sqlite"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/filtering"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -104,34 +104,38 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 	T.Run("SaveEndpoint", func(t *testing.T) {
 		t.Parallel()
 
-		err := newFailingStore(t).SaveEndpoint(t.Context(), &Endpoint{ID: "e", Events: []string{"order.created"}})
-		test.ErrorIs(t, err, errDatabase)
+		// Not errDatabase: the first statement is the scope check, which reads
+		// through QueryRowContext and so reports the closed pool's own error.
+		// What matters is that the failure surfaces rather than the upsert
+		// running against an unverified row.
+		err := newFailingStore(t).SaveEndpoint(t.Context(), &Endpoint{ID: "e", Scope: testScope, Events: []string{"order.created"}})
+		test.Error(t, err)
 	})
 
 	T.Run("GetEndpoint", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newFailingStore(t).GetEndpoint(t.Context(), "e")
+		_, err := newFailingStore(t).GetEndpoint(t.Context(), testScope, "e")
 		test.Error(t, err)
 	})
 
 	T.Run("ListEndpoints", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newFailingStore(t).ListEndpoints(t.Context(), filtering.DefaultQueryFilter())
+		_, err := newFailingStore(t).ListEndpoints(t.Context(), testScope, filtering.DefaultQueryFilter())
 		test.ErrorIs(t, err, errDatabase)
 	})
 
 	T.Run("ArchiveEndpoint", func(t *testing.T) {
 		t.Parallel()
 
-		test.ErrorIs(t, newFailingStore(t).ArchiveEndpoint(t.Context(), "e"), errDatabase)
+		test.ErrorIs(t, newFailingStore(t).ArchiveEndpoint(t.Context(), testScope, "e"), errDatabase)
 	})
 
 	T.Run("EndpointsForEvent", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newFailingStore(t).EndpointsForEvent(t.Context(), newFailingClient(t).Reader(), "order.created")
+		_, err := newFailingStore(t).EndpointsForEvent(t.Context(), newFailingClient(t).Reader(), testScope, "order.created")
 		test.ErrorIs(t, err, errDatabase)
 	})
 
@@ -141,7 +145,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 		t.Parallel()
 
 		err := newFailingStore(t).Enqueue(t.Context(), newFailingClient(t).Writer(),
-			&Delivery{ID: "d", EventType: "order.created", Payload: testBody},
+			&Delivery{ID: "d", Scope: testScope, EventType: "order.created", Payload: testBody},
 			[]string{"e"}, baseTime)
 
 		test.ErrorIs(t, err, errDatabase)
@@ -176,7 +180,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 	T.Run("ListAttempts", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newFailingStore(t).ListAttempts(t.Context(), "d", filtering.DefaultQueryFilter())
+		_, err := newFailingStore(t).ListAttempts(t.Context(), testScope, "d", filtering.DefaultQueryFilter())
 		test.ErrorIs(t, err, errDatabase)
 	})
 

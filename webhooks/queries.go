@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database/ddl"
-	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v11/database/ddl"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v11/tenancy"
 )
 
 // A note on timestamps, because one dialect does something surprising.
@@ -52,13 +53,13 @@ func (t *tables) prefix() string {
 
 // endpointColumns is the projection every endpoint read scans. Declared once so
 // the SELECTs and the Scan cannot drift apart.
-const endpointColumns = "id, url, content_type, secret_current, secret_previous, headers, disabled"
+const endpointColumns = "id, scope, url, content_type, secret_current, secret_previous, headers, disabled"
 
 // dispatchColumns is the projection a claimed dispatch scans, joined across
 // dispatches, deliveries, and endpoints.
 const dispatchColumns = "d.id, d.delivery_id, d.endpoint_id, d.ordering_key, d.attempts, " +
-	"v.event_type, v.payload, " +
-	"e.id, e.url, e.content_type, e.secret_current, e.secret_previous, e.headers, e.disabled"
+	"v.event_type, v.payload, v.scope, " +
+	"e.id, e.scope, e.url, e.content_type, e.secret_current, e.secret_previous, e.headers, e.disabled"
 
 // attemptColumns is the projection an attempt read scans.
 const attemptColumns = "id, delivery_id, endpoint_id, attempt_count, status_code, error, duration_ms, attempted_at"
@@ -66,11 +67,18 @@ const attemptColumns = "id, delivery_id, endpoint_id, attempt_count, status_code
 // buildUpsertEndpoint renders the endpoint write. It is an upsert rather than
 // separate insert and update paths because SaveEndpoint is the only write and a
 // caller re-registering an endpoint means to replace it.
+//
+// The scope is written on insert and absent from every update clause: an
+// endpoint does not change hands. What guards the rest of the update is not this
+// statement but the scope check SaveEndpoint runs first, inside the same
+// transaction — without it, a save naming an ID that exists in another scope
+// would overwrite that subscriber's URL and signing secret, which is a
+// cross-tenant write dressed as a re-registration.
 func (t *tables) buildUpsertEndpoint(d dialect.Dialect, e *Endpoint, headers []byte, now time.Time) (query string, args []any) {
-	args = []any{e.ID, e.URL, e.ContentType, e.Secret.Current, secretOrNil(e.Secret.Previous), headers, e.Disabled, now}
+	args = []any{e.ID, e.Scope, e.URL, e.ContentType, e.Secret.Current, secretOrNil(e.Secret.Previous), headers, e.Disabled, now}
 
 	base := fmt.Sprintf(
-		"INSERT INTO %s (id, url, content_type, secret_current, secret_previous, headers, disabled, created_at) VALUES (%s)",
+		"INSERT INTO %s (id, scope, url, content_type, secret_current, secret_previous, headers, disabled, created_at) VALUES (%s)",
 		t.endpoints, d.Placeholders(1, len(args)),
 	)
 
@@ -122,35 +130,58 @@ func (t *tables) buildInsertSubscriptions(d dialect.Dialect, endpointID string, 
 	), args
 }
 
-// buildSelectEndpoint renders the single-endpoint read. Archived endpoints are
-// still returned: Replay and the attempts log both name endpoints that may since
-// have been retired.
-func (t *tables) buildSelectEndpoint(d dialect.Dialect, endpointID string) (query string, args []any) {
-	return fmt.Sprintf("SELECT %s FROM %s WHERE id = %s", endpointColumns, t.endpoints, d.Placeholder(1)),
+// buildSelectEndpointScope renders the read SaveEndpoint uses to find out
+// whether the ID it is about to write already belongs to somebody. It scans one
+// column, so it does not go through endpointColumns.
+func (t *tables) buildSelectEndpointScope(d dialect.Dialect, endpointID string) (query string, args []any) {
+	return fmt.Sprintf("SELECT scope FROM %s WHERE id = %s", t.endpoints, d.Placeholder(1)),
 		[]any{endpointID}
 }
 
+// buildSelectEndpoint renders the single-endpoint read, within one scope.
+// Archived endpoints are still returned: Replay and the attempts log both name
+// endpoints that may since have been retired.
+//
+// An endpoint in another scope does not read as forbidden, it reads as absent.
+// That is both the honest answer — it is not in this registry — and the one that
+// does not turn the read into an oracle for which endpoint IDs exist elsewhere.
+func (t *tables) buildSelectEndpoint(d dialect.Dialect, scope tenancy.Scope, endpointID string) (query string, args []any) {
+	return fmt.Sprintf(
+		"SELECT %s FROM %s WHERE id = %s AND scope = %s",
+		endpointColumns, t.endpoints, d.Placeholder(1), d.Placeholder(2),
+	), []any{endpointID, scope}
+}
+
 // buildSelectEndpointsForEvent renders the fan-out lookup: which live, enabled
-// endpoints want this event.
+// endpoints in this scope want this event.
+//
+// The scope is a predicate on the endpoint rather than a qualifier on the event
+// type. Encoding it into the subscription's key — "<accountID>:<eventType>" —
+// scopes the lookup too, which is why it is the shape a consumer arrives at
+// first; it also makes the pair unindexable as two facts, and the qualified
+// string cannot be checked against a Catalog of unqualified event types.
 //
 // Disabled and archived endpoints are excluded here rather than at delivery, so
 // no dispatch row is ever created for them. Creating one and skipping it later
 // would leave a permanently undeliverable row in the backlog for every event.
-func (t *tables) buildSelectEndpointsForEvent(d dialect.Dialect, eventType string) (query string, args []any) {
+func (t *tables) buildSelectEndpointsForEvent(d dialect.Dialect, scope tenancy.Scope, eventType string) (query string, args []any) {
 	return fmt.Sprintf(
 		"SELECT %s FROM %s AS e "+
 			"INNER JOIN %s AS s ON s.endpoint_id = e.id "+
-			"WHERE s.event_type = %s AND e.disabled = FALSE AND e.archived_at IS NULL "+
+			"WHERE s.event_type = %s AND e.scope = %s AND e.disabled = FALSE AND e.archived_at IS NULL "+
 			"ORDER BY e.id",
-		prefixColumns("e.", endpointColumns), t.endpoints, t.subscriptions, d.Placeholder(1),
-	), []any{eventType}
+		prefixColumns("e.", endpointColumns), t.endpoints, t.subscriptions,
+		d.Placeholder(1), d.Placeholder(2),
+	), []any{eventType, scope}
 }
 
-// buildListEndpoints renders the paged registry read, cursor-paginated on id.
-func (t *tables) buildListEndpoints(d dialect.Dialect, cursor string, limit int) (query string, args []any) {
-	args = make([]any, 0, 2)
+// buildListEndpoints renders the paged registry read for one scope,
+// cursor-paginated on id.
+func (t *tables) buildListEndpoints(d dialect.Dialect, scope tenancy.Scope, cursor string, limit int) (query string, args []any) {
+	args = make([]any, 0, 3)
+	args = append(args, scope)
 
-	where := "archived_at IS NULL"
+	where := "scope = " + d.Placeholder(1) + " AND archived_at IS NULL"
 	if cursor != "" {
 		args = append(args, cursor)
 		where += " AND id > " + d.Placeholder(len(args))
@@ -164,27 +195,37 @@ func (t *tables) buildListEndpoints(d dialect.Dialect, cursor string, limit int)
 	), args
 }
 
-// buildCountEndpoints renders the total for the paged read's Pagination.
-func (t *tables) buildCountEndpoints() string {
-	return fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE archived_at IS NULL", t.endpoints)
+// buildCountEndpoints renders the total for the paged read's Pagination, over
+// the same scope the page came from — a total counting every tenant's endpoints
+// would report a page of three out of nine thousand.
+func (t *tables) buildCountEndpoints(d dialect.Dialect, scope tenancy.Scope) (query string, args []any) {
+	return fmt.Sprintf(
+		"SELECT COUNT(*) FROM %s WHERE scope = %s AND archived_at IS NULL",
+		t.endpoints, d.Placeholder(1),
+	), []any{scope}
 }
 
 // buildArchiveEndpoint renders the retirement. The row is marked rather than
 // deleted so the attempts log keeps referring to something.
-func (t *tables) buildArchiveEndpoint(d dialect.Dialect, endpointID string, at time.Time) (query string, args []any) {
+func (t *tables) buildArchiveEndpoint(d dialect.Dialect, scope tenancy.Scope, endpointID string, at time.Time) (query string, args []any) {
 	return fmt.Sprintf(
-		"UPDATE %s SET archived_at = %s WHERE id = %s AND archived_at IS NULL",
-		t.endpoints, d.Placeholder(1), d.Placeholder(2),
-	), []any{at, endpointID}
+		"UPDATE %s SET archived_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
+		t.endpoints, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
+	), []any{at, endpointID, scope}
 }
 
 // buildInsertDelivery renders the delivery row: the payload, stored once
 // however many subscribers it fans out to.
+//
+// The scope is stored on the delivery rather than derived from its dispatches'
+// endpoints, because it is the delivery that has an owner: the payload is one
+// tenant's data whether it fanned out to five subscribers, one, or none. It is
+// also what the delivery log reads through — see buildListAttempts.
 func (t *tables) buildInsertDelivery(d dialect.Dialect, delivery *Delivery, now time.Time) (query string, args []any) {
-	args = []any{delivery.ID, delivery.EventType, []byte(delivery.Payload), delivery.OrderingKey, now}
+	args = []any{delivery.ID, delivery.Scope, delivery.EventType, []byte(delivery.Payload), delivery.OrderingKey, now}
 
 	return fmt.Sprintf(
-		"INSERT INTO %s (id, event_type, payload, ordering_key, created_at) VALUES (%s)",
+		"INSERT INTO %s (id, scope, event_type, payload, ordering_key, created_at) VALUES (%s)",
 		t.deliveries, d.Placeholders(1, len(args)),
 	), args
 }
@@ -363,30 +404,45 @@ func (t *tables) buildInsertAttempt(d dialect.Dialect, a *Attempt) (query string
 	), args
 }
 
-// buildListAttempts renders the delivery log read for one delivery,
-// cursor-paginated on id.
-func (t *tables) buildListAttempts(d dialect.Dialect, deliveryID, cursor string, limit int) (query string, args []any) {
-	args = make([]any, 0, 3)
-	args = append(args, deliveryID)
+// buildListAttempts renders the delivery log read for one of a scope's
+// deliveries, cursor-paginated on id.
+//
+// The scope is reached through the delivery rather than stored on the attempt.
+// An attempt is a log line about a delivery, so its owner is the delivery's, and
+// a second copy of that fact on every attempt row is a copy that can disagree
+// with the first. The join is to a primary key.
+//
+// One consequence, and it is bounded: past the retention window the reaper
+// removes an attempt's delivery, and the attempts that outlive it for a cycle
+// stop being listable here. They are already doomed — the next reap deletes them
+// — and neither is readable by anybody once the delivery is gone.
+func (t *tables) buildListAttempts(d dialect.Dialect, scope tenancy.Scope, deliveryID, cursor string, limit int) (query string, args []any) {
+	args = make([]any, 0, 4)
+	args = append(args, deliveryID, scope)
 
-	where := "delivery_id = " + d.Placeholder(1)
+	where := "a.delivery_id = " + d.Placeholder(1) + " AND v.scope = " + d.Placeholder(2)
 	if cursor != "" {
 		args = append(args, cursor)
-		where += " AND id > " + d.Placeholder(len(args))
+		where += " AND a.id > " + d.Placeholder(len(args))
 	}
 
 	args = append(args, limit)
 
 	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s ORDER BY attempted_at, id LIMIT %s",
-		attemptColumns, t.attempts, where, d.Placeholder(len(args)),
+		"SELECT %s FROM %s AS a INNER JOIN %s AS v ON v.id = a.delivery_id "+
+			"WHERE %s ORDER BY a.attempted_at, a.id LIMIT %s",
+		prefixColumns("a.", attemptColumns), t.attempts, t.deliveries, where, d.Placeholder(len(args)),
 	), args
 }
 
-// buildCountAttempts renders the total for the delivery log's Pagination.
-func (t *tables) buildCountAttempts(d dialect.Dialect, deliveryID string) (query string, args []any) {
-	return fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE delivery_id = %s", t.attempts, d.Placeholder(1)),
-		[]any{deliveryID}
+// buildCountAttempts renders the total for the delivery log's Pagination, over
+// the same scope the page came from.
+func (t *tables) buildCountAttempts(d dialect.Dialect, scope tenancy.Scope, deliveryID string) (query string, args []any) {
+	return fmt.Sprintf(
+		"SELECT COUNT(*) FROM %s AS a INNER JOIN %s AS v ON v.id = a.delivery_id "+
+			"WHERE a.delivery_id = %s AND v.scope = %s",
+		t.attempts, t.deliveries, d.Placeholder(1), d.Placeholder(2),
+	), []any{deliveryID, scope}
 }
 
 // buildRequeue renders the operator's re-drive: make a dispatch claimable

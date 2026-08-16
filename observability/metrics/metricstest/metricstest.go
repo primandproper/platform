@@ -12,7 +12,7 @@ package metricstest
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/observability/metrics"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
 
 	"github.com/shoenig/test/must"
 	"go.opentelemetry.io/otel"

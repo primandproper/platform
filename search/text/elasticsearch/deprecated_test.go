@@ -3,7 +3,7 @@ package elasticsearch
 import (
 	"testing"
 
-	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	textsearch "github.com/primandproper/platform-go/v11/search/text"
 
 	"github.com/shoenig/test"
 )

@@ -5,8 +5,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/cryptography/requestsigning"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/tenancy"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.
@@ -35,6 +36,7 @@ const (
 const (
 	endpointIDKey   = "webhooks.endpoint_id"
 	endpointURLKey  = "webhooks.endpoint_url"
+	scopeKey        = "webhooks.scope"
 	deliveryIDKey   = "webhooks.delivery_id"
 	dispatchIDKey   = "webhooks.dispatch_id"
 	eventTypeKey    = "webhooks.event_type"
@@ -76,6 +78,27 @@ var (
 	// sign report the same error — they are the same condition, found at two
 	// different moments.
 	ErrNoSigningSecret = requestsigning.ErrNoSigningKey
+
+	// ErrNoScope indicates an endpoint or a delivery that does not say whose it
+	// is, or a store read that was not told whose rows it wanted. Every read and
+	// write carrying consumer data takes a scope, and the zero tenancy.Scope is
+	// not one — see the Tenancy section of this package's documentation.
+	//
+	// It is tenancy's own sentinel rather than one of this package's, so that an
+	// endpoint rejected at registration, a delivery rejected at dispatch, and a
+	// query refused at the driver all report the same condition, found at three
+	// different moments.
+	ErrNoScope = tenancy.ErrNoScope
+
+	// ErrEndpointOutOfScope indicates a save naming an endpoint ID that is
+	// already registered in a different scope. An endpoint does not change hands,
+	// so this is a collision rather than a move — and accepting it would rewrite
+	// another subscriber's URL and signing secret.
+	//
+	// It is distinct from "not found", which is what a read in the wrong scope
+	// gets: a read has no business learning that the ID exists elsewhere, whereas
+	// a write must not be told its endpoint was saved when it was not.
+	ErrEndpointOutOfScope = platformerrors.New("webhook endpoint ID is registered in another scope")
 
 	// ErrEndpointDisabled indicates a Replay targeting an endpoint that is
 	// disabled. Dispatch skips disabled endpoints silently — that is what
@@ -164,14 +187,22 @@ func (c Catalog) EventTypes() []string {
 // owner.
 type Secret = requestsigning.Keyring
 
-// Endpoint is one subscriber: where deliveries go, what they are signed with,
-// and which events reach it.
+// Endpoint is one subscriber: whose it is, where deliveries go, what they are
+// signed with, and which events reach it.
 type Endpoint struct {
 	// Headers are static headers added to every request to this endpoint, for
 	// subscribers that need a routing token or a tenant hint. The signature,
 	// timestamp, content type, and event headers this package sets are not
 	// overridable from here — see reservedHeaders.
 	Headers map[string]string `json:"headers,omitempty"`
+	// Scope is whose endpoint this is. Required, and rejected at registration
+	// when unset: an endpoint that belongs to nobody in particular is one an
+	// application with tenants registered by accident, and it would receive
+	// deliveries the account it was meant for never sees.
+	//
+	// An application whose events are global says tenancy.Global() here, which
+	// is a scope like any other and matches only deliveries dispatched in it.
+	Scope tenancy.Scope `json:"scope"`
 	// ID identifies the endpoint. Generated at registration when empty.
 	ID string `json:"id"`
 	// URL is the absolute https:// URL deliveries are POSTed to.
@@ -192,6 +223,15 @@ type Endpoint struct {
 // per-endpoint unit it expands into is a dispatch, which callers do not
 // construct.
 type Delivery struct {
+	// Scope is whose event this is, and it bounds the fan-out: Dispatch resolves
+	// subscribers within it, so an endpoint registered by one account never
+	// receives another account's copy of the same event type.
+	//
+	// Required. An unset scope is refused rather than read as "every
+	// subscriber", because the reading that makes a missing filter convenient is
+	// the one that leaks a tenant's payload to every other tenant. An
+	// application whose events are global says tenancy.Global().
+	Scope tenancy.Scope `json:"scope"`
 	// ID identifies the delivery, and is what Replay names. Generated when empty.
 	ID string `json:"id"`
 	// EventType is the catalog event type. Must be in the Catalog.

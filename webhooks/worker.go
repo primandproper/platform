@@ -9,19 +9,19 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/primandproper/platform-go/v10/circuitbreaking"
-	cbnoop "github.com/primandproper/platform-go/v10/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v10/clock"
-	"github.com/primandproper/platform-go/v10/cryptography/requestsigning"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/httpclient"
-	"github.com/primandproper/platform-go/v10/identifiers"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
-	"github.com/primandproper/platform-go/v10/retry"
-	retrycfg "github.com/primandproper/platform-go/v10/retry/config"
+	"github.com/primandproper/platform-go/v11/circuitbreaking"
+	cbnoop "github.com/primandproper/platform-go/v11/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v11/clock"
+	"github.com/primandproper/platform-go/v11/cryptography/requestsigning"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/httpclient"
+	"github.com/primandproper/platform-go/v11/identifiers"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
+	"github.com/primandproper/platform-go/v11/observability/tracing"
+	"github.com/primandproper/platform-go/v11/retry"
+	retrycfg "github.com/primandproper/platform-go/v11/retry/config"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -356,6 +356,7 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 		observability.WithValue(dispatchIDKey, dispatch.ID),
 		observability.WithValue(deliveryIDKey, dispatch.DeliveryID),
 		observability.WithValue(endpointIDKey, dispatch.EndpointID),
+		observability.WithValue(scopeKey, dispatch.Scope.String()),
 		observability.WithValue(eventTypeKey, dispatch.EventType),
 		observability.WithValue(attemptsKey, dispatch.Attempts),
 		observability.WithSpanValue(endpointURLKey, dispatch.Endpoint.URL),
@@ -555,6 +556,7 @@ func (w *Worker) recordFailure(ctx context.Context, dispatch *ClaimedDispatch, c
 		dispatchIDKey:  dispatch.ID,
 		deliveryIDKey:  dispatch.DeliveryID,
 		endpointIDKey:  dispatch.EndpointID,
+		scopeKey:       dispatch.Scope.String(),
 		eventTypeKey:   dispatch.EventType,
 		orderingKeyKey: dispatch.OrderingKey,
 		attemptsKey:    dispatch.Attempts,

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/notifications/async"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/keys"
+	"github.com/primandproper/platform-go/v11/notifications/async"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/keys"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

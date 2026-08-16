@@ -3,7 +3,7 @@ package tableaccess
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

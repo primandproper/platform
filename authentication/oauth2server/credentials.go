@@ -7,8 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/random"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/random"
 )
 
 // CredentialByteLength is how many bytes of entropy every credential this

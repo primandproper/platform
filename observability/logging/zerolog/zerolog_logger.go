@@ -23,14 +23,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/observability/keys"
-	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/keys"
+	"github.com/primandproper/platform-go/v11/observability/logging"
 
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
 )
 
-const here = "github.com/primandproper/platform-go/v10/"
+const here = "github.com/primandproper/platform-go/v11/"
 
 // utcTimestampHook writes each event's timestamp as RFC3339Nano in UTC.
 //

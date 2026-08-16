@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/errors"
 )
 
 // GetTagNameByValue searches struct strukt (or *strukt) for a field whose value

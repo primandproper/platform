@@ -8,8 +8,8 @@
 package cookiescfg
 
 import (
-	"github.com/primandproper/platform-go/v10/cookies"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/cookies"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"github.com/samber/do/v2"
 )

@@ -3,9 +3,9 @@ package capitalismcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/capitalism"
-	"github.com/primandproper/platform-go/v10/capitalism/stripe"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/capitalism"
+	"github.com/primandproper/platform-go/v11/capitalism/stripe"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"github.com/samber/do/v2"
 )

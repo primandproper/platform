@@ -3,28 +3,30 @@ package webhooks
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/clock"
-	"github.com/primandproper/platform-go/v10/database"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/identifiers"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v11/clock"
+	"github.com/primandproper/platform-go/v11/database"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/identifiers"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
+	"github.com/primandproper/platform-go/v11/observability/tracing"
+	"github.com/primandproper/platform-go/v11/tenancy"
 )
 
 // Dispatcher is the write side: it turns an application event into per-endpoint
 // work, and re-drives that work when an operator asks.
 type Dispatcher interface {
-	// Dispatch fans an event out to every endpoint subscribed to it, writing
-	// through the caller's executor so the deliveries commit with the state
-	// change that caused them.
+	// Dispatch fans an event out to every endpoint in the delivery's scope that is
+	// subscribed to it, writing through the caller's executor so the deliveries
+	// commit with the state change that caused them.
 	Dispatch(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery) error
-	// Replay re-drives a specific past delivery to a specific endpoint, for
-	// operator recovery.
-	Replay(ctx context.Context, deliveryID, endpointID string) error
-	// Register validates and stores an endpoint. Validation is not optional and
-	// not separable: an unvalidated endpoint is an SSRF target.
+	// Replay re-drives a specific past delivery to a specific one of the scope's
+	// endpoints, for operator recovery.
+	Replay(ctx context.Context, scope tenancy.Scope, deliveryID, endpointID string) error
+	// Register validates and stores an endpoint, under the scope the endpoint
+	// carries. Validation is not optional and not separable: an unvalidated
+	// endpoint is an SSRF target.
 	Register(ctx context.Context, endpoint *Endpoint) error
 }
 
@@ -109,7 +111,9 @@ func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) erro
 		endpoint.ID = identifiers.New()
 	}
 
-	op.Set(endpointIDKey, endpoint.ID).SpanOnly(endpointURLKey, endpoint.URL)
+	op.Set(endpointIDKey, endpoint.ID).
+		Set(scopeKey, endpoint.Scope.String()).
+		SpanOnly(endpointURLKey, endpoint.URL)
 
 	if err := endpoint.Validate(ctx, d.catalog, d.checkURL); err != nil {
 		return op.Error(err, "validating webhook endpoint")
@@ -147,6 +151,12 @@ func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) erro
 // An event nobody subscribes to is not an error and writes nothing. That is the
 // common case for most event types most of the time, and making it an error
 // would have every publisher branch on it.
+//
+// The fan-out is bounded by the delivery's Scope: subscribers are resolved within
+// it, so an endpoint registered by one account never receives another account's
+// copy of the same event type. A delivery with no scope is refused rather than
+// fanned out to everybody — see Delivery.Scope. An application whose events are
+// global says tenancy.Global() and gets what it had before the dimension existed.
 func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery) error {
 	ctx, op := d.o11y.Begin(ctx)
 	defer op.End()
@@ -157,6 +167,10 @@ func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecu
 
 	if delivery == nil {
 		return op.Error(ErrNilDelivery, "dispatching webhook delivery")
+	}
+
+	if err := delivery.Scope.Validate(); err != nil {
+		return op.Error(err, "dispatching webhook delivery")
 	}
 
 	if !d.catalog.Known(delivery.EventType) {
@@ -177,13 +191,15 @@ func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecu
 		delivery.ID = identifiers.New()
 	}
 
-	op.Set(deliveryIDKey, delivery.ID).Set(eventTypeKey, delivery.EventType)
+	op.Set(deliveryIDKey, delivery.ID).
+		Set(scopeKey, delivery.Scope.String()).
+		Set(eventTypeKey, delivery.EventType)
 
 	if delivery.OrderingKey != "" {
 		op.Set(orderingKeyKey, delivery.OrderingKey)
 	}
 
-	endpoints, err := d.store.EndpointsForEvent(ctx, q, delivery.EventType)
+	endpoints, err := d.store.EndpointsForEvent(ctx, q, delivery.Scope, delivery.EventType)
 	if err != nil {
 		return op.Error(err, "resolving webhook endpoints for event %q", delivery.EventType)
 	}
@@ -224,12 +240,23 @@ func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecu
 //
 // The attempt count is reset, so a dead dispatch gets a full budget rather than
 // dying again on its next attempt.
-func (d *StoreDispatcher) Replay(ctx context.Context, deliveryID, endpointID string) error {
+//
+// The scope is what makes this a replay of one's own delivery rather than of
+// anybody's. It is established on the endpoint, which is read within it first: an
+// endpoint in another scope reads as absent, and the requeue that follows names a
+// (delivery, endpoint) pair, which exists only where a fan-out in that scope put
+// it.
+func (d *StoreDispatcher) Replay(ctx context.Context, scope tenancy.Scope, deliveryID, endpointID string) error {
 	ctx, op := d.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(deliveryIDKey, deliveryID),
 		observability.WithValue(endpointIDKey, endpointID),
 	)
 	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "replaying webhook delivery")
+	}
 
 	if deliveryID == "" || endpointID == "" {
 		return op.Error(platformerrors.ErrInvalidIDProvided, "replaying webhook delivery")
@@ -238,7 +265,7 @@ func (d *StoreDispatcher) Replay(ctx context.Context, deliveryID, endpointID str
 	// The endpoint is checked before the requeue rather than left to the worker,
 	// so an operator replaying to a disabled endpoint is told why nothing
 	// happened instead of watching a row sit claimable and never delivered.
-	endpoint, err := d.store.GetEndpoint(ctx, endpointID)
+	endpoint, err := d.store.GetEndpoint(ctx, scope, endpointID)
 	if err != nil {
 		return op.Error(err, "reading webhook endpoint %q", endpointID)
 	}

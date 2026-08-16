@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability/keys"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/observability/keys"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	textsearch "github.com/primandproper/platform-go/v11/search/text"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

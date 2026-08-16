@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/primandproper/platform-go/v10/messagequeue/noop"
+	"github.com/primandproper/platform-go/v11/messagequeue/noop"
 )
 
 func ExampleNewPublisher() {

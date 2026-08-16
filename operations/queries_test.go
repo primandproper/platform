@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/pointer"
+	"github.com/primandproper/platform-go/v11/pointer"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

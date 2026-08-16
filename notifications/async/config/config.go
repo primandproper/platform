@@ -18,14 +18,14 @@ import (
 	"context"
 	"slices"
 
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
-	"github.com/primandproper/platform-go/v10/notifications/async"
-	"github.com/primandproper/platform-go/v10/notifications/async/ably"
-	"github.com/primandproper/platform-go/v10/notifications/async/noop"
-	"github.com/primandproper/platform-go/v10/notifications/async/pusher"
-	asyncsse "github.com/primandproper/platform-go/v10/notifications/async/sse"
-	asyncws "github.com/primandproper/platform-go/v10/notifications/async/websocket"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v11/notifications/async"
+	"github.com/primandproper/platform-go/v11/notifications/async/ably"
+	"github.com/primandproper/platform-go/v11/notifications/async/noop"
+	"github.com/primandproper/platform-go/v11/notifications/async/pusher"
+	asyncsse "github.com/primandproper/platform-go/v11/notifications/async/sse"
+	asyncws "github.com/primandproper/platform-go/v11/notifications/async/websocket"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

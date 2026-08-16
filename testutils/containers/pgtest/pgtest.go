@@ -54,7 +54,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/testutils/containers"
+	"github.com/primandproper/platform-go/v11/testutils/containers"
 
 	// The pgx stdlib driver is registered here so that callers get a working
 	// "pgx" driver from importing pgtest alone.

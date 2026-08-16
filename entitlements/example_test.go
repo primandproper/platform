@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/primandproper/platform-go/v10/authorization"
-	"github.com/primandproper/platform-go/v10/entitlements"
-	"github.com/primandproper/platform-go/v10/metering"
+	"github.com/primandproper/platform-go/v11/authorization"
+	"github.com/primandproper/platform-go/v11/entitlements"
+	"github.com/primandproper/platform-go/v11/metering"
 )
 
 // buildCatalog declares the features the code gates on and the plans that

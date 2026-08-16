@@ -20,6 +20,26 @@ Statements is the same DDL split into individually executable statements, for
 callers running it some other way — a different migration tool, or a test that
 just wants the tables.
 
+# Adding the scope column to a deployed schema
+
+The DDL here only ever creates: every statement is IF NOT EXISTS, so running it
+against tables that already exist adds nothing. A deployment that created the
+webhook tables before the tenancy scope existed therefore needs one migration of
+its own, and it is the same three statements in every dialect:
+
+	ALTER TABLE webhooks_endpoints  ADD COLUMN scope TEXT NOT NULL DEFAULT '';
+	ALTER TABLE webhooks_deliveries ADD COLUMN scope TEXT NOT NULL DEFAULT '';
+	CREATE INDEX webhooks_endpoints_scope_idx ON webhooks_endpoints (scope, id);
+
+The default is doing the work. An existing row acquires the empty identifier,
+which is tenancy.Global() — so an application whose events are global passes
+tenancy.Global() at every call site and its existing endpoints keep receiving
+exactly what they received before. An application whose endpoints belong to
+accounts has a data migration rather than a schema one: the account each row
+belongs to has to be written into the new column, and until it is, those
+endpoints are global endpoints and will not match a dispatch in an account's
+scope. Backfill before the deploy that starts passing real scopes, not after.
+
 The rendering and prefix vetting live in database/ddl, shared with every other
 schema-shipping package in this module.
 */
@@ -28,8 +48,8 @@ package migrations
 import (
 	_ "embed"
 
-	"github.com/primandproper/platform-go/v10/database/ddl"
-	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v11/database/ddl"
+	"github.com/primandproper/platform-go/v11/database/dialect"
 )
 
 //go:embed postgres.sql

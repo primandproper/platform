@@ -3,12 +3,12 @@ package sessionscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/cookies"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/internal/injection"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/sessions"
-	sessionshttp "github.com/primandproper/platform-go/v10/sessions/http"
+	"github.com/primandproper/platform-go/v11/cookies"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/internal/injection"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/sessions"
+	sessionshttp "github.com/primandproper/platform-go/v11/sessions/http"
 
 	"github.com/samber/do/v2"
 )

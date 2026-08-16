@@ -6,12 +6,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/encoding"
-	"github.com/primandproper/platform-go/v10/routing"
-	"github.com/primandproper/platform-go/v10/routing/backends/chi"
-	"github.com/primandproper/platform-go/v10/routing/backends/gin"
-	"github.com/primandproper/platform-go/v10/routing/backends/httprouter"
-	"github.com/primandproper/platform-go/v10/routing/backends/stdlib"
+	"github.com/primandproper/platform-go/v11/encoding"
+	"github.com/primandproper/platform-go/v11/routing"
+	"github.com/primandproper/platform-go/v11/routing/backends/chi"
+	"github.com/primandproper/platform-go/v11/routing/backends/gin"
+	"github.com/primandproper/platform-go/v11/routing/backends/httprouter"
+	"github.com/primandproper/platform-go/v11/routing/backends/stdlib"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
