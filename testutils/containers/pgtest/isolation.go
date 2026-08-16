@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/random"
-	"github.com/primandproper/platform-go/v10/testutils/containers"
 
 	"github.com/shoenig/test/must"
 )
@@ -60,6 +60,7 @@ type IsolationOption func(*isolationOptions)
 
 type isolationOptions struct {
 	migrate      MigrateFunc
+	label        string
 	maxOpenConns int
 	maxIdleConns int
 }
@@ -85,6 +86,18 @@ func WithPoolSize(maxOpen, maxIdle int) IsolationOption {
 	}
 }
 
+// WithLabel names the schema or database for the human reading a failure. It is
+// sanitized and trimmed like a test's name, and what actually keeps two of them
+// apart is the random suffix either way.
+//
+// Schema, Template and Clone default to the name of the test that asked, and
+// need this only when that name is not the useful one. NewTemplate has no test
+// to take a name from, so without it a per-binary template is tmpl_<random> —
+// unique, but anonymous in a `\l` listing or a stuck-session query.
+func WithLabel(label string) IsolationOption {
+	return func(o *isolationOptions) { o.label = label }
+}
+
 func newIsolationOptions(opts []IsolationOption) *isolationOptions {
 	cfg := &isolationOptions{
 		maxOpenConns: DefaultIsolatedMaxOpenConns,
@@ -97,6 +110,16 @@ func newIsolationOptions(opts []IsolationOption) *isolationOptions {
 	}
 
 	return cfg
+}
+
+// labelOr is WithLabel's resolution: what the caller named, or what the caller
+// of a testing.TB-taking entry point gets for free.
+func (o *isolationOptions) labelOr(fallback string) string {
+	if o.label != "" {
+		return o.label
+	}
+
+	return fallback
 }
 
 // Isolated is one test's private corner of a shared server: a schema from
@@ -131,19 +154,23 @@ func (i *Instance) Schema(tb testing.TB, opts ...IsolationOption) *Isolated {
 
 	cfg := newIsolationOptions(opts)
 	ctx := tb.Context()
-	name := isolationName(tb, schemaPrefix)
 
-	i.exec(tb, ctx, fmt.Sprintf("CREATE SCHEMA %s", quoteIdentifier(name)))
+	name, err := isolationName(ctx, schemaPrefix, cfg.labelOr(tb.Name()))
+	must.NoError(tb, err)
+
+	must.NoError(tb, i.exec(ctx, fmt.Sprintf("CREATE SCHEMA %s", quoteIdentifier(name))))
 
 	// Registered before the pool is opened so that Cleanup's LIFO order closes
 	// the pool first: DROP SCHEMA waits behind anything still holding a lock in
 	// it, and a test that failed mid-transaction is exactly that.
 	tb.Cleanup(func() {
-		i.dropSchema(tb, context.WithoutCancel(ctx), name)
+		logTeardown(tb, func() error { return i.dropSchema(context.WithoutCancel(ctx), name) })
 	})
 
-	connectionString := i.searchPathDSN(tb, name)
-	db := openPool(tb, ctx, connectionString, cfg.maxOpenConns, cfg.maxIdleConns)
+	connectionString, err := i.searchPathDSN(name)
+	must.NoError(tb, err)
+
+	db := openPoolForTest(tb, ctx, connectionString, cfg.maxOpenConns, cfg.maxIdleConns)
 
 	if cfg.migrate != nil {
 		must.NoError(tb, cfg.migrate(ctx, db))
@@ -171,35 +198,76 @@ type Template struct {
 func (i *Instance) Template(tb testing.TB, opts ...IsolationOption) *Template {
 	tb.Helper()
 
-	cfg := newIsolationOptions(opts)
-	ctx := tb.Context()
-	name := isolationName(tb, templatePrefix)
+	template, teardown, err := i.newTemplate(tb.Context(), newIsolationOptions(opts), tb.Name())
+	must.NoError(tb, err)
+
+	tb.Cleanup(func() { logTeardown(tb, teardown) })
+
+	return template
+}
+
+// NewTemplate is Instance.Template for a caller with no testing.TB — a
+// TestMain, most often, which is the shape a per-binary template already
+// belongs to. It is Template's body with the testing.TB-shaped decisions handed
+// back instead of taken: the drop is returned as a teardown rather than
+// registered, and a failure anywhere in there is an error rather than a fatal.
+//
+// See Start, which is where a caller in that position gets its Instance, and
+// which documents when the returned teardown has to run.
+//
+// Name it with WithLabel if the databases want to be identifiable; without a
+// test to borrow a name from the template is tmpl_<random>.
+func (i *Instance) NewTemplate(ctx context.Context, opts ...IsolationOption) (*Template, func() error, error) {
+	return i.newTemplate(ctx, newIsolationOptions(opts), "")
+}
+
+// newTemplate is the core both spellings share. fallbackLabel is what a caller
+// with a testing.TB has and NewTemplate's caller does not.
+func (i *Instance) newTemplate(ctx context.Context, cfg *isolationOptions, fallbackLabel string) (*Template, func() error, error) {
+	name, err := isolationName(ctx, templatePrefix, cfg.labelOr(fallbackLabel))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// CREATE DATABASE cannot run inside a transaction, so this is deliberately a
 	// bare Exec on the instance pool rather than anything guarded.
-	i.exec(tb, ctx, fmt.Sprintf("CREATE DATABASE %s", quoteIdentifier(name)))
-
-	tb.Cleanup(func() {
-		i.dropDatabase(tb, context.WithoutCancel(ctx), name)
-	})
-
-	if cfg.migrate != nil {
-		db, err := sql.Open(DriverName, i.databaseDSN(tb, name))
-		must.NoError(tb, err)
-
-		containers.PingUntilReady(tb, ctx, db.PingContext)
-
-		migrateErr := cfg.migrate(ctx, db)
-
-		// Closed here, not via tb.Cleanup: the first Clone runs long before tb
-		// ends, and it cannot run at all while this session is attached. The
-		// close comes before the assertion so a failed migration still detaches.
-		closePool(tb, db)
-
-		must.NoError(tb, migrateErr)
+	if err = i.exec(ctx, fmt.Sprintf("CREATE DATABASE %s", quoteIdentifier(name))); err != nil {
+		return nil, nil, err
 	}
 
-	return &Template{instance: i, Name: name}
+	teardown := func() error { return i.dropDatabase(context.WithoutCancel(ctx), name) }
+
+	if cfg.migrate != nil {
+		if err = i.migrateTemplate(ctx, cfg.migrate, name); err != nil {
+			// Dropped here rather than left to the caller: it was never handed a
+			// teardown, because it was never handed a template.
+			return nil, nil, platformerrors.Join(err, teardown())
+		}
+	}
+
+	return &Template{instance: i, Name: name}, teardown, nil
+}
+
+// migrateTemplate runs the migration against a pool of its own and closes that
+// pool before returning, which is load-bearing rather than tidy: CREATE
+// DATABASE ... TEMPLATE refuses to run while any session is attached to the
+// template, so a pool left open would fail the first clone instead of this
+// call. The close comes before the migration's own error is reported, so a
+// failed migration still detaches.
+func (i *Instance) migrateTemplate(ctx context.Context, migrate MigrateFunc, name string) error {
+	dsn, err := i.databaseDSN(name)
+	if err != nil {
+		return err
+	}
+
+	db, err := openPool(ctx, dsn, 0, 0)
+	if err != nil {
+		return err
+	}
+
+	migrateErr := migrate(ctx, db)
+
+	return platformerrors.Join(migrateErr, closePool(db))
 }
 
 // Clone copies the template into a fresh database and hands back a pool over it,
@@ -214,17 +282,21 @@ func (t *Template) Clone(tb testing.TB, opts ...IsolationOption) *Isolated {
 
 	cfg := newIsolationOptions(opts)
 	ctx := tb.Context()
-	name := isolationName(tb, clonePrefix)
 
-	t.instance.exec(tb, ctx, fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s",
-		quoteIdentifier(name), quoteIdentifier(t.Name)))
+	name, err := isolationName(ctx, clonePrefix, cfg.labelOr(tb.Name()))
+	must.NoError(tb, err)
+
+	must.NoError(tb, t.instance.exec(ctx, fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s",
+		quoteIdentifier(name), quoteIdentifier(t.Name))))
 
 	tb.Cleanup(func() {
-		t.instance.dropDatabase(tb, context.WithoutCancel(ctx), name)
+		logTeardown(tb, func() error { return t.instance.dropDatabase(context.WithoutCancel(ctx), name) })
 	})
 
-	connectionString := t.instance.databaseDSN(tb, name)
-	db := openPool(tb, ctx, connectionString, cfg.maxOpenConns, cfg.maxIdleConns)
+	connectionString, err := t.instance.databaseDSN(name)
+	must.NoError(tb, err)
+
+	db := openPoolForTest(tb, ctx, connectionString, cfg.maxOpenConns, cfg.maxIdleConns)
 
 	if cfg.migrate != nil {
 		must.NoError(tb, cfg.migrate(ctx, db))
@@ -233,46 +305,40 @@ func (t *Template) Clone(tb testing.TB, opts ...IsolationOption) *Isolated {
 	return &Isolated{DB: db, Name: name, ConnectionString: connectionString}
 }
 
-// exec runs a statement on the instance pool, failing tb if it does not.
-func (i *Instance) exec(tb testing.TB, ctx context.Context, query string) {
-	tb.Helper()
-
+// exec runs a statement on the instance pool.
+func (i *Instance) exec(ctx context.Context, query string) error {
 	_, err := i.DB.ExecContext(ctx, query)
-	must.NoError(tb, err)
+
+	return platformerrors.Wrapf(err, "pgtest: running %s", query)
 }
 
-// dropSchema and dropDatabase are the teardown half of Schema and Clone. Both
-// log rather than fail: by cleanup time the test's own assertions have had their
+// dropSchema and dropDatabase are the teardown half of Schema, Template and
+// Clone. A caller with a testing.TB runs them through logTeardown, which logs
+// rather than fails: by cleanup time the test's own assertions have had their
 // say, and a leftover object on a container about to be reaped is not worth
 // turning a passing test red.
-func (i *Instance) dropSchema(tb testing.TB, ctx context.Context, name string) {
-	tb.Helper()
+func (i *Instance) dropSchema(ctx context.Context, name string) error {
+	_, err := i.DB.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", quoteIdentifier(name)))
 
-	if _, err := i.DB.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", quoteIdentifier(name))); err != nil {
-		tb.Logf("pgtest: dropping schema %s: %v", name, err)
-	}
+	return platformerrors.Wrapf(err, "pgtest: dropping schema %s", name)
 }
 
 // dropDatabase drops a database out from under whatever is still connected to
 // it. WITH (FORCE) terminates those sessions rather than erroring, which matters
 // because a pool that logged its close failure is still holding a socket. It
 // wants postgres 13 or newer, as every image this package defaults to is.
-func (i *Instance) dropDatabase(tb testing.TB, ctx context.Context, name string) {
-	tb.Helper()
+func (i *Instance) dropDatabase(ctx context.Context, name string) error {
+	_, err := i.DB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", quoteIdentifier(name)))
 
-	if _, err := i.DB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", quoteIdentifier(name))); err != nil {
-		tb.Logf("pgtest: dropping database %s: %v", name, err)
-	}
+	return platformerrors.Wrapf(err, "pgtest: dropping database %s", name)
 }
 
 // searchPathDSN renders this instance's DSN with search_path pointed at schema.
 // pgx forwards unrecognized parameters as startup runtime parameters, so the
 // setting arrives with the connection rather than as a statement some later
 // connection in the pool might miss.
-func (i *Instance) searchPathDSN(tb testing.TB, schema string) string {
-	tb.Helper()
-
-	return i.rewriteDSN(tb, func(u *url.URL) {
+func (i *Instance) searchPathDSN(schema string) (string, error) {
+	return i.rewriteDSN(func(u *url.URL) {
 		query := u.Query()
 		query.Set("search_path", schema)
 		u.RawQuery = query.Encode()
@@ -280,34 +346,38 @@ func (i *Instance) searchPathDSN(tb testing.TB, schema string) string {
 }
 
 // databaseDSN renders this instance's DSN pointed at a different database.
-func (i *Instance) databaseDSN(tb testing.TB, database string) string {
-	tb.Helper()
-
-	return i.rewriteDSN(tb, func(u *url.URL) { u.Path = "/" + database })
+func (i *Instance) databaseDSN(database string) (string, error) {
+	return i.rewriteDSN(func(u *url.URL) { u.Path = "/" + database })
 }
 
-func (i *Instance) rewriteDSN(tb testing.TB, rewrite func(*url.URL)) string {
-	tb.Helper()
-
+func (i *Instance) rewriteDSN(rewrite func(*url.URL)) (string, error) {
 	parsed, err := url.Parse(i.ConnectionString)
-	must.NoError(tb, err)
+	if err != nil {
+		return "", platformerrors.Wrap(err, "pgtest: parsing the instance's connection string")
+	}
 
 	rewrite(parsed)
 
-	return parsed.String()
+	return parsed.String(), nil
 }
 
 // isolationName builds an identifier that is unique within a run and stays
-// inside postgres' 63-byte limit. The test's name is in it for the human reading
-// a failure; the random suffix is what makes it unique, since two long test
-// names truncate to the same prefix.
-func isolationName(tb testing.TB, prefix string) string {
-	tb.Helper()
+// inside postgres' 63-byte limit. The label — a test's name, most of the time —
+// is in it for the human reading a failure; the random suffix is what makes it
+// unique, since two long test names truncate to the same prefix. A label that
+// sanitizes away to nothing, or that was never given, leaves prefix_<random>,
+// which is anonymous but no less unique.
+func isolationName(ctx context.Context, prefix, label string) (string, error) {
+	suffix, err := random.GenerateHexEncodedString(context.WithoutCancel(ctx), randomSuffixBytes)
+	if err != nil {
+		return "", platformerrors.Wrap(err, "pgtest: generating an isolation name")
+	}
 
-	suffix, err := random.GenerateHexEncodedString(context.WithoutCancel(tb.Context()), randomSuffixBytes)
-	must.NoError(tb, err)
+	name := fmt.Sprintf("%s_%s", prefix, suffix)
+	if sanitized := sanitizeIdentifier(label, testNameBudget); sanitized != "" {
+		name = fmt.Sprintf("%s_%s_%s", prefix, sanitized, suffix)
+	}
 
-	name := fmt.Sprintf("%s_%s_%s", prefix, sanitizeIdentifier(tb.Name(), testNameBudget), suffix)
 	if len(name) > maxIdentifierLength {
 		// Unreachable with the budgets above, but truncating the *prefix* end
 		// rather than letting postgres truncate the suffix end keeps the random
@@ -315,7 +385,7 @@ func isolationName(tb testing.TB, prefix string) string {
 		name = name[len(name)-maxIdentifierLength:]
 	}
 
-	return name
+	return name, nil
 }
 
 // sanitizeIdentifier reduces a test name to lowercase ASCII letters, digits and
