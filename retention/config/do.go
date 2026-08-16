@@ -3,11 +3,11 @@ package retentioncfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/audit"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/internal/injection"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/retention"
+	"github.com/primandproper/platform-go/v11/audit"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/internal/injection"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/retention"
 
 	"github.com/samber/do/v2"
 )

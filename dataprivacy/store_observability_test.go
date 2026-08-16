@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/identifiers"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/identifiers"
+	"github.com/primandproper/platform-go/v11/observability"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -3,8 +3,8 @@ package sessions
 import (
 	"context"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/random"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/random"
 )
 
 // NewID mints a session identifier: DefaultIDByteLength bytes from the

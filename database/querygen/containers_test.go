@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/testutils/containers/pgtest"
+	"github.com/primandproper/platform-go/v11/testutils/containers/pgtest"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

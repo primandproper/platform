@@ -4,12 +4,12 @@ import (
 	"context"
 	nethttp "net/http"
 
-	httpx "github.com/primandproper/platform-go/v10/errors/http"
-	"github.com/primandproper/platform-go/v10/eventstream"
-	"github.com/primandproper/platform-go/v10/eventstream/sse"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/operations"
-	"github.com/primandproper/platform-go/v10/routing"
+	httpx "github.com/primandproper/platform-go/v11/errors/http"
+	"github.com/primandproper/platform-go/v11/eventstream"
+	"github.com/primandproper/platform-go/v11/eventstream/sse"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/operations"
+	"github.com/primandproper/platform-go/v11/routing"
 
 	"github.com/swaggest/openapi-go/openapi3"
 )

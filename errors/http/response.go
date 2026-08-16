@@ -3,7 +3,7 @@ package http
 import (
 	"fmt"
 
-	"github.com/primandproper/platform-go/v10/filtering"
+	"github.com/primandproper/platform-go/v11/filtering"
 )
 
 type (

@@ -4,7 +4,7 @@ MYSELF   := $(shell id -u)
 MY_GROUP := $(shell id -g)
 
 # PATHS
-THIS          := github.com/primandproper/platform-go/v10
+THIS          := github.com/primandproper/platform-go/v11
 ARTIFACTS_DIR := artifacts
 SCRIPTS_DIR   := .scripts
 DOCKER_DIR    := .docker

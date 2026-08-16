@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v11/authentication/oauth2server"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

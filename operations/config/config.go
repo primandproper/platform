@@ -3,9 +3,9 @@ package operationscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/operations"
-	"github.com/primandproper/platform-go/v10/workqueue"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/operations"
+	"github.com/primandproper/platform-go/v11/workqueue"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

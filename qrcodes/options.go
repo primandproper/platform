@@ -1,8 +1,8 @@
 package qrcodes
 
 import (
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/tracing"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/tracing"
 )
 
 // Option configures the Builder this package constructs. The zero

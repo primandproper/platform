@@ -25,7 +25,7 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/uploads"
+	"github.com/primandproper/platform-go/v11/uploads"
 )
 
 var (

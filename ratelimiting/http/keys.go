@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // ErrNilKeyFunc indicates NewMiddleware was called without a key function.

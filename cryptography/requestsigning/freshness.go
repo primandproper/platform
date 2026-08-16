@@ -3,8 +3,8 @@ package requestsigning
 import (
 	"time"
 
-	"github.com/primandproper/platform-go/v10/clock"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/clock"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // Freshness is how a verifier decides whether a signed timestamp is recent

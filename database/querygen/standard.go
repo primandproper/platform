@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // StandardQuery names one of the queries StandardCRUD emits, for renaming it.

@@ -3,9 +3,9 @@ package profilingcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/internal/injection"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	"github.com/primandproper/platform-go/v10/observability/profiling"
+	"github.com/primandproper/platform-go/v11/internal/injection"
+	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v11/observability/profiling"
 
 	"github.com/samber/do/v2"
 )

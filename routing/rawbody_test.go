@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	httpx "github.com/primandproper/platform-go/v10/errors/http"
-	"github.com/primandproper/platform-go/v10/routing"
+	httpx "github.com/primandproper/platform-go/v11/errors/http"
+	"github.com/primandproper/platform-go/v11/routing"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

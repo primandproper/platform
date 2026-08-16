@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/compression"
-	"github.com/primandproper/platform-go/v10/database"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/filtering"
-	"github.com/primandproper/platform-go/v10/identifiers"
+	"github.com/primandproper/platform-go/v11/compression"
+	"github.com/primandproper/platform-go/v11/database"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/filtering"
+	"github.com/primandproper/platform-go/v11/identifiers"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

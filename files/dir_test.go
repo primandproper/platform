@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/encoding"
-	"github.com/primandproper/platform-go/v10/files"
+	"github.com/primandproper/platform-go/v11/encoding"
+	"github.com/primandproper/platform-go/v11/files"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

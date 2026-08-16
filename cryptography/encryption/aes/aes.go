@@ -6,9 +6,9 @@ import (
 	"crypto/rand"
 	"io"
 
-	"github.com/primandproper/platform-go/v10/cryptography/encryption"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/observability"
 )
 
 const name = "aes_cipher"

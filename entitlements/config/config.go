@@ -22,11 +22,11 @@ package entitlementscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/cache"
-	"github.com/primandproper/platform-go/v10/entitlements"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/featureflags"
-	"github.com/primandproper/platform-go/v10/metering"
+	"github.com/primandproper/platform-go/v11/cache"
+	"github.com/primandproper/platform-go/v11/entitlements"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/featureflags"
+	"github.com/primandproper/platform-go/v11/metering"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

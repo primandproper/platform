@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v10/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v10/authentication/oauth2server/memory"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v11/authentication/oauth2server/memory"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // errStoreDown is what a broken store returns here. It is deliberately none of

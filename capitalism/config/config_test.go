@@ -3,7 +3,7 @@ package capitalismcfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/capitalism/stripe"
+	"github.com/primandproper/platform-go/v11/capitalism/stripe"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

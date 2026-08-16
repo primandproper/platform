@@ -1,7 +1,7 @@
 package algolia
 
 import (
-	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	textsearch "github.com/primandproper/platform-go/v11/search/text"
 )
 
 // The refusal this backend used to name itself, kept as an alias for the value

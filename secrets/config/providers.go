@@ -3,9 +3,9 @@ package secretscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/secrets"
-	"github.com/primandproper/platform-go/v10/secrets/env"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/secrets"
+	"github.com/primandproper/platform-go/v11/secrets/env"
 )
 
 // NewSecretSource provides a SecretSource from config.

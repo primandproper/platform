@@ -9,11 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/circuitbreaking"
-	circuitbreakingmock "github.com/primandproper/platform-go/v10/circuitbreaking/mock"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/keys"
-	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	"github.com/primandproper/platform-go/v11/circuitbreaking"
+	circuitbreakingmock "github.com/primandproper/platform-go/v11/circuitbreaking/mock"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/keys"
+	textsearch "github.com/primandproper/platform-go/v11/search/text"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/shoenig/test"

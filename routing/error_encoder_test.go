@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	httpx "github.com/primandproper/platform-go/v10/errors/http"
-	"github.com/primandproper/platform-go/v10/routing"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	httpx "github.com/primandproper/platform-go/v11/errors/http"
+	"github.com/primandproper/platform-go/v11/routing"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

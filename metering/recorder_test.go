@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/analytics"
-	analyticsmock "github.com/primandproper/platform-go/v10/analytics/mock"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/observability/logging"
+	"github.com/primandproper/platform-go/v11/analytics"
+	analyticsmock "github.com/primandproper/platform-go/v11/analytics/mock"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/observability/logging"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

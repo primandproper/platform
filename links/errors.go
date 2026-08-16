@@ -1,7 +1,7 @@
 package links
 
 import (
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // Sentinels. errors/http and errors/grpc map these onto status codes, so those

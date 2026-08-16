@@ -1,7 +1,7 @@
 package elasticsearch
 
 import (
-	textsearch "github.com/primandproper/platform-go/v10/search/text"
+	textsearch "github.com/primandproper/platform-go/v11/search/text"
 )
 
 // The refusals this backend used to name itself, kept as aliases for the values

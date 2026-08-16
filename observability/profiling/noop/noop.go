@@ -14,7 +14,7 @@ package noop
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/observability/profiling"
+	"github.com/primandproper/platform-go/v11/observability/profiling"
 )
 
 var _ profiling.Provider = (*Provider)(nil)

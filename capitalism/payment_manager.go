@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 )
 
 // ErrPaymentsDisabled is returned by the noop PaymentManager from every

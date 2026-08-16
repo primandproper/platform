@@ -17,14 +17,14 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/circuitbreaking"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v10/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/featureflags"
-	"github.com/primandproper/platform-go/v10/featureflags/launchdarkly"
-	"github.com/primandproper/platform-go/v10/featureflags/noop"
-	"github.com/primandproper/platform-go/v10/featureflags/posthog"
-	"github.com/primandproper/platform-go/v10/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v11/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v11/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/featureflags"
+	"github.com/primandproper/platform-go/v11/featureflags/launchdarkly"
+	"github.com/primandproper/platform-go/v11/featureflags/noop"
+	"github.com/primandproper/platform-go/v11/featureflags/posthog"
+	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

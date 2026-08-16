@@ -3,9 +3,9 @@ package webhookscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/webhooks"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/webhooks"
 
 	"github.com/samber/do/v2"
 )

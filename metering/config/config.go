@@ -19,12 +19,12 @@ package meteringcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/analytics"
-	"github.com/primandproper/platform-go/v10/cache"
-	"github.com/primandproper/platform-go/v10/capitalism"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/metering"
+	"github.com/primandproper/platform-go/v11/analytics"
+	"github.com/primandproper/platform-go/v11/cache"
+	"github.com/primandproper/platform-go/v11/capitalism"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/metering"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

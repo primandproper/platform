@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/jobs"
-	"github.com/primandproper/platform-go/v10/messagequeue"
-	messagequeuemock "github.com/primandproper/platform-go/v10/messagequeue/mock"
-	lognoop "github.com/primandproper/platform-go/v10/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v11/jobs"
+	"github.com/primandproper/platform-go/v11/messagequeue"
+	messagequeuemock "github.com/primandproper/platform-go/v11/messagequeue/mock"
+	lognoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v11/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

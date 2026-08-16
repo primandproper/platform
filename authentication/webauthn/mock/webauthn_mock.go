@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/authentication/webauthn"
+	"github.com/primandproper/platform-go/v11/authentication/webauthn"
 )
 
 // Ensure, that SessionStoreMock does implement webauthn.SessionStore.

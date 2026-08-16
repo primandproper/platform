@@ -29,7 +29,7 @@
 package plainname
 
 import (
-	"github.com/primandproper/platform-go/v10/charset"
+	"github.com/primandproper/platform-go/v11/charset"
 )
 
 // plain is the alphabet: a letter or underscore, followed by letters, digits,

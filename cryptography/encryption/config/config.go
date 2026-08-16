@@ -16,9 +16,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/cryptography/encryption"
-	"github.com/primandproper/platform-go/v10/cryptography/encryption/aes"
-	perrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption/aes"
+	perrors "github.com/primandproper/platform-go/v11/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

@@ -38,11 +38,11 @@ package auditcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v10/audit"
-	"github.com/primandproper/platform-go/v10/database"
-	"github.com/primandproper/platform-go/v10/database/dialect"
-	"github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/retention"
+	"github.com/primandproper/platform-go/v11/audit"
+	"github.com/primandproper/platform-go/v11/database"
+	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v11/retention"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

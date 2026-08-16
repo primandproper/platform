@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v10/database/dialect"
+	"github.com/primandproper/platform-go/v11/database/dialect"
 )
 
 // serviceName names the loggers, spans, and metrics this package emits.

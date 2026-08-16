@@ -10,13 +10,13 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/primandproper/platform-go/v10/encoding"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	httperrors "github.com/primandproper/platform-go/v10/errors/http"
-	"github.com/primandproper/platform-go/v10/idempotency"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/metrics"
-	"github.com/primandproper/platform-go/v10/routing"
+	"github.com/primandproper/platform-go/v11/encoding"
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	httperrors "github.com/primandproper/platform-go/v11/errors/http"
+	"github.com/primandproper/platform-go/v11/idempotency"
+	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v11/observability/metrics"
+	"github.com/primandproper/platform-go/v11/routing"
 
 	"go.opentelemetry.io/otel/trace"
 )

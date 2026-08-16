@@ -3,7 +3,7 @@ package encryptioncfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v10/cryptography/encryption"
+	"github.com/primandproper/platform-go/v11/cryptography/encryption"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
