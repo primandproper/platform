@@ -57,6 +57,14 @@
 //	func TestMain(m *testing.M) { os.Exit(run(m)) }
 //
 //	func run(m *testing.M) int {
+//		// testing.Short() panics before flag.Parse, so a TestMain that gates on
+//		// -short parses first. Without the gate a -short run starts a container
+//		// and then skips every test that would have queried it.
+//		flag.Parse()
+//		if testing.Short() {
+//			return m.Run()
+//		}
+//
 //		pg, teardown, err := pgtest.Start(context.Background())
 //		if err != nil {
 //			// ErrNoPostgres means nothing was started, which is this suite's
@@ -357,11 +365,22 @@ func Run(tb testing.TB, fn func(ctx context.Context, pg *Instance), opts ...Opti
 //  2. a container, unless the RUN_CONTAINER_TESTS gate is closed and
 //     WithRequiredPostgres was not given, which is ErrNoPostgres.
 //
-// -short is not consulted here, and cannot be: flags are not parsed until
-// m.Run, so testing.Short() reads false in a TestMain body and a gate on it
-// would quietly do nothing at all. Gate the caller itself, or let the
-// individual tests skip through containers.SkipIfNotRunning, which reads -short
-// at a point in the binary's life where it has been parsed.
+// -short is not consulted here, because Start cannot know whether its caller has
+// parsed flags yet: testing.Short() before flag.Parse panics rather than
+// reporting false, and a library entry point is the wrong place to find that
+// out. A TestMain that wants -short honored parses first and gates itself, which
+// costs one line and saves starting a container the run will not use:
+//
+//	func run(m *testing.M) int {
+//		flag.Parse()
+//		if testing.Short() {
+//			return m.Run() // nothing started; the tests skip themselves
+//		}
+//		...
+//	}
+//
+// Individual tests can skip through containers.SkipIfNotRunning instead, which
+// reads -short at a point in the binary's life where it has been parsed.
 //
 // The returned teardown closes the pool and terminates the container, in that
 // order, and running it is the caller's job. Running it *before* os.Exit is the

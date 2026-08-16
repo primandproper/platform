@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"log"
 	"os"
 	"testing"
@@ -40,12 +41,19 @@ func TestMain(m *testing.M) {
 }
 
 func runTestMain(m *testing.M) int {
+	// Start does not consult -short, because it cannot know whether its caller has
+	// parsed flags — and testing.Short() before flag.Parse panics rather than
+	// reporting false. So the gate lives here, one flag.Parse ahead of it: without
+	// it a -short run pays for a container and then skips every test that would
+	// have queried it.
+	flag.Parse()
+
+	if testing.Short() {
+		return m.Run()
+	}
+
 	ctx := context.Background()
 
-	// -short is not consulted, here or by Start: flags are not parsed until
-	// m.Run, so testing.Short() reads false at this point no matter what the
-	// command line said. The tests gate themselves instead, through
-	// containers.SkipIfNotRunning, which reads it once it means something.
 	pg, teardown, err := Start(ctx)
 	if err != nil {
 		// ErrNoPostgres is the RUN_CONTAINER_TESTS gate being closed, and
