@@ -41,6 +41,60 @@
 //
 // Clones need no such thing. Postgres advisory locks are per-database, and
 // migrations run once into the template before any test starts.
+//
+// # Per-binary setup from TestMain
+//
+// Run is one of the two per-binary shapes; TestMain is the other, and it is the
+// one a suite arrives with when it already had per-package fixtures. A
+// *testing.M is not a testing.TB and cannot be adapted into one — the interface
+// has an unexported method for exactly that reason — so Start and
+// Instance.NewTemplate are Run and Instance.Template with the two testing.TB
+// decisions handed back instead of taken: teardown is returned rather than
+// registered, and an unavailable postgres is ErrNoPostgres rather than a skip.
+//
+//	var template *pgtest.Template
+//
+//	func TestMain(m *testing.M) { os.Exit(run(m)) }
+//
+//	func run(m *testing.M) int {
+//		// testing.Short() panics before flag.Parse, so a TestMain that gates on
+//		// -short parses first. Without the gate a -short run starts a container
+//		// and then skips every test that would have queried it.
+//		flag.Parse()
+//		if testing.Short() {
+//			return m.Run()
+//		}
+//
+//		pg, teardown, err := pgtest.Start(context.Background())
+//		if err != nil {
+//			// ErrNoPostgres means nothing was started, which is this suite's
+//			// cue to let its tests skip themselves.
+//			return m.Run()
+//		}
+//		defer func() { _ = teardown() }()
+//
+//		tmpl, dropTemplate, err := pg.NewTemplate(context.Background(), pgtest.WithMigration(migrator.Migrate))
+//		if err != nil {
+//			return 1
+//		}
+//		defer func() { _ = dropTemplate() }()
+//
+//		template = tmpl
+//
+//		return m.Run()
+//	}
+//
+// The body is a function returning a code rather than TestMain itself because
+// os.Exit does not run deferred functions: teardown has to happen before the
+// exit, and the only way to have both is to put the exit outside.
+//
+// Both teardowns return an error, because draining a pool and terminating a
+// container can each fail and there is nothing here to log it to on their
+// behalf. A suite that wants to hear about it logs it; the discard above is the
+// other legitimate answer, and it is at least written down as one.
+//
+// Instance.Schema and Template.Clone keep their testing.TB and need no
+// companion — by the time either is called there is a test in hand.
 package pgtest
 
 import (
@@ -54,6 +108,7 @@ import (
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 	"github.com/primandproper/platform-go/v11/testutils/containers"
 
 	// The pgx stdlib driver is registered here so that callers get a working
@@ -84,6 +139,9 @@ const (
 
 	defaultCredential = "platformtest"
 
+	// mappedPort is the container port Instance.Port is read from.
+	mappedPort = "5432/tcp"
+
 	// A cold start on a busy CI host has to cover an image pull plus initdb, and
 	// postgres logs its readiness line twice — once for the bootstrap server that
 	// runs the init scripts, once for the real one.
@@ -92,7 +150,15 @@ const (
 	readyLogOccurence = 2
 )
 
-// Option configures Run.
+// ErrNoPostgres reports that no postgres was available and none was started:
+// the RUN_CONTAINER_TESTS gate is closed and WithRequiredPostgres was not
+// given. Run turns that situation into a skip, which is a testing.TB's move and
+// therefore not one Start can make — so Start names it instead, and the caller
+// decides. A TestMain that wants the suite to skip its way through ignores this
+// sentinel; one that wants a hard failure returns the error.
+var ErrNoPostgres = platformerrors.New("pgtest: no postgres available")
+
+// Option configures Run and Start.
 type Option func(*options)
 
 type options struct {
@@ -237,13 +303,13 @@ func (i *Instance) ConnectionStringFor(tb testing.TB, database, username, passwo
 func (i *Instance) Open(tb testing.TB, connectionString string) *sql.DB {
 	tb.Helper()
 
-	return openPool(tb, tb.Context(), connectionString, 0, 0)
+	return openPoolForTest(tb, tb.Context(), connectionString, 0, 0)
 }
 
 // Run resolves a postgres, opens a pool against it, and hands both to fn as an
-// Instance. It is containers.Run with the postgres-shaped setup — image,
-// credentials, readiness wait, sql.Open, ping — already applied, so the closure
-// starts from a database it can query.
+// Instance. It is Start with the postgres-shaped setup — image, credentials,
+// readiness wait, sql.Open, ping — already applied and the lifecycle owned, so
+// the closure starts from a database it can query and ends without tidying up.
 //
 // The resolution ladder, in order:
 //
@@ -254,13 +320,15 @@ func (i *Instance) Open(tb testing.TB, connectionString string) *sql.DB {
 //     call — see WithRequiredPostgres — and by default it skips, along with the
 //     RUN_CONTAINER_TESTS gate.
 //
-// As with containers.Run, startup failures fail the test, and teardown of both
-// the pool and the container is registered with tb.Cleanup — so fn is free to
-// spawn parallel subtests against the Instance and return before they run.
+// Startup failures fail the test, and teardown of both the pool and the
+// container is registered with tb.Cleanup — so fn is free to spawn parallel
+// subtests against the Instance and return before they run.
 //
 // One Run per test binary is the shape this is built for. Give each test its
 // own schema with Instance.Schema, or its own database with Instance.Template
-// and Template.Clone, rather than a container each.
+// and Template.Clone, rather than a container each. A binary whose per-binary
+// setup lives in TestMain wants Start instead; Run is that function with a
+// testing.TB's skip and cleanup applied on top.
 func Run(tb testing.TB, fn func(ctx context.Context, pg *Instance), opts ...Option) {
 	tb.Helper()
 
@@ -269,45 +337,92 @@ func Run(tb testing.TB, fn func(ctx context.Context, pg *Instance), opts ...Opti
 	}
 
 	cfg := newOptions(opts)
+	cfg.gate(tb)
 
-	if dsn := cfg.dsnFromEnv(); dsn != "" {
-		runAgainstDSN(tb, cfg, dsn, fn)
+	ctx := tb.Context()
 
-		return
+	pg, teardown, err := cfg.start(ctx)
+	must.NoError(tb, err)
+
+	// Registered rather than deferred until fn returns: a closure that spawns
+	// parallel subtests returns before they run, and a deferred teardown would
+	// take the pool and the container away from underneath them.
+	tb.Cleanup(func() { logTeardown(tb, teardown) })
+
+	fn(ctx, pg)
+}
+
+// Start resolves a postgres and opens a pool against it for a caller with no
+// testing.TB — a TestMain, most often. It is Run's body with the two
+// testing.TB-shaped decisions handed back instead of taken: teardown is
+// returned rather than registered, and an unavailable postgres is ErrNoPostgres
+// rather than a skip.
+//
+// The resolution ladder is Run's, minus the rung that needs a test:
+//
+//  1. the DSN in the environment variable named by WithDSNFromEnv, if that
+//     option was given and the variable is set. No container is started.
+//  2. a container, unless the RUN_CONTAINER_TESTS gate is closed and
+//     WithRequiredPostgres was not given, which is ErrNoPostgres.
+//
+// -short is not consulted here, because Start cannot know whether its caller has
+// parsed flags yet: testing.Short() before flag.Parse panics rather than
+// reporting false, and a library entry point is the wrong place to find that
+// out. A TestMain that wants -short honored parses first and gates itself, which
+// costs one line and saves starting a container the run will not use:
+//
+//	func run(m *testing.M) int {
+//		flag.Parse()
+//		if testing.Short() {
+//			return m.Run() // nothing started; the tests skip themselves
+//		}
+//		...
+//	}
+//
+// Individual tests can skip through containers.SkipIfNotRunning instead, which
+// reads -short at a point in the binary's life where it has been parsed.
+//
+// The returned teardown closes the pool and terminates the container, in that
+// order, and running it is the caller's job. Running it *before* os.Exit is the
+// part that is easy to get wrong, since os.Exit does not run deferred
+// functions — see the package documentation for the shape that gets it right.
+func Start(ctx context.Context, opts ...Option) (*Instance, func() error, error) {
+	return newOptions(opts).start(ctx)
+}
+
+// gate applies the ladder rungs that need a testing.TB, which is every rung
+// that ends in a skip. Run calls it before start, so start never has to decide
+// what a skip would mean.
+func (o *options) gate(tb testing.TB) {
+	tb.Helper()
+
+	switch {
+	case o.dsnFromEnv() != "":
+		// A server somebody else is running: nothing to gate on but -short,
+		// because a caller asking for a fast answer does not want a database
+		// round-trip either.
+		if testing.Short() {
+			tb.SkipNow()
+		}
+	case o.required:
+		containers.RequireRunning(tb)
+	default:
+		containers.SkipIfNotRunning(tb)
+	}
+}
+
+// start is the testing.TB-free core of Run: the resolution ladder, with
+// teardown returned rather than registered.
+func (o *options) start(ctx context.Context) (*Instance, func() error, error) {
+	if dsn := o.dsnFromEnv(); dsn != "" {
+		return o.startAgainstDSN(ctx, dsn)
 	}
 
-	var runOpts []containers.RunOption
-	if cfg.required {
-		runOpts = append(runOpts, containers.Required())
+	if !o.required && !containers.RunningTests {
+		return nil, nil, ErrNoPostgres
 	}
 
-	containers.Run(tb,
-		func(ctx context.Context) (*postgrescontainer.PostgresContainer, error) {
-			return postgrescontainer.Run(ctx, cfg.image, cfg.containerOptions()...)
-		},
-		func(ctx context.Context, container *postgrescontainer.PostgresContainer) {
-			connectionString, err := container.ConnectionString(ctx, "sslmode=disable")
-			must.NoError(tb, err)
-
-			host, err := container.Host(ctx)
-			must.NoError(tb, err)
-
-			port, err := container.MappedPort(ctx, "5432/tcp")
-			must.NoError(tb, err)
-
-			fn(ctx, &Instance{
-				DB:               openPool(tb, ctx, connectionString, cfg.maxOpenConns, 0),
-				Container:        container,
-				ConnectionString: connectionString,
-				Host:             host,
-				Port:             port.Port(),
-				Database:         cfg.database,
-				Username:         cfg.username,
-				Password:         cfg.password,
-			})
-		},
-		runOpts...,
-	)
+	return o.startContainer(ctx)
 }
 
 // dsnFromEnv reads the first rung of the resolution ladder, or "" when the
@@ -320,46 +435,107 @@ func (o *options) dsnFromEnv() string {
 	return strings.TrimSpace(os.Getenv(o.dsnEnvVar))
 }
 
-// runAgainstDSN is the WithDSNFromEnv path: a server somebody else is running,
-// so there is nothing to start, nothing to gate on and nothing to terminate.
-// -short is still honored, because a caller asking for a fast answer does not
-// want a database round-trip either.
-func runAgainstDSN(tb testing.TB, cfg *options, dsn string, fn func(ctx context.Context, pg *Instance)) {
-	tb.Helper()
-
-	if testing.Short() {
-		tb.SkipNow()
-	}
-
+// startAgainstDSN is the WithDSNFromEnv path: a server somebody else is
+// running, so there is nothing to start and nothing to terminate, and teardown
+// is the pool and only the pool.
+func (o *options) startAgainstDSN(ctx context.Context, dsn string) (*Instance, func() error, error) {
 	parsed, err := url.Parse(dsn)
 	if err != nil {
-		tb.Fatalf("pgtest: parsing DSN from %s: %v", cfg.dsnEnvVar, err)
+		return nil, nil, platformerrors.Wrapf(err, "pgtest: parsing DSN from %s", o.dsnEnvVar)
+	}
+
+	db, err := openPool(ctx, dsn, o.maxOpenConns, 0)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	password, _ := parsed.User.Password()
-	ctx := tb.Context()
 
-	fn(ctx, &Instance{
-		DB:               openPool(tb, ctx, dsn, cfg.maxOpenConns, 0),
-		ConnectionString: dsn,
-		Host:             parsed.Hostname(),
-		Port:             parsed.Port(),
-		Database:         strings.TrimPrefix(parsed.Path, "/"),
-		Username:         parsed.User.Username(),
-		Password:         password,
-	})
+	return &Instance{
+			DB:               db,
+			ConnectionString: dsn,
+			Host:             parsed.Hostname(),
+			Port:             parsed.Port(),
+			Database:         strings.TrimPrefix(parsed.Path, "/"),
+			Username:         parsed.User.Username(),
+			Password:         password,
+		},
+		func() error { return closePool(db) },
+		nil
 }
 
-// openPool opens, sizes, pings and registers teardown for a pool. Non-positive
-// sizes leave database/sql's own defaults in place.
-func openPool(tb testing.TB, ctx context.Context, connectionString string, maxOpen, maxIdle int) *sql.DB {
-	tb.Helper()
+// startContainer starts a container with the shared backoff policy and opens a
+// pool against it. Everything after the container comes up terminates it on the
+// way out, so a failure between a live container and a live pool does not leak
+// the half that did come up.
+func (o *options) startContainer(ctx context.Context) (*Instance, func() error, error) {
+	container, err := containers.StartWithRetry(ctx, func(ctx context.Context) (*postgrescontainer.PostgresContainer, error) {
+		return postgrescontainer.Run(ctx, o.image, o.containerOptions()...)
+	})
+	if err != nil {
+		return nil, nil, platformerrors.Wrap(err, "pgtest: starting postgres container")
+	}
 
+	terminate := func() error { return terminateContainer(ctx, container) }
+
+	connectionString, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		return nil, nil, platformerrors.Join(platformerrors.Wrap(err, "pgtest: reading connection string"), terminate())
+	}
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		return nil, nil, platformerrors.Join(platformerrors.Wrap(err, "pgtest: reading container host"), terminate())
+	}
+
+	port, err := container.MappedPort(ctx, mappedPort)
+	if err != nil {
+		return nil, nil, platformerrors.Join(platformerrors.Wrap(err, "pgtest: reading mapped port"), terminate())
+	}
+
+	db, err := openPool(ctx, connectionString, o.maxOpenConns, 0)
+	if err != nil {
+		return nil, nil, platformerrors.Join(err, terminate())
+	}
+
+	return &Instance{
+			DB:               db,
+			Container:        container,
+			ConnectionString: connectionString,
+			Host:             host,
+			Port:             port.Port(),
+			Database:         o.database,
+			Username:         o.username,
+			Password:         o.password,
+		},
+		// The pool first: Terminate takes the server away, and a pool drained
+		// after that reports a failure that is only the teardown's own doing.
+		func() error { return platformerrors.Join(closePool(db), terminate()) },
+		nil
+}
+
+// terminateContainer reaps a container on a context of its own, so a caller
+// whose context is already done — a test past its deadline, a TestMain past
+// m.Run — still gets the container back.
+func terminateContainer(ctx context.Context, container *postgrescontainer.PostgresContainer) error {
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containers.DefaultShutdownTimeout)
+	defer cancel()
+
+	return platformerrors.Wrap(container.Terminate(shutdownCtx), "pgtest: terminating container")
+}
+
+// openPool opens, sizes and pings a pool. Non-positive sizes leave
+// database/sql's own defaults in place. The caller closes what it gets back; a
+// pool that never became ready is closed here instead, since the caller is
+// handed nothing to close it with.
+func openPool(ctx context.Context, connectionString string, maxOpen, maxIdle int) (*sql.DB, error) {
 	db, err := sql.Open(DriverName, connectionString)
-	must.NoError(tb, err)
-	must.NotNil(tb, db)
-
-	tb.Cleanup(func() { closePool(tb, db) })
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "pgtest: opening pool")
+	}
+	if db == nil {
+		return nil, platformerrors.New("pgtest: driver returned a nil pool")
+	}
 
 	if maxOpen > 0 {
 		db.SetMaxOpenConns(maxOpen)
@@ -368,18 +544,40 @@ func openPool(tb testing.TB, ctx context.Context, connectionString string, maxOp
 		db.SetMaxIdleConns(maxIdle)
 	}
 
-	containers.PingUntilReady(tb, ctx, db.PingContext)
+	if err = containers.PingWithRetry(ctx, db.PingContext); err != nil {
+		return nil, platformerrors.Join(platformerrors.Wrap(err, "pgtest: waiting for postgres"), closePool(db))
+	}
+
+	return db, nil
+}
+
+// openPoolForTest is openPool with the two testing.TB conveniences reapplied:
+// a failure to open fails the test, and the pool is drained when tb ends.
+func openPoolForTest(tb testing.TB, ctx context.Context, connectionString string, maxOpen, maxIdle int) *sql.DB {
+	tb.Helper()
+
+	db, err := openPool(ctx, connectionString, maxOpen, maxIdle)
+	must.NoError(tb, err)
+
+	tb.Cleanup(func() { logTeardown(tb, func() error { return closePool(db) }) })
 
 	return db
 }
 
-// closePool drains a pool at the end of a test, logging rather than failing if it
-// cannot: by then the test's own assertions have already had their say.
-func closePool(tb testing.TB, db *sql.DB) {
+// closePool drains a pool.
+func closePool(db *sql.DB) error {
+	return platformerrors.Wrap(db.Close(), "pgtest: closing pool")
+}
+
+// logTeardown runs a teardown at the end of a test, logging rather than failing
+// if it does not go cleanly: by then the test's own assertions have already had
+// their say, and a leftover object on a container about to be reaped is not
+// worth turning a passing test red.
+func logTeardown(tb testing.TB, teardown func() error) {
 	tb.Helper()
 
-	if err := db.Close(); err != nil {
-		tb.Logf("pgtest: closing pool: %v", err)
+	if err := teardown(); err != nil {
+		tb.Logf("%v", err)
 	}
 }
 

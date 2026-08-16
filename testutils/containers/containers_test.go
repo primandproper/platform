@@ -113,6 +113,28 @@ func TestStartWithRetry(T *testing.T) {
 	})
 }
 
+func TestPingWithRetry(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a nil ping is an error rather than a panic", func(t *testing.T) {
+		t.Parallel()
+
+		test.Error(t, PingWithRetry(t.Context(), nil))
+	})
+
+	T.Run("a server that never answers is reported to the caller", func(t *testing.T) {
+		t.Parallel()
+
+		// Cancelled up front so the policy gives up immediately: what is being
+		// asserted is that the failure comes back as a value, since a caller
+		// with no testing.TB has nothing to have it thrown at.
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		test.Error(t, PingWithRetry(ctx, func(context.Context) error { return errors.New("still restarting") }))
+	})
+}
+
 func TestPingUntilReady(T *testing.T) {
 	T.Parallel()
 

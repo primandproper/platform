@@ -30,10 +30,20 @@ func TestNewIsolationOptions(T *testing.T) {
 			nil,
 			WithPoolSize(9, 3),
 			WithMigration(func(context.Context, *sql.DB) error { return nil }),
+			WithLabel("some_label"),
 		})
 		test.EqOp(t, 9, cfg.maxOpenConns)
 		test.EqOp(t, 3, cfg.maxIdleConns)
+		test.EqOp(t, "some_label", cfg.label)
 		test.True(t, cfg.migrate != nil)
+	})
+
+	T.Run("a label the caller gave wins over the one the entry point offers", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "chosen", newIsolationOptions([]IsolationOption{WithLabel("chosen")}).labelOr("fallback"))
+		test.EqOp(t, "fallback", newIsolationOptions(nil).labelOr("fallback"))
+		test.EqOp(t, "", newIsolationOptions(nil).labelOr(""))
 	})
 }
 
@@ -67,9 +77,11 @@ func TestIsolationName(T *testing.T) {
 	T.Run("stays inside postgres' identifier limit", func(t *testing.T) {
 		t.Parallel()
 
-		got := isolationName(t, schemaPrefix)
+		got, err := isolationName(t.Context(), schemaPrefix, t.Name())
+		must.NoError(t, err)
 		test.True(t, len(got) <= maxIdentifierLength)
 		test.StrHasPrefix(t, schemaPrefix, got)
+		test.StrContains(t, got, "testisolationname")
 	})
 
 	T.Run("two calls from one test do not collide", func(t *testing.T) {
@@ -78,7 +90,30 @@ func TestIsolationName(T *testing.T) {
 		// The random suffix is what makes the name unique: two long test names
 		// truncate to the same prefix, and postgres would then silently land
 		// them on one schema.
-		test.NotEqOp(t, isolationName(t, schemaPrefix), isolationName(t, schemaPrefix))
+		first, err := isolationName(t.Context(), schemaPrefix, t.Name())
+		must.NoError(t, err)
+
+		second, err := isolationName(t.Context(), schemaPrefix, t.Name())
+		must.NoError(t, err)
+
+		test.NotEqOp(t, first, second)
+	})
+
+	T.Run("a name with no label is still unique", func(t *testing.T) {
+		t.Parallel()
+
+		// The shape NewTemplate produces: no testing.TB to borrow a name from,
+		// and none needed, since the suffix is what keeps two apart.
+		first, err := isolationName(t.Context(), templatePrefix, "")
+		must.NoError(t, err)
+
+		second, err := isolationName(t.Context(), templatePrefix, "////")
+		must.NoError(t, err)
+
+		test.StrHasPrefix(t, templatePrefix+"_", first)
+		test.StrHasPrefix(t, templatePrefix+"_", second)
+		test.EqOp(t, len(templatePrefix)+1+2*randomSuffixBytes, len(first))
+		test.NotEqOp(t, first, second)
 	})
 
 	T.Run("survives a test name longer than the whole identifier budget", func(t *testing.T) {
@@ -87,9 +122,13 @@ func TestIsolationName(T *testing.T) {
 		t.Run(strings.Repeat("wide", 40), func(t *testing.T) {
 			t.Parallel()
 
-			got := isolationName(t, clonePrefix)
+			got, err := isolationName(t.Context(), clonePrefix, t.Name())
+			must.NoError(t, err)
 			test.True(t, len(got) <= maxIdentifierLength)
-			test.NotEqOp(t, got, isolationName(t, clonePrefix))
+
+			second, err := isolationName(t.Context(), clonePrefix, t.Name())
+			must.NoError(t, err)
+			test.NotEqOp(t, got, second)
 		})
 	})
 }
@@ -113,21 +152,28 @@ func TestInstance_DSNRewriting(T *testing.T) {
 	T.Run("search_path joins the existing parameters", func(t *testing.T) {
 		t.Parallel()
 
-		instance := &Instance{ConnectionString: base}
+		got, err := (&Instance{ConnectionString: base}).searchPathDSN("pgtest_x")
+		must.NoError(t, err)
 
 		test.EqOp(t,
 			"postgres://platformtest:platformtest@127.0.0.1:54321/platformtest?search_path=pgtest_x&sslmode=disable",
-			instance.searchPathDSN(t, "pgtest_x"))
+			got)
 	})
 
 	T.Run("database swap keeps everything else", func(t *testing.T) {
 		t.Parallel()
 
-		instance := &Instance{ConnectionString: base}
+		got, err := (&Instance{ConnectionString: base}).databaseDSN("clone_x")
+		must.NoError(t, err)
 
-		test.EqOp(t,
-			"postgres://platformtest:platformtest@127.0.0.1:54321/clone_x?sslmode=disable",
-			instance.databaseDSN(t, "clone_x"))
+		test.EqOp(t, "postgres://platformtest:platformtest@127.0.0.1:54321/clone_x?sslmode=disable", got)
+	})
+
+	T.Run("a connection string that is not a URL is an error rather than a panic", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := (&Instance{ConnectionString: "://nope"}).databaseDSN("clone_x")
+		test.Error(t, err)
 	})
 }
 

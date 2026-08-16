@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	platformerrors "github.com/primandproper/platform-go/v11/errors"
 	retrycfg "github.com/primandproper/platform-go/v11/retry/config"
 
 	"github.com/shoenig/test/must"
@@ -124,6 +125,24 @@ func readinessRetryConfig() retrycfg.Config {
 	}
 }
 
+// PingWithRetry calls ping until it succeeds, for a caller with no testing.TB —
+// a TestMain, or anything else assembling a container outside a test. It is
+// PingUntilReady's body with the failure handed back instead of taken.
+//
+// See PingUntilReady for why the first ping is retried at all.
+func PingWithRetry(ctx context.Context, ping func(context.Context) error) error {
+	if ping == nil {
+		return platformerrors.New("containers: PingWithRetry requires a non-nil ping")
+	}
+
+	policy, err := retrycfg.NewExponentialBackoffPolicy(readinessRetryConfig(), retrycfg.WithName("container_readiness"))
+	if err != nil {
+		return err
+	}
+
+	return policy.Execute(ctx, ping)
+}
+
 // PingUntilReady calls ping until it succeeds, failing tb if it never does.
 //
 // A container's readiness log is not the same event as its server accepting
@@ -146,9 +165,7 @@ func PingUntilReady(tb testing.TB, ctx context.Context, ping func(context.Contex
 		tb.Fatal("containers: PingUntilReady requires a non-nil ping")
 	}
 
-	policy, err := retrycfg.NewExponentialBackoffPolicy(readinessRetryConfig(), retrycfg.WithName("container_readiness"))
-	must.NoError(tb, err)
-	must.NoError(tb, policy.Execute(ctx, ping))
+	must.NoError(tb, PingWithRetry(ctx, ping))
 }
 
 // RunOption configures Run.
