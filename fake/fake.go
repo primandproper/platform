@@ -43,13 +43,17 @@ var (
 const DefaultRecursionDepth uint = 0
 
 // fakerOptions returns the options every builder in this package shares, bounded
-// to the given recursion depth.
-func fakerOptions(depth uint) []options.OptionFunc {
-	return []options.OptionFunc{
+// to the given recursion depth, followed by any the caller adds.
+//
+// The caller's options come last because faker applies them in order and each one
+// assigns a field: an option that names something this package already set replaces
+// it rather than conflicting with it.
+func fakerOptions(depth uint, extra ...options.OptionFunc) []options.OptionFunc {
+	return append([]options.OptionFunc{
 		options.WithRandomIntegerBoundaries(nonZeroIntegers),
 		options.WithRandomFloatBoundaries(nonZeroFloats),
 		options.WithRecursionMaxDepth(depth),
-	}
+	}, extra...)
 }
 
 // BuildFakeTime builds a fake time, truncated to the second and in UTC.
@@ -118,4 +122,32 @@ func BuildFakeToDepth[X any](depth uint) (x *X, err error) {
 	}
 
 	return x, nil
+}
+
+// BuildFakeForType builds a fake instance of the given type with the caller's faker
+// options applied over this package's, panicking on error.
+//
+// The builders above decide everything for the caller, which is the right trade for a
+// value handed straight to an assertion and the wrong one for a type whose shape faker
+// cannot infer. The two that come up are a field typed any, which faker refuses to
+// fill and reports as an error for the whole value, and a slice of a struct that holds
+// slices, whose length faker picks at random up to a hundred at every level and so
+// multiplies: a graph three collections deep costs seconds to build and is discarded
+// by the caller that only wanted the root. Both are answered by an option — an option
+// this package would otherwise have to grow a named parameter for, once per knob.
+//
+// So this is the escape hatch, and it is deliberately the whole of faker's rather than
+// a curated few: a caller reaching past the defaults knows something about its own
+// types that this package does not, and enumerating what it may know in advance is a
+// guess that would need revisiting every time it turned out wrong.
+//
+// It panics rather than returning an error for the same reason MustBuildFake does: the
+// failures are structural facts about the type, so a fake that cannot be built cannot
+// be built on any run, and a test is the place that is discovered.
+func BuildFakeForType[X any](opts ...options.OptionFunc) (x *X) {
+	if err := faker.FakeData(&x, fakerOptions(DefaultRecursionDepth, opts...)...); err != nil {
+		panic(err)
+	}
+
+	return x
 }
