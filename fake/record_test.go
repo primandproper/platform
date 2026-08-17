@@ -17,14 +17,14 @@ type record struct {
 	CreatedAt        time.Time
 	ArchivedAt       *time.Time
 	Changes          map[string]any
-	Children         []*recordChild
+	Nested           recordChild
 	ID               string
 	BelongsToAccount string
 	CreatedByUser    string
 	Description      string
+	Children         []*recordChild
 	Quantity         float32
 	Count            uint16
-	Nested           recordChild
 }
 
 type recordChild struct {

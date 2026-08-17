@@ -11,13 +11,13 @@ import (
 // holder is the shape the fan-out option exists for: a slice whose length faker picks,
 // of a struct that holds another one.
 type holder struct {
-	Children []child
 	Name     string
+	Children []child
 }
 
 type child struct {
-	Names []string
 	Name  string
+	Names []string
 }
 
 // opaque is the shape the interface option exists for. faker will not invent a value
