@@ -1,11 +1,14 @@
 -- scope is whose endpoint it is: an account, an organization, a workspace, or —
--- as the empty string — nobody. Every read of this table filters on it, and the
--- default is what makes it adoptable: rows written before the column existed
--- become global rows, and an application whose events are global keeps behaving
--- as it did. See the tenancy package.
+-- as the empty string — nobody. Every read of this table filters on it.
+--
+-- It has no default, deliberately. The empty string is a scope, tenancy.Global(),
+-- and a column that supplies it for a write which did not name one hands out the
+-- global scope to whoever forgot the column — the mistake tenancy.Scope exists to
+-- make unspellable in Go. NOT NULL with nothing to fall back on makes that write
+-- fail instead. See the tenancy package.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_endpoints (
     id              VARCHAR(64) NOT NULL PRIMARY KEY,
-    scope           VARCHAR(255) NOT NULL DEFAULT '',
+    scope           VARCHAR(255) NOT NULL,
     url             TEXT NOT NULL,
     content_type    VARCHAR(255) NOT NULL,
     secret_current  VARBINARY(512) NOT NULL,
@@ -48,7 +51,7 @@ CREATE INDEX {{PREFIX}}webhooks_subscriptions_event_idx
 -- carries no scope of its own, because the delivery it describes already has one.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_deliveries (
     id           VARCHAR(64) NOT NULL PRIMARY KEY,
-    scope        VARCHAR(255) NOT NULL DEFAULT '',
+    scope        VARCHAR(255) NOT NULL,
     event_type   VARCHAR(255) NOT NULL,
     payload      LONGBLOB NOT NULL,
     ordering_key VARCHAR(255) NOT NULL DEFAULT '',

@@ -153,9 +153,9 @@ func (s Scope) Value() (driver.Value, error) {
 // identifier is Global, since that is how Global is stored.
 //
 // A NULL is refused rather than read as Global: the column this package documents
-// is NOT NULL and defaults to the empty string, so a NULL means the schema is not
-// the one the queries were written against, and guessing which scope it meant is
-// how one tenant's rows become another's.
+// is NOT NULL, so a NULL means the schema is not the one the queries were written
+// against, and guessing which scope it meant is how one tenant's rows become
+// another's.
 func (s *Scope) Scan(src any) error {
 	switch value := src.(type) {
 	case string:

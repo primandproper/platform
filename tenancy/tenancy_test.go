@@ -204,8 +204,8 @@ func TestScope_Scan(t *testing.T) {
 	t.Run("a NULL is refused", func(t *testing.T) {
 		t.Parallel()
 
-		// The documented column is NOT NULL DEFAULT '': a NULL means the schema
-		// is not the one the queries were written against.
+		// The documented column is NOT NULL: a NULL means the schema is not the
+		// one the queries were written against.
 		var scope Scope
 		must.ErrorIs(t, scope.Scan(nil), ErrUnscannableScope)
 		must.ErrorIs(t, scope.Validate(), ErrNoScope)

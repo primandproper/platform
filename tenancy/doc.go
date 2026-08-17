@@ -42,11 +42,12 @@ events are global, a fleet-wide sweep, a platform-level record. It is a scope
 like any other and matches only itself: rows in it are not visible to a tenant
 scope, and a tenant's rows are not visible to it.
 
-It is stored as the empty owner identifier, which is what makes adoption
-survivable. A component's scope column defaults to the empty string, so rows
-written before the column existed are global rows, and a single-tenant
-application that passes Global everywhere behaves exactly as it did before the
-dimension existed.
+It is stored as the empty owner identifier, and a single-tenant application that
+passes Global everywhere behaves exactly as it did before the dimension existed:
+every row it writes carries the empty scope, every read filters on it, and the
+filter never excludes anything. What delivers that is the store binding Global
+on every write, not the column tolerating a write that omitted it — which is why
+a scope column has no default. See "What a component owes".
 
 Of is the other constructor, and it deliberately does not accept an empty
 identifier: Of takes an ID the caller holds, and an empty one is a bug rather
@@ -56,11 +57,14 @@ than a request for the global scope. Say Global when you mean global.
 
 Three things, and the third is the one that gets skipped:
 
-  - Scope in the column. A TEXT column that is NOT NULL and defaults to the
-    empty string, beside the row's own identity — not encoded into another
-    column's value. A composite key like "<accountID>:<eventType>" scopes by
-    construction, which is why it is tempting, and it cannot be indexed,
-    filtered, or enumerated as the two facts it is.
+  - Scope in the column. A TEXT column that is NOT NULL and has no DEFAULT,
+    beside the row's own identity — not encoded into another column's value. A
+    composite key like "<accountID>:<eventType>" scopes by construction, which
+    is why it is tempting, and it cannot be indexed, filtered, or enumerated as
+    the two facts it is. The missing default is the same rule as Value's: the
+    empty string is Global rather than "no scope given", so a column that fills
+    it in for a write which named none is a write that acquired a scope by
+    forgetting to have one.
 
   - Scope in the query. Every predicate that reads or writes consumer data
     carries it, and the store binds Scope itself rather than a string derived

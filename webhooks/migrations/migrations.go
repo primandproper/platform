@@ -20,25 +20,27 @@ Statements is the same DDL split into individually executable statements, for
 callers running it some other way — a different migration tool, or a test that
 just wants the tables.
 
-# Adding the scope column to a deployed schema
+# The scope column has no default
 
 The DDL here only ever creates: every statement is IF NOT EXISTS, so running it
-against tables that already exist adds nothing. A deployment that created the
-webhook tables before the tenancy scope existed therefore needs one migration of
-its own, and it is the same three statements in every dialect:
+against tables that already exist adds nothing.
 
-	ALTER TABLE webhooks_endpoints  ADD COLUMN scope TEXT NOT NULL DEFAULT '';
-	ALTER TABLE webhooks_deliveries ADD COLUMN scope TEXT NOT NULL DEFAULT '';
-	CREATE INDEX webhooks_endpoints_scope_idx ON webhooks_endpoints (scope, id);
+scope is NOT NULL with no DEFAULT, which is the one place this schema departs
+from the module's habit of defaulting a text column to the empty string. The
+empty string is not the absence of a scope here — it is tenancy.Global(), a
+scope like any other. A column that supplied it for a write which did not name
+one would hand the global scope to whoever forgot the column, which is exactly
+the mistake tenancy.Scope is shaped to make unspellable in Go: an unset scope
+fails at Value rather than widening a predicate. The column enforces the same
+rule for a writer that did not come through SQLStore, and the write fails.
 
-The default is doing the work. An existing row acquires the empty identifier,
-which is tenancy.Global() — so an application whose events are global passes
-tenancy.Global() at every call site and its existing endpoints keep receiving
-exactly what they received before. An application whose endpoints belong to
-accounts has a data migration rather than a schema one: the account each row
-belongs to has to be written into the new column, and until it is, those
-endpoints are global endpoints and will not match a dispatch in an account's
-scope. Backfill before the deploy that starts passing real scopes, not after.
+That costs a deployment which already holds webhook rows the ability to add the
+column in one statement — ADD COLUMN NOT NULL wants a default when there are
+rows to fill. Such a deployment adds the column with a default, backfills the
+scope each row belongs to, and drops the default again; a single-tenant one
+backfills the empty string. Nothing in this module is in that position today,
+and the schema is written for correctness now rather than for a migration
+nobody has to perform.
 
 The rendering and prefix vetting live in database/ddl, shared with every other
 schema-shipping package in this module.
