@@ -6,29 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/identifiers"
-
 	"github.com/go-faker/faker/v4/pkg/options"
 )
-
-// BuildFakeID builds a fake identifier of the kind this platform issues.
-//
-// A random string is not one: identifiers are what rows join on, so a fake carrying
-// twenty-five random letters where an identifier goes is a row that joins to nothing,
-// and the test that fails is several layers away from the fake that caused it.
-func BuildFakeID() string {
-	return identifiers.New()
-}
-
-// BuildFakeNumber builds a whole number from the range generated numeric fields draw
-// from.
-//
-// Whole for the reason BuildFakeRecord rounds the floats it generates: the columns
-// these values round-trip through mostly keep two decimal places, and one that keeps
-// fewer than the value does returns something the caller did not save.
-func BuildFakeNumber() float64 {
-	return float64(MustBuildFake[int]())
-}
 
 // BuildFakeRecord builds a fake X shaped like something this platform stores.
 //
