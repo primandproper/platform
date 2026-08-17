@@ -23,6 +23,7 @@ that transaction:
 		}
 
 		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
+			Scope:       tenancy.Of(order.AccountID),
 			EventType:   "order.updated",
 			OrderingKey: order.ID,
 			Payload:     body,
@@ -80,6 +81,36 @@ verification is where the timing leak goes.
 
 A subscriber that is itself a platform service can skip even that and install
 requestsigning/http's middleware on the callback route.
+
+# Tenancy
+
+An Endpoint belongs to somebody and a Delivery is somebody's event, and both say
+so with a tenancy.Scope. Fan-out is bounded by it: Dispatch resolves subscribers
+within the delivery's scope, so an endpoint registered by one account never
+receives another account's copy of the same event type.
+
+	err := dispatcher.Register(ctx, &webhooks.Endpoint{
+		Scope:  tenancy.Of(accountID),
+		URL:    "https://subscriber.example/hooks",
+		Secret: webhooks.Secret{Current: key},
+		Events: []string{"order.updated"},
+	})
+
+An application whose events are global says tenancy.Global() in both places and
+gets what this package did before the dimension existed — Global is a scope like
+any other, matching only itself, and it is stored as the empty identifier that
+the scope columns default to.
+
+There is no unscoped read. Every Store method that reaches an endpoint or a
+delivery takes a scope or carries one on the value it is given, the zero
+tenancy.Scope is not a scope, and a query that lost one fails at the driver
+rather than widening. The exceptions are the worker's own machinery — Claim,
+Backlog, and Reap span every scope, because one worker drains one queue for the
+whole deployment — and they say so.
+
+What a scope is not is permission. Passing tenancy.Of(accountID) says these rows
+are that account's; whether the caller may act for that account is
+authorization's question, asked before this one.
 
 # Ordering
 

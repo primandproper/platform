@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v11/cryptography/requestsigning"
+	"github.com/primandproper/platform-go/v11/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -95,6 +96,7 @@ func TestEndpoint_Validate(T *testing.T) {
 	valid := func() *Endpoint {
 		return &Endpoint{
 			ID:          "endpoint-1",
+			Scope:       testScope,
 			URL:         "https://93.184.216.34/hooks",
 			ContentType: DefaultContentType,
 			Secret:      Secret{Current: []byte("secret")},
@@ -113,6 +115,27 @@ func TestEndpoint_Validate(T *testing.T) {
 
 		var endpoint *Endpoint
 		test.ErrorIs(t, endpoint.Validate(t.Context(), testCatalog, nil), ErrNilEndpoint)
+	})
+
+	// An endpoint that does not say whose it is would be registered by an
+	// application with tenants by accident, and the account it was meant for
+	// would never see a delivery.
+	T.Run("without a scope", func(t *testing.T) {
+		t.Parallel()
+
+		endpoint := valid()
+		endpoint.Scope = tenancy.Scope{}
+
+		test.ErrorIs(t, endpoint.Validate(t.Context(), testCatalog, nil), ErrNoScope)
+	})
+
+	T.Run("the global scope is a scope", func(t *testing.T) {
+		t.Parallel()
+
+		endpoint := valid()
+		endpoint.Scope = tenancy.Global()
+
+		test.NoError(t, endpoint.Validate(t.Context(), testCatalog, nil))
 	})
 
 	T.Run("without a signing secret", func(t *testing.T) {

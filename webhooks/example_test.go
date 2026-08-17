@@ -16,6 +16,7 @@ import (
 	"github.com/primandproper/platform-go/v11/database"
 	"github.com/primandproper/platform-go/v11/database/dialect"
 	"github.com/primandproper/platform-go/v11/database/sqlite"
+	"github.com/primandproper/platform-go/v11/tenancy"
 	"github.com/primandproper/platform-go/v11/webhooks"
 	"github.com/primandproper/platform-go/v11/webhooks/migrations"
 )
@@ -27,11 +28,12 @@ func ExampleDispatcher_Dispatch() {
 	ctx := context.Background()
 
 	// In a real service these come from your DI container.
-	client, dispatcher := exampleWiring()
+	client, _, dispatcher := exampleWiring()
 
 	order := struct {
-		ID string `json:"id"`
-	}{ID: "order-7"}
+		ID        string `json:"id"`
+		AccountID string `json:"accountID"`
+	}{ID: "order-7", AccountID: "acct_01HZY0000000000000"}
 
 	body, err := json.Marshal(order)
 	if err != nil {
@@ -42,6 +44,10 @@ func ExampleDispatcher_Dispatch() {
 		// ... the state change that produced the event ...
 
 		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
+			// Whose event this is. The fan-out is bounded by it, so only this
+			// account's endpoints are resolved. An application whose events are
+			// global says tenancy.Global().
+			Scope:     tenancy.Of(order.AccountID),
 			EventType: "order.updated",
 			// Deliveries sharing an ordering key reach a given subscriber in
 			// dispatch order, so order.updated cannot overtake order.created.
@@ -52,6 +58,61 @@ func ExampleDispatcher_Dispatch() {
 
 	fmt.Println(err)
 	// Output: <nil>
+}
+
+// An endpoint belongs to somebody, and fan-out is bounded by whose event it is:
+// registering in one account's scope means never receiving another account's copy
+// of the same event type.
+func ExampleDispatcher_Register() {
+	ctx := context.Background()
+
+	client, store, dispatcher := exampleWiring()
+
+	secret := webhooks.Secret{Current: []byte("the shared signing key")}
+
+	subscribers := map[string]tenancy.Scope{
+		"endpoint-for-acct-1": tenancy.Of("acct_1"),
+		"endpoint-for-acct-2": tenancy.Of("acct_2"),
+		// A scope like any other, and the one an application whose events are
+		// global uses for everything.
+		"endpoint-for-nobody": tenancy.Global(),
+	}
+
+	for id, scope := range subscribers {
+		if err := dispatcher.Register(ctx, &webhooks.Endpoint{
+			ID:     id,
+			Scope:  scope,
+			URL:    "https://93.184.216.34/hooks/" + id,
+			Secret: secret,
+			Events: []string{"order.updated"},
+		}); err != nil {
+			panic(err)
+		}
+	}
+
+	// Who order.updated reaches, per scope. Nothing here can return the other
+	// account's endpoint: the scope is a predicate on the query.
+	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		for _, scope := range []tenancy.Scope{tenancy.Of("acct_1"), tenancy.Global()} {
+			endpoints, resolveErr := store.EndpointsForEvent(ctx, q, scope, "order.updated")
+			if resolveErr != nil {
+				return resolveErr
+			}
+
+			for _, endpoint := range endpoints {
+				fmt.Println(scope, endpoint.ID)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// Output:
+	// acct_1 endpoint-for-acct-1
+	// <global> endpoint-for-nobody
 }
 
 // What a subscriber does on receipt. The scheme lives in
@@ -119,7 +180,7 @@ func Example_verifyingADelivery() {
 // exampleWiring stands up a throwaway SQLite-backed dispatcher so the Dispatch
 // example is executable rather than illustrative. A real service builds these
 // once at startup, through webhooks/config.
-func exampleWiring() (database.Client, webhooks.Dispatcher) {
+func exampleWiring() (database.Client, webhooks.Store, webhooks.Dispatcher) {
 	ctx := context.Background()
 
 	dir, err := os.MkdirTemp("", "webhooks-example")
@@ -160,7 +221,7 @@ func exampleWiring() (database.Client, webhooks.Dispatcher) {
 		panic(err)
 	}
 
-	return client, dispatcher
+	return client, store, dispatcher
 }
 
 type exampleClientConfig struct {

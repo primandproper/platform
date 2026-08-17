@@ -1,5 +1,14 @@
+-- scope is whose endpoint it is: an account, an organization, a workspace, or —
+-- as the empty string — nobody. Every read of this table filters on it.
+--
+-- It has no default, deliberately. The empty string is a scope, tenancy.Global(),
+-- and a column that supplies it for a write which did not name one hands out the
+-- global scope to whoever forgot the column — the mistake tenancy.Scope exists to
+-- make unspellable in Go. NOT NULL with nothing to fall back on makes that write
+-- fail instead. See the tenancy package.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_endpoints (
     id              VARCHAR(64) NOT NULL PRIMARY KEY,
+    scope           VARCHAR(255) NOT NULL,
     url             TEXT NOT NULL,
     content_type    VARCHAR(255) NOT NULL,
     secret_current  VARBINARY(512) NOT NULL,
@@ -13,6 +22,12 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_endpoints (
 
 CREATE INDEX {{PREFIX}}webhooks_endpoints_live_idx
     ON {{PREFIX}}webhooks_endpoints (archived_at, created_at, id);
+
+-- Serves the registry read, which is always one scope's page ordered by id, and
+-- is available to the fan-out join's scope predicate. Leading with scope is what
+-- keeps one tenant's page from walking every other tenant's rows.
+CREATE INDEX {{PREFIX}}webhooks_endpoints_scope_idx
+    ON {{PREFIX}}webhooks_endpoints (scope, archived_at, id);
 
 -- Subscriptions are a join table rather than an array column on the endpoint so
 -- that "who wants this event" is an index lookup instead of a scan over every
@@ -30,8 +45,13 @@ CREATE INDEX {{PREFIX}}webhooks_subscriptions_event_idx
     ON {{PREFIX}}webhooks_subscriptions (event_type, endpoint_id);
 
 -- The delivery holds the payload once, however many subscribers it fans out to.
+--
+-- Its scope is whose event it was. It bounds the fan-out that produced the
+-- dispatches below, and it is what the delivery log is read through — an attempt
+-- carries no scope of its own, because the delivery it describes already has one.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_deliveries (
     id           VARCHAR(64) NOT NULL PRIMARY KEY,
+    scope        VARCHAR(255) NOT NULL,
     event_type   VARCHAR(255) NOT NULL,
     payload      LONGBLOB NOT NULL,
     ordering_key VARCHAR(255) NOT NULL DEFAULT '',

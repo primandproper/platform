@@ -188,9 +188,18 @@ func (e *Endpoint) EnsureDefaults() {
 // registration and delivery cannot apply different policies — an endpoint
 // accepted here and refused by the worker would sit in the backlog until it
 // died. A nil checkURL means CheckEndpointURL.
+//
+// The scope is checked here, with the other invariants, rather than being left to
+// the store: an endpoint that says nothing about whose it is is one an
+// application with tenants registered by accident, and the account it was meant
+// for would never see a delivery. Say tenancy.Global() to mean it.
 func (e *Endpoint) Validate(ctx context.Context, catalog Catalog, checkURL URLChecker) error {
 	if e == nil {
 		return ErrNilEndpoint
+	}
+
+	if err := e.Scope.Validate(); err != nil {
+		return err
 	}
 
 	if checkURL == nil {

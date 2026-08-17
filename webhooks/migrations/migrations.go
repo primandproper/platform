@@ -20,6 +20,28 @@ Statements is the same DDL split into individually executable statements, for
 callers running it some other way — a different migration tool, or a test that
 just wants the tables.
 
+# The scope column has no default
+
+The DDL here only ever creates: every statement is IF NOT EXISTS, so running it
+against tables that already exist adds nothing.
+
+scope is NOT NULL with no DEFAULT, which is the one place this schema departs
+from the module's habit of defaulting a text column to the empty string. The
+empty string is not the absence of a scope here — it is tenancy.Global(), a
+scope like any other. A column that supplied it for a write which did not name
+one would hand the global scope to whoever forgot the column, which is exactly
+the mistake tenancy.Scope is shaped to make unspellable in Go: an unset scope
+fails at Value rather than widening a predicate. The column enforces the same
+rule for a writer that did not come through SQLStore, and the write fails.
+
+That costs a deployment which already holds webhook rows the ability to add the
+column in one statement — ADD COLUMN NOT NULL wants a default when there are
+rows to fill. Such a deployment adds the column with a default, backfills the
+scope each row belongs to, and drops the default again; a single-tenant one
+backfills the empty string. Nothing in this module is in that position today,
+and the schema is written for correctness now rather than for a migration
+nobody has to perform.
+
 The rendering and prefix vetting live in database/ddl, shared with every other
 schema-shipping package in this module.
 */

@@ -12,6 +12,7 @@ import (
 	"github.com/primandproper/platform-go/v11/database/dialect"
 	"github.com/primandproper/platform-go/v11/database/sqlite"
 	"github.com/primandproper/platform-go/v11/identifiers"
+	"github.com/primandproper/platform-go/v11/tenancy"
 	"github.com/primandproper/platform-go/v11/webhooks/migrations"
 
 	"github.com/shoenig/test/must"
@@ -38,6 +39,14 @@ func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minu
 var (
 	signingTime = time.Unix(1753900000, 0).UTC()
 	testBody    = []byte(`{"id":"abc","amount":42}`)
+)
+
+// The scopes the suite registers endpoints and dispatches deliveries in.
+// testScope is what a multi-tenant consumer passes; otherScope is the neighbor
+// whose rows must never appear in testScope's answers.
+var (
+	testScope  = tenancy.Of("acct_1")
+	otherScope = tenancy.Of("acct_2")
 )
 
 // prefixCounter names a fresh set of tables per subtest. Subtests may share one
@@ -95,12 +104,22 @@ func newSQLiteEnv(t *testing.T) *storeEnv {
 	return &storeEnv{client: client, dialect: dialect.SQLite}
 }
 
-// registerEndpoint saves an endpoint subscribed to the given events.
+// registerEndpoint saves an endpoint in testScope, subscribed to the given
+// events.
 func registerEndpoint(t *testing.T, store Store, id string, events ...string) *Endpoint {
+	t.Helper()
+
+	return registerScopedEndpoint(t, store, testScope, id, events...)
+}
+
+// registerScopedEndpoint saves an endpoint in an explicit scope, for the cases
+// that need two tenants in one table.
+func registerScopedEndpoint(t *testing.T, store Store, scope tenancy.Scope, id string, events ...string) *Endpoint {
 	t.Helper()
 
 	endpoint := &Endpoint{
 		ID:          id,
+		Scope:       scope,
 		URL:         "https://93.184.216.34/hooks/" + id,
 		ContentType: DefaultContentType,
 		Secret:      Secret{Current: []byte("secret-" + id)},
@@ -121,6 +140,10 @@ func dispatchTo(t *testing.T, env *storeEnv, store Store, delivery *Delivery, at
 		delivery.ID = identifiers.New()
 	}
 
+	if delivery.Scope.Validate() != nil {
+		delivery.Scope = testScope
+	}
+
 	must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 		return store.Enqueue(t.Context(), q, delivery, endpointIDs, at)
 	}))
@@ -139,15 +162,23 @@ func claimAll(t *testing.T, store Store, now time.Time) []ClaimedDispatch {
 	return claimed
 }
 
-// endpointsFor resolves the fan-out set through a transaction, as Dispatch does.
+// endpointsFor resolves testScope's fan-out set through a transaction, as
+// Dispatch does.
 func endpointsFor(t *testing.T, env *storeEnv, store Store, eventType string) []*Endpoint {
+	t.Helper()
+
+	return scopedEndpointsFor(t, env, store, testScope, eventType)
+}
+
+// scopedEndpointsFor resolves one scope's fan-out set through a transaction.
+func scopedEndpointsFor(t *testing.T, env *storeEnv, store Store, scope tenancy.Scope, eventType string) []*Endpoint {
 	t.Helper()
 
 	var endpoints []*Endpoint
 
 	must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
 		var err error
-		endpoints, err = store.EndpointsForEvent(t.Context(), q, eventType)
+		endpoints, err = store.EndpointsForEvent(t.Context(), q, scope, eventType)
 
 		return err
 	}))

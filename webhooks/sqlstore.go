@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/primandproper/platform-go/v11/clock"
@@ -16,6 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v11/observability/logging"
 	"github.com/primandproper/platform-go/v11/observability/metrics"
 	"github.com/primandproper/platform-go/v11/observability/tracing"
+	"github.com/primandproper/platform-go/v11/tenancy"
 	"github.com/primandproper/platform-go/v11/webhooks/migrations"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -128,6 +130,9 @@ var ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParamet
 // SaveEndpoint upserts the endpoint and replaces its subscription set, both in
 // one transaction — a half-registered endpoint would either receive events it
 // no longer subscribes to or silently receive none.
+//
+// The scope comes off the endpoint rather than being passed beside it, so the row
+// and the predicate cannot disagree.
 func (s *SQLStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
@@ -136,7 +141,13 @@ func (s *SQLStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 		return op.Error(ErrNilEndpoint, "saving webhook endpoint")
 	}
 
-	op.Set(endpointIDKey, endpoint.ID).Set(endpointURLKey, endpoint.URL)
+	if err := endpoint.Scope.Validate(); err != nil {
+		return op.Error(err, "saving webhook endpoint %q", endpoint.ID)
+	}
+
+	op.Set(endpointIDKey, endpoint.ID).
+		Set(scopeKey, endpoint.Scope.String()).
+		Set(endpointURLKey, endpoint.URL)
 
 	headers, err := json.Marshal(endpoint.Headers)
 	if err != nil {
@@ -146,6 +157,10 @@ func (s *SQLStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 	now := s.clock.Now().UTC()
 
 	if err = s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		if scopeErr := s.checkEndpointScope(ctx, q, endpoint); scopeErr != nil {
+			return scopeErr
+		}
+
 		query, args := s.tables.buildUpsertEndpoint(s.dialect, endpoint, headers, now)
 		if _, err = q.ExecContext(ctx, query, args...); err != nil {
 			return platformerrors.Wrap(err, "upserting webhook endpoint")
@@ -173,12 +188,20 @@ func (s *SQLStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 	return nil
 }
 
-// GetEndpoint reads one endpoint and its subscriptions.
-func (s *SQLStore) GetEndpoint(ctx context.Context, endpointID string) (*Endpoint, error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(endpointIDKey, endpointID))
+// GetEndpoint reads one of the scope's endpoints and its subscriptions. An
+// endpoint registered in another scope reads as absent.
+func (s *SQLStore) GetEndpoint(ctx context.Context, scope tenancy.Scope, endpointID string) (*Endpoint, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(endpointIDKey, endpointID),
+	)
 	defer op.End()
 
-	query, args := s.tables.buildSelectEndpoint(s.dialect, endpointID)
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "reading webhook endpoint %q", endpointID)
+	}
+
+	query, args := s.tables.buildSelectEndpoint(s.dialect, scope, endpointID)
 
 	endpoint, err := scanEndpoint(s.client.Reader().QueryRowContext(ctx, query, args...))
 	if err != nil {
@@ -192,10 +215,14 @@ func (s *SQLStore) GetEndpoint(ctx context.Context, endpointID string) (*Endpoin
 	return endpoint, nil
 }
 
-// ListEndpoints pages the registry.
-func (s *SQLStore) ListEndpoints(ctx context.Context, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Endpoint], error) {
-	ctx, op := s.o11y.Begin(ctx)
+// ListEndpoints pages one scope's registry.
+func (s *SQLStore) ListEndpoints(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Endpoint], error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "listing webhook endpoints")
+	}
 
 	if filter == nil {
 		filter = filtering.DefaultQueryFilter()
@@ -211,7 +238,7 @@ func (s *SQLStore) ListEndpoints(ctx context.Context, filter *filtering.QueryFil
 		cursor = *filter.Cursor
 	}
 
-	query, args := s.tables.buildListEndpoints(s.dialect, cursor, limit)
+	query, args := s.tables.buildListEndpoints(s.dialect, scope, cursor, limit)
 
 	endpoints, err := s.scanEndpoints(ctx, s.client.Reader(), query, args)
 	if err != nil {
@@ -227,8 +254,10 @@ func (s *SQLStore) ListEndpoints(ctx context.Context, filter *filtering.QueryFil
 		}
 	}
 
+	countQuery, countArgs := s.tables.buildCountEndpoints(s.dialect, scope)
+
 	var total uint64
-	if err = s.client.Reader().QueryRowContext(ctx, s.tables.buildCountEndpoints()).Scan(&total); err != nil {
+	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, op.Error(err, "counting webhook endpoints")
 	}
 
@@ -241,12 +270,20 @@ func (s *SQLStore) ListEndpoints(ctx context.Context, filter *filtering.QueryFil
 	), nil
 }
 
-// ArchiveEndpoint retires an endpoint.
-func (s *SQLStore) ArchiveEndpoint(ctx context.Context, endpointID string) error {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(endpointIDKey, endpointID))
+// ArchiveEndpoint retires one of the scope's endpoints. An endpoint in another
+// scope is not touched.
+func (s *SQLStore) ArchiveEndpoint(ctx context.Context, scope tenancy.Scope, endpointID string) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(endpointIDKey, endpointID),
+	)
 	defer op.End()
 
-	query, args := s.tables.buildArchiveEndpoint(s.dialect, endpointID, s.clock.Now().UTC())
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "archiving webhook endpoint %q", endpointID)
+	}
+
+	query, args := s.tables.buildArchiveEndpoint(s.dialect, scope, endpointID, s.clock.Now().UTC())
 
 	if _, err := s.client.Writer().ExecContext(ctx, query, args...); err != nil {
 		return op.Error(err, "archiving webhook endpoint %q", endpointID)
@@ -255,17 +292,25 @@ func (s *SQLStore) ArchiveEndpoint(ctx context.Context, endpointID string) error
 	return nil
 }
 
-// EndpointsForEvent resolves the fan-out set, using the caller's executor so it
-// sees the same snapshot as the transaction that is dispatching.
-func (s *SQLStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, eventType string) ([]*Endpoint, error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(eventTypeKey, eventType))
+// EndpointsForEvent resolves the fan-out set within one scope, using the
+// caller's executor so it sees the same snapshot as the transaction that is
+// dispatching.
+func (s *SQLStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType string) ([]*Endpoint, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(eventTypeKey, eventType),
+	)
 	defer op.End()
 
 	if q == nil {
 		return nil, op.Error(ErrNilExecutor, "reading webhook endpoints for event %q", eventType)
 	}
 
-	query, args := s.tables.buildSelectEndpointsForEvent(s.dialect, eventType)
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "reading webhook endpoints for event %q", eventType)
+	}
+
+	query, args := s.tables.buildSelectEndpointsForEvent(s.dialect, scope, eventType)
 
 	endpoints, err := s.scanEndpoints(ctx, q, query, args)
 	if err != nil {
@@ -291,7 +336,13 @@ func (s *SQLStore) Enqueue(ctx context.Context, q database.SQLQueryExecutor, del
 		return op.Error(ErrNilDelivery, "enqueuing webhook delivery")
 	}
 
-	op.Set(deliveryIDKey, delivery.ID).Set(eventTypeKey, delivery.EventType)
+	if err := delivery.Scope.Validate(); err != nil {
+		return op.Error(err, "enqueuing webhook delivery %q", delivery.ID)
+	}
+
+	op.Set(deliveryIDKey, delivery.ID).
+		Set(scopeKey, delivery.Scope.String()).
+		Set(eventTypeKey, delivery.EventType)
 
 	if len(endpointIDs) == 0 {
 		return nil
@@ -433,10 +484,18 @@ func (s *SQLStore) RecordAttempt(ctx context.Context, attempt *Attempt) error {
 	return nil
 }
 
-// ListAttempts pages one delivery's log.
-func (s *SQLStore) ListAttempts(ctx context.Context, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Attempt], error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(deliveryIDKey, deliveryID))
+// ListAttempts pages one of the scope's deliveries' logs. A delivery in another
+// scope reads as one with no attempts.
+func (s *SQLStore) ListAttempts(ctx context.Context, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Attempt], error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(deliveryIDKey, deliveryID),
+	)
 	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "listing webhook attempts for delivery %q", deliveryID)
+	}
 
 	if filter == nil {
 		filter = filtering.DefaultQueryFilter()
@@ -452,14 +511,14 @@ func (s *SQLStore) ListAttempts(ctx context.Context, deliveryID string, filter *
 		cursor = *filter.Cursor
 	}
 
-	query, args := s.tables.buildListAttempts(s.dialect, deliveryID, cursor, limit)
+	query, args := s.tables.buildListAttempts(s.dialect, scope, deliveryID, cursor, limit)
 
 	attempts, err := s.scanAttempts(ctx, query, args)
 	if err != nil {
 		return nil, op.Error(err, "listing webhook attempts for delivery %q", deliveryID)
 	}
 
-	countQuery, countArgs := s.tables.buildCountAttempts(s.dialect, deliveryID)
+	countQuery, countArgs := s.tables.buildCountAttempts(s.dialect, scope, deliveryID)
 
 	var total uint64
 	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
@@ -594,6 +653,31 @@ func (s *SQLStore) Reap(ctx context.Context, before time.Time, limit int) (int64
 	return reaped, nil
 }
 
+// checkEndpointScope refuses a save whose ID is already registered to somebody
+// else.
+//
+// It runs inside SaveEndpoint's transaction and against its executor, so the row
+// it read cannot be re-scoped between the check and the upsert. Without it the
+// upsert's ON CONFLICT (id) would rewrite another scope's URL, headers, and
+// signing secret — the endpoint would keep its owner and stop being theirs.
+//
+// An ID that exists nowhere is fine: that is the common case, an insert.
+func (s *SQLStore) checkEndpointScope(ctx context.Context, q database.SQLQueryExecutor, endpoint *Endpoint) error {
+	query, args := s.tables.buildSelectEndpointScope(s.dialect, endpoint.ID)
+
+	var existing tenancy.Scope
+	switch err := q.QueryRowContext(ctx, query, args...).Scan(&existing); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return platformerrors.Wrapf(err, "reading scope of webhook endpoint %q", endpoint.ID)
+	case existing != endpoint.Scope:
+		return platformerrors.Wrapf(ErrEndpointOutOfScope, "endpoint %q", endpoint.ID)
+	default:
+		return nil
+	}
+}
+
 // subscriptionsFor reads one endpoint's event types.
 func (s *SQLStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) ([]string, error) {
 	query := "SELECT event_type FROM " + s.tables.subscriptions +
@@ -622,7 +706,7 @@ func scanEndpoint(scanner database.Scanner) (*Endpoint, error) {
 	)
 
 	if err := scanner.Scan(
-		&endpoint.ID, &endpoint.URL, &endpoint.ContentType,
+		&endpoint.ID, &endpoint.Scope, &endpoint.URL, &endpoint.ContentType,
 		&endpoint.Secret.Current, &previous, &headers, &endpoint.Disabled,
 	); err != nil {
 		return nil, err
@@ -655,8 +739,8 @@ func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor,
 
 		if err := scanner.Scan(
 			&row.ID, &row.DeliveryID, &row.EndpointID, &orderingKey, &row.Attempts,
-			&row.EventType, &row.Payload,
-			&endpoint.ID, &endpoint.URL, &endpoint.ContentType,
+			&row.EventType, &row.Payload, &row.Scope,
+			&endpoint.ID, &endpoint.Scope, &endpoint.URL, &endpoint.ContentType,
 			&endpoint.Secret.Current, &previous, &headers, &endpoint.Disabled,
 		); err != nil {
 			return ClaimedDispatch{}, err
