@@ -26,7 +26,9 @@ const (
 	// deleted, so every read filters on it and no write removes a row.
 	ArchivedAtColumn = "archived_at"
 	// LastIndexedAtColumn records when a row was last written to a search
-	// index. Its presence is what marks a table as one search/sync mirrors.
+	// index. Its presence is what marks a table as one search/sync mirrors,
+	// and it brings two statements with it: the scan a reindex walks, and the
+	// bulk stamp that maintains the column — see IndexStampQuery.
 	LastIndexedAtColumn = "last_indexed_at"
 	// BelongsToAccountColumn is the conventional owner of a tenant-scoped row.
 	// It is a name, not a behavior: scoping queries by it is WithOwnership's
@@ -48,6 +50,12 @@ const (
 	UpdatedBeforeArg   = "updated_before"
 )
 
+// IDsArg is the sqlc argument the bulk stamp binds its id list through. It is
+// not one of the filter arguments above — nothing in filtering.QueryFilter
+// takes a set of ids — so it is spelled separately rather than smuggled into
+// their block.
+const IDsArg = "ids"
+
 // NowExpression is how the emitted SQL asks for the current time.
 //
 // The server's clock, never the application's. A row's created_at and a
@@ -57,8 +65,9 @@ const (
 const NowExpression = "NOW()"
 
 // databaseOwnedColumns are the columns the database fills in and a caller must
-// never supply. Three of them are set by the statements this package emits, and
-// last_indexed_at is set by whatever writes the search index.
+// never supply. Each is set by a statement this package emits: three of them by
+// the create, update and archive, and last_indexed_at by the stamp a
+// search/sync Syncer issues once the index has accepted a document.
 //
 // Letting a caller pass created_at is not a small liberty: it is how a row ends
 // up with a creation time that disagrees with its id, and the cursor walk orders

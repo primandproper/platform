@@ -419,6 +419,43 @@ func runWidgetSuite(t *testing.T, ctx context.Context, db *sql.DB) {
 		test.Eq(t, []string{"w_001", "w_002", "w_003", "w_005"}, walked)
 	})
 
+	t.Run("the stamp marks every id it is handed and nothing else", func(t *testing.T) {
+		statement, order := widgetQuery(t, "MarkWidgetsAsIndexed")
+
+		// Two rows from one account and one from another, in one statement:
+		// the stamp is the sync's own machinery and is not scoped to an owner.
+		result, err := db.ExecContext(ctx, statement, argumentsFor(t, order, map[string]any{
+			IDsArg: []string{"w_001", "w_003", "w_005"},
+		})...)
+		must.NoError(t, err)
+
+		affected, err := result.RowsAffected()
+		must.NoError(t, err)
+		test.EqOp(t, int64(3), affected)
+
+		stamped := scanIDs(t, ctx, db, fmt.Sprintf(
+			"SELECT %s FROM %s WHERE %s IS NOT NULL ORDER BY %s",
+			IDColumn, widgetsTable, LastIndexedAtColumn, IDColumn), nil)
+
+		test.Eq(t, []string{"w_001", "w_003", "w_005"}, stamped)
+	})
+
+	t.Run("the stamp reports the ids that matched no row", func(t *testing.T) {
+		// A row deleted outright between the index write and the flush is the
+		// case this reports, and the count is all there is to report it with —
+		// which is why the query is :execrows rather than :exec.
+		statement, order := widgetQuery(t, "MarkWidgetsAsIndexed")
+
+		result, err := db.ExecContext(ctx, statement, argumentsFor(t, order, map[string]any{
+			IDsArg: []string{"w_002", "w_nonexistent"},
+		})...)
+		must.NoError(t, err)
+
+		affected, err := result.RowsAffected()
+		must.NoError(t, err)
+		test.EqOp(t, int64(1), affected)
+	})
+
 	t.Run("create refuses to supply a database-owned column", func(t *testing.T) {
 		// Nothing here asserts on SQL text: the point is that the generated
 		// insert leaves created_at to the server, so a row exists with a

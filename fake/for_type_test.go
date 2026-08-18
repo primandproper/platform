@@ -23,8 +23,14 @@ type child struct {
 // opaque is the shape the interface option exists for. faker will not invent a value
 // for an any, and reports that as an error for the whole struct rather than for the
 // field, so a type with one of these is unbuildable without the option.
+//
+// The field is a bare any rather than a map[string]any, which is what it was and
+// what made the test below flaky. faker picks a random size for a map, and a map
+// it decides is empty holds no any for it to refuse — so roughly one build in
+// seventy succeeded and the assertion that this type cannot be built failed. A
+// bare any is refused every time.
 type opaque struct {
-	Payload map[string]any
+	Payload any
 	Name    string
 }
 

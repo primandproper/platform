@@ -101,6 +101,39 @@ LIMIT COALESCE(sqlc.narg(%[5]s), %[6]d);`,
 	)
 }
 
+// IndexStampQuery builds the write that maintains last_indexed_at: one UPDATE
+// stamping every id it is handed.
+//
+// It is the other half of ReindexScanQuery. The column is what marks a table as
+// one search/sync mirrors and what the reindex scan reads, and until something
+// wrote it the scan walked a column nothing maintained — so the statement that
+// maintains it is emitted from the same column list, rather than being left to
+// each consumer to hand-write once per indexed table.
+//
+// The ids arrive as an array bound in one argument rather than one statement per
+// id, because the caller is a batching.Buffer flushing a coalesced set: one
+// statement per flush is the entire reason the write is buffered. See
+// searchsync.NewStampBuffer, which is what a Syncer stamps through.
+//
+// There is no owner predicate and no archived_at predicate, and both omissions
+// are deliberate. This is the search sync's own machinery servicing itself — it
+// stamps the rows an index accepted, which it named explicitly — rather than a
+// consumer read that owes a tenancy scope. And a row whose archived_at is set is
+// a row the Syncer deleted from the index rather than stamped, so a predicate
+// excluding it would be one that never fires while making the statement
+// unemittable for a table that has no soft delete.
+func IndexStampQuery(table string) string {
+	return fmt.Sprintf(`UPDATE %[1]s SET
+	%[2]s = %[3]s
+WHERE %[4]s = ANY(sqlc.arg(%[5]s)::text[]);`,
+		table,
+		LastIndexedAtColumn,
+		NowExpression,
+		IDColumn,
+		IDsArg,
+	)
+}
+
 // FilterConditions renders a filtered list query's WHERE clause: the
 // filtering.QueryFilter window over whichever of the convention columns the
 // table has, then any conditions the caller adds, then the cursor predicate.

@@ -29,6 +29,10 @@ const (
 	ArchiveQuery
 	// ScanIDsForReindexQuery walks ids in byte order for a search reindex.
 	ScanIDsForReindexQuery
+	// MarkAsIndexedQuery stamps last_indexed_at on every id it is handed, which
+	// is what a search/sync Syncer flushes through once the index has accepted
+	// those documents.
+	MarkAsIndexedQuery
 )
 
 // String names the query, for error messages.
@@ -48,6 +52,8 @@ func (s StandardQuery) String() string {
 		return "archive"
 	case ScanIDsForReindexQuery:
 		return "scan IDs for reindex"
+	case MarkAsIndexedQuery:
+		return "mark as indexed"
 	default:
 		return fmt.Sprintf("unknown standard query %d", int(s))
 	}
@@ -180,16 +186,16 @@ func WithImmutable(columns ...string) Option {
 }
 
 // StandardCRUD emits the queries every table following this module's row
-// conventions needs: create, get, exists, list, update, archive, and the id scan
-// a search reindex walks.
+// conventions needs: create, get, exists, list, update, archive, the id scan a
+// search reindex walks, and the stamp that maintains the column the scan reads.
 //
 // columns is the table's full column list, in the order the emitted SELECTs
 // should list them, and it decides which queries appear. A table without
-// archived_at gets no archive; one without last_indexed_at gets no reindex scan;
-// one with nothing a caller may assign gets no create and no update. The
-// alternative — emitting a query that references a column the table does not
-// have — is SQL that fails at sqlc generate for a reason that reads as a schema
-// problem.
+// archived_at gets no archive; one without last_indexed_at gets neither the
+// reindex scan nor the stamp; one with nothing a caller may assign gets no
+// create and no update. The alternative — emitting a query that references a
+// column the table does not have — is SQL that fails at sqlc generate for a
+// reason that reads as a schema problem.
 //
 // It panics rather than returning an error, in the manner of regexp.MustCompile.
 // Its arguments are string literals in a generator binary, so every way it can
@@ -252,10 +258,17 @@ func StandardCRUD(table string, columns []string, opts ...Option) []*Query {
 		queries = append(queries, s.query(ArchiveQuery, ExecRowsType, archiveStatement(table, s.ownership)))
 	}
 
-	// The scan filters on archived_at, so a table that is indexed but not
-	// soft-deletable would get a query naming a column it does not have.
-	if slices.Contains(columns, LastIndexedAtColumn) && slices.Contains(columns, ArchivedAtColumn) {
-		queries = append(queries, s.query(ScanIDsForReindexQuery, ManyType, ReindexScanQuery(table)))
+	if slices.Contains(columns, LastIndexedAtColumn) {
+		// The scan filters on archived_at, so a table that is indexed but not
+		// soft-deletable would get a query naming a column it does not have.
+		// The stamp names no column but the two it assigns and keys on, so it
+		// is emitted for every indexed table — which is what keeps the column
+		// from being one nothing can write.
+		if slices.Contains(columns, ArchivedAtColumn) {
+			queries = append(queries, s.query(ScanIDsForReindexQuery, ManyType, ReindexScanQuery(table)))
+		}
+
+		queries = append(queries, s.query(MarkAsIndexedQuery, ExecRowsType, IndexStampQuery(table)))
 	}
 
 	queries = slices.DeleteFunc(queries, func(query *Query) bool { return query == nil })
@@ -304,6 +317,8 @@ func (s *settings) name(which StandardQuery) string {
 		return "Archive" + s.singular
 	case ScanIDsForReindexQuery:
 		return "Scan" + s.singular + "IDsForReindex"
+	case MarkAsIndexedQuery:
+		return "Mark" + s.plural + "AsIndexed"
 	default:
 		return ""
 	}

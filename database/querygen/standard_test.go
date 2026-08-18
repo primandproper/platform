@@ -69,6 +69,7 @@ func TestStandardCRUD(T *testing.T) {
 			"UpdateValidInstrument",
 			"ArchiveValidInstrument",
 			"ScanValidInstrumentIDsForReindex",
+			"MarkValidInstrumentsAsIndexed",
 		}, queryNames(queries))
 	})
 
@@ -84,6 +85,7 @@ func TestStandardCRUD(T *testing.T) {
 		test.EqOp(t, ExecRowsType, named(t, queries, "UpdateThings").Annotation.Type)
 		test.EqOp(t, ExecRowsType, named(t, queries, "ArchiveThings").Annotation.Type)
 		test.EqOp(t, ManyType, named(t, queries, "ScanThingsIDsForReindex").Annotation.Type)
+		test.EqOp(t, ExecRowsType, named(t, queries, "MarkThingsAsIndexed").Annotation.Type)
 	})
 
 	T.Run("the default names cannot collide with each other", func(t *testing.T) {
@@ -202,20 +204,80 @@ func TestStandardCRUD_columnsDecide(T *testing.T) {
 		test.StrNotContains(t, named(t, queries, "ListThings").Content, IncludeArchivedArg)
 	})
 
-	T.Run("no last_indexed_at, no reindex scan", func(t *testing.T) {
+	T.Run("no last_indexed_at, no reindex scan and no stamp", func(t *testing.T) {
 		t.Parallel()
 
-		test.SliceNotContains(t, queryNames(StandardCRUD("things", columnsFor())), "ScanThingsIDsForReindex")
+		names := queryNames(StandardCRUD("things", columnsFor()))
+
+		test.SliceNotContains(t, names, "ScanThingsIDsForReindex")
+		test.SliceNotContains(t, names, "MarkThingsAsIndexed")
 	})
 
-	T.Run("indexed but not archivable gets no reindex scan either", func(t *testing.T) {
+	T.Run("indexed but not archivable gets the stamp without the reindex scan", func(t *testing.T) {
 		t.Parallel()
 
 		// The scan filters on archived_at, so emitting it would name a column
-		// the table does not have.
-		queries := StandardCRUD("things", []string{IDColumn, "name", LastIndexedAtColumn})
+		// the table does not have. The stamp names only the two columns it
+		// assigns and keys on, so it is emitted regardless — the column would
+		// otherwise be one nothing can write.
+		names := queryNames(StandardCRUD("things", []string{IDColumn, "name", LastIndexedAtColumn}))
 
-		test.SliceNotContains(t, queryNames(queries), "ScanThingsIDsForReindex")
+		test.SliceNotContains(t, names, "ScanThingsIDsForReindex")
+		test.SliceContains(t, names, "MarkThingsAsIndexed")
+	})
+
+	T.Run("the stamp is the write the column's owner rule names", func(t *testing.T) {
+		t.Parallel()
+
+		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn))
+
+		want := `UPDATE things SET
+	last_indexed_at = NOW()
+WHERE id = ANY(sqlc.arg(ids)::text[]);`
+
+		test.EqOp(t, want, named(t, queries, "MarkThingsAsIndexed").Content)
+
+		// The column is database-owned, so neither write a caller drives may
+		// name it — which is what leaves the stamp as its only writer.
+		test.StrNotContains(t, named(t, queries, "CreateThings").Content, LastIndexedAtColumn)
+		test.StrNotContains(t, named(t, queries, "UpdateThings").Content, LastIndexedAtColumn)
+	})
+
+	T.Run("WithOmitted drops the stamp from a table that has the column", func(t *testing.T) {
+		t.Parallel()
+
+		// The escape hatch for a consumer that maintains last_indexed_at some
+		// other way, or is not ready to. The reindex scan is unaffected, so the
+		// two halves can be adopted separately.
+		names := queryNames(StandardCRUD("things", columnsFor(LastIndexedAtColumn),
+			WithOmitted(MarkAsIndexedQuery)))
+
+		test.SliceNotContains(t, names, "MarkThingsAsIndexed")
+		test.SliceContains(t, names, "ScanThingsIDsForReindex")
+	})
+
+	T.Run("WithQueryName renames the stamp onto an existing spelling", func(t *testing.T) {
+		t.Parallel()
+
+		// The migration path for a consumer whose generated code already calls
+		// the write something else.
+		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn),
+			WithQueryName(MarkAsIndexedQuery, "UpdateThingsLastIndexedAt"))
+
+		test.SliceNotContains(t, queryNames(queries), "MarkThingsAsIndexed")
+		test.StrContains(t, named(t, queries, "UpdateThingsLastIndexedAt").Content, LastIndexedAtColumn)
+	})
+
+	T.Run("the stamp carries no owner predicate", func(t *testing.T) {
+		t.Parallel()
+
+		// It is the sync's own machinery stamping rows it named explicitly,
+		// not a consumer read that owes a tenancy scope — the same reason the
+		// reindex scan is unscoped.
+		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn, BelongsToAccountColumn),
+			WithOwnership(BelongsToAccountColumn))
+
+		test.StrNotContains(t, named(t, queries, "MarkThingsAsIndexed").Content, BelongsToAccountColumn)
 	})
 
 	T.Run("nothing mutable, no update", func(t *testing.T) {
@@ -387,7 +449,8 @@ func TestStandardCRUD_options(T *testing.T) {
 		t.Parallel()
 
 		queries := StandardCRUD("things", columnsFor(),
-			WithOmitted(CreateQuery, GetQuery, ExistsQuery, ListQuery, UpdateQuery, ArchiveQuery, ScanIDsForReindexQuery))
+			WithOmitted(CreateQuery, GetQuery, ExistsQuery, ListQuery, UpdateQuery, ArchiveQuery,
+				ScanIDsForReindexQuery, MarkAsIndexedQuery))
 
 		test.SliceEmpty(t, queries)
 		test.EqOp(t, "", RenderFile(queries))
@@ -510,6 +573,7 @@ func TestStandardQuery_String(T *testing.T) {
 
 		test.EqOp(t, "create", CreateQuery.String())
 		test.EqOp(t, "scan IDs for reindex", ScanIDsForReindexQuery.String())
+		test.EqOp(t, "mark as indexed", MarkAsIndexedQuery.String())
 		test.StrContains(t, StandardQuery(99).String(), "unknown")
 	})
 }

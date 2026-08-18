@@ -178,6 +178,61 @@ A payload that will not decode, or an event with no document ID, comes back
 wrapped in retry.Unretryable so the Pool dead-letters it immediately rather than
 failing the same way three more times while healthy events wait behind it.
 
+# Recording what the index holds
+
+querygen treats last_indexed_at as the column that marks a table as one this
+package mirrors: its presence is what makes it emit the reindex scan, and it is
+database-owned, so no create or update a caller writes may supply it. Until
+there was a writer, that was a column the conventions reserved and nothing
+filled in.
+
+WithSyncerStamper is the writer. Give a Syncer a Stamper and it records every
+document the index accepted:
+
+	stamps, err := searchsync.NewStampBuffer(func(ctx context.Context, ids []string) error {
+	    _, err := queries.MarkOrdersAsIndexed(ctx, db, ids)
+
+	    return err
+	}, batching.WithLogger(logger), batching.WithMetricsProvider(metricsProvider))
+	if err != nil {
+	    return err
+	}
+
+	defer func() { _ = stamps.Close(shutdownCtx) }()
+
+	syncer, err := searchsync.NewSyncer("orders", orderSource, target,
+	    searchsync.WithSyncerStamper(stamps))
+
+MarkOrdersAsIndexed is querygen's, emitted from the same column list as the scan
+that reads the column back — one UPDATE over WHERE id = ANY, which is the shape
+the flush is holding.
+
+Accepted is the operative word. A delete stamps nothing, because there is no
+document left to have indexed. An upsert whose row has since vanished is applied
+as a delete, and stamps nothing either. A failed write stamps nothing. The
+column says what the index holds, not what was attempted, which is the only
+reading that makes the reindex scan over it mean anything.
+
+The write is buffered, and that is not throughput tuning. One UPDATE per applied
+document, issued from all eight workers of a Pool at once, is concurrent
+statements taking row locks on the same rows in whatever order each one built
+them — Postgres 40P01, holding a pool connection while it deadlocks. A
+batching.Buffer collapses the repeats, flushes from a single goroutine on an
+interval, and emits in id order: one stamping write in flight, one lock order.
+Nothing reads the column back in the same breath, which is what makes a Buffer
+right here rather than a GroupCommit. Its own instruments — batching_buffer_* —
+are how a failing stamp is seen, since by the time a flush runs there is no
+caller left to hand an error to.
+
+The Buffer is the caller's to build and to Close, because it owns a goroutine
+and a Syncer does not. NewStampBuffer exists so the one part that is
+load-bearing rather than tunable — the id ordering — is not something each
+wiring site has to remember.
+
+A Reindexer has no counterpart and should not: it writes every document there
+is, so stamping it would make the column a record of when the last rebuild ran,
+the same value on every row, rather than of how current each document is.
+
 # Rebuilding
 
 	reindexer, err := searchsync.NewReindexer("orders", orderSource, target,
