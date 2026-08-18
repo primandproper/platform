@@ -23,11 +23,15 @@ import (
 // the consumption, concurrency, retry, dead-lettering and panic containment
 // around it all come from jobs.Pool, which already does those four things
 // carefully — see the package documentation for the wiring.
+//
+// That holds with a Stamper too: the buffering behind one, and the goroutine
+// that flushes it, belong to the caller who built it.
 type Syncer[T any] struct {
-	source Fetcher[T]
-	target Target[T]
-	clock  clock.Clock
-	o11y   observability.Observer
+	source  Fetcher[T]
+	target  Target[T]
+	stamper Stamper
+	clock   clock.Clock
+	o11y    observability.Observer
 
 	// unmarshaler is pinned to JSON rather than configurable, because the
 	// outbox's marshaler is: it encodes a payload with encoding.EncodeJSON and
@@ -80,6 +84,7 @@ func NewSyncer[T any](name string, source Fetcher[T], target Target[T], opts ...
 		name:         name,
 		source:       source,
 		target:       target,
+		stamper:      o.stamper,
 		clock:        o.clock,
 		indexAttr:    metric.WithAttributes(indexAttr),
 		upsertAttrs:  metric.WithAttributes(indexAttr, attribute.String(opKey, string(OpUpsert))),
@@ -230,7 +235,35 @@ func (s *Syncer[T]) apply(ctx context.Context, op observability.Operation, event
 		return op.Error(err, "indexing document %q", event.DocumentID)
 	}
 
+	s.stamp(docs)
+
 	return nil
+}
+
+// stamp records the documents the index just took, which is what maintains
+// last_indexed_at on the rows behind them.
+//
+// It stamps what Fetch returned rather than the event's document ID. The two
+// are the same in every ordinary case, and where they are not — a Fetcher that
+// expands one changed row into the several documents derived from it — the
+// documents are what the index accepted and therefore what the column is a
+// statement about.
+//
+// It is reached only on the upsert path that wrote something, so every case
+// that indexed nothing stamps nothing without needing to say so: a delete
+// returns before it, a vanished row returns before it, and a failed Upsert
+// returns the error.
+func (s *Syncer[T]) stamp(docs []Document[T]) {
+	if s.stamper == nil || len(docs) == 0 {
+		return
+	}
+
+	ids := make([]string, 0, len(docs))
+	for i := range docs {
+		ids = append(ids, docs[i].ID)
+	}
+
+	s.stamper.Add(ids...)
 }
 
 // recordLag measures the event against the applying process's clock.

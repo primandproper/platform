@@ -25,13 +25,23 @@ them. Everything else is read off the column set:
 	created_at present      → the created_after/created_before window
 	last_updated_at present → the updated_after/updated_before window
 	archived_at present     → soft delete, and the include_archived toggle
-	last_indexed_at present → the reindex scan search/sync reads through
+	last_indexed_at present → the reindex scan search/sync reads through, and
+	                          the bulk stamp that maintains it
 	id                      → required; the cursor and every query's key
 
 A query whose column is absent is not emitted, and a predicate whose column is
 absent is not rendered. That is the point of deriving them: a table without
 last_updated_at cannot end up with an Update that sets it, and a table with
 archived_at cannot end up without an Archive.
+
+last_indexed_at is the one that took two rounds to get right. Its presence has
+always decided the reindex scan, and the column has always been database-owned —
+excluded from the create and the update, so no caller can supply it. What was
+missing was anything that wrote it: the scan walked a column the convention
+forbade everyone from maintaining. MarkXAsIndexed is that write, emitted from
+the same column list as the scan, and a searchsync.Syncer flushes ids into it
+through searchsync.NewStampBuffer. The column, the query that reads it, and the
+write that maintains it are one feature rather than three-quarters of one.
 
 WithOmitted subtracts from that set, for a table whose rows are not addressable
 the way it assumes — a child row written with its parent and never read on its
@@ -58,6 +68,9 @@ guessed from another, so they are written down here:
 	IncludeArchived          includeArchived    include_archived
 	Cursor                   cursor             cursor
 	MaxResponseSize          limit              result_limit
+
+The bulk stamp binds one argument that is not a filter field at all: ids, the
+list of row ids to mark as indexed.
 
 # include_archived actually includes archived rows
 

@@ -21,6 +21,7 @@ type options struct {
 	metricsProvider metrics.Provider
 	clock           clock.Clock
 	pruner          Enumerator
+	stamper         Stamper
 	batchSize       int
 }
 
@@ -61,6 +62,40 @@ func WithSyncerClock(c clock.Clock) SyncerOption {
 	return func(o *options) {
 		if c != nil {
 			o.clock = c
+		}
+	}
+}
+
+// WithSyncerStamper supplies what a Syncer tells about the documents an index
+// accepted, so that last_indexed_at on the rows behind them can be maintained.
+//
+// The column is a convention this module already derives from — querygen treats
+// its presence as what marks a table as one search/sync mirrors, forbids any
+// caller from supplying it, and emits the reindex scan that reads it. This is
+// the writer that convention names. Without one the Syncer stamps nothing,
+// which is the right behavior for an index whose source table does not carry
+// the column at all.
+//
+// Pass a Buffer from NewStampBuffer rather than a direct writer. One UPDATE per
+// applied document from every worker of a jobs.Pool at once is how a stamping
+// write deadlocks against itself; the reason, and what the Buffer does about
+// it, are in NewStampBuffer.
+//
+// A Syncer stamps only the documents the index actually took. A delete stamps
+// nothing, because there is no document left to record having indexed; an
+// upsert whose row has since vanished is applied as a delete and stamps nothing
+// either; and a failed write stamps nothing, since the whole value of the
+// column is that it says what the index holds rather than what was attempted.
+//
+// There is no reindex counterpart, and that is a decision rather than an
+// omission. A Reindexer writes every document there is, so stamping it would
+// make the column a record of when the last rebuild ran — the same value on
+// every row — rather than of how current each document is, which is the reading
+// the reindex scan itself depends on.
+func WithSyncerStamper(stamper Stamper) SyncerOption {
+	return func(o *options) {
+		if stamper != nil {
+			o.stamper = stamper
 		}
 	}
 }
