@@ -332,6 +332,67 @@ func TestStandardCRUD_options(T *testing.T) {
 		test.StrNotContains(t, named(t, queries, "UpdateThings").Content, "created_by_user")
 	})
 
+	T.Run("WithOmitted drops the queries it names", func(t *testing.T) {
+		t.Parallel()
+
+		queries := StandardCRUD("things", columnsFor(),
+			WithOmitted(GetQuery, ExistsQuery, ListQuery))
+
+		test.Eq(t, []string{
+			"CreateThings",
+			"UpdateThings",
+			"ArchiveThings",
+		}, queryNames(queries))
+	})
+
+	T.Run("WithOmitted cannot add a query the columns exclude", func(t *testing.T) {
+		t.Parallel()
+
+		// No archived_at, so there is no Archive to omit and none appears.
+		queries := StandardCRUD("things", []string{IDColumn, "name", CreatedAtColumn},
+			WithOmitted(ArchiveQuery, ScanIDsForReindexQuery))
+
+		test.SliceNotContains(t, queryNames(queries), "ArchiveThings")
+		test.SliceNotContains(t, queryNames(queries), "ScanThingsIDsForReindex")
+		test.SliceContains(t, queryNames(queries), "CreateThings")
+	})
+
+	T.Run("WithOmitted accumulates across calls", func(t *testing.T) {
+		t.Parallel()
+
+		queries := StandardCRUD("things", columnsFor(),
+			WithOmitted(ListQuery),
+			WithOmitted(ExistsQuery))
+
+		test.SliceNotContains(t, queryNames(queries), "ListThings")
+		test.SliceNotContains(t, queryNames(queries), "CheckThingsExistence")
+		test.SliceContains(t, queryNames(queries), "GetThings")
+	})
+
+	T.Run("WithOmitted frees the name it dropped", func(t *testing.T) {
+		t.Parallel()
+
+		// Two queries sharing a name is a panic, so a rename onto an omitted
+		// query's default name is the check that the omitted one is truly gone
+		// rather than merely filtered out of the result.
+		queries := StandardCRUD("things", columnsFor(),
+			WithOmitted(ListQuery),
+			WithQueryName(GetQuery, "ListThings"))
+
+		test.SliceContains(t, queryNames(queries), "ListThings")
+		test.SliceNotContains(t, queryNames(queries), "GetThings")
+	})
+
+	T.Run("omitting everything yields nothing to render", func(t *testing.T) {
+		t.Parallel()
+
+		queries := StandardCRUD("things", columnsFor(),
+			WithOmitted(CreateQuery, GetQuery, ExistsQuery, ListQuery, UpdateQuery, ArchiveQuery, ScanIDsForReindexQuery))
+
+		test.SliceEmpty(t, queries)
+		test.EqOp(t, "", RenderFile(queries))
+	})
+
 	T.Run("options apply in order", func(t *testing.T) {
 		t.Parallel()
 

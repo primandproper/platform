@@ -73,6 +73,7 @@ type settings struct {
 	ownership     string
 	databaseOwned []string
 	immutable     []string
+	omitted       []StandardQuery
 }
 
 // WithEntity sets the singular and plural entity names the default query names
@@ -97,6 +98,29 @@ func WithEntity(singular, plural string) Option {
 func WithQueryName(query StandardQuery, name string) Option {
 	return func(s *settings) {
 		s.names[query] = name
+	}
+}
+
+// WithOmitted drops queries from the set, for a table whose rows are not
+// addressable the way the whole set assumes.
+//
+// Not every table following these conventions is a resource. A child row written
+// as part of its parent and only ever read through it has no caller for a get by
+// id, an exists, or a list, and emitting them anyway produces generated methods
+// nobody calls next to a read path that answers without whatever scoping the
+// parent's own queries apply — the sort of query that is found later by someone
+// looking for a convenient way to fetch a row.
+//
+// It only subtracts. What StandardCRUD emits stays a subset of what the column
+// list justifies, so a table without archived_at still cannot acquire an Archive
+// and this option cannot conjure a query the columns do not support. Naming a
+// query the columns already exclude is not an error; it says the same thing twice.
+//
+// Omitting everything yields an empty slice, which RenderFile renders as the
+// empty string rather than a file with no queries in it.
+func WithOmitted(queries ...StandardQuery) Option {
+	return func(s *settings) {
+		s.omitted = append(s.omitted, queries...)
 	}
 }
 
@@ -214,13 +238,21 @@ func StandardCRUD(table string, columns []string, opts ...Option) []*Query {
 		queries = append(queries, s.query(ScanIDsForReindexQuery, ManyType, ReindexScanQuery(table)))
 	}
 
+	queries = slices.DeleteFunc(queries, func(query *Query) bool { return query == nil })
+
 	mustBeUniquelyNamed(table, queries)
 
 	return queries
 }
 
-// query builds one annotated query under its configured or default name.
+// query builds one annotated query under its configured or default name, or nil
+// when WithOmitted named it. StandardCRUD drops the nils, which keeps the
+// decision in one place rather than at each of the seven call sites.
 func (s *settings) query(which StandardQuery, queryType QueryType, content string) *Query {
+	if slices.Contains(s.omitted, which) {
+		return nil
+	}
+
 	return &Query{
 		Annotation: QueryAnnotation{Name: s.name(which), Type: queryType},
 		Content:    content,
