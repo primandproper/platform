@@ -357,7 +357,7 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 		observability.WithValue(deliveryIDKey, dispatch.DeliveryID),
 		observability.WithValue(endpointIDKey, dispatch.EndpointID),
 		observability.WithValue(scopeKey, dispatch.Scope.String()),
-		observability.WithValue(eventTypeKey, dispatch.EventType),
+		observability.WithValue(eventTypeKey, dispatch.EventType.String()),
 		observability.WithValue(attemptsKey, dispatch.Attempts),
 		observability.WithSpanValue(endpointURLKey, dispatch.Endpoint.URL),
 	)
@@ -500,7 +500,7 @@ func (w *Worker) buildRequest(ctx context.Context, dispatch *ClaimedDispatch) (*
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set(requestsigning.SignatureHeader, signature)
 	req.Header.Set(requestsigning.TimestampHeader, strconv.FormatInt(signedAt.Unix(), 10))
-	req.Header.Set(EventTypeHeader, dispatch.EventType)
+	req.Header.Set(EventTypeHeader, dispatch.EventType.String())
 	req.Header.Set(DeliveryIDHeader, dispatch.DeliveryID)
 	req.Header.Set(AttemptHeader, strconv.Itoa(dispatch.Attempts))
 	req.Header.Set("User-Agent", w.cfg.UserAgent)
@@ -557,7 +557,7 @@ func (w *Worker) recordFailure(ctx context.Context, dispatch *ClaimedDispatch, c
 		deliveryIDKey:  dispatch.DeliveryID,
 		endpointIDKey:  dispatch.EndpointID,
 		scopeKey:       dispatch.Scope.String(),
-		eventTypeKey:   dispatch.EventType,
+		eventTypeKey:   dispatch.EventType.String(),
 		orderingKeyKey: dispatch.OrderingKey,
 		attemptsKey:    dispatch.Attempts,
 	})
@@ -664,8 +664,8 @@ func (w *Worker) reap(ctx context.Context) {
 // an event whose subscribers are all failing is invisible in the total. Event
 // types come from the Catalog and are therefore low-cardinality by construction,
 // which is what makes this safe as a metric dimension.
-func eventTypeAttr(eventType string) metric.MeasurementOption {
-	return metric.WithAttributes(attribute.String(eventTypeKey, eventType))
+func eventTypeAttr(eventType EventType) metric.MeasurementOption {
+	return metric.WithAttributes(attribute.String(eventTypeKey, eventType.String()))
 }
 
 // EndpointAttributeKey is the attribute name this package labels per-endpoint

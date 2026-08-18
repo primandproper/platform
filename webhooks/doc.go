@@ -24,7 +24,7 @@ that transaction:
 
 		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
 			Scope:       tenancy.Of(order.AccountID),
-			EventType:   "order.updated",
+			EventType:   OrderUpdated,
 			OrderingKey: order.ID,
 			Payload:     body,
 		})
@@ -93,7 +93,7 @@ receives another account's copy of the same event type.
 		Scope:  tenancy.Of(accountID),
 		URL:    "https://subscriber.example/hooks",
 		Secret: webhooks.Secret{Current: key},
-		Events: []string{"order.updated"},
+		Events: []webhooks.EventType{OrderUpdated},
 	})
 
 An application whose events are global says tenancy.Global() in both places and
@@ -183,9 +183,47 @@ Subscribable event types are supplied at construction via WithCatalog, not
 stored. What an event means is an application opinion and this package has none.
 
 Both Register and Dispatch reject a type outside the catalog. That matters
-because an event type is a string and strings are typo-prone: a subscription to
-"reciped.created" accepted silently produces an endpoint that never fires, and
-diagnosing it means noticing an absence.
+because an event type is a string underneath and string literals are typo-prone:
+a subscription to "reciped.created" accepted silently produces an endpoint that
+never fires, and diagnosing it means noticing an absence.
+
+Declare the event types as EventType constants and key the catalog by them:
+
+	const (
+	    OrderCreated webhooks.EventType = "order.created"
+	    OrderUpdated webhooks.EventType = "order.updated"
+	)
+
+	webhooks.WithCatalog(webhooks.Catalog{
+	    OrderCreated: {Description: "an order was created"},
+	    OrderUpdated: {Description: "an order was updated"},
+	})
+
+EventType is a defined type rather than a string so that this form is available,
+and it is a defined type rather than an alias because an alias would be
+indistinguishable from string to a type checker, which is the whole point of
+having one.
+
+The point is the catalog's second copy. The catalog must list every event type
+the application publishes — a missing entry fails the dispatch gate, and where
+Dispatch runs inside the write transaction that is a failed write rather than a
+missing webhook — so an application of any size ends up deriving it rather than
+maintaining it beside the constants that are its source of truth.
+
+Deriving it means answering "which of these constants are event types", and
+there are two ways to answer. By name, matching a suffix: a convention nothing
+enforces, where a constant spelled differently is silently not an event type and
+the miss surfaces as a failed dispatch rather than a failed build. Or by declared
+type, which the compiler already knows, cannot be spelled wrong, and does not
+care which package or which directory the constant was declared in.
+
+This package ships no generator. Which constants exist, where they live, and
+where the descriptions come from are the application's business, and a scan over
+them is a few dozen lines once the type makes the question answerable. What
+webhooks owes that scan is a declaration form it can rely on, which is this one.
+
+Nothing here constrains the string itself. Dots, colons, and underscores are all
+fine, and the catalog remains the authority on which values exist.
 
 # Watching it
 

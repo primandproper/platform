@@ -33,7 +33,7 @@ var _ webhooks.Store = &StoreMock{}
 //			ClaimFunc: func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]webhooks.ClaimedDispatch, error) {
 //				panic("mock out the Claim method")
 //			},
-//			EndpointsForEventFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType string) ([]*webhooks.Endpoint, error) {
+//			EndpointsForEventFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType webhooks.EventType) ([]*webhooks.Endpoint, error) {
 //				panic("mock out the EndpointsForEvent method")
 //			},
 //			EnqueueFunc: func(ctx context.Context, q database.SQLQueryExecutor, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
@@ -83,7 +83,7 @@ type StoreMock struct {
 	ClaimFunc func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]webhooks.ClaimedDispatch, error)
 
 	// EndpointsForEventFunc mocks the EndpointsForEvent method.
-	EndpointsForEventFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType string) ([]*webhooks.Endpoint, error)
+	EndpointsForEventFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType webhooks.EventType) ([]*webhooks.Endpoint, error)
 
 	// EnqueueFunc mocks the Enqueue method.
 	EnqueueFunc func(ctx context.Context, q database.SQLQueryExecutor, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error
@@ -151,7 +151,7 @@ type StoreMock struct {
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// EventType is the eventType argument value.
-			EventType string
+			EventType webhooks.EventType
 		}
 		// Enqueue holds details about calls to the Enqueue method.
 		Enqueue []struct {
@@ -387,7 +387,7 @@ func (mock *StoreMock) ClaimCalls() []struct {
 }
 
 // EndpointsForEvent calls EndpointsForEventFunc.
-func (mock *StoreMock) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType string) ([]*webhooks.Endpoint, error) {
+func (mock *StoreMock) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType webhooks.EventType) ([]*webhooks.Endpoint, error) {
 	if mock.EndpointsForEventFunc == nil {
 		panic("StoreMock.EndpointsForEventFunc: method is nil but Store.EndpointsForEvent was just called")
 	}
@@ -395,7 +395,7 @@ func (mock *StoreMock) EndpointsForEvent(ctx context.Context, q database.SQLQuer
 		Ctx       context.Context
 		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
-		EventType string
+		EventType webhooks.EventType
 	}{
 		Ctx:       ctx,
 		Q:         q,
@@ -416,13 +416,13 @@ func (mock *StoreMock) EndpointsForEventCalls() []struct {
 	Ctx       context.Context
 	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
-	EventType string
+	EventType webhooks.EventType
 } {
 	var calls []struct {
 		Ctx       context.Context
 		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
-		EventType string
+		EventType webhooks.EventType
 	}
 	mock.lockEndpointsForEvent.RLock()
 	calls = mock.calls.EndpointsForEvent

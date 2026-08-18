@@ -108,7 +108,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 		// through QueryRowContext and so reports the closed pool's own error.
 		// What matters is that the failure surfaces rather than the upsert
 		// running against an unverified row.
-		err := newFailingStore(t).SaveEndpoint(t.Context(), &Endpoint{ID: "e", Scope: testScope, Events: []string{"order.created"}})
+		err := newFailingStore(t).SaveEndpoint(t.Context(), &Endpoint{ID: "e", Scope: testScope, Events: []EventType{orderCreated}})
 		test.Error(t, err)
 	})
 

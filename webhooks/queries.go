@@ -113,7 +113,7 @@ func (t *tables) buildDeleteSubscriptions(d dialect.Dialect, endpointID string) 
 // buildInsertSubscriptions renders one multi-row INSERT for an endpoint's
 // subscriptions. Registering an endpoint with thirty event types costs one
 // round trip, not thirty.
-func (t *tables) buildInsertSubscriptions(d dialect.Dialect, endpointID string, events []string) (query string, args []any) {
+func (t *tables) buildInsertSubscriptions(d dialect.Dialect, endpointID string, events []EventType) (query string, args []any) {
 	const columnsPerRow = 2
 
 	args = make([]any, 0, len(events)*columnsPerRow)
@@ -121,7 +121,7 @@ func (t *tables) buildInsertSubscriptions(d dialect.Dialect, endpointID string, 
 
 	for _, event := range events {
 		tuples = append(tuples, "("+d.Placeholders(len(args)+1, columnsPerRow)+")")
-		args = append(args, endpointID, event)
+		args = append(args, endpointID, event.String())
 	}
 
 	return fmt.Sprintf(
@@ -164,7 +164,7 @@ func (t *tables) buildSelectEndpoint(d dialect.Dialect, scope tenancy.Scope, end
 // Disabled and archived endpoints are excluded here rather than at delivery, so
 // no dispatch row is ever created for them. Creating one and skipping it later
 // would leave a permanently undeliverable row in the backlog for every event.
-func (t *tables) buildSelectEndpointsForEvent(d dialect.Dialect, scope tenancy.Scope, eventType string) (query string, args []any) {
+func (t *tables) buildSelectEndpointsForEvent(d dialect.Dialect, scope tenancy.Scope, eventType EventType) (query string, args []any) {
 	return fmt.Sprintf(
 		"SELECT %s FROM %s AS e "+
 			"INNER JOIN %s AS s ON s.endpoint_id = e.id "+
@@ -172,7 +172,7 @@ func (t *tables) buildSelectEndpointsForEvent(d dialect.Dialect, scope tenancy.S
 			"ORDER BY e.id",
 		prefixColumns("e.", endpointColumns), t.endpoints, t.subscriptions,
 		d.Placeholder(1), d.Placeholder(2),
-	), []any{eventType, scope}
+	), []any{eventType.String(), scope}
 }
 
 // buildListEndpoints renders the paged registry read for one scope,
@@ -222,7 +222,7 @@ func (t *tables) buildArchiveEndpoint(d dialect.Dialect, scope tenancy.Scope, en
 // tenant's data whether it fanned out to five subscribers, one, or none. It is
 // also what the delivery log reads through — see buildListAttempts.
 func (t *tables) buildInsertDelivery(d dialect.Dialect, delivery *Delivery, now time.Time) (query string, args []any) {
-	args = []any{delivery.ID, delivery.Scope, delivery.EventType, []byte(delivery.Payload), delivery.OrderingKey, now}
+	args = []any{delivery.ID, delivery.Scope, delivery.EventType.String(), []byte(delivery.Payload), delivery.OrderingKey, now}
 
 	return fmt.Sprintf(
 		"INSERT INTO %s (id, scope, event_type, payload, ordering_key, created_at) VALUES (%s)",

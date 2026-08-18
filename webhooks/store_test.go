@@ -96,7 +96,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			ContentType: "application/cloudevents+json",
 			Secret:      Secret{Current: []byte("current"), Previous: []byte("previous")},
 			Headers:     map[string]string{"X-Tenant": "acme"},
-			Events:      []string{"order.created", "order.updated"},
+			Events:      []EventType{orderCreated, orderUpdated},
 		}
 		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
 
@@ -108,7 +108,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.Eq(t, []byte("current"), got.Secret.Current)
 		test.Eq(t, []byte("previous"), got.Secret.Previous)
 		test.Eq(t, map[string]string{"X-Tenant": "acme"}, got.Headers)
-		test.Eq(t, []string{"order.created", "order.updated"}, got.Events)
+		test.Eq(t, []EventType{orderCreated, orderUpdated}, got.Events)
 		test.False(t, got.Disabled)
 	})
 
@@ -137,7 +137,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
 		must.NoError(t, err)
 
-		test.Eq(t, []string{"order.updated"}, got.Events)
+		test.Eq(t, []EventType{orderUpdated}, got.Events)
 
 		// And the endpoint is no longer resolved for the event it dropped.
 		test.SliceEmpty(t, endpointsFor(t, env, store, "order.created"))
@@ -195,7 +195,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		// Subscriptions come back with each row.
 		for _, endpoint := range listed.Data {
-			test.Eq(t, []string{"order.created"}, endpoint.Events)
+			test.Eq(t, []EventType{orderCreated}, endpoint.Events)
 		}
 	})
 
@@ -290,7 +290,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			URL:         "https://93.184.216.34/attacker",
 			ContentType: DefaultContentType,
 			Secret:      Secret{Current: []byte("attacker")},
-			Events:      []string{"order.created"},
+			Events:      []EventType{orderCreated},
 		})
 		test.ErrorIs(t, err, ErrEndpointOutOfScope)
 
@@ -1031,7 +1031,7 @@ func TestSQLStore_UsesTheInjectedClock(T *testing.T) {
 			Scope:  testScope,
 			URL:    "https://example.com/hook",
 			Secret: Secret{Current: []byte("s3cr3t")},
-			Events: []string{"user.created"},
+			Events: []EventType{"user.created"},
 		}))
 		must.NoError(t, store.ArchiveEndpoint(t.Context(), testScope, "endpoint"))
 

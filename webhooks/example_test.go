@@ -21,6 +21,17 @@ import (
 	"github.com/primandproper/platform-go/v11/webhooks/migrations"
 )
 
+// An application's event types, declared as webhooks.EventType constants. That
+// is the form this package asks for, and the reason is the catalog below: it has
+// to list every event type the application publishes, a missing entry fails the
+// dispatch gate, and a list maintained by hand beside the constants it mirrors
+// drifts. Declared this way the two can be derived from one another, because
+// "which constants are event types" is a question the type checker can answer.
+const (
+	OrderCreated webhooks.EventType = "order.created"
+	OrderUpdated webhooks.EventType = "order.updated"
+)
+
 // Dispatch writes deliveries through the caller's transaction, so an event
 // cannot survive a rolled-back state change — nor be lost by a commit that
 // succeeded while the publish failed.
@@ -48,7 +59,7 @@ func ExampleDispatcher_Dispatch() {
 			// account's endpoints are resolved. An application whose events are
 			// global says tenancy.Global().
 			Scope:     tenancy.Of(order.AccountID),
-			EventType: "order.updated",
+			EventType: OrderUpdated,
 			// Deliveries sharing an ordering key reach a given subscriber in
 			// dispatch order, so order.updated cannot overtake order.created.
 			OrderingKey: order.ID,
@@ -84,7 +95,7 @@ func ExampleDispatcher_Register() {
 			Scope:  scope,
 			URL:    "https://93.184.216.34/hooks/" + id,
 			Secret: secret,
-			Events: []string{"order.updated"},
+			Events: []webhooks.EventType{OrderUpdated},
 		}); err != nil {
 			panic(err)
 		}
@@ -94,7 +105,7 @@ func ExampleDispatcher_Register() {
 	// account's endpoint: the scope is a predicate on the query.
 	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
 		for _, scope := range []tenancy.Scope{tenancy.Of("acct_1"), tenancy.Global()} {
-			endpoints, resolveErr := store.EndpointsForEvent(ctx, q, scope, "order.updated")
+			endpoints, resolveErr := store.EndpointsForEvent(ctx, q, scope, OrderUpdated)
 			if resolveErr != nil {
 				return resolveErr
 			}
@@ -214,8 +225,8 @@ func exampleWiring() (database.Client, webhooks.Store, webhooks.Dispatcher) {
 	// The catalog is the application's: what its events mean is not the
 	// library's opinion, and an event outside it is rejected at both ends.
 	dispatcher, err := webhooks.NewDispatcher(store, webhooks.WithCatalog(webhooks.Catalog{
-		"order.created": {Description: "an order was created"},
-		"order.updated": {Description: "an order was updated"},
+		OrderCreated: {Description: "an order was created"},
+		OrderUpdated: {Description: "an order was updated"},
 	}))
 	if err != nil {
 		panic(err)

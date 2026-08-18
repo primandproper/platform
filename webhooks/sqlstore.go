@@ -295,10 +295,10 @@ func (s *SQLStore) ArchiveEndpoint(ctx context.Context, scope tenancy.Scope, end
 // EndpointsForEvent resolves the fan-out set within one scope, using the
 // caller's executor so it sees the same snapshot as the transaction that is
 // dispatching.
-func (s *SQLStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType string) ([]*Endpoint, error) {
+func (s *SQLStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType EventType) ([]*Endpoint, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(eventTypeKey, eventType),
+		observability.WithValue(eventTypeKey, eventType.String()),
 	)
 	defer op.End()
 
@@ -342,7 +342,7 @@ func (s *SQLStore) Enqueue(ctx context.Context, q database.SQLQueryExecutor, del
 
 	op.Set(deliveryIDKey, delivery.ID).
 		Set(scopeKey, delivery.Scope.String()).
-		Set(eventTypeKey, delivery.EventType)
+		Set(eventTypeKey, delivery.EventType.String())
 
 	if len(endpointIDs) == 0 {
 		return nil
@@ -679,13 +679,23 @@ func (s *SQLStore) checkEndpointScope(ctx context.Context, q database.SQLQueryEx
 }
 
 // subscriptionsFor reads one endpoint's event types.
-func (s *SQLStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) ([]string, error) {
+//
+// The column is text and is scanned as text, then converted. EventType is a
+// defined string type, so most drivers would scan straight into one through
+// their reflective fallback — but that is a property of the driver rather than
+// of this package, and the conversion is one line.
+func (s *SQLStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) ([]EventType, error) {
 	query := "SELECT event_type FROM " + s.tables.subscriptions +
 		" WHERE endpoint_id = " + s.dialect.Placeholder(1) + " ORDER BY event_type"
 
-	events, err := database.ScanStrings(ctx, q, "webhook subscription", query, []any{endpointID})
+	stored, err := database.ScanStrings(ctx, q, "webhook subscription", query, []any{endpointID})
 	if err != nil {
 		return nil, platformerrors.Wrapf(err, "reading subscriptions for webhook endpoint %q", endpointID)
+	}
+
+	events := make([]EventType, 0, len(stored))
+	for _, eventType := range stored {
+		events = append(events, EventType(eventType))
 	}
 
 	return events, nil
@@ -732,6 +742,7 @@ func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor,
 		var (
 			row         ClaimedDispatch
 			endpoint    Endpoint
+			eventType   string
 			orderingKey sql.NullString
 			previous    []byte
 			headers     []byte
@@ -739,13 +750,14 @@ func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor,
 
 		if err := scanner.Scan(
 			&row.ID, &row.DeliveryID, &row.EndpointID, &orderingKey, &row.Attempts,
-			&row.EventType, &row.Payload, &row.Scope,
+			&eventType, &row.Payload, &row.Scope,
 			&endpoint.ID, &endpoint.Scope, &endpoint.URL, &endpoint.ContentType,
 			&endpoint.Secret.Current, &previous, &headers, &endpoint.Disabled,
 		); err != nil {
 			return ClaimedDispatch{}, err
 		}
 
+		row.EventType = EventType(eventType)
 		endpoint.Secret.Previous = previous
 
 		if len(headers) > 0 {
