@@ -243,6 +243,31 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 		test.StrNotContains(t, named(t, queries, "UpdateThings").Content, LastIndexedAtColumn)
 	})
 
+	T.Run("WithOmitted drops the stamp from a table that has the column", func(t *testing.T) {
+		t.Parallel()
+
+		// The escape hatch for a consumer that maintains last_indexed_at some
+		// other way, or is not ready to. The reindex scan is unaffected, so the
+		// two halves can be adopted separately.
+		names := queryNames(StandardCRUD("things", columnsFor(LastIndexedAtColumn),
+			WithOmitted(MarkAsIndexedQuery)))
+
+		test.SliceNotContains(t, names, "MarkThingsAsIndexed")
+		test.SliceContains(t, names, "ScanThingsIDsForReindex")
+	})
+
+	T.Run("WithQueryName renames the stamp onto an existing spelling", func(t *testing.T) {
+		t.Parallel()
+
+		// The migration path for a consumer whose generated code already calls
+		// the write something else.
+		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn),
+			WithQueryName(MarkAsIndexedQuery, "UpdateThingsLastIndexedAt"))
+
+		test.SliceNotContains(t, queryNames(queries), "MarkThingsAsIndexed")
+		test.StrContains(t, named(t, queries, "UpdateThingsLastIndexedAt").Content, LastIndexedAtColumn)
+	})
+
 	T.Run("the stamp carries no owner predicate", func(t *testing.T) {
 		t.Parallel()
 
