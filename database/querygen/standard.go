@@ -74,6 +74,7 @@ type settings struct {
 	databaseOwned []string
 	immutable     []string
 	omitted       []StandardQuery
+	nullable      []string
 }
 
 // WithEntity sets the singular and plural entity names the default query names
@@ -121,6 +122,25 @@ func WithQueryName(query StandardQuery, name string) Option {
 func WithOmitted(queries ...StandardQuery) Option {
 	return func(s *settings) {
 		s.omitted = append(s.omitted, queries...)
+	}
+}
+
+// WithNullable names columns an INSERT or an UPDATE may set to NULL, binding
+// them with sqlc.narg rather than sqlc.arg so the generated Go parameter is a
+// pointer instead of a value.
+//
+// It cannot be derived. A column list is names, and whether the column behind one
+// is NOT NULL lives in the schema this package never reads. Nor does getting it
+// wrong stop a build: sqlc generates against the schema, so an omitted nullable
+// column yields a parameter that cannot express the NULL the column accepts, and
+// a column named here that is NOT NULL yields one that can express a NULL the
+// database will reject at runtime. Both are quiet, which is why they are declared
+// at the table rather than inferred from one.
+//
+// Reads are unaffected — a SELECT lists the column either way.
+func WithNullable(columns ...string) Option {
+	return func(s *settings) {
+		s.nullable = append(s.nullable, columns...)
 	}
 }
 
@@ -221,11 +241,11 @@ func StandardCRUD(table string, columns []string, opts ...Option) []*Query {
 	// An INSERT with an empty column list is not a degenerate insert, it is a
 	// syntax error. Reaching it takes naming the id itself database-owned.
 	if len(insertColumns) > 0 {
-		queries = append([]*Query{s.query(CreateQuery, ExecType, createStatement(table, insertColumns))}, queries...)
+		queries = append([]*Query{s.query(CreateQuery, ExecType, createStatement(table, insertColumns, s.nullable))}, queries...)
 	}
 
 	if len(updateColumns) > 0 {
-		queries = append(queries, s.query(UpdateQuery, ExecRowsType, updateStatement(table, columns, updateColumns, s.ownership)))
+		queries = append(queries, s.query(UpdateQuery, ExecRowsType, updateStatement(table, columns, updateColumns, s.ownership, s.nullable)))
 	}
 
 	if slices.Contains(columns, ArchivedAtColumn) {
@@ -289,10 +309,20 @@ func (s *settings) name(which StandardQuery) string {
 	}
 }
 
-func createStatement(table string, insertColumns []string) string {
+// binding renders the sqlc argument a write binds column through: narg for the
+// columns WithNullable named, arg for the rest.
+func binding(column string, nullable []string) string {
+	if slices.Contains(nullable, column) {
+		return fmt.Sprintf("sqlc.narg(%s)", column)
+	}
+
+	return fmt.Sprintf("sqlc.arg(%s)", column)
+}
+
+func createStatement(table string, insertColumns, nullable []string) string {
 	values := make([]string, 0, len(insertColumns))
 	for _, column := range insertColumns {
-		values = append(values, fmt.Sprintf("sqlc.arg(%s)", column))
+		values = append(values, binding(column, nullable))
 	}
 
 	return fmt.Sprintf("INSERT INTO %s (\n\t%s\n) VALUES (\n\t%s\n);",
@@ -334,10 +364,10 @@ func listStatement(table string, columns []string, ownership string) string {
 	)
 }
 
-func updateStatement(table string, columns, updateColumns []string, ownership string) string {
+func updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string) string {
 	assignments := make([]string, 0, len(updateColumns)+1)
 	for _, column := range updateColumns {
-		assignments = append(assignments, fmt.Sprintf("%s = sqlc.arg(%s)", column, column))
+		assignments = append(assignments, fmt.Sprintf("%s = %s", column, binding(column, nullable)))
 	}
 
 	if slices.Contains(columns, LastUpdatedAtColumn) {

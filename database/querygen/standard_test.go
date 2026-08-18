@@ -393,6 +393,44 @@ func TestStandardCRUD_options(T *testing.T) {
 		test.EqOp(t, "", RenderFile(queries))
 	})
 
+	T.Run("WithNullable binds a column through narg on both writes", func(t *testing.T) {
+		t.Parallel()
+
+		queries := StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
+
+		test.StrContains(t, named(t, queries, "CreateThings").Content, "sqlc.narg(nickname)")
+		test.StrContains(t, named(t, queries, "UpdateThings").Content, "nickname = sqlc.narg(nickname)")
+	})
+
+	T.Run("WithNullable leaves the other columns alone", func(t *testing.T) {
+		t.Parallel()
+
+		queries := StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
+
+		create := named(t, queries, "CreateThings").Content
+		test.StrContains(t, create, "sqlc.arg(name)")
+		test.StrNotContains(t, create, "sqlc.narg(name)")
+	})
+
+	T.Run("WithNullable does not reach reads", func(t *testing.T) {
+		t.Parallel()
+
+		queries := StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
+
+		// A SELECT lists the column, it does not bind it.
+		test.StrContains(t, named(t, queries, "GetThings").Content, "things.nickname")
+		test.StrNotContains(t, named(t, queries, "GetThings").Content, "narg")
+	})
+
+	T.Run("WithNullable naming a column the writes exclude changes nothing", func(t *testing.T) {
+		t.Parallel()
+
+		queries := StandardCRUD("things", columnsFor(), WithNullable(CreatedAtColumn))
+
+		test.StrNotContains(t, named(t, queries, "CreateThings").Content, CreatedAtColumn)
+		test.StrNotContains(t, named(t, queries, "UpdateThings").Content, "sqlc.narg")
+	})
+
 	T.Run("options apply in order", func(t *testing.T) {
 		t.Parallel()
 
