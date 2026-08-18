@@ -106,7 +106,7 @@ func newSQLiteEnv(t *testing.T) *storeEnv {
 
 // registerEndpoint saves an endpoint in testScope, subscribed to the given
 // events.
-func registerEndpoint(t *testing.T, store Store, id string, events ...string) *Endpoint {
+func registerEndpoint(t *testing.T, store Store, id string, events ...EventType) *Endpoint {
 	t.Helper()
 
 	return registerScopedEndpoint(t, store, testScope, id, events...)
@@ -114,7 +114,7 @@ func registerEndpoint(t *testing.T, store Store, id string, events ...string) *E
 
 // registerScopedEndpoint saves an endpoint in an explicit scope, for the cases
 // that need two tenants in one table.
-func registerScopedEndpoint(t *testing.T, store Store, scope tenancy.Scope, id string, events ...string) *Endpoint {
+func registerScopedEndpoint(t *testing.T, store Store, scope tenancy.Scope, id string, events ...EventType) *Endpoint {
 	t.Helper()
 
 	endpoint := &Endpoint{
@@ -164,14 +164,14 @@ func claimAll(t *testing.T, store Store, now time.Time) []ClaimedDispatch {
 
 // endpointsFor resolves testScope's fan-out set through a transaction, as
 // Dispatch does.
-func endpointsFor(t *testing.T, env *storeEnv, store Store, eventType string) []*Endpoint {
+func endpointsFor(t *testing.T, env *storeEnv, store Store, eventType EventType) []*Endpoint {
 	t.Helper()
 
 	return scopedEndpointsFor(t, env, store, testScope, eventType)
 }
 
 // scopedEndpointsFor resolves one scope's fan-out set through a transaction.
-func scopedEndpointsFor(t *testing.T, env *storeEnv, store Store, scope tenancy.Scope, eventType string) []*Endpoint {
+func scopedEndpointsFor(t *testing.T, env *storeEnv, store Store, scope tenancy.Scope, eventType EventType) []*Endpoint {
 	t.Helper()
 
 	var endpoints []*Endpoint

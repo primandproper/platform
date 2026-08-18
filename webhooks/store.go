@@ -60,7 +60,7 @@ type ClaimedDispatch struct {
 	// the pipeline where whose event it was has been forgotten.
 	Scope tenancy.Scope `json:"scope"`
 	// EventType is the delivery's event type.
-	EventType string `json:"eventType"`
+	EventType EventType `json:"eventType"`
 
 	Dispatch
 }
@@ -108,7 +108,7 @@ type Store interface {
 	//
 	// The scope is a parameter and not an option: this is the query whose missing
 	// filter delivers one account's event to every other account's subscribers.
-	EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType string) ([]*Endpoint, error)
+	EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType EventType) ([]*Endpoint, error)
 	// Enqueue writes a delivery and one dispatch per endpoint, using the
 	// caller's executor, so both commit with whatever else that transaction did.
 	// The delivery's scope is stored with it.

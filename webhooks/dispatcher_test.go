@@ -22,7 +22,7 @@ import (
 type fakeStore struct {
 	saveEndpoint      func(ctx context.Context, endpoint *Endpoint) error
 	getEndpoint       func(ctx context.Context, scope tenancy.Scope, endpointID string) (*Endpoint, error)
-	endpointsForEvent func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType string) ([]*Endpoint, error)
+	endpointsForEvent func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType EventType) ([]*Endpoint, error)
 	enqueue           func(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery, endpointIDs []string, now time.Time) error
 	claim             func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]ClaimedDispatch, error)
 	markDelivered     func(ctx context.Context, dispatchID string, at time.Time) error
@@ -57,7 +57,7 @@ func (f *fakeStore) ListEndpoints(context.Context, tenancy.Scope, *filtering.Que
 
 func (f *fakeStore) ArchiveEndpoint(context.Context, tenancy.Scope, string) error { return nil }
 
-func (f *fakeStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType string) ([]*Endpoint, error) {
+func (f *fakeStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType EventType) ([]*Endpoint, error) {
 	if f.endpointsForEvent == nil {
 		return nil, nil
 	}
@@ -197,7 +197,7 @@ func TestDispatcher_Register(T *testing.T) {
 			Scope:  testScope,
 			URL:    "https://93.184.216.34/hooks",
 			Secret: Secret{Current: []byte("secret")},
-			Events: []string{"order.created"},
+			Events: []EventType{orderCreated},
 		}
 	}
 
@@ -262,7 +262,7 @@ func TestDispatcher_Register(T *testing.T) {
 		d := newTestDispatcher(t, &fakeStore{})
 
 		endpoint := valid()
-		endpoint.Events = []string{"order.exploded"}
+		endpoint.Events = []EventType{orderExploded}
 
 		test.ErrorIs(t, d.Register(t.Context(), endpoint), ErrUnknownEventType)
 	})
@@ -311,7 +311,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		)
 
 		d := newTestDispatcher(t, &fakeStore{
-			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, string) ([]*Endpoint, error) {
+			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, EventType) ([]*Endpoint, error) {
 				return subscribed, nil
 			},
 			enqueue: func(_ context.Context, _ database.SQLQueryExecutor, delivery *Delivery, endpointIDs []string, _ time.Time) error {
@@ -341,7 +341,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		var asked tenancy.Scope
 
 		d := newTestDispatcher(t, &fakeStore{
-			endpointsForEvent: func(_ context.Context, _ database.SQLQueryExecutor, scope tenancy.Scope, _ string) ([]*Endpoint, error) {
+			endpointsForEvent: func(_ context.Context, _ database.SQLQueryExecutor, scope tenancy.Scope, _ EventType) ([]*Endpoint, error) {
 				asked = scope
 
 				return subscribed, nil
@@ -362,7 +362,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		looked := false
 
 		d := newTestDispatcher(t, &fakeStore{
-			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, string) ([]*Endpoint, error) {
+			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, EventType) ([]*Endpoint, error) {
 				looked = true
 
 				return subscribed, nil
@@ -383,7 +383,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		var asked tenancy.Scope
 
 		d := newTestDispatcher(t, &fakeStore{
-			endpointsForEvent: func(_ context.Context, _ database.SQLQueryExecutor, scope tenancy.Scope, _ string) ([]*Endpoint, error) {
+			endpointsForEvent: func(_ context.Context, _ database.SQLQueryExecutor, scope tenancy.Scope, _ EventType) ([]*Endpoint, error) {
 				asked = scope
 
 				return nil, nil
@@ -404,7 +404,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		enqueued := false
 
 		d := newTestDispatcher(t, &fakeStore{
-			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, string) ([]*Endpoint, error) {
+			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, EventType) ([]*Endpoint, error) {
 				return nil, nil
 			},
 			enqueue: func(context.Context, database.SQLQueryExecutor, *Delivery, []string, time.Time) error {
@@ -425,7 +425,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		var enqueued *Delivery
 
 		d := newTestDispatcher(t, &fakeStore{
-			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, string) ([]*Endpoint, error) {
+			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, EventType) ([]*Endpoint, error) {
 				return subscribed, nil
 			},
 			enqueue: func(_ context.Context, _ database.SQLQueryExecutor, delivery *Delivery, _ []string, _ time.Time) error {
@@ -448,7 +448,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		looked := false
 
 		d := newTestDispatcher(t, &fakeStore{
-			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, string) ([]*Endpoint, error) {
+			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, EventType) ([]*Endpoint, error) {
 				looked = true
 
 				return nil, nil
@@ -495,7 +495,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		expected := platformerrors.New("blammo")
 
 		d := newTestDispatcher(t, &fakeStore{
-			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, string) ([]*Endpoint, error) {
+			endpointsForEvent: func(context.Context, database.SQLQueryExecutor, tenancy.Scope, EventType) ([]*Endpoint, error) {
 				return subscribed, nil
 			},
 			enqueue: func(context.Context, database.SQLQueryExecutor, *Delivery, []string, time.Time) error {

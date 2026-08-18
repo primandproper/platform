@@ -2,22 +2,36 @@ package webhooks
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/primandproper/platform-go/v11/cryptography/requestsigning"
+	"github.com/primandproper/platform-go/v11/database/dialect"
 	"github.com/primandproper/platform-go/v11/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
 
+// The event types the unit tests publish, declared the way this package asks an
+// application to declare its own: as EventType constants, which is what makes
+// the set of them something a tool can find.
+const (
+	orderCreated EventType = "order.created"
+	orderUpdated EventType = "order.updated"
+
+	// Declared but deliberately outside testCatalog, for the rejection paths.
+	orderDeleted  EventType = "order.deleted"
+	orderExploded EventType = "order.exploded"
+)
+
 // testCatalog is the event catalog the unit tests register against.
 var testCatalog = Catalog{
-	"order.created": {Description: "an order was created"},
-	"order.updated": {Description: "an order was updated"},
+	orderCreated: {Description: "an order was created"},
+	orderUpdated: {Description: "an order was updated"},
 }
 
 func TestCheckEndpointURL(T *testing.T) {
@@ -100,7 +114,7 @@ func TestEndpoint_Validate(T *testing.T) {
 			URL:         "https://93.184.216.34/hooks",
 			ContentType: DefaultContentType,
 			Secret:      Secret{Current: []byte("secret")},
-			Events:      []string{"order.created"},
+			Events:      []EventType{orderCreated},
 		}
 	}
 
@@ -162,7 +176,7 @@ func TestEndpoint_Validate(T *testing.T) {
 		t.Parallel()
 
 		endpoint := valid()
-		endpoint.Events = []string{"order.created", "odrer.updated"}
+		endpoint.Events = []EventType{orderCreated, "odrer.updated"}
 
 		test.ErrorIs(t, endpoint.Validate(t.Context(), testCatalog, nil), ErrUnknownEventType)
 	})
@@ -268,15 +282,15 @@ func TestCatalog(T *testing.T) {
 	T.Run("Known", func(t *testing.T) {
 		t.Parallel()
 
-		test.True(t, testCatalog.Known("order.created"))
-		test.False(t, testCatalog.Known("order.deleted"))
+		test.True(t, testCatalog.Known(orderCreated))
+		test.False(t, testCatalog.Known(orderDeleted))
 		test.False(t, Catalog(nil).Known("order.created"))
 	})
 
 	T.Run("EventTypes is sorted", func(t *testing.T) {
 		t.Parallel()
 
-		test.Eq(t, []string{"order.created", "order.updated"}, testCatalog.EventTypes())
+		test.Eq(t, []EventType{orderCreated, orderUpdated}, testCatalog.EventTypes())
 	})
 
 	T.Run("EventTypes of an empty catalog", func(t *testing.T) {
@@ -284,6 +298,111 @@ func TestCatalog(T *testing.T) {
 
 		test.SliceEmpty(t, Catalog{}.EventTypes())
 	})
+}
+
+func TestEventType(T *testing.T) {
+	T.Parallel()
+
+	T.Run("String", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "order.created", orderCreated.String())
+		test.EqOp(t, "", EventType("").String())
+	})
+
+	// The type is a compile-time distinction and nothing more: what crosses the
+	// wire is the same string it always was. A subscriber, a stored API response,
+	// and a client generated from one cannot tell this change happened, which is
+	// what makes it safe to make in a major that is already breaking callers.
+	T.Run("marshals as a plain string", func(t *testing.T) {
+		t.Parallel()
+
+		endpoint, err := json.Marshal(&Endpoint{Events: []EventType{orderCreated, orderUpdated}})
+		must.NoError(t, err)
+		test.StrContains(t, string(endpoint), `"events":["order.created","order.updated"]`)
+
+		delivery, err := json.Marshal(&Delivery{EventType: orderCreated})
+		must.NoError(t, err)
+		test.StrContains(t, string(delivery), `"eventType":"order.created"`)
+
+		claimed, err := json.Marshal(&ClaimedDispatch{EventType: orderCreated})
+		must.NoError(t, err)
+		test.StrContains(t, string(claimed), `"eventType":"order.created"`)
+
+		catalog, err := json.Marshal(testCatalog)
+		must.NoError(t, err)
+		test.StrContains(t, string(catalog), `"order.created":{"description":"an order was created"}`)
+	})
+
+	T.Run("unmarshals from a plain string", func(t *testing.T) {
+		t.Parallel()
+
+		var endpoint Endpoint
+		must.NoError(t, json.Unmarshal([]byte(`{"events":["order.created"]}`), &endpoint))
+		test.Eq(t, []EventType{orderCreated}, endpoint.Events)
+
+		var delivery Delivery
+		must.NoError(t, json.Unmarshal([]byte(`{"eventType":"order.created"}`), &delivery))
+		test.EqOp(t, orderCreated, delivery.EventType)
+
+		var catalog Catalog
+		must.NoError(t, json.Unmarshal([]byte(`{"order.created":{"description":"d"}}`), &catalog))
+		test.True(t, catalog.Known(orderCreated))
+	})
+}
+
+// The event type reaches the driver as a string rather than as an EventType.
+// Both work against most drivers — a defined string type goes through their
+// reflective fallback — but "most" is a property of whichever driver a consumer
+// wired up, and a Store implementation is allowed to be one this package has
+// never seen. The conversion is at the boundary so that it is this package's
+// decision rather than a driver's.
+func TestQueries_BindEventTypesAsStrings(T *testing.T) {
+	T.Parallel()
+
+	t := newTables(DefaultTablePrefix)
+
+	T.Run("subscription inserts", func(t2 *testing.T) {
+		t2.Parallel()
+
+		_, args := t.buildInsertSubscriptions(dialect.SQLite, "endpoint-1", []EventType{orderCreated, orderUpdated})
+
+		must.SliceLen(t2, 4, args)
+		test.EqOp(t2, "order.created", mustBeString(t2, args[1]))
+		test.EqOp(t2, "order.updated", mustBeString(t2, args[3]))
+	})
+
+	T.Run("the fan-out lookup", func(t2 *testing.T) {
+		t2.Parallel()
+
+		_, args := t.buildSelectEndpointsForEvent(dialect.SQLite, testScope, orderCreated)
+
+		must.SliceNotEmpty(t2, args)
+		test.EqOp(t2, "order.created", mustBeString(t2, args[0]))
+	})
+
+	T.Run("delivery inserts", func(t2 *testing.T) {
+		t2.Parallel()
+
+		_, args := t.buildInsertDelivery(dialect.SQLite, &Delivery{
+			ID: "d", Scope: testScope, EventType: orderCreated, Payload: testBody,
+		}, time.Now().UTC())
+
+		must.SliceLen(t2, 6, args)
+		test.EqOp(t2, "order.created", mustBeString(t2, args[2]))
+	})
+}
+
+// mustBeString fails unless the bound argument is a string. A test that only
+// compared values would pass on an EventType too, since the comparison would be
+// against an untyped constant.
+func mustBeString(t *testing.T, arg any) string {
+	t.Helper()
+
+	bound, ok := arg.(string)
+	must.True(t, ok, must.Sprintf("bound argument %#v is %T, want string", arg, arg))
+
+	return bound
 }
 
 func TestAttempt_Succeeded(T *testing.T) {

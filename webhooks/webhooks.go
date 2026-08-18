@@ -125,6 +125,45 @@ var (
 	ErrNilEndpoint = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil webhook endpoint")
 )
 
+// EventType names one kind of event an application publishes. It is the string
+// that travels in EventTypeHeader, the key a Catalog is keyed by, and what an
+// Endpoint subscribes to.
+//
+// It is a defined type rather than a string so that an application's event types
+// are declarable in a form both a reader and a type checker recognize:
+//
+//	const OrderCreated webhooks.EventType = "order.created"
+//
+// The type is what makes the set of them discoverable. A catalog has to list
+// every event type an application publishes — a missing entry fails the dispatch
+// gate — and keeping that list by hand beside the constants that are its source
+// of truth is what makes it drift. Derived instead, the question "which
+// constants are event types" has to be answerable, and answering it by matching
+// on the constant's *name* means a convention nothing enforces: a declaration
+// that spells the name differently is silently not an event type, and the miss
+// surfaces as a failed dispatch rather than as a failed build. Declared type is
+// a fact the compiler already holds and no one can spell wrong.
+//
+// It is deliberately not an alias. An alias is indistinguishable from string to
+// a type checker, which would leave the set exactly as undiscoverable as it was.
+//
+// Nothing here constrains the format. Dots, colons, and underscores are all
+// fine; the Catalog is the authority on which ones exist, and this package has
+// no opinion beyond that.
+type EventType string
+
+// String returns the event type as a plain string.
+//
+// It exists for the observability seams that take an any and switch on its
+// type: a defined string type is neither string nor fmt.Stringer to that switch
+// and falls through to a reflective default, which records the same text by a
+// slower path that nothing would flag if it stopped matching. Spelling the
+// conversion at those call sites keeps what is recorded a decision rather than a
+// fallback.
+func (e EventType) String() string {
+	return string(e)
+}
+
 // EventDefinition describes one subscribable event type. It is deliberately
 // thin: the library needs to know an event type exists in order to reject a
 // subscription to one that does not, and needs nothing else about it.
@@ -144,13 +183,15 @@ type EventDefinition struct {
 //
 // Subscribing to an event outside the catalog is rejected at registration, and
 // dispatching one is rejected at Dispatch. Both matter: an event type is a
-// string, strings are typo-prone, and a subscription to "reciped.created" that
-// is accepted silently produces an endpoint that never fires and no signal
-// explaining why.
-type Catalog map[string]EventDefinition
+// string underneath, string literals are typo-prone, and a subscription to
+// "reciped.created" that is accepted silently produces an endpoint that never
+// fires and no signal explaining why. Declaring the event types as EventType
+// constants and keying the catalog by those constants moves that check to
+// compile time for everything except the catalog's own literals.
+type Catalog map[EventType]EventDefinition
 
 // Known reports whether eventType is in the catalog.
-func (c Catalog) Known(eventType string) bool {
+func (c Catalog) Known(eventType EventType) bool {
 	_, ok := c[eventType]
 
 	return ok
@@ -158,8 +199,8 @@ func (c Catalog) Known(eventType string) bool {
 
 // EventTypes returns the catalog's event types, sorted, for rendering a
 // subscription UI or an API response.
-func (c Catalog) EventTypes() []string {
-	types := make([]string, 0, len(c))
+func (c Catalog) EventTypes() []EventType {
+	types := make([]EventType, 0, len(c))
 	for eventType := range c {
 		types = append(types, eventType)
 	}
@@ -213,7 +254,7 @@ type Endpoint struct {
 	// through API responses and logs, and its secret must not.
 	Secret Secret `json:"-"`
 	// Events are the catalog event types this endpoint subscribes to.
-	Events []string `json:"events"`
+	Events []EventType `json:"events"`
 	// Disabled stops delivery without deleting the endpoint or its history,
 	// which is what an operator wants when a subscriber is misbehaving.
 	Disabled bool `json:"disabled"`
@@ -235,7 +276,7 @@ type Delivery struct {
 	// ID identifies the delivery, and is what Replay names. Generated when empty.
 	ID string `json:"id"`
 	// EventType is the catalog event type. Must be in the Catalog.
-	EventType string `json:"eventType"`
+	EventType EventType `json:"eventType"`
 	// OrderingKey groups deliveries that must arrive in order — typically the
 	// subject resource's ID. Deliveries sharing a key reach a given endpoint in
 	// the order they were dispatched; deliveries with different keys, or with

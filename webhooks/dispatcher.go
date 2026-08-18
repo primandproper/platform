@@ -138,7 +138,7 @@ func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) erro
 //		}
 //
 //		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
-//			EventType:   "order.updated",
+//			EventType:   OrderUpdated,
 //			OrderingKey: order.ID,
 //			Payload:     body,
 //		})
@@ -193,7 +193,7 @@ func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecu
 
 	op.Set(deliveryIDKey, delivery.ID).
 		Set(scopeKey, delivery.Scope.String()).
-		Set(eventTypeKey, delivery.EventType)
+		Set(eventTypeKey, delivery.EventType.String())
 
 	if delivery.OrderingKey != "" {
 		op.Set(orderingKeyKey, delivery.OrderingKey)
