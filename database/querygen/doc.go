@@ -33,6 +33,17 @@ absent is not rendered. That is the point of deriving them: a table without
 last_updated_at cannot end up with an Update that sets it, and a table with
 archived_at cannot end up without an Archive.
 
+WithOmitted subtracts from that set, for a table whose rows are not addressable
+the way it assumes — a child row written with its parent and never read on its
+own. It cannot add: what comes out stays a subset of what the columns justify, so
+the properties above survive a caller who reaches for it.
+
+Two things a column list cannot say are said with options rather than guessed at.
+WithNullable names the columns a write may set to NULL, which lives in the schema
+this package never reads; WithDatabaseOwned and WithImmutable name the columns a
+caller may not assign, which lives in the application. Guessing either produces
+SQL that generates, compiles, and is wrong at runtime.
+
 # Argument names
 
 The emitted SQL binds sqlc arguments whose names are neither the Go field names
