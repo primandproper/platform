@@ -3,7 +3,7 @@ package llmcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v11/llm"
+	"github.com/primandproper/platform-go/v12/llm"
 )
 
 // NewLLMProvider provides an LLM provider from config.

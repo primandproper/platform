@@ -1,7 +1,7 @@
 package encryption
 
 import (
-	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/errors"
 )
 
 // frameVersion is the layout version written at the front of every ciphertext.

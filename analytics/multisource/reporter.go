@@ -5,10 +5,10 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/primandproper/platform-go/v11/analytics"
-	"github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/keys"
+	"github.com/primandproper/platform-go/v12/analytics"
+	"github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/keys"
 )
 
 const (

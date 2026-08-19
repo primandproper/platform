@@ -4,14 +4,14 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/clock"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/jobs"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	"github.com/primandproper/platform-go/v11/observability/tracing"
-	"github.com/primandproper/platform-go/v11/uploads"
+	"github.com/primandproper/platform-go/v12/clock"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/jobs"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	"github.com/primandproper/platform-go/v12/observability/tracing"
+	"github.com/primandproper/platform-go/v12/uploads"
 )
 
 // DefaultSweepJobName is the name the Sweeper's jobs.Job carries.

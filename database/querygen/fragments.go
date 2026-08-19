@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/primandproper/platform-go/v11/filtering"
 )
 
 // JoinStatement is one join in a filtered count's FROM clause: the table being
@@ -21,20 +19,23 @@ type JoinStatement struct {
 	OnColumn string
 }
 
-// String renders the join clause.
+// String renders the join clause. An inner join on an equality is the one piece
+// of SQL in this package that all three dialects spell identically, so it is a
+// plain String rather than something a Generator has to render.
 func (j JoinStatement) String() string {
 	return fmt.Sprintf("JOIN %s ON %s.%s=%s.%s", j.JoinTarget, j.OnTable, j.OnColumn, j.JoinTarget, j.TargetColumn)
 }
 
-// ILIKECondition renders a case-insensitive substring match against a bound
-// argument, for a search query's own WHERE predicate.
+// ContainsCondition renders a case-insensitive substring match of column against
+// a bound argument, for a search query's own WHERE predicate.
 //
-// The argument is bound and the wildcards are concatenated around it, rather
-// than the caller passing '%term%' — a caller assembling the pattern is a caller
-// who can forget to escape a literal '%' in a user's search term, which turns a
-// search for "50%" into a search for everything.
-func ILIKECondition(argument string) string {
-	return fmt.Sprintf(`ILIKE '%%' || sqlc.arg(%s)::text || '%%'`, argument)
+// It takes the column rather than returning an operator for the caller to
+// prefix, because only two of the three dialects have an operator that folds
+// case on its own. The other two fold both sides explicitly, which is a
+// predicate rather than a suffix — see Generator.substringMatch for what each
+// dialect gets and for the one input where they disagree about the answer.
+func (g *Generator) ContainsCondition(column, argument string) string {
+	return g.substringMatch(column, argument)
 }
 
 // CursorCondition renders the keyset predicate: rows strictly after the cursor.
@@ -42,7 +43,7 @@ func ILIKECondition(argument string) string {
 // An absent cursor coalesces to the empty string rather than being handled by a
 // second query, which is what keeps the first page and the fiftieth page the same
 // statement. It works because id sorts by creation time and no id is empty.
-func CursorCondition(table string) string {
+func (g *Generator) CursorCondition(table string) string {
 	return fmt.Sprintf("%s > COALESCE(sqlc.narg(%s), '')", Qualify(table, IDColumn), CursorArg)
 }
 
@@ -53,9 +54,8 @@ func CursorCondition(table string) string {
 // the planner found convenient, and the next page's cursor names a position in an
 // order that no longer holds — pages that skip rows and repeat others, with
 // nothing reporting an error.
-func CursorLimitClause(table string) string {
-	return fmt.Sprintf("ORDER BY %s ASC\nLIMIT COALESCE(sqlc.narg(%s), %d)",
-		Qualify(table, IDColumn), LimitArg, filtering.DefaultQueryFilterLimit)
+func (g *Generator) CursorLimitClause(table string) string {
+	return fmt.Sprintf("ORDER BY %s ASC\n%s", Qualify(table, IDColumn), g.limitClause())
 }
 
 // CursorPaginationFragment renders the cursor predicate and the ordering
@@ -64,8 +64,8 @@ func CursorLimitClause(table string) string {
 //
 // The predicate arrives prefixed with AND, because the only place it belongs is
 // the tail of a WHERE clause that already has one.
-func CursorPaginationFragment(table string) string {
-	return fmt.Sprintf("AND %s\n%s", CursorCondition(table), CursorLimitClause(table))
+func (g *Generator) CursorPaginationFragment(table string) string {
+	return fmt.Sprintf("AND %s\n%s", g.CursorCondition(table), g.CursorLimitClause(table))
 }
 
 // ReindexScanQuery builds the keyset walk a search reindex reads its source
@@ -78,26 +78,24 @@ func CursorPaginationFragment(table string) string {
 // documents. Selecting rows here would be a second row-to-document transform, and
 // two transforms that are supposed to agree are two transforms that can drift.
 //
-// The ordering is a byte comparison, COLLATE "C", not the database's default
-// collation. search/sync requires ascending byte order because the pruning half
-// of a reindex merges this stream against the index's own stream of IDs, and
-// Postgres's en_US.UTF-8 sorts case-insensitively and ignores punctuation — a
-// different order. Two ordered streams merged under disagreeing orders do not
-// fail; they conclude that live documents are absent from the source and delete
-// them. The Reindexer verifies the order it is given for the same reason.
-func ReindexScanQuery(table string) string {
+// The ordering is a byte comparison rather than the database's default
+// collation, on every dialect, for a reason the merge in search/sync's pruner
+// makes unforgiving — see Generator.byteOrdered.
+func (g *Generator) ReindexScanQuery(table string) string {
+	id := Qualify(table, IDColumn)
+
 	return fmt.Sprintf(`SELECT %[1]s
 FROM %[2]s
 WHERE %[3]s IS NULL
-	AND %[1]s COLLATE "C" > sqlc.arg(%[4]s)
-ORDER BY %[1]s COLLATE "C"
-LIMIT COALESCE(sqlc.narg(%[5]s), %[6]d);`,
-		Qualify(table, IDColumn),
+	AND %[4]s > sqlc.arg(%[5]s)
+ORDER BY %[4]s
+%[6]s;`,
+		id,
 		table,
 		Qualify(table, ArchivedAtColumn),
+		g.byteOrdered(id),
 		CursorArg,
-		LimitArg,
-		filtering.DefaultQueryFilterLimit,
+		g.limitClause(),
 	)
 }
 
@@ -110,10 +108,12 @@ LIMIT COALESCE(sqlc.narg(%[5]s), %[6]d);`,
 // maintains it is emitted from the same column list, rather than being left to
 // each consumer to hand-write once per indexed table.
 //
-// The ids arrive as an array bound in one argument rather than one statement per
+// The ids arrive as a set bound in one argument rather than one statement per
 // id, because the caller is a batching.Buffer flushing a coalesced set: one
 // statement per flush is the entire reason the write is buffered. See
-// searchsync.NewStampBuffer, which is what a Syncer stamps through.
+// searchsync.NewStampBuffer, which is what a Syncer stamps through. How that set
+// reaches the server differs by dialect and the Go signature does not — see
+// Generator.idSetPredicate.
 //
 // There is no owner predicate and no archived_at predicate, and both omissions
 // are deliberate. This is the search sync's own machinery servicing itself — it
@@ -122,15 +122,14 @@ LIMIT COALESCE(sqlc.narg(%[5]s), %[6]d);`,
 // a row the Syncer deleted from the index rather than stamped, so a predicate
 // excluding it would be one that never fires while making the statement
 // unemittable for a table that has no soft delete.
-func IndexStampQuery(table string) string {
+func (g *Generator) IndexStampQuery(table string) string {
 	return fmt.Sprintf(`UPDATE %[1]s SET
 	%[2]s = %[3]s
-WHERE %[4]s = ANY(sqlc.arg(%[5]s)::text[]);`,
+WHERE %[4]s;`,
 		table,
 		LastIndexedAtColumn,
 		NowExpression,
-		IDColumn,
-		IDsArg,
+		g.idSetPredicate(),
 	)
 }
 
@@ -145,9 +144,10 @@ WHERE %[4]s = ANY(sqlc.arg(%[5]s)::text[]);`,
 // wrong. Owning the clause is what keeps that from being expressible.
 //
 // conditions are rendered verbatim, one per line. They are the caller's SQL:
-// this package does not parse them and cannot vet them.
-func FilterConditions(table string, columns []string, conditions ...string) string {
-	return joinPredicates(append(filterPredicates(table, columns, conditions...), CursorCondition(table)), "\t")
+// this package does not parse them and cannot vet them — nor, therefore, can it
+// tell whether they are the dialect g emits for.
+func (g *Generator) FilterConditions(table string, columns []string, conditions ...string) string {
+	return joinPredicates(append(g.filterPredicates(table, columns, conditions...), g.CursorCondition(table)), "\t")
 }
 
 // FilterCountSelect renders the scalar subquery counting the rows the same
@@ -166,8 +166,8 @@ func FilterConditions(table string, columns []string, conditions ...string) stri
 // Because the count rides on the rows, a page with no rows carries no count. A
 // caller reporting counts for an empty page has to supply the zero itself, which
 // is what filtering.NewQueryFilteredResult taking them as arguments allows.
-func FilterCountSelect(table string, columns, joins []string, conditions ...string) string {
-	return countSelect("filtered_count", table, joins, filterPredicates(table, columns, conditions...))
+func (g *Generator) FilterCountSelect(table string, columns, joins []string, conditions ...string) string {
+	return countSelect("filtered_count", table, joins, g.filterPredicates(table, columns, conditions...))
 }
 
 // TotalCountSelect renders the scalar subquery counting the rows in scope
@@ -177,11 +177,11 @@ func FilterCountSelect(table string, columns, joins []string, conditions ...stri
 // archived_at IS NULL — so that filtered_count can never exceed total_count. A
 // pair of counts where the subset is larger than the set is the kind of number
 // that gets noticed a week later by whoever is reconciling them.
-func TotalCountSelect(table string, columns, joins []string, conditions ...string) string {
+func (g *Generator) TotalCountSelect(table string, columns, joins []string, conditions ...string) string {
 	var predicates []string
 
 	if slices.Contains(columns, ArchivedAtColumn) {
-		predicates = append(predicates, archivedPredicate(table))
+		predicates = append(predicates, g.archivedPredicate(table))
 	}
 
 	predicates = append(predicates, conditions...)
@@ -221,25 +221,25 @@ func countSelect(alias, table string, joins, predicates []string) string {
 // The cursor is not among them. It is the one part of a QueryFilter that says
 // where the caller is rather than what they asked for, so FilterConditions adds
 // it and the counts do not.
-func filterPredicates(table string, columns []string, conditions ...string) []string {
+func (g *Generator) filterPredicates(table string, columns []string, conditions ...string) []string {
 	var predicates []string
 
 	if slices.Contains(columns, CreatedAtColumn) {
 		predicates = append(predicates,
-			boundPredicate(Qualify(table, CreatedAtColumn), ">", CreatedAfterArg),
-			boundPredicate(Qualify(table, CreatedAtColumn), "<", CreatedBeforeArg),
+			g.boundPredicate(Qualify(table, CreatedAtColumn), ">", CreatedAfterArg),
+			g.boundPredicate(Qualify(table, CreatedAtColumn), "<", CreatedBeforeArg),
 		)
 	}
 
 	if slices.Contains(columns, LastUpdatedAtColumn) {
 		predicates = append(predicates,
-			nullableBoundPredicate(Qualify(table, LastUpdatedAtColumn), ">", UpdatedAfterArg),
-			nullableBoundPredicate(Qualify(table, LastUpdatedAtColumn), "<", UpdatedBeforeArg),
+			g.nullableBoundPredicate(Qualify(table, LastUpdatedAtColumn), ">", UpdatedAfterArg),
+			g.nullableBoundPredicate(Qualify(table, LastUpdatedAtColumn), "<", UpdatedBeforeArg),
 		)
 	}
 
 	if slices.Contains(columns, ArchivedAtColumn) {
-		predicates = append(predicates, archivedPredicate(table))
+		predicates = append(predicates, g.archivedPredicate(table))
 	}
 
 	return append(predicates, conditions...)
@@ -252,14 +252,13 @@ func filterPredicates(table string, columns []string, conditions ...string) []st
 // whichever subset of them a caller sent. sqlc generates one method per query,
 // and a query whose shape depended on which filters were present would need
 // sixteen of them.
-func boundPredicate(column, comparison, argument string) string {
+func (g *Generator) boundPredicate(column, comparison, argument string) string {
 	sign := "-"
 	if comparison == "<" {
 		sign = "+"
 	}
 
-	return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), (SELECT %s %s '999 years'::INTERVAL))",
-		column, comparison, argument, NowExpression, sign)
+	return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), %s)", column, comparison, argument, g.timeHorizon(sign))
 }
 
 // nullableBoundPredicate is boundPredicate for a column that may be NULL, which
@@ -268,8 +267,8 @@ func boundPredicate(column, comparison, argument string) string {
 // The NULL arm is not optional. A NULL compares as neither greater nor less than
 // anything, so without it an updated_after filter silently excludes every row
 // nobody has edited yet — which, on a young table, is nearly all of them.
-func nullableBoundPredicate(column, comparison, argument string) string {
-	return fmt.Sprintf("(\n\t%s IS NULL\n\tOR %s\n)", column, boundPredicate(column, comparison, argument))
+func (g *Generator) nullableBoundPredicate(column, comparison, argument string) string {
+	return fmt.Sprintf("(\n\t%s IS NULL\n\tOR %s\n)", column, g.boundPredicate(column, comparison, argument))
 }
 
 // archivedPredicate renders the soft-delete toggle: archived rows are excluded
@@ -281,14 +280,8 @@ func nullableBoundPredicate(column, comparison, argument string) string {
 // and the filter admits everything. Nothing about that reads as wrong, and a
 // query with a redundant archived_at IS NULL somewhere else in its WHERE behaves
 // correctly right up until someone removes the redundancy.
-//
-// The cast is load-bearing. sqlc.narg types the argument from its use, and
-// COALESCE over an untyped NULL leaves Postgres to guess; ::boolean is what makes
-// the generated Go field a *bool rather than an interface{} the caller has to
-// convince.
-func archivedPredicate(table string) string {
-	return fmt.Sprintf("(COALESCE(sqlc.narg(%s), false)::boolean OR %s IS NULL)",
-		IncludeArchivedArg, Qualify(table, ArchivedAtColumn))
+func (g *Generator) archivedPredicate(table string) string {
+	return fmt.Sprintf("(%s OR %s IS NULL)", g.includeArchivedFlag(), Qualify(table, ArchivedAtColumn))
 }
 
 // joinPredicates renders predicates as a WHERE clause body at the given indent:

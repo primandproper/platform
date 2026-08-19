@@ -17,14 +17,14 @@ import (
 	"strings"
 	"time"
 
-	cachecfg "github.com/primandproper/platform-go/v11/cache/config"
-	"github.com/primandproper/platform-go/v11/cookies"
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/sessions"
-	sessionscache "github.com/primandproper/platform-go/v11/sessions/cache"
-	sessionsdatabase "github.com/primandproper/platform-go/v11/sessions/database"
-	sessionshttp "github.com/primandproper/platform-go/v11/sessions/http"
+	cachecfg "github.com/primandproper/platform-go/v12/cache/config"
+	"github.com/primandproper/platform-go/v12/cookies"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/sessions"
+	sessionscache "github.com/primandproper/platform-go/v12/sessions/cache"
+	sessionsdatabase "github.com/primandproper/platform-go/v12/sessions/database"
+	sessionshttp "github.com/primandproper/platform-go/v12/sessions/http"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

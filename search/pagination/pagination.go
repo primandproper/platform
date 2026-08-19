@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/filtering"
-	textsearch "github.com/primandproper/platform-go/v11/search/text"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/filtering"
+	textsearch "github.com/primandproper/platform-go/v12/search/text"
 )
 
 // Search runs one page of query against the index, taking the page size and the

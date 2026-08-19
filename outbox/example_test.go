@@ -8,13 +8,13 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	"github.com/primandproper/platform-go/v11/database/migrate"
-	"github.com/primandproper/platform-go/v11/database/sqlite"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/outbox"
-	"github.com/primandproper/platform-go/v11/outbox/migrations"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	"github.com/primandproper/platform-go/v12/database/migrate"
+	"github.com/primandproper/platform-go/v12/database/sqlite"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/outbox"
+	"github.com/primandproper/platform-go/v12/outbox/migrations"
 )
 
 type order struct {

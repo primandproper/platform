@@ -3,7 +3,7 @@ package fnv
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/cryptography/hashing"
+	"github.com/primandproper/platform-go/v12/cryptography/hashing"
 
 	"github.com/shoenig/test"
 )

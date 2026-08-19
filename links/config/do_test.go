@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/database"
-	databasecfg "github.com/primandproper/platform-go/v11/database/config"
-	"github.com/primandproper/platform-go/v11/links"
+	"github.com/primandproper/platform-go/v12/database"
+	databasecfg "github.com/primandproper/platform-go/v12/database/config"
+	"github.com/primandproper/platform-go/v12/links"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

@@ -3,9 +3,9 @@ package inboundcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v11/messagequeue"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/webhooks/inbound"
+	"github.com/primandproper/platform-go/v12/messagequeue"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/webhooks/inbound"
 
 	"github.com/samber/do/v2"
 )

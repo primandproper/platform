@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v11/cryptography/encryption"
+	"github.com/primandproper/platform-go/v12/cryptography/encryption"
 )
 
 // Ensure, that CipherMock does implement encryption.Cipher.

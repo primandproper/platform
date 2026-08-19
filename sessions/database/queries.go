@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/database/ddl"
-	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v12/database/ddl"
+	"github.com/primandproper/platform-go/v12/database/dialect"
 )
 
 // recordColumns is the projection Load scans. Declared once so the SELECT and

@@ -8,14 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/encoding"
-	"github.com/primandproper/platform-go/v11/messagequeue"
-	"github.com/primandproper/platform-go/v11/messagequeue/internal/mqmetrics"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/keys"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	"github.com/primandproper/platform-go/v11/observability/tracing"
+	"github.com/primandproper/platform-go/v12/encoding"
+	"github.com/primandproper/platform-go/v12/messagequeue"
+	"github.com/primandproper/platform-go/v12/messagequeue/internal/mqmetrics"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/keys"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	"github.com/primandproper/platform-go/v12/observability/tracing"
 
 	"cloud.google.com/go/pubsub/v2"
 )

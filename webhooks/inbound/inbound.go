@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/cryptography/requestsigning"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/cryptography/requestsigning"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 )
 
 // serviceName names this package's observer, and prefixes every metric it

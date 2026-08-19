@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/primandproper/platform-go/v11/charset"
-	"github.com/primandproper/platform-go/v11/encoding"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/charset"
+	"github.com/primandproper/platform-go/v12/encoding"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

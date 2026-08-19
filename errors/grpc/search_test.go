@@ -3,9 +3,9 @@ package grpc
 import (
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	textsearch "github.com/primandproper/platform-go/v11/search/text"
-	vectorsearch "github.com/primandproper/platform-go/v11/search/vector"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	textsearch "github.com/primandproper/platform-go/v12/search/text"
+	vectorsearch "github.com/primandproper/platform-go/v12/search/vector"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

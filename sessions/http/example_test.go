@@ -8,11 +8,11 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/cache/memory"
-	"github.com/primandproper/platform-go/v11/cookies"
-	"github.com/primandproper/platform-go/v11/sessions"
-	sessionscache "github.com/primandproper/platform-go/v11/sessions/cache"
-	sessionshttp "github.com/primandproper/platform-go/v11/sessions/http"
+	"github.com/primandproper/platform-go/v12/cache/memory"
+	"github.com/primandproper/platform-go/v12/cookies"
+	"github.com/primandproper/platform-go/v12/sessions"
+	sessionscache "github.com/primandproper/platform-go/v12/sessions/cache"
+	sessionshttp "github.com/primandproper/platform-go/v12/sessions/http"
 )
 
 // Principal is what a session carries.

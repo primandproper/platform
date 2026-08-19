@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v11/batching"
+	"github.com/primandproper/platform-go/v12/batching"
 )
 
 // Stamper records that the index accepted documents, so the rows behind them

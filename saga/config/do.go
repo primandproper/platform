@@ -3,12 +3,12 @@ package sagacfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/distributedlock"
-	"github.com/primandproper/platform-go/v11/idempotency"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/outbox"
-	"github.com/primandproper/platform-go/v11/saga"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/distributedlock"
+	"github.com/primandproper/platform-go/v12/idempotency"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/outbox"
+	"github.com/primandproper/platform-go/v12/saga"
 
 	"github.com/samber/do/v2"
 )

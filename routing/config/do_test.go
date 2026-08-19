@@ -3,11 +3,11 @@ package routingcfg
 import (
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v11/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v11/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v11/routing"
-	"github.com/primandproper/platform-go/v11/routing/backends/chi"
+	loggingnoop "github.com/primandproper/platform-go/v12/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v12/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v12/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v12/routing"
+	"github.com/primandproper/platform-go/v12/routing/backends/chi"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

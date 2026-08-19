@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -58,7 +58,7 @@ func TestStandardCRUD(T *testing.T) {
 	T.Run("emits the whole set for a conventional table", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("valid_instruments", columnsFor(LastIndexedAtColumn),
+		queries := pg().StandardCRUD("valid_instruments", columnsFor(LastIndexedAtColumn),
 			WithEntity("ValidInstrument", "ValidInstruments"))
 
 		test.Eq(t, []string{
@@ -76,7 +76,7 @@ func TestStandardCRUD(T *testing.T) {
 	T.Run("annotates each query with the type its result shape needs", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn))
+		queries := pg().StandardCRUD("things", columnsFor(LastIndexedAtColumn))
 
 		test.EqOp(t, ExecType, named(t, queries, "CreateThings").Annotation.Type)
 		test.EqOp(t, OneType, named(t, queries, "GetThings").Annotation.Type)
@@ -93,7 +93,7 @@ func TestStandardCRUD(T *testing.T) {
 
 		// Singular and plural both default to the table name, so the single-row
 		// read and the list would share a name if the list were spelled Get.
-		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn))
+		queries := pg().StandardCRUD("things", columnsFor(LastIndexedAtColumn))
 
 		seen := map[string]struct{}{}
 		for _, name := range queryNames(queries) {
@@ -106,7 +106,7 @@ func TestStandardCRUD(T *testing.T) {
 	T.Run("insert takes a value for every column the database does not own", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn))
+		queries := pg().StandardCRUD("things", columnsFor(LastIndexedAtColumn))
 
 		want := `INSERT INTO things (
 	id,
@@ -122,11 +122,11 @@ func TestStandardCRUD(T *testing.T) {
 	T.Run("update assigns the mutable columns and stamps last_updated_at", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor())
+		queries := pg().StandardCRUD("things", columnsFor())
 
 		want := `UPDATE things SET
 	name = sqlc.arg(name),
-	last_updated_at = NOW()
+	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id);`
 
@@ -136,12 +136,12 @@ WHERE archived_at IS NULL
 	T.Run("archive is a soft delete that refuses to run twice", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor())
+		queries := pg().StandardCRUD("things", columnsFor())
 
 		// The archived_at IS NULL is what makes the :execrows count meaningful:
 		// re-archiving an archived row affects nothing and the caller learns so.
 		want := `UPDATE things SET
-	archived_at = NOW()
+	archived_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id);`
 
@@ -151,7 +151,7 @@ WHERE archived_at IS NULL
 	T.Run("get reads one unarchived row by id", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", []string{IDColumn, "name", ArchivedAtColumn})
+		queries := pg().StandardCRUD("things", []string{IDColumn, "name", ArchivedAtColumn})
 
 		want := `SELECT
 	things.id,
@@ -167,7 +167,7 @@ WHERE things.archived_at IS NULL
 	T.Run("exists asks the same question without reading the row", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", []string{IDColumn, "name", ArchivedAtColumn})
+		queries := pg().StandardCRUD("things", []string{IDColumn, "name", ArchivedAtColumn})
 
 		want := `SELECT EXISTS (
 	SELECT things.id
@@ -182,7 +182,7 @@ WHERE things.archived_at IS NULL
 	T.Run("list carries both counts and the keyset walk", func(t *testing.T) {
 		t.Parallel()
 
-		content := named(t, StandardCRUD("things", columnsFor()), "ListThings").Content
+		content := named(t, pg().StandardCRUD("things", columnsFor()), "ListThings").Content
 
 		test.StrContains(t, content, ") AS filtered_count")
 		test.StrContains(t, content, ") AS total_count")
@@ -197,7 +197,7 @@ func TestStandardCRUD_columnsDecide(T *testing.T) {
 	T.Run("no archived_at, no archive", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", []string{IDColumn, "name", CreatedAtColumn})
+		queries := pg().StandardCRUD("things", []string{IDColumn, "name", CreatedAtColumn})
 
 		test.SliceNotContains(t, queryNames(queries), "ArchiveThings")
 		test.StrNotContains(t, named(t, queries, "GetThings").Content, ArchivedAtColumn)
@@ -207,7 +207,7 @@ func TestStandardCRUD_columnsDecide(T *testing.T) {
 	T.Run("no last_indexed_at, no reindex scan and no stamp", func(t *testing.T) {
 		t.Parallel()
 
-		names := queryNames(StandardCRUD("things", columnsFor()))
+		names := queryNames(pg().StandardCRUD("things", columnsFor()))
 
 		test.SliceNotContains(t, names, "ScanThingsIDsForReindex")
 		test.SliceNotContains(t, names, "MarkThingsAsIndexed")
@@ -220,7 +220,7 @@ func TestStandardCRUD_columnsDecide(T *testing.T) {
 		// the table does not have. The stamp names only the two columns it
 		// assigns and keys on, so it is emitted regardless — the column would
 		// otherwise be one nothing can write.
-		names := queryNames(StandardCRUD("things", []string{IDColumn, "name", LastIndexedAtColumn}))
+		names := queryNames(pg().StandardCRUD("things", []string{IDColumn, "name", LastIndexedAtColumn}))
 
 		test.SliceNotContains(t, names, "ScanThingsIDsForReindex")
 		test.SliceContains(t, names, "MarkThingsAsIndexed")
@@ -229,10 +229,10 @@ func TestStandardCRUD_columnsDecide(T *testing.T) {
 	T.Run("the stamp is the write the column's owner rule names", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn))
+		queries := pg().StandardCRUD("things", columnsFor(LastIndexedAtColumn))
 
 		want := `UPDATE things SET
-	last_indexed_at = NOW()
+	last_indexed_at = CURRENT_TIMESTAMP
 WHERE id = ANY(sqlc.arg(ids)::text[]);`
 
 		test.EqOp(t, want, named(t, queries, "MarkThingsAsIndexed").Content)
@@ -249,7 +249,7 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 		// The escape hatch for a consumer that maintains last_indexed_at some
 		// other way, or is not ready to. The reindex scan is unaffected, so the
 		// two halves can be adopted separately.
-		names := queryNames(StandardCRUD("things", columnsFor(LastIndexedAtColumn),
+		names := queryNames(pg().StandardCRUD("things", columnsFor(LastIndexedAtColumn),
 			WithOmitted(MarkAsIndexedQuery)))
 
 		test.SliceNotContains(t, names, "MarkThingsAsIndexed")
@@ -261,7 +261,7 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 
 		// The migration path for a consumer whose generated code already calls
 		// the write something else.
-		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn),
+		queries := pg().StandardCRUD("things", columnsFor(LastIndexedAtColumn),
 			WithQueryName(MarkAsIndexedQuery, "UpdateThingsLastIndexedAt"))
 
 		test.SliceNotContains(t, queryNames(queries), "MarkThingsAsIndexed")
@@ -274,7 +274,7 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 		// It is the sync's own machinery stamping rows it named explicitly,
 		// not a consumer read that owes a tenancy scope — the same reason the
 		// reindex scan is unscoped.
-		queries := StandardCRUD("things", columnsFor(LastIndexedAtColumn, BelongsToAccountColumn),
+		queries := pg().StandardCRUD("things", columnsFor(LastIndexedAtColumn, BelongsToAccountColumn),
 			WithOwnership(BelongsToAccountColumn))
 
 		test.StrNotContains(t, named(t, queries, "MarkThingsAsIndexed").Content, BelongsToAccountColumn)
@@ -283,7 +283,7 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 	T.Run("nothing mutable, no update", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", []string{IDColumn, CreatedAtColumn, ArchivedAtColumn})
+		queries := pg().StandardCRUD("things", []string{IDColumn, CreatedAtColumn, ArchivedAtColumn})
 
 		test.SliceNotContains(t, queryNames(queries), "UpdateThings")
 	})
@@ -293,7 +293,7 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 
 		// An INSERT with an empty column list is a syntax error rather than a
 		// degenerate insert, so it is left out rather than emitted broken.
-		queries := StandardCRUD("things", []string{IDColumn}, WithDatabaseOwned(IDColumn))
+		queries := pg().StandardCRUD("things", []string{IDColumn}, WithDatabaseOwned(IDColumn))
 
 		test.SliceNotContains(t, queryNames(queries), "CreateThings")
 		test.SliceContains(t, queryNames(queries), "GetThings")
@@ -302,7 +302,7 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 	T.Run("no last_updated_at, no stamp and no updated window", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", []string{IDColumn, "name", CreatedAtColumn, ArchivedAtColumn})
+		queries := pg().StandardCRUD("things", []string{IDColumn, "name", CreatedAtColumn, ArchivedAtColumn})
 
 		test.StrNotContains(t, named(t, queries, "UpdateThings").Content, LastUpdatedAtColumn)
 		test.StrNotContains(t, named(t, queries, "ListThings").Content, UpdatedAfterArg)
@@ -311,7 +311,7 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 	T.Run("a table with only an id still lists", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", []string{IDColumn})
+		queries := pg().StandardCRUD("things", []string{IDColumn})
 
 		test.Eq(t, []string{"CreateThings", "GetThings", "CheckThingsExistence", "ListThings"}, queryNames(queries))
 		test.StrContains(t, named(t, queries, "ListThings").Content, "WHERE things.id > COALESCE(sqlc.narg(cursor), '')")
@@ -324,7 +324,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithEntity names the queries", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("valid_instruments", []string{IDColumn},
+		queries := pg().StandardCRUD("valid_instruments", []string{IDColumn},
 			WithEntity("ValidInstrument", "ValidInstruments"))
 
 		test.Eq(t, []string{
@@ -338,7 +338,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithQueryName renames one of them", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", []string{IDColumn}, WithQueryName(ListQuery, "GetThingsForAccount"))
+		queries := pg().StandardCRUD("things", []string{IDColumn}, WithQueryName(ListQuery, "GetThingsForAccount"))
 
 		test.SliceContains(t, queryNames(queries), "GetThingsForAccount")
 		test.SliceNotContains(t, queryNames(queries), "ListThings")
@@ -347,7 +347,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithOwnership scopes every query that addresses a row", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(BelongsToAccountColumn),
+		queries := pg().StandardCRUD("things", columnsFor(BelongsToAccountColumn),
 			WithOwnership(BelongsToAccountColumn))
 
 		scoped := "sqlc.arg(" + BelongsToAccountColumn + ")"
@@ -359,7 +359,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithOwnership makes the owner column unassignable", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(BelongsToAccountColumn),
+		queries := pg().StandardCRUD("things", columnsFor(BelongsToAccountColumn),
 			WithOwnership(BelongsToAccountColumn))
 
 		// It is still an insert column — a row has to be given an owner — but a
@@ -377,7 +377,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithDatabaseOwned excludes a column from insert and update alike", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor("search_vector"), WithDatabaseOwned("search_vector"))
+		queries := pg().StandardCRUD("things", columnsFor("search_vector"), WithDatabaseOwned("search_vector"))
 
 		test.StrNotContains(t, named(t, queries, "CreateThings").Content, "search_vector")
 		test.StrNotContains(t, named(t, queries, "UpdateThings").Content, "search_vector")
@@ -388,7 +388,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithImmutable excludes a column from update only", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor("created_by_user"), WithImmutable("created_by_user"))
+		queries := pg().StandardCRUD("things", columnsFor("created_by_user"), WithImmutable("created_by_user"))
 
 		test.StrContains(t, named(t, queries, "CreateThings").Content, "sqlc.arg(created_by_user)")
 		test.StrNotContains(t, named(t, queries, "UpdateThings").Content, "created_by_user")
@@ -397,7 +397,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithOmitted drops the queries it names", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(),
+		queries := pg().StandardCRUD("things", columnsFor(),
 			WithOmitted(GetQuery, ExistsQuery, ListQuery))
 
 		test.Eq(t, []string{
@@ -411,7 +411,7 @@ func TestStandardCRUD_options(T *testing.T) {
 		t.Parallel()
 
 		// No archived_at, so there is no Archive to omit and none appears.
-		queries := StandardCRUD("things", []string{IDColumn, "name", CreatedAtColumn},
+		queries := pg().StandardCRUD("things", []string{IDColumn, "name", CreatedAtColumn},
 			WithOmitted(ArchiveQuery, ScanIDsForReindexQuery))
 
 		test.SliceNotContains(t, queryNames(queries), "ArchiveThings")
@@ -422,7 +422,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithOmitted accumulates across calls", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(),
+		queries := pg().StandardCRUD("things", columnsFor(),
 			WithOmitted(ListQuery),
 			WithOmitted(ExistsQuery))
 
@@ -437,7 +437,7 @@ func TestStandardCRUD_options(T *testing.T) {
 		// Two queries sharing a name is a panic, so a rename onto an omitted
 		// query's default name is the check that the omitted one is truly gone
 		// rather than merely filtered out of the result.
-		queries := StandardCRUD("things", columnsFor(),
+		queries := pg().StandardCRUD("things", columnsFor(),
 			WithOmitted(ListQuery),
 			WithQueryName(GetQuery, "ListThings"))
 
@@ -448,7 +448,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("omitting everything yields nothing to render", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(),
+		queries := pg().StandardCRUD("things", columnsFor(),
 			WithOmitted(CreateQuery, GetQuery, ExistsQuery, ListQuery, UpdateQuery, ArchiveQuery,
 				ScanIDsForReindexQuery, MarkAsIndexedQuery))
 
@@ -459,7 +459,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithNullable binds a column through narg on both writes", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
+		queries := pg().StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
 
 		test.StrContains(t, named(t, queries, "CreateThings").Content, "sqlc.narg(nickname)")
 		test.StrContains(t, named(t, queries, "UpdateThings").Content, "nickname = sqlc.narg(nickname)")
@@ -468,7 +468,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithNullable leaves the other columns alone", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
+		queries := pg().StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
 
 		create := named(t, queries, "CreateThings").Content
 		test.StrContains(t, create, "sqlc.arg(name)")
@@ -478,7 +478,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithNullable does not reach reads", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
+		queries := pg().StandardCRUD("things", columnsFor("nickname"), WithNullable("nickname"))
 
 		// A SELECT lists the column, it does not bind it.
 		test.StrContains(t, named(t, queries, "GetThings").Content, "things.nickname")
@@ -488,7 +488,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("WithNullable naming a column the writes exclude changes nothing", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", columnsFor(), WithNullable(CreatedAtColumn))
+		queries := pg().StandardCRUD("things", columnsFor(), WithNullable(CreatedAtColumn))
 
 		test.StrNotContains(t, named(t, queries, "CreateThings").Content, CreatedAtColumn)
 		test.StrNotContains(t, named(t, queries, "UpdateThings").Content, "sqlc.narg")
@@ -497,7 +497,7 @@ func TestStandardCRUD_options(T *testing.T) {
 	T.Run("options apply in order", func(t *testing.T) {
 		t.Parallel()
 
-		queries := StandardCRUD("things", []string{IDColumn},
+		queries := pg().StandardCRUD("things", []string{IDColumn},
 			WithEntity("Thing", "Things"),
 			WithEntity("Widget", "Widgets"))
 
@@ -511,7 +511,7 @@ func TestStandardCRUD_panics(T *testing.T) {
 	T.Run("a table name that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
-		err := recovered(func() { StandardCRUD("things; DROP TABLE users", []string{IDColumn}) })
+		err := recovered(func() { pg().StandardCRUD("things; DROP TABLE users", []string{IDColumn}) })
 
 		must.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 		test.StrContains(t, err.Error(), "table name")
@@ -520,7 +520,7 @@ func TestStandardCRUD_panics(T *testing.T) {
 	T.Run("a column name that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
-		err := recovered(func() { StandardCRUD("things", []string{IDColumn, "na me"}) })
+		err := recovered(func() { pg().StandardCRUD("things", []string{IDColumn, "na me"}) })
 
 		must.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 		test.StrContains(t, err.Error(), "column name")
@@ -529,7 +529,7 @@ func TestStandardCRUD_panics(T *testing.T) {
 	T.Run("an ownership column that is not an identifier", func(t *testing.T) {
 		t.Parallel()
 
-		err := recovered(func() { StandardCRUD("things", []string{IDColumn}, WithOwnership("belongs to")) })
+		err := recovered(func() { pg().StandardCRUD("things", []string{IDColumn}, WithOwnership("belongs to")) })
 
 		must.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
 		test.StrContains(t, err.Error(), "ownership column")
@@ -538,7 +538,7 @@ func TestStandardCRUD_panics(T *testing.T) {
 	T.Run("a column set with no id", func(t *testing.T) {
 		t.Parallel()
 
-		err := recovered(func() { StandardCRUD("things", []string{"name"}) })
+		err := recovered(func() { pg().StandardCRUD("things", []string{"name"}) })
 
 		must.ErrorIs(t, err, ErrMissingIDColumn)
 	})
@@ -547,7 +547,7 @@ func TestStandardCRUD_panics(T *testing.T) {
 		t.Parallel()
 
 		err := recovered(func() {
-			StandardCRUD("things", []string{IDColumn}, WithQueryName(ListQuery, "GetThings"))
+			pg().StandardCRUD("things", []string{IDColumn}, WithQueryName(ListQuery, "GetThings"))
 		})
 
 		must.ErrorIs(t, err, ErrDuplicateQueryName)
@@ -558,7 +558,7 @@ func TestStandardCRUD_panics(T *testing.T) {
 		t.Parallel()
 
 		must.NoError(t, recovered(func() {
-			StandardCRUD("valid_instruments", columnsFor(LastIndexedAtColumn, BelongsToAccountColumn),
+			pg().StandardCRUD("valid_instruments", columnsFor(LastIndexedAtColumn, BelongsToAccountColumn),
 				WithEntity("ValidInstrument", "ValidInstruments"),
 				WithOwnership(BelongsToAccountColumn))
 		}))
