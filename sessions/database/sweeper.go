@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
 )
 
 // sweptKey is this backend's one observability key.

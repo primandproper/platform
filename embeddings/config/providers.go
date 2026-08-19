@@ -3,13 +3,13 @@ package embeddingscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v11/embeddings"
-	"github.com/primandproper/platform-go/v11/embeddings/cohere"
-	embeddingsnoop "github.com/primandproper/platform-go/v11/embeddings/noop"
-	"github.com/primandproper/platform-go/v11/embeddings/ollama"
-	"github.com/primandproper/platform-go/v11/embeddings/openai"
-	"github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v12/embeddings"
+	"github.com/primandproper/platform-go/v12/embeddings/cohere"
+	embeddingsnoop "github.com/primandproper/platform-go/v12/embeddings/noop"
+	"github.com/primandproper/platform-go/v12/embeddings/ollama"
+	"github.com/primandproper/platform-go/v12/embeddings/openai"
+	"github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/internal/cfgnorm"
 )
 
 // NewEmbedder provides an Embedder from config.

@@ -1,14 +1,14 @@
 package sessionscfg
 
 import (
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	"github.com/primandproper/platform-go/v11/observability/tracing"
-	"github.com/primandproper/platform-go/v11/sessions"
-	sessionscache "github.com/primandproper/platform-go/v11/sessions/cache"
-	sessionsdatabase "github.com/primandproper/platform-go/v11/sessions/database"
-	sessionshttp "github.com/primandproper/platform-go/v11/sessions/http"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	"github.com/primandproper/platform-go/v12/observability/tracing"
+	"github.com/primandproper/platform-go/v12/sessions"
+	sessionscache "github.com/primandproper/platform-go/v12/sessions/cache"
+	sessionsdatabase "github.com/primandproper/platform-go/v12/sessions/database"
+	sessionshttp "github.com/primandproper/platform-go/v12/sessions/http"
 )
 
 // Option configures how NewStore and NewManager assemble their pieces.

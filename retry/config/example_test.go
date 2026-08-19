@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	retrycfg "github.com/primandproper/platform-go/v11/retry/config"
+	retrycfg "github.com/primandproper/platform-go/v12/retry/config"
 )
 
 func ExampleNewExponentialBackoffPolicy() {

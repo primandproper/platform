@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/retry"
+	"github.com/primandproper/platform-go/v12/retry"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/capitalism"
-	capitalismnoop "github.com/primandproper/platform-go/v11/capitalism/noop"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/jobs"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	retrycfg "github.com/primandproper/platform-go/v11/retry/config"
+	"github.com/primandproper/platform-go/v12/capitalism"
+	capitalismnoop "github.com/primandproper/platform-go/v12/capitalism/noop"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/jobs"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	retrycfg "github.com/primandproper/platform-go/v12/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

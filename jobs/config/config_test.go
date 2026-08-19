@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	distributedlockcfg "github.com/primandproper/platform-go/v11/distributedlock/config"
-	pglock "github.com/primandproper/platform-go/v11/distributedlock/postgres"
-	"github.com/primandproper/platform-go/v11/jobs"
-	messagequeuecfg "github.com/primandproper/platform-go/v11/messagequeue/config"
-	"github.com/primandproper/platform-go/v11/messagequeue/pubsub"
+	distributedlockcfg "github.com/primandproper/platform-go/v12/distributedlock/config"
+	pglock "github.com/primandproper/platform-go/v12/distributedlock/postgres"
+	"github.com/primandproper/platform-go/v12/jobs"
+	messagequeuecfg "github.com/primandproper/platform-go/v12/messagequeue/config"
+	"github.com/primandproper/platform-go/v12/messagequeue/pubsub"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

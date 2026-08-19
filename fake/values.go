@@ -1,7 +1,7 @@
 package fake
 
 import (
-	"github.com/primandproper/platform-go/v11/identifiers"
+	"github.com/primandproper/platform-go/v12/identifiers"
 
 	"github.com/go-faker/faker/v4"
 )

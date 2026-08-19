@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/random"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/random"
 
 	"github.com/shoenig/test/must"
 )

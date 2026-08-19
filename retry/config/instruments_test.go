@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/clock"
-	clockmock "github.com/primandproper/platform-go/v11/clock/mock"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v11/observability/metrics/mock"
-	"github.com/primandproper/platform-go/v11/retry"
+	"github.com/primandproper/platform-go/v12/clock"
+	clockmock "github.com/primandproper/platform-go/v12/clock/mock"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v12/observability/metrics/mock"
+	"github.com/primandproper/platform-go/v12/retry"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

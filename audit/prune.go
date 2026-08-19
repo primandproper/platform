@@ -6,10 +6,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/clock"
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/clock"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

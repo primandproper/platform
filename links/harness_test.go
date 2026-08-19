@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/cache"
-	cachememory "github.com/primandproper/platform-go/v11/cache/memory"
-	"github.com/primandproper/platform-go/v11/clock"
-	clockmock "github.com/primandproper/platform-go/v11/clock/mock"
-	"github.com/primandproper/platform-go/v11/distributedlock"
-	dlmemory "github.com/primandproper/platform-go/v11/distributedlock/memory"
+	"github.com/primandproper/platform-go/v12/cache"
+	cachememory "github.com/primandproper/platform-go/v12/cache/memory"
+	"github.com/primandproper/platform-go/v12/clock"
+	clockmock "github.com/primandproper/platform-go/v12/clock/mock"
+	"github.com/primandproper/platform-go/v12/distributedlock"
+	dlmemory "github.com/primandproper/platform-go/v12/distributedlock/memory"
 
 	"github.com/shoenig/test/must"
 )

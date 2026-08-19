@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	httperrors "github.com/primandproper/platform-go/v11/errors/http"
-	"github.com/primandproper/platform-go/v11/ratelimiting"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	httperrors "github.com/primandproper/platform-go/v12/errors/http"
+	"github.com/primandproper/platform-go/v12/ratelimiting"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

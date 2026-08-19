@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/audit/migrations"
-	"github.com/primandproper/platform-go/v11/clock"
-	clockmock "github.com/primandproper/platform-go/v11/clock/mock"
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	"github.com/primandproper/platform-go/v11/database/sqlite"
+	"github.com/primandproper/platform-go/v12/audit/migrations"
+	"github.com/primandproper/platform-go/v12/clock"
+	clockmock "github.com/primandproper/platform-go/v12/clock/mock"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	"github.com/primandproper/platform-go/v12/database/sqlite"
 
 	"github.com/shoenig/test/must"
 )

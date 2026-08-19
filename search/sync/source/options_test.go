@@ -3,12 +3,12 @@ package syncsource
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	nooplogging "github.com/primandproper/platform-go/v11/observability/logging/noop"
-	noopmetrics "github.com/primandproper/platform-go/v11/observability/metrics/noop"
-	nooptracing "github.com/primandproper/platform-go/v11/observability/tracing/noop"
-	searchsync "github.com/primandproper/platform-go/v11/search/sync"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	nooplogging "github.com/primandproper/platform-go/v12/observability/logging/noop"
+	noopmetrics "github.com/primandproper/platform-go/v12/observability/metrics/noop"
+	nooptracing "github.com/primandproper/platform-go/v12/observability/tracing/noop"
+	searchsync "github.com/primandproper/platform-go/v12/search/sync"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

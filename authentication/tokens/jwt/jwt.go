@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/authentication/tokens"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/identifiers"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/keys"
+	"github.com/primandproper/platform-go/v12/authentication/tokens"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/identifiers"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/keys"
 
 	"github.com/golang-jwt/jwt/v5"
 )

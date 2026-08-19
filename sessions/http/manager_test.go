@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/sessions"
-	sessionsmock "github.com/primandproper/platform-go/v11/sessions/mock"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/sessions"
+	sessionsmock "github.com/primandproper/platform-go/v12/sessions/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

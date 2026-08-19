@@ -5,8 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/operations"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/operations"
 )
 
 // operationsRunner adapts an operations.Worker to Runner.

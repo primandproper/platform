@@ -3,8 +3,8 @@ package tracingcfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v12/observability/logging/noop"
 
 	"github.com/shoenig/test"
 )

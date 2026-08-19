@@ -7,12 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/encoding"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/messagequeue"
-	mqmock "github.com/primandproper/platform-go/v11/messagequeue/mock"
-	"github.com/primandproper/platform-go/v11/routing"
-	"github.com/primandproper/platform-go/v11/routing/backends/chi"
+	"github.com/primandproper/platform-go/v12/encoding"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/messagequeue"
+	mqmock "github.com/primandproper/platform-go/v12/messagequeue/mock"
+	"github.com/primandproper/platform-go/v12/routing"
+	"github.com/primandproper/platform-go/v12/routing/backends/chi"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -3,7 +3,7 @@ package redis
 import (
 	"testing"
 
-	metricsnoop "github.com/primandproper/platform-go/v11/observability/metrics/noop"
+	metricsnoop "github.com/primandproper/platform-go/v12/observability/metrics/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

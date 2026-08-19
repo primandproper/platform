@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/messagequeue"
-	messagequeuemock "github.com/primandproper/platform-go/v11/messagequeue/mock"
-	retrycfg "github.com/primandproper/platform-go/v11/retry/config"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/messagequeue"
+	messagequeuemock "github.com/primandproper/platform-go/v12/messagequeue/mock"
+	retrycfg "github.com/primandproper/platform-go/v12/retry/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

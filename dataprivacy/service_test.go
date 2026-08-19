@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/compression"
-	"github.com/primandproper/platform-go/v11/identifiers"
+	"github.com/primandproper/platform-go/v12/compression"
+	"github.com/primandproper/platform-go/v12/identifiers"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

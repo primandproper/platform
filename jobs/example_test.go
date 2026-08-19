@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/distributedlock/memory"
-	"github.com/primandproper/platform-go/v11/jobs"
-	"github.com/primandproper/platform-go/v11/retry"
-	retrycfg "github.com/primandproper/platform-go/v11/retry/config"
+	"github.com/primandproper/platform-go/v12/distributedlock/memory"
+	"github.com/primandproper/platform-go/v12/jobs"
+	"github.com/primandproper/platform-go/v12/retry"
+	retrycfg "github.com/primandproper/platform-go/v12/retry/config"
 )
 
 // ExampleNewPool consumes a topic with a bounded set of workers, retrying a
