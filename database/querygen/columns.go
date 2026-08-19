@@ -62,7 +62,12 @@ const IDsArg = "ids"
 // filter's created_after are compared against each other, so they have to come
 // from the same clock; two application instances whose clocks differ by a second
 // would otherwise write rows that a window excludes at random.
-const NowExpression = "NOW()"
+//
+// It is a constant rather than a Generator method because all three dialects
+// accept the standard spelling: Postgres and MySQL both treat CURRENT_TIMESTAMP
+// as the same function they spell NOW(), and SQLite has only this one. Arithmetic
+// on it is where they part company — see Generator.timeHorizon.
+const NowExpression = "CURRENT_TIMESTAMP"
 
 // databaseOwnedColumns are the columns the database fills in and a caller must
 // never supply. Each is set by a statement this package emits: three of them by

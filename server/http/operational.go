@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/primandproper/platform-go/v11/healthcheck"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	"github.com/primandproper/platform-go/v11/routing"
-	"github.com/primandproper/platform-go/v11/version"
+	"github.com/primandproper/platform-go/v12/healthcheck"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	"github.com/primandproper/platform-go/v12/routing"
+	"github.com/primandproper/platform-go/v12/version"
 )
 
 const (

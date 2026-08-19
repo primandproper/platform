@@ -11,14 +11,14 @@ import (
 	"context"
 	"slices"
 
-	"github.com/primandproper/platform-go/v11/encoding"
-	"github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
-	"github.com/primandproper/platform-go/v11/routing"
-	"github.com/primandproper/platform-go/v11/routing/backends/chi"
-	"github.com/primandproper/platform-go/v11/routing/backends/gin"
-	"github.com/primandproper/platform-go/v11/routing/backends/httprouter"
-	"github.com/primandproper/platform-go/v11/routing/backends/stdlib"
+	"github.com/primandproper/platform-go/v12/encoding"
+	"github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v12/routing"
+	"github.com/primandproper/platform-go/v12/routing/backends/chi"
+	"github.com/primandproper/platform-go/v12/routing/backends/gin"
+	"github.com/primandproper/platform-go/v12/routing/backends/httprouter"
+	"github.com/primandproper/platform-go/v12/routing/backends/stdlib"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

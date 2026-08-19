@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/cache/memory"
-	"github.com/primandproper/platform-go/v11/clock"
-	"github.com/primandproper/platform-go/v11/cookies"
-	"github.com/primandproper/platform-go/v11/sessions"
-	sessionscache "github.com/primandproper/platform-go/v11/sessions/cache"
+	"github.com/primandproper/platform-go/v12/cache/memory"
+	"github.com/primandproper/platform-go/v12/clock"
+	"github.com/primandproper/platform-go/v12/cookies"
+	"github.com/primandproper/platform-go/v12/sessions"
+	sessionscache "github.com/primandproper/platform-go/v12/sessions/cache"
 
 	"github.com/shoenig/test/must"
 )

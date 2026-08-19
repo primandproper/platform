@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	cbnoop "github.com/primandproper/platform-go/v11/circuitbreaking/noop"
-	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
-	textsearch "github.com/primandproper/platform-go/v11/search/text"
+	cbnoop "github.com/primandproper/platform-go/v12/circuitbreaking/noop"
+	loggingnoop "github.com/primandproper/platform-go/v12/observability/logging/noop"
+	textsearch "github.com/primandproper/platform-go/v12/search/text"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

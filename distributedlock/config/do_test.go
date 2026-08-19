@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/distributedlock"
+	"github.com/primandproper/platform-go/v12/distributedlock"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

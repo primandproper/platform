@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	circuitbreakingcfg "github.com/primandproper/platform-go/v11/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v11/email"
-	"github.com/primandproper/platform-go/v11/errors"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v12/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v12/email"
+	"github.com/primandproper/platform-go/v12/errors"
 )
 
 // NewEmailer provides an email.Emailer from a config.

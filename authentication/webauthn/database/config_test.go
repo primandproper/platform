@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/database/ddl"
+	"github.com/primandproper/platform-go/v12/database/ddl"
 
 	"github.com/shoenig/test"
 )

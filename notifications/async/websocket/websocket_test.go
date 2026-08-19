@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/notifications/async"
-	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v12/notifications/async"
+	"github.com/primandproper/platform-go/v12/observability"
 
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/shoenig/test"

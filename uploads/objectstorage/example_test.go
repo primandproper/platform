@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/primandproper/platform-go/v11/uploads"
-	"github.com/primandproper/platform-go/v11/uploads/objectstorage"
+	"github.com/primandproper/platform-go/v12/uploads"
+	"github.com/primandproper/platform-go/v12/uploads/objectstorage"
 )
 
 func newExampleManager() *objectstorage.Uploader {

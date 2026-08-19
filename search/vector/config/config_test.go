@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	circuitbreakingcfg "github.com/primandproper/platform-go/v11/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v11/observability/metrics/mock"
-	vectorsearch "github.com/primandproper/platform-go/v11/search/vector"
-	"github.com/primandproper/platform-go/v11/search/vector/pgvector"
-	"github.com/primandproper/platform-go/v11/search/vector/qdrant"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v12/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v12/observability/metrics/mock"
+	vectorsearch "github.com/primandproper/platform-go/v12/search/vector"
+	"github.com/primandproper/platform-go/v12/search/vector/pgvector"
+	"github.com/primandproper/platform-go/v12/search/vector/qdrant"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/encoding"
-	httpx "github.com/primandproper/platform-go/v11/errors/http"
-	"github.com/primandproper/platform-go/v11/routing"
-	"github.com/primandproper/platform-go/v11/routing/backends/chi"
+	"github.com/primandproper/platform-go/v12/encoding"
+	httpx "github.com/primandproper/platform-go/v12/errors/http"
+	"github.com/primandproper/platform-go/v12/routing"
+	"github.com/primandproper/platform-go/v12/routing/backends/chi"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/shoenig/test"

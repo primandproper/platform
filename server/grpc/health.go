@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/healthcheck"
+	"github.com/primandproper/platform-go/v12/healthcheck"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

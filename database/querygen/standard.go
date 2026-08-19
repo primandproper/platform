@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 )
 
 // StandardQuery names one of the queries StandardCRUD emits, for renaming it.
@@ -203,7 +203,14 @@ func WithImmutable(columns ...string) Option {
 // do anything with an error that the panic does not do more loudly. The panic
 // value is an error wrapping dialect.ErrInvalidIdentifier, ErrMissingIDColumn, or
 // ErrDuplicateQueryName.
-func StandardCRUD(table string, columns []string, opts ...Option) []*Query {
+//
+// Which queries appear does not depend on the dialect, and neither do their
+// names. A table generated for Postgres and the same table generated for SQLite
+// yield the same set of sqlc methods with the same signatures — bar the two
+// places sqlc's own type inference differs, which the package comment names — so
+// the application code above them is written once. What differs is the SQL under
+// each name.
+func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option) []*Query {
 	s := &settings{
 		singular: camel(table),
 		plural:   camel(table),
@@ -241,7 +248,7 @@ func StandardCRUD(table string, columns []string, opts ...Option) []*Query {
 	queries := []*Query{
 		s.query(GetQuery, OneType, getStatement(table, columns, s.ownership)),
 		s.query(ExistsQuery, OneType, existsStatement(table, columns, s.ownership)),
-		s.query(ListQuery, ManyType, listStatement(table, columns, s.ownership)),
+		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership)),
 	}
 
 	// An INSERT with an empty column list is not a degenerate insert, it is a
@@ -265,10 +272,10 @@ func StandardCRUD(table string, columns []string, opts ...Option) []*Query {
 		// is emitted for every indexed table — which is what keeps the column
 		// from being one nothing can write.
 		if slices.Contains(columns, ArchivedAtColumn) {
-			queries = append(queries, s.query(ScanIDsForReindexQuery, ManyType, ReindexScanQuery(table)))
+			queries = append(queries, s.query(ScanIDsForReindexQuery, ManyType, g.ReindexScanQuery(table)))
 		}
 
-		queries = append(queries, s.query(MarkAsIndexedQuery, ExecRowsType, IndexStampQuery(table)))
+		queries = append(queries, s.query(MarkAsIndexedQuery, ExecRowsType, g.IndexStampQuery(table)))
 	}
 
 	queries = slices.DeleteFunc(queries, func(query *Query) bool { return query == nil })
@@ -363,7 +370,7 @@ func existsStatement(table string, columns []string, ownership string) string {
 	)
 }
 
-func listStatement(table string, columns []string, ownership string) string {
+func (g *Generator) listStatement(table string, columns []string, ownership string) string {
 	var conditions []string
 	if ownership != "" {
 		conditions = append(conditions, ownershipPredicate(table, ownership, true))
@@ -371,11 +378,11 @@ func listStatement(table string, columns []string, ownership string) string {
 
 	return fmt.Sprintf("SELECT\n\t%s,\n\t%s,\n\t%s\nFROM %s\nWHERE %s\n%s;",
 		strings.Join(QualifyAll(table, columns), ",\n\t"),
-		FilterCountSelect(table, columns, nil, conditions...),
-		TotalCountSelect(table, columns, nil, conditions...),
+		g.FilterCountSelect(table, columns, nil, conditions...),
+		g.TotalCountSelect(table, columns, nil, conditions...),
 		table,
-		FilterConditions(table, columns, conditions...),
-		CursorLimitClause(table),
+		g.FilterConditions(table, columns, conditions...),
+		g.CursorLimitClause(table),
 	)
 }
 

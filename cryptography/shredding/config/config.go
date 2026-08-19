@@ -20,11 +20,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/cryptography/encryption"
-	"github.com/primandproper/platform-go/v11/cryptography/shredding"
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/messagequeue"
+	"github.com/primandproper/platform-go/v12/cryptography/encryption"
+	"github.com/primandproper/platform-go/v12/cryptography/shredding"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/messagequeue"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

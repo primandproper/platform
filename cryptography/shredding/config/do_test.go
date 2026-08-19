@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/cryptography/shredding"
-	"github.com/primandproper/platform-go/v11/messagequeue"
-	messagequeuemock "github.com/primandproper/platform-go/v11/messagequeue/mock"
+	"github.com/primandproper/platform-go/v12/cryptography/shredding"
+	"github.com/primandproper/platform-go/v12/messagequeue"
+	messagequeuemock "github.com/primandproper/platform-go/v12/messagequeue/mock"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/llm"
+	"github.com/primandproper/platform-go/v12/llm"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
 	anyllmerrors "github.com/mozilla-ai/any-llm-go/errors"

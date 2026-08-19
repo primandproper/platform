@@ -1,6 +1,7 @@
 /*
 Package querygen emits sqlc input for tables shaped the way this module's row
-conventions expect.
+conventions expect, in the dialect of whichever of the three databases this
+module supports will run it.
 
 The conventions are already load-bearing elsewhere. filtering.QueryFilter is a
 window over created_at and last_updated_at, a cursor compared against id, and a
@@ -19,8 +20,12 @@ a .sql file and fed to sqlc alongside the schema.
 
 # What a caller supplies
 
-A table name and its column list, in the order the emitted SELECTs should list
-them. Everything else is read off the column set:
+A dialect, through [For], which returns the [Generator] every emitter hangs off:
+
+	queries := querygen.For(dialect.Postgres).StandardCRUD("widgets", columns)
+
+Then a table name and its column list, in the order the emitted SELECTs should
+list them. Everything else is read off the column set:
 
 	created_at present      → the created_after/created_before window
 	last_updated_at present → the updated_after/updated_before window
@@ -86,12 +91,67 @@ parses, runs, reports no error, and returns the same rows for either value of th
 flag, because the first predicate has already decided. Owning the whole clause is
 what makes that unrepresentable.
 
-# Postgres only
+# The three dialects
 
-The emitted SQL uses COALESCE over sqlc.narg, an INTERVAL cast, a boolean cast,
-and COLLATE "C" — none of which port unchanged. database/dialect names three
-dialects and this package serves one of them. A second backend belongs here when
-there is a second backend to serve, not before: an abstraction shaped around one
-implementation and a guess is shaped around the guess.
+Postgres, MySQL and SQLite each get SQL their own server parses, and the
+difference is confined to five expressions: the case-insensitive substring
+match, the byte-ordered comparison the reindex scan walks, the sentinel an unset
+time bound coalesces to, the nullable boolean the archived toggle binds, and the
+set membership the bulk stamp keys on. They live together in generator.go, as
+unexported methods, so that what this package assumes about a server is one
+screen rather than a grep for casts. Everything else — the statement shapes, the
+query names, which queries a column list justifies — is the same text on all
+three.
+
+The set is closed at the type. [For] takes a dialect.Dialect and rejects one
+outside dialect.Valid rather than emitting a plausible default, and the dialect
+binds to the [Generator] rather than to each call, so a Postgres fragment cannot
+be spliced into a MySQL statement. That matters more than it sounds: the failures
+are asymmetric. COLLATE "C" in MySQL is a parse error, which is the good case;
+ILIKE has no SQLite spelling at all, and the substitute folds a narrower set of
+characters, which is a search that quietly misses rows.
+
+What a consumer sees is one set of sqlc methods with one set of signatures
+whichever dialect generated them, so the application code above them is written
+once. Two exceptions, both from sqlc's own inference rather than from anything
+here: the archived toggle carries a ::boolean on Postgres and cannot elsewhere,
+because MySQL and SQLite have no boolean type to cast to; and the bulk stamp's
+id set is a bound array on Postgres and a sqlc.slice expansion on the other two,
+which changes what reaches the server and not the []string a caller passes.
+
+# What each dialect asks of a schema
+
+A table generated for SQLite has to store its timestamps the way SQLite's own
+CURRENT_TIMESTAMP writes them — YYYY-MM-DD HH:MM:SS, UTC. SQLite has no date
+type, so the filter window's comparisons are lexicographic over text, and text in
+any other shape compares in an order that is not chronological. The other two
+have real timestamp types and no such requirement.
+
+A table generated for MySQL needs its id column to be something MySQL will index
+as a key: TEXT cannot be a primary key there without a prefix length, so ids
+belong in a VARCHAR. Nothing in this package enforces either of these; both are
+schema decisions, and this package never reads the schema.
+
+# The one place a dialect changes a signature
+
+Everything above is a difference in SQL under a Go API that does not move. LIMIT
+is the exception, and it is worth knowing about before choosing MySQL.
+
+Postgres and SQLite take an expression after LIMIT, so an absent page size
+coalesces to filtering.DefaultQueryFilterLimit and the generated parameter is a
+pointer a caller may leave nil. MySQL takes an integer literal or a placeholder
+and nothing else — COALESCE there is a parse error rather than a slower plan — so
+its LIMIT binds the size and the generated parameter is a value. Leveling the
+other two down to match would take a working default away from the dialects that
+can express one in order to make a limitation uniform, which is the wrong way
+round.
+
+Nothing drifts by leaving them different: the default is filtering's constant
+rather than a number written here, so the SQL and
+filtering.QueryFilter.Normalize read the same one. What a MySQL consumer owes its
+queries is that Normalize call — it turns an absent or zero page size into that
+constant and clamps an oversized one, the same treatment the URL parameter gets.
+A MySQL query handed a zero returns no rows, which is loud, rather than a page of
+some other size.
 */
 package querygen

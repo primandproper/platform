@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/ratelimiting"
+	"github.com/primandproper/platform-go/v12/ratelimiting"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

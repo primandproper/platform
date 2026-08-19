@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/database/ddl"
-	"github.com/primandproper/platform-go/v11/database/dialect"
+	"github.com/primandproper/platform-go/v12/database/ddl"
+	"github.com/primandproper/platform-go/v12/database/dialect"
 )
 
 // sessionColumns is the projection Consume scans, ordered to match the Scan.

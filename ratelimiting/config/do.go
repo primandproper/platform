@@ -3,8 +3,8 @@ package ratelimitingcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/ratelimiting"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/ratelimiting"
 
 	"github.com/samber/do/v2"
 )

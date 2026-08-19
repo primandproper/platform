@@ -4,8 +4,8 @@ import (
 	goast "go/ast"
 	"go/token"
 
-	"github.com/primandproper/platform-go/v11/errors"
-	reflast "github.com/primandproper/platform-go/v11/reflection/ast"
+	"github.com/primandproper/platform-go/v12/errors"
+	reflast "github.com/primandproper/platform-go/v12/reflection/ast"
 )
 
 // structEntry is a struct declaration together with what resolving the types
