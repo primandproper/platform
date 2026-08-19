@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/routing"
+	"github.com/primandproper/platform-go/v12/routing"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
