@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/testutils/containers/pgtest"
+	"github.com/primandproper/platform-go/v12/testutils/containers/pgtest"
 
 	"github.com/XSAM/otelsql"
 	_ "github.com/jackc/pgx/v5/stdlib"

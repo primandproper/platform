@@ -1,12 +1,12 @@
 package retrycfg
 
 import (
-	"github.com/primandproper/platform-go/v11/clock"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	"github.com/primandproper/platform-go/v11/observability/tracing"
-	"github.com/primandproper/platform-go/v11/retry"
+	"github.com/primandproper/platform-go/v12/clock"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	"github.com/primandproper/platform-go/v12/observability/tracing"
+	"github.com/primandproper/platform-go/v12/retry"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"

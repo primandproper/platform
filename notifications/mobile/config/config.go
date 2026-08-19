@@ -15,12 +15,12 @@ import (
 	"context"
 	"slices"
 
-	"github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
-	"github.com/primandproper/platform-go/v11/notifications/mobile"
-	"github.com/primandproper/platform-go/v11/notifications/mobile/apns"
-	"github.com/primandproper/platform-go/v11/notifications/mobile/fcm"
-	"github.com/primandproper/platform-go/v11/notifications/mobile/noop"
+	"github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v12/notifications/mobile"
+	"github.com/primandproper/platform-go/v12/notifications/mobile/apns"
+	"github.com/primandproper/platform-go/v12/notifications/mobile/fcm"
+	"github.com/primandproper/platform-go/v12/notifications/mobile/noop"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

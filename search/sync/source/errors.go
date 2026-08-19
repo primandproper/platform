@@ -1,7 +1,7 @@
 package syncsource
 
 import (
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 )
 
 var (

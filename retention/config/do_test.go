@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/audit"
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	"github.com/primandproper/platform-go/v11/retention"
+	"github.com/primandproper/platform-go/v12/audit"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	"github.com/primandproper/platform-go/v12/retention"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

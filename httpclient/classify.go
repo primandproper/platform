@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/ratelimiting"
-	"github.com/primandproper/platform-go/v11/retry"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/ratelimiting"
+	"github.com/primandproper/platform-go/v12/retry"
 )
 
 // Outcome is what one completed exchange taught us about the host it was sent

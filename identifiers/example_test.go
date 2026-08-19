@@ -3,7 +3,7 @@ package identifiers_test
 import (
 	"fmt"
 
-	"github.com/primandproper/platform-go/v11/identifiers"
+	"github.com/primandproper/platform-go/v12/identifiers"
 )
 
 func ExampleNew() {

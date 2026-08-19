@@ -4,9 +4,9 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/primandproper/platform-go/v11/authorization"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/metering"
+	"github.com/primandproper/platform-go/v12/authorization"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/metering"
 )
 
 const (

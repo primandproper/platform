@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/errors"
 )
 
 var (

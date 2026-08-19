@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	databasemock "github.com/primandproper/platform-go/v11/database/mock"
-	"github.com/primandproper/platform-go/v11/observability/logging"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	databasemock "github.com/primandproper/platform-go/v12/database/mock"
+	"github.com/primandproper/platform-go/v12/observability/logging"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shoenig/test"

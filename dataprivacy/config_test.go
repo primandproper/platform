@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/operations"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/operations"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

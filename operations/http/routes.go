@@ -6,12 +6,12 @@ import (
 	"path"
 	"strings"
 
-	"github.com/primandproper/platform-go/v11/encoding"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/filtering"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/operations"
-	"github.com/primandproper/platform-go/v11/routing"
+	"github.com/primandproper/platform-go/v12/encoding"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/filtering"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/operations"
+	"github.com/primandproper/platform-go/v12/routing"
 )
 
 // o11yName scopes this package's spans and logger.

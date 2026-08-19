@@ -6,12 +6,12 @@ import (
 	"reflect"
 	"testing"
 
-	circuitbreakingcfg "github.com/primandproper/platform-go/v11/circuitbreaking/config"
-	cbnoop "github.com/primandproper/platform-go/v11/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v11/featureflags/launchdarkly"
-	"github.com/primandproper/platform-go/v11/featureflags/posthog"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v11/observability/metrics/mock"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v12/circuitbreaking/config"
+	cbnoop "github.com/primandproper/platform-go/v12/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v12/featureflags/launchdarkly"
+	"github.com/primandproper/platform-go/v12/featureflags/posthog"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v12/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

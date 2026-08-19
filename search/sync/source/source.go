@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	searchsync "github.com/primandproper/platform-go/v11/search/sync"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	searchsync "github.com/primandproper/platform-go/v12/search/sync"
 )
 
 type (

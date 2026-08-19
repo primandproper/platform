@@ -3,14 +3,14 @@ package observability
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	metricsnoop "github.com/primandproper/platform-go/v11/observability/metrics/noop"
-	"github.com/primandproper/platform-go/v11/observability/profiling"
-	"github.com/primandproper/platform-go/v11/observability/tracing"
-	tracingnoop "github.com/primandproper/platform-go/v11/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v12/observability/logging/noop"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	metricsnoop "github.com/primandproper/platform-go/v12/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v12/observability/profiling"
+	"github.com/primandproper/platform-go/v12/observability/tracing"
+	tracingnoop "github.com/primandproper/platform-go/v12/observability/tracing/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

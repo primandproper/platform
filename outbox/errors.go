@@ -1,8 +1,8 @@
 package outbox
 
 import (
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 )
 
 var (

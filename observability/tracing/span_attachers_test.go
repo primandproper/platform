@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/primandproper/platform-go/v11/filtering"
+	"github.com/primandproper/platform-go/v12/filtering"
 
 	"github.com/shoenig/test/must"
 )

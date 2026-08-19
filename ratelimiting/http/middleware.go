@@ -8,13 +8,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/encoding"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/keys"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	"github.com/primandproper/platform-go/v11/ratelimiting"
-	"github.com/primandproper/platform-go/v11/routing"
+	"github.com/primandproper/platform-go/v12/encoding"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/keys"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	"github.com/primandproper/platform-go/v12/ratelimiting"
+	"github.com/primandproper/platform-go/v12/routing"
 )
 
 // serviceName names this component's logger, tracer, and metrics.

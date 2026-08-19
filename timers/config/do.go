@@ -3,9 +3,9 @@ package timerscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/timers"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/timers"
 
 	"github.com/samber/do/v2"
 )

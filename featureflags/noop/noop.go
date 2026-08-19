@@ -17,7 +17,7 @@ package noop
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v11/featureflags"
+	"github.com/primandproper/platform-go/v12/featureflags"
 )
 
 var _ featureflags.FeatureFlagManager = (*FeatureFlagManager)(nil)

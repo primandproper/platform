@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/cache"
-	"github.com/primandproper/platform-go/v11/cache/memory"
-	"github.com/primandproper/platform-go/v11/clock"
-	"github.com/primandproper/platform-go/v11/retry"
+	"github.com/primandproper/platform-go/v12/cache"
+	"github.com/primandproper/platform-go/v12/cache/memory"
+	"github.com/primandproper/platform-go/v12/clock"
+	"github.com/primandproper/platform-go/v12/retry"
 
 	"github.com/shoenig/test/must"
 )

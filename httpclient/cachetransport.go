@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/cache"
-	"github.com/primandproper/platform-go/v11/clock"
-	"github.com/primandproper/platform-go/v11/observability/keys"
+	"github.com/primandproper/platform-go/v12/cache"
+	"github.com/primandproper/platform-go/v12/clock"
+	"github.com/primandproper/platform-go/v12/observability/keys"
 
 	"go.opentelemetry.io/otel/attribute"
 )

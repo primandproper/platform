@@ -7,15 +7,15 @@ import (
 	"errors"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/internal/sqlguard"
-	"github.com/primandproper/platform-go/v11/metering/migrations"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/logging"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	"github.com/primandproper/platform-go/v11/observability/tracing"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/internal/sqlguard"
+	"github.com/primandproper/platform-go/v12/metering/migrations"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/logging"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	"github.com/primandproper/platform-go/v12/observability/tracing"
 )
 
 // DefaultTablePrefix is the namespace the metering tables carry when none is

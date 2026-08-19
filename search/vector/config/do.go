@@ -3,9 +3,9 @@ package vectorsearchcfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/observability"
-	vectorsearch "github.com/primandproper/platform-go/v11/search/vector"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/observability"
+	vectorsearch "github.com/primandproper/platform-go/v12/search/vector"
 
 	"github.com/samber/do/v2"
 )

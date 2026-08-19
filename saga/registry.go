@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/charset"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
+	"github.com/primandproper/platform-go/v12/charset"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 )
 
 // definition is a Definition with its state type erased.

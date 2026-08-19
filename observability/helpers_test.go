@@ -3,8 +3,8 @@ package observability
 import (
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
-	"github.com/primandproper/platform-go/v11/observability/tracing"
+	loggingnoop "github.com/primandproper/platform-go/v12/observability/logging/noop"
+	"github.com/primandproper/platform-go/v12/observability/tracing"
 
 	"github.com/shoenig/test"
 )

@@ -6,15 +6,15 @@ import (
 	stderrors "errors"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/clock"
-	"github.com/primandproper/platform-go/v11/database"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	"github.com/primandproper/platform-go/v11/encoding"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/observability"
-	"github.com/primandproper/platform-go/v11/observability/metrics"
-	"github.com/primandproper/platform-go/v11/sessions"
-	"github.com/primandproper/platform-go/v11/sessions/database/migrations"
+	"github.com/primandproper/platform-go/v12/clock"
+	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	"github.com/primandproper/platform-go/v12/encoding"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/observability"
+	"github.com/primandproper/platform-go/v12/observability/metrics"
+	"github.com/primandproper/platform-go/v12/sessions"
+	"github.com/primandproper/platform-go/v12/sessions/database/migrations"
 )
 
 // serviceName names the loggers and spans this backend emits. The counters that

@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/capitalism"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/observability"
-	loggingnoop "github.com/primandproper/platform-go/v11/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v11/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v11/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v12/capitalism"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/observability"
+	loggingnoop "github.com/primandproper/platform-go/v12/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v12/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v12/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

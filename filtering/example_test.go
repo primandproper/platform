@@ -3,8 +3,8 @@ package filtering_test
 import (
 	"fmt"
 
-	"github.com/primandproper/platform-go/v11/filtering"
-	"github.com/primandproper/platform-go/v11/llm"
+	"github.com/primandproper/platform-go/v12/filtering"
+	"github.com/primandproper/platform-go/v12/llm"
 )
 
 // A tool that lists something takes a page of a collection as its input, which

@@ -14,12 +14,12 @@ import (
 	"slices"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/cache"
-	"github.com/primandproper/platform-go/v11/cache/memory"
-	"github.com/primandproper/platform-go/v11/cache/redis"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v11/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v12/cache"
+	"github.com/primandproper/platform-go/v12/cache/memory"
+	"github.com/primandproper/platform-go/v12/cache/redis"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v12/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

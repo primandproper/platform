@@ -6,10 +6,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/primandproper/platform-go/v11/batching"
-	"github.com/primandproper/platform-go/v11/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v11/errors"
-	"github.com/primandproper/platform-go/v11/observability"
+	"github.com/primandproper/platform-go/v12/batching"
+	"github.com/primandproper/platform-go/v12/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	"github.com/primandproper/platform-go/v12/observability"
 )
 
 // enqueueFlushTimeout bounds one merged upsert. It is generous on purpose: the
