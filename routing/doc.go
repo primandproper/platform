@@ -112,6 +112,18 @@ answered 413 without the handler running. A RawBody route with no bound of its
 own gets DefaultRawBodyLimit, because nothing else between the socket and the
 handler's []byte forms an opinion about how much to read.
 
+Every route means the Handle ones too. Those have no binding step to enforce a
+bound in, so the Router's default is applied to them as middleware, outside the
+ones the route registers with — the webhook signature verifier that reads the
+body reads a bounded one. A Handle route that must read as much as arrives, or
+more than the default allows, registers through Router.MaxRequestBody, which is
+what WithMaxRequestBody is to a typed route:
+
+	r.MaxRequestBody(0).Handle(http.MethodPost, "/uploads/stream", stream)
+
+LimitRequestBody is that middleware, exported for a handler that wants the bound
+where the Router is not the one applying it.
+
 Path parameters use an inline typed syntax — "/users/{id:uint64}" — which drives
 both runtime binding and the generated parameter schema. Query, header, cookie,
 and body values are bound from struct tags on the typed input.
