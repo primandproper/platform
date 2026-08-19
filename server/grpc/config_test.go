@@ -45,3 +45,50 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.StrContains(t, err.Error(), "tlsCertificate")
 	})
 }
+
+func TestConfig_ValidateWithContext_messageSizes(T *testing.T) {
+	T.Parallel()
+
+	T.Run("accepts zero, which takes the default", func(t *testing.T) {
+		t.Parallel()
+
+		must.NoError(t, (&Config{MaxReceiveMessageSize: 0, MaxSendMessageSize: 0}).ValidateWithContext(t.Context()))
+	})
+
+	T.Run("accepts the largest bound gRPC can express", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{MaxReceiveMessageSize: UnboundedMessageSize, MaxSendMessageSize: UnboundedMessageSize}
+
+		must.NoError(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("refuses a negative receive bound", func(t *testing.T) {
+		t.Parallel()
+
+		err := (&Config{MaxReceiveMessageSize: -1}).ValidateWithContext(t.Context())
+
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "maxReceiveMessageSize")
+	})
+
+	T.Run("refuses a negative send bound", func(t *testing.T) {
+		t.Parallel()
+
+		err := (&Config{MaxSendMessageSize: -1}).ValidateWithContext(t.Context())
+
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "maxSendMessageSize")
+	})
+
+	T.Run("refuses a bound past what the wire can carry", func(t *testing.T) {
+		t.Parallel()
+
+		// The length prefix is what sets the ceiling, so a larger number cannot
+		// mean anything.
+		err := (&Config{MaxSendMessageSize: UnboundedMessageSize + 1}).ValidateWithContext(t.Context())
+
+		must.Error(t, err)
+		test.StrContains(t, err.Error(), "maxSendMessageSize")
+	})
+}

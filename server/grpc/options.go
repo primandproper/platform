@@ -12,11 +12,13 @@ import (
 type Option func(*options)
 
 type options struct {
-	logger         logging.Logger
-	tracerProvider tracing.Provider
-	healthRegistry healthcheck.Registry
-	serviceName    string
-	reflection     bool
+	logger                logging.Logger
+	tracerProvider        tracing.Provider
+	healthRegistry        healthcheck.Registry
+	serviceName           string
+	maxReceiveMessageSize int
+	maxSendMessageSize    int
+	reflection            bool
 }
 
 func newOptions(opts []Option) *options {
@@ -69,4 +71,32 @@ func WithReflection() Option {
 // this — gRPC rejects a service registered twice by panicking.
 func WithHealthRegistry(registry healthcheck.Registry) Option {
 	return func(o *options) { o.healthRegistry = registry }
+}
+
+// WithMaxReceiveMessageSize bounds a single received message, in bytes,
+// overriding Config.MaxReceiveMessageSize.
+//
+// It is named after gRPC's own vocabulary rather than after
+// routing.WithMaxRequestBody, its HTTP counterpart, because Config spells the same
+// number MaxReceiveMessageSize and one knob with two names in one package is
+// the thing worth avoiding. The bound is per message, not per RPC: a stream of
+// a thousand messages is bounded a thousand times, once each.
+//
+// Zero leaves the Config field to decide. UnboundedMessageSize removes the
+// bound; anything negative or past it is refused by NewGRPCServer.
+func WithMaxReceiveMessageSize(size int) Option {
+	return func(o *options) { o.maxReceiveMessageSize = size }
+}
+
+// WithMaxSendMessageSize bounds a single sent message, in bytes, overriding
+// Config.MaxSendMessageSize, on the same terms as WithMaxReceiveMessageSize.
+//
+// This is the direction worth setting deliberately. grpc-go leaves send
+// effectively unbounded, so an oversized response fails on whichever client
+// called — under its own 4 MiB receive default, in a process the service owner
+// may not operate. Platform bounds it at DefaultMaxMessageSize so the failure
+// belongs to the handler instead; raising it here means also raising the
+// calling client's receive bound, which is the one that actually breaks.
+func WithMaxSendMessageSize(size int) Option {
+	return func(o *options) { o.maxSendMessageSize = size }
 }

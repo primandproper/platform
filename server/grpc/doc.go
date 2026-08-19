@@ -36,6 +36,38 @@ Reflection is off by default. It enumerates every method and message the server
 exposes to anyone who can reach the port, which is a convenience in development
 and an inventory of the attack surface in production.
 
+# Message sizes are bounded in both directions
+
+grpc-go bounds a received message at 4 MiB and a sent one at math.MaxInt32,
+which is no bound at all. That pairing is worse than it looks: a server on those
+defaults will marshal and send a response no default-configured client can read,
+and the ResourceExhausted surfaces on the caller — under its own 4 MiB receive
+default, in a process the service owner may not operate, with nothing in the
+server's logs or traces to say a response was ever too large.
+
+This package bounds both directions at DefaultMaxMessageSize, so an oversized
+response fails on the server, attributable to the handler that produced it.
+Raising the bound is Config.MaxReceiveMessageSize / Config.MaxSendMessageSize —
+deployment-time, because the right number depends on payloads rather than on
+code — or WithMaxReceiveMessageSize / WithMaxSendMessageSize, which win over the
+config the way caller options do everywhere else here. Zero from either source
+takes the default; UnboundedMessageSize restores grpc-go's send behavior. The
+bound is per message, so a stream is bounded once per message rather than once
+per RPC.
+
+A denormalized read model is the usual reason to raise the send bound. A page of
+records that each embed their related records is larger than it reads: 250 rows
+of a few dozen fields apiece clears 4 MiB without anything about the query
+looking unusual, and a page-size ceiling and a message-size ceiling that were
+chosen independently will disagree.
+
+Raising the server's send bound is only half of it. The bound that actually
+breaks a consumer is the client's receive bound, which this module does not
+build and cannot set: a caller dials with
+grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(n)) to match. A server
+raised alone just moves the ResourceExhausted back to where it was hardest to
+attribute.
+
 # Shutdown
 
 Shutdown drains in-flight RPCs until ctx is done, then stops hard and reports

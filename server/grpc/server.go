@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"time"
@@ -23,13 +24,43 @@ import (
 
 const (
 	defaultServiceName = "grpc_server"
+
+	// DefaultMaxMessageSize bounds a single message in either direction, in
+	// bytes. It is grpc-go's receive default applied to send as well.
+	//
+	// grpc-go's own pair is asymmetric: receive is bounded at 4 MiB and send at
+	// math.MaxInt32, which is no bound at all. A server on those defaults will
+	// marshal and send a response that no default-configured client can read,
+	// and the ResourceExhausted lands on the caller — in a process the service
+	// owner may not operate, with nothing in the server's logs or traces to say
+	// a response was ever too large. Bounding send at the same 4 MiB moves that
+	// failure to the handler that produced the oversized message.
+	DefaultMaxMessageSize = 4 << 20
+
+	// UnboundedMessageSize is the largest bound gRPC can be given, and the value
+	// to name to opt out of bounding a direction at all. It is what grpc-go uses
+	// for its own send default.
+	UnboundedMessageSize = math.MaxInt32
 )
 
 type (
 	Config struct {
 		TLSCertificateFile    string `env:"TLS_CERTIFICATE_FILEPATH"     json:"tlsCertificate,omitempty"    yaml:"tlsCertificate,omitempty"`
 		TLSCertificateKeyFile string `env:"TLS_CERTIFICATE_KEY_FILEPATH" json:"tlsCertificateKey,omitempty" yaml:"tlsCertificateKey,omitempty"`
-		Port                  uint16 `env:"PORT"                         json:"port,omitempty"              yaml:"port,omitempty"`
+
+		// MaxReceiveMessageSize bounds a single received message, in bytes.
+		// Zero takes DefaultMaxMessageSize; UnboundedMessageSize removes the
+		// bound. It is a deployment-time number because it depends on the
+		// payloads a service actually carries, not on its code.
+		MaxReceiveMessageSize int `env:"MAX_RECEIVE_MESSAGE_SIZE" json:"maxReceiveMessageSize,omitempty" yaml:"maxReceiveMessageSize,omitempty"`
+
+		// MaxSendMessageSize bounds a single sent message, in bytes, on the same
+		// terms. A denormalized read model is the usual reason to raise it: a
+		// full page of embedded records is larger than a client's own 4 MiB
+		// receive default long before anything looks wrong on the server.
+		MaxSendMessageSize int `env:"MAX_SEND_MESSAGE_SIZE" json:"maxSendMessageSize,omitempty" yaml:"maxSendMessageSize,omitempty"`
+
+		Port uint16 `env:"PORT" json:"port,omitempty" yaml:"port,omitempty"`
 	}
 
 	Server struct {
@@ -69,17 +100,29 @@ func NewGRPCServer(
 	o := newOptions(opts)
 	logger := o.logger
 
+	maxReceive, err := resolveMessageSize("receive", cfg.MaxReceiveMessageSize, o.maxReceiveMessageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	maxSend, err := resolveMessageSize("send", cfg.MaxSendMessageSize, o.maxSendMessageSize)
+	if err != nil {
+		return nil, err
+	}
+
 	tp := tracing.EnsureTracerProvider(o.tracerProvider)
 	serverOpts := []grpc.ServerOption{
 		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithTracerProvider(tp))),
 		grpc.ChainUnaryInterceptor(append([]grpc.UnaryServerInterceptor{LoggingInterceptor(logger)}, unaryServerInterceptors...)...),
 		grpc.ChainStreamInterceptor(append([]grpc.StreamServerInterceptor{StreamLoggingInterceptor(logger)}, streamServerInterceptors...)...),
+		grpc.MaxRecvMsgSize(maxReceive),
+		grpc.MaxSendMsgSize(maxSend),
 	}
 
 	if cfg.TLSCertificateKeyFile != "" && cfg.TLSCertificateFile != "" {
-		serverCert, err := tls.LoadX509KeyPair(cfg.TLSCertificateFile, cfg.TLSCertificateKeyFile)
-		if err != nil {
-			return nil, err
+		serverCert, certErr := tls.LoadX509KeyPair(cfg.TLSCertificateFile, cfg.TLSCertificateKeyFile)
+		if certErr != nil {
+			return nil, certErr
 		}
 
 		config := &tls.Config{
@@ -127,6 +170,34 @@ func NewGRPCServer(
 		grpcServer:     grpcServer,
 		tracerProvider: tp,
 	}, nil
+}
+
+// resolveMessageSize settles one direction's message-size bound: the Option if
+// one was named, else the Config field, else DefaultMaxMessageSize. The Option
+// wins because caller options are applied last everywhere else in this module.
+//
+// Zero from either source means "not configured" rather than "reject
+// everything", since a server bounded at zero bytes cannot answer a single call
+// and nobody asks for that on purpose. A bound that gRPC cannot express — below
+// zero, or past UnboundedMessageSize, which is the ceiling the wire's length
+// prefix imposes — is refused here rather than silently clamped, because a
+// server running under a bound nobody asked for is the failure this whole
+// setting exists to make visible.
+func resolveMessageSize(direction string, configured, override int) (int, error) {
+	size := configured
+	if override != 0 {
+		size = override
+	}
+
+	if size == 0 {
+		return DefaultMaxMessageSize, nil
+	}
+
+	if size < 0 || size > UnboundedMessageSize {
+		return 0, perrors.Errorf("max %s message size %d is outside [0, %d]", direction, size, UnboundedMessageSize)
+	}
+
+	return size, nil
 }
 
 // Shutdown stops the server gracefully, then flushes the spans its RPCs
