@@ -324,12 +324,20 @@ func bodyError(err error, limit int64, msg string) error {
 		return &bindError{
 			code:   httpx.ErrDecodingRequestInput,
 			status: http.StatusRequestEntityTooLarge,
-			msg:    fmt.Sprintf("request body exceeds the %d byte limit", limit),
+			msg:    tooLargeMessage(limit),
 			err:    err,
 		}
 	}
 
 	return &bindError{code: httpx.ErrDecodingRequestInput, msg: msg, err: err}
+}
+
+// tooLargeMessage is what a body over the bound is told, wherever it was refused.
+// The binding step and LimitRequestBody refuse the same request for the same
+// reason, and a client comparing the two should not be able to tell which one
+// caught it.
+func tooLargeMessage(limit int64) string {
+	return fmt.Sprintf("request body exceeds the %d byte limit", limit)
 }
 
 // rawParam reads the raw string value of a parameter from the request. Path

@@ -86,6 +86,47 @@ func resolveMaxRequestBody(rc *routeConfig, raw bool) int64 {
 	return rc.maxRequestBody
 }
 
+// LimitRequestBody bounds a request body at n bytes, as middleware, for a route
+// that reads its own body: a Handle route, or a handler standing outside a Router
+// altogether. A typed route needs none of it — its bound is WithMaxRequestBody,
+// enforced in the binding step.
+//
+// A request that declares itself over the bound is refused before next runs. One
+// that declares nothing — chunked, or lying about its Content-Length — is cut off
+// at the bound mid-read, and the handler fails on the read it was going to do
+// anyway. Either way the answer is 413 rather than 400: told 400, a client sends
+// the same document again.
+//
+// The refusal is written as plain text, because a Handle route's responses are
+// its own and this middleware has no encoder to render an envelope with.
+//
+// A value of zero or less is no bound, and every request passes through
+// untouched.
+func LimitRequestBody(n int64) Middleware {
+	return func(next http.Handler) http.Handler {
+		if n <= 0 {
+			return next
+		}
+
+		return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+			if req.ContentLength > n {
+				http.Error(res, tooLargeMessage(n), http.StatusRequestEntityTooLarge)
+
+				return
+			}
+
+			if req.Body != nil {
+				// res is what lets MaxBytesReader stop a client that keeps
+				// sending after the bound is reached, rather than reading a body
+				// this request has already refused.
+				req.Body = http.MaxBytesReader(res, req.Body, n)
+			}
+
+			next.ServeHTTP(res, req)
+		})
+	}
+}
+
 // applyMiddleware wraps handler with the given middleware, outermost first.
 func applyMiddleware(handler http.Handler, middleware []Middleware) http.Handler {
 	for i := len(middleware) - 1; i >= 0; i-- {
@@ -237,9 +278,46 @@ func rawBodySchema(contentType string) openapi.ContentOption {
 // Handle registers a raw http.Handler on the backend — an escape hatch for routes
 // that do not fit the typed model (static files, streaming, websockets). It
 // records no OpenAPI operation.
+//
+// The Router's default request-body bound reaches these routes too. It has to be
+// applied here, because a Handle route does its own reading with no binding step
+// to enforce a bound in — and these are the routes most likely to be public and
+// handed a large body, so the alternative is that WithDefaultMaxRequestBody
+// bounds everything except what most needs bounding.
+//
+// It goes on outside the route's own middleware, so middleware that reads the
+// body — a webhook signature verifier — reads a bounded one. A route that must
+// not inherit the bound, or wants a different one, registers through
+// Router.MaxRequestBody.
 func (r *Router) Handle(method, pattern string, handler http.Handler, middleware ...Middleware) {
 	plain, _ := parsePath(r.prefix + pattern)
-	r.backend.Handle(method, plain, applyMiddleware(handler, middleware))
+
+	handler = applyMiddleware(handler, middleware)
+	if r.maxRequestBody > 0 {
+		handler = LimitRequestBody(r.maxRequestBody)(handler)
+	}
+
+	r.backend.Handle(method, plain, handler)
+}
+
+// MaxRequestBody returns a Router that bounds the request bodies of routes
+// registered through it at n bytes, whatever WithDefaultMaxRequestBody gave this
+// one. Zero or less is no bound.
+//
+// It is how a Handle route opts out — WithMaxRequestBody(0) is how a typed route
+// does, and Handle takes no options, its one variadic being the middleware it
+// threads:
+//
+//	r.MaxRequestBody(0).Handle(http.MethodPost, "/uploads/stream", stream)
+//
+// Everything else is shared with r, exactly as a Group shares it: the backend,
+// the prefix, the tags, the reflector, the error accumulator. A typed route
+// registered through it reads the new number as its default too.
+func (r *Router) MaxRequestBody(n int64) *Router {
+	sub := *r
+	sub.maxRequestBody = n
+
+	return &sub
 }
 
 // Group creates a sub-Router that shares the backend, reflector, and error

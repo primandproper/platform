@@ -3,6 +3,7 @@ package routing_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -196,4 +197,49 @@ func ExampleRawBody() {
 	// area: 12
 	// document: {"type":"Point","coordinates":[0,0]}
 	// status: 204
+}
+
+// ExampleRouter_Handle demonstrates the Router's default body bound reaching a
+// raw route, and the one route that reads as much as arrives saying so.
+func ExampleRouter_Handle() {
+	r := routing.New(chi.NewBackend(&chi.Config{ServiceName: "example-service"}),
+		encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON),
+		routing.WithDefaultMaxRequestBody(16))
+
+	// A payment webhook: registered raw because its verifier needs the request
+	// itself, and bounded all the same.
+	r.Handle(http.MethodPost, "/webhooks/payments", http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		fmt.Println("webhook read:", len(body), "err:", err)
+
+		res.WriteHeader(http.StatusNoContent)
+	}))
+
+	// An upload that streams: it opts out of the Router's bound rather than
+	// making every other route share its ceiling.
+	r.MaxRequestBody(0).Handle(http.MethodPost, "/uploads", http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		fmt.Println("upload read:", len(body), "err:", err)
+
+		res.WriteHeader(http.StatusNoContent)
+	}))
+
+	payload := strings.NewReader(`{"id":"evt_1","amount":100}`)
+
+	rec := httptest.NewRecorder()
+	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/webhooks/payments", payload))
+	fmt.Println("webhook status:", rec.Code)
+
+	if _, err := payload.Seek(0, io.SeekStart); err != nil {
+		panic(err)
+	}
+
+	rec = httptest.NewRecorder()
+	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/uploads", payload))
+	fmt.Println("upload status:", rec.Code)
+
+	// Output:
+	// webhook status: 413
+	// upload read: 27 err: <nil>
+	// upload status: 204
 }
