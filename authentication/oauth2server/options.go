@@ -63,6 +63,7 @@ type (
 		tracerProvider  tracing.Provider
 		metricsProvider metrics.Provider
 
+		subjectResolver    SubjectResolver
 		loginRenderer      LoginRenderer
 		registrationPolicy RegistrationPolicy
 		revocationObserver RevocationObserver
@@ -201,6 +202,33 @@ func WithResources(resources ...string) Option {
 // document.
 func WithServiceDocumentation(url string) Option {
 	return func(o *serverOptions) { o.serviceDocumentation = url }
+}
+
+// WithSubjectResolver registers a seam consulted before the login form is
+// rendered, for requests that already carry proof of who the resource owner is.
+//
+// Absent — which is the default — /authorize behaves exactly as it always has:
+// a GET renders the form, a POST asks the SubjectAuthenticator. Registered, a
+// GET carrying a session cookie or a bearer token redirects with an
+// authorization code and never draws a page, so a CLI or a first-party
+// application does not have to POST an empty body to a URL whose parameters are
+// all in the query string.
+//
+// It is a separate seam rather than a second mechanism inside
+// SubjectAuthenticator on purpose. Which of "presented a credential" and "typed
+// a password" wins is a protocol question, and folding both into one method
+// leaves every deployment to answer it slightly differently; here the answer is
+// fixed, and it is that proof already held wins. SubjectAuthenticator keeps
+// meaning what it has always meant — the human typed something.
+//
+// A nil resolver registers nothing. See SubjectResolver for what its answers
+// mean.
+func WithSubjectResolver(resolver SubjectResolver) Option {
+	return func(o *serverOptions) {
+		if resolver != nil {
+			o.subjectResolver = resolver
+		}
+	}
 }
 
 // WithLoginRenderer replaces the login form. A nil renderer leaves the shipped

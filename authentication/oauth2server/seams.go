@@ -7,11 +7,16 @@ import (
 
 // SubjectAuthenticator identifies the human behind an authorization request.
 //
-// This is one of the two places this package deliberately stops. Everything
-// else here is protocol — the same protocol for every deployment — and this is
-// the application: dinnerdonebetter's is a username, an argon2 password, and a
+// This is one of the places this package deliberately stops. Everything else
+// here is protocol — the same protocol for every deployment — and this is the
+// application: dinnerdonebetter's is a username, an argon2 password, and a
 // TOTP code checked against its own identity repository; another consumer's is
-// an existing session cookie, or a corporate identity provider.
+// a corporate identity provider.
+//
+// It is asked only when nothing else has already answered: it means the human
+// typed something. A resource owner who is already authenticated by other
+// means — a session cookie, a token a first-party client holds — is
+// SubjectResolver's, which is consulted first and needs no form at all.
 //
 // # What it is handed and what it owes back
 //
@@ -97,6 +102,59 @@ type SubjectAuthenticatorFunc func(ctx context.Context, req *http.Request) (*Sub
 
 // AuthenticateSubject implements SubjectAuthenticator.
 func (f SubjectAuthenticatorFunc) AuthenticateSubject(ctx context.Context, req *http.Request) (*Subject, error) {
+	return f(ctx, req)
+}
+
+// SubjectResolver reports the resource owner when the request already carries
+// proof of who they are.
+//
+// It is the seam for the case a login form cannot serve: a first-party
+// application holding a session cookie, a CLI holding a token, a service
+// exchanging one credential for another. None of those has anything to type,
+// and without this seam the only way to reach a subject is to POST a form —
+// which is a strange thing to ask of a client whose parameters are all in the
+// query string, and true only because that is where the seam used to be.
+//
+// It is consulted on GET and on POST alike, before the login form is rendered
+// and before SubjectAuthenticator is asked anything. A request carrying proof
+// therefore never meets a form, and one carrying none behaves exactly as it
+// did before — the seam is optional, and a Server built without one is
+// unchanged.
+//
+// # What it owes back
+//
+// (nil, nil) means "not one of mine": no credential, an expired one, one this
+// resolver does not recognize. The request carries on to the form, which is
+// the honest answer to "I cannot say who this is" and the reason an expired
+// session cookie still sends a browser to sign in again.
+//
+// A Subject with a non-empty ID issues an authorization code and redirects,
+// exactly as a successful form login would. An empty ID is refused: a token
+// whose subject is the empty string authorizes whoever the resource server
+// decides the empty string is.
+//
+// An error ends the attempt at the client's registered redirect URI, with no
+// form rendered. That is the difference between the two seams, and it is
+// deliberate: a caller who presented a credential and had it rejected has
+// nothing to type, so sending it a login page would be sending an answer it
+// cannot use. Reserve the error for a resolver that is actually broken, or for
+// a credential this deployment means to refuse outright — an absent or lapsed
+// one is (nil, nil).
+//
+// # What it must not do
+//
+// Write to the ResponseWriter, for the same reason SubjectAuthenticator must
+// not: it does not have one, and a seam that could render its own response
+// could redirect somewhere this package never validated.
+type SubjectResolver interface {
+	ResolveSubject(ctx context.Context, req *http.Request) (*Subject, error)
+}
+
+// SubjectResolverFunc adapts a function to SubjectResolver.
+type SubjectResolverFunc func(ctx context.Context, req *http.Request) (*Subject, error)
+
+// ResolveSubject implements SubjectResolver.
+func (f SubjectResolverFunc) ResolveSubject(ctx context.Context, req *http.Request) (*Subject, error) {
 	return f(ctx, req)
 }
 

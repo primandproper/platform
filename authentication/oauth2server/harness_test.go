@@ -230,11 +230,49 @@ func (h *harness) noRedirectClient() *http.Client {
 func (h *harness) authorize(params, form url.Values) *http.Response {
 	h.t.Helper()
 
+	return h.authorizePost(params, form, nil)
+}
+
+// authorizePost posts to /authorize, decorating the request first so a test
+// can present whatever a SubjectResolver reads alongside the form.
+func (h *harness) authorizePost(params, form url.Values, decorate func(*http.Request)) *http.Response {
+	h.t.Helper()
+
 	target := h.http.URL + oauth2server.PathAuthorize + "?" + params.Encode()
 
 	req, err := http.NewRequestWithContext(h.t.Context(), http.MethodPost, target, strings.NewReader(form.Encode()))
 	must.NoError(h.t, err)
 	req.Header.Set("Content-Type", formContentType)
+
+	if decorate != nil {
+		decorate(req)
+	}
+
+	res, err := h.noRedirectClient().Do(req)
+	must.NoError(h.t, err)
+	h.t.Cleanup(func() { _ = res.Body.Close() })
+
+	return res
+}
+
+// authorizeGet sends a GET to /authorize without following the redirect,
+// decorating the request first so a test can present whatever a
+// SubjectResolver reads.
+//
+// Separate from get, which follows redirects: a GET that a resolver answers
+// with an authorization code is a redirect, and following it would send the
+// code to the client's callback rather than showing it to the test.
+func (h *harness) authorizeGet(params url.Values, decorate func(*http.Request)) *http.Response {
+	h.t.Helper()
+
+	target := h.http.URL + oauth2server.PathAuthorize + "?" + params.Encode()
+
+	req, err := http.NewRequestWithContext(h.t.Context(), http.MethodGet, target, http.NoBody)
+	must.NoError(h.t, err)
+
+	if decorate != nil {
+		decorate(req)
+	}
 
 	res, err := h.noRedirectClient().Do(req)
 	must.NoError(h.t, err)

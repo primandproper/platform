@@ -81,10 +81,11 @@ func WithPillars(p *observability.Pillars) Option {
 // WithServerOptions passes options through to the Server this builds. They are
 // applied after the ones derived from the Config, so they win.
 //
-// It is how the login form is replaced — oauth2server.WithLoginRenderer — and
-// how a deployment supplies its own RegistrationPolicy. Neither is expressible
-// as an environment variable, and neither has a defensible default that could
-// be named by one.
+// It is how the login form is replaced — oauth2server.WithLoginRenderer — how a
+// deployment supplies its own RegistrationPolicy, and how it registers an
+// oauth2server.SubjectResolver so that clients holding a session rather than a
+// keyboard skip the form. None of the three is expressible as an environment
+// variable, and none has a defensible default that could be named by one.
 func WithServerOptions(opts ...oauth2server.Option) Option {
 	return func(o *options) { o.server = append(o.server, opts...) }
 }

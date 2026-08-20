@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 
 	"github.com/primandproper/platform-go/v12/authentication/oauth2server"
 	"github.com/primandproper/platform-go/v12/authentication/oauth2server/memory"
@@ -53,6 +55,75 @@ func ExampleNewServer() {
 	// https://auth.example/token
 	// [S256]
 	// [authorization_code refresh_token]
+}
+
+// A resource owner who is already authenticated by other means never sees a
+// form, on either verb.
+func ExampleWithSubjectResolver() {
+	// The seam for clients that hold proof rather than a keyboard: a
+	// first-party application with a session cookie, a CLI with a token, a
+	// service exchanging one credential for another. Returning (nil, nil) means
+	// "not one of mine", and the login form is rendered as usual.
+	resolver := oauth2server.SubjectResolverFunc(
+		func(_ context.Context, req *http.Request) (*oauth2server.Subject, error) {
+			// A request with no session cookie is not this resolver's, which
+			// is (nil, nil) rather than an error: the form is still the right
+			// answer for whoever sent it.
+			session, _ := req.Cookie("session")
+			if session == nil {
+				return nil, nil
+			}
+
+			return &oauth2server.Subject{ID: "user_" + session.Value}, nil
+		})
+
+	store := memory.NewStore()
+
+	srv, err := oauth2server.NewServer("https://auth.example", store,
+		oauth2server.SubjectAuthenticatorFunc(
+			func(context.Context, *http.Request) (*oauth2server.Subject, error) {
+				return nil, oauth2server.NewLoginError("Sign in to continue.", nil)
+			}),
+		oauth2server.WithSubjectResolver(resolver))
+	if err != nil {
+		panic(err)
+	}
+
+	ctx := context.Background()
+
+	if err = store.CreateClient(ctx, &oauth2server.Client{
+		ID:           "client_1",
+		RedirectURIs: []string{"https://app.example/callback"},
+	}); err != nil {
+		panic(err)
+	}
+
+	query := url.Values{
+		"response_type":         {oauth2server.ResponseTypeCode},
+		"client_id":             {"client_1"},
+		"redirect_uri":          {"https://app.example/callback"},
+		"code_challenge":        {oauth2server.S256Challenge("0123456789012345678901234567890123456789abc")},
+		"code_challenge_method": {oauth2server.CodeChallengeMethodS256},
+	}
+
+	// A GET, with no body to POST and nothing to type.
+	req := httptest.NewRequest(http.MethodGet, oauth2server.PathAuthorize+"?"+query.Encode(), http.NoBody)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "1"})
+
+	res := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(res, req)
+
+	location, err := url.Parse(res.Header().Get("Location"))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(res.Code)
+	fmt.Println(location.Query().Has("code"))
+
+	// Output:
+	// 302
+	// true
 }
 
 // A resource server publishes its own document, so a client that discovered it

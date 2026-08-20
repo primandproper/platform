@@ -25,11 +25,13 @@ const serviceName = "oauth2server"
 //
 // It is a concrete type rather than an interface because there is one
 // implementation of the protocol and there is not going to be a second. What
-// swaps is underneath it — the Store — and beside it, in the two seams a
-// deployment owns: SubjectAuthenticator and LoginRenderer.
+// swaps is underneath it — the Store — and beside it, in the seams a
+// deployment owns: SubjectAuthenticator, the optional SubjectResolver, and
+// LoginRenderer.
 type Server struct {
 	store              Store
 	authenticator      SubjectAuthenticator
+	resolver           SubjectResolver
 	renderer           LoginRenderer
 	policy             RegistrationPolicy
 	revocationObserver RevocationObserver
@@ -95,6 +97,7 @@ func NewServer(issuer string, store Store, authenticator SubjectAuthenticator, o
 	s := &Server{
 		store:                store,
 		authenticator:        authenticator,
+		resolver:             o.subjectResolver,
 		renderer:             o.loginRenderer,
 		policy:               o.registrationPolicy,
 		revocationObserver:   o.revocationObserver,

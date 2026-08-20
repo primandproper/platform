@@ -8,9 +8,11 @@
 // to how well its load balancer works.
 //
 // NewStore builds the store alone. NewServer builds the store and the server on
-// top of it, and needs the two things this package cannot configure: a
+// top of it, and needs the things this package cannot configure: a
 // SubjectAuthenticator that knows who the human is, and — optionally — a
-// LoginRenderer that draws the form.
+// LoginRenderer that draws the form and a SubjectResolver that recognizes a
+// resource owner who is already signed in. The optional two arrive through
+// WithServerOptions.
 package oauth2servercfg
 
 import (
