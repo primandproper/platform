@@ -124,6 +124,33 @@ time.DateTime spells rather than a time, and MySQL's LIMIT cannot
 coalesce so BindFilter supplies the default the other two coalesce to. Both are
 in BindFilter rather than in a caller for the same reason the SQL is here.
 
+# The table registry
+
+Some of what a consumer needs per table is not a query. The TRUNCATE an
+integration suite runs between tests is a list of table names; so is a schema
+inventory, or a check that every table has a migration. The list has to be
+complete, because the symptom of a missing entry is not a failure where the
+mistake was made — a table left out of that TRUNCATE is a test somewhere else
+failing later, on rows the previous test left behind.
+
+The obvious place to get the list is wherever the per-table code lives, and that
+is the trap. A generator with one builder per table doubles as a table list right
+up until one table stops needing a builder — because its SQL now comes from
+somewhere else, or because it never came from a generator at all — and then the
+list is short by one with nothing to say so. The list survives only if it is fed
+by the table existing rather than by something choosing to emit its queries.
+
+So [Generator.StandardCRUD] registers every table it emits for, [RegisterTable]
+takes the ones it does not, and [RegisteredTables] reads the union back:
+
+	querygen.RegisterTable("sessions", "webauthn_credentials")
+
+	tables := querygen.RegisteredTables()
+
+Two sources, one list. A consumer reading that list does not have to know which
+tables came from where, and a table moving from one source to the other does not
+change what comes out.
+
 # include_archived actually includes archived rows
 
 A filtered list's WHERE clause is FilterConditions in its entirety, not an
