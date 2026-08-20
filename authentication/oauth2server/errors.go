@@ -142,6 +142,12 @@ var (
 	// 400 with an invalid_client_metadata code; wrap it to say why.
 	ErrRegistrationRejected = platformerrors.New("client registration rejected")
 
+	// ErrRegistrationNotServed indicates a registration request reaching a
+	// server built with WithDynamicRegistration(false). It renders as a 404,
+	// which is what the discovery document already said by leaving
+	// registration_endpoint out.
+	ErrRegistrationNotServed = platformerrors.New("this authorization server does not serve dynamic client registration")
+
 	// ErrLoginFailed indicates a SubjectAuthenticator that could not identify
 	// the human. The server re-renders the login form rather than failing the
 	// request; wrap it to choose the message the form shows.

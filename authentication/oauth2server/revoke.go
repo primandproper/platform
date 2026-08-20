@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"net/http"
 
+	platformerrors "github.com/primandproper/platform-go/v12/errors"
 	"github.com/primandproper/platform-go/v12/observability"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -107,7 +108,12 @@ func (s *Server) revokeOne(ctx context.Context, op observability.Operation, clie
 			return false
 		}
 
-		s.revokeFamily(ctx, op, token.FamilyID, "token revoked by its client")
+		// Reported to the observer once for the family rather than once per
+		// record, and only when something was actually removed: a family the
+		// store could not write is a sign-out the deployment did not get.
+		if s.revokeFamily(ctx, op, token.FamilyID, "token revoked by its client") > 0 {
+			s.observeRevocation(ctx, op, token.Subject, token.FamilyID)
+		}
 
 		return true
 	}
@@ -131,8 +137,30 @@ func (s *Server) revokeOne(ctx context.Context, op observability.Operation, clie
 
 	s.revocations.Add(ctx, 1)
 	op.Set(familyIDKey, token.FamilyID)
+	s.observeRevocation(ctx, op, token.Subject, token.FamilyID)
 
 	return true
+}
+
+// observeRevocation hands a completed revocation to the deployment's observer,
+// if it declared one.
+//
+// The panic is recovered for the same reason metering recovers around a
+// provider SDK: this is consumer code, it runs after the records are already
+// gone, and a failing analytics callback turning a successful sign-out into a
+// dropped connection would have the client retry a revocation that worked.
+func (s *Server) observeRevocation(ctx context.Context, op observability.Operation, subject Subject, familyID string) {
+	if s.revocationObserver == nil {
+		return
+	}
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			op.Acknowledge(platformerrors.Newf("%v", recovered), "revocation observer panicked")
+		}
+	}()
+
+	s.revocationObserver(ctx, subject, familyID)
 }
 
 // acknowledgeRevokeFailure records a store failure during revocation without

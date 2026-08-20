@@ -114,6 +114,34 @@ func TestServer_Metadata(T *testing.T) {
 		test.True(t, doc.AuthorizationResponseIssParameterSupported)
 	})
 
+	T.Run("omits the registration endpoint when registration is not served", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t, oauth2server.WithDynamicRegistration(false))
+		doc := h.server.Metadata()
+
+		test.EqOp(t, "", doc.RegistrationEndpoint)
+
+		// Everything else still named, so what was dropped is the one endpoint
+		// this server stopped serving rather than the document.
+		test.EqOp(t, testIssuer+oauth2server.PathAuthorize, doc.AuthorizationEndpoint)
+		test.EqOp(t, testIssuer+oauth2server.PathRevoke, doc.RevocationEndpoint)
+	})
+
+	T.Run("leaves the registration key out of the document rather than blank", func(t *testing.T) {
+		t.Parallel()
+
+		served := readBody(t, newHarness(t).get(oauth2server.PathAuthorizationServerMetadata))
+		test.StrContains(t, served, `"registration_endpoint":"`+testIssuer+oauth2server.PathRegister+`"`)
+
+		withheld := readBody(t,
+			newHarness(t, oauth2server.WithDynamicRegistration(false)).get(oauth2server.PathAuthorizationServerMetadata))
+
+		// Absent, not empty. A client that resolved "" against the issuer would
+		// get this server's root and send its registration there.
+		test.StrNotContains(t, withheld, "registration_endpoint")
+	})
+
 	T.Run("is served at the well-known path", func(t *testing.T) {
 		t.Parallel()
 
