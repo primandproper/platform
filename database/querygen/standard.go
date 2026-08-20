@@ -73,9 +73,10 @@ var ErrDuplicateQueryName = platformerrors.New("two standard queries share a nam
 type Option func(*settings)
 
 type settings struct {
+	registry      *Registry
+	names         map[StandardQuery]string
 	singular      string
 	plural        string
-	names         map[StandardQuery]string
 	ownership     string
 	databaseOwned []string
 	immutable     []string
@@ -204,6 +205,12 @@ func WithImmutable(columns ...string) Option {
 // value is an error wrapping dialect.ErrInvalidIdentifier, ErrMissingIDColumn, or
 // ErrDuplicateQueryName.
 //
+// It also registers the table — see [Registry]. That is the half of this call a
+// consumer needs when it stops making it: a table's queries can move somewhere
+// else, but the table still exists and still has rows in it, and the list a
+// consumer reads back should not shorten because something else started
+// producing the SQL. [WithRegistry] chooses where the name lands.
+//
 // Which queries appear does not depend on the dialect, and neither do their
 // names. A table generated for Postgres and the same table generated for SQLite
 // yield the same set of sqlc methods with the same signatures — bar the two
@@ -215,6 +222,7 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 		singular: camel(table),
 		plural:   camel(table),
 		names:    map[StandardQuery]string{},
+		registry: defaultRegistry,
 	}
 
 	for _, opt := range opts {
@@ -236,6 +244,11 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	if !slices.Contains(columns, IDColumn) {
 		panic(platformerrors.Wrapf(ErrMissingIDColumn, "querygen: table %q", table))
 	}
+
+	// The table is registered for existing, not for the queries below. A table
+	// whose whole set WithOmitted removes still has rows in it, and the list
+	// this feeds is read by whoever has to truncate them — see Registry.
+	s.registry.Register(table)
 
 	notUpdatable := append(slices.Clone(s.immutable), s.databaseOwned...)
 	if s.ownership != "" {

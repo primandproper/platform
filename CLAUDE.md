@@ -13,11 +13,9 @@ make format         # Format all Go code (imports, field alignment, tag alignmen
 make lint           # Run golangci-lint (Docker) + shellcheck
 make format lint    # Typical workflow: format then lint
 make test           # Run tests (race detector, shuffle, failfast)
-make mutate         # Mutation-test the lines this branch changes (Docker)
 make build          # Build all packages
 make generate       # Regenerate moq mocks after changing any mocked interface
-make setup          # Install dev tools + vendor deps
-make revendor       # Clean and re-vendor dependencies
+make setup          # Install dev tools + download deps
 ```
 
 Run a single test:
@@ -31,6 +29,17 @@ go test -race ./cache/...
 ```
 
 Linting runs in Docker (`golangci/golangci-lint` image). Formatting runs locally with `gci`, `goimports`, `betteralign`, `tagalign`, and `gofmt`.
+
+**This module does not vendor its dependencies.** `go` resolves through the module
+cache, and there is deliberately no `vendor/` directory or `make revendor` — a
+vendor directory does not track `go.mod`, and once one exists every `go` command in
+the tree silently prefers it, so a dependency bump or a branch switch leaves the
+next command failing with go's "inconsistent vendoring" wall, printed by whatever
+tool happened to run next. The containerised linter gets a bind-mounted module and
+build cache (`GO_CACHE`) instead, which is what `vendor/` was really buying.
+
+(`reflection/ast` reads a *consumer's* `vendor/` directory when one is present.
+That is a feature of the library and unrelated to how this repo builds itself.)
 
 ## Import Ordering
 
@@ -125,36 +134,6 @@ seam does not.
   `.scripts/test.sh false` runs the suite without them
 - `make test` runs every package (`./...`)
 - Test command: `CGO_ENABLED=1 RUN_CONTAINER_TESTS=<true|false> go test -shuffle=on -race -vet=all -failfast`
-
-### Mutation testing
-
-`make mutate` runs gremlins over the lines the branch changes, and CI runs the same
-thing on every pull request. Coverage says a line executed; a surviving mutant says
-the line could be wrong and no assertion would notice — which is the failure mode
-this module is most exposed to, since it documents its invariants in prose (*Equal
-never exceeds d*, *a value below 2 runs the write once*) and prose does not fail a
-build.
-
-Read a survivor as one of two things: an assertion that was never written, or an
-equivalent mutant that cannot change behaviour. **A `LIVED` mutant does not fail the
-run** — gremlins has no per-line suppression, so an equivalent mutant would be
-re-reported forever with no way to mark it adjudicated, and a gate that cannot be
-made green gets clicked through. Survivors are posted as a pull request comment
-instead. **A `TIMED OUT` mutant does fail the run**, because the JSON summary has no
-field for them and a run where everything timed out otherwise reports a healthy
-efficacy figure while having proved nothing.
-
-Run it at repo root, never per package. gremlins derives each mutant's timeout from
-how long the coverage run took; scoped to one package that run is sub-second, so
-every mutant times out and the report is all zeroes. `vendor/` must also be current
-or coverage gathering fails outright — `make mutate` depends on `vendor` for that
-reason.
-
-gremlins is a pinned container image (`GREMLINS_IMAGE`), rebuilt on `GO_IMAGE` by
-`.docker/gremlins.Dockerfile`, and deliberately not an entry in go.mod's `tool`
-block: `go get -tool` on it adds 13 indirect requires and force-upgrades viper,
-cobra and cast, which on a library is setting a floor for consumers to satisfy a
-CI-only tool.
 
 ## Linting
 
