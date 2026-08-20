@@ -44,7 +44,7 @@ func (g *Generator) ContainsCondition(column, argument string) string {
 // second query, which is what keeps the first page and the fiftieth page the same
 // statement. It works because id sorts by creation time and no id is empty.
 func (g *Generator) CursorCondition(table string) string {
-	return fmt.Sprintf("%s > COALESCE(sqlc.narg(%s), '')", Qualify(table, IDColumn), CursorArg)
+	return fmt.Sprintf("%s > COALESCE(%s, '')", Qualify(table, IDColumn), g.bind.narg(CursorArg))
 }
 
 // CursorLimitClause renders the ordering and page size a keyset walk needs.
@@ -87,14 +87,14 @@ func (g *Generator) ReindexScanQuery(table string) string {
 	return fmt.Sprintf(`SELECT %[1]s
 FROM %[2]s
 WHERE %[3]s IS NULL
-	AND %[4]s > sqlc.arg(%[5]s)
+	AND %[4]s > %[5]s
 ORDER BY %[4]s
 %[6]s;`,
 		id,
 		table,
 		Qualify(table, ArchivedAtColumn),
 		g.byteOrdered(id),
-		CursorArg,
+		g.bind.arg(CursorArg),
 		g.limitClause(),
 	)
 }
@@ -258,7 +258,7 @@ func (g *Generator) boundPredicate(column, comparison, argument string) string {
 		sign = "+"
 	}
 
-	return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), %s)", column, comparison, argument, g.timeHorizon(sign))
+	return fmt.Sprintf("%s %s COALESCE(%s, %s)", column, comparison, g.bind.narg(argument), g.timeHorizon(sign))
 }
 
 // nullableBoundPredicate is boundPredicate for a column that may be NULL, which

@@ -12,11 +12,17 @@ each consumer wrote the SQL themselves, once per table, and the conventions held
 exactly as long as everyone remembered them — which is to say they held until
 the first table where someone did not.
 
-This package writes that SQL. It is a generator, not a runtime builder: the
-whole reason to hand queries to sqlc is that they are checked against the schema
-at build time and come back as typed Go, and a builder that assembles SQL at
-runtime gives both of those up. What comes out of here is text, to be written to
-a .sql file and fed to sqlc alongside the schema.
+This package writes that SQL. Its first consumer is sqlc: the whole reason to
+hand queries to a generator is that they are checked against the schema at build
+time and come back as typed Go, so what comes out of [Generator.StandardCRUD]
+and the fragment methods is text, to be written to a .sql file and fed to sqlc
+alongside the schema. Nothing here assembles a query per request, and none of it
+reads a schema.
+
+Its second consumer is a driver — see "The same statements, executed" below.
+That is the same text with the argument references spelled the way a driver
+parses them, not a second rendering of it: the semantics a filtered read has are
+subtle enough that two copies of them would be two chances to get them wrong.
 
 # What a caller supplies
 
@@ -76,6 +82,47 @@ guessed from another, so they are written down here:
 
 The bulk stamp binds one argument that is not a filter field at all: ids, the
 list of row ids to mark as indexed.
+
+# The same statements, executed
+
+Not everything that wants these statements wants to generate them. A store that
+serves many tables from one implementation knows its table and columns at
+construction rather than at build time, and there is no .sql file to write.
+
+What such a caller needs is the argument references spelled as bind markers
+instead of sqlc references, and that is the only thing the [Bound] methods
+change. The predicates, the counts, the archived toggle, the cursor and the
+window all come from the same fragments [Generator.StandardCRUD] renders, so
+there is no second rendering to drift: the archived toggle admits rows the same
+way, the counts omit the cursor the same way, the last_updated_at bounds admit
+NULL the same way, because there is one of each.
+
+	get := querygen.For(dialect.Postgres).BoundGet("widgets", columns,
+		querygen.Match{Column: querygen.BelongsToAccountColumn})
+
+	args, err := get.Bind(map[string]any{
+		querygen.IDColumn:               id,
+		querygen.BelongsToAccountColumn: account,
+	})
+
+A [Bound] holds the statement and the names its placeholders stand for, so it is
+rendered once and bound per execution. [Match] adds an equality predicate on a
+column — a tenancy scope, an owner, the reference a child row hangs off — and
+[Generator.BindFilter] fills in the filter arguments, which is the mapping
+between filtering.QueryFilter's fields and the argument names above.
+
+Two things about arguments are worth knowing before reading Bound.Args. A name
+can appear more than once: the filter predicates are rendered into the SELECT
+and into both counts, so on the dialects whose markers are positional the same
+value is bound once per appearance, while Postgres numbers its markers and binds
+it once. And a bound value is not always what the Go field holds — SQLite stores
+timestamps as text and compares them as text, so BindFilter hands it the shape
+[SQLiteTimestampLayout] names rather than a time, and MySQL's LIMIT cannot
+coalesce so BindFilter supplies the default the other two coalesce to. Both are
+in BindFilter rather than in a caller for the same reason the SQL is here.
+
+The id set is the one predicate whose marker count depends on its values, so it
+is [Generator.BoundIDSet] and takes a count.
 
 # include_archived actually includes archived rows
 

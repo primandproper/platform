@@ -41,8 +41,9 @@ import (
 
 const widgetsTable = "widgets"
 
-// widgetsDDL is a table with every column this package has an opinion about, in
-// each dialect's spelling of it.
+// conventionalDDL is a table with every column this package has an opinion
+// about, in each dialect's spelling of it. It takes the table name because the
+// bound half of the suite stands its own copy up — see bind_containers_test.go.
 //
 // The differences are not stylistic. MySQL cannot make a TEXT column a primary
 // key without a prefix length, so ids live in a VARCHAR. SQLite has no timestamp
@@ -50,10 +51,10 @@ const widgetsTable = "widgets"
 // columns are TEXT and the default is the CURRENT_TIMESTAMP whose format those
 // comparisons assume — which is the schema requirement the package comment
 // states and this package cannot enforce.
-func widgetsDDL(d dialect.Dialect) string {
+func conventionalDDL(d dialect.Dialect, table string) string {
 	switch d {
 	case dialect.MySQL:
-		return `CREATE TABLE widgets (
+		return fmt.Sprintf(`CREATE TABLE %s (
 			id VARCHAR(64) NOT NULL PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
 			belongs_to_account VARCHAR(64) NOT NULL,
@@ -61,9 +62,9 @@ func widgetsDDL(d dialect.Dialect) string {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			last_updated_at DATETIME NULL,
 			archived_at DATETIME NULL
-		)`
+		)`, table)
 	case dialect.SQLite:
-		return `CREATE TABLE widgets (
+		return fmt.Sprintf(`CREATE TABLE %s (
 			id TEXT NOT NULL PRIMARY KEY,
 			name TEXT NOT NULL,
 			belongs_to_account TEXT NOT NULL,
@@ -71,10 +72,10 @@ func widgetsDDL(d dialect.Dialect) string {
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			last_updated_at TEXT,
 			archived_at TEXT
-		)`
+		)`, table)
 	// Postgres, which For has already narrowed the alternatives to.
 	default:
-		return `CREATE TABLE widgets (
+		return fmt.Sprintf(`CREATE TABLE %s (
 			id TEXT NOT NULL PRIMARY KEY,
 			name TEXT NOT NULL,
 			belongs_to_account TEXT NOT NULL,
@@ -82,7 +83,7 @@ func widgetsDDL(d dialect.Dialect) string {
 			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 			last_updated_at TIMESTAMP WITH TIME ZONE,
 			archived_at TIMESTAMP WITH TIME ZONE
-		)`
+		)`, table)
 	}
 }
 
@@ -215,7 +216,7 @@ func widgetQuery(tb testing.TB, d dialect.Dialect, name string, values map[strin
 // order that is not chronological.
 func timeArg(d dialect.Dialect, at time.Time) any {
 	if d == dialect.SQLite {
-		return at.UTC().Format("2006-01-02 15:04:05")
+		return at.UTC().Format(SQLiteTimestampLayout)
 	}
 
 	return at
@@ -354,7 +355,7 @@ func TestQuerygen_SQLite(T *testing.T) {
 func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB) {
 	t.Helper()
 
-	_, err := db.ExecContext(ctx, widgetsDDL(d))
+	_, err := db.ExecContext(ctx, conventionalDDL(d, widgetsTable))
 	must.NoError(t, err)
 
 	// Neither subtest is parallel, and the suite's own children are not
@@ -368,6 +369,11 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 
 	t.Run("the suite", func(t *testing.T) {
 		runWidgetSuite(t, ctx, d, db)
+	})
+
+	// The bound statements against their own table — see bind_containers_test.go.
+	t.Run("the bound suite", func(t *testing.T) {
+		runBoundSuite(t, ctx, d, db)
 	})
 }
 

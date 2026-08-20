@@ -69,6 +69,17 @@ const IDsArg = "ids"
 // on it is where they part company — see Generator.timeHorizon.
 const NowExpression = "CURRENT_TIMESTAMP"
 
+// SQLiteTimestampLayout is the shape SQLite's CURRENT_TIMESTAMP writes, and
+// therefore the shape a table generated for SQLite has to store its timestamps
+// in — see the package comment.
+//
+// SQLite has no date type, so the emitted filter windows compare text against
+// text, and text in any other shape compares in an order that is not
+// chronological. It is exported because the requirement does not stop at the
+// schema: a value bound into one of those comparisons has to arrive in the same
+// shape, which is what Generator.BindFilter does with it.
+const SQLiteTimestampLayout = "2006-01-02 15:04:05"
+
 // databaseOwnedColumns are the columns the database fills in and a caller must
 // never supply. Each is set by a statement this package emits: three of them by
 // the create, update and archive, and last_indexed_at by the stamp a
