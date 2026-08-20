@@ -106,9 +106,6 @@ func widgetsQueries(d dialect.Dialect) []*Query {
 	)
 }
 
-// sqlcArgument matches a sqlc argument reference in emitted SQL.
-var sqlcArgument = regexp.MustCompile(`sqlc\.n?arg\(([a-zA-Z0-9_#]+)\)`)
-
 // sqlcSlice matches a sqlc.slice reference in emitted SQL.
 var sqlcSlice = regexp.MustCompile(`sqlc\.slice\(([a-zA-Z0-9_]+)\)`)
 
@@ -118,8 +115,8 @@ var sqlcSlice = regexp.MustCompile(`sqlc\.slice\(([a-zA-Z0-9_]+)\)`)
 // cannot collide with a column name because no identifier this package accepts
 // contains a '#'.
 //
-// It returns a values map with the elements spliced in, so bind and argumentsFor
-// below need to know nothing about sets.
+// It returns a values map with the elements spliced in, so bindArguments and
+// argumentsFor need to know nothing about sets.
 func expandSlices(tb testing.TB, statement string, values map[string]any) (expandedStatement string, expandedValues map[string]any) {
 	tb.Helper()
 
@@ -146,42 +143,9 @@ func expandSlices(tb testing.TB, statement string, values map[string]any) (expan
 	return expandedStatement, expandedValues
 }
 
-// bind rewrites sqlc argument references into d's bind markers, returning the
-// statement and the argument names in placeholder order.
-//
-// It is what sqlc itself does to a query before handing it to the driver, and
-// doing it here is what lets these tests run the generated text rather than a
-// paraphrase of it. The two placeholder schemes differ in more than spelling:
-// Postgres numbers its markers, so repeated references to one name collapse onto
-// one placeholder and one argument — a filter's created_after appears in the
-// outer WHERE and again inside the count beside it, and they are one argument.
-// MySQL and SQLite have only a positional '?', so the same name is passed once
-// per appearance.
-func bind(d dialect.Dialect, statement string) (bound string, order []string) {
-	numbered := map[string]int{}
-
-	bound = sqlcArgument.ReplaceAllStringFunc(statement, func(match string) string {
-		name := sqlcArgument.FindStringSubmatch(match)[1]
-
-		if d != dialect.Postgres {
-			order = append(order, name)
-
-			return d.Placeholder(len(order))
-		}
-
-		if _, ok := numbered[name]; !ok {
-			order = append(order, name)
-			numbered[name] = len(order)
-		}
-
-		return d.Placeholder(numbered[name])
-	})
-
-	return bound, order
-}
-
-// argumentsFor lines values up with the placeholders bind produced, failing the
-// test when the statement wants an argument the caller did not supply.
+// argumentsFor lines values up with the placeholders bindArguments produced,
+// failing the test when the statement wants an argument the caller did not
+// supply.
 func argumentsFor(tb testing.TB, order []string, values map[string]any) []any {
 	tb.Helper()
 
@@ -202,7 +166,7 @@ func widgetQuery(tb testing.TB, d dialect.Dialect, name string, values map[strin
 	tb.Helper()
 
 	rewritten, expanded := expandSlices(tb, named(tb, widgetsQueries(d), name).Content, values)
-	bound, order := bind(d, rewritten)
+	bound, order := bindArguments(d, rewritten)
 
 	return bound, argumentsFor(tb, order, expanded)
 }
@@ -216,7 +180,7 @@ func widgetQuery(tb testing.TB, d dialect.Dialect, name string, values map[strin
 // order that is not chronological.
 func timeArg(d dialect.Dialect, at time.Time) any {
 	if d == dialect.SQLite {
-		return at.UTC().Format(SQLiteTimestampLayout)
+		return at.UTC().Format(time.DateTime)
 	}
 
 	return at
@@ -389,7 +353,7 @@ func prepare(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, 
 	tb.Helper()
 
 	expanded, _ := expandSlices(tb, query.Content, map[string]any{IDsArg: []string{"one"}})
-	statement, _ := bind(d, expanded)
+	statement, _ := bindArguments(d, expanded)
 
 	stmt, err := db.PrepareContext(ctx, statement)
 	must.NoError(tb, err, must.Sprintf("preparing %s", query.Annotation.Name))
@@ -659,7 +623,7 @@ func runWidgetSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sq
 		// both sides folded explicitly on the other two. What it promises is
 		// this, so this is what is checked against a server rather than against
 		// a string.
-		statement, order := bind(d, fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s",
+		statement, order := bindArguments(d, fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s",
 			IDColumn, widgetsTable,
 			For(d).ContainsCondition(Qualify(widgetsTable, "name"), "name_query"),
 			IDColumn))

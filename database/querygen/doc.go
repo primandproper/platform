@@ -20,9 +20,9 @@ alongside the schema. Nothing here assembles a query per request, and none of it
 reads a schema.
 
 Its second consumer is a driver — see "The same statements, executed" below.
-That is the same text with the argument references spelled the way a driver
-parses them, not a second rendering of it: the semantics a filtered read has are
-subtle enough that two copies of them would be two chances to get them wrong.
+That is the same text with the argument references rewritten into bind markers,
+not a second rendering of it: the semantics a filtered read has are subtle
+enough that two copies of them would be two chances to get them wrong.
 
 # What a caller supplies
 
@@ -91,11 +91,13 @@ construction rather than at build time, and there is no .sql file to write.
 
 What such a caller needs is the argument references spelled as bind markers
 instead of sqlc references, and that is the only thing the [Bound] methods
-change. The predicates, the counts, the archived toggle, the cursor and the
-window all come from the same fragments [Generator.StandardCRUD] renders, so
-there is no second rendering to drift: the archived toggle admits rows the same
-way, the counts omit the cursor the same way, the last_updated_at bounds admit
-NULL the same way, because there is one of each.
+change. Each of them calls the statement function [Generator.StandardCRUD]
+calls and rewrites the references in what comes back — the same rewrite sqlc
+performs on these statements before its generated code hands one to a driver.
+So there is no second rendering to drift from the first: the archived toggle
+admits rows the same way, the counts omit the cursor the same way, the
+last_updated_at bounds admit NULL the same way, because there is one of each
+and both consumers read it.
 
 	get := querygen.For(dialect.Postgres).BoundGet("widgets", columns,
 		querygen.Match{Column: querygen.BelongsToAccountColumn})
@@ -112,12 +114,13 @@ column — a tenancy scope, an owner, the reference a child row hangs off — an
 between filtering.QueryFilter's fields and the argument names above.
 
 Two things about arguments are worth knowing before reading Bound.Args. A name
-can appear more than once: the filter predicates are rendered into the SELECT
-and into both counts, so on the dialects whose markers are positional the same
-value is bound once per appearance, while Postgres numbers its markers and binds
-it once. And a bound value is not always what the Go field holds — SQLite stores
+can appear more than once: the filter predicates are rendered once and spliced
+into the SELECT and into both counts, so on the dialects whose markers are
+positional the same value is bound once per appearance, while Postgres numbers
+its markers and binds it once. Markers are numbered where they appear in the
+finished statement, which is what makes a spliced fragment come out right. And a bound value is not always what the Go field holds — SQLite stores
 timestamps as text and compares them as text, so BindFilter hands it the shape
-[SQLiteTimestampLayout] names rather than a time, and MySQL's LIMIT cannot
+time.DateTime spells rather than a time, and MySQL's LIMIT cannot
 coalesce so BindFilter supplies the default the other two coalesce to. Both are
 in BindFilter rather than in a caller for the same reason the SQL is here.
 

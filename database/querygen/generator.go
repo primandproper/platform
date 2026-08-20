@@ -25,11 +25,6 @@ import (
 // inference wanted a cast — should be a change to one method body rather than a
 // change to the package's surface.
 type Generator struct {
-	// bind renders this Generator's argument references. For installs the sqlc
-	// spelling; the Bound* methods swap in a positional one for the duration of
-	// one statement. Everything between here and the SQL is written once — see
-	// bind.go.
-	bind    binder
 	dialect dialect.Dialect
 }
 
@@ -47,7 +42,7 @@ func For(d dialect.Dialect) *Generator {
 		panic(platformerrors.Wrapf(dialect.ErrUnsupported, "querygen: dialect %q", d))
 	}
 
-	return &Generator{dialect: d, bind: sqlcBinder{}}
+	return &Generator{dialect: d}
 }
 
 // Dialect returns the dialect g emits for.
@@ -99,12 +94,12 @@ func (g *Generator) Dialect() dialect.Dialect {
 func (g *Generator) substringMatch(column, argument string) string {
 	switch g.dialect {
 	case dialect.MySQL:
-		return fmt.Sprintf("LOWER(%s) LIKE CONCAT('%%', LOWER(%s), '%%')", column, g.bind.arg(argument))
+		return fmt.Sprintf("LOWER(%s) LIKE CONCAT('%%', LOWER(sqlc.arg(%s)), '%%')", column, argument)
 	case dialect.SQLite:
-		return fmt.Sprintf("LOWER(%s) LIKE '%%' || LOWER(%s) || '%%'", column, g.bind.arg(argument))
+		return fmt.Sprintf("LOWER(%s) LIKE '%%' || LOWER(sqlc.arg(%s)) || '%%'", column, argument)
 	// Postgres, which For has already narrowed the alternatives to.
 	default:
-		return fmt.Sprintf("%s ILIKE '%%' || %s::text || '%%'", column, g.bind.arg(argument))
+		return fmt.Sprintf("%s ILIKE '%%' || sqlc.arg(%s)::text || '%%'", column, argument)
 	}
 }
 
@@ -183,7 +178,7 @@ func (g *Generator) timeHorizon(sign string) string {
 // nearest thing (CAST(... AS UNSIGNED)) would only turn the generated field
 // into a number.
 func (g *Generator) includeArchivedFlag() string {
-	coalesced := fmt.Sprintf("COALESCE(%s, false)", g.bind.narg(IncludeArchivedArg))
+	coalesced := fmt.Sprintf("COALESCE(sqlc.narg(%s), false)", IncludeArchivedArg)
 	if g.dialect == dialect.Postgres {
 		return coalesced + "::boolean"
 	}
@@ -213,10 +208,10 @@ func (g *Generator) includeArchivedFlag() string {
 // returns no rows, which is loud, rather than a page of some other size.
 func (g *Generator) limitClause() string {
 	if g.dialect == dialect.MySQL {
-		return fmt.Sprintf("LIMIT %s", g.bind.arg(LimitArg))
+		return fmt.Sprintf("LIMIT sqlc.arg(%s)", LimitArg)
 	}
 
-	return fmt.Sprintf("LIMIT COALESCE(%s, %d)", g.bind.narg(LimitArg), filtering.DefaultQueryFilterLimit)
+	return fmt.Sprintf("LIMIT COALESCE(sqlc.narg(%s), %d)", LimitArg, filtering.DefaultQueryFilterLimit)
 }
 
 // idSetPredicate matches the id column against a bound set of ids.
@@ -230,8 +225,8 @@ func (g *Generator) limitClause() string {
 // caller writes.
 func (g *Generator) idSetPredicate() string {
 	if g.dialect == dialect.Postgres {
-		return fmt.Sprintf("%s = ANY(%s::text[])", IDColumn, g.bind.arg(IDsArg))
+		return fmt.Sprintf("%s = ANY(sqlc.arg(%s)::text[])", IDColumn, IDsArg)
 	}
 
-	return fmt.Sprintf("%s IN (%s)", IDColumn, g.bind.slice(IDsArg))
+	return fmt.Sprintf("%s IN (sqlc.slice(%s))", IDColumn, IDsArg)
 }
