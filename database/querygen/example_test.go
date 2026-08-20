@@ -96,3 +96,30 @@ func ExampleGenerator_FilterConditions() {
 	// 	AND things.name ILIKE '%' || sqlc.arg(name_query)::text || '%'
 	// 	AND things.id > COALESCE(sqlc.narg(cursor), '')
 }
+
+// The registry is the list of tables an application has, which is not the same
+// list as the tables something generates SQL for. StandardCRUD feeds it, and a
+// table whose SQL is written by hand — or by something else entirely — feeds the
+// same list, so whoever truncates them between integration tests reads one list
+// rather than remembering there are two.
+//
+// The package-level RegisterTable and RegisteredTables are the usual pair; this
+// example uses an explicit registry so its output does not depend on what else
+// in the process has registered.
+func ExampleRegistry() {
+	registry := querygen.NewRegistry()
+
+	querygen.For(dialect.Postgres).StandardCRUD("webhooks",
+		[]string{querygen.IDColumn, "url", querygen.ArchivedAtColumn},
+		querygen.WithEntity("Webhook", "Webhooks"),
+		querygen.WithRegistry(registry),
+	)
+
+	// No queries come from here, and the rows still have to go somewhere.
+	registry.Register("sessions", "webauthn_credentials")
+
+	fmt.Println(strings.Join(registry.Tables(), ", "))
+
+	// Output:
+	// sessions, webauthn_credentials, webhooks
+}
