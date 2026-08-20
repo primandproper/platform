@@ -354,27 +354,29 @@ func createStatement(table string, insertColumns, nullable []string) string {
 	)
 }
 
-func getStatement(table string, columns []string, ownership string) string {
+func getStatement(table string, columns []string, ownership string, extra ...Match) string {
 	return fmt.Sprintf("SELECT\n\t%s\nFROM %s\nWHERE %s;",
 		strings.Join(QualifyAll(table, columns), ",\n\t"),
 		table,
-		joinPredicates(singleRowPredicates(table, columns, ownership, true), "\t"),
+		joinPredicates(singleRowPredicates(table, columns, ownership, true, extra...), "\t"),
 	)
 }
 
-func existsStatement(table string, columns []string, ownership string) string {
+func existsStatement(table string, columns []string, ownership string, extra ...Match) string {
 	return fmt.Sprintf("SELECT EXISTS (\n\tSELECT %s\n\tFROM %s\n\tWHERE %s\n);",
 		Qualify(table, IDColumn),
 		table,
-		joinPredicates(singleRowPredicates(table, columns, ownership, true), "\t\t"),
+		joinPredicates(singleRowPredicates(table, columns, ownership, true, extra...), "\t\t"),
 	)
 }
 
-func (g *Generator) listStatement(table string, columns []string, ownership string) string {
+func (g *Generator) listStatement(table string, columns []string, ownership string, extra ...Match) string {
 	var conditions []string
 	if ownership != "" {
-		conditions = append(conditions, ownershipPredicate(table, ownership, true))
+		conditions = append(conditions, equalityPredicate(table, ownership, true))
 	}
+
+	conditions = append(conditions, matchPredicates(table, true, extra)...)
 
 	return fmt.Sprintf("SELECT\n\t%s,\n\t%s,\n\t%s\nFROM %s\nWHERE %s\n%s;",
 		strings.Join(QualifyAll(table, columns), ",\n\t"),
@@ -386,7 +388,7 @@ func (g *Generator) listStatement(table string, columns []string, ownership stri
 	)
 }
 
-func updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string) string {
+func updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string, extra ...Match) string {
 	assignments := make([]string, 0, len(updateColumns)+1)
 	for _, column := range updateColumns {
 		assignments = append(assignments, fmt.Sprintf("%s = %s", column, binding(column, nullable)))
@@ -399,19 +401,21 @@ func updateStatement(table string, columns, updateColumns []string, ownership st
 	return fmt.Sprintf("UPDATE %s SET\n\t%s\nWHERE %s;",
 		table,
 		strings.Join(assignments, ",\n\t"),
-		joinPredicates(singleRowPredicates(table, columns, ownership, false), "\t"),
+		joinPredicates(singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
 	)
 }
 
-func archiveStatement(table, ownership string) string {
+func archiveStatement(table, ownership string, extra ...Match) string {
 	predicates := []string{
 		fmt.Sprintf("%s IS NULL", ArchivedAtColumn),
 		fmt.Sprintf("%s = sqlc.arg(%s)", IDColumn, IDColumn),
 	}
 
 	if ownership != "" {
-		predicates = append(predicates, ownershipPredicate(table, ownership, false))
+		predicates = append(predicates, equalityPredicate(table, ownership, false))
 	}
+
+	predicates = append(predicates, matchPredicates(table, false, extra)...)
 
 	return fmt.Sprintf("UPDATE %s SET\n\t%s = %s\nWHERE %s;",
 		table,
@@ -429,7 +433,7 @@ func archiveStatement(table, ownership string) string {
 //
 // qualified is false for the UPDATE statements, whose SET clause cannot carry a
 // table qualifier and whose WHERE therefore does not either.
-func singleRowPredicates(table string, columns []string, ownership string, qualified bool) []string {
+func singleRowPredicates(table string, columns []string, ownership string, qualified bool, extra ...Match) []string {
 	name := func(column string) string {
 		if qualified {
 			return Qualify(table, column)
@@ -447,20 +451,43 @@ func singleRowPredicates(table string, columns []string, ownership string, quali
 	predicates = append(predicates, fmt.Sprintf("%s = sqlc.arg(%s)", name(IDColumn), IDColumn))
 
 	if ownership != "" {
-		predicates = append(predicates, ownershipPredicate(table, ownership, qualified))
+		predicates = append(predicates, equalityPredicate(table, ownership, qualified))
 	}
+
+	predicates = append(predicates, matchPredicates(table, qualified, extra)...)
 
 	return predicates
 }
 
-// ownershipPredicate matches the owner column against a bound argument.
-func ownershipPredicate(table, column string, qualified bool) string {
+// equalityPredicate matches a column against a bound argument. It is the one
+// place a keyed predicate is rendered, whether the key is the owner column
+// WithOwnership names or one of the Match columns a bound statement adds — the
+// two say the same thing about a row and there is no version of this that is
+// right for one and wrong for the other.
+func equalityPredicate(table, column string, qualified bool) string {
 	name := column
 	if qualified {
 		name = Qualify(table, column)
 	}
 
 	return fmt.Sprintf("%s = sqlc.arg(%s)", name, column)
+}
+
+// matchPredicates renders one equality predicate per match.
+//
+// The matches are the dimensions a bound caller adds beyond the row's own id — a
+// tenancy scope column, or the owner the sqlc path expresses through
+// WithOwnership. They go through equalityPredicate like every other predicate
+// here, so a bound statement and a generated one filter a row the same way, and
+// a caller can add a tenancy scope column without this package knowing what a
+// tenancy scope is.
+func matchPredicates(table string, qualified bool, matches []Match) []string {
+	predicates := make([]string, 0, len(matches))
+	for _, match := range matches {
+		predicates = append(predicates, equalityPredicate(table, match.Column, qualified))
+	}
+
+	return predicates
 }
 
 // mustBeUniquelyNamed panics when two of the emitted queries share a name, which
