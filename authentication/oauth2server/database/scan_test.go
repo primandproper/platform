@@ -61,7 +61,7 @@ func codeRow() []any {
 	now := time.Now().UTC()
 
 	return []any{
-		"hash", "client_1", "https://client.example/cb", "challenge", "nonce", "user_1",
+		"hash", "client_1", "family_1", "https://client.example/cb", "challenge", "nonce", "user_1",
 		`{"account_id":"acct_9"}`, `["read"]`, `["https://api.example/"]`,
 		now, now.Add(time.Minute), sql.NullTime{},
 	}
@@ -116,6 +116,11 @@ func TestScanners_WellFormedRows(T *testing.T) {
 		code, err := scanCode(&stubRow{values: codeRow()})
 		must.NoError(t, err)
 		test.EqOp(t, "user_1", code.Subject.ID)
+
+		// The family a replay of this code would revoke by. It is read out of
+		// the code's own row rather than out of the tokens it minted, which is
+		// what makes the replay answerable at all.
+		test.EqOp(t, "family_1", code.FamilyID)
 		test.Eq(t, map[string]string{"account_id": "acct_9"}, code.Subject.Claims)
 		test.Eq(t, []string{"https://api.example/"}, code.Resources)
 		test.True(t, code.RedeemedAt.IsZero())
@@ -179,11 +184,11 @@ func TestScanners_UndecodableColumns(T *testing.T) {
 		{name: "client scopes", index: 6, wantErr: "decoding registered scopes", row: clientRow(),
 			scan: func(r database.Scanner) error { _, err := scanClient(r); return err }},
 
-		{name: "code subject_claims", index: 6, wantErr: "decoding authorization code subject claims", row: codeRow(),
+		{name: "code subject_claims", index: 7, wantErr: "decoding authorization code subject claims", row: codeRow(),
 			scan: func(r database.Scanner) error { _, err := scanCode(r); return err }},
-		{name: "code scopes", index: 7, wantErr: "decoding authorization code scopes", row: codeRow(),
+		{name: "code scopes", index: 8, wantErr: "decoding authorization code scopes", row: codeRow(),
 			scan: func(r database.Scanner) error { _, err := scanCode(r); return err }},
-		{name: "code resources", index: 8, wantErr: "decoding authorization code resources", row: codeRow(),
+		{name: "code resources", index: 9, wantErr: "decoding authorization code resources", row: codeRow(),
 			scan: func(r database.Scanner) error { _, err := scanCode(r); return err }},
 
 		{name: "access subject_claims", index: 4, wantErr: "decoding access token subject claims", row: accessRow(),

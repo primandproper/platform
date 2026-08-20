@@ -41,6 +41,25 @@ func (s *familylessStore) ConsumeRefreshToken(context.Context, string) (*oauth2s
 	return &oauth2server.RefreshToken{}, oauth2server.ErrAlreadyRedeemed
 }
 
+// familylessCodeStore strips the family off every code it hands back, which is
+// what a record written by hand — or by a schema predating the column — looks
+// like from the token endpoint.
+type familylessCodeStore struct {
+	oauth2server.Store
+}
+
+func (s *familylessCodeStore) ConsumeAuthorizationCode(
+	ctx context.Context,
+	hash string,
+) (*oauth2server.AuthorizationCode, error) {
+	code, err := s.Store.ConsumeAuthorizationCode(ctx, hash)
+	if code != nil {
+		code.FamilyID = ""
+	}
+
+	return code, err
+}
+
 func TestServer_ReplayWithoutARecord(T *testing.T) {
 	T.Parallel()
 
@@ -74,6 +93,45 @@ func TestServer_ReplayWithoutARecord(T *testing.T) {
 		// predicate matching every token that also names none.
 		test.EqOp(t, http.StatusBadRequest, out.status)
 		test.EqOp(t, oauth2server.ErrorCodeInvalidGrant, out.Error)
+	})
+
+	T.Run("a code naming no family still mints a pair into one", func(t *testing.T) {
+		t.Parallel()
+
+		h := newStoreHarness(t, &familylessCodeStore{Store: memory.NewStore()})
+		reg := h.registerConfidential()
+
+		tokens := h.exchange(reg)
+
+		// Issuing the pair under the empty family would put every such token
+		// in one group, which RevokeFamily then refuses to touch — so the
+		// grant mints one rather than carrying the absence forward.
+		access, err := h.server.Authenticate(t.Context(), tokens.AccessToken)
+		must.NoError(t, err)
+		must.NotNil(t, access)
+		test.NotEq(t, "", access.FamilyID)
+	})
+
+	T.Run("a replayed code naming no family revokes nothing", func(t *testing.T) {
+		t.Parallel()
+
+		h := newStoreHarness(t, &familylessCodeStore{Store: memory.NewStore()})
+		reg := h.registerConfidential()
+
+		code := h.codeFrom(h.authorize(authorizeParams(reg.ClientID), login()))
+
+		tokens := h.redeem(reg, code)
+		must.EqOp(t, http.StatusOK, tokens.status)
+
+		// Refused, and nothing is revoked by an empty identifier — the family
+		// the pair was actually minted under is not one this code can name.
+		out := h.redeem(reg, code)
+		test.EqOp(t, http.StatusBadRequest, out.status)
+		test.EqOp(t, oauth2server.ErrorCodeInvalidGrant, out.Error)
+
+		access, err := h.server.Authenticate(t.Context(), tokens.AccessToken)
+		must.NoError(t, err)
+		test.NotNil(t, access)
 	})
 }
 

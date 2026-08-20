@@ -141,6 +141,17 @@ replayed token is refused and the copy the attacker is using keeps working, so
 the theft leaves one failed request and no other trace. What makes it worth
 doing is that a replay revokes the whole family — see RefreshToken.FamilyID.
 
+A replayed authorization code revokes its family too, which is RFC 6749 §4.1.2
+and is the same threat one step earlier: whoever wins the race to /token keeps a
+token pair, and the loser's replay is the only signal that there were two of
+them. It works because the family is minted at /authorize and carried on the
+code — see AuthorizationCode.FamilyID — rather than at the redemption, which
+would leave a replay detectable and unanswerable. Unlike refresh reuse it has no
+switch: WithRefreshReuseDetection exists because a client that loses the response
+to a rotation and retries revokes a session it is using, and a replayed code
+cannot cost that — a client that received the pair has nothing to retry, so what
+is revoked is a pair nobody is holding.
+
 # What it does not implement
 
 The implicit grant and the resource-owner-password grant, both removed by OAuth

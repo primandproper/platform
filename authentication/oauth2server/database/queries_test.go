@@ -53,8 +53,9 @@ func TestColumnLists(T *testing.T) {
 		test.EqOp(t, "id, secret_hash, name, redirect_uris, grant_types, response_types, "+
 			"scopes, token_endpoint_auth_method, created_at, expires_at", clientColumns)
 
-		test.EqOp(t, "hash, client_id, redirect_uri, code_challenge, nonce, subject_id, "+
-			"subject_claims, scopes, resources, issued_at, expires_at, redeemed_at", codeColumns)
+		test.EqOp(t, "hash, client_id, family_id, redirect_uri, code_challenge, nonce, "+
+			"subject_id, subject_claims, scopes, resources, issued_at, expires_at, "+
+			"redeemed_at", codeColumns)
 
 		test.EqOp(t, "hash, client_id, family_id, subject_id, subject_claims, scopes, "+
 			"audience, issued_at, expires_at, revoked_at", accessColumns)
@@ -126,7 +127,7 @@ func TestInsertBuilders_SkipDuplicates(T *testing.T) {
 			// builder's column constant and its argument list looks like from
 			// out here.
 			test.SliceLen(t, 10, clientArgs)
-			test.SliceLen(t, 12, codeArgs)
+			test.SliceLen(t, 13, codeArgs)
 			test.SliceLen(t, 10, accessArgs)
 			test.SliceLen(t, 12, refreshArgs)
 
