@@ -20,7 +20,10 @@ concurrency:
 name: mutation
 jobs:
   gremlins:
-    timeout-minutes: 20
+    # Above the deadline a warm run gives a mutant, so a hang is reported as
+    # TIMED OUT by the gate rather than as a job that ran out of time with
+    # nothing to say. See TIMEOUT_COEFFICIENT in .scripts/mutation.sh.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,15 +53,21 @@ jobs:
       - name: Vendor dependencies
         run: make vendor
 
-      # gremlins derives each mutant's timeout from how long the coverage run
-      # took, so a cold build cache is the condition under which every mutant
-      # times out — and a run of nothing but timeouts still reports a healthy
-      # efficacy figure. Restoring the cache is what keeps that from happening.
+      # The cache is here for wall-clock, and it is worth being exact about
+      # which way it runs against the gate, because the obvious guess is
+      # backwards. gremlins derives each mutant's deadline from how long the
+      # coverage run took, and a warm cache is precisely what makes that run
+      # quick — so restoring the cache makes the deadline *tighter*, not
+      # looser. Measured on this repo: cold coverage takes about seven minutes
+      # and leaves a deadline no mutant can reach, warm coverage takes sixteen
+      # seconds and leaves one the first wave of workers overruns. See
+      # TIMEOUT_COEFFICIENT in .scripts/mutation.sh for what the coefficient
+      # therefore has to cover.
       #
       # Restore and save are separate steps so the save still runs when the job
-      # fails. actions/cache saves only on success, which for a gate that fails
-      # on timeouts would mean the run most in need of a warm cache is the one
-      # that never writes one.
+      # fails. actions/cache saves only on success, and a failing gate is
+      # exactly the state someone is about to iterate on — leaving them a cold
+      # cache would add those seven minutes to every attempt.
       - name: Restore the mutation build cache
         id: gocache
         uses: actions/cache/restore@v4

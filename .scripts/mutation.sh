@@ -48,11 +48,24 @@ WORKERS="${GREMLINS_WORKERS:-4}"
 #     better the cache worked, and a run that restored its cache on the nose
 #     timed out eight mutants whose tests fail in under four seconds.
 #
-# Ten leaves a warm run's deadline around three and a half minutes against
-# package tests that take a second or two, which is headroom for the compile
-# without being headroom for a genuine hang: those still land well inside the
-# workflow's own cap.
-TIMEOUT_COEFFICIENT="${GREMLINS_TIMEOUT_COEFFICIENT:-10}"
+# Ten was calibrated against packages whose test binaries link quickly, and
+# database/querygen's does not: its container suite pulls testcontainers in, so
+# the first wave of workers spends longer copying and linking than the entire
+# warm coverage run takes.
+#
+# The run that showed it up is worth writing down, because the shape of it is
+# what the number has to cover. Coverage gathered in sixteen seconds, putting
+# the deadline at a hundred and sixty. The four mutants in the first wave hit
+# that deadline exactly. The three behind them ran in the same worker copies,
+# now warm, finished in thirty-five seconds each, and were killed. Nothing was
+# slow about the code under test: the gate failed on the cost of arriving.
+#
+# Forty puts a warm run's deadline above ten minutes, which covers a first wave
+# that has to copy the module and link a container-linked test binary four times
+# at once. It is still well short of the workflow's own cap, so a mutant that
+# genuinely hangs is still reported as TIMED OUT there — which is the signal —
+# rather than taking the whole job down with it, which is not.
+TIMEOUT_COEFFICIENT="${GREMLINS_TIMEOUT_COEFFICIENT:-40}"
 
 # Path regexps, which is the only kind of exclusion gremlins offers.
 #
