@@ -129,7 +129,7 @@ WHERE %[4]s;`,
 		table,
 		LastIndexedAtColumn,
 		NowExpression,
-		g.idSetPredicate(),
+		g.idSetPredicate(IDColumn),
 	)
 }
 

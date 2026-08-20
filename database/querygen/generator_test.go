@@ -209,14 +209,14 @@ func TestGenerator_idSetPredicate(T *testing.T) {
 	T.Run("per dialect", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, `id = ANY(sqlc.arg(ids)::text[])`, For(dialect.Postgres).idSetPredicate())
+		test.EqOp(t, `id = ANY(sqlc.arg(ids)::text[])`, For(dialect.Postgres).idSetPredicate(IDColumn))
 
 		// Neither of the others has an array type, so sqlc expands the slice
 		// into as many placeholders as there are ids. The Go signature is
 		// []string either way.
 		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
 			test.EqOp(t, `id IN (sqlc.slice(ids))`,
-				For(d).idSetPredicate(), test.Sprintf("dialect %q", d))
+				For(d).idSetPredicate(IDColumn), test.Sprintf("dialect %q", d))
 		}
 	})
 
@@ -224,7 +224,7 @@ func TestGenerator_idSetPredicate(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range everyDialect() {
-			test.StrContains(t, For(d).idSetPredicate(), IDsArg, test.Sprintf("dialect %q", d))
+			test.StrContains(t, For(d).idSetPredicate(IDColumn), IDsArg, test.Sprintf("dialect %q", d))
 		}
 	})
 }

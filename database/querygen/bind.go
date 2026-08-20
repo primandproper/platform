@@ -1,7 +1,9 @@
 package querygen
 
 import (
+	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v12/database"
@@ -75,13 +77,14 @@ var sqlcArgument = regexp.MustCompile(`sqlc\.(n?arg|slice)\(([a-zA-Z0-9_#]+)\)`)
 // every value after the first into the following slot rather than one that fails
 // to parse.
 //
-// A set reference has no rendering at all: sqlc.slice is a macro sqlc expands
-// per call, because the number of markers a set needs is not known until the
-// values are. None of the Bound* methods renders one — idSetPredicate is the
-// only fragment that does, and only off Postgres — so reaching one here means a
-// new Bound* method was written around a statement whose arity belongs to its
-// caller, and that method owes its caller a count. It is a programming error,
-// and says so the way the rest of this package does.
+// A set reference has no rendering at this level: sqlc.slice is a macro sqlc
+// expands per call, because the number of markers a set needs is not known until
+// the values are. A statement carrying one is bound through BoundGetMany, which
+// takes that count and calls expandSets before this — so by the time a statement
+// reaches here its sets are ordinary arguments. Reaching one here means a Bound*
+// method was written around a statement whose arity belongs to its caller
+// without taking the count that would settle it. It is a programming error, and
+// says so the way the rest of this package does.
 func bindArguments(d dialect.Dialect, statement string) (sql string, args []string) {
 	ordinals := map[string]int{}
 
@@ -104,6 +107,48 @@ func bindArguments(d dialect.Dialect, statement string) (sql string, args []stri
 	})
 
 	return sql, args
+}
+
+// setElementArg names the argument one element of a bound set is supplied under.
+//
+// It is a function rather than a format string written at each end because the
+// two ends are a rewrite and a bind: expandSets synthesizes these names into the
+// statement, BindIDs writes the values under them, and a spelling that differed
+// between them would produce a statement whose every argument is missing — which
+// Bind reports as ErrUnboundArgument for an argument no caller ever named.
+//
+// The '#' is what keeps a synthetic name unmistakable for a real column: no
+// identifier dialect.ValidIdentifier accepts contains one, so an element name
+// cannot collide with a column that binds under its own name.
+func setElementArg(name string, index int) string {
+	return fmt.Sprintf("%s#%d", name, index)
+}
+
+// expandSets rewrites each sqlc.slice reference in a statement into count
+// ordinary argument references, one per element.
+//
+// This is what sqlc does to the same statement before its generated code hands
+// one to a driver, and it is done here for the same reason it is done there: a
+// set of n values needs n markers on a dialect with no array type, and n is the
+// caller's fact rather than the statement's. Postgres takes the set as one array
+// argument and renders no slice reference at all, so this pass finds nothing to
+// do there — see Generator.idSetPredicate.
+func expandSets(statement string, count int) string {
+	return sqlcArgument.ReplaceAllStringFunc(statement, func(reference string) string {
+		parts := sqlcArgument.FindStringSubmatch(reference)
+		kind, name := parts[1], parts[2]
+
+		if kind != "slice" {
+			return reference
+		}
+
+		elements := make([]string, 0, count)
+		for i := range count {
+			elements = append(elements, fmt.Sprintf("sqlc.arg(%s)", setElementArg(name, i)))
+		}
+
+		return strings.Join(elements, ", ")
+	})
 }
 
 // Bound is one statement rendered for a database driver: the SQL, and the names
@@ -197,7 +242,7 @@ func (g *Generator) BoundList(table string, columns []string, matches ...Match) 
 // asks something narrower and per-statement: this table's reads are open within
 // its scope but only its owner may write, so the get names one predicate column
 // and the update names two. Expressed as one call over one options struct that
-// would be a set of per-query overrides; expressed as five calls it is five
+// would be a set of per-query overrides; expressed as one call each they are
 // argument lists.
 //
 // Each takes the extra predicate columns as Match values, and the row's own id
@@ -209,6 +254,56 @@ func (g *Generator) BoundList(table string, columns []string, matches ...Match) 
 // BoundGet renders the read of one row by id, plus any extra predicate columns.
 func (g *Generator) BoundGet(table string, columns []string, extra ...Match) Bound {
 	return g.bound(getStatement(table, columns, "", extra...))
+}
+
+// BoundGetMany renders the read of count rows by id, plus any extra predicate
+// columns.
+//
+// count is the number of ids the caller is about to bind, and it is a parameter
+// because on a dialect with no array type the statement needs one marker per id:
+// a statement rendered for three cannot be executed with four. Postgres takes
+// the set as one array argument, so there the rendering does not depend on count
+// and the same text serves any number of ids — which is a property of that
+// dialect rather than a promise to the caller, so this takes the count on every
+// dialect and a caller renders per call on every dialect.
+//
+// It is the one builder here whose statement cannot be rendered once at startup
+// and executed forever, and the counterpart of that is where its values come
+// from: bind them with BindIDs, which writes them under the names this rendering
+// expects on this dialect.
+//
+// A count below one is refused. An empty set has no rendering — `IN ()` is a
+// syntax error on the dialects that expand it — and a caller holding no ids
+// wants no statement rather than one that matches nothing.
+func (g *Generator) BoundGetMany(table string, columns []string, count int, extra ...Match) (Bound, error) {
+	if count < 1 {
+		return Bound{}, platformerrors.Wrap(ErrUnboundableStatement, "querygen: a set read needs at least one id")
+	}
+
+	return g.bound(expandSets(g.getManyStatement(table, columns, extra...), count)), nil
+}
+
+// BindIDs writes an id set into an argument map under the names this dialect's
+// rendering of BoundGetMany binds them by.
+//
+// It is the same division of labor BindFilter draws: the names are this
+// package's, and a caller assembling them itself would be a second copy of a
+// mapping that has a dialect in it. Postgres binds the set as one array value
+// and the others bind one value per element, which is a difference in what
+// reaches the server rather than one in what a caller writes.
+//
+// The ids must be the ones, in the order, the statement was rendered for: on the
+// expanding dialects a statement's markers are positions in this slice.
+func (g *Generator) BindIDs(values map[string]any, ids []string) {
+	if g.dialect == dialect.Postgres {
+		values[IDsArg] = ids
+
+		return
+	}
+
+	for i, id := range ids {
+		values[setElementArg(IDsArg, i)] = id
+	}
 }
 
 // BoundExists renders the existence check for one row by id, plus any extra
@@ -239,6 +334,28 @@ func (g *Generator) BoundUpdate(table string, columns, updateColumns, nullable [
 // predicate columns.
 func (g *Generator) BoundArchive(table string, extra ...Match) Bound {
 	return g.bound(archiveStatement(table, "", extra...))
+}
+
+// BoundArchiveMatching renders the bulk archival a cascade needs: soft-delete
+// every unarchived row matching the given equality predicates.
+//
+// It has no id predicate, which is the point — this is the statement for
+// "archive the comments on this reference", not "archive this comment". A caller
+// that passed no matches would get a statement that archives the table, so the
+// empty set is refused here rather than rendered and executed.
+//
+// It is the one builder with no StandardCRUD counterpart, because the sqlc side
+// expresses a cascade as a hand-written query per table while a runtime store
+// derives it from the same declaration its other statements come from. The
+// predicates are still matchPredicates and the already-archived row is still
+// excluded the way archiveStatement excludes it, so a cascade and a single
+// archive agree about which rows are already gone.
+func (g *Generator) BoundArchiveMatching(table string, matches ...Match) (Bound, error) {
+	if len(matches) == 0 {
+		return Bound{}, platformerrors.Wrap(ErrUnboundableStatement, "querygen: an archive with no matches would archive the table")
+	}
+
+	return g.bound(archiveMatchingStatement(table, matches...)), nil
 }
 
 // BindFilter writes a filtering.QueryFilter's values into an argument map under

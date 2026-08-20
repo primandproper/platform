@@ -223,10 +223,14 @@ func (g *Generator) limitClause() string {
 // exactly these two engines. The generated Go signature is []string either way,
 // so this is a difference in what reaches the server rather than in what a
 // caller writes.
-func (g *Generator) idSetPredicate() string {
+//
+// idColumn is the rendered name the predicate matches on, qualified or not, so
+// that the same predicate serves an UPDATE's unqualified WHERE and a SELECT's
+// qualified one — see singleRowPredicates for why the two differ.
+func (g *Generator) idSetPredicate(idColumn string) string {
 	if g.dialect == dialect.Postgres {
-		return fmt.Sprintf("%s = ANY(sqlc.arg(%s)::text[])", IDColumn, IDsArg)
+		return fmt.Sprintf("%s = ANY(sqlc.arg(%s)::text[])", idColumn, IDsArg)
 	}
 
-	return fmt.Sprintf("%s IN (sqlc.slice(%s))", IDColumn, IDsArg)
+	return fmt.Sprintf("%s IN (sqlc.slice(%s))", idColumn, IDsArg)
 }

@@ -357,4 +357,83 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		test.Eq(t, []string{"g_001", "g_002", "g_003", "g_004"}, ids)
 		test.EqOp(t, int64(4), filtered)
 	})
+
+	t.Run("a set read answers for the ids it was rendered for", func(t *testing.T) {
+		// The set is one array argument on Postgres and one marker per id on the
+		// other two, and the two renderings have to answer the same question.
+		// This is the arm that would catch an expansion whose markers and values
+		// disagree, which on a positional dialect is not an error but a read
+		// about the wrong rows.
+		statement, err := For(d).BoundGetMany(gadgetsTable, widgetsColumns(), 3,
+			Match{Column: BelongsToAccountColumn})
+		must.NoError(t, err)
+
+		values := map[string]any{BelongsToAccountColumn: gadgetOwner}
+		// g_004 is archived and g_005 is another account's: two of the three ids
+		// name a row this read must not return.
+		For(d).BindIDs(values, []string{"g_002", "g_004", "g_005"})
+
+		test.Eq(t, []string{"g_002"}, readGadgetIDs(t, ctx, db, statement, values))
+	})
+
+	t.Run("a cascade archives every matching row and nothing else", func(t *testing.T) {
+		cascade, err := For(d).BoundArchiveMatching(gadgetsTable, Match{Column: BelongsToAccountColumn})
+		must.NoError(t, err)
+
+		// One statement, one account, every row of it. The other account's rows
+		// are the assertion: a cascade whose predicate went missing would take
+		// them too, and the report would be a row count nobody compares against
+		// anything.
+		test.EqOp(t, int64(1), affectedRows(t, execBound(t, ctx, db, cascade,
+			map[string]any{BelongsToAccountColumn: gadgetOther})))
+
+		// The archived_at IS NULL is what makes the second pass zero.
+		test.EqOp(t, int64(0), affectedRows(t, execBound(t, ctx, db, cascade,
+			map[string]any{BelongsToAccountColumn: gadgetOther})))
+
+		ids, _, _ := listGadgets(t, ctx, d, db, statements, gadgetOwner, nil)
+		test.Eq(t, []string{"g_001", "g_002", "g_003"}, ids)
+
+		ids, _, _ = listGadgets(t, ctx, d, db, statements, gadgetOther, nil)
+		test.SliceEmpty(t, ids)
+	})
+}
+
+// readGadgetIDs runs a set read and returns the ids it found, in the order the
+// server produced them.
+//
+// Everything past the id is scanned into an any, because what this asserts is
+// which rows came back rather than what is in them — and the three servers do
+// not agree about the Go type of a timestamp column.
+func readGadgetIDs(tb testing.TB, ctx context.Context, db *sql.DB, statement Bound, values map[string]any) []string {
+	tb.Helper()
+
+	arguments, err := statement.Bind(values)
+	must.NoError(tb, err)
+
+	rows, err := db.QueryContext(ctx, statement.SQL, arguments...)
+	must.NoError(tb, err, must.Sprintf("executing\n%s", statement.SQL))
+
+	defer func() { must.NoError(tb, rows.Close()) }()
+
+	var ids []string
+
+	for rows.Next() {
+		var id string
+
+		targets := make([]any, len(widgetsColumns()))
+		targets[0] = &id
+
+		for i := 1; i < len(targets); i++ {
+			targets[i] = new(any)
+		}
+
+		must.NoError(tb, rows.Scan(targets...))
+
+		ids = append(ids, id)
+	}
+
+	must.NoError(tb, rows.Err())
+
+	return ids
 }

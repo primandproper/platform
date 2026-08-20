@@ -204,6 +204,122 @@ func TestGenerator_BoundArchive(T *testing.T) {
 	})
 }
 
+func TestGenerator_BoundGetMany(T *testing.T) {
+	T.Parallel()
+
+	T.Run("renders one marker per id where the dialect has no array type", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			got, err := For(d).BoundGetMany(boundTable, boundColumns(), 3)
+			must.NoError(t, err, must.Sprintf("dialect %q", d))
+
+			want := 3
+			if d == dialect.Postgres {
+				// One array argument, whatever the count: the whole reason the
+				// set is bound rather than expanded there.
+				want = 1
+			}
+
+			test.SliceLen(t, want, got.Args, test.Sprintf("dialect %q: %s", d, got.SQL))
+			assertMarkersMatchArgs(t, d, got)
+		}
+	})
+
+	T.Run("binds the ids under the names it rendered them as", func(t *testing.T) {
+		t.Parallel()
+
+		// The rewrite that puts the markers in and the bind that fills them are
+		// two ends of one naming convention, and a statement whose arguments no
+		// caller can name is one that fails at Bind for every value it has.
+		for _, d := range everyDialect() {
+			ids := []string{"gadget_1", "gadget_2"}
+
+			got, err := For(d).BoundGetMany(boundTable, boundColumns(), len(ids))
+			must.NoError(t, err, must.Sprintf("dialect %q", d))
+
+			values := map[string]any{}
+			For(d).BindIDs(values, ids)
+
+			args, bindErr := got.Bind(values)
+			must.NoError(t, bindErr, must.Sprintf("dialect %q", d))
+			test.SliceLen(t, len(got.Args), args, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("carries the archived predicate and the extra matches", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			got, err := For(d).BoundGetMany(boundTable, boundColumns(), 1, Match{Column: BelongsToAccountColumn})
+			must.NoError(t, err, must.Sprintf("dialect %q", d))
+
+			test.StrContains(t, got.SQL, Qualify(boundTable, ArchivedAtColumn)+" IS NULL", test.Sprintf("dialect %q", d))
+			test.StrContains(t, got.SQL, Qualify(boundTable, BelongsToAccountColumn)+" =", test.Sprintf("dialect %q", d))
+			test.SliceContains(t, got.Args, BelongsToAccountColumn, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("refuses an empty set, which has no rendering", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			_, err := For(d).BoundGetMany(boundTable, boundColumns(), 0)
+			test.ErrorIs(t, err, ErrUnboundableStatement, test.Sprintf("dialect %q", d))
+		}
+	})
+}
+
+func TestGenerator_BoundArchiveMatching(T *testing.T) {
+	T.Parallel()
+
+	T.Run("stamps every matching row and no others", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			got, err := For(d).BoundArchiveMatching(boundTable, Match{Column: BelongsToAccountColumn})
+			must.NoError(t, err, must.Sprintf("dialect %q", d))
+
+			test.StrContains(t, got.SQL, "UPDATE "+boundTable, test.Sprintf("dialect %q", d))
+			test.StrContains(t, got.SQL, ArchivedAtColumn+" = "+NowExpression, test.Sprintf("dialect %q", d))
+			test.StrContains(t, got.SQL, ArchivedAtColumn+" IS NULL", test.Sprintf("dialect %q", d))
+			// No id predicate: this is the cascade, not the single archive.
+			test.SliceNotContains(t, got.Args, IDColumn, test.Sprintf("dialect %q", d))
+			test.Eq(t, []string{BelongsToAccountColumn}, got.Args, test.Sprintf("dialect %q", d))
+			assertMarkersMatchArgs(t, d, got)
+		}
+	})
+
+	T.Run("refuses a cascade with no matches, which would archive the table", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			_, err := For(d).BoundArchiveMatching(boundTable)
+			test.ErrorIs(t, err, ErrUnboundableStatement, test.Sprintf("dialect %q", d))
+		}
+	})
+}
+
+func TestExpandSets(T *testing.T) {
+	T.Parallel()
+
+	T.Run("expands a set and leaves ordinary arguments alone", func(t *testing.T) {
+		t.Parallel()
+
+		got := expandSets("WHERE id IN (sqlc.slice(ids)) AND name = sqlc.arg(name)", 2)
+
+		test.EqOp(t, "WHERE id IN (sqlc.arg(ids#0), sqlc.arg(ids#1)) AND name = sqlc.arg(name)", got)
+	})
+
+	T.Run("finds nothing to do in a statement with no set", func(t *testing.T) {
+		t.Parallel()
+
+		statement := "WHERE id = sqlc.arg(id)"
+
+		test.EqOp(t, statement, expandSets(statement, 3))
+	})
+}
+
 func TestGenerator_BoundList(T *testing.T) {
 	T.Parallel()
 
@@ -290,11 +406,11 @@ func TestBindArguments(T *testing.T) {
 
 		// sqlc.slice is a macro sqlc expands per call, because the arity
 		// belongs to the values. A statement carrying one has no single
-		// executable rendering, and a Bound* method written around one wants
-		// BoundIDSet instead. idSetPredicate is the only fragment that renders
-		// one, and only off Postgres.
+		// executable rendering, so it reaches bindArguments only through
+		// BoundGetMany, which expands it against the count its caller supplied
+		// first. Arriving here unexpanded is the programming error.
 		for _, d := range everyDialect() {
-			err := recovered(func() { _, _ = bindArguments(d, For(dialect.MySQL).idSetPredicate()) })
+			err := recovered(func() { _, _ = bindArguments(d, For(dialect.MySQL).idSetPredicate(IDColumn)) })
 
 			must.Error(t, err, must.Sprintf("dialect %q", d))
 			test.ErrorIs(t, err, ErrUnboundableStatement, test.Sprintf("dialect %q", d))

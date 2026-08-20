@@ -375,6 +375,53 @@ func getStatement(table string, columns []string, ownership string, extra ...Mat
 	)
 }
 
+// getManyStatement reads a set of rows by id, in one statement.
+//
+// It is the same read getStatement performs with the id equality swapped for the
+// set predicate, and it exists separately because that predicate is the one
+// whose placeholder count is not a property of the statement — see
+// Generator.idSetPredicate and Generator.BoundGetMany.
+//
+// It carries no cursor, no filter window and no counts, because it is not a
+// page: a caller naming n ids is asking for those n rows and has already
+// decided how many there are. What it does carry is the archived predicate and
+// whatever extra predicates the caller keyed on, so a set read excludes the same
+// rows a single read does.
+func (g *Generator) getManyStatement(table string, columns []string, extra ...Match) string {
+	var predicates []string
+
+	if slices.Contains(columns, ArchivedAtColumn) {
+		predicates = append(predicates, Qualify(table, ArchivedAtColumn)+" IS NULL")
+	}
+
+	predicates = append(predicates, g.idSetPredicate(Qualify(table, IDColumn)))
+	predicates = append(predicates, matchPredicates(table, true, extra)...)
+
+	return fmt.Sprintf("SELECT\n\t%s\nFROM %s\nWHERE %s;",
+		strings.Join(QualifyAll(table, columns), ",\n\t"),
+		table,
+		joinPredicates(predicates, "\t"),
+	)
+}
+
+// archiveMatchingStatement soft-deletes every unarchived row matching the given
+// predicates.
+//
+// It is archiveStatement without the id: the statement for "archive the comments
+// on this reference" rather than "archive this comment". A caller passing no
+// matches would get one that archives the table, which is why the bound builder
+// above it refuses an empty set rather than rendering this.
+func archiveMatchingStatement(table string, matches ...Match) string {
+	predicates := []string{fmt.Sprintf("%s IS NULL", ArchivedAtColumn)}
+	predicates = append(predicates, matchPredicates(table, false, matches)...)
+
+	return fmt.Sprintf("UPDATE %s SET\n\t%s = %s\nWHERE %s;",
+		table,
+		ArchivedAtColumn, NowExpression,
+		joinPredicates(predicates, "\t"),
+	)
+}
+
 func existsStatement(table string, columns []string, ownership string, extra ...Match) string {
 	return fmt.Sprintf("SELECT EXISTS (\n\tSELECT %s\n\tFROM %s\n\tWHERE %s\n);",
 		Qualify(table, IDColumn),
