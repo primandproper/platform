@@ -135,14 +135,13 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 ## Development
 
 ```bash
-make setup          # Install dev tools and vendor deps
+make setup          # Install dev tools and download deps
 make format         # Format all Go code (imports, field/tag alignment, gofmt)
 make lint           # Run golangci-lint (Docker) + shellcheck
 make test           # Run tests (race detector, shuffle, failfast)
 make build          # Build all packages
 make generate       # Regenerate moq mocks after changing a mocked interface
 make bench          # Run benchmarks
-make revendor       # Clean and re-vendor dependencies
 ```
 
 Formatting runs locally with `gci`, `goimports`, `betteralign`, `tagalign`, and `gofmt`. Linting runs in Docker against the `golangci/golangci-lint` image (42+ linters, golangci-lint v2 format).
