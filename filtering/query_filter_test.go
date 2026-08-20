@@ -1,6 +1,7 @@
 package filtering
 
 import (
+	"encoding/json"
 	"maps"
 	"net/http"
 	"net/url"
@@ -476,6 +477,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 				MaxResponseSize:    *qf.MaxResponseSize,
 				FilteredCount:      filteredCount,
 				TotalCount:         totalCount,
+				CountsKnown:        true,
 				AppliedQueryFilter: qf,
 			},
 		}
@@ -505,6 +507,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 				MaxResponseSize:    *qf.MaxResponseSize,
 				FilteredCount:      filteredCount,
 				TotalCount:         totalCount,
+				CountsKnown:        true,
 				AppliedQueryFilter: qf,
 			},
 		}
@@ -533,6 +536,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 				MaxResponseSize:    *qf.MaxResponseSize,
 				FilteredCount:      filteredCount,
 				TotalCount:         totalCount,
+				CountsKnown:        true,
 				AppliedQueryFilter: qf,
 			},
 		}
@@ -700,5 +704,216 @@ func TestNewQueryFilteredResult_cursorContract(T *testing.T) {
 
 		test.EqOp(t, "z", actual.PreviousCursor)
 		test.EqOp(t, "z", actual.Cursor)
+	})
+}
+
+func TestPagination_Counts(T *testing.T) {
+	T.Parallel()
+
+	T.Run("an answered pair comes back with the numbers", func(t *testing.T) {
+		t.Parallel()
+
+		p := &Pagination{FilteredCount: 5, TotalCount: 9, CountsKnown: true}
+
+		filtered, total, known := p.Counts()
+
+		test.True(t, known)
+		test.EqOp(t, uint64(5), filtered)
+		test.EqOp(t, uint64(9), total)
+	})
+
+	T.Run("an answered pair of zeroes is still an answer", func(t *testing.T) {
+		t.Parallel()
+
+		// The store ran its own COUNT and the collection is empty. This is the
+		// case CountsKnown exists to keep distinguishable from the next one.
+		p := &Pagination{CountsKnown: true}
+
+		filtered, total, known := p.Counts()
+
+		test.True(t, known)
+		test.Zero(t, filtered)
+		test.Zero(t, total)
+	})
+
+	T.Run("an unanswered pair reports nothing and vouches for nothing", func(t *testing.T) {
+		t.Parallel()
+
+		// The numbers are deliberately non-zero: whatever is sitting in the
+		// fields is not an answer, so it does not come back out.
+		p := &Pagination{FilteredCount: 5, TotalCount: 9}
+
+		filtered, total, known := p.Counts()
+
+		test.False(t, known)
+		test.Zero(t, filtered)
+		test.Zero(t, total)
+	})
+
+	T.Run("with nil value", func(t *testing.T) {
+		t.Parallel()
+
+		filtered, total, known := (*Pagination)(nil).Counts()
+
+		test.False(t, known)
+		test.Zero(t, filtered)
+		test.Zero(t, total)
+	})
+}
+
+func TestQueryFilter_ToPagination_countsAreNotAnswered(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		// A request has no counts on it, so the zeroes a fresh Pagination
+		// carries are the absence of an answer rather than one.
+		p := (&QueryFilter{Cursor: new(t.Name())}).ToPagination()
+
+		test.False(t, p.CountsKnown)
+
+		_, _, known := p.Counts()
+		test.False(t, known)
+	})
+
+	T.Run("with nil value", func(t *testing.T) {
+		t.Parallel()
+
+		test.False(t, (*QueryFilter)(nil).ToPagination().CountsKnown)
+	})
+}
+
+func TestNewQueryFilteredResultWithoutCounts(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{
+			Cursor:          new("a"),
+			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+		}
+
+		data := []*string{new("b"), new("c")}
+
+		expected := &QueryFilteredResult[string]{
+			Data: data,
+			Pagination: Pagination{
+				Cursor:             "c",
+				PreviousCursor:     "a",
+				MaxResponseSize:    *qf.MaxResponseSize,
+				AppliedQueryFilter: qf,
+			},
+		}
+
+		actual := NewQueryFilteredResultWithoutCounts(data, func(s *string) string { return *s }, qf)
+		test.Eq(t, expected, actual)
+	})
+
+	T.Run("the empty page it exists for", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{
+			Cursor:          new("z"),
+			MaxResponseSize: new(uint16(DefaultQueryFilterLimit)),
+		}
+
+		actual := NewQueryFilteredResultWithoutCounts([]*string{}, func(s *string) string { return *s }, qf)
+
+		test.EqOp(t, "", actual.Cursor)
+		test.EqOp(t, "z", actual.PreviousCursor)
+		test.False(t, actual.CountsKnown)
+
+		_, _, known := actual.Counts()
+		test.False(t, known)
+	})
+
+	T.Run("with nil filter", func(t *testing.T) {
+		t.Parallel()
+
+		actual := NewQueryFilteredResultWithoutCounts(
+			[]*string{new("a")}, func(s *string) string { return *s }, nil,
+		)
+
+		test.EqOp(t, "a", actual.Cursor)
+		test.EqOp(t, "", actual.PreviousCursor)
+		test.False(t, actual.CountsKnown)
+	})
+}
+
+func TestQueryFilteredResult_countsContract(T *testing.T) {
+	T.Parallel()
+
+	T.Run("supplied counts are an answer, empty page or not", func(t *testing.T) {
+		t.Parallel()
+
+		// The store that runs its own COUNT is entitled to say zero and mean it,
+		// which is why the constructor's contract is "the caller answered them"
+		// rather than "there were rows to read them off".
+		actual := NewQueryFilteredResult(
+			[]*string{}, 0, 0, func(s *string) string { return *s }, DefaultQueryFilter(),
+		)
+
+		filtered, total, known := actual.Counts()
+
+		test.True(t, known)
+		test.Zero(t, filtered)
+		test.Zero(t, total)
+	})
+
+	T.Run("the final page of a walk is not a count of zero", func(t *testing.T) {
+		t.Parallel()
+
+		// The failure the flag exists for, walked end to end: a store whose
+		// counts ride on the rows reports 5, 5, and then nothing at all. Read
+		// off the fields, the third page is indistinguishable from an empty
+		// collection; read through Counts, it declines to be one.
+		extract := func(s *string) string { return *s }
+
+		var pages []*QueryFilteredResult[string]
+
+		for _, data := range [][]*string{{new("a"), new("b")}, {new("c"), new("d")}} {
+			pages = append(pages, NewQueryFilteredResult(data, 5, 5, extract, DefaultQueryFilter()))
+		}
+
+		pages = append(pages, NewQueryFilteredResultWithoutCounts(nil, extract, DefaultQueryFilter()))
+
+		var reported []uint64
+
+		for _, page := range pages {
+			filtered, _, known := page.Counts()
+			if !known {
+				continue
+			}
+
+			reported = append(reported, filtered)
+		}
+
+		test.Eq(t, []uint64{5, 5}, reported)
+		test.EqOp(t, uint64(0), pages[2].FilteredCount)
+	})
+}
+
+func TestPagination_countsKnownOnTheWire(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		// The flag is only useful to a client that receives it, so the key it
+		// travels under is part of the contract rather than an implementation
+		// detail of the struct.
+		answered, err := json.Marshal(NewQueryFilteredResult(
+			[]*string{}, 0, 0, func(s *string) string { return *s }, DefaultQueryFilter(),
+		))
+		must.NoError(t, err)
+		test.StrContains(t, string(answered), `"countsKnown":true`)
+
+		unanswered, err := json.Marshal(NewQueryFilteredResultWithoutCounts(
+			[]*string{}, func(s *string) string { return *s }, DefaultQueryFilter(),
+		))
+		must.NoError(t, err)
+		test.StrContains(t, string(unanswered), `"countsKnown":false`)
 	})
 }

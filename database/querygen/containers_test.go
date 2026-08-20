@@ -494,10 +494,11 @@ func runWidgetSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sq
 		ids, filtered, total := listWidgets(t, ctx, d, db, values)
 
 		test.SliceEmpty(t, ids)
-		// Both counts ride on the rows, so an empty page carries neither. It is
-		// the caller who supplies the zero — which is why
-		// filtering.NewQueryFilteredResult takes the counts as arguments rather
-		// than reading them off the data.
+		// Both counts ride on the rows, so an empty page carries neither. These
+		// zeroes are the scan finding nothing to scan, not an answer: a caller
+		// turning this page into a response reports it with
+		// filtering.NewQueryFilteredResultWithoutCounts rather than passing the
+		// zeroes on as counts.
 		test.EqOp(t, int64(0), filtered)
 		test.EqOp(t, int64(0), total)
 

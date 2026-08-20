@@ -201,6 +201,24 @@ func TestNewResult(T *testing.T) {
 		test.Zero(t, actual.TotalCount)
 	})
 
+	T.Run("vouches for neither count", func(t *testing.T) {
+		t.Parallel()
+
+		// Nothing counted anything: the index says whether there is more, not how
+		// much. The fields keep the values a client already reads, and Counts is
+		// what declines to present them as answers.
+		actual := NewResult([]*exampleRow{{ID: "first"}}, textsearch.Cursor("more"), filtering.DefaultQueryFilter())
+
+		test.False(t, actual.CountsKnown)
+		test.EqOp(t, uint64(1), actual.FilteredCount)
+
+		filtered, total, known := actual.Counts()
+
+		test.False(t, known)
+		test.Zero(t, filtered)
+		test.Zero(t, total)
+	})
+
 	T.Run("with nil filter", func(t *testing.T) {
 		t.Parallel()
 

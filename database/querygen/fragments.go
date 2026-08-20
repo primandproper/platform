@@ -163,9 +163,13 @@ func (g *Generator) FilterConditions(table string, columns []string, conditions 
 // them. Including it would count the rows remaining after the cursor, and a total
 // that shrinks with every page is a progress bar that never fills.
 //
-// Because the count rides on the rows, a page with no rows carries no count. A
-// caller reporting counts for an empty page has to supply the zero itself, which
-// is what filtering.NewQueryFilteredResult taking them as arguments allows.
+// Because the count rides on the rows, a page with no rows carries no count —
+// and a caller must not report the resulting zero as one. Nothing distinguishes
+// it from "no rows match this filter", so a keyset walk that reports it sees
+// filtered_count go 5, 5, 0, and a client renders "0 results" on the page after
+// the last one. filtering.NewQueryFilteredResultWithoutCounts is what such a
+// caller returns instead; filtering.NewQueryFilteredResult is for the page that
+// had rows to scan the counts off.
 func (g *Generator) FilterCountSelect(table string, columns, joins []string, conditions ...string) string {
 	return countSelect("filtered_count", table, joins, g.filterPredicates(table, columns, conditions...))
 }
