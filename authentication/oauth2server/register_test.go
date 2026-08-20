@@ -3,11 +3,13 @@ package oauth2server_test
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/primandproper/platform-go/v12/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v12/authentication/oauth2server/memory"
 	platformerrors "github.com/primandproper/platform-go/v12/errors"
 
 	"github.com/shoenig/test"
@@ -255,6 +257,72 @@ func TestRegister_Policy(T *testing.T) {
 		// would tell the client its registration was wrong when it was not.
 		reg := h.register(map[string]any{"redirect_uris": []string{testRedirectURI}})
 		test.EqOp(t, http.StatusInternalServerError, reg.status)
+	})
+}
+
+// A deployment whose clients are administered elsewhere turns this endpoint
+// off, and what it turns off has to be the endpoint rather than one route to
+// it — the discovery document has already stopped naming it.
+func TestRegister_NotServed(T *testing.T) {
+	T.Parallel()
+
+	T.Run("the endpoint is not routed", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t, oauth2server.WithDynamicRegistration(false))
+
+		out := h.register(map[string]any{"redirect_uris": []string{testRedirectURI}})
+		test.EqOp(t, http.StatusNotFound, out.status)
+	})
+
+	T.Run("the handler refuses even where a deployment mounted it by hand", func(t *testing.T) {
+		t.Parallel()
+
+		server, err := oauth2server.NewServer(testIssuer, memory.NewStore(), &passwordAuthenticator{},
+			oauth2server.WithDynamicRegistration(false))
+		must.NoError(t, err)
+
+		mounted := httptest.NewServer(server.RegisterHandler())
+		t.Cleanup(mounted.Close)
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, mounted.URL,
+			strings.NewReader(`{"redirect_uris":["`+testRedirectURI+`"]}`))
+		must.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+
+		res, err := mounted.Client().Do(req)
+		must.NoError(t, err)
+		t.Cleanup(func() { _ = res.Body.Close() })
+
+		// Mount's own doc suggests mounting the handlers individually to rate
+		// limit this one, so a switch that only reached the router would leave
+		// exactly that deployment serving what its document says it does not
+		// have.
+		test.EqOp(t, http.StatusNotFound, res.StatusCode)
+		test.StrContains(t, readBody(t, res), oauth2server.ErrorCodeInvalidRequest)
+	})
+
+	T.Run("clients already in the store still sign people in", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t, oauth2server.WithDynamicRegistration(false))
+
+		// The case the switch is for: registrations minted by whatever
+		// administers them. Turning the endpoint off stops new ones being
+		// written; it does not un-register the ones that were.
+		reg := &registration{}
+		reg.ClientID, reg.ClientSecret = "seeded-client", "seeded-secret"
+
+		must.NoError(t, h.store.CreateClient(t.Context(), &oauth2server.Client{
+			CreatedAt:               time.Now().UTC(),
+			ID:                      reg.ClientID,
+			SecretHash:              oauth2server.Hash(reg.ClientSecret),
+			RedirectURIs:            []string{testRedirectURI},
+			TokenEndpointAuthMethod: oauth2server.AuthMethodClientBasic,
+		}))
+
+		tokens := h.exchange(reg)
+		test.NotEq(t, "", tokens.AccessToken)
 	})
 }
 

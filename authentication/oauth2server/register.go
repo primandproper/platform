@@ -57,12 +57,28 @@ type RegistrationResponse struct {
 //
 // What it cannot do from in here is rate limiting; see RegistrationPolicy for
 // why, and Server.Mount for where to put it.
+//
+// A server built with WithDynamicRegistration(false) answers 404 here instead
+// of registering anything, so that a deployment which mounted this handler by
+// hand — the way Mount's own doc suggests rate limiting it — cannot end up
+// serving the endpoint its discovery document says it does not have.
 func (s *Server) RegisterHandler() http.Handler {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		ctx, op := s.o11y.BeginCustom(req.Context(), operationName(endpointRegister))
 		defer s.end(ctx, op, endpointRegister, s.clock.Now())
 
 		s.ops.Attempt(ctx, metric.WithAttributes(attribute.String(endpointKey, endpointRegister)))
+
+		if !s.dynamicRegistration {
+			// Counted and recorded rather than silently dropped: a client still
+			// asking is a client working from a discovery document older than
+			// this deployment, which is worth being able to see.
+			writeProtocolError(res, s.fail(ctx, op, endpointRegister,
+				newProtocolError(http.StatusNotFound, ErrorCodeInvalidRequest,
+					"this authorization server does not serve dynamic client registration", ErrRegistrationNotServed)))
+
+			return
+		}
 
 		var request RegistrationRequest
 

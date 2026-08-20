@@ -213,6 +213,37 @@ func TestNewServer(T *testing.T) {
 		test.Nil(t, srv)
 	})
 
+	T.Run("carries the registration switch through", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Provider:                   ProviderMemory,
+			Issuer:                     "https://auth.example",
+			DisableDynamicRegistration: true,
+		}
+
+		srv, err := NewServer(t.Context(), cfg, nil, testAuthenticator)
+		must.NoError(t, err)
+
+		// The discovery document is where the switch is visible, and the
+		// endpoint being absent from it is the point: a deployment whose
+		// clients are administered elsewhere publishes no /register.
+		test.EqOp(t, "", srv.Metadata().RegistrationEndpoint)
+	})
+
+	T.Run("serves registration when nothing turned it off", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderMemory, Issuer: "https://auth.example"}
+
+		srv, err := NewServer(t.Context(), cfg, nil, testAuthenticator)
+		must.NoError(t, err)
+
+		// Spelled as a disable so that an unset environment is the protocol's
+		// own behavior rather than a server a client cannot register with.
+		test.EqOp(t, "https://auth.example"+oauth2server.PathRegister, srv.Metadata().RegistrationEndpoint)
+	})
+
 	T.Run("options passed through win over the config", func(t *testing.T) {
 		t.Parallel()
 
