@@ -1,7 +1,6 @@
 package querygen
 
 import (
-	"fmt"
 	"regexp"
 	"time"
 
@@ -34,9 +33,10 @@ var ErrUnboundableStatement = platformerrors.New("statement cannot be rendered a
 // sqlcArgument matches an argument reference in emitted SQL: the required and
 // nullable forms, and the set form that has no single rendering.
 //
-// The name alphabet admits '#' because that is how an expanded set element is
-// spelled — see BoundIDSet — and no identifier dialect.ValidIdentifier accepts
-// contains one, so the two cannot be confused.
+// The name alphabet admits '#' because sqlc's own expansion of a set synthesizes
+// one name per element, and a synthetic name has to be unmistakable for a real
+// one. No identifier dialect.ValidIdentifier accepts contains a '#', so the two
+// cannot collide.
 var sqlcArgument = regexp.MustCompile(`sqlc\.(n?arg|slice)\(([a-zA-Z0-9_#]+)\)`)
 
 // bindArguments rewrites a statement's sqlc argument references into d's bind
@@ -76,10 +76,12 @@ var sqlcArgument = regexp.MustCompile(`sqlc\.(n?arg|slice)\(([a-zA-Z0-9_#]+)\)`)
 // to parse.
 //
 // A set reference has no rendering at all: sqlc.slice is a macro sqlc expands
-// per call, because the arity belongs to the values. Reaching one here means a
-// Bound* method was written around a statement that needs BoundIDSet instead,
-// which is a programming error and says so the way the rest of this package
-// does.
+// per call, because the number of markers a set needs is not known until the
+// values are. None of the Bound* methods renders one — idSetPredicate is the
+// only fragment that does, and only off Postgres — so reaching one here means a
+// new Bound* method was written around a statement whose arity belongs to its
+// caller, and that method owes its caller a count. It is a programming error,
+// and says so the way the rest of this package does.
 func bindArguments(d dialect.Dialect, statement string) (sql string, args []string) {
 	ordinals := map[string]int{}
 
@@ -154,43 +156,6 @@ func (g *Generator) bound(statement string) Bound {
 	return Bound{SQL: sql, Args: args}
 }
 
-// BoundIDSet renders the id-set predicate for a known number of ids, along with
-// the argument names each placeholder stands for.
-//
-// It is separate from the rest because it is the one predicate whose placeholder
-// count depends on the values. Postgres takes the set as one array argument and
-// so renders the same text whatever the count; the others expand it to one
-// placeholder per element, and a statement rendered for three ids cannot be
-// executed with four. That is the same split idSetPredicate makes for the sqlc
-// path, where sqlc.slice is the macro doing the expanding — which is also why
-// this is a method rather than something boundBinder.slice could render: the
-// arity is the caller's and a binder is not told it.
-//
-// The placeholders it renders start at 1, so the set is the leading argument of
-// the statement it is spliced into — which for the read this exists for, "fetch
-// these ids", is the only argument. A caller putting it after another bound
-// argument renders a statement whose numbering starts over.
-//
-// Postgres matches with ANY over the bound array rather than with `=`, which
-// compares a text column against a text[] and is an error rather than an empty
-// result. The names of the expanded arguments carry a '#', which no identifier
-// dialect.ValidIdentifier accepts contains, so an element cannot collide with a
-// column bound in the same statement.
-func (g *Generator) BoundIDSet(table string, count int) (predicate string, args []string) {
-	id := Qualify(table, IDColumn)
-
-	if g.dialect == dialect.Postgres {
-		return fmt.Sprintf("%s = ANY(%s::text[])", id, g.dialect.Placeholder(1)), []string{IDsArg}
-	}
-
-	args = make([]string, 0, count)
-	for i := range count {
-		args = append(args, fmt.Sprintf("%s#%d", IDsArg, i))
-	}
-
-	return fmt.Sprintf("%s IN (%s)", id, g.dialect.Placeholders(1, count)), args
-}
-
 // Match is an equality predicate on one column, for a read keyed on something
 // other than the row's own id — comments on one reference, signups for one
 // waitlist.
@@ -221,21 +186,6 @@ type Match struct {
 // map by column and Bind puts the values where this dialect wants them.
 func (g *Generator) BoundList(table string, columns []string, matches ...Match) Bound {
 	return g.bound(g.listStatement(table, columns, "", matches...))
-}
-
-// BoundArchiveMatching renders the bulk archival a cascade needs: soft-delete
-// every unarchived row matching the given equality predicates.
-//
-// It has no id predicate, which is the point — this is the statement for
-// "archive the comments on this reference", not "archive this comment". A caller
-// that passes no matches gets a statement that archives the table, so the empty
-// set is refused rather than rendered.
-func (g *Generator) BoundArchiveMatching(table string, matches ...Match) (Bound, error) {
-	if len(matches) == 0 {
-		return Bound{}, platformerrors.Wrap(ErrUnboundableStatement, "querygen: archive with no matches would archive the table")
-	}
-
-	return g.bound(archiveMatchingStatement(table, matches)), nil
 }
 
 // The five Bound* statement builders below are the executable counterparts of

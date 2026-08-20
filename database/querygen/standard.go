@@ -424,28 +424,6 @@ func archiveStatement(table, ownership string, extra ...Match) string {
 	)
 }
 
-// archiveMatchingStatement is archiveStatement without the id predicate: the
-// bulk archival a cascade needs, keyed only on the matches it is given.
-//
-// It is here beside the statement it is a variant of rather than in bind.go,
-// because it renders sqlc argument references like every other builder in this
-// file and there is nothing driver-specific about it. Nothing emits it into a
-// .sql file today; BoundArchiveMatching is its only caller.
-func archiveMatchingStatement(table string, matches []Match) string {
-	// Unqualified: an UPDATE's WHERE carries no table qualifier, for the same
-	// reason singleRowPredicates drops one.
-	predicates := append(
-		[]string{fmt.Sprintf("%s IS NULL", ArchivedAtColumn)},
-		matchPredicates(table, false, matches)...,
-	)
-
-	return fmt.Sprintf("UPDATE %s SET\n\t%s = %s\nWHERE %s;",
-		table,
-		ArchivedAtColumn, NowExpression,
-		joinPredicates(predicates, "\t"),
-	)
-}
-
 // singleRowPredicates is the WHERE clause of a query addressing one row by id:
 // unarchived, matching id, and owned by the caller where that applies.
 //

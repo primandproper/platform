@@ -282,118 +282,6 @@ func TestGenerator_BoundList(T *testing.T) {
 	})
 }
 
-func TestGenerator_BoundArchiveMatching(T *testing.T) {
-	T.Parallel()
-
-	T.Run("archives every unarchived row the matches select", func(t *testing.T) {
-		t.Parallel()
-
-		for _, d := range everyDialect() {
-			got, err := For(d).BoundArchiveMatching(boundTable, Match{Column: BelongsToAccountColumn})
-
-			must.NoError(t, err, must.Sprintf("dialect %q", d))
-			test.Eq(t, []string{BelongsToAccountColumn}, got.Args, test.Sprintf("dialect %q", d))
-			test.StrContains(t, got.SQL, ArchivedAtColumn+" IS NULL", test.Sprintf("dialect %q", d))
-			test.StrNotContains(t, got.SQL, IDColumn+" = ", test.Sprintf("dialect %q", d))
-			assertMarkersMatchArgs(t, d, got)
-		}
-	})
-
-	T.Run("keys its WHERE without a table qualifier", func(t *testing.T) {
-		t.Parallel()
-
-		// An UPDATE's SET cannot carry one, and a WHERE that does while the SET
-		// does not is a parse error on MySQL rather than a style difference.
-		for _, d := range everyDialect() {
-			got, err := For(d).BoundArchiveMatching(boundTable, Match{Column: BelongsToAccountColumn})
-
-			must.NoError(t, err, must.Sprintf("dialect %q", d))
-			test.StrNotContains(t, got.SQL, Qualify(boundTable, BelongsToAccountColumn), test.Sprintf("dialect %q", d))
-		}
-	})
-
-	T.Run("refuses the empty match set", func(t *testing.T) {
-		t.Parallel()
-
-		// With no matches the only predicate left is archived_at IS NULL, which
-		// is every live row in the table.
-		for _, d := range everyDialect() {
-			got, err := For(d).BoundArchiveMatching(boundTable)
-
-			must.Error(t, err, must.Sprintf("dialect %q", d))
-			test.ErrorIs(t, err, ErrUnboundableStatement, test.Sprintf("dialect %q", d))
-			test.EqOp(t, "", got.SQL, test.Sprintf("dialect %q", d))
-		}
-	})
-}
-
-func TestGenerator_BoundIDSet(T *testing.T) {
-	T.Parallel()
-
-	T.Run("binds the whole set as one array on Postgres", func(t *testing.T) {
-		t.Parallel()
-
-		// ANY over a bound array rather than `=`, which compares a text column
-		// against a text[] and is an error rather than an empty result.
-		predicate, args := For(dialect.Postgres).BoundIDSet(boundTable, 3)
-
-		test.EqOp(t, Qualify(boundTable, IDColumn)+" = ANY($1::text[])", predicate)
-		test.Eq(t, []string{IDsArg}, args)
-	})
-
-	T.Run("renders the same text whatever the count, on Postgres", func(t *testing.T) {
-		t.Parallel()
-
-		first, _ := For(dialect.Postgres).BoundIDSet(boundTable, 1)
-		many, _ := For(dialect.Postgres).BoundIDSet(boundTable, 40)
-
-		test.EqOp(t, first, many)
-	})
-
-	T.Run("expands to one placeholder per id on the dialects without an array type", func(t *testing.T) {
-		t.Parallel()
-
-		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
-			predicate, args := For(d).BoundIDSet(boundTable, 3)
-
-			test.EqOp(t, Qualify(boundTable, IDColumn)+" IN (?, ?, ?)", predicate, test.Sprintf("dialect %q", d))
-			test.Eq(t, []string{"ids#0", "ids#1", "ids#2"}, args, test.Sprintf("dialect %q", d))
-		}
-	})
-
-	T.Run("names each expanded element unmistakably", func(t *testing.T) {
-		t.Parallel()
-
-		// No identifier dialect.ValidIdentifier accepts contains a '#', so an
-		// element cannot collide with a column bound in the same statement.
-		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
-			_, args := For(d).BoundIDSet(boundTable, 2)
-
-			for _, name := range args {
-				test.False(t, dialect.ValidIdentifier(name), test.Sprintf("dialect %q, argument %q", d, name))
-			}
-		}
-	})
-
-	T.Run("agrees with itself about how many arguments it wants", func(t *testing.T) {
-		t.Parallel()
-
-		for _, d := range everyDialect() {
-			for _, count := range []int{0, 1, 7} {
-				predicate, args := For(d).BoundIDSet(boundTable, count)
-
-				want := len(args)
-				if d == dialect.Postgres {
-					want = 1
-				}
-
-				test.EqOp(t, want, len(placeholder.FindAllString(predicate, -1)),
-					test.Sprintf("dialect %q, count %d", d, count))
-			}
-		}
-	})
-}
-
 func TestBindArguments(T *testing.T) {
 	T.Parallel()
 
@@ -464,9 +352,6 @@ func boundStatements(tb testing.TB, d dialect.Dialect) map[string]Bound {
 		owner   = Match{Column: BelongsToAccountColumn}
 	)
 
-	cascade, err := g.BoundArchiveMatching(boundTable, owner)
-	must.NoError(tb, err)
-
 	return map[string]Bound{
 		"create":  g.BoundCreate(boundTable, ForInsert(columns), []string{"name"}),
 		"get":     g.BoundGet(boundTable, columns, owner),
@@ -474,7 +359,6 @@ func boundStatements(tb testing.TB, d dialect.Dialect) map[string]Bound {
 		"update":  g.BoundUpdate(boundTable, columns, ForUpdate(columns, BelongsToAccountColumn), nil, owner),
 		"archive": g.BoundArchive(boundTable, owner),
 		"list":    g.BoundList(boundTable, columns, owner),
-		"cascade": cascade,
 	}
 }
 
@@ -523,9 +407,8 @@ func TestBoundStatements(T *testing.T) {
 					test.Sprintf("dialect %q, statement %q", d, name))
 			}
 
-			// And the two that address a set of rows have no id predicate at
-			// all, which is what makes them the cascade and the page.
-			test.SliceNotContains(t, statements["cascade"].Args, IDColumn, test.Sprintf("dialect %q", d))
+			// And the one that addresses a set of rows has no id predicate at
+			// all, which is what makes it a page rather than a read.
 			test.SliceNotContains(t, statements["list"].Args, IDColumn, test.Sprintf("dialect %q", d))
 		}
 	})

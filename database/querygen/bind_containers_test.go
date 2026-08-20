@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -55,22 +54,16 @@ type gadgetStatements struct {
 	update  Bound
 	archive Bound
 	list    Bound
-	cascade Bound
 }
 
-func gadgetsFor(tb testing.TB, d dialect.Dialect) (*Generator, *gadgetStatements) {
-	tb.Helper()
-
+func gadgetsFor(d dialect.Dialect) *gadgetStatements {
 	var (
 		g       = For(d)
 		columns = widgetsColumns()
 		owner   = Match{Column: BelongsToAccountColumn}
 	)
 
-	cascade, err := g.BoundArchiveMatching(gadgetsTable, owner)
-	must.NoError(tb, err)
-
-	return g, &gadgetStatements{
+	return &gadgetStatements{
 		create: g.BoundCreate(gadgetsTable, ForInsert(columns), nil),
 		get:    g.BoundGet(gadgetsTable, columns, owner),
 		exists: g.BoundExists(gadgetsTable, columns, owner),
@@ -80,7 +73,6 @@ func gadgetsFor(tb testing.TB, d dialect.Dialect) (*Generator, *gadgetStatements
 		update:  g.BoundUpdate(gadgetsTable, columns, ForUpdate(columns, BelongsToAccountColumn), nil, owner),
 		archive: g.BoundArchive(gadgetsTable, owner),
 		list:    g.BoundList(gadgetsTable, columns, owner),
-		cascade: cascade,
 	}
 }
 
@@ -92,7 +84,6 @@ func (s *gadgetStatements) all() map[string]Bound {
 		"update":  s.update,
 		"archive": s.archive,
 		"list":    s.list,
-		"cascade": s.cascade,
 	}
 }
 
@@ -203,7 +194,7 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 	_, err := db.ExecContext(ctx, conventionalDDL(d, gadgetsTable))
 	must.NoError(t, err)
 
-	g, statements := gadgetsFor(t, d)
+	statements := gadgetsFor(d)
 
 	t.Run("every bound statement is one the server accepts", func(t *testing.T) {
 		// Unlike the emitted statements, these need no rewriting first: what a
@@ -365,44 +356,5 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 
 		test.Eq(t, []string{"g_001", "g_002", "g_003", "g_004"}, ids)
 		test.EqOp(t, int64(4), filtered)
-	})
-
-	t.Run("the cascade archives a scope and leaves the others alone", func(t *testing.T) {
-		// Three live rows left in this scope, and the already-archived one is
-		// not counted again.
-		test.EqOp(t, int64(3), affectedRows(t, execBound(t, ctx, db, statements.cascade,
-			map[string]any{BelongsToAccountColumn: gadgetOwner})))
-
-		ids, filtered, _ := listGadgets(t, ctx, d, db, statements, gadgetOwner, nil)
-		test.SliceEmpty(t, ids)
-		test.EqOp(t, int64(0), filtered)
-
-		// The other account's row was never in the statement's reach.
-		ids, _, _ = listGadgets(t, ctx, d, db, statements, gadgetOther, nil)
-		test.Eq(t, []string{"g_005"}, ids)
-	})
-
-	t.Run("an id set reads exactly its members", func(t *testing.T) {
-		want := []string{"g_001", "g_003", "g_005"}
-
-		predicate, args := g.BoundIDSet(gadgetsTable, len(want))
-
-		// The set is the statement's only argument, which is what its
-		// placeholders being numbered from one assumes.
-		set := Bound{
-			SQL: fmt.Sprintf("SELECT %[1]s FROM %[2]s WHERE %[3]s ORDER BY %[1]s;",
-				Qualify(gadgetsTable, IDColumn), gadgetsTable, predicate),
-			Args: args,
-		}
-
-		values := map[string]any{IDsArg: want}
-		for i, id := range want {
-			values[fmt.Sprintf("%s#%d", IDsArg, i)] = id
-		}
-
-		arguments, bindErr := set.Bind(values)
-		must.NoError(t, bindErr)
-
-		test.Eq(t, want, scanIDs(t, ctx, db, set.SQL, arguments))
 	})
 }

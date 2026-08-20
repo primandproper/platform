@@ -124,9 +124,6 @@ time.DateTime spells rather than a time, and MySQL's LIMIT cannot
 coalesce so BindFilter supplies the default the other two coalesce to. Both are
 in BindFilter rather than in a caller for the same reason the SQL is here.
 
-The id set is the one predicate whose marker count depends on its values, so it
-is [Generator.BoundIDSet] and takes a count.
-
 # include_archived actually includes archived rows
 
 A filtered list's WHERE clause is FilterConditions in its entirety, not an
