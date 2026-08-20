@@ -38,6 +38,14 @@
 // full page and the final page carry an equally non-empty Cursor, and the
 // counts are what distinguish them.
 //
+// The counts, in turn, are answerable or not, and Pagination says which. A
+// store that counts by carrying the numbers along on the rows — so that the
+// page and the number describing it cannot come from two different moments —
+// has nothing to read them off when the page came back empty, and the zero it
+// would report is not "nothing matched" but "no row to carry the number on". A
+// caller walking a keyset to its end sees those two as the same 0. CountsKnown
+// separates them, and Counts is the read that cannot skip the question.
+//
 // Defaults and bounds apply to a filter however it arrived. Parsing one out of
 // query parameters is only the transport that has a parser here; Normalize is
 // the same rule for a filter decoded from anywhere else, and is what the
@@ -128,9 +136,39 @@ type (
 		// how the first page is recognized.
 		PreviousCursor string `json:"previousCursor"`
 
-		FilteredCount   uint64 `json:"filteredCount"`
-		TotalCount      uint64 `json:"totalCount"`
+		// FilteredCount is how many rows matched the filter and TotalCount how
+		// many were in scope regardless of it. Neither describes this page:
+		// they describe the collection it was cut from, which is why they do
+		// not shrink as a caller walks it.
+		//
+		// Both mean nothing unless CountsKnown is set. Counts is the accessor
+		// that hands them over with that fact attached.
+		FilteredCount uint64 `json:"filteredCount"`
+
+		TotalCount uint64 `json:"totalCount"`
+
 		MaxResponseSize uint16 `json:"maxResponseSize"`
+
+		// CountsKnown reports whether the counts above were answered at all.
+		//
+		// They are plain integers, so an unanswered pair reads as 0 and 0 —
+		// which is also what a collection with nothing in it reads as, and
+		// nothing else here tells those apart. A store whose counts ride along
+		// on the rows, handed a page that came back empty, has no row to read
+		// them off; a caller walking a keyset therefore sees FilteredCount go
+		// 5, 5, 0, and the last of those is not a result. A UI rendering "0
+		// results" off the final page of a walk is the obvious way to get this
+		// wrong, and it looks correct in every test that does not page to the
+		// end.
+		//
+		// False is the zero value, so a Pagination assembled as a literal
+		// vouches for nothing until it says otherwise, and ToPagination — which
+		// is built from a request, where there are no counts yet — leaves it
+		// alone. NewQueryFilteredResult sets it, because a caller that passed
+		// counts in has answered them. A caller with none to pass has
+		// NewQueryFilteredResultWithoutCounts rather than a zero that means
+		// something else.
+		CountsKnown bool `json:"countsKnown"`
 	}
 
 	// QueryFilter represents all the filters a User could apply to a list query.
@@ -457,6 +495,9 @@ func (qf *QueryFilter) ToValues() url.Values {
 // not know where the next page starts. NewQueryFilteredResult is what moves it
 // to PreviousCursor and fills Cursor from the data, so a Pagination built here
 // and returned directly reports the request rather than the result.
+//
+// It leaves CountsKnown false for the same reason: a request has no counts on
+// it, and the zeroes this returns are the absence of an answer rather than one.
 func (qf *QueryFilter) ToPagination() Pagination {
 	if qf == nil {
 		return DefaultQueryFilter().ToPagination()
@@ -494,11 +535,74 @@ func ExtractQueryFilterFromRequest(req *http.Request) (*QueryFilter, error) {
 	return qf, platformerrors.Join(err, qf.Normalize())
 }
 
-// NewQueryFilteredResult creates a new QueryFilteredResult.
+// Counts returns how many rows matched the filter, how many were in scope
+// regardless of it, and whether either number was answered at all.
+//
+// The third value is the reason this method exists. FilteredCount and
+// TotalCount are plain integers, so a caller reading them off the struct gets 0
+// and 0 whether the collection is empty or the counts were never answered, and
+// has no prompt to wonder which. Taking them from here makes that a value the
+// caller has to name, and an unanswered pair comes back as zeroes rather than
+// as whatever happens to be sitting in the fields.
+//
+// A nil Pagination has no counts, like every other nil in this package.
+func (p *Pagination) Counts() (filtered, total uint64, known bool) {
+	if p == nil || !p.CountsKnown {
+		return 0, 0, false
+	}
+
+	return p.FilteredCount, p.TotalCount, true
+}
+
+// NewQueryFilteredResult creates a new QueryFilteredResult from a page and the
+// counts describing the collection it was cut from.
+//
+// Passing the counts in is the caller answering them, so the result reports
+// CountsKnown. That is the contract of this constructor rather than an
+// inference from the data: a store that ran its own COUNT knows the collection
+// holds nothing and says 0 to mean it, and the empty page it returns alongside
+// must not read as an unanswered one.
+//
+// A caller that cannot answer them — a store whose counts ride along on the
+// rows, handed a page with no rows — has NewQueryFilteredResultWithoutCounts,
+// and should reach for it rather than passing 0 to mean "no idea".
 func NewQueryFilteredResult[T any](
 	data []*T,
 	filteredCount,
 	totalCount uint64,
+	idExtractor func(*T) string,
+	filter *QueryFilter,
+) *QueryFilteredResult[T] {
+	return newQueryFilteredResult(data, filteredCount, totalCount, true, idExtractor, filter)
+}
+
+// NewQueryFilteredResultWithoutCounts creates a QueryFilteredResult for a
+// caller with no counts to report, leaving CountsKnown false.
+//
+// The page, the cursors and the applied filter are assembled exactly as
+// NewQueryFilteredResult assembles them; only the two numbers are withheld. It
+// is for the store that reads its counts off the rows — the shape
+// database/querygen emits, where both counts are scalar subqueries in the
+// SELECT list so that the page and the numbers describing it come from one
+// statement at one moment. That store has nothing to scan when the page comes
+// back empty, and this is how it says so instead of reporting a zero the caller
+// would read as "there are none".
+func NewQueryFilteredResultWithoutCounts[T any](
+	data []*T,
+	idExtractor func(*T) string,
+	filter *QueryFilter,
+) *QueryFilteredResult[T] {
+	return newQueryFilteredResult(data, 0, 0, false, idExtractor, filter)
+}
+
+// newQueryFilteredResult is the assembly both constructors share, so the cursor
+// contract — which cursor is echoed, which is derived, and what an empty page
+// does to each — is written once and cannot come to differ between them.
+func newQueryFilteredResult[T any](
+	data []*T,
+	filteredCount,
+	totalCount uint64,
+	countsKnown bool,
 	idExtractor func(*T) string,
 	filter *QueryFilter,
 ) *QueryFilteredResult[T] {
@@ -509,6 +613,7 @@ func NewQueryFilteredResult[T any](
 
 	x.FilteredCount = filteredCount
 	x.TotalCount = totalCount
+	x.CountsKnown = countsKnown
 	x.AppliedQueryFilter = filter
 
 	// Preserve the input cursor as PreviousCursor before overwriting with next cursor

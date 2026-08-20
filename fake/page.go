@@ -28,6 +28,10 @@ func BuildFakePage[T any](build func() *T) *filtering.QueryFilteredResult[T] {
 // reports n filtered and n total, which is what a caller reading the response would
 // conclude. A test about a page that is a window onto something larger sets the counts
 // it means.
+//
+// They are marked known, because a fake page is one that was answered. A test whose
+// subject is the other case — a store that had no row to read its counts off — wants
+// filtering.NewQueryFilteredResultWithoutCounts rather than this.
 func BuildFakePageOfSize[T any](size int, build func() *T) *filtering.QueryFilteredResult[T] {
 	data := make([]*T, 0, size)
 	for range size {
@@ -41,6 +45,7 @@ func BuildFakePageOfSize[T any](size int, build func() *T) *filtering.QueryFilte
 			MaxResponseSize: filtering.DefaultQueryFilterLimit,
 			FilteredCount:   uint64(size),
 			TotalCount:      uint64(size),
+			CountsKnown:     true,
 		},
 	}
 }

@@ -68,6 +68,14 @@ func NewResult[T any](data []*T, next textsearch.Cursor, filter *filtering.Query
 	// token back, not the last row's ID.
 	result := filtering.NewQueryFilteredResult(data, uint64(len(data)), 0, func(*T) string { return "" }, filter)
 
+	// Nothing counted anything, so the pair is marked unknown. The fields keep the
+	// values they have always carried, since a client reading them off the response
+	// today should keep seeing what it saw; what changes is that
+	// filtering.Pagination.Counts declines to vouch for them. That is the honest
+	// report from an index that says whether there is more rather than how much —
+	// the page size is how many rows came back, not how many matched it.
+	result.CountsKnown = false
+
 	// A zero cursor is how the index says the result set is exhausted and an empty
 	// Pagination.Cursor is how we say it, so the two line up without translation.
 	// Note that this is the end of the results, not a short page — a backend can

@@ -187,6 +187,9 @@
           "appliedQueryFilter": {
             "$ref": "#/components/schemas/FilteringQueryFilter"
           },
+          "countsKnown": {
+            "type": "boolean"
+          },
           "cursor": {
             "type": "string"
           },

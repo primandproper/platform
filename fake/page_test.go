@@ -26,6 +26,14 @@ func TestBuildFakePage(T *testing.T) {
 		test.EqOp(t, uint64(DefaultPageSize), actual.FilteredCount)
 		test.EqOp(t, uint16(filtering.DefaultQueryFilterLimit), actual.MaxResponseSize)
 
+		// A fake page is one that was answered, so its counts read as counts
+		// rather than as the absence of any.
+		filtered, total, known := actual.Counts()
+
+		test.True(t, known)
+		test.EqOp(t, uint64(DefaultPageSize), filtered)
+		test.EqOp(t, uint64(DefaultPageSize), total)
+
 		// Every element comes from its own call, rather than from one value repeated.
 		test.NotEqOp(t, actual.Data[0].ID, actual.Data[1].ID)
 	})
@@ -54,5 +62,11 @@ func TestBuildFakePage(T *testing.T) {
 		must.NotNil(t, actual)
 		test.SliceEmpty(t, actual.Data)
 		test.EqOp(t, uint64(0), actual.TotalCount)
+
+		// A page of none is a page that counted none, not one that could not
+		// count. The two are the same zero on the field and different answers
+		// from Counts.
+		_, _, known := actual.Counts()
+		test.True(t, known)
 	})
 }
