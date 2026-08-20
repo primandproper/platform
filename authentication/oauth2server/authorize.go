@@ -37,6 +37,12 @@ type authorizeRequest struct {
 // the PKCE challenge from the same bytes the GET was checked against. Carrying
 // them across in hidden form fields instead would mean the request that issues
 // the code is not the request that was validated.
+//
+// Where the method stops mattering is the optional SubjectResolver, which is
+// asked on both before either the form or the SubjectAuthenticator. A request
+// that already proves who its resource owner is — a session cookie, a bearer
+// token — redirects with a code whichever verb it arrived on, so a client with
+// nothing to type is not made to POST to say so.
 func (s *Server) AuthorizeHandler() http.Handler {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		ctx, op := s.o11y.BeginCustom(req.Context(), operationName(endpointAuthorize))
@@ -68,6 +74,22 @@ func (s *Server) AuthorizeHandler() http.Handler {
 		// own pending request.
 		if perr = s.validateAuthorizeRequest(req, authorized); perr != nil {
 			s.redirectError(res, req, authorized, s.fail(ctx, op, endpointAuthorize, perr))
+
+			return
+		}
+
+		// Consulted before the method is looked at, so a request that already
+		// carries proof of who its owner is never meets a form — and a client
+		// with nothing to type never has to POST an empty body to say so.
+		resolved, perr := s.resolveSubject(ctx, req)
+		if perr != nil {
+			s.redirectError(res, req, authorized, s.fail(ctx, op, endpointAuthorize, perr))
+
+			return
+		}
+
+		if resolved != nil {
+			s.issueCode(ctx, op, res, req, authorized, *resolved)
 
 			return
 		}
@@ -107,6 +129,41 @@ func (s *Server) AuthorizeHandler() http.Handler {
 
 		s.issueCode(ctx, op, res, req, authorized, *subject)
 	})
+}
+
+// resolveSubject asks the optional SubjectResolver whether this request
+// already carries proof of who its resource owner is.
+//
+// A nil resolver, and a resolver answering (nil, nil), both mean the same
+// thing to the handler — carry on to the form — which is what keeps a Server
+// built without one behaving exactly as it did before.
+//
+// An error is never rendered as a form. The resolver's caller is by
+// construction something that presented a credential rather than something
+// with a field to type in, so the answer to a refused one is the redirect that
+// ends the attempt, not a page it cannot use.
+func (s *Server) resolveSubject(ctx context.Context, req *http.Request) (*Subject, *protocolError) {
+	if s.resolver == nil {
+		return nil, nil
+	}
+
+	subject, err := s.resolver.ResolveSubject(ctx, req)
+	if err != nil {
+		return nil, newProtocolError(http.StatusInternalServerError, ErrorCodeServerError,
+			"could not resolve the resource owner", err)
+	}
+
+	if subject != nil && subject.ID == "" {
+		// The same refusal the authenticator path makes, for the same reason:
+		// a token whose subject is the empty string authorizes whoever the
+		// resource server decides the empty string is. A resolver that meant
+		// to decline says so with a nil Subject.
+		return nil, newProtocolError(http.StatusInternalServerError, ErrorCodeServerError,
+			"could not resolve the resource owner",
+			platformerrors.Wrap(ErrLoginFailed, "resolved subject has no identifier"))
+	}
+
+	return subject, nil
 }
 
 // resolveAuthorizeRequest reads the parameters that decide where an error may

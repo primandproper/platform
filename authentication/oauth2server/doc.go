@@ -24,9 +24,9 @@ Two things, and they are the two this package must not decide.
 
 A SubjectAuthenticator says who the human at /authorize is. One deployment
 checks a username, an argon2 password, and a TOTP code against its own identity
-repository; another already has a session cookie; another delegates to a
-corporate identity provider. There is no default, because a default would be a
-server that issues authorization codes to whoever asks.
+repository; another delegates to a corporate identity provider. There is no
+default, because a default would be a server that issues authorization codes to
+whoever asks.
 
 A Subject says what a token means. ID is the "sub"; Claims is whatever the
 resource server needs beside it — an account identifier, a tenant, a role — and
@@ -36,10 +36,32 @@ Everything else has a default, the login form included: see DefaultLoginRenderer
 for a plain page that works with no stylesheet and no assets, and
 WithLoginRenderer for replacing it.
 
+# The resource owner who is already signed in
+
+A form is the right answer for a browser and the wrong one for everything else.
+A first-party application holding a session cookie, a CLI holding a token, a
+service exchanging one credential for another — none of them has anything to
+type, and the only thing they can do with a login page is fail to parse it.
+
+WithSubjectResolver registers a seam consulted before the form is rendered and
+before SubjectAuthenticator is asked, on GET and POST alike. A request carrying
+proof of who its owner is redirects with an authorization code; a request
+carrying none, or one the resolver does not recognize, gets the form exactly as
+before. A Server built without one is unchanged.
+
+Two mechanisms, two seams, rather than one method that inspects the request and
+forks. Which of "presented a credential" and "typed a password" wins is a
+protocol question — the answer here is that proof already held wins — and
+folding both into SubjectAuthenticator leaves every deployment to answer it
+again, slightly differently, in application code. It also removes the reason a
+machine client had to POST: an empty body sent to a URL whose parameters are all
+in the query string was never anything but an artifact of where the seam was.
+
 # The endpoints
 
 	GET  /.well-known/oauth-authorization-server   RFC 8414 discovery
-	GET  /authorize                                the login form
+	GET  /authorize                                the login form, or a code for an
+	                                               already-authenticated owner
 	POST /authorize                                authenticate, issue a code
 	POST /token                                    authorization_code, refresh_token
 	POST /register                                 RFC 7591 dynamic registration
