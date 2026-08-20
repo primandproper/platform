@@ -518,6 +518,37 @@ func TestBoundBinder_slice(T *testing.T) {
 	})
 }
 
+func TestBoundBinder_resolve(T *testing.T) {
+	T.Parallel()
+
+	T.Run("refuses a statement whose sentinels do not pair up", func(t *testing.T) {
+		t.Parallel()
+
+		// Sentinels are written in pairs, so an odd one means an identifier
+		// carried a NUL past dialect.ValidIdentifier. Reading on would take the
+		// SQL either side of it for an argument name and shift every argument
+		// after it — a statement that binds a limit where a cursor belongs, and
+		// runs.
+		for _, d := range everyDialect() {
+			b := boundBinder{dialect: d}
+
+			err := recovered(func() { _, _ = b.resolve("SELECT " + boundSentinel + IDColumn) })
+
+			must.Error(t, err, must.Sprintf("dialect %q", d))
+			test.ErrorIs(t, err, ErrUnboundableStatement, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("leaves a statement with no arguments alone", func(t *testing.T) {
+		t.Parallel()
+
+		sql, args := boundBinder{dialect: dialect.Postgres}.resolve("SELECT 1;")
+
+		test.EqOp(t, "SELECT 1;", sql)
+		test.SliceEmpty(t, args)
+	})
+}
+
 func TestBound_Bind(T *testing.T) {
 	T.Parallel()
 

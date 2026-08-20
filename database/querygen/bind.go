@@ -115,9 +115,11 @@ func (boundBinder) narg(name string) string { return boundSentinel + name + boun
 // returning the statement a driver takes and the argument each marker stands
 // for, in order.
 func (b boundBinder) resolve(statement string) (sql string, args []string) {
-	// An even-length split means an unterminated sentinel, which takes a table
-	// or column name carrying a NUL — one dialect.ValidIdentifier rejects, and
-	// one that would otherwise silently shift every argument after it.
+	// Sentinels are written in pairs, so a well-formed statement always splits
+	// into an odd number of parts. An even one means an unterminated sentinel —
+	// reachable only through an identifier carrying a NUL, which
+	// dialect.ValidIdentifier rejects — and everything below would read the SQL
+	// either side of it as an argument name and shift every argument after it.
 	parts := strings.Split(statement, boundSentinel)
 	if len(parts)%2 == 0 {
 		panic(platformerrors.Wrap(ErrUnboundableStatement, "querygen: unterminated argument reference"))
@@ -256,15 +258,12 @@ func (g *Generator) BoundIDSet(table string, count int) (predicate string, args 
 		return fmt.Sprintf("%s = ANY(%s::text[])", id, g.dialect.Placeholder(1)), []string{IDsArg}
 	}
 
-	placeholders := make([]string, 0, count)
 	args = make([]string, 0, count)
-
 	for i := range count {
-		placeholders = append(placeholders, g.dialect.Placeholder(i+1))
 		args = append(args, fmt.Sprintf("%s#%d", IDsArg, i))
 	}
 
-	return fmt.Sprintf("%s IN (%s)", id, strings.Join(placeholders, ", ")), args
+	return fmt.Sprintf("%s IN (%s)", id, g.dialect.Placeholders(1, count)), args
 }
 
 // Match is an equality predicate on one column, for a read keyed on something
