@@ -310,27 +310,32 @@ func (s *Server) refreshRotationError(
 		"could not rotate the refresh token", err)
 }
 
-// revokeFamily revokes a token family and records why.
+// revokeFamily revokes a token family and records why, reporting how many
+// records went with it.
 //
 // Best-effort by design: the caller is refusing the request either way, and a
 // store that cannot write leaves a family live that should not be — which is
 // worth a recorded error and not worth turning a 400 into a 500 the client
-// would retry.
-func (s *Server) revokeFamily(ctx context.Context, op observability.Operation, familyID, reason string) {
+// would retry. The count is zero both for a family that was already gone and
+// for a store that could not be written, which is what /revoke's observer has
+// to tell a real revocation from a no-op.
+func (s *Server) revokeFamily(ctx context.Context, op observability.Operation, familyID, reason string) int64 {
 	if familyID == "" {
-		return
+		return 0
 	}
 
 	revoked, err := s.store.RevokeFamily(ctx, familyID)
 	if err != nil {
 		op.Acknowledge(err, "revoking token family after %s", reason)
 
-		return
+		return 0
 	}
 
 	s.revocations.Add(ctx, revoked)
 	op.Set(familyIDKey, familyID).Set(revokedKey, revoked)
 	op.Logger().WithValue(familyIDKey, familyID).WithValue(revokedKey, revoked).Info(reason)
+
+	return revoked
 }
 
 // recordCodeReplay notes that an authorization code was presented twice.

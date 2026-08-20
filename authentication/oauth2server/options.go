@@ -65,6 +65,7 @@ type (
 
 		loginRenderer      LoginRenderer
 		registrationPolicy RegistrationPolicy
+		revocationObserver RevocationObserver
 
 		serviceDocumentation string
 
@@ -76,21 +77,23 @@ type (
 		refreshTTL      time.Duration
 		registrationTTL time.Duration
 
-		detectRefreshReuse bool
+		detectRefreshReuse  bool
+		dynamicRegistration bool
 	}
 )
 
 // newServerOptions applies opts over the defaults, ignoring nil entries.
 func newServerOptions(opts []Option) *serverOptions {
 	o := &serverOptions{
-		clock:              clock.NewClock(),
-		loginRenderer:      DefaultLoginRenderer,
-		registrationPolicy: DefaultRegistrationPolicy,
-		codeTTL:            DefaultAuthorizationCodeTTL,
-		accessTTL:          DefaultAccessTokenTTL,
-		refreshTTL:         DefaultRefreshTokenTTL,
-		registrationTTL:    DefaultClientRegistrationTTL,
-		detectRefreshReuse: true,
+		clock:               clock.NewClock(),
+		loginRenderer:       DefaultLoginRenderer,
+		registrationPolicy:  DefaultRegistrationPolicy,
+		codeTTL:             DefaultAuthorizationCodeTTL,
+		accessTTL:           DefaultAccessTokenTTL,
+		refreshTTL:          DefaultRefreshTokenTTL,
+		registrationTTL:     DefaultClientRegistrationTTL,
+		detectRefreshReuse:  true,
+		dynamicRegistration: true,
 	}
 
 	for _, opt := range opts {
@@ -212,6 +215,48 @@ func WithRegistrationPolicy(policy RegistrationPolicy) Option {
 	return func(o *serverOptions) {
 		if policy != nil {
 			o.registrationPolicy = policy
+		}
+	}
+}
+
+// WithDynamicRegistration sets whether this server serves RFC 7591 dynamic
+// client registration. On by default.
+//
+// It is on by default because a client that discovered this server at runtime
+// holds no pre-registered identifier, and registration is what it does about
+// that. Turning it off is a deployment saying its clients are administered
+// somewhere else — created through a permission-gated API, seeded by a
+// migration — for which an anonymous endpoint writing to the same client table
+// is a way around those permissions rather than a second way into them.
+//
+// It turns the endpoint off in all three places at once, which is the whole
+// reason it is one switch and not a router decision: Mount and Handler stop
+// routing /register, RegisterHandler answers 404 to a deployment that mounted
+// it by hand, and Metadata omits registration_endpoint. The document naming an
+// endpoint that 404s is the failure the metadata is written to avoid with the
+// sign flipped — and naming it as an empty string would be worse still, since a
+// client resolving "" against the issuer gets this server's root.
+//
+// What it does not touch is the clients already in the store. Turning
+// registration off stops new ones being minted; it does not un-register the
+// ones that were.
+func WithDynamicRegistration(serve bool) Option {
+	return func(o *serverOptions) { o.dynamicRegistration = serve }
+}
+
+// WithRevocationObserver attaches the callback /revoke reports a real
+// revocation to. A nil observer leaves whatever was already set in place.
+//
+// It is the one piece of information that endpoint deliberately withholds from
+// the client and that the deployment legitimately needs: RFC 7009 requires the
+// same empty 200 whether a token was revoked or was never there, so a consumer
+// that wants to emit its own "this user signed out" event cannot tell the two
+// apart from the outside. See RevocationObserver for when it is called and what
+// it must not do.
+func WithRevocationObserver(observer RevocationObserver) Option {
+	return func(o *serverOptions) {
+		if observer != nil {
+			o.revocationObserver = observer
 		}
 	}
 }

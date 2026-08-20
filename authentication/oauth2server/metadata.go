@@ -32,11 +32,17 @@ const (
 // token endpoint as an error the client's author has no reason to expect. The
 // map-backed examples advertise client_secret_post from an endpoint that reads
 // no secret, which is exactly this failure with the sign flipped.
+//
+// RegistrationEndpoint is the one field here that can be absent rather than
+// merely empty, and it is spelled omitempty for a reason an empty string cannot
+// carry: a server built with WithDynamicRegistration(false) does not serve
+// /register, and a client that resolved "" against the issuer would get this
+// server's root rather than learning the endpoint is not there.
 type AuthorizationServerMetadata struct {
 	Issuer                            string   `json:"issuer"`
 	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
 	TokenEndpoint                     string   `json:"token_endpoint"`
-	RegistrationEndpoint              string   `json:"registration_endpoint"`
+	RegistrationEndpoint              string   `json:"registration_endpoint,omitempty"`
 	RevocationEndpoint                string   `json:"revocation_endpoint"`
 	ServiceDocumentation              string   `json:"service_documentation,omitempty"`
 	ScopesSupported                   []string `json:"scopes_supported,omitempty"`
