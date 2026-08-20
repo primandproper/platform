@@ -178,7 +178,17 @@ func (s *Server) grantAuthorizationCode(
 			"code_verifier does not match the code_challenge", ErrPKCEVerificationFailed)
 	}
 
-	family := newFamilyID()
+	// The family came with the code, minted at /authorize so that a replay of
+	// this code can name what it issued. A code carrying none was written by
+	// something other than this server — a hand-built record, or a row from
+	// before the column existed — and gets one now: an empty family is not a
+	// family, and issuing a pair under it would put every such token in one
+	// group that RevokeFamily then refuses to touch.
+	family := code.FamilyID
+	if family == "" {
+		family = newFamilyID()
+	}
+
 	op.Set(familyIDKey, family).Set(scopeKey, joinScopes(code.Scopes))
 
 	response, err := s.issueTokenPair(ctx, client.ID, family,
@@ -199,14 +209,11 @@ func (s *Server) codeRedemptionError(
 	err error,
 ) *protocolError {
 	if stderrors.Is(err, ErrAlreadyRedeemed) {
-		// RFC 6749 §4.1.2: a code presented twice should revoke the tokens it
-		// previously issued. Either the client is retrying — in which case it
-		// has a token pair it is about to stop using — or somebody else has the
-		// code, and the tokens from the first redemption are the ones at risk.
-		//
-		// What that comes to here is recording it rather than revoking, and
-		// recordCodeReplay says why.
-		s.recordCodeReplay(ctx, op, code)
+		// RFC 6749 §4.1.2: a code presented twice revokes the tokens it
+		// previously issued. Whoever won the race to redeem it holds a pair
+		// that whoever lost was supposed to have, and the replay is the only
+		// place this server ever hears that there were two of them.
+		s.handleCodeReplay(ctx, op, code)
 
 		return newProtocolError(http.StatusBadRequest, ErrorCodeInvalidGrant,
 			"authorization code has already been redeemed", err)
@@ -333,22 +340,28 @@ func (s *Server) revokeFamily(ctx context.Context, op observability.Operation, f
 	op.Logger().WithValue(familyIDKey, familyID).WithValue(revokedKey, revoked).Info(reason)
 }
 
-// recordCodeReplay notes that an authorization code was presented twice.
+// handleCodeReplay revokes what a twice-presented authorization code issued,
+// and records that it happened.
 //
-// RFC 6749 §4.1.2 says a replayed code SHOULD revoke what it previously
-// issued, and this deliberately does not. A code carries no family identifier
-// — the family is minted at redemption — so there is nothing here to revoke
-// by. The available alternative is "every token for this subject and client",
-// which would sign a user out of every other device over one replayed code,
-// and the overwhelmingly common cause of a replayed code is a browser that
-// retried a request.
+// The family is on the code, minted at /authorize, which is what makes this
+// possible at all: the replay hands back the record, the record names the
+// family, and the family is exactly the pair the first redemption minted.
 //
-// What is left is the counter and the log line, and they are not nothing: a
-// replay is either a client bug or somebody holding a code they should not,
-// and oauth2server_refresh_reuse_detected is where both show up. The tokens
-// the first redemption issued expire on the access token's own short
-// lifetime, which is one of the things that lifetime is short for.
-func (s *Server) recordCodeReplay(ctx context.Context, op observability.Operation, code *AuthorizationCode) {
+// Unlike refresh reuse this has no switch, and the asymmetry is the argument
+// for it. WithRefreshReuseDetection exists because a client that loses the
+// response to a rotation and retries revokes a session it is in the middle of
+// using — a real cost, paid by a client nobody can fix. A replayed code cannot
+// cost that: a client that received the pair has nothing to retry, so a client
+// presenting the code again is one that never got what the code minted, and
+// what is revoked is a pair nobody is holding. The recovery is a fresh
+// /authorize, which the client just came from.
+//
+// A code with no family is left alone rather than revoked by an empty
+// identifier, which would be a predicate matching every token that also names
+// none. The counter and the log line still happen: a replay is either a client
+// bug or somebody holding a code they should not, and
+// oauth2server_refresh_reuse_detected is where both show up.
+func (s *Server) handleCodeReplay(ctx context.Context, op observability.Operation, code *AuthorizationCode) {
 	if code == nil {
 		return
 	}
@@ -356,6 +369,8 @@ func (s *Server) recordCodeReplay(ctx context.Context, op observability.Operatio
 	s.reuseDetected.Add(ctx, 1)
 	op.Set(clientIDKey, code.ClientID)
 	op.Logger().WithValue(clientIDKey, code.ClientID).Info("authorization code replayed")
+
+	s.revokeFamily(ctx, op, code.FamilyID, "authorization code replay detected")
 }
 
 // audienceFor renders the audience an access token carries for a set of

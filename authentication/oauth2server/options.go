@@ -160,6 +160,11 @@ func WithClientRegistrationTTL(ttl time.Duration) Option {
 // switch exists because the failure mode has a cost — a client that loses the
 // response to a refresh and retries revokes its own session — and a deployment
 // with a client it cannot fix may need to weigh that.
+//
+// It governs refresh tokens only. A replayed authorization code always revokes
+// its family, because the cost this switch exists to weigh does not arise
+// there: a client that received the token pair has nothing to retry, so a
+// replayed code revokes a pair nobody is holding.
 func WithRefreshReuseDetection(detect bool) Option {
 	return func(o *serverOptions) { o.detectRefreshReuse = detect }
 }

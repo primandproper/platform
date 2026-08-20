@@ -178,6 +178,18 @@ type AuthorizationCode struct {
 
 	ClientID string
 
+	// FamilyID is the token family this code will mint, minted here at
+	// /authorize rather than at the redemption that uses it.
+	//
+	// The timing is the whole point. RFC 6749 §4.1.2 says a code presented a
+	// second time should revoke what the first presentation issued, and a
+	// family decided at redemption is one a replay cannot name: the record
+	// comes back with ErrAlreadyRedeemed carrying everything about the code
+	// except the one field that says which tokens to revoke. Deciding it here
+	// costs an identifier for a code that is never redeemed and makes the
+	// replay actionable.
+	FamilyID string
+
 	// RedirectURI is the one the authorization request nominated, re-checked at
 	// the token endpoint. A code issued for one URI cannot be redeemed by
 	// naming another.

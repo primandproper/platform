@@ -19,6 +19,12 @@ CREATE INDEX IF NOT EXISTS {{PREFIX}}oauth2_clients_expires_at_idx
 CREATE TABLE IF NOT EXISTS {{PREFIX}}oauth2_authorization_codes (
     hash            TEXT PRIMARY KEY,
     client_id       TEXT NOT NULL,
+    -- The family this code will mint, decided at /authorize rather than at the
+    -- redemption that uses it, so that a code presented a second time names the
+    -- tokens the first presentation issued. Deliberately not indexed, unlike the
+    -- family_id on the two token tables: nothing ever selects codes by family —
+    -- the column is read back with the code its hash already found.
+    family_id       TEXT NOT NULL,
     redirect_uri    TEXT NOT NULL,
     code_challenge  TEXT NOT NULL,
     nonce           TEXT NOT NULL,

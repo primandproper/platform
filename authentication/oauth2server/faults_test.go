@@ -215,6 +215,27 @@ func TestServer_StoreFailures(T *testing.T) {
 		test.EqOp(t, oauth2server.ErrorCodeInvalidGrant, out.Error)
 	})
 
+	T.Run("a replayed code whose family cannot be revoked is still refused", func(t *testing.T) {
+		t.Parallel()
+
+		faults := newFaultStore()
+		h := newStoreHarness(t, faults)
+
+		reg := h.registerConfidential()
+		code := h.codeFrom(h.authorize(authorizeParams(reg.ClientID), login()))
+
+		must.EqOp(t, http.StatusOK, h.redeem(reg, code).status)
+
+		faults.breaks(methodRevokeFamily, errStoreDown)
+
+		// Best effort here for the same reason it is on the refresh path: the
+		// replay is refused either way, and a 500 is an invitation to retry
+		// with the same spent code.
+		out := h.redeem(reg, code)
+		test.EqOp(t, http.StatusBadRequest, out.status)
+		test.EqOp(t, oauth2server.ErrorCodeInvalidGrant, out.Error)
+	})
+
 	T.Run("/register answers 500 when the registration cannot be stored", func(t *testing.T) {
 		t.Parallel()
 

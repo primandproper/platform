@@ -140,10 +140,10 @@ func TestStore_UndecodableColumns(T *testing.T) {
 		now := time.Now().UTC()
 
 		_, err := store.db.Writer().ExecContext(ctx,
-			"INSERT INTO oauth2_authorization_codes (hash, client_id, redirect_uri, "+
+			"INSERT INTO oauth2_authorization_codes (hash, client_id, family_id, redirect_uri, "+
 				"code_challenge, nonce, subject_id, subject_claims, scopes, resources, "+
-				"issued_at, expires_at, redeemed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			"corrupt", "x", "", "", "", "user_1", "{}", "nope", "[]", now, now.Add(time.Hour), nil)
+				"issued_at, expires_at, redeemed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"corrupt", "x", "fam", "", "", "", "user_1", "{}", "nope", "[]", now, now.Add(time.Hour), nil)
 		must.NoError(t, err)
 
 		got, err := store.ConsumeAuthorizationCode(ctx, "corrupt")
