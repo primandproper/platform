@@ -89,3 +89,47 @@ func TestWithTracerProvider(T *testing.T) {
 		test.Nil(t, o.tracerProvider)
 	})
 }
+
+func TestWithMaxReceiveMessageSize(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the receive bound", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithMaxReceiveMessageSize(1 << 20)})
+
+		must.NotNil(t, o)
+		test.EqOp(t, 1<<20, o.maxReceiveMessageSize)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithMaxReceiveMessageSize(1 << 20), WithMaxReceiveMessageSize(2 << 20)})
+
+		must.NotNil(t, o)
+		test.EqOp(t, 2<<20, o.maxReceiveMessageSize)
+	})
+}
+
+func TestWithMaxSendMessageSize(T *testing.T) {
+	T.Parallel()
+
+	T.Run("sets the send bound", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithMaxSendMessageSize(1 << 20)})
+
+		must.NotNil(t, o)
+		test.EqOp(t, 1<<20, o.maxSendMessageSize)
+	})
+
+	T.Run("last option wins", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{WithMaxSendMessageSize(1 << 20), WithMaxSendMessageSize(2 << 20)})
+
+		must.NotNil(t, o)
+		test.EqOp(t, 2<<20, o.maxSendMessageSize)
+	})
+}
