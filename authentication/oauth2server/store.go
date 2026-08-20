@@ -68,7 +68,9 @@ type Store interface {
 	// ErrAlreadyRedeemed. The record is not a courtesy: RFC 6749 §4.1.2 says a
 	// replayed code should revoke what it previously issued, and the caller
 	// cannot find those tokens without knowing which family the code belongs
-	// to.
+	// to. AuthorizationCode.FamilyID is that field, which is why it is on the
+	// code rather than only on the tokens — an implementation that drops it
+	// leaves the replay detectable and unanswerable.
 	ConsumeAuthorizationCode(ctx context.Context, hash string) (*AuthorizationCode, error)
 
 	// CreateAccessToken records an issued access token.

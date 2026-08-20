@@ -76,6 +76,44 @@ func TestServer_Mount(T *testing.T) {
 		}
 	})
 
+	T.Run("leaves the registration route unmounted when registration is not served", func(t *testing.T) {
+		t.Parallel()
+
+		router := newTestRouter(t)
+
+		server, err := oauth2server.NewServer(testIssuer, memory.NewStore(), &passwordAuthenticator{},
+			oauth2server.WithDynamicRegistration(false))
+		must.NoError(t, err)
+
+		server.Mount(router)
+		must.NoError(t, router.Err())
+
+		mounted := httptest.NewServer(router.Handler())
+		t.Cleanup(mounted.Close)
+
+		for _, tc := range []struct {
+			path   string
+			status int
+		}{
+			// Not routed at all, which is what the discovery document now says
+			// by leaving registration_endpoint out.
+			{oauth2server.PathRegister, http.StatusNotFound},
+
+			// The other five untouched: this switch turns off one endpoint, not
+			// the server.
+			{oauth2server.PathRevoke, http.StatusUnauthorized},
+		} {
+			req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodPost, mounted.URL+tc.path, http.NoBody)
+			must.NoError(t, reqErr)
+
+			res, doErr := mounted.Client().Do(req)
+			must.NoError(t, doErr)
+			must.NoError(t, res.Body.Close())
+
+			test.EqOp(t, tc.status, res.StatusCode)
+		}
+	})
+
 	T.Run("runs the middleware it was given", func(t *testing.T) {
 		t.Parallel()
 

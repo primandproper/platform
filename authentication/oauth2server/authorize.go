@@ -286,11 +286,18 @@ func (s *Server) issueCode(
 
 	now := s.now()
 
+	// The family is decided here rather than at the redemption that uses it,
+	// so that a code presented twice names the tokens the first presentation
+	// issued. See AuthorizationCode.FamilyID.
+	family := newFamilyID()
+	op.Set(familyIDKey, family)
+
 	code := &AuthorizationCode{
 		IssuedAt:      now,
 		ExpiresAt:     now.Add(s.codeTTL),
 		Hash:          digest,
 		ClientID:      authorized.client.ID,
+		FamilyID:      family,
 		RedirectURI:   authorized.redirectURI,
 		CodeChallenge: authorized.codeChallenge,
 		Nonce:         authorized.nonce,

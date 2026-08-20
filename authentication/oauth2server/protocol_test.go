@@ -538,6 +538,92 @@ func TestToken_RefreshReuse(T *testing.T) {
 	})
 }
 
+// RFC 6749 §4.1.2: a code presented twice revokes what it previously issued.
+// This is the same threat refresh reuse detection answers, one step earlier —
+// whoever wins the race to /token keeps a token pair, and the loser's replay is
+// the only signal that there were two of them.
+func TestToken_CodeReplay(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a replayed authorization code revokes the pair it issued", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t)
+		reg := h.registerConfidential()
+
+		code := h.codeFrom(h.authorize(authorizeParams(reg.ClientID), login()))
+
+		// The attacker won the race, or the client did — from here they are
+		// the same thing, and this is the pair at risk either way.
+		tokens := h.redeem(reg, code)
+		must.EqOp(t, http.StatusOK, tokens.status)
+
+		// Usable up to here, so what the replay does below is a revocation
+		// rather than a token that never worked.
+		_, err := h.server.Authenticate(t.Context(), tokens.AccessToken)
+		must.NoError(t, err)
+
+		replayed := h.redeem(reg, code)
+		test.EqOp(t, http.StatusBadRequest, replayed.status)
+		test.EqOp(t, oauth2server.ErrorCodeInvalidGrant, replayed.Error)
+
+		// Refusing the second redemption was never the hard part: the code is
+		// spent atomically, so it was already refused. What the family on the
+		// code buys is this — the pair the first redemption minted goes too.
+		_, err = h.server.Authenticate(t.Context(), tokens.AccessToken)
+		test.ErrorIs(t, err, oauth2server.ErrNotFound)
+
+		afterwards := h.token(reg.ClientID, reg.ClientSecret, url.Values{
+			"grant_type":    {oauth2server.GrantTypeRefreshToken},
+			"refresh_token": {tokens.RefreshToken},
+		})
+		test.EqOp(t, http.StatusBadRequest, afterwards.status)
+	})
+
+	T.Run("turning refresh reuse detection off does not turn this off", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t, oauth2server.WithRefreshReuseDetection(false))
+		reg := h.registerConfidential()
+
+		code := h.codeFrom(h.authorize(authorizeParams(reg.ClientID), login()))
+
+		tokens := h.redeem(reg, code)
+		must.EqOp(t, http.StatusOK, tokens.status)
+
+		must.EqOp(t, http.StatusBadRequest, h.redeem(reg, code).status)
+
+		// That switch is there because a client that loses the response to a
+		// rotation and retries revokes a session it is using. A replayed code
+		// cannot cost that — a client holding the pair has nothing to retry —
+		// so the switch does not reach this.
+		_, err := h.server.Authenticate(t.Context(), tokens.AccessToken)
+		test.ErrorIs(t, err, oauth2server.ErrNotFound)
+	})
+
+	T.Run("one authorization's family does not reach another's", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t)
+		reg := h.registerConfidential()
+
+		first := h.exchange(reg)
+
+		code := h.codeFrom(h.authorize(authorizeParams(reg.ClientID), login()))
+		second := h.redeem(reg, code)
+		must.EqOp(t, http.StatusOK, second.status)
+
+		must.EqOp(t, http.StatusBadRequest, h.redeem(reg, code).status)
+
+		// The family is minted per authorization, so replaying the second
+		// login's code does not sign the user out of the first one. A family
+		// derived from the subject and client instead would.
+		access, err := h.server.Authenticate(t.Context(), first.AccessToken)
+		must.NoError(t, err)
+		test.NotNil(t, access)
+	})
+}
+
 func TestAuthorize_ScopesAndResources(T *testing.T) {
 	T.Parallel()
 

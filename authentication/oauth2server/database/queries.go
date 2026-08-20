@@ -28,8 +28,8 @@ const (
 	clientColumns = "id, secret_hash, name, redirect_uris, grant_types, response_types, scopes, " +
 		"token_endpoint_auth_method, created_at, expires_at"
 
-	codeColumns = "hash, client_id, redirect_uri, code_challenge, nonce, subject_id, subject_claims, " +
-		"scopes, resources, issued_at, expires_at, redeemed_at"
+	codeColumns = "hash, client_id, family_id, redirect_uri, code_challenge, nonce, subject_id, " +
+		"subject_claims, scopes, resources, issued_at, expires_at, redeemed_at"
 
 	accessColumns = "hash, client_id, family_id, subject_id, subject_claims, scopes, audience, " +
 		"issued_at, expires_at, revoked_at"
@@ -195,7 +195,7 @@ func buildDeleteClient(d dialect.Dialect, table, clientID string) (query string,
 
 // buildInsertCode renders an issued authorization code.
 func buildInsertCode(d dialect.Dialect, table string, c *oauth2server.AuthorizationCode) (query string, args []any) {
-	const columns = 12
+	const columns = 13
 
 	query = fmt.Sprintf("INSERT %sINTO %s (%s) VALUES (%s)",
 		ignorePrefix(d), table, codeColumns, d.Placeholders(1, columns))
@@ -205,7 +205,7 @@ func buildInsertCode(d dialect.Dialect, table string, c *oauth2server.Authorizat
 	}
 
 	return query, []any{
-		c.Hash, c.ClientID, c.RedirectURI, c.CodeChallenge, c.Nonce, c.Subject.ID,
+		c.Hash, c.ClientID, c.FamilyID, c.RedirectURI, c.CodeChallenge, c.Nonce, c.Subject.ID,
 		encodeClaims(c.Subject.Claims), encodeStrings(c.Scopes), encodeStrings(c.Resources),
 		c.IssuedAt.UTC(), c.ExpiresAt.UTC(), nullableTime(c.RedeemedAt),
 	}

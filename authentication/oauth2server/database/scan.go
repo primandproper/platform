@@ -73,6 +73,7 @@ func scanCode(row database.Scanner) (*oauth2server.AuthorizationCode, error) {
 	if err := row.Scan(
 		&code.Hash,
 		&code.ClientID,
+		&code.FamilyID,
 		&code.RedirectURI,
 		&code.CodeChallenge,
 		&code.Nonce,

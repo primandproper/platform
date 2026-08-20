@@ -275,6 +275,7 @@ func runAuthorizationCodeCases(t *testing.T, newStore Factory) {
 		must.NotNil(t, got)
 
 		test.EqOp(t, code.ClientID, got.ClientID)
+		test.EqOp(t, code.FamilyID, got.FamilyID)
 		test.EqOp(t, code.RedirectURI, got.RedirectURI)
 		test.EqOp(t, code.CodeChallenge, got.CodeChallenge)
 		test.EqOp(t, code.Nonce, got.Nonce)
@@ -304,6 +305,11 @@ func runAuthorizationCodeCases(t *testing.T, newStore Factory) {
 		must.NotNil(t, replayed)
 		test.EqOp(t, code.ClientID, replayed.ClientID)
 		test.EqOp(t, code.Subject.ID, replayed.Subject.ID)
+
+		// And the family with it, which is the field the revocation is by. A
+		// store that dropped it would satisfy every other case here and leave
+		// the replay detectable and unanswerable.
+		test.EqOp(t, code.FamilyID, replayed.FamilyID)
 	})
 
 	t.Run("an absent code is ErrNotFound", func(t *testing.T) {
@@ -980,6 +986,7 @@ func newCode(offset time.Duration) *oauth2server.AuthorizationCode {
 		ExpiresAt:     now.Add(offset),
 		Hash:          oauth2server.Hash(unique("code")),
 		ClientID:      unique("client"),
+		FamilyID:      unique("family"),
 		RedirectURI:   "https://client.example/callback",
 		CodeChallenge: oauth2server.S256Challenge(unique("verifier")),
 		Nonce:         unique("nonce"),

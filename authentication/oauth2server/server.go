@@ -29,13 +29,14 @@ const serviceName = "oauth2server"
 // deployment owns: SubjectAuthenticator, the optional SubjectResolver, and
 // LoginRenderer.
 type Server struct {
-	store         Store
-	authenticator SubjectAuthenticator
-	resolver      SubjectResolver
-	renderer      LoginRenderer
-	policy        RegistrationPolicy
-	clock         clockReader
-	o11y          observability.Observer
+	store              Store
+	authenticator      SubjectAuthenticator
+	resolver           SubjectResolver
+	renderer           LoginRenderer
+	policy             RegistrationPolicy
+	revocationObserver RevocationObserver
+	clock              clockReader
+	o11y               observability.Observer
 
 	ops *metrics.OperationSet
 
@@ -56,7 +57,8 @@ type Server struct {
 	refreshTTL      time.Duration
 	registrationTTL time.Duration
 
-	detectRefreshReuse bool
+	detectRefreshReuse  bool
+	dynamicRegistration bool
 }
 
 // clockReader is the sliver of clock.Clock this server uses. Naming it keeps
@@ -98,6 +100,7 @@ func NewServer(issuer string, store Store, authenticator SubjectAuthenticator, o
 		resolver:             o.subjectResolver,
 		renderer:             o.loginRenderer,
 		policy:               o.registrationPolicy,
+		revocationObserver:   o.revocationObserver,
 		clock:                o.clock,
 		o11y:                 observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 		issuer:               normalized,
@@ -109,6 +112,7 @@ func NewServer(issuer string, store Store, authenticator SubjectAuthenticator, o
 		refreshTTL:           o.refreshTTL,
 		registrationTTL:      o.registrationTTL,
 		detectRefreshReuse:   o.detectRefreshReuse,
+		dynamicRegistration:  o.dynamicRegistration,
 	}
 
 	if s.ops, err = metrics.NewOperationSet(o.metricsProvider, serviceName); err != nil {
@@ -146,14 +150,22 @@ func (s *Server) Issuer() string { return s.issuer }
 //
 // It is derived rather than configured, so what it advertises and what the
 // endpoints do cannot disagree: the auth methods listed are the ones /token
-// verifies, the grant types are the ones it implements, and S256 is the only
-// challenge method because it is the only one VerifyPKCE accepts.
+// verifies, the grant types are the ones it implements, S256 is the only
+// challenge method because it is the only one VerifyPKCE accepts, and
+// registration_endpoint is absent entirely from a server built with
+// WithDynamicRegistration(false), which is the one field here a deployment can
+// turn off.
 func (s *Server) Metadata() AuthorizationServerMetadata {
+	registrationEndpoint := ""
+	if s.dynamicRegistration {
+		registrationEndpoint = s.issuer + PathRegister
+	}
+
 	return AuthorizationServerMetadata{
 		Issuer:                 s.issuer,
 		AuthorizationEndpoint:  s.issuer + PathAuthorize,
 		TokenEndpoint:          s.issuer + PathToken,
-		RegistrationEndpoint:   s.issuer + PathRegister,
+		RegistrationEndpoint:   registrationEndpoint,
 		RevocationEndpoint:     s.issuer + PathRevoke,
 		ServiceDocumentation:   s.serviceDocumentation,
 		ScopesSupported:        slices.Clone(s.scopes),
@@ -185,8 +197,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET "+PathAuthorize, s.AuthorizeHandler())
 	mux.Handle("POST "+PathAuthorize, s.AuthorizeHandler())
 	mux.Handle("POST "+PathToken, s.TokenHandler())
-	mux.Handle("POST "+PathRegister, s.RegisterHandler())
 	mux.Handle("POST "+PathRevoke, s.RevokeHandler())
+
+	// Absent rather than answering 404 from the handler, so that the routes
+	// this returns are the routes the discovery document names.
+	if s.dynamicRegistration {
+		mux.Handle("POST "+PathRegister, s.RegisterHandler())
+	}
 
 	return mux
 }
@@ -202,14 +219,22 @@ func (s *Server) Handler() http.Handler {
 //
 // The middleware slot is how a deployment rate limits /register, which is the
 // one endpoint here that an anonymous caller can write rows through. To limit
-// only that one, mount the handlers individually rather than calling this.
+// only that one, mount the handlers individually rather than calling this — and
+// a deployment that does not want the endpoint at all says so with
+// WithDynamicRegistration(false), which takes it out of the discovery document
+// as well as off the router.
 func (s *Server) Mount(r *routing.Router, middleware ...routing.Middleware) {
 	r.Handle(http.MethodGet, PathAuthorizationServerMetadata, s.MetadataHandler(), middleware...)
 	r.Handle(http.MethodGet, PathAuthorize, s.AuthorizeHandler(), middleware...)
 	r.Handle(http.MethodPost, PathAuthorize, s.AuthorizeHandler(), middleware...)
 	r.Handle(http.MethodPost, PathToken, s.TokenHandler(), middleware...)
-	r.Handle(http.MethodPost, PathRegister, s.RegisterHandler(), middleware...)
 	r.Handle(http.MethodPost, PathRevoke, s.RevokeHandler(), middleware...)
+
+	// Not routed at all under WithDynamicRegistration(false); see Metadata,
+	// which stops naming it in the same breath.
+	if s.dynamicRegistration {
+		r.Handle(http.MethodPost, PathRegister, s.RegisterHandler(), middleware...)
+	}
 }
 
 // MetadataHandler serves the RFC 8414 discovery document.

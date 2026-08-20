@@ -242,6 +242,47 @@ type RegistrationPolicy interface {
 	AllowRegistration(ctx context.Context, req *RegistrationRequest) error
 }
 
+// RevocationObserver is told what a /revoke request actually revoked.
+//
+// It is a function rather than an interface because there is nothing for a
+// deployment to implement here: this is a notification, and the only thing an
+// interface would add is a type to declare somewhere.
+//
+// # When it is called
+//
+// After a revocation that removed something, with the subject the record
+// belonged to and the family it was part of. Never for a token that was already
+// gone, never for a token belonging to another client, and never when the store
+// refused the write — RFC 7009 §2.2 requires the same empty 200 in all of those
+// cases, and this is the difference the response cannot carry.
+//
+// Revoking a refresh token takes its whole family, so this is called once for
+// the family rather than once per record. Revoking an access token names the
+// family it belonged to, which is still live: an access token revocation is not
+// a sign-out, and a consumer that treats it as one will emit an event for a
+// session that is still going.
+//
+// What does not reach it is a revocation this server decided on: the family
+// killed by refresh token reuse detection, or by a refresh token presented by
+// the wrong client. Those are not sign-outs — reporting them through the same
+// callback would have a deployment logging "user signed out" for a theft — and
+// they are already visible as oauth2server_refresh_reuse_detected and a
+// recorded operation.
+//
+// # What it must not do
+//
+// Block. It runs inline, on the request goroutine, before the 200 is written,
+// so a slow observer is a slow sign-out; a deployment publishing a message
+// should hand it to whatever it already has for that rather than waiting on a
+// broker from in here. The context is the request's, so it is cancelled the
+// moment the client hangs up.
+//
+// A panic is recovered and recorded rather than allowed to take down the
+// request: the records are already gone by the time this runs, and a failing
+// analytics callback must not turn a sign-out that succeeded into a 500 the
+// client retries.
+type RevocationObserver func(ctx context.Context, subject Subject, familyID string)
+
 // RegistrationPolicyFunc adapts a function to RegistrationPolicy.
 type RegistrationPolicyFunc func(ctx context.Context, req *RegistrationRequest) error
 

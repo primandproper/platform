@@ -72,6 +72,20 @@ http.Handler for a caller not using routing. The seventh document — RFC 9728
 protected resource metadata — is emitted by the resource server, which is not
 necessarily this process, so it is a separate mountable thing: ResourceMetadata.
 
+/register is the one of the six a deployment can turn off, for one whose clients
+are administered somewhere else — created through a permission-gated API, seeded
+by a migration — and for which an anonymous endpoint writing to the same client
+table would be a way around those permissions. WithDynamicRegistration(false)
+takes it off the router and out of the discovery document in the same breath,
+because a document naming an endpoint that 404s is the failure the document
+exists to avoid.
+
+/revoke answers the same empty 200 whether it revoked a session or was handed a
+token nobody ever issued — RFC 7009 §2.2 requires that, so a client cannot use
+it to find out which tokens exist. A deployment often needs to know anyway, to
+emit its own "this user signed out" event, and asks with WithRevocationObserver
+rather than by inspecting a response that deliberately carries nothing.
+
 # The decision with the most reach: what an access token is
 
 An access token here is opaque, and every resource-server request that carries
@@ -148,6 +162,17 @@ Refresh tokens rotate and reuse is detected. Rotation alone is bookkeeping: the
 replayed token is refused and the copy the attacker is using keeps working, so
 the theft leaves one failed request and no other trace. What makes it worth
 doing is that a replay revokes the whole family — see RefreshToken.FamilyID.
+
+A replayed authorization code revokes its family too, which is RFC 6749 §4.1.2
+and is the same threat one step earlier: whoever wins the race to /token keeps a
+token pair, and the loser's replay is the only signal that there were two of
+them. It works because the family is minted at /authorize and carried on the
+code — see AuthorizationCode.FamilyID — rather than at the redemption, which
+would leave a replay detectable and unanswerable. Unlike refresh reuse it has no
+switch: WithRefreshReuseDetection exists because a client that loses the response
+to a rotation and retries revokes a session it is using, and a replayed code
+cannot cost that — a client that received the pair has nothing to retry, so what
+is revoked is a pair nobody is holding.
 
 # What it does not implement
 

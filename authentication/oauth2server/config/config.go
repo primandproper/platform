@@ -105,6 +105,19 @@ type Config struct {
 	// login attempt and every anonymous registration.
 	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
 
+	// DisableDynamicRegistration stops this server serving RFC 7591 dynamic
+	// client registration: /register is not routed, and the discovery document
+	// leaves registration_endpoint out rather than naming an endpoint that
+	// answers 404.
+	//
+	// It is spelled as a disable rather than an enable so that an unset
+	// environment produces the protocol's own behavior — a client that
+	// discovered this server at runtime can register. Turn it off for a
+	// deployment whose clients are administered elsewhere, where an anonymous
+	// endpoint writing to the same client table is a way around whatever
+	// administers them.
+	DisableDynamicRegistration bool `env:"DISABLE_DYNAMIC_REGISTRATION" json:"disableDynamicRegistration,omitempty" yaml:"disableDynamicRegistration,omitempty"`
+
 	// DisableRefreshReuseDetection turns off revoking a token family when an
 	// already-redeemed refresh token is presented.
 	//
@@ -267,6 +280,7 @@ func (cfg *Config) serverOptions(o *options) []oauth2server.Option {
 		oauth2server.WithRefreshTokenTTL(cfg.RefreshTokenTTL),
 		oauth2server.WithClientRegistrationTTL(cfg.ClientRegistrationTTL),
 		oauth2server.WithRefreshReuseDetection(!cfg.DisableRefreshReuseDetection),
+		oauth2server.WithDynamicRegistration(!cfg.DisableDynamicRegistration),
 		oauth2server.WithServiceDocumentation(cfg.ServiceDocumentation),
 		oauth2server.WithScopes(cfg.Scopes...),
 		oauth2server.WithResources(cfg.Resources...),
