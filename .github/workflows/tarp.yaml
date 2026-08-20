@@ -41,21 +41,17 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      # No `make vendor` here, unlike the mutation and coverage jobs: tarp loads
-      # the module through go/packages against the module cache, so an absent
-      # vendor/ is not the inconsistent-vendoring failure it is for those two.
-      #
       # An analysis is almost entirely go/packages loading the module, and what
       # that costs is decided by the Go build cache: 3m20s against a cold one,
       # 4s against a warm one. setup-go's cache does not serve it — that one is
-      # keyed on go.sum and shared with the jobs that build against vendor/,
-      # whose entries this run cannot reuse, which is why the first run here
-      # took three minutes with a 1.16GB cache restored. A GOCACHE of its own is
-      # what keeps the job under a minute.
+      # keyed on go.sum and shared with every other job, whose entries this run
+      # cannot reuse, which is why the first run here took three minutes with a
+      # 1.16GB cache restored. A GOCACHE of its own is what keeps the job under
+      # a minute.
       #
-      # Restore and save are separate steps, as in mutation.yaml: actions/cache
-      # saves only on success, and the run most in need of a warm cache is the
-      # one that failed.
+      # Restore and save are separate steps: actions/cache saves only on
+      # success, and the run most in need of a warm cache is the one that
+      # failed.
       - name: Restore the tarp build cache
         id: gocache
         uses: actions/cache/restore@v4
