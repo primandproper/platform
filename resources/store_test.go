@@ -3,6 +3,7 @@ package resources_test
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"testing"
 
 	"github.com/primandproper/platform-go/v12/database"
@@ -217,6 +218,49 @@ func TestStore_Archive(T *testing.T) {
 		}
 	})
 
+	T.Run("a cascade larger than a page reports every row it archived", func(t *testing.T) {
+		t.Parallel()
+
+		store, seen := newCommentStore(t)
+		ctx := t.Context()
+
+		// One row past the page the doomed set is read in. The archival is a
+		// single unlimited UPDATE, so a set read that stopped at the page
+		// boundary archived these last rows and told no hook — which is an audit
+		// log short by exactly the overflow, and nothing that would say so.
+		const total = filtering.MaxQueryFilterLimit + 1
+
+		for i := range total {
+			_, err := store.Create(ctx, tenancy.Global(), resources.System(),
+				comment(strconv.Itoa(i), "recipe_overflow", "user_alice"))
+			must.NoError(t, err)
+		}
+
+		mark := seen.mark()
+
+		matches := []resources.Match{
+			resources.By("target_type", "recipes"),
+			resources.By("referenced_id", "recipe_overflow"),
+		}
+
+		must.NoError(t, store.ArchiveMatching(ctx, tenancy.Global(), resources.System(), matches...))
+
+		test.SliceLen(t, total, seen.since(mark))
+
+		remaining, err := store.List(ctx, tenancy.Global(), resources.System(), nil, matches...)
+		must.NoError(t, err)
+		test.SliceLen(t, 0, remaining.Data)
+
+		// Every id exactly once: a walk that re-read a page would report a row
+		// twice, which is the other way a cursor loop goes wrong.
+		reported := map[string]int{}
+		for _, change := range seen.since(mark) {
+			reported[change.ID]++
+		}
+
+		test.MapLen(t, total, reported)
+	})
+
 	T.Run("a cascade needs matches rather than archiving the table", func(t *testing.T) {
 		t.Parallel()
 
@@ -274,6 +318,52 @@ func TestStore_List(T *testing.T) {
 		)
 		must.NoError(t, err)
 		test.SliceLen(t, 1, page.Data)
+	})
+
+	T.Run("a page with no rows vouches for no counts", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newCommentStore(t)
+
+		// The counts are scalar subqueries in the SELECT list, so they arrive on
+		// the rows. A page with no rows scanned neither, and reporting the
+		// resulting zeroes would be indistinguishable from "no rows match" — a
+		// keyset walk to the end would see FilteredCount go 5, 5, 0 and render
+		// "0 results" on the page after the last one.
+		page, err := store.List(t.Context(), tenancy.Global(), alice(), nil,
+			resources.By("target_type", "recipes"),
+			resources.By("referenced_id", "no_such_reference"),
+		)
+		must.NoError(t, err)
+
+		test.SliceLen(t, 0, page.Data)
+		test.False(t, page.CountsKnown)
+
+		filtered, total, known := page.Counts()
+		test.False(t, known)
+		test.EqOp(t, uint64(0), filtered)
+		test.EqOp(t, uint64(0), total)
+	})
+
+	T.Run("a page with rows reports the counts it scanned off them", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newCommentStore(t)
+		ctx := t.Context()
+
+		_, err := store.Create(ctx, tenancy.Global(), alice(), comment("a", "recipe_counted", "user_alice"))
+		must.NoError(t, err)
+
+		page, err := store.List(ctx, tenancy.Global(), alice(), nil,
+			resources.By("target_type", "recipes"),
+			resources.By("referenced_id", "recipe_counted"),
+		)
+		must.NoError(t, err)
+
+		filtered, total, known := page.Counts()
+		test.True(t, known)
+		test.EqOp(t, uint64(1), filtered)
+		test.EqOp(t, uint64(1), total)
 	})
 
 	T.Run("an undeclared match set is refused rather than scanned", func(t *testing.T) {

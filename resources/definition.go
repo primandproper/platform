@@ -41,6 +41,30 @@ var (
 	// value for the column it names — see Column.accepts.
 	ErrMatchTypeMismatch = platformerrors.New("match value does not fit the column")
 
+	// ErrLookupOnPredicateColumn indicates a Lookup naming a column the store
+	// already binds a predicate on: the tenancy scope, or an owner that gates
+	// reads.
+	//
+	// A match set is bound into the same argument map the scope and the owner
+	// were bound into, keyed by column name, so a lookup on one of those columns
+	// binds the caller's value where the gate's value was. The statement still
+	// carries the predicate and still looks correct; it simply compares against
+	// whatever the read asked for. That is a tenant reading another tenant's
+	// rows by naming them, and an actor reading another actor's private rows by
+	// naming them.
+	//
+	// It is refused where the lookup is declared rather than where the match
+	// arrives, because a declaration is the only way a match set reaches a
+	// statement — listFor and archiveMatchingFor both refuse a set no Lookup
+	// declared. Catching it at construction means the resource that could have
+	// leaked never exists, rather than existing until someone calls it the wrong
+	// way.
+	//
+	// An owner that gates only writes is not affected: its reads carry no owner
+	// predicate, so On("belongs_to_user") is the ordinary way to ask for one
+	// author's rows — which is what a comment's reference read is.
+	ErrLookupOnPredicateColumn = platformerrors.New("lookup names a column the store already binds a predicate on")
+
 	// ErrScopeNotSupported indicates a scope naming a tenant on a resource
 	// declared Unscoped, whose table has no column to filter it by.
 	ErrScopeNotSupported = platformerrors.New("resource is unscoped and cannot answer for a tenant")
@@ -68,6 +92,9 @@ const (
 // It exists so that the set of queries this package can issue is a set someone
 // chose. Declaring one is the moment to ask whether the index behind it exists —
 // which is a question a store with a generic list method never makes anyone ask.
+//
+// It may not name a column the store binds a predicate on for itself — the
+// tenancy scope, or an owner that gates reads. See ErrLookupOnPredicateColumn.
 type Lookup struct {
 	columns []string
 }
@@ -426,6 +453,35 @@ func (r *Resource[T]) as(actor Actor) *statements {
 	return &r.asOwner
 }
 
+// refusePredicateColumn refuses a lookup column the store already binds a
+// predicate on for itself.
+//
+// The two are the tenancy scope, which every read carries, and an owner that
+// gates reads. A lookup on either renders a second predicate on the same column,
+// and both of them bind under that column's name — so the one argument map holds
+// one value, and the value a caller supplied is the one that lands. The gate is
+// still in the statement and no longer gates anything.
+//
+// The owner is only refused where it gates reads. Under OwnerWrites a read
+// carries no owner predicate at all, so a lookup on that column is the ordinary
+// keyed read it looks like: every author's comments on one reference is the
+// question the application actually asks.
+func (r *Resource[T]) refusePredicateColumn(column string) error {
+	if r.scope != nil && column == r.scope.name {
+		return platformerrors.Wrapf(ErrLookupOnPredicateColumn,
+			"resources: %s lookup names %q, which is the tenancy scope every read is already keyed on",
+			r.def.Name, column)
+	}
+
+	if r.owner != nil && r.owner.gate == OwnerReadsAndWrites && column == r.owner.name {
+		return platformerrors.Wrapf(ErrLookupOnPredicateColumn,
+			"resources: %s lookup names %q, which gates this resource's reads — declare OwnerWrites if it should not",
+			r.def.Name, column)
+	}
+
+	return nil
+}
+
 // renderLookups builds the keyed list statements — one per declared lookup, per
 // variant — and the bulk archive, which has only the one.
 func (r *Resource[T]) renderLookups() error {
@@ -435,6 +491,10 @@ func (r *Resource[T]) renderLookups() error {
 		for _, column := range lookup.columns {
 			if _, ok := r.columnsByName[column]; !ok {
 				return platformerrors.Wrapf(ErrUnknownColumn, "resources: lookup names column %q", column)
+			}
+
+			if err := r.refusePredicateColumn(column); err != nil {
+				return err
 			}
 
 			keyed = append(keyed, querygen.Match{Column: column})

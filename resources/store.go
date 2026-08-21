@@ -383,8 +383,14 @@ func (s *Store[T]) listWith(ctx context.Context, exec database.SQLQueryExecutor,
 		return nil, op.Error(err, "listing %s", s.resource.def.Name)
 	}
 
-	if rows == nil {
-		rows = []*T{}
+	// The counts ride on the rows, which is what lets the page and the numbers
+	// describing it come from one statement at one moment. A page with no rows
+	// scanned neither, so the zeroes still sitting in those two variables are not
+	// an answer: nothing distinguishes them from "no rows match this filter", and
+	// a caller walking a keyset to the end would read the last page as "0
+	// results". See querygen.Generator.FilterCountSelect.
+	if len(rows) == 0 {
+		return filtering.NewQueryFilteredResultWithoutCounts([]*T{}, s.resource.idOf, filter), nil
 	}
 
 	return filtering.NewQueryFilteredResult(
@@ -615,9 +621,15 @@ func (s *Store[T]) Archive(ctx context.Context, scope tenancy.Scope, actor Actor
 // ArchiveMatching soft-deletes every row matching a declared lookup, for the
 // cascades an application performs when the thing its rows hang off is deleted.
 //
-// It reports one Change per row, which is what lets an audit hook record the
-// cascade rather than a single opaque event. The rows are read first, inside the
-// transaction, so that set is the set the statement is about to archive.
+// It reports one Change per row — every row, however many that is, read by
+// walking the cursor to the end before the statement runs. The archival is one
+// unlimited UPDATE, so a set read that stopped at a page boundary would have
+// archived rows it told no hook about, and an audit log short by exactly the
+// overflow is one nothing would flag. See Store.drain.
+//
+// The rows are read inside the transaction that archives them, so that set is
+// the set the statement is about to archive, and the whole of it is held in
+// memory while the hooks run.
 //
 // The owner predicate is deliberately absent: a cascade archives every author's
 // rows, which is the point of it, so this requires the system actor rather than
@@ -653,16 +665,18 @@ func (s *Store[T]) ArchiveMatching(ctx context.Context, scope tenancy.Scope, act
 		// transaction as the archival. Read outside it, a row written in between
 		// would be archived by the statement and reported to no hook — an
 		// audit log that is missing exactly the rows a race touched.
-		doomed, readErr := s.listWith(ctx, tx, scope, actor, everything(), matches...)
+		doomed, readErr := s.drain(ctx, tx, scope, actor, matches...)
 		if readErr != nil {
 			return op.Error(readErr, "reading %s for cascade", s.resource.def.Name)
 		}
+
+		op.Set("cascade_size", len(doomed))
 
 		if _, execErr := tx.ExecContext(ctx, statement.SQL, args...); execErr != nil {
 			return op.Error(execErr, "archiving %s", s.resource.def.Name)
 		}
 
-		for _, row := range doomed.Data {
+		for _, row := range doomed {
 			if fireErr := s.fire(ctx, tx, Change[T]{
 				Op:       OpArchived,
 				Resource: s.resource.def.Name,
@@ -679,6 +693,54 @@ func (s *Store[T]) ArchiveMatching(ctx context.Context, scope tenancy.Scope, act
 
 		return nil
 	})
+}
+
+// drain reads every row a cascade is about to archive, walking the cursor to the
+// end rather than taking whatever the first page held.
+//
+// One page was the obvious thing and it was wrong. The bulk UPDATE carries no
+// limit, so a cascade over more rows than a page holds archived all of them and
+// told the hooks about the first filtering.MaxQueryFilterLimit — and the rows
+// that fell off the end are precisely the ones whose audit entry and outbox
+// event were never written. Nothing anywhere would have said so: the statement
+// reported success, the hooks reported success, and the difference was a number
+// nobody was holding.
+//
+// The whole set is held in memory, which is what one Change per row already
+// implied — the loop below builds a Change for each of them either way. It is
+// bounded by what the caller's match set matches, which is the caller's own fact
+// about how large a cascade it is issuing.
+//
+// Every page is read through the caller's executor, so the walk sees one
+// transaction's consistent view rather than a table moving underneath it.
+func (s *Store[T]) drain(ctx context.Context, tx database.SQLQueryExecutor, scope tenancy.Scope, actor Actor, matches ...Match) ([]*T, error) {
+	var doomed []*T
+
+	filter := everything()
+
+	for {
+		page, err := s.listWith(ctx, tx, scope, actor, filter, matches...)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(page.Data) == 0 {
+			return doomed, nil
+		}
+
+		doomed = append(doomed, page.Data...)
+
+		// The next page resumes after the last row this one returned. A page that
+		// had rows and reports no cursor ends the walk rather than restarting it:
+		// re-issuing the same statement with the same cursor is the one way this
+		// loop could fail to terminate.
+		if page.Cursor == "" {
+			return doomed, nil
+		}
+
+		cursor := page.Cursor
+		filter.Cursor = &cursor
+	}
 }
 
 // readInTransaction re-reads a row through the caller's executor, so a write and
@@ -792,8 +854,12 @@ func requireAffected(result sql.Result) error {
 	return nil
 }
 
-// everything is the filter a cascade reads its doomed set through: every row,
-// one page, as large as a page may be.
+// everything is the filter a cascade's walk reads through: no window, and pages
+// as large as a page may be.
+//
+// It bounds a round trip rather than the set. The walk in drain follows the
+// cursor to the end, so this decides how many statements a cascade of a given
+// size costs and nothing about which rows it reports.
 func everything() *filtering.QueryFilter {
 	filter := filtering.DefaultQueryFilter()
 	limit := uint16(filtering.MaxQueryFilterLimit)

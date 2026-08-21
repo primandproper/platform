@@ -109,6 +109,45 @@ func TestDefine(T *testing.T) {
 		test.ErrorIs(t, err, resources.ErrConflictingRole)
 	})
 
+	T.Run("refuses a lookup on the scope column", func(t *testing.T) {
+		t.Parallel()
+
+		// The scope is bound from the call's argument and a match is bound under
+		// the same column name, so the statement would compare the tenancy
+		// predicate against whatever the caller asked for. A resource that could
+		// answer one tenant's read with another's rows should not be
+		// constructible.
+		def := widgetDefinition()
+		def.Lookups = append(def.Lookups, resources.On("scope"))
+
+		_, err := resources.Define(dialect.Postgres, def)
+		test.ErrorIs(t, err, resources.ErrLookupOnPredicateColumn)
+	})
+
+	T.Run("refuses a lookup on an owner that gates reads", func(t *testing.T) {
+		t.Parallel()
+
+		// Same collision, one dimension over: under OwnerReadsAndWrites the read
+		// carries the owner, so a lookup naming it lets a caller read by naming
+		// somebody else.
+		def := widgetDefinition()
+		def.Lookups = append(def.Lookups, resources.On("belongs_to_user"))
+
+		_, err := resources.Define(dialect.Postgres, def)
+		test.ErrorIs(t, err, resources.ErrLookupOnPredicateColumn)
+	})
+
+	T.Run("accepts a lookup on an owner that gates only writes", func(t *testing.T) {
+		t.Parallel()
+
+		// comments declares On("belongs_to_user") and must keep working: under
+		// OwnerWrites a read carries no owner predicate, so there is nothing for
+		// the match to collide with. Every author's comments on one reference is
+		// the question the application actually asks.
+		_, err := resources.Define(dialect.Postgres, commentsDefinition())
+		must.NoError(t, err)
+	})
+
 	T.Run("refuses a lookup naming a column the table does not have", func(t *testing.T) {
 		t.Parallel()
 
@@ -126,8 +165,8 @@ func TestDefine(T *testing.T) {
 		// The same set, written in two orders. A lookup is its columns, not the
 		// order somebody wrote them in, so these are one declaration made twice.
 		def.Lookups = []resources.Lookup{
-			resources.On("name", "belongs_to_user"),
-			resources.On("belongs_to_user", "name"),
+			resources.On("name", "created_at"),
+			resources.On("created_at", "name"),
 		}
 
 		_, err := resources.Define(dialect.Postgres, def)

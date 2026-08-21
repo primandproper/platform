@@ -364,9 +364,9 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		// This is the arm that would catch an expansion whose markers and values
 		// disagree, which on a positional dialect is not an error but a read
 		// about the wrong rows.
-		statement, err := For(d).BoundGetMany(gadgetsTable, widgetsColumns(), 3,
+		statement, renderErr := For(d).BoundGetMany(gadgetsTable, widgetsColumns(), 3,
 			Match{Column: BelongsToAccountColumn})
-		must.NoError(t, err)
+		must.NoError(t, renderErr)
 
 		values := map[string]any{BelongsToAccountColumn: gadgetOwner}
 		// g_004 is archived and g_005 is another account's: two of the three ids
@@ -377,8 +377,8 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 	})
 
 	t.Run("a cascade archives every matching row and nothing else", func(t *testing.T) {
-		cascade, err := For(d).BoundArchiveMatching(gadgetsTable, Match{Column: BelongsToAccountColumn})
-		must.NoError(t, err)
+		cascade, renderErr := For(d).BoundArchiveMatching(gadgetsTable, Match{Column: BelongsToAccountColumn})
+		must.NoError(t, renderErr)
 
 		// One statement, one account, every row of it. The other account's rows
 		// are the assertion: a cascade whose predicate went missing would take
