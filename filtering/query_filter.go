@@ -52,6 +52,13 @@
 // `default` and `maximum` tags on QueryFilter describe to a caller that will
 // never call it.
 //
+// The page-size ceiling is the one bound Normalize cannot be left to apply on
+// its own, because a decoder reaches uint16 before it reaches a QueryFilter and
+// a page size that narrows before it is clamped wraps rather than clamps.
+// SetMaxResponseSize takes the wide value a wire format actually carries and
+// applies the ceiling in the order that works; ClampResponseSize is the same
+// rule for a parser that has the number before it has a filter.
+//
 // QueryFilterSchema describes the request half as JSON Schema, for the surfaces
 // that ask for a filter in that dialect rather than in query parameters: a
 // tool-calling model, an MCP tool definition, an OpenAPI document. It is
@@ -337,7 +344,7 @@ func (qf *QueryFilter) FromParams(params url.Values) error {
 		if err != nil {
 			errs = append(errs, unreadable(QueryKeyLimit, raw, err))
 		} else {
-			qf.MaxResponseSize = new(clampResponseSize(i))
+			qf.MaxResponseSize = new(ClampResponseSize(i))
 		}
 	}
 
@@ -373,7 +380,23 @@ func (qf *QueryFilter) FromParams(params url.Values) error {
 	return platformerrors.Join(errs...)
 }
 
-// clampResponseSize is the page-size ceiling, and the only place it is applied.
+// ClampResponseSize is the page-size ceiling, and the only place it is applied.
+//
+// It takes a uint64 because the ceiling has to be applied before the narrowing
+// to uint16, not after. Every wire format narrows first if it is left to do it
+// alone: protobuf has no uint16, so a page size crosses as a uint32; JSON hands
+// a decoder a number; a query parameter hands it a string. All three reach
+// *uint16 before there is a QueryFilter to hold one, which is before Normalize
+// can see the value — and a narrowing that happens first is silent. A requested
+// 70000 wraps to 4464, Normalize clamps that to MaxQueryFilterLimit, and the
+// client receives a legible-looking answer to a question it did not ask.
+// Normalize cannot catch it by construction, because by the time it runs 4464 is
+// indistinguishable from a page size the client actually sent.
+//
+// SetMaxResponseSize is this applied to a filter, and is what a decoder holding
+// one should reach for, since a clamp that must be called is a clamp that can be
+// forgotten. This is the bare function, for a parser that has the wide value
+// before it has a filter to put it in.
 //
 // Still clamped rather than rejected: MaxQueryFilterLimit documents an
 // over-large limit as a clamp, and a client asking for more than the ceiling has
@@ -381,7 +404,7 @@ func (qf *QueryFilter) FromParams(params url.Values) error {
 // than filled in — FromParams distinguishes a supplied value from an absent one
 // and Normalize is what supplies the default, so a clamp that also defaulted
 // would take that distinction away from both.
-func clampResponseSize(size uint64) uint16 {
+func ClampResponseSize(size uint64) uint16 {
 	return uint16(min(size, MaxQueryFilterLimit))
 }
 
@@ -414,7 +437,7 @@ func (qf *QueryFilter) Normalize() error {
 	if qf.MaxResponseSize == nil || *qf.MaxResponseSize == 0 {
 		qf.MaxResponseSize = new(uint16(DefaultQueryFilterLimit))
 	} else {
-		qf.MaxResponseSize = new(clampResponseSize(uint64(*qf.MaxResponseSize)))
+		qf.MaxResponseSize = new(ClampResponseSize(uint64(*qf.MaxResponseSize)))
 	}
 
 	if qf.SortBy == nil {
@@ -444,6 +467,20 @@ func (qf *QueryFilter) SetCursor(cursor *string) {
 	if cursor != nil {
 		qf.Cursor = cursor
 	}
+}
+
+// SetMaxResponseSize sets the page size from the wide type a wire format
+// actually carries, clamping before the narrowing to uint16 rather than after.
+//
+// This is the setter a decoder wants, and it takes a uint64 so that there is no
+// order left to get wrong: assigning MaxResponseSize directly means narrowing
+// first, which is the silent wrap ClampResponseSize describes.
+//
+// Zero is stored as zero rather than replaced with the default, exactly as
+// ClampResponseSize leaves it alone — Normalize is what supplies the default,
+// and it reads a zero page size as an absent one.
+func (qf *QueryFilter) SetMaxResponseSize(size uint64) {
+	qf.MaxResponseSize = new(ClampResponseSize(size))
 }
 
 // ToValues returns a url.Values from a QueryFilter.

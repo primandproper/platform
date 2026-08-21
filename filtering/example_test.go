@@ -36,3 +36,27 @@ func ExampleQueryFilterSchema() {
 	// sortBy: [asc desc]
 	// maxResponseSize: 0 to 250 defaulting to 50
 }
+
+// A decoder for a wire format reaches its page size as something wider than a
+// uint16, because no wire format has one: protobuf carries a uint32, JSON hands
+// a decoder a number, a query parameter hands it a string. Narrowing that to the
+// field's type before the ceiling is applied wraps rather than clamps, and the
+// wrapped value is indistinguishable from one the client actually sent.
+// SetMaxResponseSize takes the wide value, so there is no order left to get
+// wrong.
+func ExampleQueryFilter_SetMaxResponseSize() {
+	// What a generated protobuf message hands a converter.
+	var maxResponseSize uint32 = 70000
+
+	qf := &filtering.QueryFilter{}
+	qf.SetMaxResponseSize(uint64(maxResponseSize))
+
+	// Narrowing first would have produced 4464, which Normalize then clamps to
+	// 250 — a legible-looking page size nobody asked for, raised nowhere.
+	fmt.Println("clamped first:", *qf.MaxResponseSize)
+	fmt.Println("narrowed first:", uint16(maxResponseSize))
+
+	// Output:
+	// clamped first: 250
+	// narrowed first: 4464
+}

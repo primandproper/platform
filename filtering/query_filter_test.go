@@ -3,6 +3,7 @@ package filtering
 import (
 	"encoding/json"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -309,6 +310,123 @@ func TestQueryFilter_SetCursor(T *testing.T) {
 		qf.SetCursor(nil)
 
 		test.EqOp(t, original, *qf.Cursor)
+	})
+}
+
+func TestClampResponseSize(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, uint16(123), ClampResponseSize(123))
+	})
+
+	T.Run("over the ceiling", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, uint16(MaxQueryFilterLimit), ClampResponseSize(MaxQueryFilterLimit+1))
+	})
+
+	T.Run("zero is left alone", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, uint16(0), ClampResponseSize(0))
+	})
+
+	T.Run("values that would wrap when narrowed first", func(t *testing.T) {
+		t.Parallel()
+
+		// The reason the parameter is uint64: narrowing 70000 to uint16 first
+		// yields 4464, which clamps to a legible-looking page size nobody asked
+		// for. Clamping first cannot produce anything but the ceiling.
+		for _, size := range []uint64{
+			70000,
+			1 << 16,
+			(1 << 16) + MaxQueryFilterLimit,
+			1 << 32,
+			math.MaxUint32,
+			math.MaxUint64,
+		} {
+			test.EqOp(t, uint16(MaxQueryFilterLimit), ClampResponseSize(size))
+		}
+	})
+}
+
+func TestQueryFilter_SetMaxResponseSize(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{}
+		qf.SetMaxResponseSize(123)
+
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(123), *qf.MaxResponseSize)
+	})
+
+	T.Run("over the ceiling", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{}
+		qf.SetMaxResponseSize(MaxQueryFilterLimit + 1)
+
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("a value that would wrap when narrowed first", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{}
+		qf.SetMaxResponseSize(70000)
+
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+
+		// And Normalize leaves the clamped value where it is, rather than the
+		// 4464 a narrow-first decoder would have handed it.
+		must.NoError(t, qf.Normalize())
+		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("zero is stored rather than defaulted", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{}
+		qf.SetMaxResponseSize(0)
+
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(0), *qf.MaxResponseSize)
+
+		// Normalize is what supplies the default, and reads the zero as absent.
+		must.NoError(t, qf.Normalize())
+		test.EqOp(t, uint16(DefaultQueryFilterLimit), *qf.MaxResponseSize)
+	})
+
+	T.Run("overwrites a previously set page size", func(t *testing.T) {
+		t.Parallel()
+
+		qf := &QueryFilter{MaxResponseSize: new(uint16(10))}
+		qf.SetMaxResponseSize(20)
+
+		must.NotNil(t, qf.MaxResponseSize)
+		test.EqOp(t, uint16(20), *qf.MaxResponseSize)
+	})
+
+	T.Run("matches what FromParams produces for the same value", func(t *testing.T) {
+		t.Parallel()
+
+		parsed := &QueryFilter{}
+		must.NoError(t, parsed.FromParams(url.Values{QueryKeyLimit: []string{"70000"}}))
+
+		set := &QueryFilter{}
+		set.SetMaxResponseSize(70000)
+
+		must.NotNil(t, parsed.MaxResponseSize)
+		must.NotNil(t, set.MaxResponseSize)
+		test.EqOp(t, *parsed.MaxResponseSize, *set.MaxResponseSize)
 	})
 }
 
