@@ -60,3 +60,28 @@ func ExampleQueryFilter_SetMaxResponseSize() {
 	// clamped first: 250
 	// narrowed first: 4464
 }
+
+// The page-size ceiling is a var, so a service that pages cheaply is not held
+// to the number platform picked. Set it during initialization — before the
+// first filter is parsed and before any schema is reflected — and the clamp and
+// the document the type publishes move together.
+func ExampleMaxQueryFilterLimit() {
+	defer func(original uint16) { filtering.MaxQueryFilterLimit = original }(filtering.MaxQueryFilterLimit)
+
+	filtering.MaxQueryFilterLimit = 512
+
+	// A client asking for a thousand rows is answered with the new ceiling
+	// rather than platform's.
+	fmt.Println(filtering.ClampResponseSize(1000))
+
+	// And the schema a generated client or a tool-calling model is handed says
+	// so, rather than going on promising 250 while the clamp allows 512.
+	properties := filtering.QueryFilterSchema()["properties"].(map[string]any)
+	maxResponseSize := properties["maxResponseSize"].(map[string]any)
+
+	fmt.Println(maxResponseSize["maximum"])
+
+	// Output:
+	// 512
+	// 512
+}

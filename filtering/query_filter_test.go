@@ -44,7 +44,7 @@ func TestQueryFilter_AttachToLogger(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 			CreatedAfter:    new(time.Now().Truncate(time.Second)),
 			CreatedBefore:   new(time.Now().Truncate(time.Second)),
 			UpdatedAfter:    new(time.Now().Truncate(time.Second)),
@@ -152,7 +152,7 @@ func TestQueryFilter_FromParams(T *testing.T) {
 		actual := &QueryFilter{}
 		expected := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 			CreatedAfter:    new(tt),
 			CreatedBefore:   new(tt),
 			UpdatedAfter:    new(tt),
@@ -266,11 +266,11 @@ func TestQueryFilter_FromParams_parseFailures(T *testing.T) {
 		qf := DefaultQueryFilter()
 
 		must.NoError(t, qf.FromParams(url.Values{
-			QueryKeyLimit: []string{strconv.Itoa(MaxQueryFilterLimit * 10)},
+			QueryKeyLimit: []string{strconv.Itoa(int(MaxQueryFilterLimit) * 10)},
 		}))
 
 		must.NotNil(t, qf.MaxResponseSize)
-		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+		test.EqOp(t, MaxQueryFilterLimit, *qf.MaxResponseSize)
 	})
 
 	T.Run("ExtractQueryFilterFromRequest reports and still returns a usable filter", func(t *testing.T) {
@@ -325,7 +325,7 @@ func TestClampResponseSize(T *testing.T) {
 	T.Run("over the ceiling", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, uint16(MaxQueryFilterLimit), ClampResponseSize(MaxQueryFilterLimit+1))
+		test.EqOp(t, MaxQueryFilterLimit, ClampResponseSize(uint64(MaxQueryFilterLimit)+1))
 	})
 
 	T.Run("zero is left alone", func(t *testing.T) {
@@ -343,12 +343,12 @@ func TestClampResponseSize(T *testing.T) {
 		for _, size := range []uint64{
 			70000,
 			1 << 16,
-			(1 << 16) + MaxQueryFilterLimit,
+			(1 << 16) + uint64(MaxQueryFilterLimit),
 			1 << 32,
 			math.MaxUint32,
 			math.MaxUint64,
 		} {
-			test.EqOp(t, uint16(MaxQueryFilterLimit), ClampResponseSize(size))
+			test.EqOp(t, MaxQueryFilterLimit, ClampResponseSize(size))
 		}
 	})
 }
@@ -370,10 +370,10 @@ func TestQueryFilter_SetMaxResponseSize(T *testing.T) {
 		t.Parallel()
 
 		qf := &QueryFilter{}
-		qf.SetMaxResponseSize(MaxQueryFilterLimit + 1)
+		qf.SetMaxResponseSize(uint64(MaxQueryFilterLimit) + 1)
 
 		must.NotNil(t, qf.MaxResponseSize)
-		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+		test.EqOp(t, MaxQueryFilterLimit, *qf.MaxResponseSize)
 	})
 
 	T.Run("a value that would wrap when narrowed first", func(t *testing.T) {
@@ -383,12 +383,12 @@ func TestQueryFilter_SetMaxResponseSize(T *testing.T) {
 		qf.SetMaxResponseSize(70000)
 
 		must.NotNil(t, qf.MaxResponseSize)
-		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+		test.EqOp(t, MaxQueryFilterLimit, *qf.MaxResponseSize)
 
 		// And Normalize leaves the clamped value where it is, rather than the
 		// 4464 a narrow-first decoder would have handed it.
 		must.NoError(t, qf.Normalize())
-		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+		test.EqOp(t, MaxQueryFilterLimit, *qf.MaxResponseSize)
 	})
 
 	T.Run("zero is stored rather than defaulted", func(t *testing.T) {
@@ -441,7 +441,7 @@ func TestQueryFilter_ToValues(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 			CreatedAfter:    new(tt),
 			CreatedBefore:   new(tt),
 			UpdatedAfter:    new(tt),
@@ -487,7 +487,7 @@ func TestExtractQueryFilter(T *testing.T) {
 
 		expected := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 			CreatedAfter:    new(tt),
 			CreatedBefore:   new(tt),
 			UpdatedAfter:    new(tt),
@@ -549,7 +549,7 @@ func TestQueryFilter_ToPagination(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 		}
 
 		expected := Pagination{
@@ -579,7 +579,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 		}
 
 		data := []*string{new("a"), new("b")}
@@ -609,7 +609,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new(t.Name()),
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 		}
 
 		data := []*string{}
@@ -638,7 +638,7 @@ func TestNewQueryFilteredResult(T *testing.T) {
 		t.Parallel()
 
 		qf := &QueryFilter{
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 		}
 
 		data := []*string{new("a"), new("b")}
@@ -698,21 +698,21 @@ func TestQueryFilter_Normalize(T *testing.T) {
 	T.Run("an over-large page size clamps", func(t *testing.T) {
 		t.Parallel()
 
-		qf := &QueryFilter{MaxResponseSize: new(uint16(MaxQueryFilterLimit + 1))}
+		qf := &QueryFilter{MaxResponseSize: new(MaxQueryFilterLimit + 1)}
 
 		must.NoError(t, qf.Normalize())
 		must.NotNil(t, qf.MaxResponseSize)
-		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+		test.EqOp(t, MaxQueryFilterLimit, *qf.MaxResponseSize)
 	})
 
 	T.Run("the ceiling itself is not clamped past", func(t *testing.T) {
 		t.Parallel()
 
-		qf := &QueryFilter{MaxResponseSize: new(uint16(MaxQueryFilterLimit))}
+		qf := &QueryFilter{MaxResponseSize: new(MaxQueryFilterLimit)}
 
 		must.NoError(t, qf.Normalize())
 		must.NotNil(t, qf.MaxResponseSize)
-		test.EqOp(t, uint16(MaxQueryFilterLimit), *qf.MaxResponseSize)
+		test.EqOp(t, MaxQueryFilterLimit, *qf.MaxResponseSize)
 	})
 
 	T.Run("a page size between the default and the ceiling is left alone", func(t *testing.T) {
@@ -910,7 +910,7 @@ func TestNewQueryFilteredResultWithoutCounts(T *testing.T) {
 
 		qf := &QueryFilter{
 			Cursor:          new("a"),
-			MaxResponseSize: new(uint16(MaxQueryFilterLimit)),
+			MaxResponseSize: new(MaxQueryFilterLimit),
 		}
 
 		data := []*string{new("b"), new("c")}
