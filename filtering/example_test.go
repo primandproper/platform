@@ -138,6 +138,8 @@ func ExampleDrain() {
 	// rows: 2
 	// counts: 2 40 true
 	// next cursor: recipe_002
+}
+
 // A decoder for a wire format reaches its page size as something wider than a
 // uint16, because no wire format has one: protobuf carries a uint32, JSON hands
 // a decoder a number, a query parameter hands it a string. Narrowing that to the

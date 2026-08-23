@@ -76,15 +76,15 @@ func TestBind(T *testing.T) {
 		// answer.
 		args := Bind(&QueryFilter{MaxResponseSize: new(uint16(60_000))})
 
-		test.EqOp(t, sql.NullInt32{Int32: MaxQueryFilterLimit, Valid: true}, args.ResultLimit)
+		test.EqOp(t, sql.NullInt32{Int32: int32(MaxQueryFilterLimit), Valid: true}, args.ResultLimit)
 	})
 
 	T.Run("with a page size at the ceiling", func(t *testing.T) {
 		t.Parallel()
 
-		args := Bind(&QueryFilter{MaxResponseSize: new(uint16(MaxQueryFilterLimit))})
+		args := Bind(&QueryFilter{MaxResponseSize: new(MaxQueryFilterLimit)})
 
-		test.EqOp(t, sql.NullInt32{Int32: MaxQueryFilterLimit, Valid: true}, args.ResultLimit)
+		test.EqOp(t, sql.NullInt32{Int32: int32(MaxQueryFilterLimit), Valid: true}, args.ResultLimit)
 	})
 
 	T.Run("preserving an explicit zero page size", func(t *testing.T) {
