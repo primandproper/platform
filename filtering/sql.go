@@ -3,7 +3,7 @@ package filtering
 import (
 	"database/sql"
 
-	"github.com/primandproper/platform-go/v12/database"
+	"github.com/primandproper/platform-go/v13/database"
 )
 
 // The SQL-side spelling of QueryFilter: the argument names a filtered read
