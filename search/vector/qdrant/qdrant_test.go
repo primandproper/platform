@@ -1094,12 +1094,10 @@ func runWithContainerBackedQdrant(tb testing.TB, fn func(cfg *Config)) {
 	containers.Run(tb,
 		func(ctx context.Context) (testcontainers.Container, error) {
 			return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-				ContainerRequest: testcontainers.ContainerRequest{
-					Image:        qdrantImage,
-					ExposedPorts: []string{"6333/tcp"},
-					WaitingFor:   wait.ForHTTP("/readyz").WithPort("6333/tcp").WithStartupTimeout(2 * time.Minute),
-				},
-				Started: true,
+				Image:        qdrantImage,
+				ExposedPorts: []string{"6333/tcp"},
+				WaitingFor:   wait.ForHTTP("/readyz").WithPort("6333/tcp").WithStartupTimeout(2 * time.Minute),
+				Started:      true,
 			})
 		},
 		func(ctx context.Context, container testcontainers.Container) {

@@ -138,6 +138,13 @@ linters:
     errcheck:
       check-type-assertions: true
       check-blank: true
+      # AsType returns the target it matched, not an error to handle, and the
+      # bool beside it is the check. check-blank reads the discarded target as
+      # an unchecked error because the target is itself an error type, which it
+      # always is.
+      exclude-functions:
+        - errors.AsType
+        - github.com/cockroachdb/errors.AsType
     forbidigo:
       forbid:
         - pattern: ^t\.SkipNow\(\)$

@@ -45,15 +45,13 @@ func testDispatch(url string, attempts int) *ClaimedDispatch {
 			ContentType: DefaultContentType,
 			Secret:      Secret{Current: []byte("secret")},
 		},
-		Payload:   testBody,
-		EventType: "order.created",
-		Dispatch: Dispatch{
-			ID:          "dispatch-1",
-			DeliveryID:  "delivery-1",
-			EndpointID:  "endpoint-1",
-			OrderingKey: "order-7",
-			Attempts:    attempts,
-		},
+		Payload:     testBody,
+		EventType:   "order.created",
+		ID:          "dispatch-1",
+		DeliveryID:  "delivery-1",
+		EndpointID:  "endpoint-1",
+		OrderingKey: "order-7",
+		Attempts:    attempts,
 	}
 }
 

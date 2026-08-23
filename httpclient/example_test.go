@@ -267,8 +267,7 @@ func ExampleStatusError() {
 		httpclient.WithErrorBodyLimit(40),
 	)
 
-	var status *httpclient.StatusError
-	if errors.As(err, &status) {
+	if status, ok := errors.AsType[*httpclient.StatusError](err); ok {
 		fmt.Println(status.StatusCode, status.Path, status.Truncated)
 		fmt.Println(status.Body)
 	}

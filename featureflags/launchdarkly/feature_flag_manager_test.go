@@ -12,7 +12,6 @@ import (
 	circuitbreakingmock "github.com/primandproper/platform-go/v13/circuitbreaking/mock"
 	cbnoop "github.com/primandproper/platform-go/v13/circuitbreaking/noop"
 	"github.com/primandproper/platform-go/v13/featureflags"
-	"github.com/primandproper/platform-go/v13/featureflags/internal/openfeatureflags"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/keys"
 	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
@@ -161,17 +160,15 @@ func buildTestManagerWithFlags(t *testing.T, cb circuitbreaking.CircuitBreaker, 
 	must.NoError(t, err)
 
 	return &FeatureFlagManager{
-		ldClient: client,
-		Evaluator: openfeatureflags.Evaluator{
-			Client:          ofClient,
-			CircuitBreaker:  cb,
-			O11y:            observability.NewObserver(serviceName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
-			Domain:          domain,
-			EvalCounter:     evalCounter,
-			ErrorCounter:    errorCounter,
-			NotFoundCounter: notFoundCounter,
-			LatencyHist:     latencyHist,
-		},
+		ldClient:        client,
+		Client:          ofClient,
+		CircuitBreaker:  cb,
+		O11y:            observability.NewObserver(serviceName, loggingnoop.NewLogger(), tracingnoop.NewTracerProvider()),
+		Domain:          domain,
+		EvalCounter:     evalCounter,
+		ErrorCounter:    errorCounter,
+		NotFoundCounter: notFoundCounter,
+		LatencyHist:     latencyHist,
 	}
 }
 

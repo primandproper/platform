@@ -3,6 +3,7 @@ package routing
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/swaggest/openapi-go"
@@ -129,9 +130,9 @@ func LimitRequestBody(n int64) Middleware {
 
 // applyMiddleware wraps handler with the given middleware, outermost first.
 func applyMiddleware(handler http.Handler, middleware []Middleware) http.Handler {
-	for i := len(middleware) - 1; i >= 0; i-- {
-		if middleware[i] != nil {
-			handler = middleware[i](handler)
+	for _, m := range slices.Backward(middleware) {
+		if m != nil {
+			handler = m(handler)
 		}
 	}
 

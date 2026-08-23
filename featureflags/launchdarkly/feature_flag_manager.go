@@ -133,17 +133,15 @@ func NewFeatureFlagManager(cfg *Config, httpClient *http.Client, circuitBreaker 
 	ofClient := openfeature.NewClient(domain)
 
 	ffm := &FeatureFlagManager{
-		ldClient: client,
-		Evaluator: openfeatureflags.Evaluator{
-			O11y:            o11y,
-			Client:          ofClient,
-			CircuitBreaker:  circuitBreaker,
-			Domain:          domain,
-			EvalCounter:     evalCounter,
-			ErrorCounter:    errorCounter,
-			NotFoundCounter: notFoundCounter,
-			LatencyHist:     latencyHist,
-		},
+		ldClient:        client,
+		O11y:            o11y,
+		Client:          ofClient,
+		CircuitBreaker:  circuitBreaker,
+		Domain:          domain,
+		EvalCounter:     evalCounter,
+		ErrorCounter:    errorCounter,
+		NotFoundCounter: notFoundCounter,
+		LatencyHist:     latencyHist,
 	}
 
 	return ffm, nil

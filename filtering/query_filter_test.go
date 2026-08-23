@@ -588,16 +588,14 @@ func TestNewQueryFilteredResult(T *testing.T) {
 		idExtractor := func(s *string) string { return *s }
 
 		expected := &QueryFilteredResult[string]{
-			Data: data,
-			Pagination: Pagination{
-				Cursor:             *data[1],
-				PreviousCursor:     *qf.Cursor,
-				MaxResponseSize:    *qf.MaxResponseSize,
-				FilteredCount:      filteredCount,
-				TotalCount:         totalCount,
-				CountsKnown:        true,
-				AppliedQueryFilter: qf,
-			},
+			Data:               data,
+			Cursor:             *data[1],
+			PreviousCursor:     *qf.Cursor,
+			MaxResponseSize:    *qf.MaxResponseSize,
+			FilteredCount:      filteredCount,
+			TotalCount:         totalCount,
+			CountsKnown:        true,
+			AppliedQueryFilter: qf,
 		}
 
 		actual := NewQueryFilteredResult(data, filteredCount, totalCount, idExtractor, qf)
@@ -618,16 +616,14 @@ func TestNewQueryFilteredResult(T *testing.T) {
 		idExtractor := func(s *string) string { return *s }
 
 		expected := &QueryFilteredResult[string]{
-			Data: data,
-			Pagination: Pagination{
-				Cursor:             "",
-				PreviousCursor:     *qf.Cursor,
-				MaxResponseSize:    *qf.MaxResponseSize,
-				FilteredCount:      filteredCount,
-				TotalCount:         totalCount,
-				CountsKnown:        true,
-				AppliedQueryFilter: qf,
-			},
+			Data:               data,
+			Cursor:             "",
+			PreviousCursor:     *qf.Cursor,
+			MaxResponseSize:    *qf.MaxResponseSize,
+			FilteredCount:      filteredCount,
+			TotalCount:         totalCount,
+			CountsKnown:        true,
+			AppliedQueryFilter: qf,
 		}
 
 		actual := NewQueryFilteredResult(data, filteredCount, totalCount, idExtractor, qf)
@@ -647,16 +643,14 @@ func TestNewQueryFilteredResult(T *testing.T) {
 		idExtractor := func(s *string) string { return *s }
 
 		expected := &QueryFilteredResult[string]{
-			Data: data,
-			Pagination: Pagination{
-				Cursor:             *data[1],
-				PreviousCursor:     "",
-				MaxResponseSize:    *qf.MaxResponseSize,
-				FilteredCount:      filteredCount,
-				TotalCount:         totalCount,
-				CountsKnown:        true,
-				AppliedQueryFilter: qf,
-			},
+			Data:               data,
+			Cursor:             *data[1],
+			PreviousCursor:     "",
+			MaxResponseSize:    *qf.MaxResponseSize,
+			FilteredCount:      filteredCount,
+			TotalCount:         totalCount,
+			CountsKnown:        true,
+			AppliedQueryFilter: qf,
 		}
 
 		actual := NewQueryFilteredResult(data, filteredCount, totalCount, idExtractor, qf)
@@ -916,13 +910,11 @@ func TestNewQueryFilteredResultWithoutCounts(T *testing.T) {
 		data := []*string{new("b"), new("c")}
 
 		expected := &QueryFilteredResult[string]{
-			Data: data,
-			Pagination: Pagination{
-				Cursor:             "c",
-				PreviousCursor:     "a",
-				MaxResponseSize:    *qf.MaxResponseSize,
-				AppliedQueryFilter: qf,
-			},
+			Data:               data,
+			Cursor:             "c",
+			PreviousCursor:     "a",
+			MaxResponseSize:    *qf.MaxResponseSize,
+			AppliedQueryFilter: qf,
 		}
 
 		actual := NewQueryFilteredResultWithoutCounts(data, func(s *string) string { return *s }, qf)

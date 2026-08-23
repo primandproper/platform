@@ -18,6 +18,7 @@ package httpmw
 import (
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -83,9 +84,9 @@ func IsUntraced(path string) bool {
 // applies middleware registered via Use. That is what lets one ordering serve
 // both the backends that chain by hand and the one that calls chi.Router.Use.
 func Chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler {
-	for i := len(mws) - 1; i >= 0; i-- {
-		if mws[i] != nil {
-			h = mws[i](h)
+	for _, mw := range slices.Backward(mws) {
+		if mw != nil {
+			h = mw(h)
 		}
 	}
 

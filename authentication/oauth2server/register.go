@@ -84,10 +84,8 @@ func (s *Server) RegisterHandler() http.Handler {
 
 		body := http.MaxBytesReader(res, req.Body, MaxRegistrationBodyBytes)
 		if err := json.NewDecoder(body).Decode(&request); err != nil {
-			var tooLarge *http.MaxBytesError
-
 			code, description := ErrorCodeInvalidClientMetadata, "malformed registration request"
-			if stderrors.As(err, &tooLarge) {
+			if _, ok := stderrors.AsType[*http.MaxBytesError](err); ok {
 				description = "registration request is too large"
 			}
 

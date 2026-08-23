@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"slices"
 	"sync"
 	"syscall"
 
@@ -123,9 +124,7 @@ func (s *Service) shutdown(ctx context.Context) error {
 
 	errs := s.stopServers(ctx)
 
-	for idx := len(s.runners) - 1; idx >= 0; idx-- {
-		runner := s.runners[idx]
-
+	for _, runner := range slices.Backward(s.runners) {
 		s.logger.WithValue("runner", runner.name).Debug("closing background loop")
 
 		if err := runner.v.Close(ctx); err != nil {
@@ -141,9 +140,7 @@ func (s *Service) shutdown(ctx context.Context) error {
 		}
 	}
 
-	for idx := len(s.closers) - 1; idx >= 0; idx-- {
-		closer := s.closers[idx]
-
+	for _, closer := range slices.Backward(s.closers) {
 		s.logger.WithValue("client", closer.name).Debug("releasing client")
 
 		if err := closer.v(ctx); err != nil {
