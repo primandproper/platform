@@ -3,7 +3,7 @@ package filtering
 import (
 	"encoding/json"
 
-	platformerrors "github.com/primandproper/platform-go/v12/errors"
+	platformerrors "github.com/primandproper/platform-go/v13/errors"
 
 	"github.com/swaggest/jsonschema-go"
 )
