@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	platformerrors "github.com/primandproper/platform-go/v12/errors"
-	"github.com/primandproper/platform-go/v12/filtering"
+	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/filtering"
 )
 
 // Fragment encodes a collector's result, or reports that the domain holds
