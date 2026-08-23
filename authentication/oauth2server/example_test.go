@@ -107,7 +107,7 @@ func ExampleWithSubjectResolver() {
 	}
 
 	// A GET, with no body to POST and nothing to type.
-	req := httptest.NewRequest(http.MethodGet, oauth2server.PathAuthorize+"?"+query.Encode(), http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, oauth2server.PathAuthorize+"?"+query.Encode(), http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "session", Value: "1"})
 
 	res := httptest.NewRecorder()

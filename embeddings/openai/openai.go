@@ -165,7 +165,7 @@ func (e *Embedder) GenerateEmbeddings(ctx context.Context, inputs []*embeddings.
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", e.cfg.APIKey))
 
-	resp, err := e.client.Do(req) //nolint:gosec // G704: URL is constructed from trusted config
+	resp, err := e.client.Do(req)
 	if err != nil {
 		return nil, op.Error(err, "executing request")
 	}

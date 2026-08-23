@@ -311,11 +311,11 @@ func (t *tables) buildReschedule(
 // not touch next_attempt, so the instance is claimable on the next cycle.
 func (t *tables) buildRelease(d dialect.Dialect, instanceID string, at time.Time) (query string, args []any) {
 	return fmt.Sprintf(
-			"UPDATE %s SET claimed_until = NULL, updated_at = %s WHERE id = %s",
-			t.instances, d.Placeholder(1), d.Placeholder(2),
-		), []any{
-			at.UTC(), instanceID,
-		}
+		"UPDATE %s SET claimed_until = NULL, updated_at = %s WHERE id = %s",
+		t.instances, d.Placeholder(1), d.Placeholder(2),
+	), []any{
+		at.UTC(), instanceID,
+	}
 }
 
 // buildRequeue renders a guarded status change that also makes the instance

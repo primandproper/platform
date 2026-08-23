@@ -141,7 +141,7 @@ func TestNewSigner(T *testing.T) {
 		signer, err := NewSigner(StaticKeyring(Keyring{Current: []byte("secret")}), WithClock(fixedClock(signingTime)))
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodGet, "/ping", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/ping", http.NoBody)
 		must.NoError(t, signer.SignRequest(t.Context(), req))
 
 		test.NoError(t, Verify(

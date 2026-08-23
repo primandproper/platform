@@ -494,7 +494,7 @@ func (i *IndexManager[T]) jsonReq(ctx context.Context, method, fullURL string, i
 	}
 
 	// URL is constructed from operator-controlled config; not user input.
-	resp, doErr := i.httpClient.Do(req) //nolint:gosec // SSRF false positive — URL is from trusted config
+	resp, doErr := i.httpClient.Do(req)
 	if doErr != nil {
 		return 0, nil, platformerrors.Wrap(doErr, "executing qdrant request")
 	}

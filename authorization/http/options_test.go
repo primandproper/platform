@@ -128,7 +128,7 @@ func TestEnforcer_DenialWriteFailure(T *testing.T) {
 		}))
 
 		res := &failingResponseWriter{}
-		handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/things", http.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/things", http.NoBody))
 
 		test.EqOp(t, http.StatusForbidden, res.status)
 	})
@@ -164,7 +164,7 @@ func TestEnforcer_DenialCarriesTraceID(T *testing.T) {
 		}))
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/things", http.NoBody).WithContext(ctx))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/things", http.NoBody).WithContext(ctx))
 
 		var body httpx.APIResponse[any]
 		must.NoError(t, json.Unmarshal(res.Body.Bytes(), &body))

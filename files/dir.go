@@ -110,6 +110,7 @@ func resolveDir(path string) (string, error) {
 	abs, absErr := filepath.Abs(path)
 
 	info, statErr := os.Stat(abs)
+	//nolint:staticcheck // SA4023 misreads the generic instantiation: cmp.Or over two errors returns nil when both are nil.
 	if err := cmp.Or(absErr, statErr); err != nil {
 		return "", errors.Wrap(err, "resolving directory")
 	}

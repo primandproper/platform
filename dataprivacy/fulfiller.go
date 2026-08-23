@@ -1039,7 +1039,7 @@ func (f *Fulfiller) stop(ctx context.Context, req *Request, format string, args 
 			return txErr
 		}
 
-		return f.record(ctx, q, stopped, map[string]string{"reason": "cancelled while in progress"})
+		return f.record(ctx, q, stopped, map[string]string{metadataReasonKey: "cancelled while in progress"})
 	}); err != nil {
 		// Logged rather than returned. The operation is going to be recorded as
 		// cancelled either way, and replacing that with a database error would

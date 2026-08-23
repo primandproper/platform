@@ -1,6 +1,7 @@
 package http_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +34,7 @@ func ExampleNewMiddleware() {
 	}))
 
 	send := func() (int, string) {
-		req := httptest.NewRequest(http.MethodGet, "/things", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/things", http.NoBody)
 		req.Header.Set("X-API-Key", "sk_example")
 
 		rec := httptest.NewRecorder()

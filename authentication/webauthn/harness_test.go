@@ -149,7 +149,7 @@ func newTestRelyingParty(tb testing.TB, store SessionStore, opts ...Option) *Rel
 func post(tb testing.TB, body []byte) *http.Request {
 	tb.Helper()
 
-	req := httptest.NewRequest(http.MethodPost, "/webauthn", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(tb.Context(), http.MethodPost, "/webauthn", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	return req

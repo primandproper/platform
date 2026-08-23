@@ -416,7 +416,7 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 	// is. w.checkURL ran immediately above and the client refuses redirects, so
 	// the target has been vetted as far as this package can vet it; see
 	// CheckEndpointURL for what that does and does not cover.
-	res, err := w.client.Do(req) //nolint:gosec // G704: endpoint URL is vetted by w.checkURL above
+	res, err := w.client.Do(req)
 
 	attempt.Duration = w.clock.Since(startTime)
 	w.deliveryHist.Record(ctx, float64(attempt.Duration.Milliseconds()), endpointAttr(dispatch.EndpointID))

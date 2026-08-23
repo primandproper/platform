@@ -241,7 +241,7 @@ func New[K comparable](
 	// The flush deliberately runs on a context of its own rather than any
 	// caller's; see batching.GroupCommit for why a shared batch cannot inherit
 	// one waiter's cancellation.
-	if q.batcher, err = newEnqueueBatcher(q.upsert, //nolint:contextcheck // see batching.GroupCommit
+	if q.batcher, err = newEnqueueBatcher(q.upsert,
 		batching.WithLogger(o.logger),
 		batching.WithTracerProvider(o.tracerProvider),
 		batching.WithMetricsProvider(o.metricsProvider),

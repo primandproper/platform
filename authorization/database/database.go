@@ -256,6 +256,7 @@ func (r *Resolver) pairsByID(
 	q database.SQLQueryExecutor,
 	query string,
 ) (map[string][]string, error) {
+	//nolint:sqlclosecheck // scanRows closes the result set in a defer; the check does not follow it into the helper.
 	rows, err := q.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

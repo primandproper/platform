@@ -77,7 +77,6 @@ func main() {
 	for _, p := range pkgs.order {
 		total += len(pkgs.byPkg[p])
 	}
-	//nolint:gosec // G706: total/count are locally derived integers, not user-controlled strings
 	log.Printf("benchtable: wrote %d benchmark(s) across %d package(s)", total, len(pkgs.order))
 }
 

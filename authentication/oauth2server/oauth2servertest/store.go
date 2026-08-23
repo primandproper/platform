@@ -15,6 +15,11 @@ import (
 )
 
 const (
+	// scopeRead and resourceAPI are the scope and audience the fixtures below
+	// grant each other, named so a store that mixes two records up says which.
+	scopeRead   = "read"
+	resourceAPI = "https://api.example/"
+
 	// past and future are how far from now the suite writes a deadline it
 	// wants to be over or not over.
 	//
@@ -972,7 +977,7 @@ func newClient(offset time.Duration) *oauth2server.Client {
 		RedirectURIs:            []string{"https://client.example/callback", "http://127.0.0.1:8080/cb"},
 		GrantTypes:              []string{oauth2server.GrantTypeAuthorizationCode, oauth2server.GrantTypeRefreshToken},
 		ResponseTypes:           []string{oauth2server.ResponseTypeCode},
-		Scopes:                  []string{"read", "write"},
+		Scopes:                  []string{scopeRead, "write"},
 		TokenEndpointAuthMethod: oauth2server.AuthMethodClientSecret,
 	}
 }
@@ -991,8 +996,8 @@ func newCode(offset time.Duration) *oauth2server.AuthorizationCode {
 		CodeChallenge: oauth2server.S256Challenge(unique("verifier")),
 		Nonce:         unique("nonce"),
 		Subject:       testSubject(),
-		Scopes:        []string{"read"},
-		Resources:     []string{"https://api.example/"},
+		Scopes:        []string{scopeRead},
+		Resources:     []string{resourceAPI},
 	}
 }
 
@@ -1008,8 +1013,8 @@ func newAccessToken(offset time.Duration, family string) *oauth2server.AccessTok
 		ClientID:  unique("client"),
 		FamilyID:  family,
 		Subject:   testSubject(),
-		Scopes:    []string{"read"},
-		Audience:  []string{"https://api.example/"},
+		Scopes:    []string{scopeRead},
+		Audience:  []string{resourceAPI},
 	}
 }
 
@@ -1025,9 +1030,9 @@ func newRefreshToken(offset time.Duration, family string) *oauth2server.RefreshT
 		ClientID:  unique("client"),
 		FamilyID:  family,
 		Subject:   testSubject(),
-		Scopes:    []string{"read"},
-		Audience:  []string{"https://api.example/"},
-		Resources: []string{"https://api.example/"},
+		Scopes:    []string{scopeRead},
+		Audience:  []string{resourceAPI},
+		Resources: []string{resourceAPI},
 	}
 }
 

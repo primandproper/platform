@@ -22,7 +22,7 @@ func TestRootLevelAssetsHandler(T *testing.T) {
 		must.NoError(t, err)
 
 		handler := RootLevelAssetsHandler(dir)
-		req := httptest.NewRequest(http.MethodGet, "/robots.txt", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/robots.txt", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -36,7 +36,7 @@ func TestRootLevelAssetsHandler(T *testing.T) {
 
 		dir := t.TempDir()
 		handler := RootLevelAssetsHandler(dir)
-		req := httptest.NewRequest(http.MethodGet, "/sub/file.txt", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/sub/file.txt", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -49,7 +49,7 @@ func TestRootLevelAssetsHandler(T *testing.T) {
 
 		dir := t.TempDir()
 		handler := RootLevelAssetsHandler(dir)
-		req := httptest.NewRequest(http.MethodGet, "/nonexistent.txt", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nonexistent.txt", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -65,7 +65,7 @@ func TestRootLevelAssetsHandler(T *testing.T) {
 		must.NoError(t, err)
 
 		handler := RootLevelAssetsHandler(dir)
-		req := httptest.NewRequest(http.MethodGet, "/subdir", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/subdir", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -78,7 +78,7 @@ func TestRootLevelAssetsHandler(T *testing.T) {
 
 		dir := t.TempDir()
 		handler := RootLevelAssetsHandler(dir)
-		req := httptest.NewRequest(http.MethodGet, "/../etc/passwd", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/../etc/passwd", http.NoBody)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -92,7 +92,7 @@ func TestRootLevelAssetsHandler(T *testing.T) {
 		dir := t.TempDir()
 		handler := RootLevelAssetsHandler(dir)
 
-		req := httptest.NewRequest(http.MethodGet, "/x", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", http.NoBody)
 		req.URL.Path = "/.."
 		w := httptest.NewRecorder()
 

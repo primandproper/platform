@@ -18,23 +18,27 @@ type ParamSpec struct {
 // annotation: {name} or {name:token}.
 var pathParamRE = regexp.MustCompile(`\{([^:}/]+)(?::([^}/]+))?\}`)
 
+// tokenString is the token a path parameter carries when its annotation names
+// no type, and the one the parser falls back to.
+const tokenString = "string"
+
 // knownTokens is the set of supported type tokens. The value is unused; presence
 // is what matters. Token → OpenAPI schema is derived by swaggest from the input
 // struct field type, so this set only gates which annotations are legal and how a
 // raw path value is parsed at runtime.
 var knownTokens = map[string]struct{}{
-	"string":  {},
-	"slug":    {},
-	"uuid":    {},
-	"bool":    {},
-	"int":     {},
-	"int32":   {},
-	"int64":   {},
-	"uint":    {},
-	"uint32":  {},
-	"uint64":  {},
-	"float":   {},
-	"float64": {},
+	tokenString: {},
+	"slug":      {},
+	"uuid":      {},
+	"bool":      {},
+	"int":       {},
+	"int32":     {},
+	"int64":     {},
+	"uint":      {},
+	"uint32":    {},
+	"uint64":    {},
+	"float":     {},
+	"float64":   {},
 }
 
 // parsePath splits a typed-path pattern into a plain pattern (all type
@@ -47,7 +51,7 @@ func parsePath(pattern string) (plain string, params []ParamSpec) {
 		sub := pathParamRE.FindStringSubmatch(match)
 		name, token := sub[1], sub[2]
 		if token == "" {
-			token = "string"
+			token = tokenString
 		}
 
 		if _, ok := knownTokens[token]; !ok {
@@ -76,7 +80,7 @@ func tokenMatchesType(token string, t reflect.Type) bool {
 	}
 
 	switch token {
-	case "string", "slug", "uuid":
+	case tokenString, "slug", "uuid":
 		return t.Kind() == reflect.String
 	case "bool":
 		return t.Kind() == reflect.Bool

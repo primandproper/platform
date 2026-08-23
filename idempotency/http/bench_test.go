@@ -23,7 +23,7 @@ func BenchmarkMiddleware_NoKey(b *testing.B) {
 		b.Helper()
 
 		for b.Loop() {
-			req := httptest.NewRequest(http.MethodPost, "/charges", strings.NewReader(body))
+			req := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "/charges", strings.NewReader(body))
 			h.ServeHTTP(httptest.NewRecorder(), req)
 		}
 	}
@@ -45,12 +45,12 @@ func BenchmarkMiddleware(b *testing.B) {
 	b.Run("Replay", func(b *testing.B) {
 		wrapped := wrap(b, okHandler(), newTestManager(b))
 
-		seed := httptest.NewRequest(http.MethodPost, "/charges", strings.NewReader(body))
+		seed := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "/charges", strings.NewReader(body))
 		seed.Header.Set(HeaderName, testKey)
 		wrapped.ServeHTTP(httptest.NewRecorder(), seed)
 
 		for b.Loop() {
-			req := httptest.NewRequest(http.MethodPost, "/charges", strings.NewReader(body))
+			req := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "/charges", strings.NewReader(body))
 			req.Header.Set(HeaderName, testKey)
 			wrapped.ServeHTTP(httptest.NewRecorder(), req)
 		}
@@ -63,7 +63,7 @@ func BenchmarkMiddleware(b *testing.B) {
 		var i int
 		for b.Loop() {
 			i++
-			req := httptest.NewRequest(http.MethodPost, "/charges", strings.NewReader(body))
+			req := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "/charges", strings.NewReader(body))
 			req.Header.Set(HeaderName, strconv.Itoa(i))
 			wrapped.ServeHTTP(httptest.NewRecorder(), req)
 		}
@@ -76,7 +76,7 @@ func BenchmarkFingerprint(b *testing.B) {
 	for _, size := range []int{1 << 10, 64 << 10, 1 << 20} {
 		b.Run(strconv.Itoa(size>>10)+"KiB", func(b *testing.B) {
 			body := []byte(strings.Repeat("a", size))
-			req := httptest.NewRequest(http.MethodPost, "/charges?b=2&a=1", http.NoBody)
+			req := httptest.NewRequestWithContext(b.Context(), http.MethodPost, "/charges?b=2&a=1", http.NoBody)
 
 			b.SetBytes(int64(size))
 			for b.Loop() {

@@ -134,7 +134,7 @@ func TestNotifier_AcceptConnection(T *testing.T) {
 		// A plain (non-websocket) request cannot be upgraded, so AcceptConnection
 		// returns an error and records it on the operation.
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 
 		err := n.AcceptConnection(rec, req, "channel", "member")
 		test.Error(t, err)

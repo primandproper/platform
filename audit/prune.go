@@ -292,6 +292,7 @@ func (t PruneTarget) prunableScopes(
 ) ([]string, error) {
 	query, args := tbls.buildSelectPrunableScopes(d, cutoff, after, limit)
 
+	//nolint:sqlclosecheck // scanRows closes the result set in a defer; the check does not follow it into the helper.
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "querying prunable audit scopes")

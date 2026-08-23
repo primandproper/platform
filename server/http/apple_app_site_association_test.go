@@ -218,7 +218,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -243,7 +243,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 			WithTracerProvider(tracingnoop.NewTracerProvider()),
 		)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -266,7 +266,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 			},
 		)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -295,7 +295,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 			},
 		)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -316,7 +316,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
 		)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -338,7 +338,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 			},
 		)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -358,7 +358,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 			&AppleAppSiteAssociationConfig{TeamID: "ABCD1234XY", BundleID: "com.example.ios"},
 		)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -371,7 +371,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		handler := AppleAppSiteAssociationHandler(&AppleAppSiteAssociationConfig{})
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -386,7 +386,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 			&AppleAppSiteAssociationConfig{TeamID: "too-short", BundleID: "com.example.ios"},
 		)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -399,7 +399,7 @@ func TestAppleAppSiteAssociationHandler(T *testing.T) {
 
 		handler := AppleAppSiteAssociationHandler(nil)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		handler.ServeHTTP(res, req)
@@ -430,7 +430,7 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 		)
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		router.Handler().ServeHTTP(res, req)
@@ -447,7 +447,7 @@ func TestNewHTTPServer_appleAppSiteAssociation(T *testing.T) {
 		_, err := NewHTTPServer(t.Context(), &Config{Port: 8080}, router, WithServiceName(t.Name()))
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, AppleAppSiteAssociationPath, http.NoBody)
 		res := httptest.NewRecorder()
 
 		router.Handler().ServeHTTP(res, req)

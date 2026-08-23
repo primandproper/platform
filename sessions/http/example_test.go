@@ -73,7 +73,7 @@ func Example() {
 
 	// An anonymous request.
 	anonymous := httptest.NewRecorder()
-	handler.ServeHTTP(anonymous, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+	handler.ServeHTTP(anonymous, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody))
 	fmt.Println("anonymous:", anonymous.Code)
 
 	// Sign in, then repeat the request with the cookie the sign-in set.
@@ -82,7 +82,7 @@ func Example() {
 		panic(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	for _, cookie := range signIn.Result().Cookies() {
 		req.AddCookie(cookie)
 	}
