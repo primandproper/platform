@@ -78,7 +78,7 @@ func CollectAll[T any](
 	}
 
 	filter := filtering.DefaultQueryFilter()
-	filter.MaxResponseSize = new(uint16(filtering.MaxQueryFilterLimit))
+	filter.MaxResponseSize = new(filtering.MaxQueryFilterLimit)
 
 	var out []T
 
