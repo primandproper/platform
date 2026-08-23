@@ -106,7 +106,7 @@ type SQLArgs struct {
 //
 // A page size that is present and zero is left alone, and returns no rows. That
 // is the loud reading of an explicit zero, and only absence is defaulted here —
-// the same distinction clampResponseSize draws, and the reason defaulting a
+// the same distinction ClampResponseSize draws, and the reason defaulting a
 // zero belongs to Normalize, where a caller has asked for it.
 //
 // The times are bound as timestamps, which is what a server with a timestamp
@@ -139,7 +139,7 @@ func boundResponseSize(size *uint16) uint16 {
 		return DefaultQueryFilterLimit
 	}
 
-	return clampResponseSize(uint64(*size))
+	return ClampResponseSize(uint64(*size))
 }
 
 // BindValues is the same seven arguments keyed by the names they bind under,
