@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.26.x']
+        go-version: ['1.27.x']
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -28,7 +28,13 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
+      # The Makefile builds an image reference from this same file, so `make
+      # lint` and this job cannot disagree about which linter ran.
+      - name: Read the pinned linter version
+        id: linter
+        run: echo "version=$(cat .golangci-version)" >> "${GITHUB_OUTPUT}"
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.10.1
+          version: ${{ steps.linter.outputs.version }}

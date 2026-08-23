@@ -26,7 +26,7 @@ import (
 func inboundRequest(t *testing.T, keyring Keyring, body []byte, at time.Time, signed bool) *http.Request {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodPost, "/callbacks/payments", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/callbacks/payments", bytes.NewReader(body))
 	req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
 
 	if signed {
@@ -93,7 +93,7 @@ func TestNewVerifier(T *testing.T) {
 		must.NoError(t, err)
 
 		read := false
-		req := httptest.NewRequest(http.MethodPost, "/callbacks/payments",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/callbacks/payments",
 			io.NopCloser(readerFunc(func([]byte) (int, error) {
 				read = true
 
@@ -274,9 +274,9 @@ func TestRequestBody(T *testing.T) {
 	T.Run("a request with no body reads as no bytes", func(t *testing.T) {
 		t.Parallel()
 
-		test.Nil(t, mustBody(t, httptest.NewRequest(http.MethodGet, "/ping", http.NoBody)))
+		test.Nil(t, mustBody(t, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/ping", http.NoBody)))
 
-		bodiless := httptest.NewRequest(http.MethodGet, "/ping", http.NoBody)
+		bodiless := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/ping", http.NoBody)
 		bodiless.Body = nil
 
 		test.Nil(t, mustBody(t, bodiless))

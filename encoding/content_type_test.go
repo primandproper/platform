@@ -191,7 +191,7 @@ func TestUnsupportedContentTypeNeverBecomesJSON(T *testing.T) {
 	T.Run("an unlabeled request body still decodes as JSON", func(t *testing.T) {
 		t.Parallel()
 
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"a":"b"}`))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(`{"a":"b"}`))
 
 		var dest map[string]string
 		test.NoError(t, NewServerEncoderDecoder(ContentTypeJSON).DecodeRequest(t.Context(), req, &dest))

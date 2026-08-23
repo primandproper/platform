@@ -240,18 +240,17 @@ func (h *Handlers) describeStream(r *routing.Router) {
 		ID:          new(watchOperationID),
 		Summary:     new("Watch a long-running operation"),
 		Description: &description,
-	}
 
-	op.Parameters = []openapi3.ParameterOrRef{{
-		Parameter: &openapi3.Parameter{
-			Name:     pathParam,
-			In:       openapi3.ParameterInPath,
-			Required: new(true),
-			Schema: &openapi3.SchemaOrRef{
-				Schema: &openapi3.Schema{Type: new(openapi3.SchemaTypeString)},
+		Parameters: []openapi3.ParameterOrRef{{
+			Parameter: &openapi3.Parameter{
+				Name:     pathParam,
+				In:       openapi3.ParameterInPath,
+				Required: new(true),
+				Schema: &openapi3.SchemaOrRef{
+					Schema: &openapi3.Schema{Type: new(openapi3.SchemaTypeString)},
+				},
 			},
-		},
-	}}
+		}}}
 
 	op.Responses.MapOfResponseOrRefValues = map[string]openapi3.ResponseOrRef{
 		"200": {

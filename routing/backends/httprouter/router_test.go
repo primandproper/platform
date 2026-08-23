@@ -124,6 +124,68 @@ func TestBackend_EscapedPathDispatchLeavesTheMissPathAlone(T *testing.T) {
 	}
 }
 
+// A Location beginning with two slashes is protocol-relative: the browser reads
+// what follows as a host and leaves the origin. Every redirect this backend
+// emits is to the caller's own path, so none of them may be spellable that way.
+func TestBackend_LeadingSlashesCannotRedirectOffOrigin(T *testing.T) {
+	T.Parallel()
+
+	serve := func(t *testing.T, pattern, target string) *httptest.ResponseRecorder {
+		t.Helper()
+
+		b := newTestBackend(t, &Config{ServiceName: t.Name()})
+		b.Handle(http.MethodGet, pattern, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+
+		rec := httptest.NewRecorder()
+		b.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody))
+
+		return rec
+	}
+
+	// Two segments so httprouter's own trailing-slash redirect is the one that
+	// would have answered: it never reaches redirectTrailingSlash, because
+	// nothing in the path needed escaping.
+	for _, tc := range []struct {
+		name     string
+		target   string
+		location string
+	}{
+		{name: "two leading slashes", target: "//evil.example/", location: "/evil.example/"},
+		{name: "three leading slashes", target: "///evil.example/", location: "/evil.example/"},
+		{name: "an escape further along", target: "//evil.example/a%2Fb/", location: "/evil.example/a%2Fb/"},
+		{name: "a query string is carried", target: "//evil.example?x=1", location: "/evil.example?x=1"},
+	} {
+		T.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := serve(t, "/{a}/{b}", tc.target)
+
+			test.EqOp(t, http.StatusMovedPermanently, rec.Code)
+			test.EqOp(t, tc.location, rec.Header().Get("Location"))
+		})
+	}
+
+	// A backslash is escaped by EscapedPath, so "/\evil.example" cannot
+	// become the "/\host" form some browsers also read as protocol-relative.
+	T.Run("a leading backslash is escaped rather than collapsed", func(t *testing.T) {
+		t.Parallel()
+
+		rec := serve(t, "/{a}", `/\evil.example/`)
+
+		test.EqOp(t, http.StatusMovedPermanently, rec.Code)
+		test.EqOp(t, "/%5Cevil.example", rec.Header().Get("Location"))
+	})
+
+	T.Run("an ordinary path is untouched", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, http.StatusNoContent, serve(t, "/{a}/{b}", "/a/b").Code)
+		test.EqOp(t, "/a/b", serve(t, "/{a}/{b}", "/a/b/").Header().Get("Location"))
+	})
+}
+
 func TestBackend_Use(T *testing.T) {
 	T.Parallel()
 

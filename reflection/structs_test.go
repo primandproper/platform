@@ -306,8 +306,8 @@ func TestGetTagNameByValue_TagResolution(T *testing.T) {
 		t.Parallel()
 
 		x := unreadableNamedEmbedParent{
-			exampleStruct: exampleStruct{Field1: "inner_value"},
-			Field3:        "f3",
+			Field1: "inner_value",
+			Field3: "f3",
 		}
 
 		// The tag asks for the embed to be treated as a whole value, but an
@@ -326,8 +326,8 @@ func TestGetTagNameByValue_TagResolution(T *testing.T) {
 		t.Parallel()
 
 		x := embeddedParent{
-			exampleStruct: exampleStruct{Field1: "promoted_value"},
-			Field3:        "f3",
+			Field1: "promoted_value",
+			Field3: "f3",
 		}
 
 		actual, err := GetTagNameByValue(x, "promoted_value", "json")

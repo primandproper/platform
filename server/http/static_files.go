@@ -42,7 +42,7 @@ func RootLevelAssetsHandler(assetsDir string) http.HandlerFunc {
 			return
 		}
 
-		//nolint:gosec // G703: path validated above to be within assetsDir
+		// The path is validated above to be within assetsDir.
 		info, statErr := os.Stat(filePath)
 		if statErr == nil && !info.IsDir() {
 			fileServer.ServeHTTP(w, r)

@@ -313,14 +313,26 @@ func TestWriteCanonical(T *testing.T) {
 	})
 }
 
-// appendJSONString must produce exactly what encoding/json.Marshal produces for
-// a string. The tests below hold the two against each other rather than against
-// a table of hand-written expectations: the contract is equivalence with the
-// standard library, so the standard library is the oracle. A future change to
-// encoding/json's escaping surfaces here, as a failing test, instead of in a
-// consumer whose stored digests no longer reproduce.
+// appendJSONString's output is pinned twice over, because two different things
+// can go wrong with it and each needs a claim of its own.
+//
+// The bytes are pinned by a table. They are this package's escaping rules — see
+// the doc comment on appendJSONString — and because digests are stable
+// identifiers the table is the point: an edit to any row is an edit to every
+// hash ever computed over a string containing that byte, and has to be read as
+// one.
+//
+// The meaning is checked against encoding/json, exhaustively, that being the
+// claim the standard library can still hold up: for any input, the two
+// encodings must decode to the same string. It was once possible to make the
+// stronger claim that they produce the same bytes, and that is how these tests
+// read until Go 1.27 began emitting a raw U+FFFD where earlier versions emitted
+// \ufffd. Nothing in the canonical form moved — the byte in question cannot
+// reach appendJSONString from Marshal — but the claim had been the wrong one
+// regardless: byte-identity says this package must follow encoding/json
+// wherever it goes, and following it is precisely what would move a digest.
 
-// jsonMarshalString is the oracle: encoding/json's own encoding of one string.
+// jsonMarshalString is encoding/json's own encoding of one string.
 func jsonMarshalString(t *testing.T, s string) []byte {
 	t.Helper()
 
@@ -330,7 +342,70 @@ func jsonMarshalString(t *testing.T, s string) []byte {
 	return encoded
 }
 
-func TestAppendJSONString_matchesEncodingJSON(T *testing.T) {
+// decodeJSONString is the string a JSON string literal denotes.
+func decodeJSONString(t *testing.T, encoded []byte) string {
+	t.Helper()
+
+	var decoded string
+	must.NoError(t, json.Unmarshal(encoded, &decoded))
+
+	return decoded
+}
+
+func TestAppendJSONString(T *testing.T) {
+	T.Parallel()
+
+	// One row per escaping rule, byte-exact. Every escaped expectation is a raw
+	// string literal, so what it spells is what the encoder must emit; the rows
+	// whose rune survives unescaped are interpreted literals holding that rune.
+	T.Run("emits the pinned escaping", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range []struct {
+			name string
+			in   string
+			want string
+		}{
+			{"empty", "", `""`},
+			{"nothing to escape", "plain text", `"plain text"`},
+			{"double quote", `a "quoted" word`, `"a \"quoted\" word"`},
+			{"backslash", `a\b`, `"a\\b"`},
+			{"backspace", "a\bb", `"a\bb"`},
+			{"form feed", "a\fb", `"a\fb"`},
+			{"newline", "a\nb", `"a\nb"`},
+			{"carriage return", "a\rb", `"a\rb"`},
+			{"tab", "a\tb", `"a\tb"`},
+			{"every other byte below U+0020", "\x00\x01\x1f", `"\u0000\u0001\u001f"`},
+			{"HTML metacharacters", "<a>&", `"\u003ca\u003e\u0026"`},
+			{"line separator", "\u2028", `"\u2028"`},
+			{"paragraph separator", "\u2029", `"\u2029"`},
+			{"a byte that is not valid UTF-8", "a\x80b", `"a\ufffdb"`},
+			{"an incomplete multi-byte sequence", "\xe4\xb8", `"\ufffd\ufffd"`},
+			{"a surrogate encoded as UTF-8", "\xed\xa0\x80", `"\ufffd\ufffd\ufffd"`},
+			{"delete, which JSON does not treat as a control byte", "\x7f", "\"\x7f\""},
+			{"multi-byte runes", "h\u00e9llo \u4e16\u754c", "\"h\u00e9llo \u4e16\u754c\""},
+			{"astral runes", "\U0001f389", "\"\U0001f389\""},
+			{"a replacement character it was handed", "\ufffd", "\"\ufffd\""},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				test.EqOp(t, tc.want, string(appendJSONString(nil, tc.in)))
+			})
+		}
+	})
+
+	// Appending must respect a non-empty destination rather than assuming it
+	// owns the slice, which is how it is called from within an object or array.
+	T.Run("appends to an existing buffer", func(t *testing.T) {
+		t.Parallel()
+
+		got := appendJSONString([]byte("prefix:"), "value")
+		test.EqOp(t, `prefix:"value"`, string(got))
+	})
+}
+
+func TestAppendJSONString_denotesWhatEncodingJSONDenotes(T *testing.T) {
 	T.Parallel()
 
 	T.Run("over strings that exercise every escape rule", func(t *testing.T) {
@@ -349,14 +424,17 @@ func TestAppendJSONString_matchesEncodingJSON(T *testing.T) {
 			"<script>alert('xss')&</script>",
 			"héllo",
 			"\u4e16\u754c", // CJK, escaped so the source stays ASCII
-			"🎉 emoji 🎉",
+			"\U0001f389 emoji \U0001f389",
 			"line separator",
 			"paragraph separator",
 			"� already replacement",
 			"trailing backslash\\",
 			`{"nested":"json"}`,
 		} {
-			test.EqOp(t, string(jsonMarshalString(t, s)), string(appendJSONString(nil, s)))
+			test.EqOp(t,
+				decodeJSONString(t, jsonMarshalString(t, s)),
+				decodeJSONString(t, appendJSONString(nil, s)),
+			)
 		}
 	})
 
@@ -367,7 +445,10 @@ func TestAppendJSONString_matchesEncodingJSON(T *testing.T) {
 
 		for b := range 256 {
 			s := string([]byte{byte(b)})
-			test.EqOp(t, string(jsonMarshalString(t, s)), string(appendJSONString(nil, s)))
+			test.EqOp(t,
+				decodeJSONString(t, jsonMarshalString(t, s)),
+				decodeJSONString(t, appendJSONString(nil, s)),
+			)
 		}
 	})
 
@@ -382,19 +463,12 @@ func TestAppendJSONString_matchesEncodingJSON(T *testing.T) {
 			}
 
 			s := string(r)
-			if got := string(appendJSONString(nil, s)); got != string(jsonMarshalString(t, s)) {
-				t.Fatalf("rune %U: got %s, want %s", r, got, jsonMarshalString(t, s))
+
+			got, want := decodeJSONString(t, appendJSONString(nil, s)), decodeJSONString(t, jsonMarshalString(t, s))
+			if got != want {
+				t.Fatalf("rune %U: denotes %q, want %q", r, got, want)
 			}
 		}
-	})
-
-	// Appending must respect a non-empty destination rather than assuming it
-	// owns the slice, which is how it is called from within an object or array.
-	T.Run("appends to an existing buffer", func(t *testing.T) {
-		t.Parallel()
-
-		got := appendJSONString([]byte("prefix:"), "value")
-		test.EqOp(t, `prefix:"value"`, string(got))
 	})
 }
 
@@ -408,13 +482,25 @@ func FuzzAppendJSONString(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, s string) {
-		want, err := json.Marshal(s)
+		encoded, err := json.Marshal(s)
 		if err != nil {
 			t.Skip()
 		}
 
-		if got := string(appendJSONString(nil, s)); got != string(want) {
-			t.Fatalf("appendJSONString(%q) = %s, want %s", s, got, want)
+		var want string
+		if err = json.Unmarshal(encoded, &want); err != nil {
+			t.Fatalf("encoding/json produced a literal it cannot read back: %s", encoded)
+		}
+
+		got := appendJSONString(nil, s)
+
+		var decoded string
+		if err = json.Unmarshal(got, &decoded); err != nil {
+			t.Fatalf("appendJSONString(%q) = %s, which is not a readable JSON string", s, got)
+		}
+
+		if decoded != want {
+			t.Fatalf("appendJSONString(%q) = %s, which denotes %q, want %q", s, got, decoded, want)
 		}
 	})
 }

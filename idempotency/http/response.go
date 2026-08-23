@@ -207,7 +207,6 @@ func writeResponse(res http.ResponseWriter, recorded *Response, replayHeader str
 	// already sent to a client once. Replaying it verbatim is the point, and
 	// the Content-Type replayed alongside it comes from the allowlist rather
 	// than from the request.
-	//nolint:gosec // G705: replayed bytes are our own prior response, not request input.
 	if _, err := res.Write(recorded.Body); err != nil {
 		return err
 	}

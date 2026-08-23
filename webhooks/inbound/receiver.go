@@ -229,8 +229,7 @@ func (r *Receiver) readBody(res http.ResponseWriter, req *http.Request) ([]byte,
 
 	body, err := io.ReadAll(http.MaxBytesReader(res, req.Body, r.maxBodyBytes))
 	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			return nil, platformerrors.Wrapf(ErrBodyTooLarge, "limit is %d bytes", r.maxBodyBytes)
 		}
 

@@ -186,7 +186,7 @@ func TestEventStreamUpgrader_UpgradeToEventStream(T *testing.T) {
 
 		u := NewEventStreamUpgrader()
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 
 		s, err := u.UpgradeToEventStream(w, r)
 
@@ -216,7 +216,7 @@ func TestBidirectionalEventStreamUpgrader_UpgradeToBidirectionalStream(T *testin
 
 		u := NewBidirectionalEventStreamUpgrader()
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 
 		s, err := u.UpgradeToBidirectionalStream(w, r)
 

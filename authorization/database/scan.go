@@ -36,6 +36,7 @@ func scanRows(rows *sql.Rows, scan func() error) (err error) {
 
 // scanStrings runs a single-column query and collects the results.
 func scanStrings(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]string, error) {
+	//nolint:sqlclosecheck // scanRows closes the result set in a defer; the check does not follow it into the helper.
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

@@ -72,9 +72,7 @@ type BidirectionalEventStream struct {
 // NewBidirectionalEventStream returns a no-op BidirectionalEventStream.
 func NewBidirectionalEventStream() eventstream.BidirectionalEventStream {
 	return &BidirectionalEventStream{
-		EventStream: EventStream{
-			done: make(chan struct{}),
-		},
+		done:    make(chan struct{}),
 		receive: make(chan *eventstream.Event),
 	}
 }

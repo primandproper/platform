@@ -51,7 +51,7 @@ func serve(
 	}))
 
 	res = httptest.NewRecorder()
-	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/things", http.NoBody))
+	handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/things", http.NoBody))
 
 	return called, res
 }
@@ -111,7 +111,7 @@ func TestEnforcer_Require(T *testing.T) {
 
 		var called bool
 		handler := middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
-		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/things", http.NoBody))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/things", http.NoBody))
 
 		test.True(t, called)
 	})

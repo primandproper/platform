@@ -163,8 +163,8 @@ func TestDiff(T *testing.T) {
 	T.Run("flattens embedded structs", func(t *testing.T) {
 		t.Parallel()
 
-		before := diffEmbedded{diffBase: diffBase{Version: 1}, Name: "a"}
-		after := diffEmbedded{diffBase: diffBase{Version: 2}, Name: "a"}
+		before := diffEmbedded{Version: 1, Name: "a"}
+		after := diffEmbedded{Version: 2, Name: "a"}
 
 		changes, err := Diff(before, after)
 		must.NoError(t, err)

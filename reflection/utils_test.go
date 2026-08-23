@@ -117,9 +117,7 @@ func TestGetTagNameByValue(T *testing.T) {
 		t.Parallel()
 
 		x := embeddedParent{
-			exampleStruct: exampleStruct{
-				Field1: "unique_value",
-			},
+			Field1: "unique_value",
 			Field3: "field3_value",
 		}
 

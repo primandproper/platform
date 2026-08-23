@@ -82,7 +82,7 @@ func signedRequest(t *testing.T, body []byte) *http.Request {
 	signature, err := requestsigning.Sign(testKeyring, body, signingTime)
 	must.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/callbacks/payments", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/callbacks/payments", bytes.NewReader(body))
 	req.Header.Set(requestsigning.SignatureHeader, signature)
 
 	return req
@@ -143,7 +143,7 @@ func TestNewMiddleware(T *testing.T) {
 		mw, err := NewMiddleware(verifier)
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodPost, "/callbacks/partner", strings.NewReader(`{"partner":true}`))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/callbacks/partner", strings.NewReader(`{"partner":true}`))
 		req.Header.Set("X-Partner-Signature", "whatever the partner sends")
 		req.Header.Set(requestsigning.SignatureHeader, "the platform's own, which is none of its business")
 
@@ -173,7 +173,7 @@ func TestNewMiddleware(T *testing.T) {
 		mw, err := NewMiddleware(testVerifier(t))
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodPost, "/callbacks/payments", strings.NewReader(`{"amount":4200}`))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/callbacks/payments", strings.NewReader(`{"amount":4200}`))
 
 		rec, reached, _ := serve(t, mw, req)
 
@@ -290,7 +290,7 @@ func TestNewMiddleware(T *testing.T) {
 		mw, err := NewMiddleware(testVerifier(t))
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodGet, "/callbacks/ping", http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callbacks/ping", http.NoBody)
 		req.Header.Set(requestsigning.SignatureHeader, signature)
 
 		rec, reached, _ := serve(t, mw, req)
@@ -336,7 +336,7 @@ func TestNewMiddleware(T *testing.T) {
 			}))
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodPost, "/callbacks/payments", strings.NewReader(`{}`))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/callbacks/payments", strings.NewReader(`{}`))
 
 		rec, reached, _ := serve(t, mw, req)
 
@@ -353,7 +353,7 @@ func TestNewMiddleware(T *testing.T) {
 			WithErrorEncoder(func(context.Context, error) (int, any) { return 9999, nil }))
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodPost, "/callbacks/payments", strings.NewReader(`{}`))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/callbacks/payments", strings.NewReader(`{}`))
 
 		rec, _, _ := serve(t, mw, req)
 

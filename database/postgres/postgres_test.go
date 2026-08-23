@@ -326,10 +326,8 @@ func TestNewDatabaseClient(T *testing.T) {
 		// The flag is discovered by interface assertion, so the only way to
 		// reach the suppression branch is a config that carries the method.
 		exampleConfig := &loggingClientConfig{
-			testClientConfig: testClientConfig{
-				connectionString: "user=test password=test database=test host=localhost port=5432",
-				maxPingAttempts:  1,
-			},
+			connectionString: "user=test password=test database=test host=localhost port=5432",
+			maxPingAttempts:  1,
 		}
 
 		actual, err := NewDatabaseClient(t.Context(), exampleConfig)
@@ -341,11 +339,9 @@ func TestNewDatabaseClient(T *testing.T) {
 		t.Parallel()
 
 		exampleConfig := &loggingClientConfig{
-			testClientConfig: testClientConfig{
-				connectionString: "user=test password=test database=test host=localhost port=5432",
-				maxPingAttempts:  1,
-			},
-			logQueries: true,
+			connectionString: "user=test password=test database=test host=localhost port=5432",
+			maxPingAttempts:  1,
+			logQueries:       true,
 		}
 
 		actual, err := NewDatabaseClient(t.Context(), exampleConfig)

@@ -39,13 +39,11 @@ func BuildFakePageOfSize[T any](size int, build func() *T) *filtering.QueryFilte
 	}
 
 	return &filtering.QueryFilteredResult[T]{
-		Data: data,
-		Pagination: filtering.Pagination{
-			Cursor:          BuildFakeID(),
-			MaxResponseSize: filtering.DefaultQueryFilterLimit,
-			FilteredCount:   uint64(size),
-			TotalCount:      uint64(size),
-			CountsKnown:     true,
-		},
+		Data:            data,
+		Cursor:          BuildFakeID(),
+		MaxResponseSize: filtering.DefaultQueryFilterLimit,
+		FilteredCount:   uint64(size),
+		TotalCount:      uint64(size),
+		CountsKnown:     true,
 	}
 }

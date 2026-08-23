@@ -27,10 +27,8 @@ func TestRegisterEventReporter(T *testing.T) {
 		do.ProvideValue(i, tracingnoop.NewTracerProvider())
 		do.ProvideValue[metrics.Provider](i, metricsnoop.NewMetricsProvider())
 		do.ProvideValue(i, &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderSegment,
-				Segment:  &segment.Config{APIToken: t.Name()},
-			},
+			Provider: ProviderSegment,
+			Segment:  &segment.Config{APIToken: t.Name()},
 		})
 
 		RegisterEventReporter(i)

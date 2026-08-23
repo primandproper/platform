@@ -16,6 +16,10 @@ import (
 // — so the fact that a tool failed reaches the model as text or not at all.
 const toolResultErrorPrefix = "error: "
 
+// toolTypeFunction is the only tool type the OpenAI-shaped API defines, and it
+// is required on every tool and every tool call.
+const toolTypeFunction = "function"
+
 // Params translates a platform request into any-llm-go's normalized parameter
 // shape, using model in place of the request's own (the provider resolves that,
 // since only it knows its default).
@@ -168,7 +172,7 @@ func assistantMessage(msg *llm.Message) ([]anyllm.Message, error) {
 
 			toolCalls = append(toolCalls, anyllm.ToolCall{
 				ID:   part.ToolUse.ID,
-				Type: "function",
+				Type: toolTypeFunction,
 				Function: anyllm.FunctionCall{
 					Name:      part.ToolUse.Name,
 					Arguments: string(part.ToolUse.Input),
@@ -257,7 +261,7 @@ func Tools(tools []llm.Tool) ([]anyllm.Tool, error) {
 		}
 
 		out = append(out, anyllm.Tool{
-			Type: "function",
+			Type: toolTypeFunction,
 			Function: anyllm.Function{
 				Name:        tools[i].Name,
 				Description: tools[i].Description,
@@ -286,7 +290,7 @@ func toolChoice(choice *llm.ToolChoice) (any, bool) {
 		}
 
 		return anyllm.ToolChoice{
-			Type:     "function",
+			Type:     toolTypeFunction,
 			Function: &anyllm.ToolChoiceFunction{Name: choice.Name},
 		}, true
 	default:

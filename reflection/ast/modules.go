@@ -189,7 +189,8 @@ func vendoredModules(vendorDir string) (map[string]string, error) {
 		}
 
 		dir := filepath.Join(vendorDir, filepath.FromSlash(fields[1]))
-		//nolint:gosec // G703: the path is built from this module's own vendor/modules.txt, and is only stat'ed
+		// The path is built from this module's own vendor/modules.txt, and is
+		// only stat'ed.
 		if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
 			continue
 		}

@@ -160,7 +160,7 @@ func TestMiddleware_Allowed(T *testing.T) {
 		mw, err := NewMiddleware(alwaysAllow(), KeyByRemoteAddr())
 		must.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodPost, "/uploads", errorReader{})
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/uploads", errorReader{})
 		req.RemoteAddr = "203.0.113.7:1"
 
 		_, reached := serve(t, mw, req)

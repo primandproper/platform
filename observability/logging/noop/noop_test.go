@@ -130,7 +130,7 @@ func TestLogger_WithRequest(T *testing.T) {
 		t.Parallel()
 
 		var l logging.Logger = NewLogger()
-		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody)
 		test.Eq(t, l, l.WithRequest(r))
 	})
 }

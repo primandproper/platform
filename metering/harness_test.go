@@ -210,15 +210,13 @@ func newEntry(key string, quantity int64, aggregation Aggregation) Entry {
 // and max aggregations depend on.
 func newEntryAt(key string, quantity int64, aggregation Aggregation, at time.Time) Entry {
 	return Entry{
-		Usage: Usage{
-			Subject:        testSubject,
-			Meter:          testMeter,
-			Quantity:       quantity,
-			IdempotencyKey: key,
-			OccurredAt:     at,
-		},
-		Bounds:      monthBounds,
-		Aggregation: aggregation,
+		Subject:        testSubject,
+		Meter:          testMeter,
+		Quantity:       quantity,
+		IdempotencyKey: key,
+		OccurredAt:     at,
+		Bounds:         monthBounds,
+		Aggregation:    aggregation,
 	}
 }
 

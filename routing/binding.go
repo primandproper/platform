@@ -203,7 +203,7 @@ func collectFields(t reflect.Type, index []int, plan *bindPlan) {
 func paramLocation(tag reflect.StructTag) (in, name string, ok bool) {
 	for _, loc := range []string{inPath, inQuery, inHeader, inCookie} {
 		if v, present := tag.Lookup(loc); present {
-			n := strings.Split(v, ",")[0]
+			n, _, _ := strings.Cut(v, ",")
 			if n == "" {
 				continue
 			}
@@ -219,7 +219,7 @@ func paramLocation(tag reflect.StructTag) (in, name string, ok bool) {
 // A field with json:"-" is excluded; any other exported field counts.
 func isBodyField(f *reflect.StructField) bool {
 	if j, ok := f.Tag.Lookup("json"); ok {
-		name := strings.Split(j, ",")[0]
+		name, _, _ := strings.Cut(j, ",")
 
 		return name != "-"
 	}
@@ -319,8 +319,7 @@ func readRawBody(res http.ResponseWriter, req *http.Request, limit int64) ([]byt
 // document was wrong, and it will send the same document again; 413 tells it the
 // document was too big, which is the only thing it can act on.
 func bodyError(err error, limit int64, msg string) error {
-	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		return &bindError{
 			code:   httpx.ErrDecodingRequestInput,
 			status: http.StatusRequestEntityTooLarge,

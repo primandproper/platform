@@ -170,18 +170,34 @@ func appendCanonical(dst []byte, v any) ([]byte, error) {
 // hexDigits indexes the lowercase hex nibbles used by \uXXXX escapes.
 const hexDigits = "0123456789abcdef"
 
-// appendJSONString appends s to dst as a JSON string literal, producing bytes
-// identical to encoding/json.Marshal of the same string — including its HTML
-// escaping of <, > and &, its  /  escaping, and its replacement of
-// invalid UTF-8 with �.
+// appendJSONString appends s to dst as a JSON string literal under the escaping
+// rules below. They began as encoding/json's and still agree with it on every
+// input a caller can reach, but they are this package's own rules and are pinned
+// as such:
 //
-// That equivalence is the whole contract, and it is not a matter of taste: this
-// package's digests are stable identifiers, so any divergence from what
-// json.Marshal would have emitted silently changes every hash computed over a
-// string containing the affected byte. TestAppendJSONStringMatchesEncodingJSON
-// holds the two implementations against each other rather than against a table
-// of expectations, so a future change to encoding/json's escaping is caught
-// here instead of in a consumer's mismatched digest.
+//   - " and \ escape to \" and \\; \b \f \n \r \t take their two-character
+//     forms; every other byte below U+0020 escapes as \u00XX.
+//   - <, > and & escape as \u003c, \u003e and \u0026, so a canonical form is safe
+//     to embed in HTML.
+//   - U+2028 and U+2029 escape, being valid JSON but not valid JavaScript string
+//     content.
+//   - Every other valid rune is emitted as itself, so a canonical form is UTF-8
+//     rather than ASCII.
+//   - A byte that is not valid UTF-8 becomes \ufffd. That branch is defensive:
+//     its only caller is appendCanonical, whose strings come out of a
+//     json.Decoder and are therefore valid UTF-8 already, encoding/json having
+//     substituted U+FFFD upstream.
+//
+// The rules are stated here rather than deferred to encoding/json because this
+// package's digests are stable identifiers. Following the standard library
+// byte-for-byte would mean moving every stored hash over an affected string each
+// time it revised a cosmetic escaping choice — and Go 1.27 revised exactly one,
+// emitting a raw U+FFFD where earlier versions emitted \ufffd. Nothing here
+// moved, and nothing may.
+//
+// encoding/json remains the oracle for what these bytes must mean, which is the
+// part that did not change: the tests pin the bytes against a table, and hold the
+// two encodings against each other for decoding to the same string.
 func appendJSONString(dst []byte, s string) []byte {
 	dst = append(dst, '"')
 
@@ -191,8 +207,8 @@ func appendJSONString(dst []byte, s string) []byte {
 
 	for i := 0; i < len(s); {
 		if b := s[i]; b < utf8.RuneSelf {
-			// <, > and & are escaped because encoding/json escapes them by
-			// default, so that output is safe to embed in HTML.
+			// <, > and & are escaped so that a canonical form is safe to
+			// embed in HTML.
 			if b >= ' ' && b != '"' && b != '\\' && b != '<' && b != '>' && b != '&' {
 				i++
 
@@ -226,8 +242,9 @@ func appendJSONString(dst []byte, s string) []byte {
 
 		c, size := utf8.DecodeRuneInString(s[i:])
 
-		// Invalid UTF-8 becomes the escaped replacement character, matching
-		// encoding/json, so that a canonical form is always valid UTF-8.
+		// Invalid UTF-8 becomes the escaped replacement character, so that a
+		// canonical form is always valid UTF-8. Unreachable from Marshal; see
+		// the doc comment.
 		if c == utf8.RuneError && size == 1 {
 			dst = append(dst, s[start:i]...)
 			dst = append(dst, '\\', 'u', 'f', 'f', 'f', 'd')
@@ -238,7 +255,7 @@ func appendJSONString(dst []byte, s string) []byte {
 		}
 
 		// U+2028 and U+2029 are valid JSON but not valid JavaScript string
-		// content; encoding/json escapes them, so this must too.
+		// content, so they are escaped here too.
 		if c == ' ' || c == ' ' {
 			dst = append(dst, s[start:i]...)
 			dst = append(dst, '\\', 'u', '2', '0', '2', hexDigits[c&0xF])

@@ -130,8 +130,8 @@ func TestSelectedProviderMustBeConfigured(T *testing.T) {
 		name     string
 		provider string
 	}{
-		{name: "analytics/segment", provider: analyticscfg.ProviderSegment, cfg: &analyticscfg.Config{SourceConfig: analyticscfg.SourceConfig{Provider: analyticscfg.ProviderSegment}}},
-		{name: "analytics/posthog", provider: analyticscfg.ProviderPostHog, cfg: &analyticscfg.Config{SourceConfig: analyticscfg.SourceConfig{Provider: analyticscfg.ProviderPostHog}}},
+		{name: "analytics/segment", provider: analyticscfg.ProviderSegment, cfg: &analyticscfg.Config{Provider: analyticscfg.ProviderSegment}},
+		{name: "analytics/posthog", provider: analyticscfg.ProviderPostHog, cfg: &analyticscfg.Config{Provider: analyticscfg.ProviderPostHog}},
 		{name: "authorization/database", provider: authorizationcfg.ProviderDatabase, cfg: &authorizationcfg.Config{Provider: authorizationcfg.ProviderDatabase}},
 		{name: "cache/redis", provider: cachecfg.ProviderRedis, cfg: &cachecfg.Config{Provider: cachecfg.ProviderRedis}},
 		{name: "capitalism/stripe", provider: capitalismcfg.StripeProvider, cfg: &capitalismcfg.Config{Provider: capitalismcfg.StripeProvider}},
@@ -216,21 +216,19 @@ func TestUnselectedProvidersAreNotEnforced(T *testing.T) {
 		// analytics
 		{
 			name: "analytics/noop",
-			cfg:  &analyticscfg.Config{SourceConfig: analyticscfg.SourceConfig{Provider: analyticscfg.ProviderNoop}},
+			cfg:  &analyticscfg.Config{Provider: analyticscfg.ProviderNoop},
 		},
 		{
 			name: "analytics/segment",
-			cfg: &analyticscfg.Config{SourceConfig: analyticscfg.SourceConfig{
+			cfg: &analyticscfg.Config{
 				Provider: analyticscfg.ProviderSegment,
-				Segment:  &analyticssegment.Config{APIToken: "token"},
-			}},
+				Segment:  &analyticssegment.Config{APIToken: "token"}},
 		},
 		{
 			name: "analytics/posthog",
-			cfg: &analyticscfg.Config{SourceConfig: analyticscfg.SourceConfig{
+			cfg: &analyticscfg.Config{
 				Provider: analyticscfg.ProviderPostHog,
-				Posthog:  &analyticsposthog.Config{APIKey: "key"},
-			}},
+				Posthog:  &analyticsposthog.Config{APIKey: "key"}},
 		},
 
 		// authorization

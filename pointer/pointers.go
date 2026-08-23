@@ -2,7 +2,11 @@ package pointer
 
 // To returns a pointer to a value.
 //
-//go:fix inline
+// It carries no //go:fix inline directive. The body is exactly what a caller
+// would write by hand now that new takes a value, so one is tempting, but no
+// tool can apply it: inlining a call to a generic function means inferring T,
+// which the inliner does not do. All the directive produced was a diagnostic at
+// every call site, and an exclusion in .golangci.yml for the directive itself.
 func To[T any](x T) *T {
 	return new(x)
 }

@@ -24,10 +24,8 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderSegment,
-				Segment:  &segment.Config{APIToken: t.Name()},
-			},
+			Provider: ProviderSegment,
+			Segment:  &segment.Config{APIToken: t.Name()},
 		}
 
 		must.NoError(t, cfg.ValidateWithContext(ctx))
@@ -38,9 +36,7 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderSegment,
-			},
+			Provider: ProviderSegment,
 		}
 
 		must.Error(t, cfg.ValidateWithContext(ctx))
@@ -51,10 +47,8 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderSegment,
-				Segment:  &segment.Config{APIToken: t.Name()},
-			},
+			Provider: ProviderSegment,
+			Segment:  &segment.Config{APIToken: t.Name()},
 			// A proxy source with no provider/credentials must fail validation rather
 			// than silently degrading to a noop at runtime.
 			ProxySources: ProxySourcesConfig{
@@ -70,10 +64,8 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderSegment,
-				Segment:  &segment.Config{APIToken: t.Name()},
-			},
+			Provider: ProviderSegment,
+			Segment:  &segment.Config{APIToken: t.Name()},
 			ProxySources: ProxySourcesConfig{
 				"web": {Provider: ProviderSegment, Segment: &segment.Config{APIToken: t.Name()}},
 			},
@@ -98,12 +90,10 @@ func TestConfig_NewCollector(T *testing.T) {
 
 		for _, provider := range allProviders {
 			cfg := &Config{
-				SourceConfig: SourceConfig{
-					Provider:       provider,
-					Segment:        &segment.Config{APIToken: t.Name()},
-					Posthog:        &posthog.Config{APIKey: t.Name()},
-					CircuitBreaker: circuitbreakingcfg.Config{},
-				},
+				Provider:       provider,
+				Segment:        &segment.Config{APIToken: t.Name()},
+				Posthog:        &posthog.Config{APIKey: t.Name()},
+				CircuitBreaker: circuitbreakingcfg.Config{},
 			}
 
 			_, err := cfg.NewCollector(ctx)
@@ -118,11 +108,9 @@ func TestConfig_NewCollector(T *testing.T) {
 
 		for _, provider := range allProviders {
 			cfg := &Config{
-				SourceConfig: SourceConfig{
-					Provider: provider,
-					Segment:  &segment.Config{},
-					Posthog:  &posthog.Config{},
-				},
+				Provider: provider,
+				Segment:  &segment.Config{},
+				Posthog:  &posthog.Config{},
 			}
 
 			_, err := cfg.NewCollector(ctx)
@@ -135,9 +123,7 @@ func TestConfig_NewCollector(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderSegment,
-			},
+			Provider: ProviderSegment,
 		}
 
 		reporter, err := cfg.NewCollector(ctx)
@@ -150,9 +136,7 @@ func TestConfig_NewCollector(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderPostHog,
-			},
+			Provider: ProviderPostHog,
 		}
 
 		reporter, err := cfg.NewCollector(ctx)
@@ -165,9 +149,7 @@ func TestConfig_NewCollector(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: "bogus",
-			},
+			Provider: "bogus",
 		}
 
 		// A typo'd provider is reported rather than quietly becoming a noop that
@@ -182,14 +164,12 @@ func TestConfig_NewCollector(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderSegment,
-				Segment:  &segment.Config{APIToken: t.Name()},
-				CircuitBreaker: circuitbreakingcfg.Config{
-					Name:                   t.Name(),
-					ErrorRate:              99,
-					MinimumSampleThreshold: 1,
-				},
+			Provider: ProviderSegment,
+			Segment:  &segment.Config{APIToken: t.Name()},
+			CircuitBreaker: circuitbreakingcfg.Config{
+				Name:                   t.Name(),
+				ErrorRate:              99,
+				MinimumSampleThreshold: 1,
 			},
 		}
 

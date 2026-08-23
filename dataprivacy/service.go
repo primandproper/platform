@@ -338,7 +338,7 @@ func (s *StoreService) Confirm(ctx context.Context, requestID string) (*Request,
 			return err
 		}
 
-		return s.record(ctx, q, req, audit.EventUpdated, map[string]string{"reason": "confirmed"})
+		return s.record(ctx, q, req, audit.EventUpdated, map[string]string{metadataReasonKey: "confirmed"})
 	}); err != nil {
 		return nil, op.Error(s.notAwaitingConfirmation(requestID, err), "confirming dataprivacy request")
 	}
@@ -377,7 +377,7 @@ func (s *StoreService) Cancel(ctx context.Context, requestID string) (*Request, 
 			return txErr
 		}
 
-		return s.record(ctx, q, req, audit.EventUpdated, map[string]string{"reason": "cancelled by request"})
+		return s.record(ctx, q, req, audit.EventUpdated, map[string]string{metadataReasonKey: "cancelled by request"})
 	}); err != nil {
 		return nil, op.Error(s.notAwaitingConfirmation(requestID, err), "cancelling dataprivacy request")
 	}

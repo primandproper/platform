@@ -384,6 +384,7 @@ func (s *Server) redirect(res http.ResponseWriter, req *http.Request, redirectUR
 	// 302 rather than 303: this is what every OAuth client expects, and the
 	// response has no body a GET-after-POST would be avoiding.
 	res.Header().Set("Cache-Control", "no-store")
+	//nolint:gosec // G710: redirectURI was exact-matched against the client's registered set before this request was authorized.
 	http.Redirect(res, req, target.String(), http.StatusFound)
 }
 
@@ -412,7 +413,10 @@ func (s *Server) writeAuthorizeFault(res http.ResponseWriter, perr *protocolErro
 	res.Header().Set("Cache-Control", "no-store")
 	res.WriteHeader(perr.status)
 
-	//nolint:errcheck // the status is already on the wire; a failed write has no error page left to send.
+	// G705 reads the write as XSS: the Content-Type set above is text/plain, and
+	// both halves are this package's own protocol strings rather than anything
+	// the request carried.
+	//nolint:errcheck,gosec // the status is already on the wire; a failed write has no error page left to send.
 	_, _ = res.Write([]byte(perr.code + ": " + perr.description + "\n"))
 }
 

@@ -233,7 +233,7 @@ func TestRouter_HandleRaw(T *testing.T) {
 		w.WriteHeader(http.StatusTeapot)
 	}), func(h http.Handler) http.Handler { return h })
 
-	rec := fb.serve(T, http.MethodGet, "/raw/{id}", httptest.NewRequest(http.MethodGet, "/raw/1", http.NoBody))
+	rec := fb.serve(T, http.MethodGet, "/raw/{id}", httptest.NewRequestWithContext(T.Context(), http.MethodGet, "/raw/1", http.NoBody))
 	test.True(T, called)
 	test.EqOp(T, http.StatusTeapot, rec.Code)
 }
@@ -297,7 +297,7 @@ func TestBind_AllParamLocations(T *testing.T) {
 		return Empty{}, nil
 	}, WithEnvelope(false))
 
-	req := httptest.NewRequest(http.MethodGet, "/p/42?q=hi", http.NoBody)
+	req := httptest.NewRequestWithContext(T.Context(), http.MethodGet, "/p/42?q=hi", http.NoBody)
 	req.Header.Set("X-Thing", "hval")
 	req.AddCookie(&http.Cookie{Name: "sid", Value: "cval"})
 
@@ -324,7 +324,7 @@ func TestBind_OptionalParamsAbsent(T *testing.T) {
 	}, WithEnvelope(false))
 
 	// No query, header, or cookie present — all optional, so bind succeeds.
-	rec := fb.serve(T, http.MethodGet, "/p/{id}", httptest.NewRequest(http.MethodGet, "/p/1", http.NoBody))
+	rec := fb.serve(T, http.MethodGet, "/p/{id}", httptest.NewRequestWithContext(T.Context(), http.MethodGet, "/p/1", http.NoBody))
 	test.EqOp(T, http.StatusOK, rec.Code)
 }
 
@@ -340,7 +340,7 @@ func TestBind_MissingRequiredPath(T *testing.T) {
 		return Empty{}, nil
 	})
 
-	rec := fb.serve(T, http.MethodGet, "/x/{id}", httptest.NewRequest(http.MethodGet, "/x/", http.NoBody))
+	rec := fb.serve(T, http.MethodGet, "/x/{id}", httptest.NewRequestWithContext(T.Context(), http.MethodGet, "/x/", http.NoBody))
 	test.EqOp(T, http.StatusBadRequest, rec.Code)
 }
 
@@ -352,7 +352,7 @@ func TestBind_BodyDecodeError(T *testing.T) {
 
 	Post(r, "/b", func(_ context.Context, _ person) (Empty, error) { return Empty{}, nil })
 
-	req := httptest.NewRequest(http.MethodPost, "/b", strings.NewReader(`{not json`))
+	req := httptest.NewRequestWithContext(T.Context(), http.MethodPost, "/b", strings.NewReader(`{not json`))
 	req.Header.Set(encoding.ContentTypeHeaderKey, "application/json")
 
 	rec := fb.serve(T, http.MethodPost, "/b", req)
@@ -478,7 +478,7 @@ func TestSetScalar_Extra(T *testing.T) {
 func TestRawParam_DefaultLocation(T *testing.T) {
 	T.Parallel()
 
-	_, ok := rawParam(newFakeBackend(), httptest.NewRequest(http.MethodGet, "/", http.NoBody), &paramField{in: "bogus"})
+	_, ok := rawParam(newFakeBackend(), httptest.NewRequestWithContext(T.Context(), http.MethodGet, "/", http.NoBody), &paramField{in: "bogus"})
 	test.False(T, ok)
 }
 
@@ -571,7 +571,7 @@ func TestMountOpenAPI_MarshalError(T *testing.T) {
 	// Poison the spec so MarshalSpec fails, exercising the 500 branch.
 	r.reflector.Spec.MapOfAnything = map[string]any{"x-bad": make(chan int)}
 
-	rec := fb.serve(T, http.MethodGet, "/spec.json", httptest.NewRequest(http.MethodGet, "/spec.json", http.NoBody))
+	rec := fb.serve(T, http.MethodGet, "/spec.json", httptest.NewRequestWithContext(T.Context(), http.MethodGet, "/spec.json", http.NoBody))
 	test.EqOp(T, http.StatusInternalServerError, rec.Code)
 }
 
@@ -584,8 +584,8 @@ func TestMountOpenAPI_WriteErrors(T *testing.T) {
 
 	// Both handlers should swallow (log) a write failure without panicking.
 	specHandler := fb.handlers["GET /spec.json"]
-	specHandler.ServeHTTP(&failWriter{}, httptest.NewRequest(http.MethodGet, "/spec.json", http.NoBody))
+	specHandler.ServeHTTP(&failWriter{}, httptest.NewRequestWithContext(T.Context(), http.MethodGet, "/spec.json", http.NoBody))
 
 	docsHandler := fb.handlers["GET /docs"]
-	docsHandler.ServeHTTP(&failWriter{}, httptest.NewRequest(http.MethodGet, "/docs", http.NoBody))
+	docsHandler.ServeHTTP(&failWriter{}, httptest.NewRequestWithContext(T.Context(), http.MethodGet, "/docs", http.NoBody))
 }

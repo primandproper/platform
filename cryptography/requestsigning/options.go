@@ -19,7 +19,7 @@ type config struct {
 }
 
 func newConfig(opts []Option) *config {
-	cfg := &config{Freshness: Freshness{Tolerance: DefaultTolerance}}
+	cfg := &config{Tolerance: DefaultTolerance}
 
 	for _, opt := range opts {
 		if opt != nil {

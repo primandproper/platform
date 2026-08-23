@@ -114,8 +114,7 @@ func (s *SecretSource) GetSecret(ctx context.Context, name string) (string, erro
 		// caller can tell "no such secret" from "could not reach the provider"
 		// without knowing which provider it got, and a raw ParameterNotFound
 		// breaks that contract the moment the deployment switches backends.
-		var notFound *ssmtypes.ParameterNotFound
-		if stderrors.As(err, &notFound) {
+		if _, ok := stderrors.AsType[*ssmtypes.ParameterNotFound](err); ok {
 			return "", op.Error(
 				errors.Join(secrets.ErrSecretNotFound, err),
 				"getting parameter %q", name,

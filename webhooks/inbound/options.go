@@ -32,7 +32,7 @@ type verifierConfig struct {
 
 // newVerifierConfig applies opts, ignoring nil entries.
 func newVerifierConfig(opts []VerifierOption) *verifierConfig {
-	cfg := &verifierConfig{Freshness: requestsigning.Freshness{Tolerance: DefaultTolerance}}
+	cfg := &verifierConfig{Tolerance: DefaultTolerance}
 
 	for _, opt := range opts {
 		if opt != nil {

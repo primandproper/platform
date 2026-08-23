@@ -27,18 +27,18 @@ type renderConfig struct {
 
 func sampleRenderConfigs() (dev, prod *renderConfig) {
 	return &renderConfig{
-			Limits:  map[string]int{"burst": 10, "sustained": 2},
-			Name:    "localdev",
-			Tags:    []string{"local", "insecure"},
-			Port:    8080,
-			Verbose: true,
-		}, &renderConfig{
-			Limits:  map[string]int{"burst": 500, "sustained": 100},
-			Name:    "production",
-			Tags:    []string{"hardened"},
-			Port:    443,
-			Verbose: false,
-		}
+		Limits:  map[string]int{"burst": 10, "sustained": 2},
+		Name:    "localdev",
+		Tags:    []string{"local", "insecure"},
+		Port:    8080,
+		Verbose: true,
+	}, &renderConfig{
+		Limits:  map[string]int{"burst": 500, "sustained": 100},
+		Name:    "production",
+		Tags:    []string{"hardened"},
+		Port:    443,
+		Verbose: false,
+	}
 }
 
 func TestRenderJSONFiles(t *testing.T) {

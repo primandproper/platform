@@ -16,7 +16,7 @@ func TestNewCollector(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		cfg := &Config{SourceConfig: SourceConfig{Provider: ProviderNoop}}
+		cfg := &Config{Provider: ProviderNoop}
 		logger := loggingnoop.NewLogger()
 
 		actual, err := NewEventReporter(ctx, cfg, WithLogger(logger))
@@ -29,11 +29,9 @@ func TestNewCollector(T *testing.T) {
 
 		ctx := t.Context()
 		cfg := &Config{
-			SourceConfig: SourceConfig{
-				Provider: ProviderSegment,
-				Segment: &segment.Config{
-					APIToken: t.Name(),
-				},
+			Provider: ProviderSegment,
+			Segment: &segment.Config{
+				APIToken: t.Name(),
 			},
 		}
 		logger := loggingnoop.NewLogger()

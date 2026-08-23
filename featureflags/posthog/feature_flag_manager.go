@@ -125,17 +125,15 @@ func NewFeatureFlagManager(cfg *Config, circuitBreaker circuitbreaking.CircuitBr
 	ofClient := openfeature.NewClient(domain)
 
 	ffm := &FeatureFlagManager{
-		posthogClient: client,
-		Evaluator: openfeatureflags.Evaluator{
-			O11y:            o11y,
-			Client:          ofClient,
-			CircuitBreaker:  circuitBreaker,
-			Domain:          domain,
-			EvalCounter:     evalCounter,
-			ErrorCounter:    errorCounter,
-			NotFoundCounter: notFoundCounter,
-			LatencyHist:     latencyHist,
-		},
+		posthogClient:   client,
+		O11y:            o11y,
+		Client:          ofClient,
+		CircuitBreaker:  circuitBreaker,
+		Domain:          domain,
+		EvalCounter:     evalCounter,
+		ErrorCounter:    errorCounter,
+		NotFoundCounter: notFoundCounter,
+		LatencyHist:     latencyHist,
 	}
 
 	return ffm, nil

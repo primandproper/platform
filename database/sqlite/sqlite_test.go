@@ -351,10 +351,8 @@ func TestNewDatabaseClient(T *testing.T) {
 		// A config exposing GetLogQueries() == false suppresses db.statement on
 		// spans, so query text does not leak into traces.
 		exampleConfig := &loggingClientConfig{
-			testClientConfig: testClientConfig{
-				connectionString: filepath.Join(t.TempDir(), "test.db"),
-				maxPingAttempts:  1,
-			},
+			connectionString: filepath.Join(t.TempDir(), "test.db"),
+			maxPingAttempts:  1,
 		}
 
 		actual, err := NewDatabaseClient(ctx, exampleConfig)
@@ -368,11 +366,9 @@ func TestNewDatabaseClient(T *testing.T) {
 		ctx := t.Context()
 
 		exampleConfig := &loggingClientConfig{
-			testClientConfig: testClientConfig{
-				connectionString: filepath.Join(t.TempDir(), "test.db"),
-				maxPingAttempts:  1,
-			},
-			logQueries: true,
+			connectionString: filepath.Join(t.TempDir(), "test.db"),
+			maxPingAttempts:  1,
+			logQueries:       true,
 		}
 
 		actual, err := NewDatabaseClient(ctx, exampleConfig)

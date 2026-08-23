@@ -16,7 +16,7 @@ import (
 func request(t *testing.T, remoteAddr string, headers ...string) *http.Request {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, "/things", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/things", http.NoBody)
 	req.RemoteAddr = remoteAddr
 
 	for i := 0; i+1 < len(headers); i += 2 {

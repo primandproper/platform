@@ -219,8 +219,7 @@ func TestRouter_MaxRequestBody(T *testing.T) {
 		t.Parallel()
 
 		r := buildTestRouter(t, routing.WithErrorEncoder(func(_ context.Context, err error) (int, any) {
-			var tooLarge *http.MaxBytesError
-			if errors.As(err, &tooLarge) {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 				return http.StatusRequestEntityTooLarge, flatError{Error: "too big"}
 			}
 

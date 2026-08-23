@@ -119,7 +119,7 @@ func TestHandlers_get(T *testing.T) {
 		handler := mount(t, serviceReturning(op), "u1")
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
 
 		test.EqOp(t, nethttp.StatusOK, res.Code)
 		test.StrContains(t, res.Body.String(), `"id":"op1"`)
@@ -136,10 +136,10 @@ func TestHandlers_get(T *testing.T) {
 		handler := mount(t, serviceReturning(op), "u2")
 
 		theirs := httptest.NewRecorder()
-		handler.ServeHTTP(theirs, httptest.NewRequest(nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
+		handler.ServeHTTP(theirs, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
 
 		missing := httptest.NewRecorder()
-		handler.ServeHTTP(missing, httptest.NewRequest(nethttp.MethodGet, "/operations/nope", nethttp.NoBody))
+		handler.ServeHTTP(missing, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations/nope", nethttp.NoBody))
 
 		test.EqOp(t, nethttp.StatusNotFound, theirs.Code)
 		test.EqOp(t, nethttp.StatusNotFound, missing.Code)
@@ -162,7 +162,7 @@ func TestHandlers_get(T *testing.T) {
 		// No owner on the context at all, which is what an unauthenticated
 		// request reaching this surface looks like.
 		res := httptest.NewRecorder()
-		router.Handler().ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
+		router.Handler().ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
 
 		test.Greater(t, 399, res.Code)
 	})
@@ -191,7 +191,7 @@ func TestHandlers_cancel(T *testing.T) {
 		handler := mount(t, svc, "u1")
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodPost, "/operations/op1/cancel", nethttp.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodPost, "/operations/op1/cancel", nethttp.NoBody))
 
 		test.EqOp(t, nethttp.StatusOK, res.Code)
 		test.EqOp(t, "op1", cancelled)
@@ -218,7 +218,7 @@ func TestHandlers_cancel(T *testing.T) {
 		handler := mount(t, svc, "u2")
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodPost, "/operations/op1/cancel", nethttp.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodPost, "/operations/op1/cancel", nethttp.NoBody))
 
 		test.EqOp(t, nethttp.StatusNotFound, res.Code)
 		test.False(t, called)
@@ -251,7 +251,7 @@ func TestHandlers_list(T *testing.T) {
 		handler := mount(t, svc, "u1")
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations?kind=export", nethttp.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations?kind=export", nethttp.NoBody))
 
 		test.EqOp(t, nethttp.StatusOK, res.Code)
 		must.NotNil(t, seen)
@@ -282,7 +282,7 @@ func TestHandlers_list(T *testing.T) {
 		handler := mount(t, svc, "u1")
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations?state=failed", nethttp.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations?state=failed", nethttp.NoBody))
 
 		test.EqOp(t, nethttp.StatusOK, res.Code)
 		must.NotNil(t, seen)
@@ -312,7 +312,7 @@ func TestHandlers_list(T *testing.T) {
 		handler := mount(t, svc, "u1")
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations?state=nonsense", nethttp.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations?state=nonsense", nethttp.NoBody))
 
 		test.Greater(t, 399, res.Code)
 		test.False(t, called)
@@ -349,7 +349,7 @@ func TestHandlers_basePath(T *testing.T) {
 	handler := mount(T, serviceReturning(op), "u1", WithBasePath("/v1/jobs"))
 
 	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/v1/jobs/op1", nethttp.NoBody))
+	handler.ServeHTTP(res, httptest.NewRequestWithContext(T.Context(), nethttp.MethodGet, "/v1/jobs/op1", nethttp.NoBody))
 
 	test.EqOp(T, nethttp.StatusOK, res.Code)
 
@@ -431,12 +431,12 @@ func TestHandlers_selectiveMount(T *testing.T) {
 	handler := asOwner("u1", router.Handler())
 
 	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
+	handler.ServeHTTP(res, httptest.NewRequestWithContext(T.Context(), nethttp.MethodGet, "/operations/op1", nethttp.NoBody))
 	test.EqOp(T, nethttp.StatusOK, res.Code)
 
 	// Never mounted, so nothing answers it.
 	res = httptest.NewRecorder()
-	handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodPost, "/operations/op1/cancel", nethttp.NoBody))
+	handler.ServeHTTP(res, httptest.NewRequestWithContext(T.Context(), nethttp.MethodPost, "/operations/op1/cancel", nethttp.NoBody))
 	test.Greater(T, 399, res.Code)
 }
 
@@ -484,7 +484,7 @@ func TestHandlers_noWatcherNoStream(T *testing.T) {
 	handler := mount(T, serviceReturning(op), "u1")
 
 	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations/op1/events", nethttp.NoBody))
+	handler.ServeHTTP(res, httptest.NewRequestWithContext(T.Context(), nethttp.MethodGet, "/operations/op1/events", nethttp.NoBody))
 
 	test.EqOp(T, nethttp.StatusNotFound, res.Code)
 }
@@ -518,7 +518,7 @@ func TestHandlers_stream(T *testing.T) {
 		}()
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations/op1/events", nethttp.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations/op1/events", nethttp.NoBody))
 
 		body := res.Body.String()
 
@@ -547,7 +547,7 @@ func TestHandlers_stream(T *testing.T) {
 		handler := mount(t, svc, "u2", WithWatcher(watcher))
 
 		res := httptest.NewRecorder()
-		handler.ServeHTTP(res, httptest.NewRequest(nethttp.MethodGet, "/operations/op1/events", nethttp.NoBody))
+		handler.ServeHTTP(res, httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/operations/op1/events", nethttp.NoBody))
 
 		test.EqOp(t, nethttp.StatusNotFound, res.Code)
 		test.StrContains(t, res.Header().Get("Content-Type"), "application/json")

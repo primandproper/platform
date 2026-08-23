@@ -83,7 +83,7 @@ func Example() {
 
 	// In a real service you would hand r.Handler() to an http.Server (or the
 	// platform's server/http package). Here we drive one request in-process.
-	req := httptest.NewRequest(http.MethodPost, "/orgs/7/users?notify=true",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/orgs/7/users?notify=true",
 		strings.NewReader(`{"name":"Ada","email":"ada@example.com"}`))
 	req.Header.Set(encoding.ContentTypeHeaderKey, "application/json")
 
@@ -141,7 +141,7 @@ func ExampleResult() {
 	}
 
 	for _, id := range []string{"7", "8"} {
-		req := httptest.NewRequest(http.MethodPut, "/users/"+id, strings.NewReader(`{"name":"Ada"}`))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/users/"+id, strings.NewReader(`{"name":"Ada"}`))
 		req.Header.Set(encoding.ContentTypeHeaderKey, "application/json")
 
 		rec := httptest.NewRecorder()
@@ -184,7 +184,7 @@ func ExampleRawBody() {
 		panic(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPut, "/areas/12/geojson",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/areas/12/geojson",
 		strings.NewReader(`{"type":"Point","coordinates":[0,0]}`))
 	req.Header.Set(encoding.ContentTypeHeaderKey, "application/geo+json")
 
@@ -227,7 +227,7 @@ func ExampleRouter_Handle() {
 	payload := strings.NewReader(`{"id":"evt_1","amount":100}`)
 
 	rec := httptest.NewRecorder()
-	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/webhooks/payments", payload))
+	r.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/payments", payload))
 	fmt.Println("webhook status:", rec.Code)
 
 	if _, err := payload.Seek(0, io.SeekStart); err != nil {
@@ -235,7 +235,7 @@ func ExampleRouter_Handle() {
 	}
 
 	rec = httptest.NewRecorder()
-	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/uploads", payload))
+	r.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/uploads", payload))
 	fmt.Println("upload status:", rec.Code)
 
 	// Output:

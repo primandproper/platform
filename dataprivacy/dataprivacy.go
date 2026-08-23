@@ -36,14 +36,18 @@ const (
 	artifactRefKey  = "dataprivacy.artifact_ref"
 	artifactSizeKey = "dataprivacy.artifact_bytes"
 	deletedKey      = "dataprivacy.deleted"
-	anonymizedKey   = "dataprivacy.anonymized"
-	retainedKey     = "dataprivacy.retained"
-	shreddedKey     = "dataprivacy.key_shredded"
-	keyDestroyedKey = "dataprivacy.key_destroyed"
-	expiredKey      = "dataprivacy.expired"
-	overdueKey      = "dataprivacy.overdue"
-	sweptKey        = "dataprivacy.swept"
-	finalKey        = "dataprivacy.final_attempt"
+
+	// metadataReasonKey names the audit metadata entry saying why a request
+	// moved, and is the one key this package writes rather than reads.
+	metadataReasonKey = "reason"
+	anonymizedKey     = "dataprivacy.anonymized"
+	retainedKey       = "dataprivacy.retained"
+	shreddedKey       = "dataprivacy.key_shredded"
+	keyDestroyedKey   = "dataprivacy.key_destroyed"
+	expiredKey        = "dataprivacy.expired"
+	overdueKey        = "dataprivacy.overdue"
+	sweptKey          = "dataprivacy.swept"
+	finalKey          = "dataprivacy.final_attempt"
 
 	// operationIDKey is namespaced to this package rather than reusing the
 	// operations. prefix, because on a dataprivacy span it answers "which

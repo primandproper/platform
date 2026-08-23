@@ -304,11 +304,11 @@ func (t *tables) buildSelectExpiringArtifacts(d dialect.Dialect, now time.Time, 
 // cannot outlive the object it named and be handed to a signer later.
 func (t *tables) buildMarkExpired(d dialect.Dialect, requestID string, at time.Time) (query string, args []any) {
 	return fmt.Sprintf(
-			"UPDATE %s SET status = %s, artifact_ref = '', expires_at = %s WHERE id = %s AND status = %s",
-			t.requests, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
-		), []any{
-			string(StatusExpired), at.UTC(), requestID, string(StatusCompleted),
-		}
+		"UPDATE %s SET status = %s, artifact_ref = '', expires_at = %s WHERE id = %s AND status = %s",
+		t.requests, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
+	), []any{
+		string(StatusExpired), at.UTC(), requestID, string(StatusCompleted),
+	}
 }
 
 // buildLapseUnconfirmed renders the sweep cancelling erasures whose
@@ -335,11 +335,11 @@ func (t *tables) buildLapseUnconfirmed(d dialect.Dialect, now time.Time, limit i
 	}
 
 	return fmt.Sprintf(
-			"UPDATE %s SET status = %s, completed_at = %s, expires_at = NULL WHERE id IN (%s)",
-			t.requests, d.Placeholder(1), d.Placeholder(2), inner,
-		), []any{
-			string(StatusCancelled), now.UTC(), string(StatusAwaitingConfirmation), now.UTC(), limit,
-		}
+		"UPDATE %s SET status = %s, completed_at = %s, expires_at = NULL WHERE id IN (%s)",
+		t.requests, d.Placeholder(1), d.Placeholder(2), inner,
+	), []any{
+		string(StatusCancelled), now.UTC(), string(StatusAwaitingConfirmation), now.UTC(), limit,
+	}
 }
 
 // buildCountOverdue renders the overdue gauge's read: how many requests are
