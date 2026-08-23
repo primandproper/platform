@@ -146,6 +146,10 @@ var probeMethods = []string{
 // a registered "/things/{a}/{b}" that the other backends refuse.
 func escapedPathDispatch(router *hr.Router) http.Handler {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		if redirectOffOrigin(res, req) {
+			return
+		}
+
 		// Equal whenever nothing needed escaping, which is the overwhelming
 		// majority of requests and the case this must not perturb.
 		escaped := req.URL.EscapedPath()
@@ -187,6 +191,39 @@ func escapedPathDispatch(router *hr.Router) http.Handler {
 	})
 }
 
+// redirectOffOrigin sends a request whose path has more than one leading slash
+// to the same path with one, reporting whether it wrote a response.
+//
+// A path like "//example.com/" is where a same-origin redirect stops being one.
+// A Location of "//example.com" is protocol-relative: the browser reads what
+// follows the slashes as a host and leaves this origin entirely. httprouter's
+// own trailing-slash redirect builds Location from the path it was given and so
+// emits exactly that, which is why the collapse happens here, before the request
+// reaches the router, rather than inside redirectTrailingSlash — that helper
+// handles only the escaped-path cases this dispatcher intercepts, and the plain
+// ones never reach it.
+//
+// Collapsed and redirected rather than refused, which is what http.ServeMux does
+// with the same input: the caller named a path this origin can serve, spelled a
+// way it will not answer. The result begins with exactly one slash followed by
+// something that is not a slash, so it cannot be read as a host.
+func redirectOffOrigin(res http.ResponseWriter, req *http.Request) bool {
+	escaped := req.URL.EscapedPath()
+	if !strings.HasPrefix(escaped, "//") {
+		return false
+	}
+
+	location := "/" + strings.TrimLeft(escaped, "/")
+	if req.URL.RawQuery != "" {
+		location += "?" + req.URL.RawQuery
+	}
+
+	//nolint:gosec // G710: location is built to begin with exactly one slash, which is what makes it same-origin.
+	http.Redirect(res, req, location, http.StatusMovedPermanently)
+
+	return true
+}
+
 // redirectTrailingSlash sends the caller to escaped with its trailing slash
 // added or removed, reporting whether it wrote a response.
 //
@@ -214,6 +251,7 @@ func redirectTrailingSlash(res http.ResponseWriter, req *http.Request, escaped s
 
 	location := *req.URL
 	location.Path, location.RawPath = decoded, target
+	//nolint:gosec // G710: redirectOffOrigin has already turned away every path that could leave this origin.
 	http.Redirect(res, req, location.String(), code)
 
 	return true
