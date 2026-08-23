@@ -43,7 +43,7 @@ const (
 // spelling of filtering.QueryFilter — see the package comment for the mapping
 // between these, the struct fields, and the URL parameters.
 //
-// They are aliases rather than literals because filtering.Bind produces the
+// They are aliases rather than literals because filtering.ToSQLArgs produces the
 // values these arguments take, and a name is only useful if the statement and
 // the binding agree on it. Spelled in both places they could disagree, and the
 // failure would be silent: a value bound under a name no statement mentions

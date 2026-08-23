@@ -40,7 +40,7 @@ func ExampleQueryFilterSchema() {
 
 // listRecipesParams stands in for the params struct a query generator emits.
 // sqlc names these fields off the arguments in the .sql file, so a consumer's
-// looks like this without platform having any say in it — which is why Bind
+// looks like this without platform having any say in it — which is why ToSQLArgs
 // hands back values to copy across rather than a type the generated struct
 // would have to embed.
 type listRecipesParams struct {
@@ -68,15 +68,15 @@ func listRecipes(params *listRecipesParams) string {
 
 // A list query binds its window from a filter, and the seven conversions that
 // takes are the same seven every time. The arguments the query is keyed on are
-// the caller's own — Bind does not know about them and does not touch them.
-func ExampleBind() {
+// the caller's own — ToSQLArgs does not know about them and does not touch them.
+func ExampleToSQLArgs() {
 	filter := &filtering.QueryFilter{MaxResponseSize: new(uint16(1_000))}
 
 	// A page size above the ceiling is answered with the ceiling rather than
 	// rejected, and the clamp lands before the narrowing to the driver's type.
 	// An unset field stays a NULL, which the emitted predicates coalesce to a
 	// bound that admits everything.
-	args := filtering.Bind(filter)
+	args := filtering.ToSQLArgs(filter)
 
 	fmt.Println(listRecipes(&listRecipesParams{
 		CreatedAfter:    args.CreatedAfter,

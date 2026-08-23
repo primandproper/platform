@@ -14,7 +14,7 @@
 // asked for; translating that into a query belongs to whatever store answers it.
 //
 // The two ends of that translation are here, because both are restatements of
-// rules this package owns rather than of anything a store knows. Bind converts
+// rules this package owns rather than of anything a store knows. ToSQLArgs converts
 // a filter into the driver-typed values a filtered read binds — the nil
 // default, the page-size clamp, and the seven conversions, applied once — and
 // Drain turns the rows that come back into the QueryFilteredResult they are

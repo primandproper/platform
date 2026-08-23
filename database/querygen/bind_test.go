@@ -1,7 +1,6 @@
 package querygen
 
 import (
-	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -684,11 +683,11 @@ func TestListArgumentsAreTheOnesFilteringBinds(T *testing.T) {
 		t.Parallel()
 
 		// This is the tie between the two halves of a filtered read: the
-		// statements emitted here name the arguments, and filtering.BindValues
-		// produces the values they take. The names are shared — the Arg
-		// constants in this package are aliases of filtering's — so a mismatch
-		// cannot be a spelling; it is a window argument that reached one half
-		// and not the other.
+		// statements emitted here name the arguments, and filtering names the
+		// values they take. The names are shared — the Arg constants in this
+		// package are aliases of filtering's — so a mismatch cannot be a
+		// spelling; it is a window argument that reached one half and not the
+		// other.
 		//
 		// Either direction is silent at runtime. An argument the SQL names and
 		// nothing binds is an unbound placeholder, which at least fails loudly
@@ -696,7 +695,15 @@ func TestListArgumentsAreTheOnesFilteringBinds(T *testing.T) {
 		// dialects. An argument bound under a name no statement mentions binds
 		// nothing and filters nothing, which is what a filter nobody set looks
 		// like.
-		expected := slices.Sorted(maps.Keys(filtering.BindValues(nil)))
+		expected := slices.Sorted(slices.Values([]string{
+			filtering.ArgCreatedAfter,
+			filtering.ArgCreatedBefore,
+			filtering.ArgCursor,
+			filtering.ArgIncludeArchived,
+			filtering.ArgResultLimit,
+			filtering.ArgUpdatedAfter,
+			filtering.ArgUpdatedBefore,
+		}))
 
 		for _, d := range everyDialect() {
 			// No ownership column and no matches, so what is left is the

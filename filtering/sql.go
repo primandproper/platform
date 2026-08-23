@@ -12,7 +12,7 @@ import (
 // They live here rather than beside the SQL that consumes them because both
 // halves of a filtered read now read them from one place — database/querygen
 // emits the statements that name these arguments and aliases these constants,
-// and Bind produces the values those arguments take. A new window argument is
+// and ToSQLArgs produces the values those arguments take. A new window argument is
 // therefore added to this list once, and both the statement and the binding
 // follow from it; two lists could disagree, and a binding keyed on a name no
 // statement mentions binds nothing and filters nothing, which looks exactly
@@ -47,8 +47,8 @@ const (
 //
 // Every field is nullable because absence is what an unset filter field means,
 // and the emitted predicates coalesce a NULL bound to a horizon that admits
-// everything. The exception is ResultLimit, which Bind always fills — see
-// Bind's own comment for why an absent page size is answered here rather than
+// everything. The exception is ResultLimit, which ToSQLArgs always fills — see
+// ToSQLArgs's own comment for why an absent page size is answered here rather than
 // left to the statement.
 type SQLArgs struct {
 	// CreatedAfter and CreatedBefore bound the row's creation time; an invalid
@@ -66,7 +66,7 @@ type SQLArgs struct {
 	// first page.
 	Cursor sql.NullString
 
-	// ResultLimit is the page size, always valid — see Bind.
+	// ResultLimit is the page size, always valid — see ToSQLArgs.
 	ResultLimit sql.NullInt32
 
 	// IncludeArchived admits soft-deleted rows. Invalid reads as false, which
@@ -79,15 +79,18 @@ type SQLArgs struct {
 	IncludeArchived sql.NullBool
 }
 
-// Bind converts a QueryFilter into the driver-typed values a filtered read
+// ToSQLArgs converts a QueryFilter into the driver-typed values a filtered read
 // takes, applying the nil-default and the page-size clamp once.
 //
 // A nil filter binds the defaults, so a caller that took none still produces a
 // bindable statement rather than a nil dereference three frames further down.
 //
 // A caller whose driver takes its arguments by name rather than a generated
-// struct by field has BindValues, which is these same values keyed by the
-// names the emitted statements bind them under.
+// struct by field keys these same values on the Arg constants above, which are
+// the names the emitted statements bind them under — database/querygen's
+// Bound.Bind takes exactly such a map. Building it is the caller's, because the
+// map a keyed read hands over carries its own match columns alongside these and
+// there is no version of it this package could hand back whole.
 //
 // ResultLimit is always valid. An absent page size becomes
 // DefaultQueryFilterLimit here rather than being left as a NULL for the
@@ -116,7 +119,7 @@ type SQLArgs struct {
 // shapes a time for the dialect it was built for. Binding these values there
 // would produce a window that admits every row for every bound, which is
 // indistinguishable from a caller who set no window at all.
-func Bind(filter *QueryFilter) SQLArgs {
+func ToSQLArgs(filter *QueryFilter) SQLArgs {
 	if filter == nil {
 		filter = DefaultQueryFilter()
 	}
@@ -140,36 +143,6 @@ func boundResponseSize(size *uint16) uint16 {
 	}
 
 	return ClampResponseSize(uint64(*size))
-}
-
-// BindValues is the same seven arguments keyed by the names they bind under,
-// for a caller executing a statement through a positional driver rather than
-// through generated code.
-//
-// SQLArgs is for the sqlc path, where a params literal names its fields; this
-// is for the path where a statement names its arguments and something has to
-// hand over a value per name — database/querygen's Bound.Bind takes exactly
-// this map. Both are what Bind produced, so the two paths cannot come to bind
-// different things.
-//
-// The map is freshly built and the caller owns it. A keyed read's own match
-// columns go into it alongside these, which is why it is built rather than
-// shared.
-//
-// The dialect caveat on Bind applies here in full: a SQLite store wants
-// Generator.BindFilter, which writes these same names with times shaped for it.
-func BindValues(filter *QueryFilter) map[string]any {
-	args := Bind(filter)
-
-	return map[string]any{
-		ArgCreatedAfter:    args.CreatedAfter,
-		ArgCreatedBefore:   args.CreatedBefore,
-		ArgUpdatedAfter:    args.UpdatedAfter,
-		ArgUpdatedBefore:   args.UpdatedBefore,
-		ArgCursor:          args.Cursor,
-		ArgResultLimit:     args.ResultLimit,
-		ArgIncludeArchived: args.IncludeArchived,
-	}
 }
 
 // Drain turns the rows a filtered read returned into the QueryFilteredResult it

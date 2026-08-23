@@ -2,8 +2,6 @@ package filtering
 
 import (
 	"database/sql"
-	"maps"
-	"slices"
 	"testing"
 	"time"
 
@@ -11,7 +9,7 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-func TestBind(T *testing.T) {
+func TestToSQLArgs(T *testing.T) {
 	T.Parallel()
 
 	exampleTime := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
@@ -29,7 +27,7 @@ func TestBind(T *testing.T) {
 			IncludeArchived: new(true),
 		}
 
-		args := Bind(filter)
+		args := ToSQLArgs(filter)
 
 		test.EqOp(t, sql.NullTime{Time: *filter.CreatedAfter, Valid: true}, args.CreatedAfter)
 		test.EqOp(t, sql.NullTime{Time: *filter.CreatedBefore, Valid: true}, args.CreatedBefore)
@@ -43,7 +41,7 @@ func TestBind(T *testing.T) {
 	T.Run("with nil filter", func(t *testing.T) {
 		t.Parallel()
 
-		args := Bind(nil)
+		args := ToSQLArgs(nil)
 
 		// A nil filter is the default filter, which sets nothing but the page
 		// size — every window is open and the first page is the one asked for.
@@ -62,7 +60,7 @@ func TestBind(T *testing.T) {
 		// Distinct from the nil case: this filter exists and set nothing, which
 		// still has to reach the driver as a usable page size rather than as a
 		// NULL the one dialect that cannot coalesce would answer with no rows.
-		args := Bind(&QueryFilter{})
+		args := ToSQLArgs(&QueryFilter{})
 
 		test.EqOp(t, sql.NullInt32{Int32: DefaultQueryFilterLimit, Valid: true}, args.ResultLimit)
 		test.EqOp(t, sql.NullBool{}, args.IncludeArchived)
@@ -74,7 +72,7 @@ func TestBind(T *testing.T) {
 		// The clamp lands before the narrowing to int32, which is the ordering
 		// that matters: a value narrowed first is a legible-looking wrong
 		// answer.
-		args := Bind(&QueryFilter{MaxResponseSize: new(uint16(60_000))})
+		args := ToSQLArgs(&QueryFilter{MaxResponseSize: new(uint16(60_000))})
 
 		test.EqOp(t, sql.NullInt32{Int32: int32(MaxQueryFilterLimit), Valid: true}, args.ResultLimit)
 	})
@@ -82,7 +80,7 @@ func TestBind(T *testing.T) {
 	T.Run("with a page size at the ceiling", func(t *testing.T) {
 		t.Parallel()
 
-		args := Bind(&QueryFilter{MaxResponseSize: new(MaxQueryFilterLimit)})
+		args := ToSQLArgs(&QueryFilter{MaxResponseSize: new(MaxQueryFilterLimit)})
 
 		test.EqOp(t, sql.NullInt32{Int32: int32(MaxQueryFilterLimit), Valid: true}, args.ResultLimit)
 	})
@@ -92,7 +90,7 @@ func TestBind(T *testing.T) {
 
 		// A zero a caller set is loud — no rows — rather than quietly becoming a
 		// page of some other size. Only absence is defaulted here.
-		args := Bind(&QueryFilter{MaxResponseSize: new(uint16(0))})
+		args := ToSQLArgs(&QueryFilter{MaxResponseSize: new(uint16(0))})
 
 		test.EqOp(t, sql.NullInt32{Int32: 0, Valid: true}, args.ResultLimit)
 	})
@@ -102,59 +100,9 @@ func TestBind(T *testing.T) {
 
 		// False and absent are different values here, and the difference is the
 		// one a hand-written params literal loses by omitting the field.
-		args := Bind(&QueryFilter{IncludeArchived: new(false)})
+		args := ToSQLArgs(&QueryFilter{IncludeArchived: new(false)})
 
 		test.EqOp(t, sql.NullBool{Bool: false, Valid: true}, args.IncludeArchived)
-	})
-}
-
-func TestBindValues(T *testing.T) {
-	T.Parallel()
-
-	T.Run("standard", func(t *testing.T) {
-		t.Parallel()
-
-		filter := &QueryFilter{Cursor: new("cursor_001"), MaxResponseSize: new(uint16(10))}
-
-		args := Bind(filter)
-		values := BindValues(filter)
-
-		test.EqOp(t, any(args.CreatedAfter), values[ArgCreatedAfter])
-		test.EqOp(t, any(args.CreatedBefore), values[ArgCreatedBefore])
-		test.EqOp(t, any(args.UpdatedAfter), values[ArgUpdatedAfter])
-		test.EqOp(t, any(args.UpdatedBefore), values[ArgUpdatedBefore])
-		test.EqOp(t, any(args.Cursor), values[ArgCursor])
-		test.EqOp(t, any(args.ResultLimit), values[ArgResultLimit])
-		test.EqOp(t, any(args.IncludeArchived), values[ArgIncludeArchived])
-	})
-
-	T.Run("naming every argument and no others", func(t *testing.T) {
-		t.Parallel()
-
-		expected := []string{
-			ArgCreatedAfter,
-			ArgCreatedBefore,
-			ArgCursor,
-			ArgIncludeArchived,
-			ArgResultLimit,
-			ArgUpdatedAfter,
-			ArgUpdatedBefore,
-		}
-
-		got := slices.Sorted(maps.Keys(BindValues(nil)))
-
-		test.Eq(t, expected, got)
-	})
-
-	T.Run("handing over a copy", func(t *testing.T) {
-		t.Parallel()
-
-		// A keyed read's own match columns go into this map beside the filter's
-		// arguments, so a caller that edits one must not be editing everyone's.
-		values := BindValues(nil)
-		values["referenced_id"] = "whatever"
-
-		test.MapNotContainsKey(t, BindValues(nil), "referenced_id")
 	})
 }
 
