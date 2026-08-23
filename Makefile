@@ -14,7 +14,13 @@ COVERAGE_OUT  := $(ARTIFACTS_DIR)/coverage.out
 TOTAL_PACKAGE_LIST = $(shell go list $(THIS)/...)
 
 # CONTAINER VERSIONS
-LINTER_IMAGE     := golangci/golangci-lint:v2.10.1
+#
+# The linter version lives in .golangci-version and nowhere else. The lint
+# workflow reads the same file, because it wants a bare version where this
+# wants an image reference — two spellings of one fact, which is how the two
+# used to drift apart.
+LINTER_VERSION   := $(shell cat .golangci-version)
+LINTER_IMAGE     := golangci/golangci-lint:$(LINTER_VERSION)
 SHELLCHECK_IMAGE := koalaman/shellcheck:stable
 
 # COMMANDS
