@@ -11,6 +11,7 @@ import (
 // The SQLStore's CredentialStore: where the authentication engines' output
 // lands. Every method here writes exactly one credential fact, so that none of
 // them can be reached by a read-modify-write over a whole User.
+var _ CredentialStore = (*SQLStore)(nil)
 
 // GetUserByEmailVerificationToken reads the live user a verification link names.
 func (s *SQLStore) GetUserByEmailVerificationToken(ctx context.Context, scope tenancy.Scope, token string) (*User, error) {

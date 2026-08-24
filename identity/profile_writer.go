@@ -12,6 +12,7 @@ import (
 // The SQLStore's ProfileWriter: what a user or an account may change about
 // itself. The columns it deliberately does not write — credentials, billing
 // state, ownership, status — are listed on the interface.
+var _ ProfileWriter = (*SQLStore)(nil)
 
 // UpdateUser writes the user's profile and nothing else.
 func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {

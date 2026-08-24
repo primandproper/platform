@@ -12,6 +12,7 @@ import (
 
 // The SQLStore's AdminWriter: the operator's half, whose exposure through an
 // ordinary request handler is a privilege escalation.
+var _ AdminWriter = (*SQLStore)(nil)
 
 // The membership columns the archive-by-side writes name.
 const (

@@ -11,6 +11,7 @@ import (
 
 // The SQLStore's DirectoryReader: users, accounts, and the memberships between
 // them, read and never written.
+var _ DirectoryReader = (*SQLStore)(nil)
 
 // GetUser reads one of the scope's users, archived users included.
 func (s *SQLStore) GetUser(ctx context.Context, scope tenancy.Scope, userID string) (*User, error) {

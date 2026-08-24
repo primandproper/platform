@@ -13,6 +13,7 @@ import (
 
 // The SQLStore's InvitationStore: an invitation issued, looked up, and
 // answered.
+var _ InvitationStore = (*SQLStore)(nil)
 
 // The invitation columns the two paged reads name, and the column the
 // invitation role table keys on.

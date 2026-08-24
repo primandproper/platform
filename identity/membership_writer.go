@@ -14,6 +14,7 @@ import (
 
 // The SQLStore's MembershipWriter: who belongs to an account and what they may
 // do there.
+var _ MembershipWriter = (*SQLStore)(nil)
 
 // SetMembershipRoles replaces the roles a user holds in an account.
 func (s *SQLStore) SetMembershipRoles(ctx context.Context, scope tenancy.Scope, userID, accountID string, roles []string) error {

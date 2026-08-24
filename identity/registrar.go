@@ -8,6 +8,7 @@ import (
 
 // The SQLStore's Registrar: the three writes that make a registration, each
 // through the caller's executor so that they commit or fail together.
+var _ Registrar = (*SQLStore)(nil)
 
 // CreateUser writes a new user through the caller's executor.
 func (s *SQLStore) CreateUser(ctx context.Context, q database.SQLQueryExecutor, user *User) error {

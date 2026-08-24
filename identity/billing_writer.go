@@ -10,6 +10,7 @@ import (
 // The SQLStore's BillingWriter: one method, because a processor webhook is
 // unauthenticated and public and what it can reach is worth being able to state
 // in one line.
+var _ BillingWriter = (*SQLStore)(nil)
 
 // UpdateAccountBilling writes only the billing fields the update names.
 func (s *SQLStore) UpdateAccountBilling(ctx context.Context, scope tenancy.Scope, accountID string, update *BillingUpdate) error {

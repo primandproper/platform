@@ -10,6 +10,7 @@ import (
 
 // The SQLStore's SignInReader: the two lookups a sign-in form's handles reach
 // for, and the read every authenticated request afterwards makes.
+var _ SignInReader = (*SQLStore)(nil)
 
 // GetUserByUsername reads a live user by the handle they sign in with.
 func (s *SQLStore) GetUserByUsername(ctx context.Context, scope tenancy.Scope, username string) (*User, error) {
