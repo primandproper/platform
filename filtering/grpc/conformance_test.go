@@ -38,8 +38,7 @@ func jsonNames(t *testing.T, rt reflect.Type) map[string]string {
 
 	names := map[string]string{}
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
+	for field := range rt.Fields() {
 		if !field.IsExported() {
 			continue
 		}
