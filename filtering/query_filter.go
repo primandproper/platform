@@ -74,6 +74,14 @@
 // applies the ceiling in the order that works; ClampResponseSize is the same
 // rule for a parser that has the number before it has a filter.
 //
+// One transport has both a schema and a decoder here rather than only the rule.
+// filtering/proto carries the .proto for QueryFilter and Pagination, shipped
+// inside this module for a consumer's protoc to import rather than copy;
+// filtering/filteringpb is the generated Go, and filtering/grpc converts
+// between the two — the clamp before the narrowing and the default for an
+// absent filter, written once instead of per service. They are subpackages so
+// that this one takes on no protobuf runtime, exactly as it builds no SQL.
+//
 // QueryFilterSchema describes the request half as JSON Schema, for the surfaces
 // that ask for a filter in that dialect rather than in query parameters: a
 // tool-calling model, an MCP tool definition, an OpenAPI document. It is

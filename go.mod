@@ -356,4 +356,5 @@ tool (
 	github.com/dkorunic/betteralign/cmd/betteralign
 	github.com/matryer/moq
 	golang.org/x/tools/cmd/goimports
+	google.golang.org/protobuf/cmd/protoc-gen-go
 )
