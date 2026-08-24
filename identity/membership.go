@@ -61,11 +61,6 @@ type Membership struct {
 	DefaultAccount bool `json:"defaultAccount"`
 }
 
-// HasRole reports whether the membership carries role.
-func (m *Membership) HasRole(role string) bool {
-	return m != nil && slices.Contains(m.Roles, role)
-}
-
 // Archived reports whether the membership has ended.
 func (m *Membership) Archived() bool { return m != nil && m.ArchivedAt != nil }
 

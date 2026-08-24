@@ -11,6 +11,9 @@ import (
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
+// The SQLStore's InvitationStore: an invitation issued, looked up, and
+// answered.
+
 // The invitation columns the two paged reads name, and the column the
 // invitation role table keys on.
 const (

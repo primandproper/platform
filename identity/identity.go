@@ -9,22 +9,22 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-// serviceName scopes this package's spans, logger, and instruments.
-const serviceName = "identity"
-
 // The keys this package attaches to spans and log lines. Declared once so a
 // trace and a log line name the same fact the same way.
 const (
-	scopeKey        = "identity.scope"
-	userIDKey       = "identity.user_id"
-	usernameKey     = "identity.username"
-	accountIDKey    = "identity.account_id"
-	invitationIDKey = "identity.invitation_id"
-	countKey        = "identity.count"
+	// serviceName scopes this package's spans, logger, and instruments.
+	serviceName = "identity"
+
+	scopeKey        = serviceName + ".scope"
+	userIDKey       = serviceName + ".user_id"
+	usernameKey     = serviceName + ".username"
+	accountIDKey    = serviceName + ".account_id"
+	invitationIDKey = serviceName + ".invitation_id"
+	countKey        = serviceName + ".count"
 
 	// storeOpKey labels the unreported-row-count counter with the write that
 	// could not confirm itself.
-	storeOpKey = "identity.operation"
+	storeOpKey = serviceName + ".operation"
 )
 
 // UserAttributeKey is the metric and span attribute a caller labels its own
@@ -35,83 +35,6 @@ const UserAttributeKey = userIDKey
 
 // AccountAttributeKey is UserAttributeKey for accounts.
 const AccountAttributeKey = accountIDKey
-
-var (
-	// ErrNilDatabaseClient indicates a nil database.Client. It wraps
-	// errors.ErrNilInputParameter, so a caller may check either.
-	ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil database client")
-
-	// ErrNilExecutor indicates a nil database.SQLQueryExecutor handed to one of
-	// the methods that run inside the caller's transaction.
-	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
-
-	// ErrNilUser indicates a nil *User where one was required.
-	ErrNilUser = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil user")
-
-	// ErrNilAccount indicates a nil *Account where one was required.
-	ErrNilAccount = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil account")
-
-	// ErrNilMembership indicates a nil *Membership where one was required.
-	ErrNilMembership = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil membership")
-
-	// ErrNilInvitation indicates a nil *Invitation where one was required.
-	ErrNilInvitation = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil invitation")
-
-	// ErrUsernameTaken indicates a username already registered in this scope.
-	//
-	// It is a distinct error rather than a raw constraint violation because
-	// registration is the one flow where the difference between "your input
-	// collides" and "the database is unwell" decides whether the caller retries
-	// or reports.
-	ErrUsernameTaken = platformerrors.New("username is already registered")
-
-	// ErrEmailAddressTaken indicates an email address already registered in this
-	// scope.
-	ErrEmailAddressTaken = platformerrors.New("email address is already registered")
-
-	// ErrUserNotFound indicates a user that does not exist in the scope that
-	// asked. A user in another scope reads as absent, which is what it is from
-	// here — and is the answer that does not turn the read into an oracle for
-	// which usernames exist in other directories.
-	ErrUserNotFound = platformerrors.New("user not found")
-
-	// ErrAccountNotFound indicates an account that does not exist in the scope
-	// that asked.
-	ErrAccountNotFound = platformerrors.New("account not found")
-
-	// ErrMembershipNotFound indicates a (user, account) pair with no live
-	// membership between them in this scope.
-	ErrMembershipNotFound = platformerrors.New("membership not found")
-
-	// ErrInvitationNotFound indicates an invitation that does not exist, has
-	// expired, or has already been answered.
-	ErrInvitationNotFound = platformerrors.New("invitation not found")
-
-	// ErrNoDefaultAccount indicates a user with no account marked as their
-	// default, which for a user created through CreateMembership cannot happen —
-	// the first membership is the default. It surfaces for a directory whose
-	// rows were written by something else.
-	ErrNoDefaultAccount = platformerrors.New("user has no default account")
-
-	// ErrLastAccountOwner indicates an attempt to remove the only owner of an
-	// account. An ownerless account is unreachable by every permission check
-	// that resolves through its owner, so the removal is refused rather than
-	// leaving one behind.
-	ErrLastAccountOwner = platformerrors.New("cannot remove the last owner of an account")
-
-	// ErrInvitationExpired indicates an invitation whose ExpiresAt has passed.
-	// It is distinct from ErrInvitationNotFound so that the recipient can be
-	// told to ask for another one rather than that the link was wrong.
-	ErrInvitationExpired = platformerrors.New("invitation has expired")
-)
-
-// ErrInvalidEmailAddress indicates an address net/mail cannot parse. It wraps
-// errors.ErrUnrecognizedInputValue, so a caller may check either.
-var ErrInvalidEmailAddress = platformerrors.Wrap(platformerrors.ErrUnrecognizedInputValue, "invalid email address")
-
-// ErrInvalidTimeZone indicates a time zone name the runtime cannot load. It
-// wraps errors.ErrUnrecognizedInputValue, so a caller may check either.
-var ErrInvalidTimeZone = platformerrors.Wrap(platformerrors.ErrUnrecognizedInputValue, "invalid time zone")
 
 // timeZoneRule validates an IANA time zone name by loading it.
 //

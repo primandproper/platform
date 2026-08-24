@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v13/database"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -586,11 +585,3 @@ type Store interface {
 	BillingWriter
 	InvitationStore
 }
-
-// ErrInvalidInvitationStatus indicates a status write SetInvitationStatus will
-// not perform — today, InvitationAccepted. It wraps
-// errors.ErrUnrecognizedInputValue, so a caller may check either.
-var ErrInvalidInvitationStatus = platformerrors.Wrap(
-	platformerrors.ErrUnrecognizedInputValue,
-	"invitation status cannot be set directly",
-)

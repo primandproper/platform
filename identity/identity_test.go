@@ -74,10 +74,10 @@ func TestInvitationStatus(t *testing.T) {
 		test.True(t, status.Valid(), test.Sprintf("%q", status))
 	}
 
-	test.False(t, InvitationPending.Terminal())
-	test.True(t, InvitationAccepted.Terminal())
-	test.True(t, InvitationRejected.Terminal())
-	test.True(t, InvitationCancelled.Terminal())
+	test.True(t, InvitationPending.Pending())
+	test.False(t, InvitationAccepted.Pending())
+	test.False(t, InvitationRejected.Pending())
+	test.False(t, InvitationCancelled.Pending())
 }
 
 func TestAgreement(t *testing.T) {
@@ -145,15 +145,6 @@ func TestUser_Predicates(T *testing.T) {
 		test.False(t, nilUser.TwoFactorEnabled())
 		test.False(t, nilUser.EmailAddressVerified())
 		test.False(t, nilUser.Archived())
-		test.False(t, nilUser.HasServiceRole("x"))
-	})
-
-	T.Run("service roles", func(t *testing.T) {
-		t.Parallel()
-
-		user := &User{ServiceRoles: []string{"service_user", "service_admin"}}
-		test.True(t, user.HasServiceRole("service_admin"))
-		test.False(t, user.HasServiceRole("root"))
 	})
 }
 
@@ -355,12 +346,9 @@ func TestMembership(T *testing.T) {
 		t.Parallel()
 
 		membership := &Membership{Roles: []string{"a", "b"}}
-		test.True(t, membership.HasRole("a"))
-		test.False(t, membership.HasRole("c"))
 		test.False(t, membership.Archived())
 
 		var nilMembership *Membership
-		test.False(t, nilMembership.HasRole("a"))
 		test.False(t, nilMembership.Archived())
 	})
 }

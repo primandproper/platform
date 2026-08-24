@@ -258,8 +258,3 @@ func (u *User) EmailAddressVerified() bool {
 func (u *User) Archived() bool {
 	return u != nil && u.ArchivedAt != nil
 }
-
-// HasServiceRole reports whether the user holds role outside any account.
-func (u *User) HasServiceRole(role string) bool {
-	return u != nil && slices.Contains(u.ServiceRoles, role)
-}

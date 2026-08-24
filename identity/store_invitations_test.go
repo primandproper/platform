@@ -209,7 +209,7 @@ func runInvitationSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 		test.EqOp(t, InvitationRejected, read.Status)
 		test.EqOp(t, "no thanks", read.Note)
-		test.True(t, read.Status.Terminal())
+		test.False(t, read.Status.Pending())
 
 		// A rejection cannot be overwritten by a later cancellation.
 		must.ErrorIs(t,

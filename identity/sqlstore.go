@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identifiers"
 	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/observability"
@@ -267,4 +268,232 @@ func newID(existing string) string {
 	}
 
 	return identifiers.New()
+}
+
+// What follows is the machinery the nine implementation files share — the
+// column names spelled in more than one of them, the reads two seams both need,
+// and the two guards every paged read and every guarded write goes through.
+// Anything reached from one file only lives in that file.
+
+// The user columns the collision checks and the sign-in reads name. They are
+// constants rather than literals at the call sites because each is spelled in
+// two places — a builder's predicate and the method that calls it — and a typo
+// in one of them is a query that compiles, runs, and matches nothing.
+const (
+	usernameColumn     = "username"
+	emailAddressColumn = "email_address"
+	emailTokenColumn   = "email_address_verification_token"
+)
+
+// userIDColumn is what the service-role table keys on.
+const userIDColumn = "user_id"
+
+// membershipIDColumn is what the membership role table keys on.
+const membershipIDColumn = "membership_id"
+
+// liveUserBy is the one implementation behind the three single-user reads that
+// must exclude archived users. They differ in one column and nothing else, and
+// the parts that must not differ — the scope predicate and the archived clause —
+// are written once here.
+func (s *SQLStore) liveUserBy(ctx context.Context, column string, scope tenancy.Scope, value, description string) (*User, error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "%s", description)
+	}
+
+	query, args := s.tables.buildSelectLiveUserBy(s.dialect, column, scope, value)
+
+	user, err := scanUser(s.client.Reader().QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return nil, op.Error(notFound(err, ErrUserNotFound), "%s", description)
+	}
+
+	if err = s.attachServiceRoles(ctx, s.client.Reader(), []*User{user}); err != nil {
+		return nil, op.Error(err, "%s", description)
+	}
+
+	op.SpanOnly(userIDKey, user.ID)
+
+	return user, nil
+}
+
+// attachServiceRoles fills in the ServiceRoles of a batch of users with one
+// query, rather than one per user — which is what a directory page would
+// otherwise cost.
+func (s *SQLStore) attachServiceRoles(ctx context.Context, q database.SQLQueryExecutor, users []*User) error {
+	ids := make([]string, 0, len(users))
+	for _, user := range users {
+		ids = append(ids, user.ID)
+	}
+
+	byUser, err := s.rolesFor(ctx, q, s.tables.userRoles, userIDColumn, ids)
+	if err != nil {
+		return err
+	}
+
+	for _, user := range users {
+		user.ServiceRoles = byUser[user.ID]
+	}
+
+	return nil
+}
+
+// readMembershipsForUser is the read behind both ListMembershipsForUser and
+// GetPrincipal, roles attached.
+func (s *SQLStore) readMembershipsForUser(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID string,
+) ([]*Membership, error) {
+	query, args := s.tables.buildListMembershipsForUser(s.dialect, scope, userID)
+
+	memberships, err := database.ScanAll(ctx, q, "identity membership", query, args, scanMembership)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.attachMembershipRoles(ctx, q, memberships); err != nil {
+		return nil, err
+	}
+
+	return memberships, nil
+}
+
+// attachMembershipRoles fills in the Roles of a batch of memberships with one
+// query, rather than one per membership.
+func (s *SQLStore) attachMembershipRoles(ctx context.Context, q database.SQLQueryExecutor, memberships []*Membership) error {
+	ids := make([]string, 0, len(memberships))
+	for _, membership := range memberships {
+		ids = append(ids, membership.ID)
+	}
+
+	byMembership, err := s.rolesFor(ctx, q, s.tables.membershipRoles, membershipIDColumn, ids)
+	if err != nil {
+		return err
+	}
+
+	for _, membership := range memberships {
+		membership.Roles = byMembership[membership.ID]
+	}
+
+	return nil
+}
+
+// writeMembership upserts the membership row, resolves the ID the row actually
+// carries, and replaces its roles.
+//
+// The ID is read back rather than assumed because the upsert may have taken its
+// conflict branch — a user rejoining an account revives the archived membership,
+// which keeps the ID it was created with. Writing the roles against the ID the
+// caller generated would attach them to a membership that does not exist.
+func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error {
+	query, args := s.tables.buildUpsertMembership(s.dialect, membership, membership.CreatedAt)
+	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+		return platformerrors.Wrap(err, "writing identity membership")
+	}
+
+	query, args = s.tables.buildSelectMembershipID(s.dialect, membership.BelongsToUser, membership.BelongsToAccount)
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&membership.ID); err != nil {
+		return platformerrors.Wrap(err, "reading back identity membership")
+	}
+
+	if err := s.replaceRoles(ctx, q, s.tables.membershipRoles, membershipIDColumn, membership.ID, membership.Roles); err != nil {
+		return err
+	}
+
+	if !membership.DefaultAccount {
+		return nil
+	}
+
+	query, args = s.tables.buildClearDefaultAccount(
+		s.dialect, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount, membership.CreatedAt,
+	)
+	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+		return platformerrors.Wrap(err, "clearing other identity default accounts")
+	}
+
+	return nil
+}
+
+// liveMembershipCount counts a user's live memberships, for deciding whether the
+// one being written is their first.
+func (s *SQLStore) liveMembershipCount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int, error) {
+	query, args := s.tables.buildCountLiveMembershipsForUser(s.dialect, scope, userID)
+
+	var count int
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, platformerrors.Wrap(err, "counting identity memberships")
+	}
+
+	return count, nil
+}
+
+// pageWindow reads the cursor and limit a page query binds out of a filter,
+// defaulting a nil one.
+//
+// The limit goes through the filtering package's own clamp rather than being
+// read straight off the filter, so a caller that asked for fifty thousand rows
+// gets the ceiling every other paged read in this module applies.
+func pageWindow(filter *filtering.QueryFilter) (normalized *filtering.QueryFilter, cursor string, limit int) {
+	if filter == nil {
+		filter = filtering.DefaultQueryFilter()
+	}
+
+	limit = int(filtering.DefaultQueryFilterLimit)
+	if filter.MaxResponseSize != nil {
+		limit = int(filtering.ClampResponseSize(uint64(*filter.MaxResponseSize)))
+	}
+
+	if filter.Cursor != nil {
+		cursor = *filter.Cursor
+	}
+
+	return filter, cursor, limit
+}
+
+// execExpectingRow runs a write that must touch a row, mapping "touched
+// nothing" onto the sentinel for the entity that was not there.
+//
+// It exists because an UPDATE whose predicate matched nothing is a success as
+// far as the driver is concerned, and every predicate here includes the scope.
+// Without this, a write aimed at another directory's user returns nil — the
+// caller is told their change was applied, to a row that does not exist as far
+// as they are concerned.
+//
+// A driver that declines to report the count is treated as a hit and counted,
+// because the alternative is reporting a missing row for a write that probably
+// happened. The count is the only way that assumption is visible: see
+// NewSQLStore.
+func (s *SQLStore) execExpectingRow(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	query string,
+	args []any,
+	missing error,
+	operation string,
+) error {
+	result, err := q.ExecContext(ctx, query, args...)
+	if err != nil {
+		return platformerrors.Wrap(err, operation)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		// Acknowledged rather than returned, and counted, because from here the
+		// write is indistinguishable from one that matched a row.
+		op.Acknowledge(err, "reading rows affected by %s", operation)
+		s.unreportedRowsCounter.Add(ctx, 1, storeOpAttr(operation))
+
+		return nil
+	}
+
+	if affected == 0 {
+		return missing
+	}
+
+	return nil
 }

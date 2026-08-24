@@ -463,7 +463,7 @@ func runUserSuite(t *testing.T, env *storeEnv) {
 		// second query and cannot be skipped by forgetting one.
 		byName, err := store.GetUserByUsername(t.Context(), testScope, "ada")
 		must.NoError(t, err)
-		test.True(t, byName.HasServiceRole("service_admin"))
+		test.Eq(t, []string{"service_admin", "service_user"}, byName.ServiceRoles)
 
 		must.NoError(t, store.SetUserServiceRoles(t.Context(), testScope, user.ID, []string{"service_user"}))
 

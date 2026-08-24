@@ -46,9 +46,9 @@ func (s InvitationStatus) Valid() bool {
 // String renders the status as it is stored.
 func (s InvitationStatus) String() string { return string(s) }
 
-// Terminal reports whether the invitation has been answered and can no longer
-// change.
-func (s InvitationStatus) Terminal() bool { return s != InvitationPending }
+// Pending reports whether the invitation is still waiting on an answer. Every
+// other status is one it can no longer move out of.
+func (s InvitationStatus) Pending() bool { return s == InvitationPending }
 
 // Invitation is an offer of membership in an account, addressed to an email
 // address rather than to a user.
