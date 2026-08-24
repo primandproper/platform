@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -15,6 +16,62 @@ import (
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
+
+// TestStore_PartitionsItsMethods holds Store's nine constituent interfaces to a
+// partition: every method in exactly one of them.
+//
+// Go permits overlapping embedded interfaces, so a method added to two of these
+// compiles and the duplication is invisible — until a caller reaching for the
+// narrow interface finds it can do something the name does not say. Comparing
+// the summed method counts against Store's is the cheapest thing that notices,
+// and it also fails when a method is added to Store's union without landing in
+// any of them.
+func TestStore_PartitionsItsMethods(t *testing.T) {
+	t.Parallel()
+
+	parts := []struct {
+		typ  reflect.Type
+		name string
+	}{
+		{reflect.TypeFor[Registrar](), "Registrar"},
+		{reflect.TypeFor[CredentialStore](), "CredentialStore"},
+		{reflect.TypeFor[SignInReader](), "SignInReader"},
+		{reflect.TypeFor[DirectoryReader](), "DirectoryReader"},
+		{reflect.TypeFor[ProfileWriter](), "ProfileWriter"},
+		{reflect.TypeFor[MembershipWriter](), "MembershipWriter"},
+		{reflect.TypeFor[AdminWriter](), "AdminWriter"},
+		{reflect.TypeFor[BillingWriter](), "BillingWriter"},
+		{reflect.TypeFor[InvitationStore](), "InvitationStore"},
+	}
+
+	seen := map[string]string{}
+	total := 0
+
+	for _, part := range parts {
+		total += part.typ.NumMethod()
+
+		for method := range part.typ.Methods() {
+			method := method.Name
+			if other, ok := seen[method]; ok {
+				t.Errorf("%s is in both %s and %s", method, other, part.name)
+			}
+
+			seen[method] = part.name
+		}
+	}
+
+	storeType := reflect.TypeFor[Store]()
+	test.EqOp(t, storeType.NumMethod(), total)
+
+	// Named separately from the count so a method that exists on Store and in
+	// none of the nine is reported as the missing name rather than as a number
+	// that is one too small.
+	for method := range storeType.Methods() {
+		if method := method.Name; seen[method] == "" {
+			t.Errorf("Store.%s is in none of the nine interfaces", method)
+		}
+	}
+}
 
 // TestSQLStore_SQLite runs the behavioral suite against SQLite, which every
 // developer has and every CI run executes. The same suite runs against real

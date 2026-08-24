@@ -132,28 +132,14 @@ func (p *Principal) AccountIDs() []string {
 	return ids
 }
 
-// Store is the persistence seam for the identity directory.
+// Registrar writes the rows that make a new account exist.
 //
-// This package ships a SQL implementation (NewSQLStore) together with the DDL
-// it needs (identity/migrations), so adopting identity does not mean writing
-// this. The interface exists because an application with its own schema
-// conventions — or one whose directory is LDAP, or an upstream identity
-// provider it mirrors — should not have to fork the package to keep them.
-//
-// Methods taking a database.SQLQueryExecutor run inside the caller's
-// transaction and must use it rather than a handle of their own. Those are
-// exactly the writes that have to commit with something else: the three that
-// make a registration, the two that make an accepted invitation, and the
-// erasure that spans every domain a subject appears in. The rest own their own
-// statements.
-//
-// Every method takes a tenancy.Scope or reads one off the value it was handed,
-// and none of them offers an unscoped variant. There is no ListAllUsers, and
-// the absence is deliberate: an operator console listing every user in a
-// deployment is listing one directory at a time, and the method that spans
-// directories is the one whose missing predicate serves one customer's user
-// list to another.
-type Store interface {
+// All three take the caller's database.SQLQueryExecutor and must run in one
+// transaction: a user without an account signs in to nothing, and an account
+// without an owner has no one its ownership checks can resolve to. That is why
+// they are one interface rather than three methods spread across the reader and
+// writer seams — the grouping is the invariant.
+type Registrar interface {
 	// CreateUser writes a new user through the caller's executor.
 	//
 	// It takes an executor because a registration is a user, an account, and a
@@ -169,77 +155,34 @@ type Store interface {
 	// SQLSTATE to find out is how that check gets skipped.
 	CreateUser(ctx context.Context, q database.SQLQueryExecutor, user *User) error
 
-	// GetUser reads one of the scope's users, credentials included. It returns
-	// an error wrapping ErrUserNotFound when the user does not exist —
-	// including when they exist in another scope, which is the same answer as
-	// far as this scope is concerned.
+	// CreateAccount writes a new account through the caller's executor. The ID
+	// is generated if the account carries none, and CreatedAt is stamped.
+	CreateAccount(ctx context.Context, q database.SQLQueryExecutor, account *Account) error
+
+	// CreateMembership puts a user in an account through the caller's executor.
 	//
-	// Archived users are returned. A soft-deleted user still appears in an audit
-	// trail and in another domain's foreign key, and a read that hid them would
-	// make those references dangle.
-	GetUser(ctx context.Context, scope tenancy.Scope, userID string) (*User, error)
+	// A user's first live membership becomes their default account whatever the
+	// value says, because a user with memberships and no default has nowhere to
+	// land — a state that is easy to write and confusing to debug. A subsequent
+	// membership marked default moves the flag, which is what SetDefaultAccount
+	// does and what accepting an invitation into a first account relies on.
+	CreateMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error
+}
 
-	// GetUserByUsername reads a user by the handle they sign in with. Archived
-	// users are excluded: this is the sign-in read, and a deleted account must
-	// not authenticate.
-	GetUserByUsername(ctx context.Context, scope tenancy.Scope, username string) (*User, error)
-
-	// GetUserByEmailAddress is GetUserByUsername for the address. It is the read
-	// a password-reset flow starts from.
-	GetUserByEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string) (*User, error)
-
+// CredentialStore is where the authentication engines put what they produce.
+//
+// This package never hashes, never compares, and never generates a TOTP secret;
+// argon2, totp and webauthn do that and store nothing. These are the methods
+// that persist their results, and they are separate from ProfileWriter for a
+// reason that is a security property rather than tidiness: a credential must
+// never be written by a read-modify-write over a whole User, because a caller
+// writing back a value it read before a password rotation would restore the old
+// hash. Every method here writes exactly one fact.
+type CredentialStore interface {
 	// GetUserByEmailVerificationToken reads the user a verification link names.
 	// A token that has already been used matches nobody, because verifying
 	// clears it.
 	GetUserByEmailVerificationToken(ctx context.Context, scope tenancy.Scope, token string) (*User, error)
-
-	// ListUsersByIDs reads a batch of the scope's users in one query, redacted,
-	// skipping IDs that name nobody in this scope.
-	//
-	// It exists because the alternative is a loop around GetUser, and every
-	// application has the read that needs it: rendering a list where each row
-	// names the user who created it. A partial answer rather than an error for a
-	// missing ID is deliberate — the caller is hydrating references, and one
-	// deleted author should not empty the page.
-	ListUsersByIDs(ctx context.Context, scope tenancy.Scope, userIDs []string) ([]*User, error)
-
-	// ListUsers pages the scope's directory, users redacted.
-	ListUsers(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
-
-	// SearchUsersByUsername pages the users in scope whose username begins with
-	// prefix, redacted.
-	//
-	// A prefix match rather than a substring one, because a prefix uses the
-	// index on (scope, username) and a substring cannot. An application that
-	// needs fuzzy search over its directory wants this module's search package
-	// pointed at it, not a LIKE '%x%' that scans the table on every keystroke.
-	SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
-
-	// GetPrincipal reads a user with their memberships and resolves which
-	// account the request is against, in one round trip.
-	//
-	// An empty activeAccountID means the user's default account. A named one
-	// must be an account the user is a live member of; otherwise the read
-	// returns an error wrapping ErrMembershipNotFound rather than a Principal
-	// with an account the caller asked for and has no right to. That check is
-	// the reason this method exists rather than the caller joining the pieces:
-	// it is the one every hand-built session context eventually forgets, and
-	// forgetting it hands one account's data to another account's member.
-	GetPrincipal(ctx context.Context, scope tenancy.Scope, userID, activeAccountID string) (*Principal, error)
-
-	// UpdateUser writes the user's profile: username, email address, and names.
-	//
-	// It cannot write a credential, deliberately. A caller holding a User read
-	// some time ago and writing it back would otherwise restore a password that
-	// has since been changed — the classic read-modify-write, on the one field
-	// where losing the newer value is a security regression rather than a stale
-	// display name. Credentials move through UpdateUserPassword,
-	// UpdateUserTwoFactorSecret, and their siblings.
-	//
-	// Changing the username or email address to one already registered in this
-	// scope returns ErrUsernameTaken or ErrEmailAddressTaken. Changing the email
-	// address clears its verification: the new address has not been proven.
-	UpdateUser(ctx context.Context, user *User) error
 
 	// UpdateUserPassword replaces the stored hash, stamps PasswordLastChangedAt,
 	// and clears RequiresPasswordChange.
@@ -278,53 +221,76 @@ type Store interface {
 	// caller has already read the user by token, and re-checking it here is what
 	// makes a verification that raced another one write once.
 	MarkUserEmailAddressVerified(ctx context.Context, scope tenancy.Scope, userID, token string) error
+}
 
-	// SetUserServiceRoles replaces the roles a user holds outside any account.
+// SignInReader is the read side of authenticating a request.
+//
+// Two lookups by the handles a sign-in form submits, and the one read every
+// authenticated request afterwards makes. It is deliberately the smallest
+// interface here, because it is the one a middleware depends on, and a
+// middleware that can only do these three things cannot accidentally do
+// anything else.
+type SignInReader interface {
+	// GetUserByUsername reads a user by the handle they sign in with. Archived
+	// users are excluded: this is the sign-in read, and a deleted account must
+	// not authenticate.
+	GetUserByUsername(ctx context.Context, scope tenancy.Scope, username string) (*User, error)
+
+	// GetUserByEmailAddress is GetUserByUsername for the address. It is the read
+	// a password-reset flow starts from.
+	GetUserByEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string) (*User, error)
+
+	// GetPrincipal reads a user with their memberships and resolves which
+	// account the request is against, in one round trip.
 	//
-	// It replaces rather than merges, for the reason SetMembershipRoles does: a
-	// merging setter cannot revoke, and revocation is the operation that matters
-	// most on the role set that grants operator access. An empty set is allowed
-	// here where an empty membership role set is not — a user with no service
-	// roles is the ordinary case, and it is how an operator's access is
-	// withdrawn.
-	SetUserServiceRoles(ctx context.Context, scope tenancy.Scope, userID string, roles []string) error
+	// An empty activeAccountID means the user's default account. A named one
+	// must be an account the user is a live member of; otherwise the read
+	// returns an error wrapping ErrMembershipNotFound rather than a Principal
+	// with an account the caller asked for and has no right to. That check is
+	// the reason this method exists rather than the caller joining the pieces:
+	// it is the one every hand-built session context eventually forgets, and
+	// forgetting it hands one account's data to another account's member.
+	GetPrincipal(ctx context.Context, scope tenancy.Scope, userID, activeAccountID string) (*Principal, error)
+}
 
-	// UpdateUserAccountStatus moves a user between statuses, recording the
-	// explanation shown to them.
-	UpdateUserAccountStatus(ctx context.Context, scope tenancy.Scope, userID string, status AccountStatus, explanation string) error
-
-	// RecordAgreement stamps the user's acceptance of one or more documents, as
-	// of the Store's clock.
+// DirectoryReader reads the directory without changing it.
+//
+// Users, accounts, and the memberships between them, all scoped and all paged
+// through filtering.QueryFilter where they return more than one row. Nothing
+// here writes, so a console, an export, or a support tool can be handed this
+// and nothing else.
+type DirectoryReader interface {
+	// GetUser reads one of the scope's users, credentials included. It returns
+	// an error wrapping ErrUserNotFound when the user does not exist —
+	// including when they exist in another scope, which is the same answer as
+	// far as this scope is concerned.
 	//
-	// It uses the Store's own handle rather than the caller's executor, so it
-	// cannot join a registration transaction. A registration that collects
-	// acceptance at sign-up should set LastAcceptedTermsOfService and
-	// LastAcceptedPrivacyPolicy on the User instead — CreateUser writes them
-	// with the row. This method is for the later acceptance, when a new version
-	// of a document is published and the user agrees to it in a request of its
-	// own.
-	RecordAgreement(ctx context.Context, scope tenancy.Scope, userID string, agreements ...Agreement) error
+	// Archived users are returned. A soft-deleted user still appears in an audit
+	// trail and in another domain's foreign key, and a read that hid them would
+	// make those references dangle.
+	GetUser(ctx context.Context, scope tenancy.Scope, userID string) (*User, error)
 
-	// ArchiveUser soft-deletes a user and ends every membership they hold, in
-	// one transaction. A user archived with live memberships would still appear
-	// in the accounts they belonged to, which is the state an application
-	// discovers when a deleted colleague is still on the roster.
-	ArchiveUser(ctx context.Context, scope tenancy.Scope, userID string) error
+	// ListUsers pages the scope's directory, users redacted.
+	ListUsers(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
 
-	// EraseUser destroys the user row through the caller's executor, returning
-	// how many rows went.
+	// ListUsersByIDs reads a batch of the scope's users in one query, redacted,
+	// skipping IDs that name nobody in this scope.
 	//
-	// It takes an executor rather than a handle of its own because a
-	// right-to-be-forgotten erasure shares one transaction with every other
-	// domain's eraser and with the record that the erasure happened. A subject
-	// erased from the directory and present in another domain's table has no
-	// coherent status, so the whole thing has to be able to roll back together.
-	// See this module's dataprivacy package.
-	EraseUser(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int64, error)
+	// It exists because the alternative is a loop around GetUser, and every
+	// application has the read that needs it: rendering a list where each row
+	// names the user who created it. A partial answer rather than an error for a
+	// missing ID is deliberate — the caller is hydrating references, and one
+	// deleted author should not empty the page.
+	ListUsersByIDs(ctx context.Context, scope tenancy.Scope, userIDs []string) ([]*User, error)
 
-	// CreateAccount writes a new account through the caller's executor. The ID
-	// is generated if the account carries none, and CreatedAt is stamped.
-	CreateAccount(ctx context.Context, q database.SQLQueryExecutor, account *Account) error
+	// SearchUsersByUsername pages the users in scope whose username begins with
+	// prefix, redacted.
+	//
+	// A prefix match rather than a substring one, because a prefix uses the
+	// index on (scope, username) and a substring cannot. An application that
+	// needs fuzzy search over its directory wants this module's search package
+	// pointed at it, not a LIKE '%x%' that scans the table on every keystroke.
+	SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
 
 	// GetAccount reads one of the scope's accounts, returning an error wrapping
 	// ErrAccountNotFound when it does not exist here.
@@ -340,33 +306,6 @@ type Store interface {
 
 	// ListAccountsForUser pages the accounts a user is a live member of.
 	ListAccountsForUser(ctx context.Context, scope tenancy.Scope, userID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error)
-
-	// UpdateAccount writes the account's name and billing address.
-	//
-	// It writes neither the billing state nor the owner, for the same reason
-	// UpdateUser writes no credential: both are changed by flows that do not
-	// hold the rest of the account, and a read-modify-write over them loses
-	// whatever a processor webhook or an ownership transfer did in between. See
-	// UpdateAccountBilling and TransferAccountOwnership.
-	UpdateAccount(ctx context.Context, account *Account) error
-
-	// UpdateAccountBilling writes only the billing fields the update names, so a
-	// processor webhook carrying a status alone does not have to read the rest
-	// first.
-	UpdateAccountBilling(ctx context.Context, scope tenancy.Scope, accountID string, update *BillingUpdate) error
-
-	// ArchiveAccount soft-deletes an account and ends every membership in it, in
-	// one transaction.
-	ArchiveAccount(ctx context.Context, scope tenancy.Scope, accountID string) error
-
-	// CreateMembership puts a user in an account through the caller's executor.
-	//
-	// A user's first live membership becomes their default account whatever the
-	// value says, because a user with memberships and no default has nowhere to
-	// land — a state that is easy to write and confusing to debug. A subsequent
-	// membership marked default moves the flag, which is what SetDefaultAccount
-	// does and what accepting an invitation into a first account relies on.
-	CreateMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error
 
 	// GetMembership reads the live membership between a user and an account,
 	// returning an error wrapping ErrMembershipNotFound when there is none.
@@ -384,7 +323,63 @@ type Store interface {
 	// ListAccountMembers pages an account's roster, each membership joined to
 	// the redacted user it names.
 	ListAccountMembers(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[MembershipWithUser], error)
+}
 
+// ProfileWriter writes what a user or an account may change about itself.
+//
+// Names, addresses, time zones, and the record of an accepted document — the
+// fields where losing a concurrent write costs a stale display name rather than
+// a security regression. What is deliberately not reachable from here:
+// credentials (CredentialStore), billing state (BillingWriter), account
+// ownership (MembershipWriter), and status (AdminWriter). UpdateUser and
+// UpdateAccount ignore those columns entirely rather than trusting the caller
+// to have read them recently.
+type ProfileWriter interface {
+	// UpdateUser writes the user's profile: username, email address, and names.
+	//
+	// It cannot write a credential, deliberately. A caller holding a User read
+	// some time ago and writing it back would otherwise restore a password that
+	// has since been changed — the classic read-modify-write, on the one field
+	// where losing the newer value is a security regression rather than a stale
+	// display name. Credentials move through UpdateUserPassword,
+	// UpdateUserTwoFactorSecret, and their siblings.
+	//
+	// Changing the username or email address to one already registered in this
+	// scope returns ErrUsernameTaken or ErrEmailAddressTaken. Changing the email
+	// address clears its verification: the new address has not been proven.
+	UpdateUser(ctx context.Context, user *User) error
+
+	// UpdateAccount writes the account's name and billing address.
+	//
+	// It writes neither the billing state nor the owner, for the same reason
+	// UpdateUser writes no credential: both are changed by flows that do not
+	// hold the rest of the account, and a read-modify-write over them loses
+	// whatever a processor webhook or an ownership transfer did in between. See
+	// UpdateAccountBilling and TransferAccountOwnership.
+	UpdateAccount(ctx context.Context, account *Account) error
+
+	// RecordAgreement stamps the user's acceptance of one or more documents, as
+	// of the Store's clock.
+	//
+	// It uses the Store's own handle rather than the caller's executor, so it
+	// cannot join a registration transaction. A registration that collects
+	// acceptance at sign-up should set LastAcceptedTermsOfService and
+	// LastAcceptedPrivacyPolicy on the User instead — CreateUser writes them
+	// with the row. This method is for the later acceptance, when a new version
+	// of a document is published and the user agrees to it in a request of its
+	// own.
+	RecordAgreement(ctx context.Context, scope tenancy.Scope, userID string, agreements ...Agreement) error
+}
+
+// MembershipWriter changes who belongs to an account and what they may do
+// there.
+//
+// This is the authorization-shaped half of the store: the roles these methods
+// write are the roles a PolicyResolver later reads. It is separated from
+// AdminWriter because the two answer to different people — an account
+// administrator manages their own roster, an operator manages the deployment —
+// and a service that exposes the first should not be holding the second.
+type MembershipWriter interface {
 	// SetMembershipRoles replaces the roles a user holds in an account.
 	//
 	// It replaces rather than merges. A caller adding a role reads the
@@ -417,7 +412,74 @@ type Store interface {
 	// Removing a user's default account moves the default to another live
 	// membership, so a user is never left with memberships and nowhere to land.
 	RemoveMembership(ctx context.Context, scope tenancy.Scope, userID, accountID string) error
+}
 
+// AdminWriter is the operator's half: the writes an account holder cannot make
+// about themselves.
+//
+// Banning, terminating, granting a service role, soft-deleting, and erasing.
+// These are the methods whose exposure through an ordinary request handler is a
+// privilege escalation, so they are named as a group precisely to make that
+// exposure a deliberate act rather than a consequence of depending on Store.
+type AdminWriter interface {
+	// UpdateUserAccountStatus moves a user between statuses, recording the
+	// explanation shown to them.
+	UpdateUserAccountStatus(ctx context.Context, scope tenancy.Scope, userID string, status AccountStatus, explanation string) error
+
+	// SetUserServiceRoles replaces the roles a user holds outside any account.
+	//
+	// It replaces rather than merges, for the reason SetMembershipRoles does: a
+	// merging setter cannot revoke, and revocation is the operation that matters
+	// most on the role set that grants operator access. An empty set is allowed
+	// here where an empty membership role set is not — a user with no service
+	// roles is the ordinary case, and it is how an operator's access is
+	// withdrawn.
+	SetUserServiceRoles(ctx context.Context, scope tenancy.Scope, userID string, roles []string) error
+
+	// ArchiveUser soft-deletes a user and ends every membership they hold, in
+	// one transaction. A user archived with live memberships would still appear
+	// in the accounts they belonged to, which is the state an application
+	// discovers when a deleted colleague is still on the roster.
+	ArchiveUser(ctx context.Context, scope tenancy.Scope, userID string) error
+
+	// EraseUser destroys the user row through the caller's executor, returning
+	// how many rows went.
+	//
+	// It takes an executor rather than a handle of its own because a
+	// right-to-be-forgotten erasure shares one transaction with every other
+	// domain's eraser and with the record that the erasure happened. A subject
+	// erased from the directory and present in another domain's table has no
+	// coherent status, so the whole thing has to be able to roll back together.
+	// See this module's dataprivacy package.
+	EraseUser(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int64, error)
+
+	// ArchiveAccount soft-deletes an account and ends every membership in it, in
+	// one transaction.
+	ArchiveAccount(ctx context.Context, scope tenancy.Scope, accountID string) error
+}
+
+// BillingWriter is what a payment processor's webhook handler needs, and
+// nothing else.
+//
+// One method, because that is genuinely the whole surface: a processor tells
+// this application that an account's standing changed, and this is where that
+// lands. A webhook endpoint is unauthenticated and public, so what it can reach
+// is worth being able to state in one line.
+type BillingWriter interface {
+	// UpdateAccountBilling writes only the billing fields the update names, so a
+	// processor webhook carrying a status alone does not have to read the rest
+	// first.
+	UpdateAccountBilling(ctx context.Context, scope tenancy.Scope, accountID string, update *BillingUpdate) error
+}
+
+// InvitationStore covers an invitation's whole life: issued, looked up,
+// answered.
+//
+// AcceptInvitation takes the caller's executor because accepting is a
+// membership write and a status write that have to commit together, and it
+// takes the roles off the invitation rather than from a parameter — what
+// somebody was invited to is what they get.
+type InvitationStore interface {
 	// CreateInvitation writes an invitation. The ID is generated if it carries
 	// none, and CreatedAt is stamped.
 	CreateInvitation(ctx context.Context, invitation *Invitation) error
@@ -468,6 +530,61 @@ type Store interface {
 	// accepting is AcceptInvitation, and a status write that produced no
 	// membership would leave exactly the state that method exists to prevent.
 	SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, note string) error
+}
+
+// Store is the whole persistence seam for the identity directory: every
+// interface above, in one name.
+//
+// This package ships a SQL implementation (NewSQLStore) together with the DDL
+// it needs (identity/migrations), so adopting identity does not mean writing
+// this. The interface exists because an application with its own schema
+// conventions — or one whose directory is LDAP, or an upstream identity
+// provider it mirrors — should not have to fork the package to keep them.
+//
+// # Depend on a narrower one
+//
+// Store is forty-three methods, which is the right size for the thing that
+// implements it and the wrong size for almost everything that calls it. It is a
+// union of nine interfaces, each named for a job rather than for a table, and a
+// caller should name the smallest one that covers what it does: a sign-in
+// middleware takes a SignInReader, a processor webhook takes a BillingWriter, a
+// support console takes a DirectoryReader.
+//
+// This is not only about the size of a test double, though a three-method fake
+// beats a forty-three-method mock. It is that the narrow interface is a
+// statement about reach, checked by the compiler: a handler that holds a
+// DirectoryReader cannot ban a user, and one that holds a ProfileWriter cannot
+// write a credential or move an account's ownership. Depending on Store gives
+// away all of that at once, so it is what a container registers and a store
+// implements, not what a handler asks for.
+//
+// A SQL implementation is deliberately one type behind all nine. The writes
+// that make a registration span three tables in one transaction, so splitting
+// the implementation would split a transaction; only the seam divides.
+//
+// Methods taking a database.SQLQueryExecutor run inside the caller's
+// transaction and must use it rather than a handle of their own. Those are
+// exactly the writes that have to commit with something else: the three that
+// make a registration, the two that make an accepted invitation, and the
+// erasure that spans every domain a subject appears in. The rest own their own
+// statements.
+//
+// Every method takes a tenancy.Scope or reads one off the value it was handed,
+// and none of them offers an unscoped variant. There is no ListAllUsers, and
+// the absence is deliberate: an operator console listing every user in a
+// deployment is listing one directory at a time, and the method that spans
+// directories is the one whose missing predicate serves one customer's user
+// list to another.
+type Store interface {
+	Registrar
+	CredentialStore
+	SignInReader
+	DirectoryReader
+	ProfileWriter
+	MembershipWriter
+	AdminWriter
+	BillingWriter
+	InvitationStore
 }
 
 // ErrInvalidInvitationStatus indicates a status write SetInvitationStatus will
