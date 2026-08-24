@@ -119,7 +119,7 @@ func (s *fakeStore) releases() []string {
 	return append([]string(nil), s.released...)
 }
 
-func (s *fakeStore) Insert(_ context.Context, _ database.SQLQueryExecutor, op *Operation) (*Operation, error) {
+func (s *fakeStore) Insert(_ context.Context, _ database.Tx, op *Operation) (*Operation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -331,6 +331,6 @@ func (s *fakeStore) Reap(_ context.Context, _ time.Duration, _ int) (int64, erro
 	return reaped, nil
 }
 
-func (s *fakeStore) WithTransaction(_ context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *fakeStore) WithTransaction(_ context.Context, fn func(q database.Tx) error) error {
 	return fn(nil)
 }

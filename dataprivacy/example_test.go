@@ -96,7 +96,7 @@ func ExampleFragment() {
 func ExampleEraser() {
 	billing := dataprivacy.EraserFunc(func(
 		_ context.Context,
-		_ database.SQLQueryExecutor,
+		_ database.Tx,
 		_ dataprivacy.Subject,
 	) (dataprivacy.ErasureOutcome, error) {
 		return dataprivacy.ErasureOutcome{
@@ -178,7 +178,7 @@ func ExampleFulfiller_Register() {
 	}
 
 	if err := domains.RegisterEraser("identity", dataprivacy.EraserFunc(
-		func(context.Context, database.SQLQueryExecutor, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
+		func(context.Context, database.Tx, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
 			return dataprivacy.ErasureOutcome{}, nil
 		},
 	)); err != nil {

@@ -303,7 +303,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 		test.EqOp(t, 0, result.Accepted)
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			txResult, txErr := store.RecordTx(t.Context(), q, nil, baseTime)
 			test.EqOp(t, 0, txResult.Accepted)
 
@@ -319,7 +319,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		// The usage and the work it describes are one fact. A crash between them
 		// leaves usage counted for work that rolled back, or work committed that
 		// nobody was billed for.
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			result, err := store.RecordTx(t.Context(), q, []Entry{newEntry("req-1", 9, AggregationSum)}, baseTime)
 			test.EqOp(t, 1, result.Accepted)
 
@@ -336,7 +336,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		test.ErrorIs(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		test.ErrorIs(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, err := store.RecordTx(t.Context(), q, []Entry{newEntry("req-1", 9, AggregationSum)}, baseTime)
 			must.NoError(t, err)
 

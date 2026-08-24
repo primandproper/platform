@@ -50,7 +50,7 @@ type Store interface {
 	// would let a retried Start rewind an operation that was already halfway
 	// through.
 	//
-	// It takes an executor so that starting an operation commits with whatever
+	// It takes a transaction so that starting an operation commits with whatever
 	// the caller wrote to decide to start it, and it returns the row it wrote —
 	// server timestamps and all — because a caller inside an uncommitted
 	// transaction has no other way to read it back.
@@ -58,7 +58,7 @@ type Store interface {
 	// It returns an error wrapping ErrDuplicateOperation when the ID is already
 	// taken, without disturbing the surrounding transaction. That is the
 	// idempotency seam WithID exists for.
-	Insert(ctx context.Context, q database.SQLQueryExecutor, op *Operation) (*Operation, error)
+	Insert(ctx context.Context, q database.Tx, op *Operation) (*Operation, error)
 
 	// Get reads one operation. It returns an error wrapping
 	// ErrOperationNotFound when there is no such operation.
@@ -128,5 +128,5 @@ type Store interface {
 	// interface because Start has to be atomic with the caller's own writes when
 	// the caller supplies an executor, and atomic with its own bookkeeping when
 	// it does not.
-	WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
+	WithTransaction(ctx context.Context, fn func(q database.Tx) error) error
 }

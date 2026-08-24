@@ -51,7 +51,7 @@ func ExampleDispatcher_Dispatch() {
 		panic(err)
 	}
 
-	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err = client.WithTransaction(ctx, func(q database.Tx) error {
 		// ... the state change that produced the event ...
 
 		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
@@ -103,7 +103,7 @@ func ExampleDispatcher_Register() {
 
 	// Who order.updated reaches, per scope. Nothing here can return the other
 	// account's endpoint: the scope is a predicate on the query.
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		for _, scope := range []tenancy.Scope{tenancy.Of("acct_1"), tenancy.Global()} {
 			endpoints, resolveErr := store.EndpointsForEvent(ctx, q, scope, OrderUpdated)
 			if resolveErr != nil {

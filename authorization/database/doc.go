@@ -54,7 +54,7 @@ Writes take the caller's executor rather than holding their own, following
 outbox.Writer.Enqueue, so a policy change commits with whatever else its
 transaction did:
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		return resolver.Seed(ctx, q, roles...)
 	})
 

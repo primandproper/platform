@@ -24,10 +24,10 @@ var _ dataprivacy.Store = &StoreMock{}
 //
 //		// make and configure a mocked dataprivacy.Store
 //		mockedStore := &StoreMock{
-//			CompleteErasureFunc: func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request, at time.Time) error {
+//			CompleteErasureFunc: func(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error {
 //				panic("mock out the CompleteErasure method")
 //			},
-//			CompleteExportFunc: func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request, at time.Time) error {
+//			CompleteExportFunc: func(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error {
 //				panic("mock out the CompleteExport method")
 //			},
 //			CountOverdueFunc: func(ctx context.Context, now time.Time) (map[dataprivacy.RequestType]int64, error) {
@@ -57,13 +57,13 @@ var _ dataprivacy.Store = &StoreMock{}
 //			ReapFunc: func(ctx context.Context, before time.Time, limit int) (int64, error) {
 //				panic("mock out the Reap method")
 //			},
-//			SaveFunc: func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request) error {
+//			SaveFunc: func(ctx context.Context, q database.Tx, req *dataprivacy.Request) error {
 //				panic("mock out the Save method")
 //			},
-//			TransitionFunc: func(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error) {
+//			TransitionFunc: func(ctx context.Context, q database.Tx, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error) {
 //				panic("mock out the Transition method")
 //			},
-//			WithTransactionFunc: func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+//			WithTransactionFunc: func(ctx context.Context, fn func(q database.Tx) error) error {
 //				panic("mock out the WithTransaction method")
 //			},
 //		}
@@ -74,10 +74,10 @@ var _ dataprivacy.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// CompleteErasureFunc mocks the CompleteErasure method.
-	CompleteErasureFunc func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request, at time.Time) error
+	CompleteErasureFunc func(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error
 
 	// CompleteExportFunc mocks the CompleteExport method.
-	CompleteExportFunc func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request, at time.Time) error
+	CompleteExportFunc func(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error
 
 	// CountOverdueFunc mocks the CountOverdue method.
 	CountOverdueFunc func(ctx context.Context, now time.Time) (map[dataprivacy.RequestType]int64, error)
@@ -107,13 +107,13 @@ type StoreMock struct {
 	ReapFunc func(ctx context.Context, before time.Time, limit int) (int64, error)
 
 	// SaveFunc mocks the Save method.
-	SaveFunc func(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request) error
+	SaveFunc func(ctx context.Context, q database.Tx, req *dataprivacy.Request) error
 
 	// TransitionFunc mocks the Transition method.
-	TransitionFunc func(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error)
+	TransitionFunc func(ctx context.Context, q database.Tx, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error)
 
 	// WithTransactionFunc mocks the WithTransaction method.
-	WithTransactionFunc func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
+	WithTransactionFunc func(ctx context.Context, fn func(q database.Tx) error) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -122,7 +122,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Req is the req argument value.
 			Req *dataprivacy.Request
 			// At is the at argument value.
@@ -133,7 +133,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Req is the req argument value.
 			Req *dataprivacy.Request
 			// At is the at argument value.
@@ -223,7 +223,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Req is the req argument value.
 			Req *dataprivacy.Request
 		}
@@ -232,7 +232,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// RequestID is the requestID argument value.
 			RequestID string
 			// From is the from argument value.
@@ -249,7 +249,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Fn is the fn argument value.
-			Fn func(q database.SQLQueryExecutor) error
+			Fn func(q database.Tx) error
 		}
 	}
 	lockCompleteErasure   sync.RWMutex
@@ -269,13 +269,13 @@ type StoreMock struct {
 }
 
 // CompleteErasure calls CompleteErasureFunc.
-func (mock *StoreMock) CompleteErasure(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request, at time.Time) error {
+func (mock *StoreMock) CompleteErasure(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error {
 	if mock.CompleteErasureFunc == nil {
 		panic("StoreMock.CompleteErasureFunc: method is nil but Store.CompleteErasure was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		Q   database.SQLQueryExecutor
+		Q   database.Tx
 		Req *dataprivacy.Request
 		At  time.Time
 	}{
@@ -296,13 +296,13 @@ func (mock *StoreMock) CompleteErasure(ctx context.Context, q database.SQLQueryE
 //	len(mockedStore.CompleteErasureCalls())
 func (mock *StoreMock) CompleteErasureCalls() []struct {
 	Ctx context.Context
-	Q   database.SQLQueryExecutor
+	Q   database.Tx
 	Req *dataprivacy.Request
 	At  time.Time
 } {
 	var calls []struct {
 		Ctx context.Context
-		Q   database.SQLQueryExecutor
+		Q   database.Tx
 		Req *dataprivacy.Request
 		At  time.Time
 	}
@@ -313,13 +313,13 @@ func (mock *StoreMock) CompleteErasureCalls() []struct {
 }
 
 // CompleteExport calls CompleteExportFunc.
-func (mock *StoreMock) CompleteExport(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request, at time.Time) error {
+func (mock *StoreMock) CompleteExport(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error {
 	if mock.CompleteExportFunc == nil {
 		panic("StoreMock.CompleteExportFunc: method is nil but Store.CompleteExport was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		Q   database.SQLQueryExecutor
+		Q   database.Tx
 		Req *dataprivacy.Request
 		At  time.Time
 	}{
@@ -340,13 +340,13 @@ func (mock *StoreMock) CompleteExport(ctx context.Context, q database.SQLQueryEx
 //	len(mockedStore.CompleteExportCalls())
 func (mock *StoreMock) CompleteExportCalls() []struct {
 	Ctx context.Context
-	Q   database.SQLQueryExecutor
+	Q   database.Tx
 	Req *dataprivacy.Request
 	At  time.Time
 } {
 	var calls []struct {
 		Ctx context.Context
-		Q   database.SQLQueryExecutor
+		Q   database.Tx
 		Req *dataprivacy.Request
 		At  time.Time
 	}
@@ -713,13 +713,13 @@ func (mock *StoreMock) ReapCalls() []struct {
 }
 
 // Save calls SaveFunc.
-func (mock *StoreMock) Save(ctx context.Context, q database.SQLQueryExecutor, req *dataprivacy.Request) error {
+func (mock *StoreMock) Save(ctx context.Context, q database.Tx, req *dataprivacy.Request) error {
 	if mock.SaveFunc == nil {
 		panic("StoreMock.SaveFunc: method is nil but Store.Save was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		Q   database.SQLQueryExecutor
+		Q   database.Tx
 		Req *dataprivacy.Request
 	}{
 		Ctx: ctx,
@@ -738,12 +738,12 @@ func (mock *StoreMock) Save(ctx context.Context, q database.SQLQueryExecutor, re
 //	len(mockedStore.SaveCalls())
 func (mock *StoreMock) SaveCalls() []struct {
 	Ctx context.Context
-	Q   database.SQLQueryExecutor
+	Q   database.Tx
 	Req *dataprivacy.Request
 } {
 	var calls []struct {
 		Ctx context.Context
-		Q   database.SQLQueryExecutor
+		Q   database.Tx
 		Req *dataprivacy.Request
 	}
 	mock.lockSave.RLock()
@@ -753,13 +753,13 @@ func (mock *StoreMock) SaveCalls() []struct {
 }
 
 // Transition calls TransitionFunc.
-func (mock *StoreMock) Transition(ctx context.Context, q database.SQLQueryExecutor, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error) {
+func (mock *StoreMock) Transition(ctx context.Context, q database.Tx, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error) {
 	if mock.TransitionFunc == nil {
 		panic("StoreMock.TransitionFunc: method is nil but Store.Transition was just called")
 	}
 	callInfo := struct {
 		Ctx         context.Context
-		Q           database.SQLQueryExecutor
+		Q           database.Tx
 		RequestID   string
 		From        []dataprivacy.Status
 		To          dataprivacy.Status
@@ -786,7 +786,7 @@ func (mock *StoreMock) Transition(ctx context.Context, q database.SQLQueryExecut
 //	len(mockedStore.TransitionCalls())
 func (mock *StoreMock) TransitionCalls() []struct {
 	Ctx         context.Context
-	Q           database.SQLQueryExecutor
+	Q           database.Tx
 	RequestID   string
 	From        []dataprivacy.Status
 	To          dataprivacy.Status
@@ -795,7 +795,7 @@ func (mock *StoreMock) TransitionCalls() []struct {
 } {
 	var calls []struct {
 		Ctx         context.Context
-		Q           database.SQLQueryExecutor
+		Q           database.Tx
 		RequestID   string
 		From        []dataprivacy.Status
 		To          dataprivacy.Status
@@ -809,13 +809,13 @@ func (mock *StoreMock) TransitionCalls() []struct {
 }
 
 // WithTransaction calls WithTransactionFunc.
-func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
 	if mock.WithTransactionFunc == nil {
 		panic("StoreMock.WithTransactionFunc: method is nil but Store.WithTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		Fn  func(q database.SQLQueryExecutor) error
+		Fn  func(q database.Tx) error
 	}{
 		Ctx: ctx,
 		Fn:  fn,
@@ -832,11 +832,11 @@ func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.S
 //	len(mockedStore.WithTransactionCalls())
 func (mock *StoreMock) WithTransactionCalls() []struct {
 	Ctx context.Context
-	Fn  func(q database.SQLQueryExecutor) error
+	Fn  func(q database.Tx) error
 } {
 	var calls []struct {
 		Ctx context.Context
-		Fn  func(q database.SQLQueryExecutor) error
+		Fn  func(q database.Tx) error
 	}
 	mock.lockWithTransaction.RLock()
 	calls = mock.calls.WithTransaction

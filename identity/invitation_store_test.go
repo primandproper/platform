@@ -121,7 +121,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		var membership *Membership
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			var err error
 			membership, err = store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", recipient.ID, "thanks")
 
@@ -157,7 +157,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		store, _, _, _, invitation := newInvitedStore(t)
 		recipient := createUser(t, store, newUser("brian"))
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			_, err := store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", recipient.ID, "")
 
 			return err
@@ -165,7 +165,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		// The second click finds nothing pending. An already-answered
 		// invitation reads as absent, like a wrong token.
-		err := inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			_, acceptErr := store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", recipient.ID, "")
 
 			return acceptErr
@@ -178,7 +178,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		store, _, _, _, invitation := newInvitedStore(t)
 
-		err := inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			_, acceptErr := store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", "", "")
 
 			return acceptErr

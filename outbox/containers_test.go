@@ -106,7 +106,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		w := env.writer(t, c, table)
 		relay, rec := env.relay(t, c, table)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q,
 				Message{Topic: "orders", Payload: map[string]any{"id": "a"}},
 				Message{Topic: "orders", Payload: map[string]any{"id": "b"}},
@@ -128,7 +128,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		boom := platformerrors.New("caller work failed")
 
-		err := env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			if enqueueErr := w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}}); enqueueErr != nil {
 				return enqueueErr
 			}
@@ -150,7 +150,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		rec.fail(platformerrors.New("broker down"))
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
 		}))
 
@@ -181,7 +181,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		rec.fail(platformerrors.New("poison"))
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
 		}))
 
@@ -196,7 +196,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		rec.fail(nil)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "b"}})
 		}))
 
@@ -214,7 +214,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		w := env.writer(t, c, table)
 		relay, _ := env.relay(t, c, table)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
 		}))
 
@@ -243,7 +243,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		// This is the correlated NOT EXISTS subquery under a real planner.
 		for _, id := range []string{"first", "second", "third"} {
-			must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 				return w.Enqueue(t.Context(), q, Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": id}})
 			}))
 			c.advance(time.Millisecond)
@@ -268,7 +268,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		w := env.writer(t, c, table)
 		relay, rec := env.relay(t, c, table)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q,
 				Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "first"}},
 				Message{Topic: "orders", Key: "cart-1", Payload: map[string]any{"id": "second"}},
@@ -299,7 +299,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		test.EqOp(t, int64(0), depth)
 		test.EqOp(t, time.Duration(0), age)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
 		}))
 
@@ -329,7 +329,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		w := env.writer(t, c, table)
 		relay, _ := env.relay(t, c, table)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
 		}))
 
@@ -341,7 +341,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		c.advance(DefaultRetention + time.Hour)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "b"}})
 		}))
 
@@ -434,7 +434,7 @@ func TestOutbox_MigratorIntegration_Containers(T *testing.T) {
 			cfg.TablePrefix = table
 		})
 
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
 		}))
 

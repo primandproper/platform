@@ -457,7 +457,7 @@ func (s *Sweeper) bounds(policy *Policy) (batchSize, maxBatches int) {
 func (s *Sweeper) sweepBatch(ctx context.Context, policy *Policy, cutoff time.Time, batchSize int) (int64, error) {
 	var removed int64
 
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		var sweepErr error
 		removed, sweepErr = policy.Target.Sweep(ctx, q, s.client.Dialect(), cutoff, batchSize)
 
@@ -553,7 +553,7 @@ func (s *Sweeper) recordSweep(ctx context.Context, policy *Policy, result *Polic
 	// the failure, not the delay.
 	ctx = context.WithoutCancel(ctx)
 
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		return s.recorder.Record(ctx, q, entry)
 	})
 	if err != nil {

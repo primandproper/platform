@@ -679,7 +679,7 @@ func (w *Worker) reschedule(ctx context.Context, inst *Record, attempts int, pha
 func (w *Worker) persist(ctx context.Context, inst *Record, nextAttempt time.Time, events ...Event) error {
 	inst.UpdatedAt = w.clock.Now().UTC()
 
-	return w.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	return w.store.WithTransaction(ctx, func(q database.Tx) error {
 		if err := w.store.Advance(ctx, q, inst, nextAttempt); err != nil {
 			return err
 		}

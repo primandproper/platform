@@ -106,7 +106,7 @@ func (t Table) Validate(d dialect.Dialect) error {
 // makes the backlog gauge mean something between one sweep and the next.
 func (t Table) Sweep(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	d dialect.Dialect,
 	cutoff time.Time,
 	limit int,

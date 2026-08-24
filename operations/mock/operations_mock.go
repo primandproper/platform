@@ -35,7 +35,7 @@ var _ operations.Store = &StoreMock{}
 //			GetManyFunc: func(ctx context.Context, ids []string) ([]*operations.Operation, error) {
 //				panic("mock out the GetMany method")
 //			},
-//			InsertFunc: func(ctx context.Context, q database.SQLQueryExecutor, op *operations.Operation) (*operations.Operation, error) {
+//			InsertFunc: func(ctx context.Context, q database.Tx, op *operations.Operation) (*operations.Operation, error) {
 //				panic("mock out the Insert method")
 //			},
 //			ListFunc: func(ctx context.Context, scope *operations.ListScope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[operations.Operation], error) {
@@ -56,7 +56,7 @@ var _ operations.Store = &StoreMock{}
 //			StrandedFunc: func(ctx context.Context, grace time.Duration, limit int) ([]*operations.Operation, error) {
 //				panic("mock out the Stranded method")
 //			},
-//			WithTransactionFunc: func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+//			WithTransactionFunc: func(ctx context.Context, fn func(q database.Tx) error) error {
 //				panic("mock out the WithTransaction method")
 //			},
 //		}
@@ -79,7 +79,7 @@ type StoreMock struct {
 	GetManyFunc func(ctx context.Context, ids []string) ([]*operations.Operation, error)
 
 	// InsertFunc mocks the Insert method.
-	InsertFunc func(ctx context.Context, q database.SQLQueryExecutor, op *operations.Operation) (*operations.Operation, error)
+	InsertFunc func(ctx context.Context, q database.Tx, op *operations.Operation) (*operations.Operation, error)
 
 	// ListFunc mocks the List method.
 	ListFunc func(ctx context.Context, scope *operations.ListScope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[operations.Operation], error)
@@ -100,7 +100,7 @@ type StoreMock struct {
 	StrandedFunc func(ctx context.Context, grace time.Duration, limit int) ([]*operations.Operation, error)
 
 	// WithTransactionFunc mocks the WithTransaction method.
-	WithTransactionFunc func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
+	WithTransactionFunc func(ctx context.Context, fn func(q database.Tx) error) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -149,7 +149,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Op is the op argument value.
 			Op *operations.Operation
 		}
@@ -212,7 +212,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Fn is the fn argument value.
-			Fn func(q database.SQLQueryExecutor) error
+			Fn func(q database.Tx) error
 		}
 	}
 	lockBegin           sync.RWMutex
@@ -398,13 +398,13 @@ func (mock *StoreMock) GetManyCalls() []struct {
 }
 
 // Insert calls InsertFunc.
-func (mock *StoreMock) Insert(ctx context.Context, q database.SQLQueryExecutor, op *operations.Operation) (*operations.Operation, error) {
+func (mock *StoreMock) Insert(ctx context.Context, q database.Tx, op *operations.Operation) (*operations.Operation, error) {
 	if mock.InsertFunc == nil {
 		panic("StoreMock.InsertFunc: method is nil but Store.Insert was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		Q   database.SQLQueryExecutor
+		Q   database.Tx
 		Op  *operations.Operation
 	}{
 		Ctx: ctx,
@@ -423,12 +423,12 @@ func (mock *StoreMock) Insert(ctx context.Context, q database.SQLQueryExecutor, 
 //	len(mockedStore.InsertCalls())
 func (mock *StoreMock) InsertCalls() []struct {
 	Ctx context.Context
-	Q   database.SQLQueryExecutor
+	Q   database.Tx
 	Op  *operations.Operation
 } {
 	var calls []struct {
 		Ctx context.Context
-		Q   database.SQLQueryExecutor
+		Q   database.Tx
 		Op  *operations.Operation
 	}
 	mock.lockInsert.RLock()
@@ -678,13 +678,13 @@ func (mock *StoreMock) StrandedCalls() []struct {
 }
 
 // WithTransaction calls WithTransactionFunc.
-func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
 	if mock.WithTransactionFunc == nil {
 		panic("StoreMock.WithTransactionFunc: method is nil but Store.WithTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		Fn  func(q database.SQLQueryExecutor) error
+		Fn  func(q database.Tx) error
 	}{
 		Ctx: ctx,
 		Fn:  fn,
@@ -701,11 +701,11 @@ func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.S
 //	len(mockedStore.WithTransactionCalls())
 func (mock *StoreMock) WithTransactionCalls() []struct {
 	Ctx context.Context
-	Fn  func(q database.SQLQueryExecutor) error
+	Fn  func(q database.Tx) error
 } {
 	var calls []struct {
 		Ctx context.Context
-		Fn  func(q database.SQLQueryExecutor) error
+		Fn  func(q database.Tx) error
 	}
 	mock.lockWithTransaction.RLock()
 	calls = mock.calls.WithTransaction
@@ -744,7 +744,7 @@ var _ operations.Service = &ServiceMock{}
 //			StartFunc: func(ctx context.Context, kind string, request any, opts ...operations.StartOption) (*operations.Operation, error) {
 //				panic("mock out the Start method")
 //			},
-//			StartInTransactionFunc: func(ctx context.Context, q database.SQLQueryExecutor, kind string, request any, opts ...operations.StartOption) (*operations.Operation, error) {
+//			StartInTransactionFunc: func(ctx context.Context, q database.Tx, kind string, request any, opts ...operations.StartOption) (*operations.Operation, error) {
 //				panic("mock out the StartInTransaction method")
 //			},
 //		}
@@ -776,7 +776,7 @@ type ServiceMock struct {
 	StartFunc func(ctx context.Context, kind string, request any, opts ...operations.StartOption) (*operations.Operation, error)
 
 	// StartInTransactionFunc mocks the StartInTransaction method.
-	StartInTransactionFunc func(ctx context.Context, q database.SQLQueryExecutor, kind string, request any, opts ...operations.StartOption) (*operations.Operation, error)
+	StartInTransactionFunc func(ctx context.Context, q database.Tx, kind string, request any, opts ...operations.StartOption) (*operations.Operation, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -838,7 +838,7 @@ type ServiceMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Kind is the kind argument value.
 			Kind string
 			// Request is the request argument value.
@@ -1118,13 +1118,13 @@ func (mock *ServiceMock) StartCalls() []struct {
 }
 
 // StartInTransaction calls StartInTransactionFunc.
-func (mock *ServiceMock) StartInTransaction(ctx context.Context, q database.SQLQueryExecutor, kind string, request any, opts ...operations.StartOption) (*operations.Operation, error) {
+func (mock *ServiceMock) StartInTransaction(ctx context.Context, q database.Tx, kind string, request any, opts ...operations.StartOption) (*operations.Operation, error) {
 	if mock.StartInTransactionFunc == nil {
 		panic("ServiceMock.StartInTransactionFunc: method is nil but Service.StartInTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Q       database.SQLQueryExecutor
+		Q       database.Tx
 		Kind    string
 		Request any
 		Opts    []operations.StartOption
@@ -1147,14 +1147,14 @@ func (mock *ServiceMock) StartInTransaction(ctx context.Context, q database.SQLQ
 //	len(mockedService.StartInTransactionCalls())
 func (mock *ServiceMock) StartInTransactionCalls() []struct {
 	Ctx     context.Context
-	Q       database.SQLQueryExecutor
+	Q       database.Tx
 	Kind    string
 	Request any
 	Opts    []operations.StartOption
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Q       database.SQLQueryExecutor
+		Q       database.Tx
 		Kind    string
 		Request any
 		Opts    []operations.StartOption

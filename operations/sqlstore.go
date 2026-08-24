@@ -127,7 +127,7 @@ func NewSQLStore(client database.Client, opts ...StoreOption) (*SQLStore, error)
 	return s, nil
 }
 
-func (s *SQLStore) Insert(ctx context.Context, q database.SQLQueryExecutor, op *Operation) (*Operation, error) {
+func (s *SQLStore) Insert(ctx context.Context, q database.Tx, op *Operation) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx)
 	defer span.End()
 
@@ -492,7 +492,7 @@ func (s *SQLStore) Reap(ctx context.Context, retention time.Duration, limit int)
 // WithTransaction delegates to the client, which begins its own span for the
 // transaction. Wrapping it here would nest a second span around the first and
 // say nothing the client's does not.
-func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
 	return s.client.WithTransaction(ctx, fn)
 }
 

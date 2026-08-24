@@ -122,7 +122,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	return s, nil
 }
 
-func (s *SQLStore) Save(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error {
+func (s *SQLStore) Save(ctx context.Context, q database.Tx, inst *Record, nextAttempt time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -263,7 +263,7 @@ func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 	// The select and the update run in one transaction so that FOR UPDATE SKIP
 	// LOCKED means anything. Without it the lock is released before the update,
 	// and two workers select the same rows.
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		selectQuery, selectArgs := s.tables.buildSelectClaimable(s.dialect, now, limit, true)
 
 		ids, err := scanIDs(ctx, q, selectQuery, selectArgs)
@@ -315,7 +315,7 @@ func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 	return claimed, nil
 }
 
-func (s *SQLStore) Advance(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error {
+func (s *SQLStore) Advance(ctx context.Context, q database.Tx, inst *Record, nextAttempt time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -422,7 +422,7 @@ func (s *SQLStore) Requeue(
 // WithTransaction delegates to the client, which begins its own span for the
 // transaction. Wrapping it here would nest a second span around the first and
 // say nothing the client's does not.
-func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
 	return s.client.WithTransaction(ctx, fn)
 }
 

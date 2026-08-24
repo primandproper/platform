@@ -102,7 +102,7 @@ func (r *StoreRunner[T]) Start(ctx context.Context, def string, initial T) (*Ins
 
 	var inst *Instance[T]
 
-	if err := r.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := r.store.WithTransaction(ctx, func(q database.Tx) error {
 		var txErr error
 		inst, txErr = r.start(ctx, q, def, initial)
 
@@ -117,7 +117,7 @@ func (r *StoreRunner[T]) Start(ctx context.Context, def string, initial T) (*Ins
 // StartInTransaction implements Runner.
 func (r *StoreRunner[T]) StartInTransaction(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	def string,
 	initial T,
 ) (*Instance[T], error) {
@@ -139,7 +139,7 @@ func (r *StoreRunner[T]) StartInTransaction(
 // start writes the instance and its started event through the given executor.
 func (r *StoreRunner[T]) start(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	name string,
 	initial T,
 ) (*Instance[T], error) {

@@ -133,15 +133,17 @@ func (p *Principal) AccountIDs() []string {
 
 // Registrar writes the rows that make a new account exist.
 //
-// All three take the caller's database.SQLQueryExecutor and must run in one
-// transaction: a user without an account signs in to nothing, and an account
-// without an owner has no one its ownership checks can resolve to. That is why
-// they are one interface rather than three methods spread across the reader and
-// writer seams — the grouping is the invariant.
+// All three take the caller's database.Tx and therefore run in one transaction:
+// a user without an account signs in to nothing, and an account without an owner
+// has no one its ownership checks can resolve to. That is why they are one
+// interface rather than three methods spread across the reader and writer seams
+// — the grouping is what makes the invariant visible, and the parameter type is
+// what makes it hold. A database.Tx comes from Client.WithTransaction and from
+// nowhere else, so a registration written through Writer does not compile.
 type Registrar interface {
-	// CreateUser writes a new user through the caller's executor.
+	// CreateUser writes a new user through the caller's transaction.
 	//
-	// It takes an executor because a registration is a user, an account, and a
+	// It takes a transaction because a registration is a user, an account, and a
 	// membership, and a user who exists without an account is a user who signs
 	// in to nothing. CreateAccount and CreateMembership take the same executor;
 	// see the package documentation for the shape.
@@ -152,20 +154,20 @@ type Registrar interface {
 	// ErrUsernameTaken or ErrEmailAddressTaken rather than a driver's constraint
 	// violation — the caller's next move differs, and asking them to parse a
 	// SQLSTATE to find out is how that check gets skipped.
-	CreateUser(ctx context.Context, q database.SQLQueryExecutor, user *User) error
+	CreateUser(ctx context.Context, q database.Tx, user *User) error
 
-	// CreateAccount writes a new account through the caller's executor. The ID
+	// CreateAccount writes a new account through the caller's transaction. The ID
 	// is generated if the account carries none, and CreatedAt is stamped.
-	CreateAccount(ctx context.Context, q database.SQLQueryExecutor, account *Account) error
+	CreateAccount(ctx context.Context, q database.Tx, account *Account) error
 
-	// CreateMembership puts a user in an account through the caller's executor.
+	// CreateMembership puts a user in an account through the caller's transaction.
 	//
 	// A user's first live membership becomes their default account whatever the
 	// value says, because a user with memberships and no default has nowhere to
 	// land — a state that is easy to write and confusing to debug. A subsequent
 	// membership marked default moves the flag, which is what SetDefaultAccount
 	// does and what accepting an invitation into a first account relies on.
-	CreateMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error
+	CreateMembership(ctx context.Context, q database.Tx, membership *Membership) error
 }
 
 // CredentialStore is where the authentication engines put what they produce.
@@ -441,7 +443,7 @@ type AdminWriter interface {
 	// discovers when a deleted colleague is still on the roster.
 	ArchiveUser(ctx context.Context, scope tenancy.Scope, userID string) error
 
-	// EraseUser destroys the user row through the caller's executor, returning
+	// EraseUser destroys the user row through the caller's transaction, returning
 	// how many rows went.
 	//
 	// It takes an executor rather than a handle of its own because a
@@ -450,7 +452,7 @@ type AdminWriter interface {
 	// erased from the directory and present in another domain's table has no
 	// coherent status, so the whole thing has to be able to roll back together.
 	// See this module's dataprivacy package.
-	EraseUser(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int64, error)
+	EraseUser(ctx context.Context, q database.Tx, scope tenancy.Scope, userID string) (int64, error)
 
 	// ArchiveAccount soft-deletes an account and ends every membership in it, in
 	// one transaction.
@@ -510,7 +512,7 @@ type InvitationStore interface {
 	ListInvitationsForEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Invitation], error)
 
 	// AcceptInvitation marks an invitation accepted and writes the membership it
-	// promised, through the caller's executor, returning that membership.
+	// promised, through the caller's transaction, returning that membership.
 	//
 	// The two are one call rather than two because an accepted invitation
 	// without a membership is a user who was told they joined and did not, and
@@ -520,7 +522,7 @@ type InvitationStore interface {
 	// The roles come from the invitation rather than from a parameter: what
 	// somebody was invited to is what they get, and a parameter here is where an
 	// escalation goes in.
-	AcceptInvitation(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, invitationID, token, acceptingUserID, note string) (*Membership, error)
+	AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID, token, acceptingUserID, note string) (*Membership, error)
 
 	// SetInvitationStatus answers an invitation without producing a membership:
 	// rejection by the recipient, cancellation by the sender.
@@ -561,12 +563,11 @@ type InvitationStore interface {
 // that make a registration span three tables in one transaction, so splitting
 // the implementation would split a transaction; only the seam divides.
 //
-// Methods taking a database.SQLQueryExecutor run inside the caller's
-// transaction and must use it rather than a handle of their own. Those are
-// exactly the writes that have to commit with something else: the three that
-// make a registration, the two that make an accepted invitation, and the
-// erasure that spans every domain a subject appears in. The rest own their own
-// statements.
+// Methods taking a database.Tx run inside the caller's transaction and must use
+// it rather than a handle of their own. Those are exactly the writes that have
+// to commit with something else: the three that make a registration, the two
+// that make an accepted invitation, and the erasure that spans every domain a
+// subject appears in. The rest own their own statements.
 //
 // Every method takes a tenancy.Scope or reads one off the value it was handed,
 // and none of them offers an unscoped variant. There is no ListAllUsers, and

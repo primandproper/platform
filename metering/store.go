@@ -141,7 +141,7 @@ type Store interface {
 	// spends. Recording those separately means a crash between them leaves usage
 	// counted for work that rolled back, or work committed that nobody was billed
 	// for.
-	RecordTx(ctx context.Context, q database.SQLQueryExecutor, entries []Entry, at time.Time) (RecordResult, error)
+	RecordTx(ctx context.Context, q database.Tx, entries []Entry, at time.Time) (RecordResult, error)
 
 	// Total reads one subject's total for a meter and period. It returns a zero
 	// Total, and no error, for a period nothing has been recorded against — an
@@ -183,5 +183,5 @@ type Store interface {
 
 	// WithTransaction runs fn against the store's database, for callers using
 	// RecordTx.
-	WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
+	WithTransaction(ctx context.Context, fn func(q database.Tx) error) error
 }

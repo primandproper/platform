@@ -37,7 +37,7 @@ type Recorder interface {
 	// It is variadic where the prior art took one entry, because a transaction
 	// that touches three resources should not pay three chain-head lookups and
 	// three INSERTs while holding locks. Entries are chained in the order given.
-	Record(ctx context.Context, q database.SQLQueryExecutor, entries ...*Entry) error
+	Record(ctx context.Context, q database.Tx, entries ...*Entry) error
 }
 
 var _ Recorder = (*ChainRecorder)(nil)
@@ -111,7 +111,7 @@ func NewRecorder(d dialect.Dialect, opts ...RecorderOption) (*ChainRecorder, err
 }
 
 // Record appends entries inside the caller's transaction.
-func (r *ChainRecorder) Record(ctx context.Context, q database.SQLQueryExecutor, entries ...*Entry) error {
+func (r *ChainRecorder) Record(ctx context.Context, q database.Tx, entries ...*Entry) error {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
 

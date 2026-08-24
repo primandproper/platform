@@ -80,7 +80,7 @@ func (e *dialectEnv) prune(t *testing.T, c *stubClock, prefix string, retention 
 	cutoff := c.Now().UTC().Add(-retention)
 
 	var removed int64
-	must.NoError(t, e.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, e.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		var err error
 		removed, err = target.Sweep(t.Context(), q, e.dialect, cutoff, 100)
 
@@ -109,7 +109,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		first, second := entryFor("acct_1", "r1"), entryFor("acct_1", "r2")
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q, first, second)
 		}))
 
@@ -130,7 +130,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		entry := entryFor("acct_1", "r1")
 		entry.RecordedAt = time.Date(2026, time.July, 31, 12, 0, 0, 123456789, time.UTC)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q, entry)
 		}))
 
@@ -155,7 +155,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		boom := fmt.Errorf("caller work failed")
 
-		err := env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			if recordErr := recorder.Record(t.Context(), q, entryFor("acct_1", "r1")); recordErr != nil {
 				return recordErr
 			}
@@ -177,7 +177,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		first, second := entryFor("acct_1", "r1"), entryFor("acct_1", "r2")
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q, first, second)
 		}))
 
@@ -202,7 +202,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		entry := entryFor("acct_1", "r1")
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q, entry)
 		}))
 
@@ -229,13 +229,13 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		recorder := env.recorder(t, c, prefix)
 		reader := env.reader(t, prefix)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q, entryFor("acct_1", "r1"))
 		}))
 
 		c.advance(2 * time.Hour)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q, entryFor("acct_1", "r2"))
 		}))
 
@@ -266,7 +266,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		errs := make(chan error, writers)
 		for i := range writers {
 			go func() {
-				errs <- env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+				errs <- env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 					return recorder.Record(t.Context(), q, entryFor("acct_1", fmt.Sprintf("r%d", i)))
 				})
 			}()
@@ -297,7 +297,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		errs := make(chan error, writers)
 		for range writers {
 			go func() {
-				errs <- env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+				errs <- env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 					return recorder.Record(t.Context(), q, entryFor("brand_new_scope", "r"))
 				})
 			}()
@@ -320,7 +320,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		recorder := env.recorder(t, c, prefix)
 		entry := entryFor("acct_1", "r1")
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q, entry)
 		}))
 
@@ -340,7 +340,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		recorder := env.recorder(t, c, prefix)
 		reader := env.reader(t, prefix)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q,
 				entryFor("acct_1", "r1"),
 				entryFor("acct_1", "r2"),
@@ -436,7 +436,7 @@ func TestAudit_MigratorIntegration_Containers(T *testing.T) {
 		reader, err := NewReader(client, WithReaderTablePrefix(prefix))
 		must.NoError(t, err)
 
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.Record(t.Context(), q, entryFor("acct_1", "r1"))
 		}))
 

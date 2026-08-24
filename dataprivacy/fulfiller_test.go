@@ -352,7 +352,7 @@ func TestFulfiller_Erasure(T *testing.T) {
 		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("aaa", countingEraser(5, 0, nil, &ranFirst)))
 			must.NoError(t, r.RegisterEraser("zzz", EraserFunc(
-				func(context.Context, database.SQLQueryExecutor, Subject) (ErasureOutcome, error) {
+				func(context.Context, database.Tx, Subject) (ErasureOutcome, error) {
 					return ErasureOutcome{}, platformerrors.New("cannot reach billing")
 				},
 			)))
@@ -377,7 +377,7 @@ func TestFulfiller_Erasure(T *testing.T) {
 
 		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("identity", EraserFunc(
-				func(context.Context, database.SQLQueryExecutor, Subject) (ErasureOutcome, error) {
+				func(context.Context, database.Tx, Subject) (ErasureOutcome, error) {
 					panic("boom")
 				},
 			)))

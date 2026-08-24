@@ -250,7 +250,7 @@ func (b *Backend[T]) Rename(
 		return op.Error(err, "encoding renewed session row")
 	}
 
-	if err = b.db.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err = b.db.WithTransaction(ctx, func(q database.Tx) error {
 		deleteQuery, deleteArgs := buildDelete(b.dialect, b.table, oldID)
 
 		affected, execErr := b.exec(ctx, q, deleteQuery, deleteArgs)

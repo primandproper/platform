@@ -38,7 +38,7 @@ func auditEntry(scope, resourceID string) *audit.Entry {
 func recordAuditEntries(t *testing.T, client database.Client, recorder audit.Recorder, entries ...*audit.Entry) {
 	t.Helper()
 
-	must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 		return recorder.Record(t.Context(), q, entries...)
 	}))
 }

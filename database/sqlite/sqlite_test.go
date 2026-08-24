@@ -698,7 +698,7 @@ func TestClient_WithTransaction(T *testing.T) {
 		db.ExpectCommit()
 
 		var ran bool
-		err := c.WithTransaction(t.Context(), func(tx database.SQLQueryExecutor) error {
+		err := c.WithTransaction(t.Context(), func(tx database.Tx) error {
 			ran = true
 			test.NotNil(t, tx)
 
@@ -719,7 +719,7 @@ func TestClient_WithTransaction(T *testing.T) {
 		db.ExpectRollback()
 
 		expected := errors.New("nope")
-		err := c.WithTransaction(t.Context(), func(database.SQLQueryExecutor) error {
+		err := c.WithTransaction(t.Context(), func(database.Tx) error {
 			return expected
 		})
 
@@ -735,7 +735,7 @@ func TestClient_WithTransaction(T *testing.T) {
 		db.ExpectBegin().WillReturnError(errors.New("cannot begin"))
 
 		var ran bool
-		err := c.WithTransaction(t.Context(), func(database.SQLQueryExecutor) error {
+		err := c.WithTransaction(t.Context(), func(database.Tx) error {
 			ran = true
 
 			return nil

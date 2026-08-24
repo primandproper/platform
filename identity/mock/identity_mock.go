@@ -23,7 +23,7 @@ var _ identity.Store = &StoreMock{}
 //
 //		// make and configure a mocked identity.Store
 //		mockedStore := &StoreMock{
-//			AcceptInvitationFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error) {
+//			AcceptInvitationFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error) {
 //				panic("mock out the AcceptInvitation method")
 //			},
 //			ArchiveAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string) error {
@@ -32,19 +32,19 @@ var _ identity.Store = &StoreMock{}
 //			ArchiveUserFunc: func(ctx context.Context, scope tenancy.Scope, userID string) error {
 //				panic("mock out the ArchiveUser method")
 //			},
-//			CreateAccountFunc: func(ctx context.Context, q database.SQLQueryExecutor, account *identity.Account) error {
+//			CreateAccountFunc: func(ctx context.Context, q database.Tx, account *identity.Account) error {
 //				panic("mock out the CreateAccount method")
 //			},
 //			CreateInvitationFunc: func(ctx context.Context, invitation *identity.Invitation) error {
 //				panic("mock out the CreateInvitation method")
 //			},
-//			CreateMembershipFunc: func(ctx context.Context, q database.SQLQueryExecutor, membership *identity.Membership) error {
+//			CreateMembershipFunc: func(ctx context.Context, q database.Tx, membership *identity.Membership) error {
 //				panic("mock out the CreateMembership method")
 //			},
-//			CreateUserFunc: func(ctx context.Context, q database.SQLQueryExecutor, user *identity.User) error {
+//			CreateUserFunc: func(ctx context.Context, q database.Tx, user *identity.User) error {
 //				panic("mock out the CreateUser method")
 //			},
-//			EraseUserFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int64, error) {
+//			EraseUserFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, userID string) (int64, error) {
 //				panic("mock out the EraseUser method")
 //			},
 //			GetAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string) (*identity.Account, error) {
@@ -160,7 +160,7 @@ var _ identity.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// AcceptInvitationFunc mocks the AcceptInvitation method.
-	AcceptInvitationFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error)
+	AcceptInvitationFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error)
 
 	// ArchiveAccountFunc mocks the ArchiveAccount method.
 	ArchiveAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string) error
@@ -169,19 +169,19 @@ type StoreMock struct {
 	ArchiveUserFunc func(ctx context.Context, scope tenancy.Scope, userID string) error
 
 	// CreateAccountFunc mocks the CreateAccount method.
-	CreateAccountFunc func(ctx context.Context, q database.SQLQueryExecutor, account *identity.Account) error
+	CreateAccountFunc func(ctx context.Context, q database.Tx, account *identity.Account) error
 
 	// CreateInvitationFunc mocks the CreateInvitation method.
 	CreateInvitationFunc func(ctx context.Context, invitation *identity.Invitation) error
 
 	// CreateMembershipFunc mocks the CreateMembership method.
-	CreateMembershipFunc func(ctx context.Context, q database.SQLQueryExecutor, membership *identity.Membership) error
+	CreateMembershipFunc func(ctx context.Context, q database.Tx, membership *identity.Membership) error
 
 	// CreateUserFunc mocks the CreateUser method.
-	CreateUserFunc func(ctx context.Context, q database.SQLQueryExecutor, user *identity.User) error
+	CreateUserFunc func(ctx context.Context, q database.Tx, user *identity.User) error
 
 	// EraseUserFunc mocks the EraseUser method.
-	EraseUserFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int64, error)
+	EraseUserFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, userID string) (int64, error)
 
 	// GetAccountFunc mocks the GetAccount method.
 	GetAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string) (*identity.Account, error)
@@ -295,7 +295,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// InvitationID is the invitationID argument value.
@@ -330,7 +330,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Account is the account argument value.
 			Account *identity.Account
 		}
@@ -346,7 +346,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Membership is the membership argument value.
 			Membership *identity.Membership
 		}
@@ -355,7 +355,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// User is the user argument value.
 			User *identity.User
 		}
@@ -364,7 +364,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// UserID is the userID argument value.
@@ -778,13 +778,13 @@ type StoreMock struct {
 }
 
 // AcceptInvitation calls AcceptInvitationFunc.
-func (mock *StoreMock) AcceptInvitation(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error) {
+func (mock *StoreMock) AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error) {
 	if mock.AcceptInvitationFunc == nil {
 		panic("StoreMock.AcceptInvitationFunc: method is nil but Store.AcceptInvitation was just called")
 	}
 	callInfo := struct {
 		Ctx             context.Context
-		Q               database.SQLQueryExecutor
+		Q               database.Tx
 		Scope           tenancy.Scope
 		InvitationID    string
 		Token           string
@@ -811,7 +811,7 @@ func (mock *StoreMock) AcceptInvitation(ctx context.Context, q database.SQLQuery
 //	len(mockedStore.AcceptInvitationCalls())
 func (mock *StoreMock) AcceptInvitationCalls() []struct {
 	Ctx             context.Context
-	Q               database.SQLQueryExecutor
+	Q               database.Tx
 	Scope           tenancy.Scope
 	InvitationID    string
 	Token           string
@@ -820,7 +820,7 @@ func (mock *StoreMock) AcceptInvitationCalls() []struct {
 } {
 	var calls []struct {
 		Ctx             context.Context
-		Q               database.SQLQueryExecutor
+		Q               database.Tx
 		Scope           tenancy.Scope
 		InvitationID    string
 		Token           string
@@ -914,13 +914,13 @@ func (mock *StoreMock) ArchiveUserCalls() []struct {
 }
 
 // CreateAccount calls CreateAccountFunc.
-func (mock *StoreMock) CreateAccount(ctx context.Context, q database.SQLQueryExecutor, account *identity.Account) error {
+func (mock *StoreMock) CreateAccount(ctx context.Context, q database.Tx, account *identity.Account) error {
 	if mock.CreateAccountFunc == nil {
 		panic("StoreMock.CreateAccountFunc: method is nil but Store.CreateAccount was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Q       database.SQLQueryExecutor
+		Q       database.Tx
 		Account *identity.Account
 	}{
 		Ctx:     ctx,
@@ -939,12 +939,12 @@ func (mock *StoreMock) CreateAccount(ctx context.Context, q database.SQLQueryExe
 //	len(mockedStore.CreateAccountCalls())
 func (mock *StoreMock) CreateAccountCalls() []struct {
 	Ctx     context.Context
-	Q       database.SQLQueryExecutor
+	Q       database.Tx
 	Account *identity.Account
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Q       database.SQLQueryExecutor
+		Q       database.Tx
 		Account *identity.Account
 	}
 	mock.lockCreateAccount.RLock()
@@ -990,13 +990,13 @@ func (mock *StoreMock) CreateInvitationCalls() []struct {
 }
 
 // CreateMembership calls CreateMembershipFunc.
-func (mock *StoreMock) CreateMembership(ctx context.Context, q database.SQLQueryExecutor, membership *identity.Membership) error {
+func (mock *StoreMock) CreateMembership(ctx context.Context, q database.Tx, membership *identity.Membership) error {
 	if mock.CreateMembershipFunc == nil {
 		panic("StoreMock.CreateMembershipFunc: method is nil but Store.CreateMembership was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
-		Q          database.SQLQueryExecutor
+		Q          database.Tx
 		Membership *identity.Membership
 	}{
 		Ctx:        ctx,
@@ -1015,12 +1015,12 @@ func (mock *StoreMock) CreateMembership(ctx context.Context, q database.SQLQuery
 //	len(mockedStore.CreateMembershipCalls())
 func (mock *StoreMock) CreateMembershipCalls() []struct {
 	Ctx        context.Context
-	Q          database.SQLQueryExecutor
+	Q          database.Tx
 	Membership *identity.Membership
 } {
 	var calls []struct {
 		Ctx        context.Context
-		Q          database.SQLQueryExecutor
+		Q          database.Tx
 		Membership *identity.Membership
 	}
 	mock.lockCreateMembership.RLock()
@@ -1030,13 +1030,13 @@ func (mock *StoreMock) CreateMembershipCalls() []struct {
 }
 
 // CreateUser calls CreateUserFunc.
-func (mock *StoreMock) CreateUser(ctx context.Context, q database.SQLQueryExecutor, user *identity.User) error {
+func (mock *StoreMock) CreateUser(ctx context.Context, q database.Tx, user *identity.User) error {
 	if mock.CreateUserFunc == nil {
 		panic("StoreMock.CreateUserFunc: method is nil but Store.CreateUser was just called")
 	}
 	callInfo := struct {
 		Ctx  context.Context
-		Q    database.SQLQueryExecutor
+		Q    database.Tx
 		User *identity.User
 	}{
 		Ctx:  ctx,
@@ -1055,12 +1055,12 @@ func (mock *StoreMock) CreateUser(ctx context.Context, q database.SQLQueryExecut
 //	len(mockedStore.CreateUserCalls())
 func (mock *StoreMock) CreateUserCalls() []struct {
 	Ctx  context.Context
-	Q    database.SQLQueryExecutor
+	Q    database.Tx
 	User *identity.User
 } {
 	var calls []struct {
 		Ctx  context.Context
-		Q    database.SQLQueryExecutor
+		Q    database.Tx
 		User *identity.User
 	}
 	mock.lockCreateUser.RLock()
@@ -1070,13 +1070,13 @@ func (mock *StoreMock) CreateUserCalls() []struct {
 }
 
 // EraseUser calls EraseUserFunc.
-func (mock *StoreMock) EraseUser(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int64, error) {
+func (mock *StoreMock) EraseUser(ctx context.Context, q database.Tx, scope tenancy.Scope, userID string) (int64, error) {
 	if mock.EraseUserFunc == nil {
 		panic("StoreMock.EraseUserFunc: method is nil but Store.EraseUser was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
-		Q      database.SQLQueryExecutor
+		Q      database.Tx
 		Scope  tenancy.Scope
 		UserID string
 	}{
@@ -1097,13 +1097,13 @@ func (mock *StoreMock) EraseUser(ctx context.Context, q database.SQLQueryExecuto
 //	len(mockedStore.EraseUserCalls())
 func (mock *StoreMock) EraseUserCalls() []struct {
 	Ctx    context.Context
-	Q      database.SQLQueryExecutor
+	Q      database.Tx
 	Scope  tenancy.Scope
 	UserID string
 } {
 	var calls []struct {
 		Ctx    context.Context
-		Q      database.SQLQueryExecutor
+		Q      database.Tx
 		Scope  tenancy.Scope
 		UserID string
 	}

@@ -135,7 +135,7 @@ func (s *SQLStore) Record(ctx context.Context, entries []Entry, at time.Time) (R
 	// One transaction for the whole batch, so a crash mid-batch leaves neither
 	// half-counted events nor a total folded from records whose ledger rows never
 	// landed. The ledger and the aggregate it feeds are one fact.
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		var txErr error
 		result, txErr = s.record(ctx, op, q, entries, at)
 
@@ -152,7 +152,7 @@ func (s *SQLStore) Record(ctx context.Context, entries []Entry, at time.Time) (R
 
 func (s *SQLStore) RecordTx(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	entries []Entry,
 	at time.Time,
 ) (RecordResult, error) {
@@ -332,7 +332,7 @@ func (s *SQLStore) Consume(
 
 	var decision *Decision
 
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		var txErr error
 		decision, txErr = s.consume(ctx, op, q, &entry, limit, behavior, at)
 
@@ -470,7 +470,7 @@ func (s *SQLStore) ClaimFlushable(
 	// The select and the update run in one transaction so that FOR UPDATE SKIP
 	// LOCKED means anything. Without it the lock is released before the update,
 	// and two flushers select the same totals.
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		selectQuery, selectArgs := s.tables.buildSelectFlushable(s.dialect, now, limit, maxAttempts, true)
 
 		keys, keyErr := scanTotalKeys(ctx, q, selectQuery, selectArgs)
@@ -593,7 +593,7 @@ func (s *SQLStore) ReapEvents(ctx context.Context, before time.Time, limit int) 
 // WithTransaction delegates to the client, which begins its own span for the
 // transaction. Wrapping it here would nest a second span around the first and say
 // nothing the client's does not.
-func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
 	return s.client.WithTransaction(ctx, fn)
 }
 

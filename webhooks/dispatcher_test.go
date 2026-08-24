@@ -65,7 +65,7 @@ func (f *fakeStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryEx
 	return f.endpointsForEvent(ctx, q, scope, eventType)
 }
 
-func (f *fakeStore) Enqueue(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery, endpointIDs []string, now time.Time) error {
+func (f *fakeStore) Enqueue(ctx context.Context, q database.Tx, delivery *Delivery, endpointIDs []string, now time.Time) error {
 	if f.enqueue == nil {
 		return nil
 	}
@@ -324,7 +324,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 
 		delivery := &Delivery{Scope: testScope, EventType: "order.created", Payload: testBody, OrderingKey: "order-7"}
 
-		must.NoError(t, d.Dispatch(t.Context(), &stubExecutor{}, delivery))
+		must.NoError(t, d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}), delivery))
 
 		test.Eq(t, []string{"endpoint-1", "endpoint-2"}, enqueuedIDs)
 		must.NotNil(t, enqueued)
@@ -348,7 +348,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 			},
 		})
 
-		must.NoError(t, d.Dispatch(t.Context(), &stubExecutor{},
+		must.NoError(t, d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}),
 			&Delivery{Scope: otherScope, EventType: "order.created", Payload: testBody}))
 
 		test.EqOp(t, otherScope, asked)
@@ -369,7 +369,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 			},
 		})
 
-		err := d.Dispatch(t.Context(), &stubExecutor{}, &Delivery{EventType: "order.created", Payload: testBody})
+		err := d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}), &Delivery{EventType: "order.created", Payload: testBody})
 
 		test.ErrorIs(t, err, ErrNoScope)
 		test.False(t, looked)
@@ -390,7 +390,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 			},
 		})
 
-		must.NoError(t, d.Dispatch(t.Context(), &stubExecutor{},
+		must.NoError(t, d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}),
 			&Delivery{Scope: tenancy.Global(), EventType: "order.created", Payload: testBody}))
 
 		test.EqOp(t, tenancy.Global(), asked)
@@ -414,7 +414,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 			},
 		})
 
-		test.NoError(t, d.Dispatch(t.Context(), &stubExecutor{},
+		test.NoError(t, d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}),
 			&Delivery{Scope: testScope, EventType: "order.created", Payload: testBody}))
 		test.False(t, enqueued)
 	})
@@ -435,7 +435,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 			},
 		})
 
-		must.NoError(t, d.Dispatch(t.Context(), &stubExecutor{},
+		must.NoError(t, d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}),
 			&Delivery{Scope: testScope, ID: "chosen", EventType: "order.created", Payload: testBody}))
 
 		must.NotNil(t, enqueued)
@@ -455,7 +455,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 			},
 		})
 
-		err := d.Dispatch(t.Context(), &stubExecutor{}, &Delivery{Scope: testScope, EventType: "order.exploded", Payload: testBody})
+		err := d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}), &Delivery{Scope: testScope, EventType: "order.exploded", Payload: testBody})
 
 		test.ErrorIs(t, err, ErrUnknownEventType)
 		test.False(t, looked)
@@ -466,7 +466,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 
 		d := newTestDispatcher(t, &fakeStore{})
 
-		test.Error(t, d.Dispatch(t.Context(), &stubExecutor{}, &Delivery{Scope: testScope, EventType: "order.created"}))
+		test.Error(t, d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}), &Delivery{Scope: testScope, EventType: "order.created"}))
 	})
 
 	// The transactional guarantee is the executor. Without one there is nothing
@@ -484,7 +484,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		t.Parallel()
 
 		test.ErrorIs(t,
-			newTestDispatcher(t, &fakeStore{}).Dispatch(t.Context(), &stubExecutor{}, nil),
+			newTestDispatcher(t, &fakeStore{}).Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}), nil),
 			ErrNilDelivery,
 		)
 	})
@@ -503,7 +503,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 			},
 		})
 
-		err := d.Dispatch(t.Context(), &stubExecutor{}, &Delivery{Scope: testScope, EventType: "order.created", Payload: testBody})
+		err := d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}), &Delivery{Scope: testScope, EventType: "order.created", Payload: testBody})
 		test.ErrorIs(t, err, expected)
 	})
 
@@ -516,7 +516,7 @@ func TestDispatcher_Dispatch(T *testing.T) {
 		must.NoError(t, err)
 
 		test.ErrorIs(t,
-			d.Dispatch(t.Context(), &stubExecutor{}, &Delivery{Scope: testScope, EventType: "order.created", Payload: testBody}),
+			d.Dispatch(t.Context(), database.NewTxForTesting(&stubExecutor{}), &Delivery{Scope: testScope, EventType: "order.created", Payload: testBody}),
 			ErrUnknownEventType,
 		)
 	})

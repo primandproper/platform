@@ -23,7 +23,7 @@ var _ saga.Store = &StoreMock{}
 //
 //		// make and configure a mocked saga.Store
 //		mockedStore := &StoreMock{
-//			AdvanceFunc: func(ctx context.Context, q database.SQLQueryExecutor, inst *saga.Record, nextAttempt time.Time) error {
+//			AdvanceFunc: func(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error {
 //				panic("mock out the Advance method")
 //			},
 //			ClaimFunc: func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*saga.Record, error) {
@@ -44,10 +44,10 @@ var _ saga.Store = &StoreMock{}
 //			RescheduleFunc: func(ctx context.Context, instanceID string, attempts int, nextAttempt time.Time, lastErr string, at time.Time) error {
 //				panic("mock out the Reschedule method")
 //			},
-//			SaveFunc: func(ctx context.Context, q database.SQLQueryExecutor, inst *saga.Record, nextAttempt time.Time) error {
+//			SaveFunc: func(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error {
 //				panic("mock out the Save method")
 //			},
-//			WithTransactionFunc: func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+//			WithTransactionFunc: func(ctx context.Context, fn func(q database.Tx) error) error {
 //				panic("mock out the WithTransaction method")
 //			},
 //		}
@@ -58,7 +58,7 @@ var _ saga.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// AdvanceFunc mocks the Advance method.
-	AdvanceFunc func(ctx context.Context, q database.SQLQueryExecutor, inst *saga.Record, nextAttempt time.Time) error
+	AdvanceFunc func(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error
 
 	// ClaimFunc mocks the Claim method.
 	ClaimFunc func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*saga.Record, error)
@@ -79,10 +79,10 @@ type StoreMock struct {
 	RescheduleFunc func(ctx context.Context, instanceID string, attempts int, nextAttempt time.Time, lastErr string, at time.Time) error
 
 	// SaveFunc mocks the Save method.
-	SaveFunc func(ctx context.Context, q database.SQLQueryExecutor, inst *saga.Record, nextAttempt time.Time) error
+	SaveFunc func(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error
 
 	// WithTransactionFunc mocks the WithTransaction method.
-	WithTransactionFunc func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
+	WithTransactionFunc func(ctx context.Context, fn func(q database.Tx) error) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -91,7 +91,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Inst is the inst argument value.
 			Inst *saga.Record
 			// NextAttempt is the nextAttempt argument value.
@@ -166,7 +166,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Inst is the inst argument value.
 			Inst *saga.Record
 			// NextAttempt is the nextAttempt argument value.
@@ -177,7 +177,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Fn is the fn argument value.
-			Fn func(q database.SQLQueryExecutor) error
+			Fn func(q database.Tx) error
 		}
 	}
 	lockAdvance         sync.RWMutex
@@ -192,13 +192,13 @@ type StoreMock struct {
 }
 
 // Advance calls AdvanceFunc.
-func (mock *StoreMock) Advance(ctx context.Context, q database.SQLQueryExecutor, inst *saga.Record, nextAttempt time.Time) error {
+func (mock *StoreMock) Advance(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error {
 	if mock.AdvanceFunc == nil {
 		panic("StoreMock.AdvanceFunc: method is nil but Store.Advance was just called")
 	}
 	callInfo := struct {
 		Ctx         context.Context
-		Q           database.SQLQueryExecutor
+		Q           database.Tx
 		Inst        *saga.Record
 		NextAttempt time.Time
 	}{
@@ -219,13 +219,13 @@ func (mock *StoreMock) Advance(ctx context.Context, q database.SQLQueryExecutor,
 //	len(mockedStore.AdvanceCalls())
 func (mock *StoreMock) AdvanceCalls() []struct {
 	Ctx         context.Context
-	Q           database.SQLQueryExecutor
+	Q           database.Tx
 	Inst        *saga.Record
 	NextAttempt time.Time
 } {
 	var calls []struct {
 		Ctx         context.Context
-		Q           database.SQLQueryExecutor
+		Q           database.Tx
 		Inst        *saga.Record
 		NextAttempt time.Time
 	}
@@ -496,13 +496,13 @@ func (mock *StoreMock) RescheduleCalls() []struct {
 }
 
 // Save calls SaveFunc.
-func (mock *StoreMock) Save(ctx context.Context, q database.SQLQueryExecutor, inst *saga.Record, nextAttempt time.Time) error {
+func (mock *StoreMock) Save(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error {
 	if mock.SaveFunc == nil {
 		panic("StoreMock.SaveFunc: method is nil but Store.Save was just called")
 	}
 	callInfo := struct {
 		Ctx         context.Context
-		Q           database.SQLQueryExecutor
+		Q           database.Tx
 		Inst        *saga.Record
 		NextAttempt time.Time
 	}{
@@ -523,13 +523,13 @@ func (mock *StoreMock) Save(ctx context.Context, q database.SQLQueryExecutor, in
 //	len(mockedStore.SaveCalls())
 func (mock *StoreMock) SaveCalls() []struct {
 	Ctx         context.Context
-	Q           database.SQLQueryExecutor
+	Q           database.Tx
 	Inst        *saga.Record
 	NextAttempt time.Time
 } {
 	var calls []struct {
 		Ctx         context.Context
-		Q           database.SQLQueryExecutor
+		Q           database.Tx
 		Inst        *saga.Record
 		NextAttempt time.Time
 	}
@@ -540,13 +540,13 @@ func (mock *StoreMock) SaveCalls() []struct {
 }
 
 // WithTransaction calls WithTransactionFunc.
-func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
 	if mock.WithTransactionFunc == nil {
 		panic("StoreMock.WithTransactionFunc: method is nil but Store.WithTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		Fn  func(q database.SQLQueryExecutor) error
+		Fn  func(q database.Tx) error
 	}{
 		Ctx: ctx,
 		Fn:  fn,
@@ -563,11 +563,11 @@ func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.S
 //	len(mockedStore.WithTransactionCalls())
 func (mock *StoreMock) WithTransactionCalls() []struct {
 	Ctx context.Context
-	Fn  func(q database.SQLQueryExecutor) error
+	Fn  func(q database.Tx) error
 } {
 	var calls []struct {
 		Ctx context.Context
-		Fn  func(q database.SQLQueryExecutor) error
+		Fn  func(q database.Tx) error
 	}
 	mock.lockWithTransaction.RLock()
 	calls = mock.calls.WithTransaction

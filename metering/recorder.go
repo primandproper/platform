@@ -140,7 +140,7 @@ func (r *DurableRecorder) Record(ctx context.Context, u ...Usage) error {
 // row inserted and the storage it consumes, a message sent and the credit it
 // spends — reach for this, and get the guarantee that a crash between the work
 // and its usage record cannot leave the two disagreeing.
-func (r *DurableRecorder) RecordTx(ctx context.Context, q database.SQLQueryExecutor, u ...Usage) error {
+func (r *DurableRecorder) RecordTx(ctx context.Context, q database.Tx, u ...Usage) error {
 	if q == nil {
 		return ErrNilExecutor
 	}
@@ -150,7 +150,7 @@ func (r *DurableRecorder) RecordTx(ctx context.Context, q database.SQLQueryExecu
 
 // record is the shared body: prepare every record, then hand the survivors to
 // the store in configured chunks.
-func (r *DurableRecorder) record(ctx context.Context, q database.SQLQueryExecutor, usages []Usage) error {
+func (r *DurableRecorder) record(ctx context.Context, q database.Tx, usages []Usage) error {
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(usages)))
 	defer op.End()
 

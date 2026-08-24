@@ -37,7 +37,7 @@ var _ metering.Store = &StoreMock{}
 //			RecordFunc: func(ctx context.Context, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
 //				panic("mock out the Record method")
 //			},
-//			RecordTxFunc: func(ctx context.Context, q database.SQLQueryExecutor, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
+//			RecordTxFunc: func(ctx context.Context, q database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
 //				panic("mock out the RecordTx method")
 //			},
 //			ReleaseFlushFunc: func(ctx context.Context, total *metering.Total, lastErr string, nextFlush time.Time) error {
@@ -46,7 +46,7 @@ var _ metering.Store = &StoreMock{}
 //			TotalFunc: func(ctx context.Context, subject string, meter string, bounds metering.Bounds) (*metering.Total, error) {
 //				panic("mock out the Total method")
 //			},
-//			WithTransactionFunc: func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+//			WithTransactionFunc: func(ctx context.Context, fn func(q database.Tx) error) error {
 //				panic("mock out the WithTransaction method")
 //			},
 //		}
@@ -72,7 +72,7 @@ type StoreMock struct {
 	RecordFunc func(ctx context.Context, entries []metering.Entry, at time.Time) (metering.RecordResult, error)
 
 	// RecordTxFunc mocks the RecordTx method.
-	RecordTxFunc func(ctx context.Context, q database.SQLQueryExecutor, entries []metering.Entry, at time.Time) (metering.RecordResult, error)
+	RecordTxFunc func(ctx context.Context, q database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error)
 
 	// ReleaseFlushFunc mocks the ReleaseFlush method.
 	ReleaseFlushFunc func(ctx context.Context, total *metering.Total, lastErr string, nextFlush time.Time) error
@@ -81,7 +81,7 @@ type StoreMock struct {
 	TotalFunc func(ctx context.Context, subject string, meter string, bounds metering.Bounds) (*metering.Total, error)
 
 	// WithTransactionFunc mocks the WithTransaction method.
-	WithTransactionFunc func(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
+	WithTransactionFunc func(ctx context.Context, fn func(q database.Tx) error) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -145,7 +145,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Entries is the entries argument value.
 			Entries []metering.Entry
 			// At is the at argument value.
@@ -178,7 +178,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Fn is the fn argument value.
-			Fn func(q database.SQLQueryExecutor) error
+			Fn func(q database.Tx) error
 		}
 	}
 	lockClaimFlushable  sync.RWMutex
@@ -413,13 +413,13 @@ func (mock *StoreMock) RecordCalls() []struct {
 }
 
 // RecordTx calls RecordTxFunc.
-func (mock *StoreMock) RecordTx(ctx context.Context, q database.SQLQueryExecutor, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
+func (mock *StoreMock) RecordTx(ctx context.Context, q database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
 	if mock.RecordTxFunc == nil {
 		panic("StoreMock.RecordTxFunc: method is nil but Store.RecordTx was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Q       database.SQLQueryExecutor
+		Q       database.Tx
 		Entries []metering.Entry
 		At      time.Time
 	}{
@@ -440,13 +440,13 @@ func (mock *StoreMock) RecordTx(ctx context.Context, q database.SQLQueryExecutor
 //	len(mockedStore.RecordTxCalls())
 func (mock *StoreMock) RecordTxCalls() []struct {
 	Ctx     context.Context
-	Q       database.SQLQueryExecutor
+	Q       database.Tx
 	Entries []metering.Entry
 	At      time.Time
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Q       database.SQLQueryExecutor
+		Q       database.Tx
 		Entries []metering.Entry
 		At      time.Time
 	}
@@ -545,13 +545,13 @@ func (mock *StoreMock) TotalCalls() []struct {
 }
 
 // WithTransaction calls WithTransactionFunc.
-func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
 	if mock.WithTransactionFunc == nil {
 		panic("StoreMock.WithTransactionFunc: method is nil but Store.WithTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		Fn  func(q database.SQLQueryExecutor) error
+		Fn  func(q database.Tx) error
 	}{
 		Ctx: ctx,
 		Fn:  fn,
@@ -568,11 +568,11 @@ func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.S
 //	len(mockedStore.WithTransactionCalls())
 func (mock *StoreMock) WithTransactionCalls() []struct {
 	Ctx context.Context
-	Fn  func(q database.SQLQueryExecutor) error
+	Fn  func(q database.Tx) error
 } {
 	var calls []struct {
 		Ctx context.Context
-		Fn  func(q database.SQLQueryExecutor) error
+		Fn  func(q database.Tx) error
 	}
 	mock.lockWithTransaction.RLock()
 	calls = mock.calls.WithTransaction

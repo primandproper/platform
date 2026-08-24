@@ -56,7 +56,7 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		second := newUser("ada")
 		second.EmailAddress = "different@example.com"
 
-		err := inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateUser(ctx, q, second)
 		})
 		must.ErrorIs(t, err, ErrUsernameTaken)
@@ -71,7 +71,7 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		second := newUser("grace")
 		second.EmailAddress = "ada@example.com"
 
-		err := inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateUser(ctx, q, second)
 		})
 		must.ErrorIs(t, err, ErrEmailAddressTaken)
@@ -112,15 +112,15 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		// Each guard sits behind the executor check, so reaching it needs a
 		// live transaction — which is also the shape a registration flow that
 		// dropped a value on the floor arrives in.
-		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateUser(ctx, q, nil)
 		}), ErrNilUser)
 
-		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateAccount(ctx, q, nil)
 		}), ErrNilAccount)
 
-		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateMembership(ctx, q, nil)
 		}), ErrNilMembership)
 	})
@@ -133,7 +133,7 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		noHash := newUser("ada")
 		noHash.HashedPassword = ""
 
-		err := inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateUser(ctx, q, noHash)
 		})
 		must.Error(t, err)
@@ -141,7 +141,7 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		noScope := newUser("grace")
 		noScope.Scope = tenancy.Scope{}
 
-		err = inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err = inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateUser(ctx, q, noScope)
 		})
 		must.ErrorIs(t, err, tenancy.ErrNoScope)
@@ -149,7 +149,7 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		badEmail := newUser("grace")
 		badEmail.EmailAddress = "Grace <grace@example.com>"
 
-		err = inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err = inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateUser(ctx, q, badEmail)
 		})
 		// ozzo collects field errors into a map that does not unwrap, so the
@@ -180,7 +180,7 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 
 		orphan := newAccount("Acme", "")
 
-		err := inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateAccount(ctx, q, orphan)
 		})
 		must.Error(t, err)
@@ -224,7 +224,7 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		// Rejoining. The pair is unique across live and archived rows, so this
 		// has to revive rather than insert — and it keeps the ID it was created
 		// with, which is what the roles are written against.
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateMembership(ctx, q, &Membership{
 				Scope:            testScope,
 				BelongsToUser:    member.ID,
@@ -254,7 +254,7 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 
 		// A user who belongs to an account and may do nothing in it reads at
 		// runtime as an authorization bug rather than as a missing field.
-		err := inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateMembership(ctx, q, &Membership{
 				Scope:            testScope,
 				BelongsToUser:    member.ID,

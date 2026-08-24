@@ -84,7 +84,7 @@ func TestSQLStore_Observability(T *testing.T) {
 
 		// Guarded on a status the request is not in — the shape of a subject
 		// confirming an erasure twice, or confirming one the sweep just lapsed.
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, transitionErr := store.Transition(
 				t.Context(), q, req.ID, []Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime,
 			)
@@ -115,7 +115,7 @@ func TestSQLStore_Observability(T *testing.T) {
 		req.Status = StatusAwaitingConfirmation
 		saveRequest(t, store, req)
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, transitionErr := store.Transition(
 				t.Context(), q, req.ID, []Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime,
 			)
@@ -147,7 +147,7 @@ func TestSQLStore_Observability(T *testing.T) {
 		req.ArtifactRef = "dataprivacy/exports/x.json"
 		req.ArtifactBytes = 2048
 
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteExport(t.Context(), q, req, baseTime)
 		})
 		test.ErrorIs(t, err, ErrRequestNotFound)
@@ -175,7 +175,7 @@ func TestSQLStore_Observability(T *testing.T) {
 		req.Anonymized = 3
 		req.Retained = map[string]string{"invoices": "financial records"}
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteErasure(t.Context(), q, req, baseTime)
 		}))
 

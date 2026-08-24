@@ -149,7 +149,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		first := createAccountFor(t, store, owner, "First")
 		second := createAccountFor(t, store, owner, "Second")
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			return store.CreateMembership(ctx, q, &Membership{
 				Scope:            testScope,
 				BelongsToUser:    member.ID,

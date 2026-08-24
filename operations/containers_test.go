@@ -607,7 +607,7 @@ func runOperationsSuite(t *testing.T, client database.Client) {
 
 		// Recorded but never enqueued, which is exactly what a process dying
 		// between Start's two writes leaves behind.
-		started, err := h.svc.StartInTransaction(t.Context(), client.Writer(), "stranded", exportRequest{})
+		started, err := h.svc.StartInTransaction(t.Context(), database.NewTxForTesting(client.Writer()), "stranded", exportRequest{})
 		must.NoError(t, err)
 
 		claimed, err := h.queue.Claim(t.Context(), 10, time.Second)

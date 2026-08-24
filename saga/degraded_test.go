@@ -24,7 +24,7 @@ type failingSaveStore struct {
 	Store
 }
 
-func (s *failingSaveStore) Save(context.Context, database.SQLQueryExecutor, *Record, time.Time) error {
+func (s *failingSaveStore) Save(context.Context, database.Tx, *Record, time.Time) error {
 	return platformerrors.New("the write replica is unreachable")
 }
 
@@ -57,7 +57,7 @@ func TestRunner_Degraded(T *testing.T) {
 		store := newSQLiteEnv(t).newStore(t)
 		runner := newTestRunner(t, store, NewRegistry())
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, err := runner.StartInTransaction(t.Context(), q, "nope", testState{})
 			test.ErrorIs(t, err, ErrUnknownDefinition)
 
@@ -75,7 +75,7 @@ func TestRunner_Degraded(T *testing.T) {
 		inst.Status = StatusStuck
 		inst.ResumeStatus = StatusRunning
 		inst.UpdatedAt = baseTime
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime)
 		}))
 
@@ -96,7 +96,7 @@ func TestRunner_Degraded(T *testing.T) {
 		inst.Status = StatusStuck
 		inst.ResumeStatus = StatusRunning
 		inst.UpdatedAt = baseTime
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime)
 		}))
 

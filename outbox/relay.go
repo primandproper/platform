@@ -410,7 +410,7 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 
 	var claimed []claimedMessage
 
-	err := r.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := r.client.WithTransaction(ctx, func(q database.Tx) error {
 		now := r.clock.Now().UTC()
 
 		selectQuery, selectArgs := buildSelectClaimable(

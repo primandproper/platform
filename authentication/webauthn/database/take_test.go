@@ -125,7 +125,7 @@ func (c *mockClient) Writer() database.SQLQueryExecutor { return c.db }
 func (c *mockClient) Close() error                      { return c.db.Close() }
 func (c *mockClient) CurrentTime() time.Time            { return time.Now() }
 
-func (c *mockClient) WithTransaction(ctx context.Context, fn func(database.SQLQueryExecutor) error) error {
+func (c *mockClient) WithTransaction(ctx context.Context, fn func(database.Tx) error) error {
 	return database.RunInTransaction(ctx, c.db,
 		func(_ context.Context, tx database.SQLQueryExecutorAndTransactionManager) { _ = tx.Rollback() }, fn)
 }

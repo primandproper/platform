@@ -89,14 +89,14 @@ type Event struct {
 // application already publishing its own events, or one that wants none, is not
 // made to adopt a second outbox table.
 type EventPublisher interface {
-	Publish(ctx context.Context, q database.SQLQueryExecutor, events ...Event) error
+	Publish(ctx context.Context, q database.Tx, events ...Event) error
 }
 
 // EventPublisherFunc adapts a function to EventPublisher.
-type EventPublisherFunc func(ctx context.Context, q database.SQLQueryExecutor, events ...Event) error
+type EventPublisherFunc func(ctx context.Context, q database.Tx, events ...Event) error
 
 // Publish implements EventPublisher.
-func (f EventPublisherFunc) Publish(ctx context.Context, q database.SQLQueryExecutor, events ...Event) error {
+func (f EventPublisherFunc) Publish(ctx context.Context, q database.Tx, events ...Event) error {
 	return f(ctx, q, events...)
 }
 
@@ -136,7 +136,7 @@ func NewOutboxPublisher(writer *outbox.Writer, opts ...OutboxPublisherOption) (*
 }
 
 // Publish implements EventPublisher.
-func (p *OutboxPublisher) Publish(ctx context.Context, q database.SQLQueryExecutor, events ...Event) error {
+func (p *OutboxPublisher) Publish(ctx context.Context, q database.Tx, events ...Event) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -160,7 +160,7 @@ func (p *OutboxPublisher) Publish(ctx context.Context, q database.SQLQueryExecut
 // records the progress they describe, so failing the write is what keeps the
 // two consistent: the step will be retried, and its idempotency key is what
 // stops the retry from doing the work twice.
-func publish(ctx context.Context, publisher EventPublisher, q database.SQLQueryExecutor, events ...Event) error {
+func publish(ctx context.Context, publisher EventPublisher, q database.Tx, events ...Event) error {
 	if publisher == nil || len(events) == 0 {
 		return nil
 	}

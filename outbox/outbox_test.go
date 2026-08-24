@@ -118,7 +118,7 @@ func TestWriter_Enqueue(T *testing.T) {
 
 		boom := platformerrors.New("caller work failed")
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			if enqueueErr := w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}}); enqueueErr != nil {
 				return enqueueErr
 			}
@@ -164,7 +164,7 @@ func TestWriter_Enqueue(T *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 
-				err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+				err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 					return w.Enqueue(t.Context(), q, tc.msg)
 				})
 				test.ErrorIs(t, err, tc.expected)
@@ -188,7 +188,7 @@ func TestWriter_Enqueue(T *testing.T) {
 		client := newTestClient(t)
 		w := newTestWriter(t, c)
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: make(chan int)})
 		})
 		test.Error(t, err)
@@ -251,7 +251,7 @@ func newSideEffectWriter(t *testing.T, c *stubClock, opts ...WriterOption) *Writ
 // derive returns a side effect that emits one message per caller message, and
 // appends its own name to ran so ordering is observable.
 func derive(ran *[]string, name, topic string) SideEffect {
-	return func(_ context.Context, _ database.SQLQueryExecutor, msgs []Message) ([]Message, error) {
+	return func(_ context.Context, _ database.Tx, msgs []Message) ([]Message, error) {
 		*ran = append(*ran, name)
 
 		derived := make([]Message, 0, len(msgs))
@@ -266,7 +266,7 @@ func derive(ran *[]string, name, topic string) SideEffect {
 func TestNewWriter_sideEffectRegistration(T *testing.T) {
 	T.Parallel()
 
-	noop := func(context.Context, database.SQLQueryExecutor, []Message) ([]Message, error) { return nil, nil }
+	noop := func(context.Context, database.Tx, []Message) ([]Message, error) { return nil, nil }
 
 	T.Run("accepts distinctly named side effects", func(t *testing.T) {
 		t.Parallel()
@@ -309,7 +309,7 @@ func TestNewWriter_sideEffectRegistration(T *testing.T) {
 		// the same registration wired twice would derive the same event twice.
 		_, err := NewWriter(dialect.SQLite,
 			WithWriterSideEffect("index", noop),
-			WithWriterSideEffect("index", func(context.Context, database.SQLQueryExecutor, []Message) ([]Message, error) {
+			WithWriterSideEffect("index", func(context.Context, database.Tx, []Message) ([]Message, error) {
 				return []Message{{Topic: "orders-index", Payload: map[string]any{"id": "order-1"}}}, nil
 			}))
 		test.ErrorIs(t, err, ErrDuplicateSideEffect)
@@ -330,10 +330,10 @@ func TestWriter_Enqueue_sideEffects(T *testing.T) {
 
 		var counter *countingExecutor
 
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			counter = &countingExecutor{SQLQueryExecutor: q}
 
-			return w.Enqueue(t.Context(), counter,
+			return w.Enqueue(t.Context(), database.NewTxForTesting(counter),
 				Message{Topic: "orders", Key: "order-1", Payload: map[string]any{"id": "order-1"}},
 				Message{Topic: "orders", Key: "order-2", Payload: map[string]any{"id": "order-2"}})
 		}))
@@ -381,7 +381,7 @@ func TestWriter_Enqueue_sideEffects(T *testing.T) {
 		client := newTestClient(t)
 		w := newSideEffectWriter(t, c,
 			WithWriterSideEffect("first", derive(&ran, "first", "first-derived")),
-			WithWriterSideEffect("second", func(_ context.Context, _ database.SQLQueryExecutor, msgs []Message) ([]Message, error) {
+			WithWriterSideEffect("second", func(_ context.Context, _ database.Tx, msgs []Message) ([]Message, error) {
 				for _, msg := range msgs {
 					seen = append(seen, msg.Topic)
 				}
@@ -404,12 +404,12 @@ func TestWriter_Enqueue_sideEffects(T *testing.T) {
 		c := newStubClock()
 		client := newTestClient(t)
 		w := newSideEffectWriter(t, c,
-			WithWriterSideEffect("mutating", func(_ context.Context, _ database.SQLQueryExecutor, msgs []Message) ([]Message, error) {
+			WithWriterSideEffect("mutating", func(_ context.Context, _ database.Tx, msgs []Message) ([]Message, error) {
 				msgs[0].Topic = "clobbered"
 
 				return nil, nil
 			}),
-			WithWriterSideEffect("observing", func(_ context.Context, _ database.SQLQueryExecutor, msgs []Message) ([]Message, error) {
+			WithWriterSideEffect("observing", func(_ context.Context, _ database.Tx, msgs []Message) ([]Message, error) {
 				for _, msg := range msgs {
 					seen = append(seen, msg.Topic)
 				}
@@ -419,7 +419,7 @@ func TestWriter_Enqueue_sideEffects(T *testing.T) {
 
 		callerMessages := []Message{{Topic: "orders", Key: "order-1", Payload: map[string]any{"id": "order-1"}}}
 
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, callerMessages...)
 		}))
 
@@ -454,7 +454,7 @@ func TestWriter_Enqueue_sideEffects(T *testing.T) {
 
 		boom := platformerrors.New("payment declined")
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			if enqueueErr := w.Enqueue(t.Context(), q, Message{Topic: "orders", Key: "order-1", Payload: map[string]any{"id": "order-1"}}); enqueueErr != nil {
 				return enqueueErr
 			}
@@ -480,16 +480,16 @@ func TestWriter_Enqueue_sideEffects(T *testing.T) {
 
 		w := newSideEffectWriter(t, c,
 			WithWriterSideEffect("webhooks", dispatchWebhooks),
-			WithWriterSideEffect("failing", func(context.Context, database.SQLQueryExecutor, []Message) ([]Message, error) {
+			WithWriterSideEffect("failing", func(context.Context, database.Tx, []Message) ([]Message, error) {
 				return nil, boom
 			}),
-			WithWriterSideEffect("later", func(context.Context, database.SQLQueryExecutor, []Message) ([]Message, error) {
+			WithWriterSideEffect("later", func(context.Context, database.Tx, []Message) ([]Message, error) {
 				laterRan = true
 
 				return nil, nil
 			}))
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Key: "order-1", Payload: map[string]any{"id": "order-1"}})
 		})
 
@@ -547,14 +547,14 @@ func TestWriter_Enqueue_sideEffects(T *testing.T) {
 		c := newStubClock()
 		client := newTestClient(t)
 		w := newSideEffectWriter(t, c,
-			WithWriterSideEffect("failing", func(context.Context, database.SQLQueryExecutor, []Message) ([]Message, error) {
+			WithWriterSideEffect("failing", func(context.Context, database.Tx, []Message) ([]Message, error) {
 				return nil, platformerrors.New("dispatch unavailable")
 			}))
 
 		obs := observability.NewRecordingObserver()
 		w.o11y = obs
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "order-1"}})
 		})
 		test.Error(t, err)
@@ -575,7 +575,7 @@ func createDispatchTable(t *testing.T, client database.Client) {
 
 // dispatchWebhooks writes a row per caller message and returns no messages, the
 // shape of a side effect whose output is rows rather than events.
-func dispatchWebhooks(ctx context.Context, q database.SQLQueryExecutor, msgs []Message) ([]Message, error) {
+func dispatchWebhooks(ctx context.Context, q database.Tx, msgs []Message) ([]Message, error) {
 	for i := range msgs {
 		if _, err := q.ExecContext(ctx, "INSERT INTO dispatches (id) VALUES (?)", msgs[i].Key); err != nil {
 			return nil, err
@@ -709,7 +709,7 @@ func TestWriter_Enqueue_fanoutHistogram(T *testing.T) {
 		client := newTestClient(t)
 		w, hist := newFanoutWriter(t)
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders"})
 		})
 		test.ErrorIs(t, err, ErrNilPayload)
@@ -764,7 +764,7 @@ func TestOutbox_MigratorIntegration(T *testing.T) {
 			cfg.TablePrefix = table
 		})
 
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "a"}})
 		}))
 

@@ -175,7 +175,7 @@ func TestRunner_Start(T *testing.T) {
 		var id string
 
 		// The caller's transaction rolls back, so the saga must not exist.
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			inst, startErr := runner.StartInTransaction(t.Context(), q, "orders", testState{})
 			if startErr != nil {
 				return startErr
@@ -211,7 +211,7 @@ func TestRunner_Start(T *testing.T) {
 		store := newSQLiteEnv(t).newStore(t)
 		registry := registryWith(t, "orders", noopStep("one"))
 		runner := newTestRunner(t, store, registry, WithRunnerEventPublisher(
-			EventPublisherFunc(func(_ context.Context, _ database.SQLQueryExecutor, events ...Event) error {
+			EventPublisherFunc(func(_ context.Context, _ database.Tx, events ...Event) error {
 				seen = append(seen, events...)
 
 				return nil
@@ -234,7 +234,7 @@ func TestRunner_Start(T *testing.T) {
 		store := newSQLiteEnv(t).newStore(t)
 		registry := registryWith(t, "orders", noopStep("one"))
 		runner := newTestRunner(t, store, registry, WithRunnerEventPublisher(
-			EventPublisherFunc(func(context.Context, database.SQLQueryExecutor, ...Event) error {
+			EventPublisherFunc(func(context.Context, database.Tx, ...Event) error {
 				return platformerrors.New("the outbox table is missing")
 			}),
 		))
@@ -574,7 +574,7 @@ func TestRunner_Resume(T *testing.T) {
 		inst := saveInstance(t, store, newRecord("i1", "orders", []string{"one"}, testState{}, baseTime), baseTime)
 		inst.Status = StatusStuck
 		inst.UpdatedAt = baseTime
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime)
 		}))
 

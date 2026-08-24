@@ -20,7 +20,7 @@ func sweepBatch(t *testing.T, client database.Client, target PruneTarget, age ti
 	cutoff := target.now().Add(-age)
 
 	var removed int64
-	err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 		var sweepErr error
 		removed, sweepErr = target.Sweep(t.Context(), q, dialect.SQLite, cutoff, limit)
 

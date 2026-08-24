@@ -261,7 +261,7 @@ var _ database.Client = (*stubClient)(nil)
 func (stubClient) Reader() database.SQLQueryExecutor { panic("unexpected read") }
 func (stubClient) Writer() database.SQLQueryExecutor { panic("unexpected write") }
 
-func (stubClient) WithTransaction(context.Context, func(database.SQLQueryExecutor) error) error {
+func (stubClient) WithTransaction(context.Context, func(database.Tx) error) error {
 	panic("unexpected transaction")
 }
 

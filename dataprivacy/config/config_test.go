@@ -181,7 +181,7 @@ func TestConstructors(T *testing.T) {
 
 		domains := dataprivacy.NewRegistry()
 		must.NoError(t, domains.RegisterEraser("identity", dataprivacy.EraserFunc(
-			func(context.Context, database.SQLQueryExecutor, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
+			func(context.Context, database.Tx, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
 				return dataprivacy.ErasureOutcome{}, nil
 			},
 		)))
@@ -332,7 +332,7 @@ func TestRegisterAuditEraser_Failures(T *testing.T) {
 
 		registry := dataprivacy.NewRegistry()
 		must.NoError(t, registry.RegisterEraser(auditerasure.DefaultKey, dataprivacy.EraserFunc(
-			func(context.Context, database.SQLQueryExecutor, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
+			func(context.Context, database.Tx, dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
 				return dataprivacy.ErasureOutcome{}, nil
 			},
 		)))
@@ -389,7 +389,7 @@ func stubOperations() operations.Service {
 	return &operationsmock.ServiceMock{
 		StartInTransactionFunc: func(
 			_ context.Context,
-			_ database.SQLQueryExecutor,
+			_ database.Tx,
 			kind string,
 			_ any,
 			_ ...operations.StartOption,

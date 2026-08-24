@@ -58,7 +58,7 @@ func TestSQLStore_DatabaseFaults(T *testing.T) {
 
 		store := newBrokenStore(t)
 
-		test.Error(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		test.Error(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, err := store.RecordTx(t.Context(), q, []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
 
 			return err
@@ -436,10 +436,10 @@ func (c *unreadableClient) Writer() database.SQLQueryExecutor {
 
 func (c *unreadableClient) WithTransaction(
 	ctx context.Context,
-	fn func(querier database.SQLQueryExecutor) error,
+	fn func(querier database.Tx) error,
 ) error {
-	return c.Client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
-		return fn(&unreadableExecutor{SQLQueryExecutor: q})
+	return c.Client.WithTransaction(ctx, func(q database.Tx) error {
+		return fn(database.NewTxForTesting(&unreadableExecutor{SQLQueryExecutor: q}))
 	})
 }
 

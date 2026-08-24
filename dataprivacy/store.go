@@ -23,16 +23,16 @@ import (
 // in the queries for that reason, and a transition that matched nothing returns
 // an error rather than silently succeeding.
 type Store interface {
-	// Save inserts a new request using the caller's executor. It does not
+	// Save inserts a new request using the caller's transaction. It does not
 	// update: a request row's history is the thing being recorded, and an upsert
 	// here would let a resubmission quietly overwrite the timestamp the
 	// statutory clock runs from.
 	//
-	// It takes an executor for the same reason audit.Recorder.Record does. "Who
+	// It takes a transaction for the same reason audit.Recorder.Record does. "Who
 	// asked for this person's data" is itself an auditable event, and an audit
 	// entry that can commit while the request it describes rolls back — or the
 	// reverse — is not a record of anything.
-	Save(ctx context.Context, q database.SQLQueryExecutor, req *Request) error
+	Save(ctx context.Context, q database.Tx, req *Request) error
 
 	// Get reads one request. It returns an error wrapping ErrRequestNotFound
 	// when there is no such request.
@@ -43,7 +43,7 @@ type Store interface {
 	List(ctx context.Context, subject Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Request], error)
 
 	// Transition moves a request from any of the `from` statuses to `to` using
-	// the caller's executor, returning the updated request. It returns an error
+	// the caller's transaction, returning the updated request. It returns an error
 	// wrapping ErrRequestNotFound when no row matched — which covers both "no
 	// such request" and "the request was not in a state this transition applies
 	// to", so callers wrap it into whichever of the two their API means.
@@ -54,7 +54,7 @@ type Store interface {
 	// without the pointer to the thing now doing the work.
 	Transition(
 		ctx context.Context,
-		q database.SQLQueryExecutor,
+		q database.Tx,
 		requestID string,
 		from []Status,
 		to Status,
@@ -62,9 +62,9 @@ type Store interface {
 		at time.Time,
 	) (*Request, error)
 
-	// CompleteExport records a fulfilled export using the caller's executor: its
+	// CompleteExport records a fulfilled export using the caller's transaction: its
 	// artifact, that artifact's expiry, and any per-section failures.
-	CompleteExport(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error
+	CompleteExport(ctx context.Context, q database.Tx, req *Request, at time.Time) error
 
 	// WithTransaction runs fn against the store's database.
 	//
@@ -74,11 +74,11 @@ type Store interface {
 	// half-erased across eleven domains because the ninth failed. A Store that
 	// is not backed by the same database as the erasers cannot offer that, and
 	// should refuse erasure rather than pretend.
-	WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
+	WithTransaction(ctx context.Context, fn func(q database.Tx) error) error
 
-	// CompleteErasure records a fulfilled erasure using the caller's executor,
+	// CompleteErasure records a fulfilled erasure using the caller's transaction,
 	// so it commits with the deletions it describes.
-	CompleteErasure(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error
+	CompleteErasure(ctx context.Context, q database.Tx, req *Request, at time.Time) error
 
 	// MarkKeyShredded records that the subject's data key was destroyed, on its
 	// own and before the erasure it belongs to has finished.

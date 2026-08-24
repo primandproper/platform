@@ -86,7 +86,7 @@ transaction, after the caller's has already committed, does not exist if the
 process dies in between — and whatever the caller wrote to decide to start it
 has already happened.
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		if err := orders.Save(ctx, q, order); err != nil {
 			return err
 		}

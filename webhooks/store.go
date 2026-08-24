@@ -109,10 +109,10 @@ type Store interface {
 	// The scope is a parameter and not an option: this is the query whose missing
 	// filter delivers one account's event to every other account's subscribers.
 	EndpointsForEvent(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType EventType) ([]*Endpoint, error)
-	// Enqueue writes a delivery and one dispatch per endpoint, using the
-	// caller's executor, so both commit with whatever else that transaction did.
+	// Enqueue writes a delivery and one dispatch per endpoint, in the caller's
+	// transaction, so both commit with whatever else that transaction did.
 	// The delivery's scope is stored with it.
-	Enqueue(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery, endpointIDs []string, now time.Time) error
+	Enqueue(ctx context.Context, q database.Tx, delivery *Delivery, endpointIDs []string, now time.Time) error
 
 	// Claim leases the next batch of due dispatches, incrementing their attempt
 	// counts, and returns them ready to send.

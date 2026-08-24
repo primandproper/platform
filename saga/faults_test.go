@@ -66,9 +66,9 @@ func (c *faultyClient) Writer() database.SQLQueryExecutor {
 	return &faultyExecutor{inner: c.Client.Writer(), closed: c.closed, faults: c.faults}
 }
 
-func (c *faultyClient) WithTransaction(ctx context.Context, fn func(database.SQLQueryExecutor) error) error {
-	return c.Client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
-		return fn(&faultyExecutor{inner: q, closed: c.closed, faults: c.faults})
+func (c *faultyClient) WithTransaction(ctx context.Context, fn func(database.Tx) error) error {
+	return c.Client.WithTransaction(ctx, func(q database.Tx) error {
+		return fn(database.NewTxForTesting(&faultyExecutor{inner: q, closed: c.closed, faults: c.faults}))
 	})
 }
 
@@ -235,7 +235,7 @@ func TestSQLStore_Faults(T *testing.T) {
 		inst.CurrentStep = 1
 		inst.UpdatedAt = baseTime
 
-		err := faulty.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := faulty.WithTransaction(t.Context(), func(q database.Tx) error {
 			return faulty.Advance(t.Context(), q, inst, baseTime)
 		})
 		test.ErrorIs(t, err, errDatabase)

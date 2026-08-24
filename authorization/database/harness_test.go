@@ -103,7 +103,7 @@ func newTestResolver(t *testing.T) (*Resolver, database.Client) {
 func seed(t *testing.T, r *Resolver, client database.Client, roles ...authorization.Role) {
 	t.Helper()
 
-	must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 		return r.Seed(t.Context(), q, roles...)
 	}))
 }

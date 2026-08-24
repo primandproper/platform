@@ -42,8 +42,8 @@ func (*failingClient) CurrentTime() time.Time              { return baseTime }
 // WithTransaction invokes fn with a failing executor and returns whatever fn
 // reports, mirroring the real client: the callback runs, its statements fail,
 // and the error propagates out through the rollback.
-func (c *failingClient) WithTransaction(_ context.Context, fn func(database.SQLQueryExecutor) error) error {
-	return fn(&failingExecutor{closed: c.closed})
+func (c *failingClient) WithTransaction(_ context.Context, fn func(database.Tx) error) error {
+	return fn(database.NewTxForTesting(&failingExecutor{closed: c.closed}))
 }
 
 type failingExecutor struct {
@@ -144,7 +144,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 	T.Run("Enqueue", func(t *testing.T) {
 		t.Parallel()
 
-		err := newFailingStore(t).Enqueue(t.Context(), newFailingClient(t).Writer(),
+		err := newFailingStore(t).Enqueue(t.Context(), database.NewTxForTesting(newFailingClient(t).Writer()),
 			&Delivery{ID: "d", Scope: testScope, EventType: "order.created", Payload: testBody},
 			[]string{"e"}, baseTime)
 

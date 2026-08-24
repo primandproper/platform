@@ -110,7 +110,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		test.ErrorIs(t, store.Save(t.Context(), nil, &Record{}, baseTime), ErrNilExecutor)
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			test.ErrorIs(t, store.Save(t.Context(), q, nil, baseTime), ErrNilInstance)
 
 			return nil
@@ -152,7 +152,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		inst.Status = StatusCompleted
 		inst.UpdatedAt = baseTime
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime)
 		}))
 
@@ -185,7 +185,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		inst.State = []byte(`{"amount":9}`)
 		inst.UpdatedAt = baseTime.Add(time.Second)
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime.Add(time.Second))
 		}))
 
@@ -213,7 +213,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		inst.CurrentStep = 1
 		inst.UpdatedAt = baseTime
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime.Add(time.Minute))
 		}))
 
@@ -236,12 +236,12 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		inst.Status = StatusCompleted
 		inst.UpdatedAt = baseTime
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime)
 		}))
 
 		inst.Status = StatusRunning
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime)
 		})
 		test.ErrorIs(t, err, ErrInstanceNotFound)
@@ -254,7 +254,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		test.ErrorIs(t, store.Advance(t.Context(), nil, &Record{}, baseTime), ErrNilExecutor)
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			test.ErrorIs(t, store.Advance(t.Context(), q, nil, baseTime), ErrNilInstance)
 
 			return nil
@@ -318,7 +318,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		inst.ResumeStatus = StatusCompensating
 		inst.LastError = "the refund failed"
 		inst.UpdatedAt = baseTime
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, inst, baseTime)
 		}))
 
@@ -371,7 +371,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		saveInstance(t, store, stuck, baseTime)
 		stuck.Status = StatusStuck
 		stuck.UpdatedAt = baseTime
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Advance(t.Context(), q, stuck, baseTime)
 		}))
 
@@ -483,7 +483,7 @@ func TestSQLStore_Errors(T *testing.T) {
 		_, err = store.Requeue(t.Context(), "i1", []Status{StatusStuck}, StatusRunning, baseTime)
 		test.Error(t, err)
 
-		test.Error(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		test.Error(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Save(t.Context(), q, newRecord("i1", "orders", []string{"a"}, testState{}, baseTime), baseTime)
 		}))
 	})

@@ -80,7 +80,7 @@ type (
 		// roll back. Returning an error (or panicking) is the sole way to abort, and drives
 		// exactly one rollback — so fn can't roll back and then also return an error, which
 		// would otherwise trigger a redundant second rollback.
-		WithTransaction(ctx context.Context, fn func(querier SQLQueryExecutor) error) error
+		WithTransaction(ctx context.Context, fn func(querier Tx) error) error
 		Close() error
 		CurrentTime() time.Time
 	}

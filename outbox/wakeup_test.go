@@ -165,7 +165,7 @@ func TestWriter_Enqueue_notify(T *testing.T) {
 
 		exec := newRecordingExecutor()
 
-		must.NoError(t, w.Enqueue(t.Context(), exec, msg))
+		must.NoError(t, w.Enqueue(t.Context(), database.NewTxForTesting(exec), msg))
 
 		test.SliceLen(t, 1, exec.statements)
 		test.SliceEmpty(t, exec.notifies())
@@ -179,7 +179,7 @@ func TestWriter_Enqueue_notify(T *testing.T) {
 
 		exec := newRecordingExecutor()
 
-		must.NoError(t, w.Enqueue(t.Context(), exec, msg, msg, msg))
+		must.NoError(t, w.Enqueue(t.Context(), database.NewTxForTesting(exec), msg, msg, msg))
 
 		// One insert and one notification, however many messages: the
 		// notification says "there is work", not what the work is.
@@ -206,7 +206,7 @@ func TestWriter_Enqueue_notify(T *testing.T) {
 		exec := newRecordingExecutor()
 		exec.execErr = platformerrors.New("connection reset")
 
-		test.Error(t, w.Enqueue(t.Context(), exec, msg))
+		test.Error(t, w.Enqueue(t.Context(), database.NewTxForTesting(exec), msg))
 	})
 
 	T.Run("emits nothing when there is nothing to enqueue", func(t *testing.T) {
@@ -217,7 +217,7 @@ func TestWriter_Enqueue_notify(T *testing.T) {
 
 		exec := newRecordingExecutor()
 
-		must.NoError(t, w.Enqueue(t.Context(), exec))
+		must.NoError(t, w.Enqueue(t.Context(), database.NewTxForTesting(exec)))
 
 		test.SliceEmpty(t, exec.statements)
 	})
@@ -234,7 +234,7 @@ func newWakeRelay(t *testing.T, wakeup <-chan struct{}, mutate func(*RelayConfig
 
 	client := &databasemock.ClientMock{
 		DialectFunc: func() dialect.Dialect { return dialect.Postgres },
-		WithTransactionFunc: func(context.Context, func(database.SQLQueryExecutor) error) error {
+		WithTransactionFunc: func(context.Context, func(database.Tx) error) error {
 			cycles.Add(1)
 
 			return nil

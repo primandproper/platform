@@ -36,7 +36,7 @@ var _ webhooks.Store = &StoreMock{}
 //			EndpointsForEventFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType webhooks.EventType) ([]*webhooks.Endpoint, error) {
 //				panic("mock out the EndpointsForEvent method")
 //			},
-//			EnqueueFunc: func(ctx context.Context, q database.SQLQueryExecutor, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
+//			EnqueueFunc: func(ctx context.Context, q database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
 //				panic("mock out the Enqueue method")
 //			},
 //			GetEndpointFunc: func(ctx context.Context, scope tenancy.Scope, endpointID string) (*webhooks.Endpoint, error) {
@@ -86,7 +86,7 @@ type StoreMock struct {
 	EndpointsForEventFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType webhooks.EventType) ([]*webhooks.Endpoint, error)
 
 	// EnqueueFunc mocks the Enqueue method.
-	EnqueueFunc func(ctx context.Context, q database.SQLQueryExecutor, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error
+	EnqueueFunc func(ctx context.Context, q database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error
 
 	// GetEndpointFunc mocks the GetEndpoint method.
 	GetEndpointFunc func(ctx context.Context, scope tenancy.Scope, endpointID string) (*webhooks.Endpoint, error)
@@ -158,7 +158,7 @@ type StoreMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Delivery is the delivery argument value.
 			Delivery *webhooks.Delivery
 			// EndpointIDs is the endpointIDs argument value.
@@ -431,13 +431,13 @@ func (mock *StoreMock) EndpointsForEventCalls() []struct {
 }
 
 // Enqueue calls EnqueueFunc.
-func (mock *StoreMock) Enqueue(ctx context.Context, q database.SQLQueryExecutor, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
+func (mock *StoreMock) Enqueue(ctx context.Context, q database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
 	if mock.EnqueueFunc == nil {
 		panic("StoreMock.EnqueueFunc: method is nil but Store.Enqueue was just called")
 	}
 	callInfo := struct {
 		Ctx         context.Context
-		Q           database.SQLQueryExecutor
+		Q           database.Tx
 		Delivery    *webhooks.Delivery
 		EndpointIDs []string
 		Now         time.Time
@@ -460,14 +460,14 @@ func (mock *StoreMock) Enqueue(ctx context.Context, q database.SQLQueryExecutor,
 //	len(mockedStore.EnqueueCalls())
 func (mock *StoreMock) EnqueueCalls() []struct {
 	Ctx         context.Context
-	Q           database.SQLQueryExecutor
+	Q           database.Tx
 	Delivery    *webhooks.Delivery
 	EndpointIDs []string
 	Now         time.Time
 } {
 	var calls []struct {
 		Ctx         context.Context
-		Q           database.SQLQueryExecutor
+		Q           database.Tx
 		Delivery    *webhooks.Delivery
 		EndpointIDs []string
 		Now         time.Time
@@ -860,7 +860,7 @@ var _ webhooks.Dispatcher = &DispatcherMock{}
 //
 //		// make and configure a mocked webhooks.Dispatcher
 //		mockedDispatcher := &DispatcherMock{
-//			DispatchFunc: func(ctx context.Context, q database.SQLQueryExecutor, delivery *webhooks.Delivery) error {
+//			DispatchFunc: func(ctx context.Context, q database.Tx, delivery *webhooks.Delivery) error {
 //				panic("mock out the Dispatch method")
 //			},
 //			RegisterFunc: func(ctx context.Context, endpoint *webhooks.Endpoint) error {
@@ -877,7 +877,7 @@ var _ webhooks.Dispatcher = &DispatcherMock{}
 //	}
 type DispatcherMock struct {
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, q database.SQLQueryExecutor, delivery *webhooks.Delivery) error
+	DispatchFunc func(ctx context.Context, q database.Tx, delivery *webhooks.Delivery) error
 
 	// RegisterFunc mocks the Register method.
 	RegisterFunc func(ctx context.Context, endpoint *webhooks.Endpoint) error
@@ -892,7 +892,7 @@ type DispatcherMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Delivery is the delivery argument value.
 			Delivery *webhooks.Delivery
 		}
@@ -921,13 +921,13 @@ type DispatcherMock struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *DispatcherMock) Dispatch(ctx context.Context, q database.SQLQueryExecutor, delivery *webhooks.Delivery) error {
+func (mock *DispatcherMock) Dispatch(ctx context.Context, q database.Tx, delivery *webhooks.Delivery) error {
 	if mock.DispatchFunc == nil {
 		panic("DispatcherMock.DispatchFunc: method is nil but Dispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
-		Q        database.SQLQueryExecutor
+		Q        database.Tx
 		Delivery *webhooks.Delivery
 	}{
 		Ctx:      ctx,
@@ -946,12 +946,12 @@ func (mock *DispatcherMock) Dispatch(ctx context.Context, q database.SQLQueryExe
 //	len(mockedDispatcher.DispatchCalls())
 func (mock *DispatcherMock) DispatchCalls() []struct {
 	Ctx      context.Context
-	Q        database.SQLQueryExecutor
+	Q        database.Tx
 	Delivery *webhooks.Delivery
 } {
 	var calls []struct {
 		Ctx      context.Context
-		Q        database.SQLQueryExecutor
+		Q        database.Tx
 		Delivery *webhooks.Delivery
 	}
 	mock.lockDispatch.RLock()

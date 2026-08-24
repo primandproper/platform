@@ -147,7 +147,7 @@ func newTestReader(t *testing.T, client database.Client, opts ...ReaderOption) R
 func record(t *testing.T, client database.Client, r Recorder, entries ...*Entry) {
 	t.Helper()
 
-	must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 		return r.Record(t.Context(), q, entries...)
 	}))
 }

@@ -17,7 +17,7 @@ Dispatcher is the write side. Dispatch takes the caller's transaction executor,
 resolves who is subscribed, and writes one dispatch row per subscriber inside
 that transaction:
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		if err := updateOrder(ctx, q, order); err != nil {
 			return err
 		}

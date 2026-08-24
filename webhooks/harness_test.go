@@ -144,7 +144,7 @@ func dispatchTo(t *testing.T, env *storeEnv, store Store, delivery *Delivery, at
 		delivery.Scope = testScope
 	}
 
-	must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		return store.Enqueue(t.Context(), q, delivery, endpointIDs, at)
 	}))
 
@@ -176,7 +176,7 @@ func scopedEndpointsFor(t *testing.T, env *storeEnv, store Store, scope tenancy.
 
 	var endpoints []*Endpoint
 
-	must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		var err error
 		endpoints, err = store.EndpointsForEvent(t.Context(), q, scope, eventType)
 

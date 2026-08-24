@@ -140,7 +140,7 @@ func WithTransaction(
 	o11y observability.Observer,
 	writeDB *sql.DB,
 	rollback func(ctx context.Context, tx database.SQLQueryExecutorAndTransactionManager),
-	fn func(tx database.SQLQueryExecutor) error,
+	fn func(tx database.Tx) error,
 ) error {
 	ctx, op := o11y.Begin(ctx)
 	defer op.End()

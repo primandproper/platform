@@ -179,7 +179,7 @@ func newIdempotencyManager(t *testing.T) *idempotency.Manager[StepResult] {
 func saveInstance(t *testing.T, store Store, inst *Record, nextAttempt time.Time) *Record {
 	t.Helper()
 
-	must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 		return store.Save(t.Context(), q, inst, nextAttempt)
 	}))
 
@@ -336,7 +336,7 @@ type failingAdvanceStore struct {
 	Store
 }
 
-func (s *failingAdvanceStore) Advance(context.Context, database.SQLQueryExecutor, *Record, time.Time) error {
+func (s *failingAdvanceStore) Advance(context.Context, database.Tx, *Record, time.Time) error {
 	return platformerrors.New("the write replica is unreachable")
 }
 

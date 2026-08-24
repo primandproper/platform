@@ -578,14 +578,14 @@ func (f CollectorFunc) Collect(ctx context.Context, subject Subject) (json.RawMe
 // request shares that transaction, so an erasure is all-or-nothing: a subject
 // is not left half-deleted across eleven domains because the ninth timed out.
 type Eraser interface {
-	Erase(ctx context.Context, q database.SQLQueryExecutor, subject Subject) (ErasureOutcome, error)
+	Erase(ctx context.Context, q database.Tx, subject Subject) (ErasureOutcome, error)
 }
 
 // EraserFunc adapts a function to Eraser.
-type EraserFunc func(ctx context.Context, q database.SQLQueryExecutor, subject Subject) (ErasureOutcome, error)
+type EraserFunc func(ctx context.Context, q database.Tx, subject Subject) (ErasureOutcome, error)
 
 // Erase implements Eraser.
-func (f EraserFunc) Erase(ctx context.Context, q database.SQLQueryExecutor, subject Subject) (ErasureOutcome, error) {
+func (f EraserFunc) Erase(ctx context.Context, q database.Tx, subject Subject) (ErasureOutcome, error) {
 	return f(ctx, q, subject)
 }
 

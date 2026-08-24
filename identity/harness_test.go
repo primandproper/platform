@@ -174,7 +174,7 @@ func newAccount(name, ownerID string) *Account {
 func createUser(t *testing.T, store *SQLStore, user *User) *User {
 	t.Helper()
 
-	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		return store.CreateUser(t.Context(), q, user)
 	}))
 
@@ -192,7 +192,7 @@ func createAccountFor(t *testing.T, store *SQLStore, owner *User, name string, r
 
 	account := newAccount(name, owner.ID)
 
-	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		if err := store.CreateAccount(t.Context(), q, account); err != nil {
 			return err
 		}
@@ -216,7 +216,7 @@ func registerInto(t *testing.T, store *SQLStore, user *User, accountID string, r
 		roles = []string{"account_member"}
 	}
 
-	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		if err := store.CreateUser(t.Context(), q, user); err != nil {
 			return err
 		}
@@ -248,10 +248,10 @@ func newInvitation(from *User, accountID, toEmail, token string, expires time.Ti
 }
 
 // inTransaction runs fn with an executor, for the store methods that take one.
-func inTransaction(t *testing.T, store *SQLStore, fn func(ctx context.Context, q database.SQLQueryExecutor) error) error {
+func inTransaction(t *testing.T, store *SQLStore, fn func(ctx context.Context, q database.Tx) error) error {
 	t.Helper()
 
-	return store.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	return store.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		return fn(t.Context(), q)
 	})
 }
