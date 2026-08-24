@@ -156,7 +156,7 @@ func (s *SQLStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 
 	now := s.clock.Now().UTC()
 
-	if err = s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
 		if scopeErr := s.checkEndpointScope(ctx, q, endpoint); scopeErr != nil {
 			return scopeErr
 		}
@@ -322,9 +322,9 @@ func (s *SQLStore) EndpointsForEvent(ctx context.Context, q database.SQLQueryExe
 	return endpoints, nil
 }
 
-// Enqueue writes the delivery and its dispatches through the caller's executor,
+// Enqueue writes the delivery and its dispatches through the caller's transaction,
 // so they commit with whatever else that transaction did.
-func (s *SQLStore) Enqueue(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery, endpointIDs []string, now time.Time) error {
+func (s *SQLStore) Enqueue(ctx context.Context, q database.Tx, delivery *Delivery, endpointIDs []string, now time.Time) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(fanoutKey, len(endpointIDs)))
 	defer op.End()
 
@@ -380,7 +380,7 @@ func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 
 	var claimed []ClaimedDispatch
 
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		selectQuery, selectArgs := s.tables.buildSelectClaimable(
 			s.dialect, now.UTC(), limit, s.dialect.SupportsSkipLocked(),
 		)
@@ -603,7 +603,7 @@ func (s *SQLStore) Reap(ctx context.Context, before time.Time, limit int) (int64
 
 	var reaped int64
 
-	err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildReapDispatches(s.dialect, before.UTC(), limit)
 
 		res, err := q.ExecContext(ctx, query, args...)

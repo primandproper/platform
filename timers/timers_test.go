@@ -42,7 +42,7 @@ func (c *stubClient) Reader() database.SQLQueryExecutor { return nil }
 func (c *stubClient) Writer() database.SQLQueryExecutor { return nil }
 func (c *stubClient) Close() error                      { return nil }
 func (c *stubClient) CurrentTime() time.Time            { return time.Time{} }
-func (c *stubClient) WithTransaction(context.Context, func(database.SQLQueryExecutor) error) error {
+func (c *stubClient) WithTransaction(context.Context, func(database.Tx) error) error {
 	return nil
 }
 
@@ -240,8 +240,8 @@ func failingClient(err error) database.Client {
 		DialectFunc: func() dialect.Dialect { return dialect.Postgres },
 		WriterFunc:  func() database.SQLQueryExecutor { return exec },
 		ReaderFunc:  func() database.SQLQueryExecutor { return exec },
-		WithTransactionFunc: func(_ context.Context, fn func(database.SQLQueryExecutor) error) error {
-			return fn(exec)
+		WithTransactionFunc: func(_ context.Context, fn func(database.Tx) error) error {
+			return fn(database.NewTxForTesting(exec))
 		},
 	}
 }

@@ -18,9 +18,9 @@ import (
 // work, and re-drives that work when an operator asks.
 type Dispatcher interface {
 	// Dispatch fans an event out to every endpoint in the delivery's scope that is
-	// subscribed to it, writing through the caller's executor so the deliveries
+	// subscribed to it, writing through the caller's transaction so the deliveries
 	// commit with the state change that caused them.
-	Dispatch(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery) error
+	Dispatch(ctx context.Context, q database.Tx, delivery *Delivery) error
 	// Replay re-drives a specific past delivery to a specific one of the scope's
 	// endpoints, for operator recovery.
 	Replay(ctx context.Context, scope tenancy.Scope, deliveryID, endpointID string) error
@@ -132,7 +132,7 @@ func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) erro
 // Taking the executor rather than opening its own is the entire transactional
 // guarantee, and it is the same seam outbox.Enqueue uses:
 //
-//	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+//	err := client.WithTransaction(ctx, func(q database.Tx) error {
 //		if err := updateOrder(ctx, q, order); err != nil {
 //			return err
 //		}
@@ -157,7 +157,7 @@ func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) erro
 // copy of the same event type. A delivery with no scope is refused rather than
 // fanned out to everybody — see Delivery.Scope. An application whose events are
 // global says tenancy.Global() and gets what it had before the dimension existed.
-func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.SQLQueryExecutor, delivery *Delivery) error {
+func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.Tx, delivery *Delivery) error {
 	ctx, op := d.o11y.Begin(ctx)
 	defer op.End()
 

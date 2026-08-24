@@ -269,7 +269,7 @@ func TestResolver_Seed(T *testing.T) {
 
 		r, client := newTestResolver(t)
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return r.Seed(t.Context(), q,
 				authorization.Role{Name: "a", Inherits: []string{"b"}},
 				authorization.Role{Name: "b", Inherits: []string{"a"}},
@@ -332,7 +332,7 @@ func TestResolver_Seed(T *testing.T) {
 		r, client := newTestResolver(t)
 
 		sentinel := errors.New("caller changed their mind")
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			if seedErr := r.Seed(t.Context(), q, testRoles()...); seedErr != nil {
 				return seedErr
 			}
@@ -390,7 +390,7 @@ func TestResolver_UpsertRole(T *testing.T) {
 	upsert := func(t *testing.T, r *Resolver, client database.Client, role authorization.Role) error {
 		t.Helper()
 
-		return client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		return client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return r.UpsertRole(t.Context(), q, role)
 		})
 	}
@@ -475,7 +475,7 @@ func TestResolver_ArchiveRole(T *testing.T) {
 	archive := func(t *testing.T, r *Resolver, client database.Client, name string) error {
 		t.Helper()
 
-		return client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		return client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return r.ArchiveRole(t.Context(), q, name)
 		})
 	}
@@ -578,7 +578,7 @@ func TestResolver_WriteRoleGrantsResolvesAbsentParents(T *testing.T) {
 		r, client := newTestResolver(t)
 		seed(t, r, client, testRoles()...)
 
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			adminID, err := r.lookupRoleID(t.Context(), q, "admin")
 			must.NoError(t, err)
 
@@ -606,7 +606,7 @@ func TestResolver_WriteRoleGrantsResolvesAbsentParents(T *testing.T) {
 		r, client := newTestResolver(t)
 		seed(t, r, client, testRoles()...)
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			adminID, lookupErr := r.lookupRoleID(t.Context(), q, "admin")
 			must.NoError(t, lookupErr)
 

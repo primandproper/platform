@@ -14,7 +14,7 @@ else — it cannot commit or roll back. Enqueue takes that executor, so the
 event is just another statement in the caller's transaction and lives or dies
 with it:
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		if err := insertOrder(ctx, q, order); err != nil {
 			return err
 		}
@@ -22,8 +22,11 @@ with it:
 		return writer.Enqueue(ctx, q, outbox.Message{Topic: "orders", Payload: order})
 	})
 
-There is no way to enqueue outside a transaction by accident: holding a
-SQLQueryExecutor from WithTransaction means you are already in one.
+There is no way to enqueue outside a transaction by accident, and that is now a
+fact about the types rather than about the reader. Enqueue takes a database.Tx,
+which only WithTransaction produces — so an enqueue through a Writer does not
+compile. Before, the parameter was the same database.SQLQueryExecutor that
+Writer returns, and this paragraph was advice.
 
 # Which events belong at the call site, and which belong in a registration
 

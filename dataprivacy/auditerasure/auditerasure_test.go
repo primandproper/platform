@@ -70,7 +70,7 @@ func newAuditEnv(t *testing.T) *auditEnv {
 func (e *auditEnv) record(t *testing.T, scope, actorID, resourceID string) {
 	t.Helper()
 
-	must.NoError(t, e.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, e.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		return e.recorder.Record(t.Context(), q, &audit.Entry{
 			EventType:    audit.EventUpdated,
 			ResourceType: "recipe",
@@ -111,7 +111,7 @@ func (e *auditEnv) erase(t *testing.T, eraser *Eraser, subject dataprivacy.Subje
 
 	var outcome dataprivacy.ErasureOutcome
 
-	must.NoError(t, e.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, e.client.WithTransaction(t.Context(), func(q database.Tx) error {
 		var err error
 		outcome, err = eraser.Erase(t.Context(), q, subject)
 
@@ -344,7 +344,7 @@ func TestNew(T *testing.T) {
 			}))
 		must.NoError(t, err)
 
-		err = env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err = env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, eraseErr := eraser.Erase(t.Context(), q, dataprivacy.Subject{ID: "user-1"})
 
 			return eraseErr
@@ -419,7 +419,7 @@ func TestEraser_PropagatesFailures(T *testing.T) {
 		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
 		must.NoError(t, err)
 
-		_, err = eraser.Erase(t.Context(), &failingExecutor{closed: newClosedPool(t)},
+		_, err = eraser.Erase(t.Context(), database.NewTxForTesting(&failingExecutor{closed: newClosedPool(t)}),
 			dataprivacy.Subject{ID: "user-1"})
 
 		must.ErrorIs(t, err, errDatabase)
@@ -437,9 +437,9 @@ func TestEraser_PropagatesFailures(T *testing.T) {
 
 		closed := newClosedPool(t)
 
-		err = env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err = env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, eraseErr := eraser.Erase(t.Context(),
-				&countOnlyExecutor{SQLQueryExecutor: q, closed: closed},
+				database.NewTxForTesting(&countOnlyExecutor{SQLQueryExecutor: q, closed: closed}),
 				dataprivacy.Subject{ID: "user-1"})
 
 			return eraseErr
@@ -460,7 +460,7 @@ func TestEraser_PropagatesFailures(T *testing.T) {
 
 		// The delete is skipped entirely, so the only statement is the count —
 		// and its failure still has to surface.
-		_, err = eraser.Erase(t.Context(), &failingExecutor{closed: newClosedPool(t)},
+		_, err = eraser.Erase(t.Context(), database.NewTxForTesting(&failingExecutor{closed: newClosedPool(t)}),
 			dataprivacy.Subject{ID: "user-1"})
 
 		must.Error(t, err)

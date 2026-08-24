@@ -23,7 +23,7 @@ var _ audit.Recorder = &RecorderMock{}
 //
 //		// make and configure a mocked audit.Recorder
 //		mockedRecorder := &RecorderMock{
-//			RecordFunc: func(ctx context.Context, q database.SQLQueryExecutor, entries ...*audit.Entry) error {
+//			RecordFunc: func(ctx context.Context, q database.Tx, entries ...*audit.Entry) error {
 //				panic("mock out the Record method")
 //			},
 //		}
@@ -34,7 +34,7 @@ var _ audit.Recorder = &RecorderMock{}
 //	}
 type RecorderMock struct {
 	// RecordFunc mocks the Record method.
-	RecordFunc func(ctx context.Context, q database.SQLQueryExecutor, entries ...*audit.Entry) error
+	RecordFunc func(ctx context.Context, q database.Tx, entries ...*audit.Entry) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -43,7 +43,7 @@ type RecorderMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q database.SQLQueryExecutor
+			Q database.Tx
 			// Entries is the entries argument value.
 			Entries []*audit.Entry
 		}
@@ -52,13 +52,13 @@ type RecorderMock struct {
 }
 
 // Record calls RecordFunc.
-func (mock *RecorderMock) Record(ctx context.Context, q database.SQLQueryExecutor, entries ...*audit.Entry) error {
+func (mock *RecorderMock) Record(ctx context.Context, q database.Tx, entries ...*audit.Entry) error {
 	if mock.RecordFunc == nil {
 		panic("RecorderMock.RecordFunc: method is nil but Recorder.Record was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Q       database.SQLQueryExecutor
+		Q       database.Tx
 		Entries []*audit.Entry
 	}{
 		Ctx:     ctx,
@@ -77,12 +77,12 @@ func (mock *RecorderMock) Record(ctx context.Context, q database.SQLQueryExecuto
 //	len(mockedRecorder.RecordCalls())
 func (mock *RecorderMock) RecordCalls() []struct {
 	Ctx     context.Context
-	Q       database.SQLQueryExecutor
+	Q       database.Tx
 	Entries []*audit.Entry
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Q       database.SQLQueryExecutor
+		Q       database.Tx
 		Entries []*audit.Entry
 	}
 	mock.lockRecord.RLock()

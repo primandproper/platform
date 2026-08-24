@@ -20,7 +20,7 @@ var _ operations.Store = stubStore{}
 
 func (stubStore) Insert(
 	context.Context,
-	database.SQLQueryExecutor,
+	database.Tx,
 	*operations.Operation,
 ) (*operations.Operation, error) {
 	return nil, nil
@@ -74,7 +74,7 @@ func (stubStore) Stranded(context.Context, time.Duration, int) ([]*operations.Op
 
 func (stubStore) Reap(context.Context, time.Duration, int) (int64, error) { return 0, nil }
 
-func (stubStore) WithTransaction(_ context.Context, fn func(database.SQLQueryExecutor) error) error {
+func (stubStore) WithTransaction(_ context.Context, fn func(database.Tx) error) error {
 	return fn(nil)
 }
 

@@ -21,7 +21,7 @@ type collectingPublisher struct {
 	events []Event
 }
 
-func (p *collectingPublisher) Publish(_ context.Context, _ database.SQLQueryExecutor, events ...Event) error {
+func (p *collectingPublisher) Publish(_ context.Context, _ database.Tx, events ...Event) error {
 	p.events = append(p.events, events...)
 
 	return nil
@@ -138,7 +138,7 @@ func TestEvents_Lifecycle(T *testing.T) {
 		store := newSQLiteEnv(t).newStore(t)
 		registry := registryWith(t, "orders", noopStep("one"), noopStep("two"))
 		worker := newWorker(t, store, registry, newStubClock(), WithWorkerEventPublisher(
-			EventPublisherFunc(func(context.Context, database.SQLQueryExecutor, ...Event) error {
+			EventPublisherFunc(func(context.Context, database.Tx, ...Event) error {
 				return platformerrors.New("the outbox table is missing")
 			}),
 		))
@@ -223,7 +223,7 @@ func TestNewOutboxPublisher(T *testing.T) {
 
 		inst := newRecord("i1", "orders", []string{"one"}, testState{}, baseTime)
 
-		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return publisher.Publish(t.Context(), q,
 				newEvent(EventStarted, inst, "one", 0, baseTime, ""),
 				newEvent(EventCompleted, inst, "", 1, baseTime, ""),

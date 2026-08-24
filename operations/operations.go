@@ -398,7 +398,7 @@ type Service interface {
 	// the type and the compiler therefore cannot.
 	Start(ctx context.Context, kind string, request any, opts ...StartOption) (*Operation, error)
 
-	// StartInTransaction is Start using the caller's executor, so the operation
+	// StartInTransaction is Start using the caller's transaction, so the operation
 	// row commits with the writes that decided to start it.
 	//
 	// It is the one worth reaching for. An operation recorded in its own
@@ -412,7 +412,7 @@ type Service interface {
 	// the recovery sweep.
 	StartInTransaction(
 		ctx context.Context,
-		q database.SQLQueryExecutor,
+		q database.Tx,
 		kind string,
 		request any,
 		opts ...StartOption,

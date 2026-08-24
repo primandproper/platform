@@ -134,7 +134,7 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 
 		var erased int64
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			var err error
 			erased, err = store.EraseUser(ctx, q, testScope, member.ID)
 

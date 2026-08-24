@@ -49,7 +49,7 @@ type Message struct {
 }
 
 // SideEffect derives further work from the messages a caller enqueued. It runs
-// inside Enqueue, on the caller's executor, so rows it writes commit with the
+// inside Enqueue, on the caller's transaction, so rows it writes commit with the
 // row change that prompted them and messages it returns are enqueued in the
 // same statement as the caller's own. Returning an error aborts the enqueue,
 // which leaves the caller's transaction to roll back with it.
@@ -62,7 +62,7 @@ type Message struct {
 //
 // The slice is this effect's own copy, so editing it changes neither what is
 // written nor what the next effect sees.
-type SideEffect func(ctx context.Context, q database.SQLQueryExecutor, msgs []Message) ([]Message, error)
+type SideEffect func(ctx context.Context, q database.Tx, msgs []Message) ([]Message, error)
 
 // sideEffect is one registration: an effect and the name it is reported under
 // on spans and in errors.
@@ -181,7 +181,7 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 	return w, nil
 }
 
-// Enqueue writes messages into the outbox using the caller's executor, so they
+// Enqueue writes messages into the outbox using the caller's transaction, so they
 // commit or roll back with whatever else that transaction did. Passing several
 // messages costs one round trip.
 //
@@ -193,7 +193,7 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 // enqueue that owes a derived event still costs one round trip. An Enqueue
 // with no messages runs none of them: a side effect derives from what the
 // caller asked for, and a caller that asked for nothing changed nothing.
-func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs ...Message) error {
+func (w *Writer) Enqueue(ctx context.Context, q database.Tx, msgs ...Message) error {
 	ctx, op := w.o11y.Begin(ctx)
 	defer op.End()
 
@@ -307,7 +307,7 @@ func (w *Writer) Enqueue(ctx context.Context, q database.SQLQueryExecutor, msgs 
 func (w *Writer) withSideEffects(
 	ctx context.Context,
 	op observability.Operation,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	msgs []Message,
 ) ([]Message, error) {
 	if len(w.sideEffects) == 0 {

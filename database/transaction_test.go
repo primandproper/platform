@@ -48,7 +48,7 @@ func TestRunInTransaction(T *testing.T) {
 		mock.ExpectCommit()
 
 		var gotQuerier database.SQLQueryExecutor
-		err := database.RunInTransaction(ctx, db, rb.rollback, func(querier database.SQLQueryExecutor) error {
+		err := database.RunInTransaction(ctx, db, rb.rollback, func(querier database.Tx) error {
 			gotQuerier = querier
 			_, execErr := querier.ExecContext(ctx, "UPDATE things SET x = 1")
 			return execErr
@@ -71,7 +71,7 @@ func TestRunInTransaction(T *testing.T) {
 		mock.ExpectRollback()
 
 		sentinel := errors.New("fn failed")
-		err := database.RunInTransaction(ctx, db, rb.rollback, func(_ database.SQLQueryExecutor) error {
+		err := database.RunInTransaction(ctx, db, rb.rollback, func(_ database.Tx) error {
 			return sentinel
 		})
 
@@ -91,7 +91,7 @@ func TestRunInTransaction(T *testing.T) {
 		mock.ExpectBegin().WillReturnError(beginErr)
 
 		fnCalled := false
-		err := database.RunInTransaction(ctx, db, rb.rollback, func(_ database.SQLQueryExecutor) error {
+		err := database.RunInTransaction(ctx, db, rb.rollback, func(_ database.Tx) error {
 			fnCalled = true
 			return nil
 		})
@@ -114,7 +114,7 @@ func TestRunInTransaction(T *testing.T) {
 		mock.ExpectBegin()
 		mock.ExpectCommit().WillReturnError(commitErr)
 
-		err := database.RunInTransaction(ctx, db, rb.rollback, func(_ database.SQLQueryExecutor) error {
+		err := database.RunInTransaction(ctx, db, rb.rollback, func(_ database.Tx) error {
 			return nil
 		})
 
@@ -138,7 +138,7 @@ func TestRunInTransaction(T *testing.T) {
 
 		recovered := func() (r any) {
 			defer func() { r = recover() }()
-			_ = database.RunInTransaction(ctx, db, rb.rollback, func(_ database.SQLQueryExecutor) error {
+			_ = database.RunInTransaction(ctx, db, rb.rollback, func(_ database.Tx) error {
 				panic("boom")
 			})
 			return nil
@@ -155,7 +155,7 @@ func TestRunInTransaction(T *testing.T) {
 		ctx := t.Context()
 		db, _ := newRunInTxTestDB(t)
 		rb := &rollbackRecorder{}
-		noopFn := func(_ database.SQLQueryExecutor) error { return nil }
+		noopFn := func(_ database.Tx) error { return nil }
 
 		test.Error(t, database.RunInTransaction(ctx, nil, rb.rollback, noopFn))
 		test.Error(t, database.RunInTransaction(ctx, db, nil, noopFn))

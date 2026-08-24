@@ -195,7 +195,7 @@ func (s *StoreService) Submit(ctx context.Context, subject Subject, t RequestTyp
 
 	var started *operations.Operation
 
-	if err := s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.store.WithTransaction(ctx, func(q database.Tx) error {
 		// Started inside the request's own transaction, so a process that dies
 		// between the two leaves neither. The alternative — record the request,
 		// commit, then start — produces a request nothing is fulfilling, which
@@ -235,7 +235,7 @@ func (s *StoreService) Submit(ctx context.Context, subject Subject, t RequestTyp
 // operations/http scope a status read to the person it is about.
 func (s *StoreService) start(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	req *Request,
 ) (*operations.Operation, error) {
 	kind, ok := KindFor(req.Type)
@@ -320,7 +320,7 @@ func (s *StoreService) Confirm(ctx context.Context, requestID string) (*Request,
 	// the reason Submit does the same: a confirmation recorded without the work
 	// it authorized is a request that will sit in progress until the statutory
 	// window closes.
-	if err := s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.store.WithTransaction(ctx, func(q database.Tx) error {
 		// Read first, because the operation has to be started with the request's
 		// own type and subject and the transition does not know them. The guard
 		// is still the transition's — this read decides nothing.
@@ -370,7 +370,7 @@ func (s *StoreService) Cancel(ctx context.Context, requestID string) (*Request, 
 
 	var req *Request
 
-	if err = s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err = s.store.WithTransaction(ctx, func(q database.Tx) error {
 		var txErr error
 		if req, txErr = s.store.Transition(ctx, q, requestID,
 			[]Status{StatusAwaitingConfirmation}, StatusCancelled, "", s.clock.Now().UTC()); txErr != nil {
@@ -536,7 +536,7 @@ func (s *StoreService) artifactRequest(ctx context.Context, requestID string) (*
 // without a Recorder.
 func (s *StoreService) record(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	req *Request,
 	event audit.EventType,
 	metadata map[string]string,
@@ -555,7 +555,7 @@ func (s *StoreService) recordOutOfBand(ctx context.Context, req *Request, event 
 		return nil
 	}
 
-	return s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	return s.store.WithTransaction(ctx, func(q database.Tx) error {
 		return s.recorder.Record(ctx, q, s.entryFor(ctx, req, event, metadata))
 	})
 }

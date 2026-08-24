@@ -78,7 +78,7 @@ be anonymized in place rather than deleted, because a foreign key still points
 at it. Only the domain knows which of the three applies to each of its tables, so
 Eraser is registered separately and reports what it kept:
 
-	func (e identityEraser) Erase(ctx context.Context, q database.SQLQueryExecutor, s dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
+	func (e identityEraser) Erase(ctx context.Context, q database.Tx, s dataprivacy.Subject) (dataprivacy.ErasureOutcome, error) {
 	    // ...
 	    return dataprivacy.ErasureOutcome{
 	        Deleted:    rows,

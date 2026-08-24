@@ -91,7 +91,7 @@ type Target interface {
 	// minutes. Returning fewer than limit is how the Sweeper learns the target
 	// has drained, so an implementation that cannot honor the bound exactly
 	// should undershoot rather than over.
-	Sweep(ctx context.Context, q database.SQLQueryExecutor, d dialect.Dialect, cutoff time.Time, limit int) (int64, error)
+	Sweep(ctx context.Context, q database.Tx, d dialect.Dialect, cutoff time.Time, limit int) (int64, error)
 
 	// Backlog reports how many rows are still at or before cutoff, saturating
 	// at ceiling.

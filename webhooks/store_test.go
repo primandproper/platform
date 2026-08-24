@@ -380,7 +380,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.ErrorIs(t, store.ArchiveEndpoint(ctxFor(t), unset, "endpoint-1"), ErrNoScope)
 		test.ErrorIs(t, store.SaveEndpoint(ctxFor(t), &Endpoint{ID: "endpoint-2"}), ErrNoScope)
 
-		must.NoError(t, env.client.WithTransaction(ctxFor(t), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(ctxFor(t), func(q database.Tx) error {
 			_, forEventErr := store.EndpointsForEvent(ctxFor(t), q, unset, "order.created")
 			test.ErrorIs(t, forEventErr, ErrNoScope)
 
@@ -431,7 +431,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, env.client.WithTransaction(ctxFor(t), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(ctxFor(t), func(q database.Tx) error {
 			return store.Enqueue(ctxFor(t), q, &Delivery{ID: "d", Scope: testScope, EventType: "order.created", Payload: testBody}, nil, baseTime)
 		}))
 
@@ -959,7 +959,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.ErrorIs(t, store.SaveEndpoint(ctxFor(t), nil), ErrNilEndpoint)
 		test.ErrorIs(t, store.RecordAttempt(ctxFor(t), nil), platformerrors.ErrNilInputParameter)
 
-		must.NoError(t, env.client.WithTransaction(ctxFor(t), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(ctxFor(t), func(q database.Tx) error {
 			test.ErrorIs(t, store.Enqueue(ctxFor(t), q, nil, []string{"e"}, baseTime), ErrNilDelivery)
 
 			return nil

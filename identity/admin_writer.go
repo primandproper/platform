@@ -75,7 +75,7 @@ func (s *SQLStore) SetUserServiceRoles(ctx context.Context, scope tenancy.Scope,
 	// check, granting a role to a user ID that does not exist in this scope
 	// writes rows nothing will ever read and reports success — and the scope is
 	// the part that makes "does not exist" the common case rather than a typo.
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildSelectUser(s.dialect, scope, userID)
 
 		if _, err := scanUser(q.QueryRowContext(ctx, query, args...)); err != nil {
@@ -104,7 +104,7 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 
 	now := s.now()
 
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildArchiveUser(s.dialect, scope, userID, now)
 		if err := s.execExpectingRow(ctx, op, q, query, args, ErrUserNotFound, "archiving identity user"); err != nil {
 			return err
@@ -127,8 +127,8 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 	return nil
 }
 
-// EraseUser destroys the user row through the caller's executor.
-func (s *SQLStore) EraseUser(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int64, error) {
+// EraseUser destroys the user row through the caller's transaction.
+func (s *SQLStore) EraseUser(ctx context.Context, q database.Tx, scope tenancy.Scope, userID string) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
@@ -179,7 +179,7 @@ func (s *SQLStore) ArchiveAccount(ctx context.Context, scope tenancy.Scope, acco
 
 	now := s.now()
 
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildArchiveAccount(s.dialect, scope, accountID, now)
 		if err := s.execExpectingRow(ctx, op, q, query, args, ErrAccountNotFound, "archiving identity account"); err != nil {
 			return err

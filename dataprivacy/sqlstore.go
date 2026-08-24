@@ -123,7 +123,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	return s, nil
 }
 
-func (s *SQLStore) Save(ctx context.Context, q database.SQLQueryExecutor, req *Request) error {
+func (s *SQLStore) Save(ctx context.Context, q database.Tx, req *Request) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -241,7 +241,7 @@ func (s *SQLStore) List(
 
 func (s *SQLStore) Transition(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	requestID string,
 	from []Status,
 	to Status,
@@ -304,7 +304,7 @@ func (s *SQLStore) Transition(
 	return req, nil
 }
 
-func (s *SQLStore) CompleteExport(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error {
+func (s *SQLStore) CompleteExport(ctx context.Context, q database.Tx, req *Request, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -336,11 +336,11 @@ func (s *SQLStore) CompleteExport(ctx context.Context, q database.SQLQueryExecut
 // WithTransaction delegates to the client, which begins its own span for the
 // transaction. Wrapping it here would nest a second span around the first and
 // say nothing the client's does not.
-func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error {
+func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
 	return s.client.WithTransaction(ctx, fn)
 }
 
-func (s *SQLStore) CompleteErasure(ctx context.Context, q database.SQLQueryExecutor, req *Request, at time.Time) error {
+func (s *SQLStore) CompleteErasure(ctx context.Context, q database.Tx, req *Request, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 

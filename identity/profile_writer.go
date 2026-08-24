@@ -33,7 +33,7 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 	// one leaves a window in which the handle is free at the check and taken at
 	// the write, which surfaces as the driver's constraint violation rather than
 	// as ErrUsernameTaken.
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		if err := s.ensureUnique(ctx, q, usernameColumn, user.Scope, user.Username, user.ID, ErrUsernameTaken); err != nil {
 			return err
 		}

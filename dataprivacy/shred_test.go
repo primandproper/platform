@@ -107,7 +107,7 @@ func TestFulfiller_Shred(T *testing.T) {
 		shredder := &recordingShredder{}
 		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("identity",
-				EraserFunc(func(context.Context, database.SQLQueryExecutor, Subject) (ErasureOutcome, error) {
+				EraserFunc(func(context.Context, database.Tx, Subject) (ErasureOutcome, error) {
 					shreddedFirst.Store(shredder.at.Load() == 1)
 
 					return ErasureOutcome{Deleted: 1}, nil
@@ -157,7 +157,7 @@ func TestFulfiller_Shred(T *testing.T) {
 		shredder := &recordingShredder{}
 		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("identity",
-				EraserFunc(func(context.Context, database.SQLQueryExecutor, Subject) (ErasureOutcome, error) {
+				EraserFunc(func(context.Context, database.Tx, Subject) (ErasureOutcome, error) {
 					return ErasureOutcome{}, platformerrors.New("the ninth domain timed out")
 				})))
 		}, WithFulfillerShredder(shredder))
@@ -182,7 +182,7 @@ func TestFulfiller_Shred(T *testing.T) {
 		shredder := &recordingShredder{}
 		env := newFulfillerEnv(t, func(r *Registry) {
 			must.NoError(t, r.RegisterEraser("identity",
-				EraserFunc(func(context.Context, database.SQLQueryExecutor, Subject) (ErasureOutcome, error) {
+				EraserFunc(func(context.Context, database.Tx, Subject) (ErasureOutcome, error) {
 					if attempts.Add(1) == 1 {
 						return ErasureOutcome{}, platformerrors.New("the ninth domain timed out")
 					}

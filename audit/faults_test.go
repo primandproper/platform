@@ -42,8 +42,8 @@ func (*failingClient) CurrentTime() time.Time              { return time.Time{} 
 // WithTransaction invokes fn with a failing executor and returns whatever fn
 // reports, mirroring the real client: the callback runs, its statements fail,
 // and the error propagates out through the rollback.
-func (c *failingClient) WithTransaction(_ context.Context, fn func(database.SQLQueryExecutor) error) error {
-	return fn(&failingExecutor{closed: c.closed})
+func (c *failingClient) WithTransaction(_ context.Context, fn func(database.Tx) error) error {
+	return fn(database.NewTxForTesting(&failingExecutor{closed: c.closed}))
 }
 
 type failingExecutor struct {
@@ -95,7 +95,7 @@ func TestRecorder_PropagatesFailures(T *testing.T) {
 		client := newFailingClient(t)
 		r := newTestRecorder(t, newStubClock())
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return r.Record(t.Context(), q, entryFor("acct_1", "recipe_1"))
 		})
 		test.Error(t, err)
@@ -109,12 +109,12 @@ func TestRecorder_PropagatesFailures(T *testing.T) {
 		client := newTestClient(t)
 		r := newTestRecorder(t, newStubClock())
 
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return r.Record(t.Context(), q, entryFor("acct_1", "seed"))
 		}))
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
-			return r.Record(t.Context(), &execFailingExecutor{SQLQueryExecutor: q}, entryFor("acct_1", "recipe_1"))
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
+			return r.Record(t.Context(), database.NewTxForTesting(&execFailingExecutor{SQLQueryExecutor: q}), entryFor("acct_1", "recipe_1"))
 		})
 		test.ErrorIs(t, err, errDatabase)
 	})
@@ -130,7 +130,7 @@ func TestRecorder_PropagatesFailures(T *testing.T) {
 		// — and an entry whose digest cannot be computed must not be written.
 		entry.Changes = map[string]Change{"broken": {New: make(chan int)}}
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return r.Record(t.Context(), q, entry)
 		})
 		test.Error(t, err)
@@ -152,7 +152,7 @@ func TestRecorder_PropagatesFailures(T *testing.T) {
 			entry := entryFor("acct_1", "recipe_1")
 			entry.Changes = changes
 
-			err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 				return r.Record(t.Context(), q, entry)
 			})
 			test.Error(t, err)

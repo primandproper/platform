@@ -220,7 +220,7 @@ func (s *Store) ConsumeAuthorizationCode(ctx context.Context, hash string) (*oau
 		outcome error
 	)
 
-	if err := s.db.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
 		now := s.now()
 
 		update, updateArgs := buildConsumeCode(s.dialect, s.codes, hash, now)
@@ -377,7 +377,7 @@ func (s *Store) ConsumeRefreshToken(ctx context.Context, hash string) (*oauth2se
 		outcome error
 	)
 
-	if err := s.db.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
 		now := s.now()
 
 		update, updateArgs := buildConsumeRefresh(s.dialect, s.refresh, hash, now)
@@ -483,7 +483,7 @@ func (s *Store) RevokeFamily(ctx context.Context, familyID string) (int64, error
 
 	var revoked int64
 
-	if err := s.db.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
 		now := s.now()
 
 		for _, table := range []string{s.access, s.refresh} {
@@ -517,7 +517,7 @@ func (s *Store) Sweep(ctx context.Context, now time.Time) (int64, error) {
 
 	var swept int64
 
-	if err := s.db.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
 		for _, table := range []string{s.codes, s.access, s.refresh} {
 			query, args := buildSweep(s.dialect, table, now)
 

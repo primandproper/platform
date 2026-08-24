@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 
 	"github.com/shoenig/test"
@@ -138,7 +139,7 @@ func TestTable_Sweep(T *testing.T) {
 
 		target := Table{Name: widgetsTable, Column: "created_at"}
 
-		removed, err := target.Sweep(t.Context(), client.Writer(), dialect.SQLite, baseTime, 100)
+		removed, err := target.Sweep(t.Context(), database.NewTxForTesting(client.Writer()), dialect.SQLite, baseTime, 100)
 		must.NoError(t, err)
 		test.EqOp(t, int64(3), removed)
 		test.Eq(t, []string{"new-0", "new-1"}, widgetIDs(t, client))
@@ -154,7 +155,7 @@ func TestTable_Sweep(T *testing.T) {
 
 		target := Table{Name: widgetsTable, Column: "created_at"}
 
-		removed, err := target.Sweep(t.Context(), client.Writer(), dialect.SQLite, baseTime, 2)
+		removed, err := target.Sweep(t.Context(), database.NewTxForTesting(client.Writer()), dialect.SQLite, baseTime, 2)
 		must.NoError(t, err)
 		test.EqOp(t, int64(2), removed)
 
@@ -173,7 +174,7 @@ func TestTable_Sweep(T *testing.T) {
 		must.NoError(t, err)
 
 		removed, err := Table{Name: widgetsTable, Column: "expires_at"}.
-			Sweep(t.Context(), client.Writer(), dialect.SQLite, baseTime.Add(time.Hour), 100)
+			Sweep(t.Context(), database.NewTxForTesting(client.Writer()), dialect.SQLite, baseTime.Add(time.Hour), 100)
 		must.NoError(t, err)
 		test.EqOp(t, int64(0), removed)
 		test.EqOp(t, int64(1), countWidgets(t, client))
@@ -185,7 +186,7 @@ func TestTable_Sweep(T *testing.T) {
 		client := newTestClient(t)
 
 		_, err := Table{Name: "absent", Column: "created_at"}.
-			Sweep(t.Context(), client.Writer(), dialect.SQLite, baseTime, 10)
+			Sweep(t.Context(), database.NewTxForTesting(client.Writer()), dialect.SQLite, baseTime, 10)
 		test.Error(t, err)
 		test.StrContains(t, err.Error(), "absent")
 	})

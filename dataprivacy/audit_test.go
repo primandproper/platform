@@ -31,7 +31,7 @@ func newRecordingAudit() *recordingAudit {
 	r := &recordingAudit{}
 
 	r.RecorderMock = &auditmock.RecorderMock{
-		RecordFunc: func(_ context.Context, _ database.SQLQueryExecutor, entries ...*audit.Entry) error {
+		RecordFunc: func(_ context.Context, _ database.Tx, entries ...*audit.Entry) error {
 			r.mu.Lock()
 			defer r.mu.Unlock()
 

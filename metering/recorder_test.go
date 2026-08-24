@@ -243,7 +243,7 @@ func TestDurableRecorder_RecordTx(T *testing.T) {
 
 		recorder, store, _ := newTestRecorder(t)
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return recorder.RecordTx(t.Context(), q,
 				Usage{Subject: testSubject, Meter: testMeter, Quantity: 6, IdempotencyKey: "req-1"})
 		}))
@@ -258,7 +258,7 @@ func TestDurableRecorder_RecordTx(T *testing.T) {
 
 		// The usage and the work it describes are one fact: a crash between them
 		// leaves work committed that nobody was billed for.
-		test.ErrorIs(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		test.ErrorIs(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			must.NoError(t, recorder.RecordTx(t.Context(), q,
 				Usage{Subject: testSubject, Meter: testMeter, Quantity: 6, IdempotencyKey: "req-1"}))
 

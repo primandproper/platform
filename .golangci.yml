@@ -148,6 +148,16 @@ linters:
     forbidigo:
       forbid:
         - pattern: ^t\.SkipNow\(\)$
+        # database.NewTxForTesting presents any executor as a database.Tx, which
+        # is the one hole in the guarantee Tx exists to make: it would let
+        # production code hand Client.Writer() to an entry point that documents
+        # itself as transactional. Tests need it — fifteen hand-written Client
+        # doubles invoke a callback with an executor they made up — so the rule
+        # is relaxed for _test.go below and nowhere else.
+        - pattern: ^database\.NewTxForTesting$
+          msg: >-
+            NewTxForTesting is a test-only escape hatch. Production code that
+            needs a database.Tx gets one from Client.WithTransaction.
       exclude-godoc-examples: false
     goconst:
       min-len: 3
@@ -200,6 +210,13 @@ linters:
           - unused
           - contextcheck
         path: (.+)_test\.go
+      # The Tx escape hatch is relaxed for tests and nothing else. Scoped by
+      # message rather than by linter, so forbidigo's other rule — t.SkipNow,
+      # which only ever appears in a test — keeps applying here.
+      - linters:
+          - forbidigo
+        path: (.+)_test\.go
+        text: NewTxForTesting
       - linters:
           - errcheck
           - forcetypeassert

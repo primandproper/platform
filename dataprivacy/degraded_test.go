@@ -113,7 +113,7 @@ type failingCompletionStore struct {
 	Store
 }
 
-func (s *failingCompletionStore) CompleteExport(context.Context, database.SQLQueryExecutor, *Request, time.Time) error {
+func (s *failingCompletionStore) CompleteExport(context.Context, database.Tx, *Request, time.Time) error {
 	return platformerrors.New("the write replica is unreachable")
 }
 

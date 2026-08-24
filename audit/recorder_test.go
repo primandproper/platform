@@ -123,7 +123,7 @@ func TestRecorder_Record(T *testing.T) {
 
 		boom := platformerrors.New("caller work failed")
 
-		err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 			if recordErr := r.Record(t.Context(), q, entryFor("acct_1", "recipe_1")); recordErr != nil {
 				return recordErr
 			}
@@ -150,7 +150,7 @@ func TestRecorder_Record(T *testing.T) {
 		client := newTestClient(t)
 		r := newTestRecorder(t, newStubClock())
 
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			return r.Record(t.Context(), q)
 		}))
 	})
@@ -188,7 +188,7 @@ func TestRecorder_Record(T *testing.T) {
 
 				good := entryFor("acct_1", "recipe_1")
 
-				err := client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+				err := client.WithTransaction(t.Context(), func(q database.Tx) error {
 					return r.Record(t.Context(), q, good, tc.entry)
 				})
 				test.ErrorIs(t, err, tc.wantErr)

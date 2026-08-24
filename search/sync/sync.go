@@ -97,7 +97,7 @@ func NewEvent(op Op, documentID string) Event {
 // Message renders the event as an outbox.Message bound for topic, ready to hand
 // to outbox.Writer.Enqueue inside the transaction that made the change:
 //
-//	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+//	err := client.WithTransaction(ctx, func(q database.Tx) error {
 //	    if err := updateOrder(ctx, q, order); err != nil {
 //	        return err
 //	    }

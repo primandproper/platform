@@ -39,18 +39,18 @@ type ListScope struct {
 // for that reason, and a write that matched nothing returns an error rather
 // than silently succeeding.
 type Store interface {
-	// Save inserts a new instance using the caller's executor. It does not
+	// Save inserts a new instance using the caller's transaction. It does not
 	// update: an instance ID is minted per Start, and an upsert here would let
 	// a retried Start silently rewind a saga that was already halfway through.
 	//
-	// It takes an executor so that starting a saga commits with whatever the
+	// It takes a transaction so that starting a saga commits with whatever the
 	// caller wrote to decide to start it. A saga that exists only after the
 	// caller's transaction has committed is one that does not exist at all if
 	// the process dies in the gap.
 	//
 	// nextAttempt is when the instance first becomes claimable, which is now
 	// unless the first step carries a Delay.
-	Save(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error
+	Save(ctx context.Context, q database.Tx, inst *Record, nextAttempt time.Time) error
 
 	// Get reads one instance. It returns an error wrapping ErrInstanceNotFound
 	// when there is no such instance.
@@ -77,14 +77,14 @@ type Store interface {
 	// state, error, and when it next becomes claimable. Attempts are reset to
 	// zero, because the step they counted is behind us either way.
 	//
-	// It takes an executor so the position and whatever lifecycle event
+	// It takes a transaction so the position and whatever lifecycle event
 	// describes it commit together — an event that survives a rolled-back
 	// advance describes something that did not happen.
 	//
 	// A terminal status also drops the lease: nothing will claim the instance
 	// again, and a claimed_until left in the future would keep it out of the
 	// claim index for no reason.
-	Advance(ctx context.Context, q database.SQLQueryExecutor, inst *Record, nextAttempt time.Time) error
+	Advance(ctx context.Context, q database.Tx, inst *Record, nextAttempt time.Time) error
 
 	// Reschedule records a step that failed and will be tried again: the
 	// attempt count, the rendered error, and when. It drops the lease.
@@ -109,5 +109,5 @@ type Store interface {
 	// It is on this interface because Start has to be atomic with the caller's
 	// own writes when the caller supplies an executor, and atomic with the
 	// lifecycle event when it does not.
-	WithTransaction(ctx context.Context, fn func(q database.SQLQueryExecutor) error) error
+	WithTransaction(ctx context.Context, fn func(q database.Tx) error) error
 }

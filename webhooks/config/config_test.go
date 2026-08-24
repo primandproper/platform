@@ -185,7 +185,7 @@ func TestNewDispatcher(T *testing.T) {
 		must.NotNil(t, dispatcher)
 
 		// The catalog reached the dispatcher: an event outside it is refused.
-		must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 			test.NoError(t, dispatcher.Dispatch(t.Context(), q, &webhooks.Delivery{
 				Scope: tenancy.Global(), EventType: "order.created", Payload: []byte(`{}`),
 			}))

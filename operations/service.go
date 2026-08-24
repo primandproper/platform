@@ -139,7 +139,7 @@ func (s *StoreService) Start(ctx context.Context, kind string, request any, opts
 	// The insert runs in a transaction of the store's own so that Start is
 	// atomic even when the caller supplies nothing. It is the same code path
 	// StartInTransaction takes, which is what keeps the two from drifting.
-	err := s.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := s.store.WithTransaction(ctx, func(q database.Tx) error {
 		var startErr error
 		op, startErr = s.start(ctx, span, q, kind, request, opts)
 
@@ -156,7 +156,7 @@ func (s *StoreService) Start(ctx context.Context, kind string, request any, opts
 
 func (s *StoreService) StartInTransaction(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	kind string,
 	request any,
 	opts ...StartOption,
@@ -189,7 +189,7 @@ func (s *StoreService) StartInTransaction(
 func (s *StoreService) start(
 	ctx context.Context,
 	span observability.Operation,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	kind string,
 	request any,
 	opts []StartOption,

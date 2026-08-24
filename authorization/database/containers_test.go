@@ -86,7 +86,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 	roles := testRoles()
 
-	must.NoError(t, env.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	must.NoError(t, env.client.WithTransaction(ctx, func(q database.Tx) error {
 		return r.Seed(ctx, q, roles...)
 	}))
 
@@ -138,7 +138,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 	})
 
 	t.Run("seeding is idempotent", func(t *testing.T) {
-		must.NoError(t, env.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(ctx, func(q database.Tx) error {
 			return r.Seed(ctx, q, roles...)
 		}))
 
@@ -157,7 +157,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 			perms = append(perms, authorization.Permission(fmt.Sprintf("bulk.thing_%03d", i)))
 		}
 
-		must.NoError(t, env.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(ctx, func(q database.Tx) error {
 			return r.Seed(ctx, q, authorization.Role{Name: "bulk", Permissions: perms})
 		}))
 
@@ -168,7 +168,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 	})
 
 	t.Run("upsert validates against stored policy", func(t *testing.T) {
-		err = env.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		err = env.client.WithTransaction(ctx, func(q database.Tx) error {
 			return r.UpsertRole(ctx, q, authorization.Role{
 				Name:     "member",
 				Inherits: []string{"service_admin"},
@@ -179,7 +179,7 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 	})
 
 	t.Run("archiving an ancestor revokes downstream", func(t *testing.T) {
-		must.NoError(t, env.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+		must.NoError(t, env.client.WithTransaction(ctx, func(q database.Tx) error {
 			return r.ArchiveRole(ctx, q, "member")
 		}))
 

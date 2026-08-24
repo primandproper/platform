@@ -118,7 +118,7 @@ func newTestClient(t *testing.T) database.Client {
 func enqueue(t *testing.T, client database.Client, w *Writer, msgs ...Message) {
 	t.Helper()
 
-	must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 		return w.Enqueue(t.Context(), q, msgs...)
 	}))
 }

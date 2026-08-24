@@ -106,7 +106,7 @@ whether an invitation is required, what a username may look like, which
 transactional email goes out — is application judgement. This package gives
 that service a place to put the result, in one transaction:
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		if err := store.CreateUser(ctx, q, user); err != nil {
 			return err
 		}

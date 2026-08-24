@@ -135,7 +135,7 @@ func suiteTransition(t *testing.T, env *storeEnv) {
 
 		var moved *Request
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			var err error
 			moved, err = store.Transition(t.Context(), q, req.ID,
 				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-9", baseTime)
@@ -161,7 +161,7 @@ func suiteTransition(t *testing.T, env *storeEnv) {
 
 		req := saveRequest(t, store, newRequest(identifiers.New(), RequestErasure, testSubject, baseTime))
 
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, txErr := store.Transition(t.Context(), q, req.ID,
 				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-9", baseTime)
 
@@ -189,7 +189,7 @@ func suiteCompletion(t *testing.T, env *storeEnv) {
 		// A completion against a row that moved on would resurrect a request
 		// somebody withdrew — which is exactly what a long export racing a
 		// cancellation would otherwise do.
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteExport(t.Context(), q, cancelled, baseTime)
 		})
 		test.True(t, errors.Is(err, ErrRequestNotFound))
@@ -198,7 +198,7 @@ func suiteCompletion(t *testing.T, env *storeEnv) {
 		req.ArtifactRef = "x.json"
 		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteExport(t.Context(), q, req, baseTime)
 		}))
 
@@ -219,7 +219,7 @@ func suiteCompletion(t *testing.T, env *storeEnv) {
 		req.Anonymized = 4
 		req.Retained = map[string]string{"billing.invoices": "tax law"}
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteErasure(t.Context(), q, req, baseTime)
 		}))
 

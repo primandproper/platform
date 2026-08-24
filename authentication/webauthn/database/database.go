@@ -146,7 +146,7 @@ func (s *SessionStore) Consume(ctx context.Context, challenge string) (*webauthn
 		expiresAt time.Time
 	)
 
-	if err := s.db.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
 		return s.take(ctx, q, challenge, &data, &expiresAt)
 	}); err != nil {
 		if stderrors.Is(err, webauthn.ErrSessionNotFound) {

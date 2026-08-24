@@ -134,7 +134,7 @@ func TestOutbox_NotifyWakeup_Containers(T *testing.T) {
 			)
 			must.NoError(t, writerErr)
 
-			must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 				return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "woken"}})
 			}))
 
@@ -165,7 +165,7 @@ func TestOutbox_NotifyWakeup_Containers(T *testing.T) {
 			w, writerErr := NewWriter(dialect.Postgres, WithWriterTablePrefix(table))
 			must.NoError(t, writerErr)
 
-			must.NoError(t, client.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+			must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
 				return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "polled"}})
 			}))
 

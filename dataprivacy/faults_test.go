@@ -42,8 +42,8 @@ func (*failingClient) CurrentTime() time.Time              { return baseTime }
 // WithTransaction invokes fn with a failing executor and returns whatever fn
 // reports, mirroring the real client: the callback runs, its statements fail,
 // and the error propagates out through the rollback.
-func (c *failingClient) WithTransaction(_ context.Context, fn func(database.SQLQueryExecutor) error) error {
-	return fn(&failingExecutor{closed: c.closed})
+func (c *failingClient) WithTransaction(_ context.Context, fn func(database.Tx) error) error {
+	return fn(database.NewTxForTesting(&failingExecutor{closed: c.closed}))
 }
 
 type failingExecutor struct {
@@ -106,7 +106,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 
 		store := newFailingStore(t)
 
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.Save(t.Context(), q, newRequest("r", RequestExport, testSubject, baseTime))
 		})
 		test.ErrorIs(t, err, errDatabase)
@@ -131,7 +131,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 
 		store := newFailingStore(t)
 
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, txErr := store.Transition(t.Context(), q, "r",
 				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime)
 
@@ -145,7 +145,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 
 		store := newFailingStore(t)
 
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteExport(t.Context(), q, newRequest("r", RequestExport, testSubject, baseTime), baseTime)
 		})
 		test.ErrorIs(t, err, errDatabase)
@@ -156,7 +156,7 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 
 		store := newFailingStore(t)
 
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteErasure(t.Context(), q, newRequest("r", RequestErasure, testSubject, baseTime), baseTime)
 		})
 		test.ErrorIs(t, err, errDatabase)
@@ -238,9 +238,9 @@ func TestSQLStore_RejectsNilArguments(T *testing.T) {
 
 		store := newFailingStore(t)
 
-		test.ErrorIs(t, store.Save(t.Context(), &failingExecutor{}, nil), ErrNilRequest)
-		test.ErrorIs(t, store.CompleteExport(t.Context(), &failingExecutor{}, nil, baseTime), ErrNilRequest)
-		test.ErrorIs(t, store.CompleteErasure(t.Context(), &failingExecutor{}, nil, baseTime), ErrNilRequest)
+		test.ErrorIs(t, store.Save(t.Context(), database.NewTxForTesting(&failingExecutor{}), nil), ErrNilRequest)
+		test.ErrorIs(t, store.CompleteExport(t.Context(), database.NewTxForTesting(&failingExecutor{}), nil, baseTime), ErrNilRequest)
+		test.ErrorIs(t, store.CompleteErasure(t.Context(), database.NewTxForTesting(&failingExecutor{}), nil, baseTime), ErrNilRequest)
 		test.ErrorIs(t, store.CompleteErasure(t.Context(), nil, nil, baseTime), ErrNilExecutor)
 		test.ErrorIs(t, store.CompleteExport(t.Context(), nil, nil, baseTime), ErrNilExecutor)
 
@@ -250,7 +250,7 @@ func TestSQLStore_RejectsNilArguments(T *testing.T) {
 		// An empty source-status set would render `status IN ()`, which is a
 		// syntax error in every dialect rather than a transition that matches
 		// nothing.
-		_, err = store.Transition(t.Context(), &failingExecutor{}, "r", nil, StatusFailed, "", baseTime)
+		_, err = store.Transition(t.Context(), database.NewTxForTesting(&failingExecutor{}), "r", nil, StatusFailed, "", baseTime)
 		test.ErrorIs(t, err, platformerrors.ErrEmptyInputParameter)
 	})
 }

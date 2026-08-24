@@ -41,8 +41,8 @@ func failingClient(t *testing.T, result sql.Result, execErr error) database.Clie
 		DialectFunc: func() dialect.Dialect { return dialect.SQLite },
 		WriterFunc:  func() database.SQLQueryExecutor { return executor },
 		ReaderFunc:  func() database.SQLQueryExecutor { return executor },
-		WithTransactionFunc: func(_ context.Context, fn func(database.SQLQueryExecutor) error) error {
-			return fn(executor)
+		WithTransactionFunc: func(_ context.Context, fn func(database.Tx) error) error {
+			return fn(database.NewTxForTesting(executor))
 		},
 		CloseFunc: func() error { return nil },
 	}
@@ -102,8 +102,8 @@ func TestStore_StatementFailuresInsideTransactions(T *testing.T) {
 		client := &databasemock.ClientMock{
 			DialectFunc: func() dialect.Dialect { return dialect.SQLite },
 			WriterFunc:  func() database.SQLQueryExecutor { return executor },
-			WithTransactionFunc: func(_ context.Context, fn func(database.SQLQueryExecutor) error) error {
-				return fn(executor)
+			WithTransactionFunc: func(_ context.Context, fn func(database.Tx) error) error {
+				return fn(database.NewTxForTesting(executor))
 			},
 		}
 
@@ -189,8 +189,8 @@ func TestSweepEvery_FailedSweep(T *testing.T) {
 			client := &databasemock.ClientMock{
 				DialectFunc: func() dialect.Dialect { return dialect.SQLite },
 				WriterFunc:  func() database.SQLQueryExecutor { return executor },
-				WithTransactionFunc: func(_ context.Context, fn func(database.SQLQueryExecutor) error) error {
-					return fn(executor)
+				WithTransactionFunc: func(_ context.Context, fn func(database.Tx) error) error {
+					return fn(database.NewTxForTesting(executor))
 				},
 			}
 

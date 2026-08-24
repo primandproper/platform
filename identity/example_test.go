@@ -63,7 +63,7 @@ func Example_registration() {
 		Name:  "Ada's account",
 	}
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		// CreateUser fills in the ID and CreatedAt, so the account below can
 		// name its owner.
 		if err := store.CreateUser(ctx, q, user); err != nil {
@@ -100,7 +100,7 @@ func Example_registration() {
 	// A second registration on the same handle is refused with an error the
 	// caller can act on, rather than a driver's constraint violation they would
 	// have to parse a SQLSTATE out of.
-	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err = client.WithTransaction(ctx, func(q database.Tx) error {
 		return store.CreateUser(ctx, q, &identity.User{
 			Scope:          scope,
 			Username:       "ada",
@@ -251,7 +251,7 @@ func Example_invitation() {
 		HashedPassword: "argon2id$v=19$...",
 	}
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		if createErr := store.CreateUser(ctx, q, newcomer); createErr != nil {
 			return createErr
 		}
@@ -280,7 +280,7 @@ func Example_invitation() {
 
 	// Clicking the link twice produces one membership: the second finds nothing
 	// pending.
-	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err = client.WithTransaction(ctx, func(q database.Tx) error {
 		_, acceptErr := store.AcceptInvitation(
 			ctx, q, scope, invitation.ID, invitation.Token, newcomer.ID, "")
 
@@ -348,7 +348,7 @@ func exampleRegister(
 
 	account := &identity.Account{Scope: tenancy.Global(), Name: accountName}
 
-	if err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := client.WithTransaction(ctx, func(q database.Tx) error {
 		if err := store.CreateUser(ctx, q, user); err != nil {
 			return err
 		}

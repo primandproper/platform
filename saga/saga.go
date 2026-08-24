@@ -353,14 +353,14 @@ type Runner[T any] interface {
 	// type is not T.
 	Start(ctx context.Context, def string, initial T) (*Instance[T], error)
 
-	// StartInTransaction is Start using the caller's executor, so the instance
+	// StartInTransaction is Start using the caller's transaction, so the instance
 	// commits with the writes that decided to start it.
 	//
 	// It is the one worth reaching for. A saga started in its own transaction
 	// after the caller's has committed is a saga that does not exist if the
 	// process dies in between — and the work it was going to coordinate has
 	// already been paid for by whatever the caller just wrote.
-	StartInTransaction(ctx context.Context, q database.SQLQueryExecutor, def string, initial T) (*Instance[T], error)
+	StartInTransaction(ctx context.Context, q database.Tx, def string, initial T) (*Instance[T], error)
 
 	// Get reads one instance. It returns an error wrapping ErrInstanceNotFound
 	// when there is no such instance, and ErrStateTypeMismatch when its

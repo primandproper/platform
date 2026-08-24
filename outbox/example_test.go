@@ -104,7 +104,7 @@ func ExampleWriter_Enqueue() {
 
 	o := order{ID: "order-1", Total: 4200}
 
-	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err = client.WithTransaction(ctx, func(q database.Tx) error {
 		if insertErr := insertOrder(ctx, q, o); insertErr != nil {
 			return insertErr
 		}
@@ -145,7 +145,7 @@ func ExampleWriter_Enqueue_rollback() {
 
 	o := order{ID: "order-2", Total: 900}
 
-	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err = client.WithTransaction(ctx, func(q database.Tx) error {
 		if enqueueErr := writer.Enqueue(ctx, q, outbox.Message{Topic: "orders", Payload: o}); enqueueErr != nil {
 			return enqueueErr
 		}
@@ -196,7 +196,7 @@ func ExampleWithWriterSideEffect() {
 
 	writer, err := outbox.NewWriter(dialect.SQLite,
 		outbox.WithWriterSideEffect("orders-index",
-			func(_ context.Context, _ database.SQLQueryExecutor, msgs []outbox.Message) ([]outbox.Message, error) {
+			func(_ context.Context, _ database.Tx, msgs []outbox.Message) ([]outbox.Message, error) {
 				events := make([]outbox.Message, 0, len(msgs))
 
 				for i := range msgs {
@@ -223,7 +223,7 @@ func ExampleWithWriterSideEffect() {
 
 	o := order{ID: "order-3", Total: 1500}
 
-	err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err = client.WithTransaction(ctx, func(q database.Tx) error {
 		if insertErr := insertOrder(ctx, q, o); insertErr != nil {
 			return insertErr
 		}

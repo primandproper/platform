@@ -53,7 +53,7 @@ func Example() {
 		Actor:        audit.Actor{ID: "user_123", Type: audit.ActorUser, IP: "203.0.113.7"},
 	}
 
-	if err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err = client.WithTransaction(ctx, func(q database.Tx) error {
 		// ... the caller's own UPDATE, using the same q ...
 
 		if entry.Changes, err = audit.Diff(before, after); err != nil {
@@ -139,7 +139,7 @@ func ExampleWithRedaction() {
 		},
 	}
 
-	if err = client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err = client.WithTransaction(ctx, func(q database.Tx) error {
 		return recorder.Record(ctx, q, entry)
 	}); err != nil {
 		panic(err)

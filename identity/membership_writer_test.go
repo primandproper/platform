@@ -111,7 +111,7 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		first := createAccountFor(t, store, owner, "First")
 		second := createAccountFor(t, store, owner, "Second")
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
 			for _, accountID := range []string{first.ID, second.ID} {
 				if err := store.CreateMembership(ctx, q, &Membership{
 					Scope:            testScope,

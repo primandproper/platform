@@ -442,7 +442,7 @@ func (s *recordFailingStore) Record(context.Context, []Entry, time.Time) (Record
 
 func (s *recordFailingStore) RecordTx(
 	context.Context,
-	database.SQLQueryExecutor,
+	database.Tx,
 	[]Entry,
 	time.Time,
 ) (RecordResult, error) {

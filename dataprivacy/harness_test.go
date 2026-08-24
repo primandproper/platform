@@ -140,7 +140,7 @@ func (e *storeEnv) newStore(t *testing.T) Store {
 func saveRequest(t *testing.T, store Store, req *Request) *Request {
 	t.Helper()
 
-	must.NoError(t, store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+	must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 		return store.Save(t.Context(), q, req)
 	}))
 
@@ -296,7 +296,7 @@ func newStubOperations() *stubOperations {
 
 	s.StartInTransactionFunc = func(
 		_ context.Context,
-		_ database.SQLQueryExecutor,
+		_ database.Tx,
 		kind string,
 		request any,
 		_ ...operations.StartOption,
@@ -495,7 +495,7 @@ func failingCollector(err error) Collector {
 
 // countingEraser reports a fixed outcome and records that it ran.
 func countingEraser(deleted, anonymized int64, retained map[string]string, ran *atomic.Int64) Eraser {
-	return EraserFunc(func(context.Context, database.SQLQueryExecutor, Subject) (ErasureOutcome, error) {
+	return EraserFunc(func(context.Context, database.Tx, Subject) (ErasureOutcome, error) {
 		if ran != nil {
 			ran.Add(1)
 		}

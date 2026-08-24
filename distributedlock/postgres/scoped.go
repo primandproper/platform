@@ -118,7 +118,7 @@ func (s *ScopedLocker) WithLock(ctx context.Context, key string, fn func(ctx con
 	op.Set(keys.LockIDKey, lockID)
 
 	var acquired bool
-	err := s.db.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {
+	err := s.db.WithTransaction(ctx, func(tx database.Tx) error {
 		if _, execErr := tx.ExecContext(ctx, queryLockXact, lockID); execErr != nil {
 			return platformerrors.Wrap(execErr, "acquiring transaction-scoped advisory lock")
 		}
@@ -160,7 +160,7 @@ func (s *ScopedLocker) TryWithLock(ctx context.Context, key string, fn func(ctx 
 	op.Set(keys.LockIDKey, lockID)
 
 	var acquired bool
-	err := s.db.WithTransaction(ctx, func(tx database.SQLQueryExecutor) error {
+	err := s.db.WithTransaction(ctx, func(tx database.Tx) error {
 		var got bool
 		if scanErr := tx.QueryRowContext(ctx, queryTryLockXact, lockID).Scan(&got); scanErr != nil {
 			return platformerrors.Wrap(scanErr, "calling pg_try_advisory_xact_lock")

@@ -206,7 +206,7 @@ func (t PruneTarget) Validate(d dialect.Dialect) error {
 // as soon as the blocking entry ages past the cutoff.
 func (t PruneTarget) Sweep(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	d dialect.Dialect,
 	cutoff time.Time,
 	limit int,

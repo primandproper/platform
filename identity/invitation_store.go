@@ -57,7 +57,7 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 	// The invitation and its roles are one transaction: an invitation promising
 	// no roles produces a membership that may do nothing, which is discovered
 	// only once somebody has accepted it.
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildInsertInvitation(s.dialect, invitation, invitation.CreatedAt)
 		if _, err := q.ExecContext(ctx, query, args...); err != nil {
 			return platformerrors.Wrap(err, "writing identity invitation")
@@ -241,10 +241,10 @@ func (s *SQLStore) pageInvitations(
 }
 
 // AcceptInvitation marks an invitation accepted and writes the membership it
-// promised, through the caller's executor.
+// promised, through the caller's transaction.
 func (s *SQLStore) AcceptInvitation(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	scope tenancy.Scope,
 	invitationID, token, acceptingUserID, note string,
 ) (*Membership, error) {

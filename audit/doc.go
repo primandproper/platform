@@ -19,7 +19,7 @@ database.Client.WithTransaction hands its callback an executor and nothing else
 — it cannot commit or roll back. Record takes that executor, so the audit entry
 is just another statement in the caller's transaction and lives or dies with it:
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 		if err := updateRecipe(ctx, q, after); err != nil {
 			return err
 		}

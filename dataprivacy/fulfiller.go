@@ -575,7 +575,7 @@ func (f *Fulfiller) export(
 	// the whole point of keeping it out of telemetry.
 	op.Set(artifactRefKey, ref).Set(artifactSizeKey, req.ArtifactBytes)
 
-	if err = f.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err = f.store.WithTransaction(ctx, func(q database.Tx) error {
 		if txErr := f.store.CompleteExport(ctx, q, req, now); txErr != nil {
 			return txErr
 		}
@@ -813,7 +813,7 @@ func (f *Fulfiller) erase(
 		return nil, err
 	}
 
-	err = f.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err = f.store.WithTransaction(ctx, func(q database.Tx) error {
 		var (
 			deleted    int64
 			anonymized int64
@@ -973,7 +973,7 @@ func (f *Fulfiller) shred(ctx context.Context, req *Request) (map[string]string,
 // with a half-applied erasure in flight.
 func (f *Fulfiller) eraseOne(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	key string,
 	subject Subject,
 ) (ErasureOutcome, error) {
@@ -1032,7 +1032,7 @@ func (f *Fulfiller) stop(ctx context.Context, req *Request, format string, args 
 
 	now := f.clock.Now().UTC()
 
-	if err := f.store.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := f.store.WithTransaction(ctx, func(q database.Tx) error {
 		stopped, txErr := f.store.Transition(ctx, q, req.ID,
 			[]Status{StatusInProgress}, StatusCancelled, "", now)
 		if txErr != nil {
@@ -1132,7 +1132,7 @@ func (f *Fulfiller) notify(ctx context.Context, req *Request) {
 // record appends the completion audit entry inside the caller's transaction.
 func (f *Fulfiller) record(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	req *Request,
 	metadata map[string]string,
 ) error {

@@ -174,7 +174,7 @@ func New(d dialect.Dialect, prefix string, opts ...Option) (*Eraser, error) {
 // erasure would be a record of something that did not happen.
 func (e *Eraser) Erase(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q database.Tx,
 	subject dataprivacy.Subject,
 ) (dataprivacy.ErasureOutcome, error) {
 	if q == nil {

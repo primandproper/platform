@@ -30,7 +30,7 @@ func (s *stubTarget) Describe() string { return s.name }
 
 func (s *stubTarget) Validate(dialect.Dialect) error { return s.validateErr }
 
-func (s *stubTarget) Sweep(_ context.Context, _ database.SQLQueryExecutor, _ dialect.Dialect, _ time.Time, limit int) (int64, error) {
+func (s *stubTarget) Sweep(_ context.Context, _ database.Tx, _ dialect.Dialect, _ time.Time, limit int) (int64, error) {
 	s.sweepCalls++
 
 	if s.sweepFunc == nil {

@@ -7,11 +7,11 @@ import (
 )
 
 // The SQLStore's Registrar: the three writes that make a registration, each
-// through the caller's executor so that they commit or fail together.
+// through the caller's transaction so that they commit or fail together.
 var _ Registrar = (*SQLStore)(nil)
 
-// CreateUser writes a new user through the caller's executor.
-func (s *SQLStore) CreateUser(ctx context.Context, q database.SQLQueryExecutor, user *User) error {
+// CreateUser writes a new user through the caller's transaction.
+func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -53,8 +53,11 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.SQLQueryExecutor, 
 		return op.Error(err, "creating identity user")
 	}
 
-	// Written through the caller's executor with the row, so a registration
+	// Written through the caller's transaction with the row, so a registration
 	// that granted a default service role cannot commit the user without it.
+	// That holds because the parameter is a database.Tx: the sentence used to
+	// be true only of a caller who had opened one, and nothing stopped a caller
+	// who had not.
 	if err := s.replaceRoles(ctx, q, s.tables.userRoles, userIDColumn, user.ID, user.ServiceRoles); err != nil {
 		return op.Error(err, "creating identity user")
 	}
@@ -62,8 +65,8 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.SQLQueryExecutor, 
 	return nil
 }
 
-// CreateAccount writes a new account through the caller's executor.
-func (s *SQLStore) CreateAccount(ctx context.Context, q database.SQLQueryExecutor, account *Account) error {
+// CreateAccount writes a new account through the caller's transaction.
+func (s *SQLStore) CreateAccount(ctx context.Context, q database.Tx, account *Account) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -94,8 +97,8 @@ func (s *SQLStore) CreateAccount(ctx context.Context, q database.SQLQueryExecuto
 	return nil
 }
 
-// CreateMembership puts a user in an account through the caller's executor.
-func (s *SQLStore) CreateMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error {
+// CreateMembership puts a user in an account through the caller's transaction.
+func (s *SQLStore) CreateMembership(ctx context.Context, q database.Tx, membership *Membership) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 

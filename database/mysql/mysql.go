@@ -169,7 +169,7 @@ func (q *Client) Writer() database.SQLQueryExecutor {
 
 // WithTransaction runs fn inside a transaction on the write database, committing on a
 // nil return and rolling back on error or panic. See database.RunInTransaction.
-func (q *Client) WithTransaction(ctx context.Context, fn func(tx database.SQLQueryExecutor) error) error {
+func (q *Client) WithTransaction(ctx context.Context, fn func(tx database.Tx) error) error {
 	return sqlclient.WithTransaction(ctx, q.o11y, q.writeDB, q.RollbackTransaction, fn)
 }
 

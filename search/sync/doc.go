@@ -46,7 +46,7 @@ Separately, a Reindexer walks the whole source on a schedule and rebuilds.
 
 # Writing the event
 
-	err := client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	err := client.WithTransaction(ctx, func(q database.Tx) error {
 	    if err := updateOrder(ctx, q, order); err != nil {
 	        return err
 	    }

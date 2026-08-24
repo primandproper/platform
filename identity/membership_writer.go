@@ -40,7 +40,7 @@ func (s *SQLStore) SetMembershipRoles(ctx context.Context, scope tenancy.Scope, 
 		)
 	}
 
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildSelectMembership(s.dialect, scope, userID, accountID)
 
 		membership, err := scanMembership(q.QueryRowContext(ctx, query, args...))
@@ -74,7 +74,7 @@ func (s *SQLStore) SetDefaultAccount(ctx context.Context, scope tenancy.Scope, u
 	// Both writes share a transaction, so "one default per user" cannot be left
 	// half-applied: clearing without setting leaves the user with none, and
 	// setting without clearing leaves them with two.
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildSetDefaultAccount(s.dialect, scope, userID, accountID, now)
 		if err := s.execExpectingRow(ctx, op, q, query, args, ErrMembershipNotFound, "setting identity default account"); err != nil {
 			return err
@@ -115,7 +115,7 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 
 	now := s.now()
 
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildSelectAccount(s.dialect, scope, accountID)
 
 		account, err := scanAccount(q.QueryRowContext(ctx, query, args...))
@@ -175,7 +175,7 @@ func (s *SQLStore) RemoveMembership(ctx context.Context, scope tenancy.Scope, us
 
 	now := s.now()
 
-	if err := s.client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		query, args := s.tables.buildSelectAccount(s.dialect, scope, accountID)
 
 		account, err := scanAccount(q.QueryRowContext(ctx, query, args...))

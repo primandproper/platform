@@ -49,9 +49,9 @@ func (c *uncountableClient) Writer() database.SQLQueryExecutor {
 	return &uncountableExecutor{SQLQueryExecutor: c.Client.Writer()}
 }
 
-func (c *uncountableClient) WithTransaction(ctx context.Context, fn func(database.SQLQueryExecutor) error) error {
-	return c.Client.WithTransaction(ctx, func(q database.SQLQueryExecutor) error {
-		return fn(&uncountableExecutor{SQLQueryExecutor: q})
+func (c *uncountableClient) WithTransaction(ctx context.Context, fn func(database.Tx) error) error {
+	return c.Client.WithTransaction(ctx, func(q database.Tx) error {
+		return fn(database.NewTxForTesting(&uncountableExecutor{SQLQueryExecutor: q}))
 	})
 }
 
@@ -77,14 +77,14 @@ func TestSQLStore_UnreadableRowCounts(T *testing.T) {
 
 		store := newUncountableStore(t)
 
-		err := store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			_, txErr := store.Transition(t.Context(), q, "r", []Status{StatusInProgress}, StatusCancelled, "", baseTime)
 
 			return txErr
 		})
 		test.ErrorIs(t, err, errDatabase)
 
-		err = store.WithTransaction(t.Context(), func(q database.SQLQueryExecutor) error {
+		err = store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteExport(t.Context(), q, newRequest("r", RequestExport, testSubject, baseTime), baseTime)
 		})
 		test.ErrorIs(t, err, errDatabase)
