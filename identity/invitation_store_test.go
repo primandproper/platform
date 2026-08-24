@@ -11,7 +11,7 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-func runInvitationSuite(t *testing.T, env *storeEnv) {
+func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 	t.Helper()
 
 	// newInvitedStore builds a store on a fixed clock with an owner, an account,

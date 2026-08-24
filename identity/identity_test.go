@@ -353,6 +353,85 @@ func TestMembership(T *testing.T) {
 	})
 }
 
+func TestInvitation(T *testing.T) {
+	T.Parallel()
+
+	valid := func() *Invitation {
+		return &Invitation{
+			Scope:            tenancy.Global(),
+			BelongsToAccount: "a1",
+			FromUser:         "u1",
+			ToEmail:          "brian@example.com",
+			Token:            "tok",
+			Status:           InvitationPending,
+			ExpiresAt:        baseTime.Add(time.Hour),
+			Roles:            []string{"account_member"},
+		}
+	}
+
+	T.Run("validates", func(t *testing.T) {
+		t.Parallel()
+
+		must.NoError(t, valid().ValidateWithContext(t.Context()))
+
+		// An invitation link is a bearer credential for joining somebody else's
+		// account; one that never expires is still valid in a mailbox somebody
+		// lost control of two years ago.
+		noExpiry := valid()
+		noExpiry.ExpiresAt = time.Time{}
+		must.ErrorIs(t, noExpiry.ValidateWithContext(t.Context()), platformerrors.ErrEmptyInputParameter)
+
+		noToken := valid()
+		noToken.Token = ""
+		must.Error(t, noToken.ValidateWithContext(t.Context()))
+
+		noRoles := valid()
+		noRoles.Roles = nil
+		must.Error(t, noRoles.ValidateWithContext(t.Context()))
+
+		badStatus := valid()
+		badStatus.Status = "unknown"
+		must.ErrorIs(t, badStatus.ValidateWithContext(t.Context()), platformerrors.ErrUnrecognizedInputValue)
+
+		var nilInvitation *Invitation
+		must.ErrorIs(t, nilInvitation.ValidateWithContext(t.Context()), ErrNilInvitation)
+	})
+
+	T.Run("expiry is inclusive of the instant it names", func(t *testing.T) {
+		t.Parallel()
+
+		invitation := valid()
+		test.False(t, invitation.Expired(baseTime))
+		test.True(t, invitation.Expired(invitation.ExpiresAt))
+		test.True(t, invitation.Expired(invitation.ExpiresAt.Add(time.Second)))
+
+		var nilInvitation *Invitation
+		test.False(t, nilInvitation.Expired(baseTime))
+	})
+
+	T.Run("redacts the token", func(t *testing.T) {
+		t.Parallel()
+
+		redacted := valid().Redacted()
+		test.EqOp(t, "", redacted.Token)
+		test.EqOp(t, "brian@example.com", redacted.ToEmail)
+
+		var nilInvitation *Invitation
+		test.Nil(t, nilInvitation.Redacted())
+	})
+
+	T.Run("defaults to pending", func(t *testing.T) {
+		t.Parallel()
+
+		invitation := &Invitation{}
+		invitation.EnsureDefaults()
+		test.EqOp(t, InvitationPending, invitation.Status)
+
+		var nilInvitation *Invitation
+		nilInvitation.EnsureDefaults()
+	})
+}
+
 func TestBillingAddress(t *testing.T) {
 	t.Parallel()
 
@@ -362,6 +441,62 @@ func TestBillingAddress(t *testing.T) {
 
 	test.True(t, empty.Zero())
 	test.False(t, filled.Zero())
+}
+
+func TestAccount_Validate(T *testing.T) {
+	T.Parallel()
+
+	valid := func() *Account {
+		return &Account{
+			Scope:         tenancy.Global(),
+			Name:          "Acme",
+			OwnerUserID:   "u1",
+			BillingStatus: BillingUnpaid,
+		}
+	}
+
+	T.Run("accepts a complete account", func(t *testing.T) {
+		t.Parallel()
+
+		must.NoError(t, valid().ValidateWithContext(t.Context()))
+	})
+
+	T.Run("requires an owner", func(t *testing.T) {
+		t.Parallel()
+
+		// An account with no owner is one whose every ownership-derived
+		// permission check resolves to nobody.
+		ownerless := valid()
+		ownerless.OwnerUserID = ""
+		must.Error(t, ownerless.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("requires a scope and a known status", func(t *testing.T) {
+		t.Parallel()
+
+		noScope := valid()
+		noScope.Scope = tenancy.Scope{}
+		must.ErrorIs(t, noScope.ValidateWithContext(t.Context()), tenancy.ErrNoScope)
+
+		badStatus := valid()
+		badStatus.BillingStatus = "free"
+		must.ErrorIs(t, badStatus.ValidateWithContext(t.Context()), platformerrors.ErrUnrecognizedInputValue)
+
+		var nilAccount *Account
+		must.ErrorIs(t, nilAccount.ValidateWithContext(t.Context()), ErrNilAccount)
+	})
+
+	T.Run("defaults to unpaid", func(t *testing.T) {
+		t.Parallel()
+
+		account := &Account{}
+		account.EnsureDefaults()
+		test.EqOp(t, BillingUnpaid, account.BillingStatus)
+
+		var nilAccount *Account
+		nilAccount.EnsureDefaults()
+		test.False(t, nilAccount.Archived())
+	})
 }
 
 func TestAccount_TimeZone(T *testing.T) {
@@ -452,4 +587,15 @@ func TestAccount_TimeZone(T *testing.T) {
 		must.NotNil(t, loc)
 		test.EqOp(t, time.UTC, loc)
 	})
+}
+
+func TestBillingUpdate_Empty(t *testing.T) {
+	t.Parallel()
+
+	// An update that writes nothing would be an UPDATE with no SET clause.
+	test.True(t, (*BillingUpdate)(nil).Empty())
+	test.True(t, (&BillingUpdate{}).Empty())
+
+	status := BillingPaid
+	test.False(t, (&BillingUpdate{Status: &status}).Empty())
 }
