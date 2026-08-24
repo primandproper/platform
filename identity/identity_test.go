@@ -1,11 +1,18 @@
 package identity
 
+// time/tzdata is imported blank so the time zone cases below do not depend on
+// the test host carrying a zoneinfo database; it affects this test binary only.
+//
+// The note sits outside the import block because the two formatters disagree
+// about a comment inside one: goimports wants a blank line above it, gci wants
+// the standard-library section contiguous and takes that line back out. Since
+// `make format` runs goimports and then gci, a comment in there is rewritten
+// twice on every run and the file is reported as reformatted when nothing
+// about it actually changed.
 import (
 	"errors"
 	"testing"
 	"time"
-	// Embedded so the time zone cases below do not depend on the test host
-	// carrying a zoneinfo database. It affects this test binary only.
 	_ "time/tzdata"
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
