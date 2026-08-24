@@ -1,0 +1,335 @@
+package identity
+
+import (
+	"context"
+
+	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v13/tenancy"
+)
+
+// The SQLStore's DirectoryReader: users, accounts, and the memberships between
+// them, read and never written.
+var _ DirectoryReader = (*SQLStore)(nil)
+
+// GetUser reads one of the scope's users, archived users included.
+func (s *SQLStore) GetUser(ctx context.Context, scope tenancy.Scope, userID string) (*User, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(userIDKey, userID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "reading identity user %q", userID)
+	}
+
+	query, args := s.tables.buildSelectUser(s.dialect, scope, userID)
+
+	user, err := scanUser(s.client.Reader().QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return nil, op.Error(notFound(err, ErrUserNotFound), "reading identity user %q", userID)
+	}
+
+	if err = s.attachServiceRoles(ctx, s.client.Reader(), []*User{user}); err != nil {
+		return nil, op.Error(err, "reading identity user %q service roles", userID)
+	}
+
+	return user, nil
+}
+
+// ListUsers pages the scope's directory.
+func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "listing identity users")
+	}
+
+	filter, cursor, limit := pageWindow(filter)
+
+	query, args := s.tables.buildListUsers(s.dialect, scope, cursor, limit)
+	countQuery, countArgs := s.tables.buildCountUsers(s.dialect, scope)
+
+	return s.pageUsers(ctx, op, filter, query, args, countQuery, countArgs)
+}
+
+// ListUsersByIDs reads a batch of the scope's users in one query.
+func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, userIDs []string) ([]*User, error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "reading identity users by ID")
+	}
+
+	// An empty batch is an empty answer without a query. An IN () is a syntax
+	// error in two of the three dialects and would match nothing in the third,
+	// so the caller's empty slice would be a driver error on Postgres and a
+	// working empty page on SQLite — the kind of difference that only shows up
+	// in production.
+	if len(userIDs) == 0 {
+		return []*User{}, nil
+	}
+
+	query, args := s.tables.buildSelectUsersByIDs(s.dialect, scope, userIDs)
+
+	users, err := database.ScanAll(ctx, s.client.Reader(), "identity user", query, args, scanUser)
+	if err != nil {
+		return nil, op.Error(err, "reading identity users by ID")
+	}
+
+	if err = s.attachServiceRoles(ctx, s.client.Reader(), users); err != nil {
+		return nil, op.Error(err, "reading identity user service roles")
+	}
+
+	for i := range users {
+		users[i] = users[i].Redacted()
+	}
+
+	op.SpanOnly(countKey, len(users))
+
+	return users, nil
+}
+
+// SearchUsersByUsername pages the scope's users whose username begins with
+// prefix.
+func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "searching identity users")
+	}
+
+	filter, cursor, limit := pageWindow(filter)
+
+	query, args := s.tables.buildSearchUsers(s.dialect, scope, prefix, cursor, limit)
+	countQuery, countArgs := s.tables.buildCountSearchUsers(s.dialect, scope, prefix)
+
+	return s.pageUsers(ctx, op, filter, query, args, countQuery, countArgs)
+}
+
+// pageUsers runs a user page and its count, redacting every row.
+//
+// The redaction is here rather than at each call site because it is the rule
+// that can be got wrong twice: a page read is where a password hash escapes in
+// bulk, and the one list method that forgot to redact would look identical to
+// the ones that did not.
+func (s *SQLStore) pageUsers(
+	ctx context.Context,
+	op observability.Operation,
+	filter *filtering.QueryFilter,
+	query string, args []any,
+	countQuery string, countArgs []any,
+) (*filtering.QueryFilteredResult[User], error) {
+	users, err := database.ScanAll(ctx, s.client.Reader(), "identity user", query, args, scanUser)
+	if err != nil {
+		return nil, op.Error(err, "listing identity users")
+	}
+
+	if err = s.attachServiceRoles(ctx, s.client.Reader(), users); err != nil {
+		return nil, op.Error(err, "listing identity user service roles")
+	}
+
+	for i := range users {
+		users[i] = users[i].Redacted()
+	}
+
+	var total uint64
+	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, op.Error(err, "counting identity users")
+	}
+
+	op.SpanOnly(countKey, len(users))
+
+	return filtering.NewQueryFilteredResult(
+		users, uint64(len(users)), total,
+		func(u *User) string { return u.Username },
+		filter,
+	), nil
+}
+
+// GetAccount reads one of the scope's accounts, archived accounts included.
+func (s *SQLStore) GetAccount(ctx context.Context, scope tenancy.Scope, accountID string) (*Account, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(accountIDKey, accountID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "reading identity account %q", accountID)
+	}
+
+	query, args := s.tables.buildSelectAccount(s.dialect, scope, accountID)
+
+	account, err := scanAccount(s.client.Reader().QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return nil, op.Error(notFound(err, ErrAccountNotFound), "reading identity account %q", accountID)
+	}
+
+	return account, nil
+}
+
+// ListAccounts pages the scope's accounts.
+func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "listing identity accounts")
+	}
+
+	filter, cursor, limit := pageWindow(filter)
+
+	query, args := s.tables.buildListAccounts(s.dialect, scope, cursor, limit)
+	countQuery, countArgs := s.tables.buildCountAccounts(s.dialect, scope)
+
+	return s.pageAccounts(ctx, op, filter, query, args, countQuery, countArgs)
+}
+
+// ListAccountsForUser pages the accounts a user is a live member of.
+func (s *SQLStore) ListAccountsForUser(ctx context.Context, scope tenancy.Scope, userID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(userIDKey, userID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "listing identity accounts for user")
+	}
+
+	filter, cursor, limit := pageWindow(filter)
+
+	query, args := s.tables.buildListAccountsForUser(s.dialect, scope, userID, cursor, limit)
+	countQuery, countArgs := s.tables.buildCountAccountsForUser(s.dialect, scope, userID)
+
+	return s.pageAccounts(ctx, op, filter, query, args, countQuery, countArgs)
+}
+
+// pageAccounts runs an account page and its count.
+func (s *SQLStore) pageAccounts(
+	ctx context.Context,
+	op observability.Operation,
+	filter *filtering.QueryFilter,
+	query string, args []any,
+	countQuery string, countArgs []any,
+) (*filtering.QueryFilteredResult[Account], error) {
+	accounts, err := database.ScanAll(ctx, s.client.Reader(), "identity account", query, args, scanAccount)
+	if err != nil {
+		return nil, op.Error(err, "listing identity accounts")
+	}
+
+	var total uint64
+	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, op.Error(err, "counting identity accounts")
+	}
+
+	op.SpanOnly(countKey, len(accounts))
+
+	return filtering.NewQueryFilteredResult(
+		accounts, uint64(len(accounts)), total,
+		func(a *Account) string { return a.ID },
+		filter,
+	), nil
+}
+
+// GetMembership reads the live membership between a user and an account.
+func (s *SQLStore) GetMembership(ctx context.Context, scope tenancy.Scope, userID, accountID string) (*Membership, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(userIDKey, userID),
+		observability.WithValue(accountIDKey, accountID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "reading identity membership")
+	}
+
+	query, args := s.tables.buildSelectMembership(s.dialect, scope, userID, accountID)
+
+	membership, err := scanMembership(s.client.Reader().QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return nil, op.Error(notFound(err, ErrMembershipNotFound), "reading identity membership")
+	}
+
+	if err = s.attachMembershipRoles(ctx, s.client.Reader(), []*Membership{membership}); err != nil {
+		return nil, op.Error(err, "reading identity membership roles")
+	}
+
+	return membership, nil
+}
+
+// ListMembershipsForUser returns every live membership a user holds, default
+// account first.
+func (s *SQLStore) ListMembershipsForUser(ctx context.Context, scope tenancy.Scope, userID string) ([]*Membership, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(userIDKey, userID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "listing identity memberships")
+	}
+
+	memberships, err := s.readMembershipsForUser(ctx, s.client.Reader(), scope, userID)
+	if err != nil {
+		return nil, op.Error(err, "listing identity memberships")
+	}
+
+	op.SpanOnly(countKey, len(memberships))
+
+	return memberships, nil
+}
+
+// ListAccountMembers pages an account's roster.
+func (s *SQLStore) ListAccountMembers(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[MembershipWithUser], error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(accountIDKey, accountID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "listing identity account members")
+	}
+
+	filter, cursor, limit := pageWindow(filter)
+
+	query, args := s.tables.buildListAccountMembers(s.dialect, scope, accountID, cursor, limit)
+
+	members, err := database.ScanAll(ctx, s.client.Reader(), "identity account member", query, args, scanMembershipWithUser)
+	if err != nil {
+		return nil, op.Error(err, "listing identity account members")
+	}
+
+	memberships := make([]*Membership, 0, len(members))
+	for _, member := range members {
+		memberships = append(memberships, &member.Membership)
+	}
+
+	if err = s.attachMembershipRoles(ctx, s.client.Reader(), memberships); err != nil {
+		return nil, op.Error(err, "listing identity account member roles")
+	}
+
+	countQuery, countArgs := s.tables.buildCountAccountMembers(s.dialect, scope, accountID)
+
+	var total uint64
+	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, op.Error(err, "counting identity account members")
+	}
+
+	op.SpanOnly(countKey, len(members))
+
+	return filtering.NewQueryFilteredResult(
+		members, uint64(len(members)), total,
+		func(m *MembershipWithUser) string { return m.ID },
+		filter,
+	), nil
+}

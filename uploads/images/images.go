@@ -1,11 +1,14 @@
 package images
 
+// The image/gif, image/jpeg and image/png imports are blank: they register
+// their decoders so image.Decode can sniff those formats. This note sits
+// outside the import block because goimports and gci disagree about a comment
+// inside one — see the same note in identity/identity_test.go.
 import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
 	"image"
-	// Registered for their decoders so image.Decode can sniff these formats.
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"

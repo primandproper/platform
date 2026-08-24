@@ -1,0 +1,139 @@
+package identity
+
+import (
+	"context"
+
+	"github.com/primandproper/platform-go/v13/database"
+)
+
+// The SQLStore's Registrar: the three writes that make a registration, each
+// through the caller's executor so that they commit or fail together.
+var _ Registrar = (*SQLStore)(nil)
+
+// CreateUser writes a new user through the caller's executor.
+func (s *SQLStore) CreateUser(ctx context.Context, q database.SQLQueryExecutor, user *User) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return op.Error(err, "creating identity user")
+	}
+
+	if user == nil {
+		return op.Error(ErrNilUser, "creating identity user")
+	}
+
+	user.EnsureDefaults()
+
+	if err := user.ValidateWithContext(ctx); err != nil {
+		return op.Error(err, "creating identity user")
+	}
+
+	user.ID = newID(user.ID)
+
+	op.Set(userIDKey, user.ID).
+		Set(scopeKey, user.Scope.String()).
+		Set(usernameKey, user.Username)
+
+	if err := s.ensureUnique(ctx, q, usernameColumn, user.Scope, user.Username, "", ErrUsernameTaken); err != nil {
+		return op.Error(err, "creating identity user")
+	}
+
+	if err := s.ensureUnique(ctx, q, emailAddressColumn, user.Scope, user.EmailAddress, "", ErrEmailAddressTaken); err != nil {
+		return op.Error(err, "creating identity user")
+	}
+
+	// Stamped from the store's clock and written back onto the value, so the
+	// caller's copy agrees with the row rather than being whatever zero time it
+	// arrived with.
+	user.CreatedAt = s.now()
+
+	query, args := s.tables.buildInsertUser(s.dialect, user, user.CreatedAt)
+	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+		return op.Error(err, "creating identity user")
+	}
+
+	// Written through the caller's executor with the row, so a registration
+	// that granted a default service role cannot commit the user without it.
+	if err := s.replaceRoles(ctx, q, s.tables.userRoles, userIDColumn, user.ID, user.ServiceRoles); err != nil {
+		return op.Error(err, "creating identity user")
+	}
+
+	return nil
+}
+
+// CreateAccount writes a new account through the caller's executor.
+func (s *SQLStore) CreateAccount(ctx context.Context, q database.SQLQueryExecutor, account *Account) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return op.Error(err, "creating identity account")
+	}
+
+	if account == nil {
+		return op.Error(ErrNilAccount, "creating identity account")
+	}
+
+	account.EnsureDefaults()
+
+	if err := account.ValidateWithContext(ctx); err != nil {
+		return op.Error(err, "creating identity account")
+	}
+
+	account.ID = newID(account.ID)
+	account.CreatedAt = s.now()
+
+	op.Set(accountIDKey, account.ID).Set(scopeKey, account.Scope.String())
+
+	query, args := s.tables.buildInsertAccount(s.dialect, account, account.CreatedAt)
+	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+		return op.Error(err, "creating identity account")
+	}
+
+	return nil
+}
+
+// CreateMembership puts a user in an account through the caller's executor.
+func (s *SQLStore) CreateMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return op.Error(err, "creating identity membership")
+	}
+
+	if membership == nil {
+		return op.Error(ErrNilMembership, "creating identity membership")
+	}
+
+	if err := membership.ValidateWithContext(ctx); err != nil {
+		return op.Error(err, "creating identity membership")
+	}
+
+	membership.ID = newID(membership.ID)
+	membership.CreatedAt = s.now()
+
+	op.Set(userIDKey, membership.BelongsToUser).
+		Set(accountIDKey, membership.BelongsToAccount).
+		Set(scopeKey, membership.Scope.String())
+
+	// A user's first live membership is their default whatever the value says.
+	// A user with memberships and no default has nowhere to land, and it is a
+	// state that is easy to write and confusing to debug — GetPrincipal reports
+	// ErrNoDefaultAccount and the caller has no obvious way to have caused it.
+	existing, err := s.liveMembershipCount(ctx, q, membership.Scope, membership.BelongsToUser)
+	if err != nil {
+		return op.Error(err, "creating identity membership")
+	}
+
+	if existing == 0 {
+		membership.DefaultAccount = true
+	}
+
+	if err = s.writeMembership(ctx, q, membership); err != nil {
+		return op.Error(err, "creating identity membership")
+	}
+
+	return nil
+}
