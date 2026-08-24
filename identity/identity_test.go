@@ -389,6 +389,13 @@ func TestInvitation(T *testing.T) {
 		noRoles.Roles = nil
 		must.Error(t, noRoles.ValidateWithContext(t.Context()))
 
+		// A role nobody can hold. The invitation would be accepted and write a
+		// membership carrying it, and the escalation-shaped failure surfaces at
+		// the recipient's first permission check rather than here.
+		emptyRole := valid()
+		emptyRole.Roles = []string{"account_member", ""}
+		must.ErrorIs(t, emptyRole.ValidateWithContext(t.Context()), platformerrors.ErrEmptyInputParameter)
+
 		badStatus := valid()
 		badStatus.Status = "unknown"
 		must.ErrorIs(t, badStatus.ValidateWithContext(t.Context()), platformerrors.ErrUnrecognizedInputValue)

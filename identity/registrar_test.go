@@ -104,6 +104,27 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t, store.CreateUser(t.Context(), nil, newUser("ada")), ErrNilExecutor)
 	})
 
+	t.Run("refuses a nil value on each of the three writes", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// Each guard sits behind the executor check, so reaching it needs a
+		// live transaction — which is also the shape a registration flow that
+		// dropped a value on the floor arrives in.
+		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+			return store.CreateUser(ctx, q, nil)
+		}), ErrNilUser)
+
+		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+			return store.CreateAccount(ctx, q, nil)
+		}), ErrNilAccount)
+
+		must.ErrorIs(t, inTransaction(t, store, func(ctx context.Context, q database.SQLQueryExecutor) error {
+			return store.CreateMembership(ctx, q, nil)
+		}), ErrNilMembership)
+	})
+
 	t.Run("refuses a user that fails validation", func(t *testing.T) {
 		t.Parallel()
 

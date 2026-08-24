@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -105,5 +106,92 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		rotated, err := store.GetUser(t.Context(), testScope, user.ID)
 		must.NoError(t, err)
 		test.False(t, rotated.TwoFactorEnabled())
+	})
+
+	t.Run("issues a verification token and replaces the outstanding one", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "tok-first"))
+
+		found, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "tok-first")
+		must.NoError(t, err)
+		test.EqOp(t, user.ID, found.ID)
+
+		// Re-sending the email issues a new link, and the previous one stops
+		// working — otherwise every address change leaves a live token behind.
+		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "tok-second"))
+
+		_, err = store.GetUserByEmailVerificationToken(t.Context(), testScope, "tok-first")
+		must.ErrorIs(t, err, ErrUserNotFound)
+
+		reissued, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "tok-second")
+		must.NoError(t, err)
+		test.EqOp(t, user.ID, reissued.ID)
+
+		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "tok-second"))
+
+		verified, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.True(t, verified.EmailAddressVerified())
+
+		// The scope is in the predicate, so the neighbor's directory reaches
+		// nobody, and an unknown user is a miss rather than a silent no-op.
+		must.ErrorIs(t,
+			store.SetUserEmailAddressVerificationToken(t.Context(), otherScope, user.ID, "tok-third"),
+			ErrUserNotFound,
+		)
+
+		must.ErrorIs(t,
+			store.SetUserEmailAddressVerificationToken(t.Context(), tenancy.Scope{}, user.ID, "tok-third"),
+			tenancy.ErrNoScope,
+		)
+	})
+
+	t.Run("refuses to issue an empty verification token", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		// The empty string is what the column holds for every user with no
+		// outstanding link. Writing it here is what makes the read side's
+		// guard necessary, so the write has to refuse it too.
+		must.ErrorIs(t,
+			store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, ""),
+			platformerrors.ErrEmptyInputParameter,
+		)
+
+		must.ErrorIs(t,
+			store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, ""),
+			platformerrors.ErrEmptyInputParameter,
+		)
+	})
+
+	t.Run("refuses an empty hash and an empty second factor", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		// An empty hash would be written and then compared against at the next
+		// sign-in by an engine with no way to know it was never set.
+		must.ErrorIs(t,
+			store.UpdateUserPassword(t.Context(), testScope, user.ID, ""),
+			platformerrors.ErrEmptyInputParameter,
+		)
+
+		must.ErrorIs(t,
+			store.UpdateUserTwoFactorSecret(t.Context(), testScope, user.ID, ""),
+			platformerrors.ErrEmptyInputParameter,
+		)
+
+		// Neither refusal wrote anything on its way out.
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.EqOp(t, user.HashedPassword, read.HashedPassword)
+		test.EqOp(t, "", read.TwoFactorSecret)
 	})
 }

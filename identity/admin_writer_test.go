@@ -80,6 +80,28 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t, err, ErrUserNotFound)
 	})
 
+	t.Run("refuses an empty service role name", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		user := newUser("ada")
+		user.ServiceRoles = []string{"service_admin"}
+		createUser(t, store, user)
+
+		// An empty role name is a row nothing matches on, so the grant reads as
+		// applied and resolves to nothing at the next permission check.
+		must.ErrorIs(t,
+			store.SetUserServiceRoles(t.Context(), testScope, user.ID, []string{"service_user", ""}),
+			platformerrors.ErrEmptyInputParameter,
+		)
+
+		// The refusal is ahead of the write, so the roles they had are intact.
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.Eq(t, []string{"service_admin"}, read.ServiceRoles)
+	})
+
 	t.Run("ends memberships when a user is archived", func(t *testing.T) {
 		t.Parallel()
 

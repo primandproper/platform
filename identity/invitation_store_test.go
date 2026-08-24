@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v13/database"
+	platformerrors "github.com/primandproper/platform-go/v13/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -70,6 +71,14 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		forever := newInvitation(owner, account.ID, "carol@example.com", "tok-3", time.Time{})
 
 		must.Error(t, store.CreateInvitation(t.Context(), forever))
+	})
+
+	t.Run("refuses a nil invitation", func(t *testing.T) {
+		t.Parallel()
+
+		store, _, _, _, _ := newInvitedStore(t)
+
+		must.ErrorIs(t, store.CreateInvitation(t.Context(), nil), ErrNilInvitation)
 	})
 
 	t.Run("reads by token and refuses a wrong one", func(t *testing.T) {
@@ -201,6 +210,13 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t,
 			store.SetInvitationStatus(t.Context(), testScope, invitation.ID, InvitationPending, ""),
 			ErrInvalidInvitationStatus,
+		)
+
+		// A status outside the known set is refused before the write rather
+		// than stored and read back as something no branch handles.
+		must.ErrorIs(t,
+			store.SetInvitationStatus(t.Context(), testScope, invitation.ID, InvitationStatus("nonsense"), ""),
+			platformerrors.ErrUnrecognizedInputValue,
 		)
 
 		must.NoError(t, store.SetInvitationStatus(t.Context(), testScope, invitation.ID, InvitationRejected, "no thanks"))

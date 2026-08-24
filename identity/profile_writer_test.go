@@ -151,4 +151,15 @@ func runProfileWriterSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 		test.EqOp(t, "America/Chicago", loc.String())
 	})
+
+	t.Run("refuses a nil user and a nil account", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// Both writes read the scope off the value they were handed, so a nil
+		// one has to be refused rather than dereferenced for a predicate.
+		must.ErrorIs(t, store.UpdateUser(t.Context(), nil), ErrNilUser)
+		must.ErrorIs(t, store.UpdateAccount(t.Context(), nil), ErrNilAccount)
+	})
 }
