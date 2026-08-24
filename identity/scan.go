@@ -121,7 +121,7 @@ func (a *accountAux) targets(account *Account) []any {
 		&account.BillingAddress.Line1, &account.BillingAddress.Line2,
 		&account.BillingAddress.City, &account.BillingAddress.State,
 		&account.BillingAddress.PostalCode, &account.BillingAddress.Country,
-		&account.BillingAddress.Phone,
+		&account.BillingAddress.Phone, &account.TimeZone,
 		&account.CreatedAt, &a.lastUpdatedAt, &a.archivedAt,
 	}
 }

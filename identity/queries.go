@@ -71,7 +71,7 @@ const (
 	accountColumns = "id, scope, name, owner_user_id, billing_status, " +
 		"subscription_plan_id, payment_processor_customer_id, last_payment_provider_synced_at, " +
 		"address_line1, address_line2, address_city, address_state, " +
-		"address_postal_code, address_country, address_phone, " +
+		"address_postal_code, address_country, address_phone, time_zone, " +
 		"created_at, last_updated_at, archived_at"
 
 	membershipColumns = "id, scope, belongs_to_user, belongs_to_account, default_account, " +
@@ -478,14 +478,14 @@ func (t *tables) buildInsertAccount(d dialect.Dialect, a *Account, now time.Time
 		a.SubscriptionPlanID, a.PaymentProcessorCustomerID, a.LastPaymentProviderSyncedAt,
 		a.BillingAddress.Line1, a.BillingAddress.Line2, a.BillingAddress.City,
 		a.BillingAddress.State, a.BillingAddress.PostalCode, a.BillingAddress.Country,
-		a.BillingAddress.Phone, now,
+		a.BillingAddress.Phone, a.TimeZone, now,
 	}
 
 	return fmt.Sprintf(
 		"INSERT INTO %s (id, scope, name, owner_user_id, billing_status, "+
 			"subscription_plan_id, payment_processor_customer_id, last_payment_provider_synced_at, "+
 			"address_line1, address_line2, address_city, address_state, "+
-			"address_postal_code, address_country, address_phone, created_at) VALUES (%s)",
+			"address_postal_code, address_country, address_phone, time_zone, created_at) VALUES (%s)",
 		t.accounts, d.Placeholders(1, len(args)),
 	), args
 }
@@ -569,11 +569,11 @@ func (t *tables) buildUpdateAccount(d dialect.Dialect, a *Account, now time.Time
 	return fmt.Sprintf(
 		"UPDATE %s SET name = %s, address_line1 = %s, address_line2 = %s, address_city = %s, "+
 			"address_state = %s, address_postal_code = %s, address_country = %s, address_phone = %s, "+
-			"last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
+			"time_zone = %s, last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
 		t.accounts, b.bind(a.Name),
 		b.bind(a.BillingAddress.Line1), b.bind(a.BillingAddress.Line2), b.bind(a.BillingAddress.City),
 		b.bind(a.BillingAddress.State), b.bind(a.BillingAddress.PostalCode), b.bind(a.BillingAddress.Country),
-		b.bind(a.BillingAddress.Phone),
+		b.bind(a.BillingAddress.Phone), b.bind(a.TimeZone),
 		b.bind(now), b.bind(a.ID), b.bind(a.Scope),
 	), b.args
 }

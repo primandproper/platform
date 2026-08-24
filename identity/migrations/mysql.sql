@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_accounts (
     address_postal_code             VARCHAR(32) NOT NULL DEFAULT '',
     address_country                 VARCHAR(255) NOT NULL DEFAULT '',
     address_phone                   VARCHAR(64) NOT NULL DEFAULT '',
+    time_zone                       VARCHAR(64) NOT NULL DEFAULT '',
     created_at                      DATETIME(6) NOT NULL,
     last_updated_at                 DATETIME(6),
     archived_at                     DATETIME(6)

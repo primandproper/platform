@@ -72,7 +72,7 @@ func runAccountSuite(t *testing.T, env *storeEnv) {
 		// The name lands; the stale billing status and a substituted owner do
 		// not.
 		account.Name = "Acme Ltd"
-		account.BillingAddress = Address{Line1: "1 High St", City: "London", Country: "GB"}
+		account.BillingAddress = BillingAddress{Line1: "1 High St", City: "London", Country: "GB"}
 		account.BillingStatus = BillingUnpaid
 		account.OwnerUserID = other.ID
 
@@ -84,6 +84,29 @@ func runAccountSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, "1 High St", read.BillingAddress.Line1)
 		test.EqOp(t, BillingPaid, read.BillingStatus)
 		test.EqOp(t, owner.ID, read.OwnerUserID)
+	})
+
+	t.Run("round-trips a time zone", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+
+		// An account with none stated reads back as none stated rather than as
+		// whatever the database or the driver would default to.
+		test.EqOp(t, "", account.TimeZone)
+
+		account.TimeZone = "America/Chicago"
+		must.NoError(t, store.UpdateAccount(t.Context(), account))
+
+		read, err := store.GetAccount(t.Context(), testScope, account.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "America/Chicago", read.TimeZone)
+
+		loc, err := read.Location()
+		must.NoError(t, err)
+		test.EqOp(t, "America/Chicago", loc.String())
 	})
 
 	t.Run("writes only the billing fields the update names", func(t *testing.T) {

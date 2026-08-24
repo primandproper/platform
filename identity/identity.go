@@ -2,6 +2,7 @@ package identity
 
 import (
 	"net/mail"
+	"time"
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 
@@ -107,6 +108,49 @@ var (
 // ErrInvalidEmailAddress indicates an address net/mail cannot parse. It wraps
 // errors.ErrUnrecognizedInputValue, so a caller may check either.
 var ErrInvalidEmailAddress = platformerrors.Wrap(platformerrors.ErrUnrecognizedInputValue, "invalid email address")
+
+// ErrInvalidTimeZone indicates a time zone name the runtime cannot load. It
+// wraps errors.ErrUnrecognizedInputValue, so a caller may check either.
+var ErrInvalidTimeZone = platformerrors.Wrap(platformerrors.ErrUnrecognizedInputValue, "invalid time zone")
+
+// timeZoneRule validates an IANA time zone name by loading it.
+//
+// Loading rather than pattern-matching, because the only useful definition of a
+// valid zone name is one the runtime can turn into a *time.Location — and a
+// name that looks right but does not load ("America/Chicagoo") renders every
+// date on the account wrong, forever, without anything saying so. Failing the
+// write is how that stays a typo instead of becoming data.
+//
+// It has a runtime cost worth knowing about: any zone but UTC needs the
+// zoneinfo database, which scratch and distroless images do not carry, and
+// without it this rejects names that are perfectly good elsewhere. That is the
+// same trade the jobs package documents at length for cron schedules, and the
+// same fix applies — `import _ "time/tzdata"` in the binary's main package
+// embeds it.
+//
+// "Local" is refused rather than loaded. Go builds time.Local from the
+// process's TZ environment variable, so a stored "Local" means whatever the
+// reader's host happens to think — which makes two replicas of one service
+// disagree about when an account's day starts, and makes a value written on a
+// laptop mean something else in production.
+var timeZoneRule = validation.By(func(value any) error {
+	name, ok := value.(string)
+	if !ok || name == "" {
+		// Empty is "not stated", which is a legitimate answer — see
+		// Account.Location for what reads it.
+		return nil
+	}
+
+	if name == "Local" {
+		return platformerrors.Wrap(ErrInvalidTimeZone, `"Local" names the reader's host rather than a zone`)
+	}
+
+	if _, err := time.LoadLocation(name); err != nil {
+		return platformerrors.Wrapf(ErrInvalidTimeZone, "%q: %v", name, err)
+	}
+
+	return nil
+})
 
 // emailAddressRule is the validation both a User and an Invitation apply to an
 // address, written once because it is a rule that can be got wrong twice — and

@@ -4,8 +4,12 @@ import (
 	"errors"
 	"testing"
 	"time"
+	// Embedded so the time zone cases below do not depend on the test host
+	// carrying a zoneinfo database. It affects this test binary only.
+	_ "time/tzdata"
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/identifiers"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -354,13 +358,103 @@ func TestMembership(T *testing.T) {
 	})
 }
 
-func TestAddress(t *testing.T) {
+func TestBillingAddress(t *testing.T) {
 	t.Parallel()
 
 	// An application that never collects an address leaves a zero value rather
 	// than seven empty strings, which is what makes this check one comparison.
-	empty, filled := Address{}, Address{City: "London"}
+	empty, filled := BillingAddress{}, BillingAddress{City: "London"}
 
 	test.True(t, empty.Zero())
 	test.False(t, filled.Zero())
+}
+
+func TestAccount_TimeZone(T *testing.T) {
+	T.Parallel()
+
+	validate := func(t *testing.T, zone string) error {
+		t.Helper()
+
+		account := &Account{
+			ID: identifiers.New(), Scope: testScope, Name: "Acme",
+			OwnerUserID: identifiers.New(), BillingStatus: BillingUnpaid,
+			TimeZone: zone,
+		}
+
+		return account.ValidateWithContext(t.Context())
+	}
+
+	T.Run("accepts a loadable zone", func(t *testing.T) {
+		t.Parallel()
+		test.NoError(t, validate(t, "America/Chicago"))
+	})
+
+	T.Run("accepts none stated", func(t *testing.T) {
+		t.Parallel()
+
+		// An application in one region never sets this, and refusing the write
+		// would make a zone a required field for everybody who has no use for
+		// one.
+		test.NoError(t, validate(t, ""))
+	})
+
+	T.Run("refuses a name that does not load", func(t *testing.T) {
+		t.Parallel()
+
+		// The typo is the whole point: it looks right, and stored it would
+		// render every date on the account wrong without anything saying so.
+		err := validate(t, "America/Chicagoo")
+
+		var fieldErrs validation.Errors
+		must.True(t, errors.As(err, &fieldErrs))
+		must.ErrorIs(t, fieldErrs["timeZone"], ErrInvalidTimeZone)
+		test.ErrorIs(t, fieldErrs["timeZone"], platformerrors.ErrUnrecognizedInputValue)
+	})
+
+	T.Run("refuses Local", func(t *testing.T) {
+		t.Parallel()
+
+		// It loads, so only an explicit refusal catches it — and what it loads
+		// is the reader's TZ environment variable, which makes the same stored
+		// value mean different things on two replicas of one service.
+		err := validate(t, "Local")
+
+		var fieldErrs validation.Errors
+		must.True(t, errors.As(err, &fieldErrs))
+		must.ErrorIs(t, fieldErrs["timeZone"], ErrInvalidTimeZone)
+	})
+
+	T.Run("resolves to UTC when unstated", func(t *testing.T) {
+		t.Parallel()
+
+		loc, err := (&Account{}).Location()
+		must.NoError(t, err)
+		test.EqOp(t, time.UTC, loc)
+
+		// Nil is the case a caller reaches through a not-found read it did not
+		// check, and UTC is a better answer there than a panic.
+		loc, err = (*Account)(nil).Location()
+		must.NoError(t, err)
+		test.EqOp(t, time.UTC, loc)
+	})
+
+	T.Run("resolves a stated zone", func(t *testing.T) {
+		t.Parallel()
+
+		loc, err := (&Account{TimeZone: "America/Chicago"}).Location()
+		must.NoError(t, err)
+		test.EqOp(t, "America/Chicago", loc.String())
+	})
+
+	T.Run("returns UTC alongside the error", func(t *testing.T) {
+		t.Parallel()
+
+		// A caller that would rather degrade than fail uses the location
+		// regardless, so it must never be nil.
+		loc, err := (&Account{TimeZone: "America/Chicagoo"}).Location()
+		must.Error(t, err)
+		test.ErrorIs(t, err, ErrInvalidTimeZone)
+		must.NotNil(t, loc)
+		test.EqOp(t, time.UTC, loc)
+	})
 }

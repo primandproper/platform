@@ -49,8 +49,21 @@ func (s BillingStatus) Valid() bool {
 // String renders the status as it is stored.
 func (s BillingStatus) String() string { return string(s) }
 
-// Address is a postal address, in the shape a payment processor and an invoice
-// both want.
+// BillingAddress is where an account's invoices go, in the field set a payment
+// processor accepts.
+//
+// It is deliberately not a general-purpose postal address, and the name says so
+// because the distinction is easy to lose. The decomposition here — two lines, a
+// city, a state, a postal code, a country — is the one the processors impose on
+// what they are sent, and storing something richer would only mean discarding
+// the difference at the moment the address is handed over. Plenty of the world's
+// addresses do not divide this way; an application that needs a person's address
+// modeled honestly should keep its own, in its own table, and treat this as the
+// lossy projection of it that billing requires.
+//
+// Every field is optional, and none is validated. There is no address format
+// this module knows to be mandatory — not a postal code, not a state, not even a
+// street line — so requiring any of them would reject real addresses to no end.
 //
 // It is a struct rather than seven fields spread across Account because it
 // travels as a unit — a caller updating an address updates all of it — and
@@ -58,7 +71,7 @@ func (s BillingStatus) String() string { return string(s) }
 // than seven empty strings. It is flattened into columns on the accounts table
 // rather than being a table of its own, since an account has exactly one and
 // the join would buy nothing.
-type Address struct {
+type BillingAddress struct {
 	_ struct{} `json:"-"`
 
 	Line1      string `json:"line1"`
@@ -76,7 +89,7 @@ type Address struct {
 // A pointer receiver on a value type with no other methods, because the struct
 // is seven strings and copying it to answer one comparison is the copy this
 // check exists to avoid making at every call site.
-func (a *Address) Zero() bool { return *a == Address{} }
+func (a *BillingAddress) Zero() bool { return *a == BillingAddress{} }
 
 // Account is an organization: the thing users belong to and invoices are
 // addressed to.
@@ -107,7 +120,7 @@ type Account struct {
 	LastPaymentProviderSyncedAt *time.Time `json:"lastPaymentProviderSyncedAt"`
 
 	// BillingAddress is where invoices go. Optional.
-	BillingAddress Address `json:"billingAddress"`
+	BillingAddress BillingAddress `json:"billingAddress"`
 
 	// ID identifies the account.
 	ID string `json:"id"`
@@ -130,6 +143,23 @@ type Account struct {
 
 	// PaymentProcessorCustomerID is the account's identifier at the processor.
 	PaymentProcessorCustomerID string `json:"paymentProcessorCustomerID"`
+
+	// TimeZone is the IANA name of the zone this account's days are read in —
+	// "America/Chicago", "Europe/Dublin" — and it is what a scheduled digest, a
+	// rendered date, and a monthly billing boundary should all agree on.
+	//
+	// It lives on the account rather than on the user because the things that
+	// need it are the account's: when the invoice period rolls over, when the
+	// nightly job for this account runs. An application whose members are spread
+	// across zones and wants each of them addressed in their own keeps that
+	// beside the user, in its own table; this is the account's clock, not a
+	// display preference.
+	//
+	// Empty means the account has not stated one, which is a legitimate answer
+	// and the one a single-region application leaves here forever. Location is
+	// what reads it. A non-empty value must load — see the package's validation
+	// for what that costs on an image without zoneinfo.
+	TimeZone string `json:"timeZone"`
 
 	// Scope is whose directory this account is in.
 	Scope tenancy.Scope `json:"scope"`
@@ -169,7 +199,34 @@ func (a *Account) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, a,
 		validation.Field(&a.Name, validation.Required),
 		validation.Field(&a.OwnerUserID, validation.Required),
+		validation.Field(&a.TimeZone, timeZoneRule),
 	)
+}
+
+// Location resolves TimeZone to a *time.Location, and reports UTC for an
+// account that has not stated one.
+//
+// It exists so that "what does an empty TimeZone mean" is answered once. Every
+// caller would otherwise write the LoadLocation call and the empty-string
+// branch itself, and the branch is the half that gets it wrong — falling back
+// to time.Local, which is the process's TZ variable, so the same account
+// renders differently on two replicas of the same service.
+//
+// The error is the zoneinfo database's absence far more often than it is a bad
+// name, since a stored value has already been validated on the way in. A caller
+// that would rather degrade than fail can use the returned location regardless:
+// it is never nil, and it is UTC whenever err is non-nil.
+func (a *Account) Location() (*time.Location, error) {
+	if a == nil || a.TimeZone == "" {
+		return time.UTC, nil
+	}
+
+	loc, err := time.LoadLocation(a.TimeZone)
+	if err != nil {
+		return time.UTC, platformerrors.Wrapf(ErrInvalidTimeZone, "%q: %v", a.TimeZone, err)
+	}
+
+	return loc, nil
 }
 
 // Archived reports whether the account has been soft-deleted.
