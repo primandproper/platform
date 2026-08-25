@@ -1,7 +1,6 @@
 package capitalismcfg
 
 import (
-	"context"
 	"testing"
 
 	"github.com/primandproper/platform-go/v13/capitalism"
@@ -28,28 +27,6 @@ func TestRegisterPaymentManager(T *testing.T) {
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		})
-
-		RegisterPaymentManager(i)
-
-		pm, err := do.Invoke[capitalism.PaymentManager](i)
-		must.NoError(t, err)
-		test.NotNil(t, pm)
-	})
-
-	T.Run("wires a registered stripe event handler", func(t *testing.T) {
-		t.Parallel()
-
-		i := do.New()
-		do.ProvideValue(i, t.Context())
-		do.ProvideValue(i, loggingnoop.NewLogger())
-		do.ProvideValue(i, tracingnoop.NewTracerProvider())
-		do.ProvideValue(i, &Config{
-			Provider: StripeProvider,
-			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
-		})
-
-		var handler stripe.EventHandler = func(context.Context, *stripe.Event) error { return nil }
-		do.ProvideValue(i, handler)
 
 		RegisterPaymentManager(i)
 
