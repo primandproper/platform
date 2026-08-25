@@ -153,7 +153,7 @@ func TestStatements_BindReportsAMissingArgument(t *testing.T) {
 
 	s := newStatements(dialect.Postgres, newTables(""))
 
-	_, err := bind(s.getUser, map[string]any{querygen.IDColumn: "u1"}, "reading identity user")
+	_, err := argsFor(s.getUser, map[string]any{querygen.IDColumn: "u1"}, "reading identity user")
 	must.Error(t, err)
 	test.ErrorIs(t, err, querygen.ErrUnboundArgument)
 	test.StrContains(t, err.Error(), queries.ScopeColumn)

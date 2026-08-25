@@ -91,41 +91,41 @@ SELECT
 	(
 		SELECT COUNT(identity_users.id)
 		FROM identity_users
-		WHERE identity_users.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
-			AND identity_users.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+		WHERE identity_users.created_at > COALESCE(sqlc.narg(created_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+			AND identity_users.created_at < COALESCE(sqlc.narg(created_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 			AND (
 				identity_users.last_updated_at IS NULL
-				OR identity_users.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+				OR identity_users.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
 			)
 			AND (
 				identity_users.last_updated_at IS NULL
-				OR identity_users.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+				OR identity_users.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 			)
-			AND (COALESCE(sqlc.narg(include_archived), false) OR identity_users.archived_at IS NULL)
+			AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_users.archived_at IS NULL)
 			AND identity_users.scope = sqlc.arg(scope)
 	) AS filtered_count,
 	(
 		SELECT COUNT(identity_users.id)
 		FROM identity_users
-		WHERE (COALESCE(sqlc.narg(include_archived), false) OR identity_users.archived_at IS NULL)
+		WHERE (COALESCE(sqlc.narg(include_archived), false) = true OR identity_users.archived_at IS NULL)
 			AND identity_users.scope = sqlc.arg(scope)
 	) AS total_count
 FROM identity_users
-WHERE identity_users.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
-	AND identity_users.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+WHERE identity_users.created_at > COALESCE(sqlc.narg(created_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+	AND identity_users.created_at < COALESCE(sqlc.narg(created_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 	AND (
 		identity_users.last_updated_at IS NULL
-		OR identity_users.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+		OR identity_users.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
 	)
 	AND (
 		identity_users.last_updated_at IS NULL
-		OR identity_users.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+		OR identity_users.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 	)
-	AND (COALESCE(sqlc.narg(include_archived), false) OR identity_users.archived_at IS NULL)
+	AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_users.archived_at IS NULL)
 	AND identity_users.scope = sqlc.arg(scope)
-	AND identity_users.id > COALESCE(sqlc.narg(cursor), '')
+	AND identity_users.id > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_users.id ASC
-LIMIT sqlc.arg(result_limit);
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
 -- name: UpdateUser :execrows
 UPDATE identity_users SET
@@ -134,14 +134,14 @@ UPDATE identity_users SET
 	first_name = sqlc.arg(first_name),
 	last_name = sqlc.arg(last_name),
 	email_address_verified_at = sqlc.narg(email_address_verified_at),
-	last_updated_at = CURRENT_TIMESTAMP(6)
+	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope);
 
 -- name: ArchiveUser :execrows
 UPDATE identity_users SET
-	archived_at = CURRENT_TIMESTAMP(6)
+	archived_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope);
@@ -233,41 +233,41 @@ SELECT
 	(
 		SELECT COUNT(identity_accounts.id)
 		FROM identity_accounts
-		WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
-			AND identity_accounts.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+		WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+			AND identity_accounts.created_at < COALESCE(sqlc.narg(created_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 			AND (
 				identity_accounts.last_updated_at IS NULL
-				OR identity_accounts.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+				OR identity_accounts.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
 			)
 			AND (
 				identity_accounts.last_updated_at IS NULL
-				OR identity_accounts.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+				OR identity_accounts.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 			)
-			AND (COALESCE(sqlc.narg(include_archived), false) OR identity_accounts.archived_at IS NULL)
+			AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_accounts.archived_at IS NULL)
 			AND identity_accounts.scope = sqlc.arg(scope)
 	) AS filtered_count,
 	(
 		SELECT COUNT(identity_accounts.id)
 		FROM identity_accounts
-		WHERE (COALESCE(sqlc.narg(include_archived), false) OR identity_accounts.archived_at IS NULL)
+		WHERE (COALESCE(sqlc.narg(include_archived), false) = true OR identity_accounts.archived_at IS NULL)
 			AND identity_accounts.scope = sqlc.arg(scope)
 	) AS total_count
 FROM identity_accounts
-WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
-	AND identity_accounts.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+	AND identity_accounts.created_at < COALESCE(sqlc.narg(created_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 	AND (
 		identity_accounts.last_updated_at IS NULL
-		OR identity_accounts.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+		OR identity_accounts.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
 	)
 	AND (
 		identity_accounts.last_updated_at IS NULL
-		OR identity_accounts.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+		OR identity_accounts.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 	)
-	AND (COALESCE(sqlc.narg(include_archived), false) OR identity_accounts.archived_at IS NULL)
+	AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_accounts.archived_at IS NULL)
 	AND identity_accounts.scope = sqlc.arg(scope)
-	AND identity_accounts.id > COALESCE(sqlc.narg(cursor), '')
+	AND identity_accounts.id > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_accounts.id ASC
-LIMIT sqlc.arg(result_limit);
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
 -- name: UpdateAccount :execrows
 UPDATE identity_accounts SET
@@ -280,14 +280,14 @@ UPDATE identity_accounts SET
 	address_country = sqlc.arg(address_country),
 	address_phone = sqlc.arg(address_phone),
 	time_zone = sqlc.arg(time_zone),
-	last_updated_at = CURRENT_TIMESTAMP(6)
+	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope);
 
 -- name: ArchiveAccount :execrows
 UPDATE identity_accounts SET
-	archived_at = CURRENT_TIMESTAMP(6)
+	archived_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope);
@@ -359,38 +359,38 @@ SELECT
 	(
 		SELECT COUNT(identity_invitations.id)
 		FROM identity_invitations
-		WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
-			AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+		WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+			AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 			AND (
 				identity_invitations.last_updated_at IS NULL
-				OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+				OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
 			)
 			AND (
 				identity_invitations.last_updated_at IS NULL
-				OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+				OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 			)
-			AND (COALESCE(sqlc.narg(include_archived), false) OR identity_invitations.archived_at IS NULL)
+			AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
 			AND identity_invitations.scope = sqlc.arg(scope)
 	) AS filtered_count,
 	(
 		SELECT COUNT(identity_invitations.id)
 		FROM identity_invitations
-		WHERE (COALESCE(sqlc.narg(include_archived), false) OR identity_invitations.archived_at IS NULL)
+		WHERE (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
 			AND identity_invitations.scope = sqlc.arg(scope)
 	) AS total_count
 FROM identity_invitations
-WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
-	AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+	AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 	AND (
 		identity_invitations.last_updated_at IS NULL
-		OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+		OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
 	)
 	AND (
 		identity_invitations.last_updated_at IS NULL
-		OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+		OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
 	)
-	AND (COALESCE(sqlc.narg(include_archived), false) OR identity_invitations.archived_at IS NULL)
+	AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
 	AND identity_invitations.scope = sqlc.arg(scope)
-	AND identity_invitations.id > COALESCE(sqlc.narg(cursor), '')
+	AND identity_invitations.id > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_invitations.id ASC
-LIMIT sqlc.arg(result_limit);
+LIMIT COALESCE(sqlc.narg(result_limit), 50);

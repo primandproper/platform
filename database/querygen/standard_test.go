@@ -314,7 +314,7 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 		queries := pg().StandardCRUD("things", []string{IDColumn})
 
 		test.Eq(t, []string{"CreateThings", "GetThings", "CheckThingsExistence", "ListThings"}, queryNames(queries))
-		test.StrContains(t, named(t, queries, "ListThings").Content, "WHERE things.id > COALESCE(sqlc.narg(cursor), '')")
+		test.StrContains(t, named(t, queries, "ListThings").Content, "WHERE things.id > COALESCE(sqlc.narg(page_cursor), '')")
 	})
 }
 

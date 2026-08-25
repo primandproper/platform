@@ -1,50 +1,6 @@
-/*
-Package queries is the identity schema described as data: the canonical table
-names, each table's columns in the order every read projects them, and the two
-subsets a write may assign.
-
-It exists because those facts now have two consumers that must not disagree.
-The identity store renders them through database/querygen's Bound methods, with
-the consumer's table prefix on the name, and executes what comes back; the
-generator behind `make generate` renders the same tables through
-[querygen.Generator.StandardCRUD] into the canonical .sql files sqlc is run
-over. A column list spelled in both places could differ in one name, and the
-symptom would be a check that passes over SQL nobody executes.
-
-So it is spelled once, here, and both halves read it. The .sql files beside this
-file are the generator's output — see [Render] and identity/internal/queriesgen.
-
-# Which queries each table gets
-
-[Table.Options] is where a table says what it is beyond a list of columns, and
-three of the four options carry a fact that a column list cannot:
-
-  - Ownership is the scope column, so every emitted statement is keyed on it.
-    It is named rather than inferred, because a table whose rows are readable
-    across scopes and one whose rows are not look identical from the columns.
-  - Nullable names the columns a write may set to NULL, which lives in the
-    schema neither this package nor querygen reads.
-  - Updatable names the columns the standard update assigns, and everything
-    else assignable becomes immutable to it. It is stated positively because
-    that is the shorter and the more checkable half: a user has four profile
-    columns and ten written only by the method that owns them, and a list of
-    the ten is a list somebody adds a column to a table without extending.
-    Getting it wrong is not a small thing — querygen assigns every column its
-    options leave mutable, and the struct a caller is holding is often a
-    [identity.User.Redacted] copy whose credential fields are empty, so a
-    password hash left in the update set is blanked on every profile save.
-
-Memberships is the fourth table and is deliberately not emitted. Its columns are
-textbook and not one of its statements is: the get, the archive and the bulk
-archive key on the (belongs_to_user, belongs_to_account) pair rather than on id,
-and its write is an upsert that revives an archived row. It is declared here
-anyway, because the store still projects its columns and one list is the point.
-*/
 package queries
 
 import (
-	"slices"
-
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/querygen"
 )
@@ -72,89 +28,6 @@ const ScopeColumn = "scope"
 // updatable, and it is in the projection — and because the store reasons about
 // its value rather than only assigning it: moving an address clears it.
 const EmailAddressVerifiedAtColumn = "email_address_verified_at"
-
-// Table is one identity table's shape.
-//
-// Columns is the full list, in the order the emitted SELECTs project it, which
-// is also the order identity's scan targets are written in. The rest is what a
-// column list cannot say — see the package comment.
-type Table struct {
-	// Name is the canonical, unprefixed table name.
-	Name string
-	// Singular and Plural name the entity the emitted query names are built
-	// from: GetUser rather than GetIdentityUsers.
-	Singular string
-	Plural   string
-
-	// Columns is every column, in projection order.
-	Columns []string
-	// Nullable names the columns a write may set to NULL.
-	Nullable []string
-	// Updatable names the columns the standard update assigns. Everything else
-	// this table would otherwise let an update assign becomes immutable to it —
-	// see Immutable.
-	Updatable []string
-	// Omitted names the standard queries this table has no caller for.
-	Omitted []querygen.StandardQuery
-}
-
-// InsertColumns returns the columns the create supplies values for: everything
-// but the database-owned ones.
-//
-// created_at is among those the database owns, which is the whole reason the
-// schema gives it a DEFAULT — see identity/migrations. A caller-supplied
-// creation time is how a row ends up with one that disagrees with its id, and
-// the cursor walk orders by id while the filter window compares created_at.
-func (t *Table) InsertColumns() []string {
-	return querygen.ForInsert(t.Columns)
-}
-
-// Immutable returns the columns the standard update must not assign: everything
-// assignable that Updatable does not name, plus the scope.
-//
-// Derived rather than declared, so that a column added to a table is immutable
-// until somebody says otherwise. The other direction — a new column silently
-// joining the update set — is the one with a failure mode, and it is the failure
-// mode Updatable's doc describes.
-func (t *Table) Immutable() []string {
-	assignable := querygen.ForUpdate(t.Columns, ScopeColumn)
-
-	immutable := make([]string, 0, len(assignable))
-	for _, column := range assignable {
-		if !slices.Contains(t.Updatable, column) {
-			immutable = append(immutable, column)
-		}
-	}
-
-	return immutable
-}
-
-// UpdateColumns returns the columns the standard update assigns, in projection
-// order.
-//
-// Order matters because both consumers render from it: the store's Bound update
-// and the canonical .sql have to assign the same columns in the same places, and
-// deriving both from the column list is what makes that true rather than
-// remembered.
-func (t *Table) UpdateColumns() []string {
-	return querygen.ForUpdate(t.Columns, append(t.Immutable(), ScopeColumn)...)
-}
-
-// Options renders this table's shape as the options StandardCRUD reads.
-func (t *Table) Options() []querygen.Option {
-	opts := []querygen.Option{
-		querygen.WithEntity(t.Singular, t.Plural),
-		querygen.WithOwnership(ScopeColumn),
-		querygen.WithNullable(t.Nullable...),
-		querygen.WithImmutable(t.Immutable()...),
-	}
-
-	if len(t.Omitted) > 0 {
-		opts = append(opts, querygen.WithOmitted(t.Omitted...))
-	}
-
-	return opts
-}
 
 // Users is the directory's people.
 //
@@ -330,4 +203,14 @@ func Render(d dialect.Dialect) string {
 	}
 
 	return querygen.RenderFile(rendered)
+}
+
+// FileName is the file one dialect's rendered queries are committed to.
+//
+// The _generated suffix is in the path rather than only in the header comment,
+// because a path is what a reviewer sees in a diff, what CI's glob selects, and
+// what a reader scanning this directory reads first — and these are the files
+// whose answer to "this line is wrong" is to edit something else.
+func FileName(d dialect.Dialect) string {
+	return string(d) + "_generated.sql"
 }

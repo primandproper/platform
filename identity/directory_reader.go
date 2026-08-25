@@ -46,7 +46,7 @@ func (s *SQLStore) readUser(
 	scope tenancy.Scope,
 	userID string,
 ) (*User, error) {
-	args, err := bind(s.stmts.getUser, keyed(scope, userID), "reading identity user")
+	args, err := argsFor(s.stmts.getUser, keyed(scope, userID), "reading identity user")
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *f
 
 	values := s.stmts.listValues(filter, keyedScope(scope))
 
-	args, err := bind(s.stmts.listUsers, values, "listing identity users")
+	args, err := argsFor(s.stmts.listUsers, values, "listing identity users")
 	if err != nil {
 		return nil, op.Error(err, "listing identity users")
 	}
@@ -243,7 +243,7 @@ func (s *SQLStore) readAccount(
 	scope tenancy.Scope,
 	accountID string,
 ) (*Account, error) {
-	args, err := bind(s.stmts.getAccount, keyed(scope, accountID), "reading identity account")
+	args, err := argsFor(s.stmts.getAccount, keyed(scope, accountID), "reading identity account")
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter
 
 	filter = pageFilter(filter)
 
-	args, err := bind(s.stmts.listAccounts, s.stmts.listValues(filter, keyedScope(scope)), "listing identity accounts")
+	args, err := argsFor(s.stmts.listAccounts, s.stmts.listValues(filter, keyedScope(scope)), "listing identity accounts")
 	if err != nil {
 		return nil, op.Error(err, "listing identity accounts")
 	}

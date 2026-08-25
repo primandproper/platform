@@ -43,7 +43,7 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 		return op.Error(err, "creating identity user")
 	}
 
-	args, err := bind(s.stmts.createUser, userValues(user), "creating identity user")
+	args, err := argsFor(s.stmts.createUser, userValues(user), "creating identity user")
 	if err != nil {
 		return op.Error(err, "creating identity user")
 	}
@@ -94,7 +94,7 @@ func (s *SQLStore) CreateAccount(ctx context.Context, q database.Tx, account *Ac
 
 	op.Set(accountIDKey, account.ID).Set(scopeKey, account.Scope.String())
 
-	args, err := bind(s.stmts.createAccount, accountValues(account), "creating identity account")
+	args, err := argsFor(s.stmts.createAccount, accountValues(account), "creating identity account")
 	if err != nil {
 		return op.Error(err, "creating identity account")
 	}

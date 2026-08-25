@@ -63,7 +63,7 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 	// no roles produces a membership that may do nothing, which is discovered
 	// only once somebody has accepted it.
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		args, err := bind(s.stmts.createInvitation, invitationValues(invitation), "writing identity invitation")
+		args, err := argsFor(s.stmts.createInvitation, invitationValues(invitation), "writing identity invitation")
 		if err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func (s *SQLStore) readInvitation(
 	scope tenancy.Scope,
 	invitationID string,
 ) (*Invitation, error) {
-	args, err := bind(s.stmts.getInvitation, keyed(scope, invitationID), "reading identity invitation")
+	args, err := argsFor(s.stmts.getInvitation, keyed(scope, invitationID), "reading identity invitation")
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +224,7 @@ func (s *SQLStore) pageInvitations(
 		invitationStatusColumn: InvitationPending.String(),
 	})
 
-	args, err := bind(statement, values, description)
+	args, err := argsFor(statement, values, description)
 	if err != nil {
 		return nil, op.Error(err, "%s", description)
 	}

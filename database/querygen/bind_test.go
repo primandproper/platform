@@ -302,6 +302,34 @@ func TestBindArguments(T *testing.T) {
 		}
 	})
 
+	T.Run("binds MySQL's unnamed limit marker under the page size", func(t *testing.T) {
+		t.Parallel()
+
+		// MySQL's grammar takes a bare placeholder after LIMIT and nothing
+		// else, so limitClause writes the marker rather than a reference. It
+		// still has to reach a caller as the page size, under the same key the
+		// other two dialects name in the SQL itself.
+		sql, args := bindArguments(dialect.MySQL, "SELECT 1 WHERE a = sqlc.arg(a)\n"+For(dialect.MySQL).limitClause())
+
+		test.EqOp(t, "SELECT 1 WHERE a = ?\nLIMIT ?", sql)
+		test.Eq(t, []string{"a", LimitArg}, args)
+	})
+
+	T.Run("refuses an unnamed marker on a dialect that does not emit one", func(t *testing.T) {
+		t.Parallel()
+
+		// Only MySQL's limit clause places a marker itself. A '?' anywhere in
+		// a statement rendered for the other two came from a caller's hand,
+		// and there is no name to bind it under — so it is the same class of
+		// programming error as a set.
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
+			err := recovered(func() { _, _ = bindArguments(d, "SELECT 1 LIMIT ?") })
+
+			must.Error(t, err, must.Sprintf("dialect %q", d))
+			test.ErrorIs(t, err, ErrUnboundableStatement, test.Sprintf("dialect %q", d))
+		}
+	})
+
 	T.Run("numbers markers where they appear rather than where they were rendered", func(t *testing.T) {
 		t.Parallel()
 

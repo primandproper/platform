@@ -23,8 +23,21 @@ import (
 // are not the URL parameter names — those are the QueryKey constants — and the
 // two are deliberately allowed to differ, since one is a wire format and the
 // other is a statement's vocabulary.
+//
+// One of them is spelled around a dialect rather than for it. The keyset
+// position would naturally be called `cursor`, and CURSOR is a reserved word in
+// MySQL — so `sqlc.narg(cursor)` is a syntax error there, in MySQL's own
+// parser, which is the parser sqlc reads these statements with. Quoting does
+// not rescue it: the text inside the reference is the argument's name, not an
+// identifier the engine resolves, and backticks would become part of the name.
+// The alternative to renaming it is a generator that emits one name for two of
+// the three dialects and another for the third, which is a difference every
+// consumer of every dialect would then have to know about.
 const (
-	ArgCursor          = "cursor"
+	// ArgCursor is the keyset position a page resumes after — see
+	// database/querygen's cursor predicate. `page_cursor` rather than `cursor`
+	// because of the reserved word above.
+	ArgCursor          = "page_cursor"
 	ArgResultLimit     = "result_limit"
 	ArgIncludeArchived = "include_archived"
 	ArgCreatedAfter    = "created_after"

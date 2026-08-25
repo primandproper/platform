@@ -209,36 +209,43 @@ func (g *Generator) storedNow() string {
 //
 // MySQL and SQLite have no boolean type to cast to — both spell it as an
 // integer — so the nearest cast (CAST(... AS UNSIGNED)) would only turn the
-// generated field into a number. MySQL's analyzer infers the type from the
-// false and needs nothing further. SQLite's does not, and reports the failure
-// somewhere else entirely: a list query's counts are scalar subqueries in the
-// SELECT list, and an argument it cannot type inside one makes it lose the
-// subquery's alias, so `sqlc compile` reports `column "filtered_count" does not
-// exist` against a line whose alias is right there. Comparing the coalesced
-// value against a literal is what gives it the type, and it changes no
-// semantics: SQLite spells true as 1, a bound Go bool arrives as 1 or 0, and an
-// absent flag coalesces to false and compares unequal.
+// generated field into a number. What they take instead is a comparison: the
+// coalesced value against a literal, which supplies the type from the literal.
+//
+// Both of them need it, and both report its absence somewhere else entirely. A
+// list query's counts are scalar subqueries in the SELECT list, and an argument
+// neither analyzer can type inside one makes it lose the subquery's alias — so
+// `sqlc compile` reports `column "filtered_count" does not exist` against a
+// line whose alias is right there.
+//
+// The comparison changes no semantics on either: both spell true as 1, a bound
+// Go bool arrives as 1 or 0, and an absent flag coalesces to false and compares
+// unequal.
 func (g *Generator) includeArchivedFlag() string {
 	coalesced := fmt.Sprintf("COALESCE(sqlc.narg(%s), false)", IncludeArchivedArg)
 
-	switch g.dialect {
-	case dialect.SQLite:
-		return coalesced + " = true"
-	case dialect.MySQL:
-		return coalesced
-	// Postgres, which For has already narrowed the alternatives to.
-	default:
+	if g.dialect == dialect.Postgres {
 		return coalesced + "::boolean"
 	}
+
+	return coalesced + " = true"
 }
 
 // limitClause renders the page-size clause a keyset walk ends on.
 //
 // Postgres and SQLite take an expression, so an absent page size coalesces to
 // filtering.DefaultQueryFilterLimit and the generated Go parameter is a pointer
-// the caller may leave nil. MySQL takes an integer literal or a placeholder
+// the caller may leave nil. MySQL takes an integer literal or a bare placeholder
 // after LIMIT and nothing else — COALESCE there is a parse error, not a slower
-// plan — so its clause binds the size and the generated parameter is a value.
+// plan, and so is a named argument reference — so its clause binds the size and
+// spells the marker directly.
+//
+// That bare marker is the one argument reference in this package that carries no
+// name, because MySQL's grammar has nowhere to put one. Everything downstream
+// still knows which argument it is: bindArguments records it under LimitArg like
+// any other, so a caller binds the page size under the same key on all three
+// dialects. What a MySQL consumer generating Go from these files gets is a
+// parameter sqlc named from the clause rather than from the reference.
 //
 // This is the one place a dialect changes a generated signature rather than only
 // the SQL behind it, and leveling the other two down to match would be the
@@ -254,7 +261,7 @@ func (g *Generator) includeArchivedFlag() string {
 // returns no rows, which is loud, rather than a page of some other size.
 func (g *Generator) limitClause() string {
 	if g.dialect == dialect.MySQL {
-		return fmt.Sprintf("LIMIT sqlc.arg(%s)", LimitArg)
+		return "LIMIT " + g.dialect.Placeholder(1)
 	}
 
 	return fmt.Sprintf("LIMIT COALESCE(sqlc.narg(%s), %d)", LimitArg, filtering.DefaultQueryFilterLimit)

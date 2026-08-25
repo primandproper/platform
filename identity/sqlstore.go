@@ -498,7 +498,7 @@ func (s *SQLStore) execBound(
 	missing error,
 	operation string,
 ) error {
-	args, err := bind(statement, values, operation)
+	args, err := argsFor(statement, values, operation)
 	if err != nil {
 		return err
 	}

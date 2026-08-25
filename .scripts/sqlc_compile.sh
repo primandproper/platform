@@ -23,33 +23,18 @@ PROJECT_ROOT="${1:-$(pwd)}"
 SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 
 # The components checked, as "<module-relative package> <queries directory>".
-# Each package's directory holds one <dialect>.sql per dialect it claims, and
+# Each package's directory holds one <dialect>_generated.sql per dialect it claims, and
 # its `-schema <dialect>` mode prints the DDL those queries are read against.
 COMPONENTS=(
   "./identity ./internal/queriesgen internal/queries"
 )
 
-# The dialects checked, as "<dialect> <sqlc engine>".
-#
-# MySQL is missing, and it is not an oversight: two of the expressions
-# database/querygen emits for MySQL are ones sqlc's MySQL parser rejects, and
-# both are the generator's to settle rather than any consumer's.
-#
-#   - `LIMIT sqlc.arg(result_limit)`. MySQL takes an integer literal or a bare
-#     placeholder after LIMIT and nothing else, and sqlc's parser is the same
-#     parser, so it wants `LIMIT ?`. The Bound path needs the named reference in
-#     that position — it is what puts result_limit in Bound.Args — so the two
-#     consumers want different text for the one clause querygen's own doc
-#     already calls out as the place a dialect changes a signature.
-#   - The cursor predicate binds an argument named `cursor`, which is a reserved
-#     word in MySQL. `sqlc.narg(cursor)` is a syntax error there, and backticks
-#     do not help: the name is filtering.ArgCursor, so renaming it moves a
-#     generated field name for every consumer of every dialect.
-#
-# Both reproduce in four lines against an empty table. Neither is reachable from
-# a package's own port, so MySQL joins this list when querygen does.
+# The dialects checked, as "<dialect> <sqlc engine>". Every dialect
+# database/dialect names is here; a generator that emits SQL one of the three
+# cannot parse is a generator with a broken dialect, not a check with a gap.
 DIALECTS=(
   "postgres postgresql"
+  "mysql mysql"
   "sqlite sqlite"
 )
 
@@ -98,7 +83,7 @@ main() {
       mkdir -p "${target}"
 
       (cd "${PROJECT_ROOT}/${package}" && go run "${generator}" -schema "${d}") > "${target}/schema.sql"
-      cp "${PROJECT_ROOT}/${package}/${queries_dir}/${d}.sql" "${target}/queries.sql"
+      cp "${PROJECT_ROOT}/${package}/${queries_dir}/${d}_generated.sql" "${target}/queries.sql"
 
       cat >> "${config}" <<EOF
   - engine: ${engine}

@@ -34,7 +34,7 @@ func TestRender_MatchesTheCommittedFiles(T *testing.T) {
 		T.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 
-			committed, err := os.ReadFile(string(d) + ".sql")
+			committed, err := os.ReadFile(FileName(d))
 			must.NoError(t, err)
 
 			// The committed file carries the generated-code header, which is
@@ -45,7 +45,7 @@ func TestRender_MatchesTheCommittedFiles(T *testing.T) {
 			}
 
 			test.EqOp(t, Render(d), body,
-				test.Sprintf("run `make generate` and commit %s.sql", d))
+				test.Sprintf("run `make generate` and commit %s", FileName(d)))
 		})
 	}
 }
