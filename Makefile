@@ -100,6 +100,18 @@ lint: golang_lint shellcheck
 generate:
 	go generate ./...
 
+# Deliberately not a prerequisite of `generate`. protoc is a pinned download
+# rather than a module dependency, and `go generate ./...` is run far more often
+# than a .proto changes; folding one into the other would make every generate
+# reach for a toolchain almost none of them need. CI runs both, in separate jobs.
+#
+# Formatting is the caller's, not the script's: `make proto format` is what a
+# contributor runs and what CI checks, so the generated files are held to the
+# same formatters as everything else.
+.PHONY: proto
+proto:
+	$(SCRIPTS_DIR)/proto.sh $(PWD)
+
 ## EXECUTION
 
 .PHONY: build
