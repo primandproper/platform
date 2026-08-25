@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_users (
     account_status_explanation       VARCHAR(1024) NOT NULL DEFAULT '',
     last_accepted_terms_of_service   DATETIME(6),
     last_accepted_privacy_policy     DATETIME(6),
-    created_at                       DATETIME(6) NOT NULL,
+    created_at                       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at                  DATETIME(6),
     archived_at                      DATETIME(6),
     UNIQUE KEY {{PREFIX}}identity_users_username_uniq (scope, username),
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_accounts (
     address_country                 VARCHAR(255) NOT NULL DEFAULT '',
     address_phone                   VARCHAR(64) NOT NULL DEFAULT '',
     time_zone                       VARCHAR(64) NOT NULL DEFAULT '',
-    created_at                      DATETIME(6) NOT NULL,
+    created_at                      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at                 DATETIME(6),
     archived_at                     DATETIME(6)
 );
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_memberships (
     belongs_to_user    VARCHAR(64) NOT NULL,
     belongs_to_account VARCHAR(64) NOT NULL,
     default_account    BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at         DATETIME(6) NOT NULL,
+    created_at         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at    DATETIME(6),
     archived_at        DATETIME(6),
     UNIQUE KEY {{PREFIX}}identity_memberships_pair_uniq (belongs_to_user, belongs_to_account),
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_invitations (
     status             VARCHAR(32) NOT NULL,
     note               VARCHAR(1024) NOT NULL DEFAULT '',
     expires_at         DATETIME(6) NOT NULL,
-    created_at         DATETIME(6) NOT NULL,
+    created_at         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at    DATETIME(6),
     archived_at        DATETIME(6),
     CONSTRAINT {{PREFIX}}identity_invitations_account_fk

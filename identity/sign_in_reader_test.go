@@ -28,14 +28,17 @@ func runSignInReaderSuite(t *testing.T, env *storeEnv) {
 
 		must.NoError(t, store.ArchiveUser(t.Context(), testScope, user.ID))
 
-		// The sign-in reads exclude archived users; the ID read does not, so a
-		// reference from another domain still resolves.
+		// Every read by id excludes archived users too, now that they all run
+		// querygen's single-row statement. A caller who wants an archived user
+		// back wants a different query rather than a flag on this one.
 		_, err = store.GetUserByUsername(t.Context(), testScope, "ada")
 		must.ErrorIs(t, err, ErrUserNotFound)
 
-		archived, err := store.GetUser(t.Context(), testScope, user.ID)
-		must.NoError(t, err)
-		test.True(t, archived.Archived())
+		_, err = store.GetUser(t.Context(), testScope, user.ID)
+		must.ErrorIs(t, err, ErrUserNotFound)
+
+		_, err = store.GetPrincipal(t.Context(), testScope, user.ID, "")
+		must.ErrorIs(t, err, ErrUserNotFound)
 	})
 
 	t.Run("builds a principal", func(t *testing.T) {

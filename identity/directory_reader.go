@@ -13,7 +13,7 @@ import (
 // them, read and never written.
 var _ DirectoryReader = (*SQLStore)(nil)
 
-// GetUser reads one of the scope's users, archived users included.
+// GetUser reads one of the scope's live users.
 func (s *SQLStore) GetUser(ctx context.Context, scope tenancy.Scope, userID string) (*User, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -25,15 +25,39 @@ func (s *SQLStore) GetUser(ctx context.Context, scope tenancy.Scope, userID stri
 		return nil, op.Error(err, "reading identity user %q", userID)
 	}
 
-	query, args := s.tables.buildSelectUser(s.dialect, scope, userID)
-
-	user, err := scanUser(s.client.Reader().QueryRowContext(ctx, query, args...))
+	user, err := s.readUser(ctx, s.client.Reader(), scope, userID)
 	if err != nil {
-		return nil, op.Error(notFound(err, ErrUserNotFound), "reading identity user %q", userID)
+		return nil, op.Error(err, "reading identity user %q", userID)
 	}
 
-	if err = s.attachServiceRoles(ctx, s.client.Reader(), []*User{user}); err != nil {
-		return nil, op.Error(err, "reading identity user %q service roles", userID)
+	return user, nil
+}
+
+// readUser is the read by id, through whatever executor the caller is holding.
+//
+// It excludes archived users, which the statement it used to run did not. That
+// is querygen's single-row read rather than a decision taken here: reading one
+// row by id is not a filtered list, and a caller who wants an archived user
+// back wants a different query rather than a flag on this one. It is a
+// consumer-visible change and it is in the release notes.
+func (s *SQLStore) readUser(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID string,
+) (*User, error) {
+	args, err := bind(s.stmts.getUser, keyed(scope, userID), "reading identity user")
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := scanUser(q.QueryRowContext(ctx, s.stmts.getUser.SQL, args...))
+	if err != nil {
+		return nil, notFound(err, ErrUserNotFound)
+	}
+
+	if err = s.attachServiceRoles(ctx, q, []*User{user}); err != nil {
+		return nil, err
 	}
 
 	return user, nil
@@ -48,12 +72,32 @@ func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *f
 		return nil, op.Error(err, "listing identity users")
 	}
 
-	filter, cursor, limit := pageWindow(filter)
+	filter = pageFilter(filter)
 
-	query, args := s.tables.buildListUsers(s.dialect, scope, cursor, limit)
-	countQuery, countArgs := s.tables.buildCountUsers(s.dialect, scope)
+	values := s.stmts.listValues(filter, keyedScope(scope))
 
-	return s.pageUsers(ctx, op, filter, query, args, countQuery, countArgs)
+	args, err := bind(s.stmts.listUsers, values, "listing identity users")
+	if err != nil {
+		return nil, op.Error(err, "listing identity users")
+	}
+
+	rows, err := database.ScanAll(ctx, s.client.Reader(), "identity user",
+		s.stmts.listUsers.SQL, args, scanPage(scanUser))
+	if err != nil {
+		return nil, op.Error(err, "listing identity users")
+	}
+
+	if err = s.hydrateUsers(ctx, s.client.Reader(), pageValues(rows)); err != nil {
+		return nil, op.Error(err, "listing identity users")
+	}
+
+	op.SpanOnly(countKey, len(rows))
+
+	// The cursor is the id, because the statement orders by it. A cursor naming
+	// a position in an order the query does not use is a page that skips rows
+	// and repeats others, with nothing reporting an error.
+	return filtering.Drain(rows, pageValue, pageCounts,
+		func(u *User) string { return u.ID }, filter), nil
 }
 
 // ListUsersByIDs reads a batch of the scope's users in one query.
@@ -81,12 +125,8 @@ func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, user
 		return nil, op.Error(err, "reading identity users by ID")
 	}
 
-	if err = s.attachServiceRoles(ctx, s.client.Reader(), users); err != nil {
+	if err = s.hydrateUsers(ctx, s.client.Reader(), users); err != nil {
 		return nil, op.Error(err, "reading identity user service roles")
-	}
-
-	for i := range users {
-		users[i] = users[i].Redacted()
 	}
 
 	op.SpanOnly(countKey, len(users))
@@ -112,12 +152,36 @@ func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scop
 	return s.pageUsers(ctx, op, filter, query, args, countQuery, countArgs)
 }
 
-// pageUsers runs a user page and its count, redacting every row.
+// hydrateUsers attaches a page's service roles and redacts every user in it.
 //
-// The redaction is here rather than at each call site because it is the rule
-// that can be got wrong twice: a page read is where a password hash escapes in
-// bulk, and the one list method that forgot to redact would look identical to
-// the ones that did not.
+// Both halves are here rather than at each call site because both are rules
+// that can be got wrong twice, and the redaction is the one that matters: a
+// page read is where a password hash escapes in bulk, and the one list method
+// that forgot would look identical to the ones that did not.
+//
+// It redacts through the pointer rather than returning a new slice, because its
+// two callers hold the users differently — one has a plain slice, the other has
+// them inside the rows carrying the page's counts — and a rule that returned a
+// second slice would leave the caller with the counts holding the unredacted
+// copies.
+func (s *SQLStore) hydrateUsers(ctx context.Context, q database.SQLQueryExecutor, users []*User) error {
+	if err := s.attachServiceRoles(ctx, q, users); err != nil {
+		return err
+	}
+
+	for _, user := range users {
+		*user = *user.Redacted()
+	}
+
+	return nil
+}
+
+// pageUsers runs a user page whose count is a separate query, redacting every
+// row.
+//
+// It serves the username prefix search, which querygen does not emit — the
+// pattern, the ESCAPE clause and the ordering by username are all its own — so
+// its count does not ride along on the rows the way a rendered list's does.
 func (s *SQLStore) pageUsers(
 	ctx context.Context,
 	op observability.Operation,
@@ -130,12 +194,8 @@ func (s *SQLStore) pageUsers(
 		return nil, op.Error(err, "listing identity users")
 	}
 
-	if err = s.attachServiceRoles(ctx, s.client.Reader(), users); err != nil {
+	if err = s.hydrateUsers(ctx, s.client.Reader(), users); err != nil {
 		return nil, op.Error(err, "listing identity user service roles")
-	}
-
-	for i := range users {
-		users[i] = users[i].Redacted()
 	}
 
 	var total uint64
@@ -164,11 +224,33 @@ func (s *SQLStore) GetAccount(ctx context.Context, scope tenancy.Scope, accountI
 		return nil, op.Error(err, "reading identity account %q", accountID)
 	}
 
-	query, args := s.tables.buildSelectAccount(s.dialect, scope, accountID)
-
-	account, err := scanAccount(s.client.Reader().QueryRowContext(ctx, query, args...))
+	account, err := s.readAccount(ctx, s.client.Reader(), scope, accountID)
 	if err != nil {
-		return nil, op.Error(notFound(err, ErrAccountNotFound), "reading identity account %q", accountID)
+		return nil, op.Error(err, "reading identity account %q", accountID)
+	}
+
+	return account, nil
+}
+
+// readAccount is the read by id, through whatever executor the caller is
+// holding.
+//
+// Like readUser it excludes archived rows where the statement it replaced did
+// not — see there.
+func (s *SQLStore) readAccount(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	accountID string,
+) (*Account, error) {
+	args, err := bind(s.stmts.getAccount, keyed(scope, accountID), "reading identity account")
+	if err != nil {
+		return nil, err
+	}
+
+	account, err := scanAccount(q.QueryRowContext(ctx, s.stmts.getAccount.SQL, args...))
+	if err != nil {
+		return nil, notFound(err, ErrAccountNotFound)
 	}
 
 	return account, nil
@@ -183,12 +265,23 @@ func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter
 		return nil, op.Error(err, "listing identity accounts")
 	}
 
-	filter, cursor, limit := pageWindow(filter)
+	filter = pageFilter(filter)
 
-	query, args := s.tables.buildListAccounts(s.dialect, scope, cursor, limit)
-	countQuery, countArgs := s.tables.buildCountAccounts(s.dialect, scope)
+	args, err := bind(s.stmts.listAccounts, s.stmts.listValues(filter, keyedScope(scope)), "listing identity accounts")
+	if err != nil {
+		return nil, op.Error(err, "listing identity accounts")
+	}
 
-	return s.pageAccounts(ctx, op, filter, query, args, countQuery, countArgs)
+	rows, err := database.ScanAll(ctx, s.client.Reader(), "identity account",
+		s.stmts.listAccounts.SQL, args, scanPage(scanAccount))
+	if err != nil {
+		return nil, op.Error(err, "listing identity accounts")
+	}
+
+	op.SpanOnly(countKey, len(rows))
+
+	return filtering.Drain(rows, pageValue, pageCounts,
+		func(a *Account) string { return a.ID }, filter), nil
 }
 
 // ListAccountsForUser pages the accounts a user is a live member of.

@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_users (
     account_status_explanation       TEXT NOT NULL DEFAULT '',
     last_accepted_terms_of_service   TIMESTAMPTZ,
     last_accepted_privacy_policy     TIMESTAMPTZ,
-    created_at                       TIMESTAMPTZ NOT NULL,
+    created_at                       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_updated_at                  TIMESTAMPTZ,
     archived_at                      TIMESTAMPTZ
 );
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_accounts (
     address_country                 TEXT NOT NULL DEFAULT '',
     address_phone                   TEXT NOT NULL DEFAULT '',
     time_zone                       TEXT NOT NULL DEFAULT '',
-    created_at                      TIMESTAMPTZ NOT NULL,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_updated_at                 TIMESTAMPTZ,
     archived_at                     TIMESTAMPTZ
 );
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_memberships (
     belongs_to_user    TEXT NOT NULL REFERENCES {{PREFIX}}identity_users (id) ON DELETE CASCADE,
     belongs_to_account TEXT NOT NULL REFERENCES {{PREFIX}}identity_accounts (id) ON DELETE CASCADE,
     default_account    BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at         TIMESTAMPTZ NOT NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_updated_at    TIMESTAMPTZ,
     archived_at        TIMESTAMPTZ,
     UNIQUE (belongs_to_user, belongs_to_account)
@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_invitations (
     status             TEXT NOT NULL,
     note               TEXT NOT NULL DEFAULT '',
     expires_at         TIMESTAMPTZ NOT NULL,
-    created_at         TIMESTAMPTZ NOT NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_updated_at    TIMESTAMPTZ,
     archived_at        TIMESTAMPTZ
 );

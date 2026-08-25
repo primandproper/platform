@@ -91,6 +91,10 @@ golang_lint:
 shellcheck:
 	@$(SCRIPTS_DIR)/shellcheck.sh $(CONTAINER_RUNNER) $(SHELLCHECK_IMAGE) $(SCRIPTS_DIR)
 
+.PHONY: sqlc_compile
+sqlc_compile:
+	@$(SCRIPTS_DIR)/sqlc_compile.sh $(PWD)
+
 .PHONY: lint
 lint: golang_lint shellcheck
 

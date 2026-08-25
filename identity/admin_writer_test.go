@@ -6,6 +6,8 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v13/pointer"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -167,13 +169,20 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 
 		must.NoError(t, store.ArchiveAccount(t.Context(), testScope, account.ID))
 
-		// The row is still readable, as an archived user's is: an invoice and an
-		// audit entry both still name it.
-		read, err := store.GetAccount(t.Context(), testScope, account.ID)
-		must.NoError(t, err)
-		test.True(t, read.Archived())
+		// The read by id excludes it, as every read by id now does.
+		_, err := store.GetAccount(t.Context(), testScope, account.ID)
+		must.ErrorIs(t, err, ErrAccountNotFound)
 
-		// It is out of the directory's page, though.
+		// A page admits it when the filter asks for archived rows, which is the
+		// read a caller reconciling an invoice against a closed account wants.
+		archived, err := store.ListAccounts(t.Context(), testScope, &filtering.QueryFilter{
+			IncludeArchived: pointer.To(true),
+		})
+		must.NoError(t, err)
+		must.SliceLen(t, 1, archived.Data)
+		test.True(t, archived.Data[0].Archived())
+
+		// It is out of the unfiltered page, though.
 		page, err := store.ListAccounts(t.Context(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceEmpty(t, page.Data)

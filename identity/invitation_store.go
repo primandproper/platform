@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -15,11 +16,16 @@ import (
 // answered.
 var _ InvitationStore = (*SQLStore)(nil)
 
-// The invitation columns the two paged reads name, and the column the
-// invitation role table keys on.
+// The invitation columns the two paged reads name, the status column both of
+// them match on, and the column the invitation role table keys on.
+//
+// The status used to be the literal 'pending' inside a format string. It is now
+// a column matched against a bound value, which renders identically and puts
+// the name where dialect.ValidIdentifier vets it.
 const (
 	invitationFromUserColumn = "from_user"
 	invitationToEmailColumn  = "to_email"
+	invitationStatusColumn   = "status"
 	invitationIDColumn       = "invitation_id"
 )
 
@@ -48,7 +54,6 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 	}
 
 	invitation.ID = newID(invitation.ID)
-	invitation.CreatedAt = s.now()
 
 	op.Set(invitationIDKey, invitation.ID).
 		Set(accountIDKey, invitation.BelongsToAccount).
@@ -58,9 +63,19 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 	// no roles produces a membership that may do nothing, which is discovered
 	// only once somebody has accepted it.
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		query, args := s.tables.buildInsertInvitation(s.dialect, invitation, invitation.CreatedAt)
-		if _, err := q.ExecContext(ctx, query, args...); err != nil {
+		args, err := bind(s.stmts.createInvitation, invitationValues(invitation), "writing identity invitation")
+		if err != nil {
+			return err
+		}
+
+		if _, err = q.ExecContext(ctx, s.stmts.createInvitation.SQL, args...); err != nil {
 			return platformerrors.Wrap(err, "writing identity invitation")
+		}
+
+		// Read back for the reason CreateUser and CreateAccount read theirs
+		// back — see SQLStore.stampCreatedAt.
+		if err = s.stampCreatedAt(ctx, q, s.tables.invitations, invitation.ID, &invitation.CreatedAt); err != nil {
+			return err
 		}
 
 		return s.replaceRoles(ctx, q, s.tables.invitationRoles, invitationIDColumn, invitation.ID, invitation.Roles)
@@ -99,9 +114,12 @@ func (s *SQLStore) readInvitation(
 	scope tenancy.Scope,
 	invitationID string,
 ) (*Invitation, error) {
-	query, args := s.tables.buildSelectInvitation(s.dialect, scope, invitationID)
+	args, err := bind(s.stmts.getInvitation, keyed(scope, invitationID), "reading identity invitation")
+	if err != nil {
+		return nil, err
+	}
 
-	invitation, err := scanInvitation(q.QueryRowContext(ctx, query, args...))
+	invitation, err := scanInvitation(q.QueryRowContext(ctx, s.stmts.getInvitation.SQL, args...))
 	if err != nil {
 		return nil, notFound(err, ErrInvitationNotFound)
 	}
@@ -196,14 +214,28 @@ func (s *SQLStore) pageInvitations(
 		return nil, op.Error(err, "%s", description)
 	}
 
-	filter, cursor, limit := pageWindow(filter)
+	filter = pageFilter(filter)
 
-	query, args := s.tables.buildListInvitationsBy(s.dialect, column, scope, value, cursor, limit)
+	statement := s.stmts.listInvitationsBy[column]
 
-	invitations, err := database.ScanAll(ctx, s.client.Reader(), "identity invitation", query, args, scanInvitation)
+	values := s.stmts.listValues(filter, map[string]any{
+		queries.ScopeColumn:    scope,
+		column:                 value,
+		invitationStatusColumn: InvitationPending.String(),
+	})
+
+	args, err := bind(statement, values, description)
 	if err != nil {
 		return nil, op.Error(err, "%s", description)
 	}
+
+	rows, err := database.ScanAll(ctx, s.client.Reader(), "identity invitation",
+		statement.SQL, args, scanPage(scanInvitation))
+	if err != nil {
+		return nil, op.Error(err, "%s", description)
+	}
+
+	invitations := pageValues(rows)
 
 	ids := make([]string, 0, len(invitations))
 	for _, invitation := range invitations {
@@ -215,29 +247,20 @@ func (s *SQLStore) pageInvitations(
 		return nil, op.Error(err, "%s", description)
 	}
 
-	// Redacted, and the roles attached, in one pass. A listed invitation is
-	// rendered to whoever asked for the list, and its token is the credential
-	// that accepts it — a sender's own list would otherwise hand every
-	// recipient's link back to the sender's browser.
-	for i, invitation := range invitations {
+	// Redacted, and the roles attached, in one pass, through the pointer the
+	// page row holds. A listed invitation is rendered to whoever asked for the
+	// list, and its token is the credential that accepts it — a sender's own
+	// list would otherwise hand every recipient's link back to the sender's
+	// browser.
+	for _, invitation := range invitations {
 		invitation.Roles = byInvitation[invitation.ID]
-		invitations[i] = invitation.Redacted()
+		*invitation = *invitation.Redacted()
 	}
 
-	countQuery, countArgs := s.tables.buildCountInvitationsBy(s.dialect, column, scope, value)
+	op.SpanOnly(countKey, len(rows))
 
-	var total uint64
-	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, op.Error(err, "counting identity invitations")
-	}
-
-	op.SpanOnly(countKey, len(invitations))
-
-	return filtering.NewQueryFilteredResult(
-		invitations, uint64(len(invitations)), total,
-		func(i *Invitation) string { return i.ID },
-		filter,
-	), nil
+	return filtering.Drain(rows, pageValue, pageCounts,
+		func(i *Invitation) string { return i.ID }, filter), nil
 }
 
 // AcceptInvitation marks an invitation accepted and writes the membership it

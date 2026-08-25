@@ -58,6 +58,30 @@ func runProfileWriterSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, store.UpdateUser(t.Context(), user))
 	})
 
+	// The other half of the rule, and the half the port had to move out of the
+	// statement: an unrelated profile edit must not drop a proof the user
+	// already gave. Written as its own case because clearing on every save
+	// would pass the test above.
+	t.Run("keeps verification when the email address does not change", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		user := newUser("ada")
+		user.EmailAddressVerificationToken = "verify-me"
+		createUser(t, store, user)
+
+		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "verify-me"))
+
+		user.FirstName = "Augusta"
+		must.NoError(t, store.UpdateUser(t.Context(), user))
+
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "Augusta", read.FirstName)
+		test.True(t, read.EmailAddressVerified())
+	})
+
 	t.Run("lets a user keep their own handle on update", func(t *testing.T) {
 		t.Parallel()
 

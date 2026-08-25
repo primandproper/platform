@@ -116,11 +116,9 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 	now := s.now()
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		query, args := s.tables.buildSelectAccount(s.dialect, scope, accountID)
-
-		account, err := scanAccount(q.QueryRowContext(ctx, query, args...))
+		account, err := s.readAccount(ctx, q, scope, accountID)
 		if err != nil {
-			return notFound(err, ErrAccountNotFound)
+			return err
 		}
 
 		if account.OwnerUserID == newOwnerUserID {
@@ -131,7 +129,7 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 		// a member is an account whose roster does not include the person
 		// responsible for it, and every roster-driven permission check then
 		// refuses them. An owner who already is one keeps the roles they have.
-		query, args = s.tables.buildSelectMembership(s.dialect, scope, newOwnerUserID, accountID)
+		query, args := s.tables.buildSelectMembership(s.dialect, scope, newOwnerUserID, accountID)
 
 		switch _, readErr := scanMembership(q.QueryRowContext(ctx, query, args...)); {
 		case readErr == nil:
@@ -176,18 +174,16 @@ func (s *SQLStore) RemoveMembership(ctx context.Context, scope tenancy.Scope, us
 	now := s.now()
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		query, args := s.tables.buildSelectAccount(s.dialect, scope, accountID)
-
-		account, err := scanAccount(q.QueryRowContext(ctx, query, args...))
+		account, err := s.readAccount(ctx, q, scope, accountID)
 		if err != nil {
-			return notFound(err, ErrAccountNotFound)
+			return err
 		}
 
 		if account.OwnerUserID == userID {
 			return platformerrors.Wrapf(ErrLastAccountOwner, "account %q", accountID)
 		}
 
-		query, args = s.tables.buildArchiveMembership(s.dialect, scope, userID, accountID, now)
+		query, args := s.tables.buildArchiveMembership(s.dialect, scope, userID, accountID, now)
 		if err = s.execExpectingRow(ctx, op, q, query, args, ErrMembershipNotFound, "removing identity membership"); err != nil {
 			return err
 		}

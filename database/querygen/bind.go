@@ -232,13 +232,13 @@ func (g *Generator) BoundCreate(table string, insertColumns, nullable []string) 
 // hold. A caller wanting to move a row between owners wants that column out of
 // updateColumns, which is what ForUpdate's exceptions are for.
 func (g *Generator) BoundUpdate(table string, columns, updateColumns, nullable []string, extra ...Match) Bound {
-	return g.bound(updateStatement(table, columns, updateColumns, "", nullable, extra...))
+	return g.bound(g.updateStatement(table, columns, updateColumns, "", nullable, extra...))
 }
 
 // BoundArchive renders the soft delete of one row by id, plus any extra
 // predicate columns.
 func (g *Generator) BoundArchive(table string, extra ...Match) Bound {
-	return g.bound(archiveStatement(table, "", extra...))
+	return g.bound(g.archiveStatement(table, "", extra...))
 }
 
 // BindFilter writes a filtering.QueryFilter's values into an argument map under

@@ -198,8 +198,14 @@ func TestResolveActiveAccount(T *testing.T) {
 	})
 }
 
-// runClockSuite covers the timestamps every write reads off the store's clock,
-// which is sqlstore.go's machinery rather than any one interface's behavior.
+// runClockSuite covers the timestamps, which come from two clocks and no longer
+// from one.
+//
+// created_at is the database's — the create does not carry the column and the
+// schema defaults it — so a fixed store clock cannot pin it, and what is worth
+// pinning instead is that the value reaches the caller's struct at all. The
+// writes querygen does not render still stamp last_updated_at from the store's
+// clock, and those a fixed clock does pin.
 func runClockSuite(t *testing.T, env *storeEnv) {
 	t.Helper()
 
@@ -213,10 +219,15 @@ func runClockSuite(t *testing.T, env *storeEnv) {
 
 		user := createUser(t, store, newUser("ada"))
 
+		// The database assigned it and the create read it back, so the caller's
+		// copy is not the zero time — which is what a service serializes into a
+		// response straight after creating a user.
+		test.False(t, user.CreatedAt.IsZero())
+
 		read, err := store.GetUser(t.Context(), testScope, user.ID)
 		must.NoError(t, err)
 		test.EqOp(t, time.UTC, read.CreatedAt.Location())
-		test.EqOp(t, baseTime, read.CreatedAt)
+		test.EqOp(t, user.CreatedAt, read.CreatedAt)
 
 		clk.advance(time.Hour)
 		must.NoError(t, store.SetUserRequiresPasswordChange(t.Context(), testScope, user.ID, true))
@@ -238,9 +249,11 @@ func runClockSuite(t *testing.T, env *storeEnv) {
 		owner := createUser(t, store, newUser("ada"))
 		account := createAccountFor(t, store, owner, "Acme")
 
+		test.False(t, account.CreatedAt.IsZero())
+
 		read, err := store.GetAccount(t.Context(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, time.UTC, read.CreatedAt.Location())
-		test.EqOp(t, baseTime, read.CreatedAt)
+		test.EqOp(t, account.CreatedAt, read.CreatedAt)
 	})
 }

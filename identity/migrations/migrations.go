@@ -28,6 +28,24 @@ owns its tables and will not grow another on request, because the moment the
 schema is configurable it stops being ownable — and owning it is what a consumer
 is adopting. See the identity package documentation.
 
+# created_at has a default, and scope deliberately does not
+
+created_at is NOT NULL with a dialect-appropriate DEFAULT — NOW() on Postgres,
+CURRENT_TIMESTAMP(6) on MySQL, CURRENT_TIMESTAMP on SQLite — because the row's
+creation time is the database's rather than the application's. Two application
+instances whose clocks differ by a second would otherwise write rows that a
+created_after filter excludes at random, and a creation time that disagrees with
+the row's id disagrees with the order a cursor walk pages in. The identity store
+does not supply the column, and reads it back so the value a caller holds is the
+value in the row.
+
+The SQLite spelling is also what makes that column filterable there. SQLite has
+no date type, so a window comparison over it is lexicographic text — and
+CURRENT_TIMESTAMP is what writes the UTC YYYY-MM-DD HH:MM:SS shape that
+lexicographic order agrees with. A caller-bound time.Time reaches that column as
+Go's own String() rendering instead, which sorts correctly by accident of its
+prefix rather than by design.
+
 # The scope column has no default
 
 The DDL here only ever creates: every CREATE TABLE is IF NOT EXISTS, so running

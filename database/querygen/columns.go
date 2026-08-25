@@ -73,10 +73,15 @@ const IDsArg = "ids"
 // from the same clock; two application instances whose clocks differ by a second
 // would otherwise write rows that a window excludes at random.
 //
-// It is a constant rather than a Generator method because all three dialects
-// accept the standard spelling: Postgres and MySQL both treat CURRENT_TIMESTAMP
-// as the same function they spell NOW(), and SQLite has only this one. Arithmetic
-// on it is where they part company — see Generator.timeHorizon.
+// It is a constant because all three dialects accept the standard spelling:
+// Postgres and MySQL both treat CURRENT_TIMESTAMP as the same function they
+// spell NOW(), and SQLite has only this one. Arithmetic on it is where they part
+// company — see Generator.timeHorizon.
+//
+// What it is not is the expression a statement stores. MySQL's bare
+// CURRENT_TIMESTAMP is second-granular whatever the column holds, which is a
+// difference this constant cannot carry — see Generator.storedNow, which is what
+// the assignments use.
 const NowExpression = "CURRENT_TIMESTAMP"
 
 // databaseOwnedColumns are the columns the database fills in and a caller must

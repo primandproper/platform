@@ -7,6 +7,8 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
+	"github.com/primandproper/platform-go/v13/database/querygen"
+	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
@@ -22,6 +24,11 @@ import (
 // "YYYY-MM-DD HH:MM:SS" prefix and everything is UTC, so lexical order is
 // chronological order. It stops being correct the moment a value is bound in a
 // non-UTC location, so do not remove the .UTC() calls at the binding sites.
+//
+// created_at is no longer one of them. The database writes it, from its own
+// CURRENT_TIMESTAMP, which on SQLite is the shape that column's comparisons are
+// lexicographic over rather than one that happens to sort right — see
+// identity/migrations.
 
 // tables holds the seven rendered table names. Derived from one prefix so a
 // consumer cannot name them inconsistently — see identity/migrations.
@@ -41,13 +48,13 @@ func newTables(prefix string) *tables {
 
 	return &tables{
 		base:            prefix,
-		users:           q + "identity_users",
-		userRoles:       q + "identity_user_roles",
-		accounts:        q + "identity_accounts",
-		memberships:     q + "identity_memberships",
-		membershipRoles: q + "identity_membership_roles",
-		invitations:     q + "identity_invitations",
-		invitationRoles: q + "identity_invitation_roles",
+		users:           q + queries.UsersTable,
+		userRoles:       q + queries.UserRolesTable,
+		accounts:        q + queries.AccountsTable,
+		memberships:     q + queries.MembershipsTable,
+		membershipRoles: q + queries.MembershipRolesTable,
+		invitations:     q + queries.InvitationsTable,
+		invitationRoles: q + queries.InvitationRolesTable,
 	}
 }
 
@@ -55,41 +62,32 @@ func newTables(prefix string) *tables {
 // that has to run against every rendered name rather than against any one.
 func (t *tables) prefix() string { return t.base }
 
-// The projections every read scans. Declared once each so the SELECTs and the
-// Scans cannot drift apart — a column added to one and not the other is a scan
-// error at runtime rather than a compile error, and the two lists are far apart
-// in the file.
-const (
-	userColumns = "id, scope, username, email_address, first_name, last_name, " +
-		"hashed_password, requires_password_change, password_last_changed_at, " +
-		"two_factor_secret, two_factor_secret_verified_at, " +
-		"email_address_verified_at, email_address_verification_token, " +
-		"account_status, account_status_explanation, " +
-		"last_accepted_terms_of_service, last_accepted_privacy_policy, " +
-		"created_at, last_updated_at, archived_at"
-
-	accountColumns = "id, scope, name, owner_user_id, billing_status, " +
-		"subscription_plan_id, payment_processor_customer_id, last_payment_provider_synced_at, " +
-		"address_line1, address_line2, address_city, address_state, " +
-		"address_postal_code, address_country, address_phone, time_zone, " +
-		"created_at, last_updated_at, archived_at"
-
-	membershipColumns = "id, scope, belongs_to_user, belongs_to_account, default_account, " +
-		"created_at, last_updated_at, archived_at"
-
-	invitationColumns = "id, scope, belongs_to_account, from_user, to_email, to_name, to_user, " +
-		"token, status, note, expires_at, created_at, last_updated_at, archived_at"
+// The projections the hand-written reads below name, rendered from the column
+// lists in identity/internal/queries.
+//
+// They used to be four comma-separated constants, and the scan side of each was
+// a different file — which meant a column added to one and not the other was a
+// runtime scan error rather than a compile error. Now there is one list per
+// table and three consumers read it: these projections, the scan targets in
+// scan.go, and the statements querygen renders. A column added to the list
+// reaches all three, and a column added to only one of these strings is not
+// something there is a string to add it to.
+var (
+	userProjection       = projection(queries.Users.Columns)
+	accountProjection    = projection(queries.Accounts.Columns)
+	membershipProjection = projection(queries.Memberships.Columns)
+	invitationProjection = projection(queries.Invitations.Columns)
 )
 
-// prefixColumns qualifies a bare column list with a table alias, so a
-// projection declared once can be reused in a join without repeating it.
-func prefixColumns(prefix, columns string) string {
-	parts := strings.Split(columns, ", ")
-	for i := range parts {
-		parts[i] = prefix + parts[i]
-	}
+// projection renders a column list as a SELECT list.
+func projection(columns []string) string {
+	return strings.Join(columns, ", ")
+}
 
-	return strings.Join(parts, ", ")
+// prefixColumns qualifies a column list with a table alias, for the joins whose
+// projection names two tables at once.
+func prefixColumns(alias string, columns []string) string {
+	return projection(querygen.QualifyAll(alias, columns))
 }
 
 // nullableString maps an empty string to a SQL NULL, for the columns where "not
@@ -118,6 +116,23 @@ func nullableString(s string) any {
 // Binding through this type makes the mistake unspellable: every placeholder
 // comes from an append, so the count and the numbering cannot disagree, and a
 // value needed twice is simply bound twice.
+//
+// It is on its way out. Every statement database/querygen renders has its
+// placeholders numbered by the renderer, over the finished text, which is the
+// same property with nobody left to remember it — so the conventional writes
+// against users, accounts and invitations no longer come through here. What is
+// left are the statements querygen does not emit, and they are worth naming
+// because each is a shape the epic behind this port still owes a generator:
+//
+//	buildTransferAccountOwnership  the one remaining accounts statement, and a
+//	                               guarded update — it names the current owner
+//	                               in the predicate as well as the new one in
+//	                               the SET
+//	buildAnswerInvitation          a status-guarded update
+//	the field-specific user writes  password, flags, the two-factor secret, the
+//	                               verification token, the agreements
+//	the membership writes           keyed on the (user, account) pair rather
+//	                               than on id, and an upsert that revives
 type binder struct {
 	d    dialect.Dialect
 	args []any
@@ -134,45 +149,22 @@ func (b *binder) bind(value any) string {
 	return b.d.Placeholder(len(b.args))
 }
 
-// ---------------------------------------------------------------- users
-
-// buildInsertUser renders the user write.
+// buildSelectCreatedAt reads back the creation time the database assigned to a
+// row this store has just written.
 //
-// It is a plain INSERT rather than an upsert: CreateUser creates, and the
-// updates each have a method that writes only the columns they own. An upsert
-// here would make "create" silently overwrite a user whose ID collided, which
-// with generated IDs means never in testing and catastrophically in production.
-func (t *tables) buildInsertUser(d dialect.Dialect, u *User, now time.Time) (query string, args []any) {
-	args = []any{
-		u.ID, u.Scope, u.Username, u.EmailAddress, u.FirstName, u.LastName,
-		u.HashedPassword, u.RequiresPasswordChange, u.PasswordLastChangedAt,
-		u.TwoFactorSecret, u.TwoFactorSecretVerifiedAt,
-		u.EmailAddressVerifiedAt, u.EmailAddressVerificationToken,
-		u.AccountStatus.String(), u.AccountStatusExplanation,
-		u.LastAcceptedTermsOfService, u.LastAcceptedPrivacyPolicy,
-		now,
-	}
-
-	return fmt.Sprintf(
-		"INSERT INTO %s (id, scope, username, email_address, first_name, last_name, "+
-			"hashed_password, requires_password_change, password_last_changed_at, "+
-			"two_factor_secret, two_factor_secret_verified_at, "+
-			"email_address_verified_at, email_address_verification_token, "+
-			"account_status, account_status_explanation, "+
-			"last_accepted_terms_of_service, last_accepted_privacy_policy, created_at) VALUES (%s)",
-		t.users, d.Placeholders(1, len(args)),
-	), args
+// created_at is database-owned — it is not in any create's column list, and the
+// schema gives it a DEFAULT — so the value a caller handed over still holds the
+// zero time when the INSERT returns. This is the read that fixes that; see
+// SQLStore.stampCreatedAt for why it is a read rather than a field left blank.
+//
+// It takes the table because the three creates share it and the name is this
+// package's own, never a caller's.
+func (t *tables) buildSelectCreatedAt(d dialect.Dialect, table, id string) (query string, args []any) {
+	return fmt.Sprintf("SELECT created_at FROM %s WHERE id = %s", table, d.Placeholder(1)),
+		[]any{id}
 }
 
-// buildSelectUser renders the single-user read, within one scope. Archived
-// users are returned — a soft-deleted user is still referenced by an audit row
-// and by another domain's foreign key, and hiding them makes those dangle.
-func (t *tables) buildSelectUser(d dialect.Dialect, scope tenancy.Scope, userID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE id = %s AND scope = %s",
-		userColumns, t.users, d.Placeholder(1), d.Placeholder(2),
-	), []any{userID, scope}
-}
+// ---------------------------------------------------------------- users
 
 // buildSelectLiveUserBy renders the sign-in reads: by username, by email
 // address, or by verification token, always live-only.
@@ -184,36 +176,8 @@ func (t *tables) buildSelectUser(d dialect.Dialect, scope tenancy.Scope, userID 
 func (t *tables) buildSelectLiveUserBy(d dialect.Dialect, column string, scope tenancy.Scope, value string) (query string, args []any) {
 	return fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s = %s AND scope = %s AND archived_at IS NULL",
-		userColumns, t.users, column, d.Placeholder(1), d.Placeholder(2),
+		userProjection, t.users, column, d.Placeholder(1), d.Placeholder(2),
 	), []any{value, scope}
-}
-
-// buildListUsers renders the directory page for one scope, cursor-paginated on
-// username — which is what the page is ordered by, so the cursor and the order
-// agree. Paging on id while ordering on username skips and repeats rows.
-func (t *tables) buildListUsers(d dialect.Dialect, scope tenancy.Scope, cursor string, limit int) (query string, args []any) {
-	args = []any{scope}
-
-	where := "scope = " + d.Placeholder(1) + " AND archived_at IS NULL"
-	if cursor != "" {
-		args = append(args, cursor)
-		where += " AND username > " + d.Placeholder(len(args))
-	}
-
-	args = append(args, limit)
-
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s ORDER BY username LIMIT %s",
-		userColumns, t.users, where, d.Placeholder(len(args)),
-	), args
-}
-
-// buildCountUsers counts the scope's live users, for the page's total.
-func (t *tables) buildCountUsers(d dialect.Dialect, scope tenancy.Scope) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s WHERE scope = %s AND archived_at IS NULL",
-		t.users, d.Placeholder(1),
-	), []any{scope}
 }
 
 // likeEscape is the character the prefix search escapes wildcards with.
@@ -250,7 +214,7 @@ func (t *tables) buildSearchUsers(d dialect.Dialect, scope tenancy.Scope, prefix
 
 	return fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s ORDER BY username LIMIT %s",
-		userColumns, t.users, where, d.Placeholder(len(args)),
+		userProjection, t.users, where, d.Placeholder(len(args)),
 	), args
 }
 
@@ -294,34 +258,6 @@ func (t *tables) buildSelectUserIDByField(d dialect.Dialect, column string, scop
 	}
 
 	return fmt.Sprintf("SELECT id FROM %s WHERE %s", t.users, where), args
-}
-
-// buildUpdateUser writes the profile columns and nothing else. Changing the
-// email address clears its verification, in the same statement — two statements
-// would leave a window in which the new address reads as proven.
-func (t *tables) buildUpdateUser(d dialect.Dialect, u *User, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	// The verification clause is assigned FIRST, and the order is load-bearing.
-	//
-	// MySQL evaluates a single-table UPDATE's assignments left to right and lets
-	// later ones see the values earlier ones wrote; Postgres and SQLite evaluate
-	// every assignment against the row as it was. So with email_address assigned
-	// first, MySQL's CASE compares the new address against itself, finds them
-	// equal, and keeps the verification — meaning a user could move their
-	// address to one they have never proven and stay verified, on one dialect
-	// only. Assigning the CASE before email_address makes all three read the old
-	// value.
-	return fmt.Sprintf(
-		"UPDATE %s SET "+
-			"email_address_verified_at = CASE WHEN email_address = %s THEN email_address_verified_at ELSE NULL END, "+
-			"username = %s, email_address = %s, first_name = %s, last_name = %s, "+
-			"last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.users,
-		b.bind(u.EmailAddress),
-		b.bind(u.Username), b.bind(u.EmailAddress), b.bind(u.FirstName), b.bind(u.LastName),
-		b.bind(now), b.bind(u.ID), b.bind(u.Scope),
-	), b.args
 }
 
 // buildUpdateUserPassword writes the hash, stamps the change, and clears the
@@ -448,18 +384,6 @@ func (t *tables) buildRecordAgreements(d dialect.Dialect, scope tenancy.Scope, u
 	), b.args
 }
 
-// buildArchiveUser soft-deletes a user. Already-archived users are excluded, so
-// a repeated archive does not move the timestamp and lose when it first
-// happened.
-func (t *tables) buildArchiveUser(d dialect.Dialect, scope tenancy.Scope, userID string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET archived_at = %s, last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.users, b.bind(now), b.bind(now), b.bind(userID), b.bind(scope),
-	), b.args
-}
-
 // buildEraseUser destroys the row. Memberships and their roles go with it
 // through ON DELETE CASCADE, which is the one place this schema relies on the
 // database to finish a deletion — an erasure that left a membership behind
@@ -470,59 +394,6 @@ func (t *tables) buildEraseUser(d dialect.Dialect, scope tenancy.Scope, userID s
 }
 
 // ---------------------------------------------------------------- accounts
-
-// buildInsertAccount renders the account write.
-func (t *tables) buildInsertAccount(d dialect.Dialect, a *Account, now time.Time) (query string, args []any) {
-	args = []any{
-		a.ID, a.Scope, a.Name, a.OwnerUserID, a.BillingStatus.String(),
-		a.SubscriptionPlanID, a.PaymentProcessorCustomerID, a.LastPaymentProviderSyncedAt,
-		a.BillingAddress.Line1, a.BillingAddress.Line2, a.BillingAddress.City,
-		a.BillingAddress.State, a.BillingAddress.PostalCode, a.BillingAddress.Country,
-		a.BillingAddress.Phone, a.TimeZone, now,
-	}
-
-	return fmt.Sprintf(
-		"INSERT INTO %s (id, scope, name, owner_user_id, billing_status, "+
-			"subscription_plan_id, payment_processor_customer_id, last_payment_provider_synced_at, "+
-			"address_line1, address_line2, address_city, address_state, "+
-			"address_postal_code, address_country, address_phone, time_zone, created_at) VALUES (%s)",
-		t.accounts, d.Placeholders(1, len(args)),
-	), args
-}
-
-// buildSelectAccount renders the single-account read, within one scope.
-func (t *tables) buildSelectAccount(d dialect.Dialect, scope tenancy.Scope, accountID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE id = %s AND scope = %s",
-		accountColumns, t.accounts, d.Placeholder(1), d.Placeholder(2),
-	), []any{accountID, scope}
-}
-
-// buildListAccounts renders the scope's account page, cursor-paginated on id.
-func (t *tables) buildListAccounts(d dialect.Dialect, scope tenancy.Scope, cursor string, limit int) (query string, args []any) {
-	args = []any{scope}
-
-	where := "scope = " + d.Placeholder(1) + " AND archived_at IS NULL"
-	if cursor != "" {
-		args = append(args, cursor)
-		where += " AND id > " + d.Placeholder(len(args))
-	}
-
-	args = append(args, limit)
-
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s ORDER BY id LIMIT %s",
-		accountColumns, t.accounts, where, d.Placeholder(len(args)),
-	), args
-}
-
-// buildCountAccounts counts the scope's live accounts.
-func (t *tables) buildCountAccounts(d dialect.Dialect, scope tenancy.Scope) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s WHERE scope = %s AND archived_at IS NULL",
-		t.accounts, d.Placeholder(1),
-	), []any{scope}
-}
 
 // buildListAccountsForUser pages the accounts a user is a live member of.
 //
@@ -547,7 +418,7 @@ func (t *tables) buildListAccountsForUser(d dialect.Dialect, scope tenancy.Scope
 	return fmt.Sprintf(
 		"SELECT %s FROM %s AS a INNER JOIN %s AS m ON m.belongs_to_account = a.id "+
 			"WHERE %s ORDER BY a.id LIMIT %s",
-		prefixColumns("a.", accountColumns), t.accounts, t.memberships,
+		prefixColumns("a", queries.Accounts.Columns), t.accounts, t.memberships,
 		where, d.Placeholder(len(args)),
 	), args
 }
@@ -559,23 +430,6 @@ func (t *tables) buildCountAccountsForUser(d dialect.Dialect, scope tenancy.Scop
 			"WHERE a.scope = %s AND m.belongs_to_user = %s AND a.archived_at IS NULL AND m.archived_at IS NULL",
 		t.accounts, t.memberships, d.Placeholder(1), d.Placeholder(2),
 	), []any{scope, userID}
-}
-
-// buildUpdateAccount writes the name and address, and neither the billing state
-// nor the owner — see Store.UpdateAccount.
-func (t *tables) buildUpdateAccount(d dialect.Dialect, a *Account, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET name = %s, address_line1 = %s, address_line2 = %s, address_city = %s, "+
-			"address_state = %s, address_postal_code = %s, address_country = %s, address_phone = %s, "+
-			"time_zone = %s, last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.accounts, b.bind(a.Name),
-		b.bind(a.BillingAddress.Line1), b.bind(a.BillingAddress.Line2), b.bind(a.BillingAddress.City),
-		b.bind(a.BillingAddress.State), b.bind(a.BillingAddress.PostalCode), b.bind(a.BillingAddress.Country),
-		b.bind(a.BillingAddress.Phone), b.bind(a.TimeZone),
-		b.bind(now), b.bind(a.ID), b.bind(a.Scope),
-	), b.args
 }
 
 // buildUpdateAccountBilling writes only the fields the update names, so a
@@ -633,16 +487,6 @@ func (t *tables) buildTransferAccountOwnership(d dialect.Dialect, scope tenancy.
 	), b.args
 }
 
-// buildArchiveAccount soft-deletes an account.
-func (t *tables) buildArchiveAccount(d dialect.Dialect, scope tenancy.Scope, accountID string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET archived_at = %s, last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.accounts, b.bind(now), b.bind(now), b.bind(accountID), b.bind(scope),
-	), b.args
-}
-
 // ------------------------------------------------------------ memberships
 
 // buildUpsertMembership writes a membership, reviving an archived one for the
@@ -689,7 +533,7 @@ func (t *tables) buildSelectMembership(d dialect.Dialect, scope tenancy.Scope, u
 	return fmt.Sprintf(
 		"SELECT %s FROM %s WHERE scope = %s AND belongs_to_user = %s AND belongs_to_account = %s "+
 			"AND archived_at IS NULL",
-		membershipColumns, t.memberships, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
+		membershipProjection, t.memberships, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
 	), []any{scope, userID, accountID}
 }
 
@@ -700,7 +544,7 @@ func (t *tables) buildListMembershipsForUser(d dialect.Dialect, scope tenancy.Sc
 	return fmt.Sprintf(
 		"SELECT %s FROM %s WHERE scope = %s AND belongs_to_user = %s AND archived_at IS NULL "+
 			"ORDER BY default_account DESC, belongs_to_account",
-		membershipColumns, t.memberships, d.Placeholder(1), d.Placeholder(2),
+		membershipProjection, t.memberships, d.Placeholder(1), d.Placeholder(2),
 	), []any{scope, userID}
 }
 
@@ -725,7 +569,7 @@ func (t *tables) buildListAccountMembers(d dialect.Dialect, scope tenancy.Scope,
 	return fmt.Sprintf(
 		"SELECT %s, %s FROM %s AS m INNER JOIN %s AS u ON u.id = m.belongs_to_user "+
 			"WHERE %s ORDER BY m.id LIMIT %s",
-		prefixColumns("m.", membershipColumns), prefixColumns("u.", userColumns),
+		prefixColumns("m", queries.Memberships.Columns), prefixColumns("u", queries.Users.Columns),
 		t.memberships, t.users, where, d.Placeholder(len(args)),
 	), args
 }
@@ -846,64 +690,6 @@ func (t *tables) buildArchiveMembershipsBy(d dialect.Dialect, column string, sco
 
 // ----------------------------------------------------------- invitations
 
-// buildInsertInvitation renders the invitation write.
-func (t *tables) buildInsertInvitation(d dialect.Dialect, i *Invitation, now time.Time) (query string, args []any) {
-	args = []any{
-		i.ID, i.Scope, i.BelongsToAccount, i.FromUser, i.ToEmail, i.ToName,
-		i.ToUser, i.Token, i.Status.String(), i.Note, i.ExpiresAt.UTC(), now,
-	}
-
-	return fmt.Sprintf(
-		"INSERT INTO %s (id, scope, belongs_to_account, from_user, to_email, to_name, "+
-			"to_user, token, status, note, expires_at, created_at) VALUES (%s)",
-		t.invitations, d.Placeholders(1, len(args)),
-	), args
-}
-
-// buildSelectInvitation renders the single-invitation read, within one scope.
-//
-// There is no read by token: GetInvitationByToken names the row by ID and
-// compares the token in Go, so the secret is never an index key and a miss
-// costs the same as a hit.
-func (t *tables) buildSelectInvitation(d dialect.Dialect, scope tenancy.Scope, invitationID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE id = %s AND scope = %s",
-		invitationColumns, t.invitations, d.Placeholder(1), d.Placeholder(2),
-	), []any{invitationID, scope}
-}
-
-// buildListInvitationsBy pages the pending invitations on one side of the
-// relationship: sent by a user, or addressed to an email address. The column is
-// this package's own constant, never a caller's string.
-func (t *tables) buildListInvitationsBy(d dialect.Dialect, column string, scope tenancy.Scope, value, cursor string, limit int) (query string, args []any) {
-	args = []any{scope, value}
-
-	where := fmt.Sprintf(
-		"scope = %s AND %s = %s AND status = 'pending' AND archived_at IS NULL",
-		d.Placeholder(1), column, d.Placeholder(2),
-	)
-
-	if cursor != "" {
-		args = append(args, cursor)
-		where += " AND id > " + d.Placeholder(len(args))
-	}
-
-	args = append(args, limit)
-
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s ORDER BY id LIMIT %s",
-		invitationColumns, t.invitations, where, d.Placeholder(len(args)),
-	), args
-}
-
-// buildCountInvitationsBy counts what buildListInvitationsBy pages over.
-func (t *tables) buildCountInvitationsBy(d dialect.Dialect, column string, scope tenancy.Scope, value string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s WHERE scope = %s AND %s = %s AND status = 'pending' AND archived_at IS NULL",
-		t.invitations, d.Placeholder(1), column, d.Placeholder(2),
-	), []any{scope, value}
-}
-
 // buildAnswerInvitation moves a pending invitation to a terminal status.
 //
 // The predicate requires it to still be pending, which is what makes two
@@ -946,6 +732,6 @@ func (t *tables) buildSelectUsersByIDs(d dialect.Dialect, scope tenancy.Scope, u
 
 	return fmt.Sprintf(
 		"SELECT %s FROM %s WHERE id IN (%s) AND scope = %s ORDER BY id",
-		userColumns, t.users, placeholders, d.Placeholder(len(args)),
+		userProjection, t.users, placeholders, d.Placeholder(len(args)),
 	), args
 }

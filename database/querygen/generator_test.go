@@ -141,22 +141,60 @@ func TestGenerator_timeHorizon(T *testing.T) {
 	})
 }
 
+func TestGenerator_storedNow(T *testing.T) {
+	T.Parallel()
+
+	T.Run("per dialect", func(t *testing.T) {
+		t.Parallel()
+
+		// MySQL's bare CURRENT_TIMESTAMP is second-granular whatever the column
+		// holds, and MySQL counts rows changed rather than rows matched — so an
+		// update that assigns a row the values it already has, twice inside one
+		// second, reports zero rows and reaches a caller as "not found".
+		test.EqOp(t, "CURRENT_TIMESTAMP(6)", For(dialect.MySQL).storedNow())
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
+			test.EqOp(t, NowExpression, For(d).storedNow(), test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("every stored timestamp goes through it", func(t *testing.T) {
+		t.Parallel()
+
+		// The three columns a statement here assigns a time to. A fourth added
+		// with NowExpression rather than storedNow would be second-granular on
+		// MySQL and nothing would say so.
+		g := For(dialect.MySQL)
+
+		for _, statement := range []string{
+			g.updateStatement("widgets", []string{IDColumn, LastUpdatedAtColumn}, []string{}, "", nil),
+			g.archiveStatement("widgets", ""),
+			g.IndexStampQuery("widgets"),
+		} {
+			test.StrContains(t, statement, g.storedNow())
+			test.StrNotContains(t, statement, "= "+NowExpression+"\n")
+		}
+	})
+}
+
 func TestGenerator_includeArchivedFlag(T *testing.T) {
 	T.Parallel()
 
 	T.Run("per dialect", func(t *testing.T) {
 		t.Parallel()
 
-		// The cast is what makes sqlc generate a *bool on Postgres rather than
-		// an interface{}. MySQL and SQLite have no boolean type to cast to, and
-		// take the COALESCE's type from the false.
+		// Each arm supplies the type sqlc cannot infer from a bare predicate,
+		// in the only spelling that dialect accepts: a cast on Postgres, a
+		// comparison against a literal on SQLite, and nothing on MySQL, whose
+		// analyzer takes the type from the false.
 		test.EqOp(t, `COALESCE(sqlc.narg(include_archived), false)::boolean`,
 			For(dialect.Postgres).includeArchivedFlag())
 
-		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
-			test.EqOp(t, `COALESCE(sqlc.narg(include_archived), false)`,
-				For(d).includeArchivedFlag(), test.Sprintf("dialect %q", d))
-		}
+		test.EqOp(t, `COALESCE(sqlc.narg(include_archived), false) = true`,
+			For(dialect.SQLite).includeArchivedFlag())
+
+		test.EqOp(t, `COALESCE(sqlc.narg(include_archived), false)`,
+			For(dialect.MySQL).includeArchivedFlag())
 	})
 
 	T.Run("an absent flag reads as false rather than as NULL on every dialect", func(t *testing.T) {

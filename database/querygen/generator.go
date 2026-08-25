@@ -166,24 +166,70 @@ func (g *Generator) timeHorizon(sign string) string {
 	}
 }
 
+// storedNow renders the current time as a statement should store it, which is
+// not always how [NowExpression] asks for it.
+//
+// MySQL's bare CURRENT_TIMESTAMP is second-granular regardless of the column's
+// declared precision, so a DATETIME(6) assigned from it holds a whole second and
+// two updates inside one second write the same value. That is not a cosmetic
+// loss of precision. MySQL's affected-row count reports rows *changed* rather
+// than rows matched, so an update whose columns all already hold their new
+// values — a form saved twice, a reconciler writing what it read — changes
+// nothing, reports zero, and reaches a caller that reads zero rows as "the row
+// is not there". The failure is a not-found error for a row that exists, on one
+// dialect, for a write that was correct.
+//
+// CURRENT_TIMESTAMP(6) is the fractional form, and it is also what a DATETIME(6)
+// column's own DEFAULT has to name for the same reason — so the statement and
+// the schema ask for the time the same way.
+//
+// Postgres and SQLite need nothing: Postgres's CURRENT_TIMESTAMP is microsecond
+// resolution already, and SQLite has no fractional form to ask for — its
+// timestamps are the second-granular text its comparisons are lexicographic
+// over.
+func (g *Generator) storedNow() string {
+	if g.dialect == dialect.MySQL {
+		return NowExpression + "(6)"
+	}
+
+	return NowExpression
+}
+
 // includeArchivedFlag renders the archived toggle's argument: a nullable
 // boolean coalesced to false.
 //
-// The Postgres cast is load-bearing and has no counterpart elsewhere. sqlc.narg
-// types the argument from its use, and COALESCE over an untyped NULL leaves
-// Postgres to guess; ::boolean is what makes the generated Go field a *bool
-// rather than an interface{} the caller has to convince. MySQL and SQLite have
-// no boolean type to cast to — both spell it as an integer — and their COALESCE
-// takes its type from the false, so there is nothing to add and adding the
-// nearest thing (CAST(... AS UNSIGNED)) would only turn the generated field
-// into a number.
+// Each dialect needs something appended, and for the same reason: sqlc types
+// this argument from its use, and its use here is a bare predicate with no
+// column beside it to take a type from. What differs is what each of them
+// accepts as the thing that supplies one.
+//
+// Postgres takes a cast. COALESCE over an untyped NULL leaves it to guess, and
+// ::boolean is what makes the generated Go field a *bool rather than an
+// interface{} the caller has to convince.
+//
+// MySQL and SQLite have no boolean type to cast to — both spell it as an
+// integer — so the nearest cast (CAST(... AS UNSIGNED)) would only turn the
+// generated field into a number. MySQL's analyzer infers the type from the
+// false and needs nothing further. SQLite's does not, and reports the failure
+// somewhere else entirely: a list query's counts are scalar subqueries in the
+// SELECT list, and an argument it cannot type inside one makes it lose the
+// subquery's alias, so `sqlc compile` reports `column "filtered_count" does not
+// exist` against a line whose alias is right there. Comparing the coalesced
+// value against a literal is what gives it the type, and it changes no
+// semantics: SQLite spells true as 1, a bound Go bool arrives as 1 or 0, and an
+// absent flag coalesces to false and compares unequal.
 func (g *Generator) includeArchivedFlag() string {
 	coalesced := fmt.Sprintf("COALESCE(sqlc.narg(%s), false)", IncludeArchivedArg)
-	if g.dialect == dialect.Postgres {
+
+	switch g.dialect {
+	case dialect.SQLite:
+		return coalesced + " = true"
+	case dialect.MySQL:
+		return coalesced
+	// Postgres, which For has already narrowed the alternatives to.
+	default:
 		return coalesced + "::boolean"
 	}
-
-	return coalesced
 }
 
 // limitClause renders the page-size clause a keyset walk ends on.

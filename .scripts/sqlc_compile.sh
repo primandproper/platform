@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Check every generated .sql in this module against the schema it is written for,
+# with sqlc.
+# Usage: sqlc_compile.sh <project_root>
+#
+# `sqlc compile` parses and type-checks the queries against the DDL and emits
+# nothing. That is the whole guarantee this module wants from sqlc: the Go it
+# would generate never executes — the stores render the same statements through
+# database/querygen's Bound methods, with the consumer's table prefix on the
+# name — so checking in a generated package nothing imports would be policing an
+# artifact with no consumer.
+#
+# Neither input is written by hand. The queries come from `make generate`, and a
+# hand-edit of one is caught by the regeneration diff rather than here; the
+# schema is rendered on the fly by the same command, at the empty table prefix,
+# because sqlc resolves table names when it runs and an identifier is not a bind
+# parameter in any of the three engines.
+
+PROJECT_ROOT="${1:-$(pwd)}"
+
+SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
+
+# The components checked, as "<module-relative package> <queries directory>".
+# Each package's directory holds one <dialect>.sql per dialect it claims, and
+# its `-schema <dialect>` mode prints the DDL those queries are read against.
+COMPONENTS=(
+  "./identity ./internal/queriesgen internal/queries"
+)
+
+# The dialects checked, as "<dialect> <sqlc engine>".
+#
+# MySQL is missing, and it is not an oversight: two of the expressions
+# database/querygen emits for MySQL are ones sqlc's MySQL parser rejects, and
+# both are the generator's to settle rather than any consumer's.
+#
+#   - `LIMIT sqlc.arg(result_limit)`. MySQL takes an integer literal or a bare
+#     placeholder after LIMIT and nothing else, and sqlc's parser is the same
+#     parser, so it wants `LIMIT ?`. The Bound path needs the named reference in
+#     that position — it is what puts result_limit in Bound.Args — so the two
+#     consumers want different text for the one clause querygen's own doc
+#     already calls out as the place a dialect changes a signature.
+#   - The cursor predicate binds an argument named `cursor`, which is a reserved
+#     word in MySQL. `sqlc.narg(cursor)` is a syntax error there, and backticks
+#     do not help: the name is filtering.ArgCursor, so renaming it moves a
+#     generated field name for every consumer of every dialect.
+#
+# Both reproduce in four lines against an empty table. Neither is reachable from
+# a package's own port, so MySQL joins this list when querygen does.
+DIALECTS=(
+  "postgres postgresql"
+  "sqlite sqlite"
+)
+
+ensure_sqlc() {
+  "${PROJECT_ROOT}/.scripts/ensure_tool_installed.sh" sqlc \
+    "go install github.com/sqlc-dev/sqlc/cmd/sqlc@v${SQLC_VERSION}"
+
+  local installed
+  installed="$(sqlc version)"
+
+  # A pin nothing enforces is a version number in a file. ensure_tool_installed
+  # only installs what is missing, so an older sqlc already on PATH would
+  # otherwise decide what this check means.
+  if [ "${installed}" != "v${SQLC_VERSION}" ]; then
+    echo "sqlc ${installed} is on PATH; installing the pinned v${SQLC_VERSION}"
+    go install "github.com/sqlc-dev/sqlc/cmd/sqlc@v${SQLC_VERSION}"
+  fi
+}
+
+main() {
+  ensure_sqlc
+
+  local workspace
+  workspace="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '${workspace}'" EXIT
+
+  local config="${workspace}/sqlc.yaml"
+  printf 'version: "2"\nsql:\n' > "${config}"
+
+  local component package generator queries_dir pair d engine target
+  for component in "${COMPONENTS[@]}"; do
+    # shellcheck disable=SC2086
+    set -- ${component}
+    package="${1}"
+    generator="${2}"
+    queries_dir="${3}"
+
+    for pair in "${DIALECTS[@]}"; do
+      # shellcheck disable=SC2086
+      set -- ${pair}
+      d="${1}"
+      engine="${2}"
+
+      target="${workspace}/${package//\//_}_${d}"
+      mkdir -p "${target}"
+
+      (cd "${PROJECT_ROOT}/${package}" && go run "${generator}" -schema "${d}") > "${target}/schema.sql"
+      cp "${PROJECT_ROOT}/${package}/${queries_dir}/${d}.sql" "${target}/queries.sql"
+
+      cat >> "${config}" <<EOF
+  - engine: ${engine}
+    schema: $(basename "${target}")/schema.sql
+    queries: $(basename "${target}")/queries.sql
+    gen:
+      go:
+        package: checked
+        out: $(basename "${target}")/gen
+EOF
+    done
+  done
+
+  (cd "${workspace}" && sqlc compile)
+
+  echo "sqlc v${SQLC_VERSION}: every checked dialect compiles"
+}
+
+main

@@ -148,16 +148,25 @@ type Registrar interface {
 	// in to nothing. CreateAccount and CreateMembership take the same executor;
 	// see the package documentation for the shape.
 	//
-	// The ID is generated if the user carries none, CreatedAt is stamped from
-	// the Store's clock, and both are written back onto the value. A username or
-	// email address already registered in this scope returns an error wrapping
-	// ErrUsernameTaken or ErrEmailAddressTaken rather than a driver's constraint
-	// violation — the caller's next move differs, and asking them to parse a
-	// SQLSTATE to find out is how that check gets skipped.
+	// The ID is generated if the user carries none, and both it and CreatedAt
+	// are written back onto the value. A username or email address already
+	// registered in this scope returns an error wrapping ErrUsernameTaken or
+	// ErrEmailAddressTaken rather than a driver's constraint violation — the
+	// caller's next move differs, and asking them to parse a SQLSTATE to find
+	// out is how that check gets skipped.
+	//
+	// CreatedAt is the database's rather than the Store's clock: the column is
+	// not in the insert and the schema defaults it, so that a row's creation
+	// time and the filter window comparing against it come from one clock
+	// rather than from however many application instances are writing. The
+	// create reads it back, so the value the caller is holding is the value in
+	// the row — a caller that serialized the struct straight into a response
+	// would otherwise be rendering the zero time as a date.
 	CreateUser(ctx context.Context, q database.Tx, user *User) error
 
-	// CreateAccount writes a new account through the caller's transaction. The ID
-	// is generated if the account carries none, and CreatedAt is stamped.
+	// CreateAccount writes a new account through the caller's transaction. The
+	// ID is generated if the account carries none, and CreatedAt is read back
+	// from the row — see CreateUser.
 	CreateAccount(ctx context.Context, q database.Tx, account *Account) error
 
 	// CreateMembership puts a user in an account through the caller's transaction.
@@ -261,17 +270,25 @@ type SignInReader interface {
 // here writes, so a console, an export, or a support tool can be handed this
 // and nothing else.
 type DirectoryReader interface {
-	// GetUser reads one of the scope's users, credentials included. It returns
-	// an error wrapping ErrUserNotFound when the user does not exist —
+	// GetUser reads one of the scope's live users, credentials included. It
+	// returns an error wrapping ErrUserNotFound when the user does not exist —
 	// including when they exist in another scope, which is the same answer as
 	// far as this scope is concerned.
 	//
-	// Archived users are returned. A soft-deleted user still appears in an audit
-	// trail and in another domain's foreign key, and a read that hid them would
-	// make those references dangle.
+	// Archived users are not returned. Reading one row by id is not a filtered
+	// list, and a caller that wants an archived user back wants a different
+	// read rather than a flag on this one: ListUsers with IncludeArchived is
+	// that read. This is a change — the statement behind it used to carry no
+	// archived clause — and it reaches every read by id, GetPrincipal included.
 	GetUser(ctx context.Context, scope tenancy.Scope, userID string) (*User, error)
 
 	// ListUsers pages the scope's directory, users redacted.
+	//
+	// Ordered by id and cursor-paginated on it, which is what makes the page and
+	// the cursor name a position in the same order. The filter's created and
+	// updated windows and its IncludeArchived flag all apply, and both counts
+	// come back with the page rather than from a second query that would be
+	// counting a table the page has already moved on from.
 	ListUsers(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
 
 	// ListUsersByIDs reads a batch of the scope's users in one query, redacted,
@@ -293,16 +310,17 @@ type DirectoryReader interface {
 	// pointed at it, not a LIKE '%x%' that scans the table on every keystroke.
 	SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
 
-	// GetAccount reads one of the scope's accounts, returning an error wrapping
-	// ErrAccountNotFound when it does not exist here.
+	// GetAccount reads one of the scope's live accounts, returning an error
+	// wrapping ErrAccountNotFound when it does not exist here.
 	//
-	// Archived accounts are returned, as archived users are and for the same
-	// reason: a soft-deleted account is still named by an audit row, an invoice,
-	// and another domain's foreign key, and a read that hid it would make those
-	// references dangle. Callers rendering an account check Account.Archived.
+	// Archived accounts are not returned, as archived users are not and for the
+	// same reason — see GetUser. A caller reconciling an invoice against a
+	// closed account reaches it through ListAccounts with IncludeArchived, and
+	// checks Account.Archived on what comes back.
 	GetAccount(ctx context.Context, scope tenancy.Scope, accountID string) (*Account, error)
 
-	// ListAccounts pages the scope's accounts.
+	// ListAccounts pages the scope's accounts, ordered by id and filtered
+	// through the whole QueryFilter — see ListUsers.
 	ListAccounts(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error)
 
 	// ListAccountsForUser pages the accounts a user is a live member of.
@@ -482,11 +500,12 @@ type BillingWriter interface {
 // somebody was invited to is what they get.
 type InvitationStore interface {
 	// CreateInvitation writes an invitation. The ID is generated if it carries
-	// none, and CreatedAt is stamped.
+	// none, and CreatedAt is read back from the row — see Registrar.CreateUser.
 	CreateInvitation(ctx context.Context, invitation *Invitation) error
 
-	// GetInvitation reads one of the scope's invitations by ID, for the sender
-	// looking at what they have sent.
+	// GetInvitation reads one of the scope's live invitations by ID, for the
+	// sender looking at what they have sent. An archived one is not returned —
+	// see DirectoryReader.GetUser.
 	GetInvitation(ctx context.Context, scope tenancy.Scope, invitationID string) (*Invitation, error)
 
 	// GetInvitationByToken reads the invitation a link names, comparing the

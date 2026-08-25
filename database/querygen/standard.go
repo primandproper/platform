@@ -271,11 +271,11 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	}
 
 	if len(updateColumns) > 0 {
-		queries = append(queries, s.query(UpdateQuery, ExecRowsType, updateStatement(table, columns, updateColumns, s.ownership, s.nullable)))
+		queries = append(queries, s.query(UpdateQuery, ExecRowsType, g.updateStatement(table, columns, updateColumns, s.ownership, s.nullable)))
 	}
 
 	if slices.Contains(columns, ArchivedAtColumn) {
-		queries = append(queries, s.query(ArchiveQuery, ExecRowsType, archiveStatement(table, s.ownership)))
+		queries = append(queries, s.query(ArchiveQuery, ExecRowsType, g.archiveStatement(table, s.ownership)))
 	}
 
 	if slices.Contains(columns, LastIndexedAtColumn) {
@@ -401,14 +401,14 @@ func (g *Generator) listStatement(table string, columns []string, ownership stri
 	)
 }
 
-func updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string, extra ...Match) string {
+func (g *Generator) updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string, extra ...Match) string {
 	assignments := make([]string, 0, len(updateColumns)+1)
 	for _, column := range updateColumns {
 		assignments = append(assignments, fmt.Sprintf("%s = %s", column, binding(column, nullable)))
 	}
 
 	if slices.Contains(columns, LastUpdatedAtColumn) {
-		assignments = append(assignments, fmt.Sprintf("%s = %s", LastUpdatedAtColumn, NowExpression))
+		assignments = append(assignments, fmt.Sprintf("%s = %s", LastUpdatedAtColumn, g.storedNow()))
 	}
 
 	return fmt.Sprintf("UPDATE %s SET\n\t%s\nWHERE %s;",
@@ -418,7 +418,7 @@ func updateStatement(table string, columns, updateColumns []string, ownership st
 	)
 }
 
-func archiveStatement(table, ownership string, extra ...Match) string {
+func (g *Generator) archiveStatement(table, ownership string, extra ...Match) string {
 	predicates := []string{
 		fmt.Sprintf("%s IS NULL", ArchivedAtColumn),
 		fmt.Sprintf("%s = sqlc.arg(%s)", IDColumn, IDColumn),
@@ -432,7 +432,7 @@ func archiveStatement(table, ownership string, extra ...Match) string {
 
 	return fmt.Sprintf("UPDATE %s SET\n\t%s = %s\nWHERE %s;",
 		table,
-		ArchivedAtColumn, NowExpression,
+		ArchivedAtColumn, g.storedNow(),
 		joinPredicates(predicates, "\t"),
 	)
 }
