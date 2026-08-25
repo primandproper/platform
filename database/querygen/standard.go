@@ -59,10 +59,32 @@ func (s StandardQuery) String() string {
 	}
 }
 
-// ErrMissingIDColumn indicates a column set without an id. Every query
-// StandardCRUD emits keys on it, and the cursor walk orders by it, so there is
-// nothing useful to emit for a table that has none.
+// ErrMissingIDColumn indicates a column set without an id, handed to
+// StandardCRUD.
+//
+// It is StandardCRUD's requirement rather than the package's, and the two halves
+// differ on purpose. StandardCRUD emits the list query, and the list pages by
+// keyset over the id — CursorCondition compares against it and IDColumn's own
+// comment records that the column has to sort by creation time for that walk to
+// page in a sensible order. A composite key is not a cursor, so there is nothing
+// useful to emit for a table that has none.
+//
+// The Bound methods carry no such requirement. A store knows what it keys on,
+// and says so with Match values; a table whose primary key is (subject_type,
+// subject_id) passes two of them and addresses a row exactly. What it does not
+// get is a paged list — see the package comment.
 var ErrMissingIDColumn = platformerrors.New("column set has no id column")
+
+// ErrUnaddressableRow indicates a single-row statement with nothing to key on:
+// no id column, no ownership column, and no Match. The statement it would
+// otherwise render is one whose WHERE clause is the archived predicate and
+// nothing else, which reads one row from a table by reading all of them, and
+// updates or archives every row in it.
+//
+// It is a programming error rather than a caller's — nothing on a request path
+// decides which columns a statement keys on — so it panics like the rest of this
+// package's misuse.
+var ErrUnaddressableRow = platformerrors.New("single-row statement keys on nothing")
 
 // ErrDuplicateQueryName indicates two emitted queries sharing a name. sqlc turns
 // a query name into a Go method name across a whole package, so a duplicate is a
@@ -275,7 +297,7 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	}
 
 	if slices.Contains(columns, ArchivedAtColumn) {
-		queries = append(queries, s.query(ArchiveQuery, ExecRowsType, archiveStatement(table, s.ownership)))
+		queries = append(queries, s.query(ArchiveQuery, ExecRowsType, archiveStatement(table, columns, s.ownership)))
 	}
 
 	if slices.Contains(columns, LastIndexedAtColumn) {
@@ -377,10 +399,26 @@ func getStatement(table string, columns []string, ownership string, extra ...Mat
 
 func existsStatement(table string, columns []string, ownership string, extra ...Match) string {
 	return fmt.Sprintf("SELECT EXISTS (\n\tSELECT %s\n\tFROM %s\n\tWHERE %s\n);",
-		Qualify(table, IDColumn),
+		existsProjection(table, columns),
 		table,
 		joinPredicates(singleRowPredicates(table, columns, ownership, true, extra...), "\t\t"),
 	)
+}
+
+// existsProjection is what the EXISTS subquery selects. Nothing reads it — EXISTS
+// answers from whether a row was produced, not from what was in it — so a table
+// with no id selects the literal every server accepts there, rather than a column
+// this package would have to pick for it.
+//
+// The id case keeps selecting the id because it always has, and an existence
+// check whose text changed for every conventional table in the module would be a
+// diff nobody could read for the one line in it that mattered.
+func existsProjection(table string, columns []string) string {
+	if slices.Contains(columns, IDColumn) {
+		return Qualify(table, IDColumn)
+	}
+
+	return "1"
 }
 
 func (g *Generator) listStatement(table string, columns []string, ownership string, extra ...Match) string {
@@ -418,50 +456,63 @@ func updateStatement(table string, columns, updateColumns []string, ownership st
 	)
 }
 
-func archiveStatement(table, ownership string, extra ...Match) string {
-	predicates := []string{
-		fmt.Sprintf("%s IS NULL", ArchivedAtColumn),
-		fmt.Sprintf("%s = sqlc.arg(%s)", IDColumn, IDColumn),
-	}
-
-	if ownership != "" {
-		predicates = append(predicates, equalityPredicate(table, ownership, false))
-	}
-
-	predicates = append(predicates, matchPredicates(table, false, extra)...)
-
+// archiveStatement renders the soft delete. It takes the column list for the
+// same reason every other statement here does — the predicates it keys on are
+// derived from it — and routes through singleRowPredicates rather than building
+// its own list, so there is one rendering of "this row, unarchived, and mine"
+// rather than two that could come to disagree about it.
+func archiveStatement(table string, columns []string, ownership string, extra ...Match) string {
 	return fmt.Sprintf("UPDATE %s SET\n\t%s = %s\nWHERE %s;",
 		table,
 		ArchivedAtColumn, NowExpression,
-		joinPredicates(predicates, "\t"),
+		joinPredicates(singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
 	)
 }
 
-// singleRowPredicates is the WHERE clause of a query addressing one row by id:
-// unarchived, matching id, and owned by the caller where that applies.
+// singleRowPredicates is the WHERE clause of a query addressing one row:
+// unarchived, matching whatever keys the row, and owned by the caller where that
+// applies.
+//
+// The id predicate is conditional on the column being present, exactly as the
+// archived one two lines above it is, and for the same reason: this package's
+// whole design is that a column the table does not have produces no predicate.
+// A handful of tables in this module have none — their primary key is a natural
+// key that carries meaning, and (subject_type, subject_id) is what enforces one
+// live key per subject rather than a surrogate standing in for it. Such a table
+// names its key in Match values instead, which is what Match is already for.
+//
+// What it will not do is render nothing. A statement with no id, no ownership
+// column and no matches keys on the archived predicate alone, which addresses
+// every live row in the table rather than one — so that is ErrUnaddressableRow
+// rather than a statement.
 //
 // It excludes archived rows outright rather than through the include_archived
-// toggle. Reading one row by id is not a filtered list, and a caller that wants
-// an archived row back wants a different query rather than a flag on this one.
+// toggle. Reading one row by its key is not a filtered list, and a caller that
+// wants an archived row back wants a different query rather than a flag on this
+// one.
 //
 // qualified is false for the UPDATE statements, whose SET clause cannot carry a
 // table qualifier and whose WHERE therefore does not either.
 func singleRowPredicates(table string, columns []string, ownership string, qualified bool, extra ...Match) []string {
-	name := func(column string) string {
-		if qualified {
-			return Qualify(table, column)
-		}
-
-		return column
+	keyed := slices.Contains(columns, IDColumn) || ownership != "" || len(extra) > 0
+	if !keyed {
+		panic(platformerrors.Wrapf(ErrUnaddressableRow, "querygen: table %q", table))
 	}
 
 	var predicates []string
 
 	if slices.Contains(columns, ArchivedAtColumn) {
-		predicates = append(predicates, name(ArchivedAtColumn)+" IS NULL")
+		name := ArchivedAtColumn
+		if qualified {
+			name = Qualify(table, ArchivedAtColumn)
+		}
+
+		predicates = append(predicates, name+" IS NULL")
 	}
 
-	predicates = append(predicates, fmt.Sprintf("%s = sqlc.arg(%s)", name(IDColumn), IDColumn))
+	if slices.Contains(columns, IDColumn) {
+		predicates = append(predicates, equalityPredicate(table, IDColumn, qualified))
+	}
 
 	if ownership != "" {
 		predicates = append(predicates, equalityPredicate(table, ownership, qualified))
