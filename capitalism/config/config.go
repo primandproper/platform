@@ -96,15 +96,19 @@ func prepare(ctx context.Context, cfg *Config) (string, error) {
 }
 
 // NewPaymentManager provides a capitalism.PaymentManager implementation based on the
-// config. stripeEventHandler is optional (may be nil) and, for the Stripe provider, is invoked with
-// each verified webhook event.
+// config.
+//
+// It takes no event handler. A verified delivery comes back from
+// PaymentManager.HandleEventWebhook as a capitalism.Event, so a consumer acting on webhooks
+// names nothing from capitalism/stripe — which is the point of the inbound vocabulary, and
+// was not true while the callback had to be typed on the provider subpackage.
 //
 // Each provider is built into a variable and returned only once its error is
 // known to be nil. The provider constructors return their own concrete types,
 // so returning one straight through would convert a nil *stripe.PaymentManager into a
 // non-nil capitalism.PaymentManager on the error path, and a caller testing the result against
 // nil would find a manager that panics on first use.
-func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stripe.EventHandler, opts ...Option) (capitalism.PaymentManager, error) {
+func NewPaymentManager(ctx context.Context, cfg *Config, opts ...Option) (capitalism.PaymentManager, error) {
 	o := newOptions(opts)
 	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
 
@@ -115,7 +119,7 @@ func NewPaymentManager(ctx context.Context, cfg *Config, stripeEventHandler stri
 
 	switch provider {
 	case StripeProvider:
-		m, managerErr := stripe.NewPaymentManager(cfg.Stripe, stripeEventHandler, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider), stripe.WithMetricsProvider(metricsProvider))
+		m, managerErr := stripe.NewPaymentManager(cfg.Stripe, stripe.WithLogger(logger), stripe.WithTracerProvider(tracerProvider), stripe.WithMetricsProvider(metricsProvider))
 		if managerErr != nil {
 			return nil, managerErr
 		}

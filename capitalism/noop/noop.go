@@ -31,8 +31,13 @@ type PaymentManager struct{}
 
 // HandleEventWebhook satisfies our interface. There is no provider to have
 // sent the event, so accepting and ignoring it is the honest answer.
-func (n *PaymentManager) HandleEventWebhook(_ *http.Request) error {
-	return nil
+//
+// The nil event is the point: this manager has nothing to report, and a zero
+// capitalism.Event would tell the caller a delivery arrived carrying an unknown
+// subscription status — the same empty-value lie the other three methods stopped
+// telling when they started returning capitalism.ErrPaymentsDisabled.
+func (n *PaymentManager) HandleEventWebhook(_ *http.Request) (*capitalism.Event, error) {
+	return nil, nil //nolint:nilnil // the nil event is the documented answer: nothing sent this, so there is nothing to report
 }
 
 // CreateCustomer satisfies our interface, reporting ErrPaymentsDisabled rather

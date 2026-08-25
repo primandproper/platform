@@ -40,7 +40,7 @@ func TestNewPaymentManager(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewPaymentManager(&Config{}, nil)
+		pm, err := NewPaymentManager(&Config{})
 
 		must.NoError(t, err)
 		test.NotNil(t, pm)
@@ -49,7 +49,7 @@ func TestNewPaymentManager(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewPaymentManager(nil, nil)
+		pm, err := NewPaymentManager(nil)
 
 		test.Error(t, err)
 		test.Nil(t, pm)
@@ -102,7 +102,7 @@ func newWebhookManager(t *testing.T) (pm *PaymentManager, secret string) {
 	must.NoError(t, err)
 	must.NotEq(t, "", secret)
 
-	manager, err := NewPaymentManager(&Config{}, nil)
+	manager, err := NewPaymentManager(&Config{})
 	must.NoError(t, err)
 
 	withWebhookSecret(t, manager, secret)
@@ -142,7 +142,15 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		obs := observability.NewRecordingObserver()
 		pm.o11y = obs
 
-		test.NoError(t, pm.HandleEventWebhook(req))
+		event, err := pm.HandleEventWebhook(req)
+		must.NoError(t, err)
+		must.NotNil(t, event)
+
+		test.EqOp(t, "evt_123", event.ID)
+		test.EqOp(t, string(stripe.EventTypePaymentIntentSucceeded), event.Type)
+		// A payment intent is not a subscription, and the nil says so rather than
+		// reporting a standing nothing in this delivery described.
+		test.Nil(t, event.Subscription)
 
 		obs.ObservedOperationWithData(t, map[string]any{
 			"stripe.event_id":          "evt_123",
@@ -156,7 +164,7 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
-		pm, err := NewPaymentManager(&Config{}, nil)
+		pm, err := NewPaymentManager(&Config{})
 		must.NoError(t, err)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://whatever.whocares.gov", bytes.NewReader([]byte(`{}`)))
@@ -164,7 +172,9 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 
 		// Not a signature error: the endpoint is misconfigured, and reporting it as a bad
 		// signature would blame Stripe for a missing environment variable.
-		test.ErrorIs(t, pm.HandleEventWebhook(req), ErrWebhookSecretNotConfigured)
+		event, err := pm.HandleEventWebhook(req)
+		test.ErrorIs(t, err, ErrWebhookSecretNotConfigured)
+		test.Nil(t, event)
 	})
 
 	T.Run("with error reading body", func(t *testing.T) {
@@ -178,7 +188,9 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		must.NotNil(t, req)
 		req.Body = &errReader{}
 
-		test.Error(t, pm.HandleEventWebhook(req))
+		event, err := pm.HandleEventWebhook(req)
+		test.Error(t, err)
+		test.Nil(t, event)
 	})
 
 	T.Run("with oversized body", func(t *testing.T) {
@@ -193,7 +205,9 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		must.NoError(t, err)
 		req.Header.Set(inbound.StripeSignatureHeader, "sig")
 
-		test.Error(t, pm.HandleEventWebhook(req))
+		event, err := pm.HandleEventWebhook(req)
+		test.Error(t, err)
+		test.Nil(t, event)
 	})
 
 	T.Run("with invalid signature", func(t *testing.T) {
@@ -207,7 +221,9 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		must.NotNil(t, req)
 		req.Header.Set(inbound.StripeSignatureHeader, "invalid_signature")
 
-		test.ErrorIs(t, pm.HandleEventWebhook(req), inbound.ErrInvalidSignature)
+		event, err := pm.HandleEventWebhook(req)
+		test.ErrorIs(t, err, inbound.ErrInvalidSignature)
+		test.Nil(t, event)
 	})
 
 	T.Run("with a signature minted under a different secret", func(t *testing.T) {
@@ -220,7 +236,9 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 
 		req := signedWebhookRequest(t, pm, other, paymentIntentEvent(t, "evt_123", &stripe.PaymentIntent{}))
 
-		test.ErrorIs(t, pm.HandleEventWebhook(req), inbound.ErrInvalidSignature)
+		event, err := pm.HandleEventWebhook(req)
+		test.ErrorIs(t, err, inbound.ErrInvalidSignature)
+		test.Nil(t, event)
 	})
 
 	T.Run("with decode error for the event", func(t *testing.T) {
@@ -237,7 +255,9 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		}
 		pm.encoderDecoder = encoderDecoder
 
-		test.Error(t, pm.HandleEventWebhook(req))
+		event, err := pm.HandleEventWebhook(req)
+		test.Error(t, err)
+		test.Nil(t, event)
 		test.SliceLen(t, 1, encoderDecoder.DecodeBytesCalls())
 	})
 
@@ -262,7 +282,9 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		}
 		pm.encoderDecoder = encoderDecoder
 
-		test.Error(t, pm.HandleEventWebhook(req))
+		event, err := pm.HandleEventWebhook(req)
+		test.Error(t, err)
+		test.Nil(t, event)
 		test.SliceLen(t, 2, encoderDecoder.DecodeBytesCalls())
 	})
 
@@ -280,7 +302,16 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 		obs := observability.NewRecordingObserver()
 		pm.o11y = obs
 
-		test.NoError(t, pm.HandleEventWebhook(req))
+		event, err := pm.HandleEventWebhook(req)
+		must.NoError(t, err)
+		must.NotNil(t, event)
+
+		// An event this package decodes nothing from still comes back: the caller holds a
+		// stripe-go of its own for exactly this case, and dropping the payload would leave
+		// it nothing to decode.
+		test.EqOp(t, string(stripe.EventTypeAccountUpdated), event.Type)
+		test.Eq(t, []byte(`{}`), event.Payload)
+		test.Nil(t, event.Subscription)
 
 		obs.ObservedOperationWithData(t, map[string]any{
 			"event_type": stripe.EventTypeAccountUpdated,
@@ -300,6 +331,9 @@ func Test_stripePaymentManager_HandleEventWebhook(T *testing.T) {
 			Type:       stripe.EventTypeAccountUpdated,
 		})
 
-		test.NoError(t, pm.HandleEventWebhook(req))
+		event, err := pm.HandleEventWebhook(req)
+		test.NoError(t, err)
+		must.NotNil(t, event)
+		test.Nil(t, event.Payload)
 	})
 }

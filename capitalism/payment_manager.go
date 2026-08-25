@@ -20,8 +20,18 @@ var ErrPaymentsDisabled = platformerrors.New("payments are disabled")
 type (
 	// PaymentManager handles payments via 3rd-party providers.
 	PaymentManager interface {
-		// HandleEventWebhook verifies and processes an inbound provider webhook (e.g. Stripe events).
-		HandleEventWebhook(req *http.Request) error
+		// HandleEventWebhook verifies an inbound provider webhook (e.g. Stripe events) and
+		// returns what it says, in this module's vocabulary.
+		//
+		// It returns the event rather than only an error because the alternative made the
+		// verified delivery observable in exactly one place — a callback handed to the
+		// adapter's constructor — so a consumer that wanted to act on a webhook had to wire
+		// its handler through the provider subpackage it otherwise never named.
+		//
+		// A nil event with a nil error means the delivery was accepted and there is nothing
+		// to act on. The noop manager returns it: no provider exists to have sent an event,
+		// and inventing one would be the empty-value lie ErrPaymentsDisabled exists to stop.
+		HandleEventWebhook(req *http.Request) (*Event, error)
 		// CreateCustomer creates a customer with the provider and returns its provider-assigned ID.
 		CreateCustomer(ctx context.Context, input *CustomerCreationInput) (string, error)
 		// CreatePaymentIntent creates a payment intent (a single charge in progress) and returns it.

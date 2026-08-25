@@ -30,7 +30,7 @@ var _ capitalism.PaymentManager = &PaymentManagerMock{}
 //			CreateSubscriptionFunc: func(ctx context.Context, input *capitalism.SubscriptionCreationInput) (string, error) {
 //				panic("mock out the CreateSubscription method")
 //			},
-//			HandleEventWebhookFunc: func(req *http.Request) error {
+//			HandleEventWebhookFunc: func(req *http.Request) (*capitalism.Event, error) {
 //				panic("mock out the HandleEventWebhook method")
 //			},
 //		}
@@ -50,7 +50,7 @@ type PaymentManagerMock struct {
 	CreateSubscriptionFunc func(ctx context.Context, input *capitalism.SubscriptionCreationInput) (string, error)
 
 	// HandleEventWebhookFunc mocks the HandleEventWebhook method.
-	HandleEventWebhookFunc func(req *http.Request) error
+	HandleEventWebhookFunc func(req *http.Request) (*capitalism.Event, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -196,7 +196,7 @@ func (mock *PaymentManagerMock) CreateSubscriptionCalls() []struct {
 }
 
 // HandleEventWebhook calls HandleEventWebhookFunc.
-func (mock *PaymentManagerMock) HandleEventWebhook(req *http.Request) error {
+func (mock *PaymentManagerMock) HandleEventWebhook(req *http.Request) (*capitalism.Event, error) {
 	if mock.HandleEventWebhookFunc == nil {
 		panic("PaymentManagerMock.HandleEventWebhookFunc: method is nil but PaymentManager.HandleEventWebhook was just called")
 	}

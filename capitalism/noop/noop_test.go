@@ -13,13 +13,17 @@ import (
 func TestPaymentManager_HandleEventWebhook(T *testing.T) {
 	T.Parallel()
 
-	T.Run("returns nil", func(t *testing.T) {
+	T.Run("accepts the delivery and reports no event", func(t *testing.T) {
 		t.Parallel()
 		mgr := NewPaymentManager()
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://example.com/webhook", http.NoBody)
 		must.NoError(t, err)
 
-		test.NoError(t, mgr.HandleEventWebhook(req))
+		event, err := mgr.HandleEventWebhook(req)
+		test.NoError(t, err)
+		// Nil rather than a zero Event: no provider sent this, so there is no standing to
+		// report, and a zero value would report an unknown one.
+		test.Nil(t, event)
 	})
 }
 
