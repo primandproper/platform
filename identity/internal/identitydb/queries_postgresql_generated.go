@@ -151,6 +151,11 @@ WHERE {{prefix}}identity_accounts.archived_at IS NULL
 	AND {{prefix}}identity_accounts.id = $1
 	AND {{prefix}}identity_accounts.scope = $2`
 
+const getAccountCreatedAtPostgreSQL = `SELECT
+	{{prefix}}identity_accounts.created_at
+FROM {{prefix}}identity_accounts
+WHERE {{prefix}}identity_accounts.id = $1`
+
 const getInvitationPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.id,
 	{{prefix}}identity_invitations.scope,
@@ -170,6 +175,44 @@ FROM {{prefix}}identity_invitations
 WHERE {{prefix}}identity_invitations.archived_at IS NULL
 	AND {{prefix}}identity_invitations.id = $1
 	AND {{prefix}}identity_invitations.scope = $2`
+
+const getInvitationCreatedAtPostgreSQL = `SELECT
+	{{prefix}}identity_invitations.created_at
+FROM {{prefix}}identity_invitations
+WHERE {{prefix}}identity_invitations.id = $1`
+
+const getMembershipByUserAndAccountPostgreSQL = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = $1
+	AND {{prefix}}identity_memberships.belongs_to_user = $2
+	AND {{prefix}}identity_memberships.belongs_to_account = $3`
+
+const getMembershipFallbackAccountIDPostgreSQL = `SELECT
+	{{prefix}}identity_memberships.belongs_to_account
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = $1
+	AND {{prefix}}identity_memberships.belongs_to_user = $2
+	AND {{prefix}}identity_memberships.belongs_to_account <> $3
+ORDER BY {{prefix}}identity_memberships.belongs_to_account ASC
+LIMIT 1`
+
+const getMembershipIdbyUserAndAccountPostgreSQL = `SELECT
+	{{prefix}}identity_memberships.id
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = $1
+	AND {{prefix}}identity_memberships.belongs_to_user = $2
+	AND {{prefix}}identity_memberships.belongs_to_account = $3`
 
 const getUserPostgreSQL = `SELECT
 	{{prefix}}identity_users.id,
@@ -196,6 +239,89 @@ FROM {{prefix}}identity_users
 WHERE {{prefix}}identity_users.archived_at IS NULL
 	AND {{prefix}}identity_users.id = $1
 	AND {{prefix}}identity_users.scope = $2`
+
+const getUserByEmailAddressPostgreSQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.email_address = $1
+	AND {{prefix}}identity_users.scope = $2`
+
+const getUserByEmailVerificationTokenPostgreSQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.email_address_verification_token = $1
+	AND {{prefix}}identity_users.scope = $2`
+
+const getUserByUsernamePostgreSQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.username = $1
+	AND {{prefix}}identity_users.scope = $2`
+
+const getUserCreatedAtPostgreSQL = `SELECT
+	{{prefix}}identity_users.created_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.id = $1`
 
 const listAccountsPostgreSQL = `SELECT
 	{{prefix}}identity_accounts.id,
@@ -518,42 +644,60 @@ WHERE archived_at IS NULL
 
 // postgresqlQueries answers every query in Querier against postgresql.
 type postgresqlQueries struct {
-	archiveAccount            string
-	archiveUser               string
-	createAccount             string
-	createInvitation          string
-	createUser                string
-	getAccount                string
-	getInvitation             string
-	getUser                   string
-	listAccounts              string
-	listInvitations           string
-	listInvitationsByFromUser string
-	listInvitationsByToEmail  string
-	listUsers                 string
-	updateAccount             string
-	updateUser                string
+	archiveAccount                  string
+	archiveUser                     string
+	createAccount                   string
+	createInvitation                string
+	createUser                      string
+	getAccount                      string
+	getAccountCreatedAt             string
+	getInvitation                   string
+	getInvitationCreatedAt          string
+	getMembershipByUserAndAccount   string
+	getMembershipFallbackAccountID  string
+	getMembershipIdbyUserAndAccount string
+	getUser                         string
+	getUserByEmailAddress           string
+	getUserByEmailVerificationToken string
+	getUserByUsername               string
+	getUserCreatedAt                string
+	listAccounts                    string
+	listInvitations                 string
+	listInvitationsByFromUser       string
+	listInvitationsByToEmail        string
+	listUsers                       string
+	updateAccount                   string
+	updateUser                      string
 }
 
 // newPostgreSQL returns the postgresql querier with prefix substituted into every
 // table name the analyzer identified.
 func newPostgreSQL(prefix string) *postgresqlQueries {
 	return &postgresqlQueries{
-		archiveAccount:            strings.ReplaceAll(archiveAccountPostgreSQL, prefixMarker, prefix),
-		archiveUser:               strings.ReplaceAll(archiveUserPostgreSQL, prefixMarker, prefix),
-		createAccount:             strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
-		createInvitation:          strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
-		createUser:                strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
-		getAccount:                strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
-		getInvitation:             strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
-		getUser:                   strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
-		listAccounts:              strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
-		listInvitations:           strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
-		listInvitationsByFromUser: strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
-		listInvitationsByToEmail:  strings.ReplaceAll(listInvitationsByToEmailPostgreSQL, prefixMarker, prefix),
-		listUsers:                 strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
-		updateAccount:             strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
-		updateUser:                strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
+		archiveAccount:                  strings.ReplaceAll(archiveAccountPostgreSQL, prefixMarker, prefix),
+		archiveUser:                     strings.ReplaceAll(archiveUserPostgreSQL, prefixMarker, prefix),
+		createAccount:                   strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
+		createInvitation:                strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
+		createUser:                      strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
+		getAccount:                      strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
+		getAccountCreatedAt:             strings.ReplaceAll(getAccountCreatedAtPostgreSQL, prefixMarker, prefix),
+		getInvitation:                   strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
+		getInvitationCreatedAt:          strings.ReplaceAll(getInvitationCreatedAtPostgreSQL, prefixMarker, prefix),
+		getMembershipByUserAndAccount:   strings.ReplaceAll(getMembershipByUserAndAccountPostgreSQL, prefixMarker, prefix),
+		getMembershipFallbackAccountID:  strings.ReplaceAll(getMembershipFallbackAccountIDPostgreSQL, prefixMarker, prefix),
+		getMembershipIdbyUserAndAccount: strings.ReplaceAll(getMembershipIdbyUserAndAccountPostgreSQL, prefixMarker, prefix),
+		getUser:                         strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
+		getUserByEmailAddress:           strings.ReplaceAll(getUserByEmailAddressPostgreSQL, prefixMarker, prefix),
+		getUserByEmailVerificationToken: strings.ReplaceAll(getUserByEmailVerificationTokenPostgreSQL, prefixMarker, prefix),
+		getUserByUsername:               strings.ReplaceAll(getUserByUsernamePostgreSQL, prefixMarker, prefix),
+		getUserCreatedAt:                strings.ReplaceAll(getUserCreatedAtPostgreSQL, prefixMarker, prefix),
+		listAccounts:                    strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
+		listInvitations:                 strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
+		listInvitationsByFromUser:       strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
+		listInvitationsByToEmail:        strings.ReplaceAll(listInvitationsByToEmailPostgreSQL, prefixMarker, prefix),
+		listUsers:                       strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
+		updateAccount:                   strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
+		updateUser:                      strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
 	}
 }
 
@@ -685,6 +829,21 @@ func (q *postgresqlQueries) GetAccount(ctx context.Context, db DBTX, arg GetAcco
 	return i, err
 }
 
+// GetAccountCreatedAt runs the :one query against postgresql.
+func (q *postgresqlQueries) GetAccountCreatedAt(ctx context.Context, db DBTX, arg GetAccountCreatedAtParams) (GetAccountCreatedAtRow, error) {
+	row := db.QueryRowContext(ctx, q.getAccountCreatedAt,
+		arg.ID,
+	)
+
+	var i GetAccountCreatedAtRow
+
+	err := row.Scan(
+		&i.CreatedAt,
+	)
+
+	return i, err
+}
+
 // GetInvitation runs the :one query against postgresql.
 func (q *postgresqlQueries) GetInvitation(ctx context.Context, db DBTX, arg GetInvitationParams) (GetInvitationRow, error) {
 	row := db.QueryRowContext(ctx, q.getInvitation,
@@ -709,6 +868,79 @@ func (q *postgresqlQueries) GetInvitation(ctx context.Context, db DBTX, arg GetI
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
 		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetInvitationCreatedAt runs the :one query against postgresql.
+func (q *postgresqlQueries) GetInvitationCreatedAt(ctx context.Context, db DBTX, arg GetInvitationCreatedAtParams) (GetInvitationCreatedAtRow, error) {
+	row := db.QueryRowContext(ctx, q.getInvitationCreatedAt,
+		arg.ID,
+	)
+
+	var i GetInvitationCreatedAtRow
+
+	err := row.Scan(
+		&i.CreatedAt,
+	)
+
+	return i, err
+}
+
+// GetMembershipByUserAndAccount runs the :one query against postgresql.
+func (q *postgresqlQueries) GetMembershipByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipByUserAndAccountParams) (GetMembershipByUserAndAccountRow, error) {
+	row := db.QueryRowContext(ctx, q.getMembershipByUserAndAccount,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+	)
+
+	var i GetMembershipByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.BelongsToUser,
+		&i.BelongsToAccount,
+		&i.DefaultAccount,
+		&i.CreatedAt,
+		&i.LastUpdatedAt,
+		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetMembershipFallbackAccountID runs the :one query against postgresql.
+func (q *postgresqlQueries) GetMembershipFallbackAccountID(ctx context.Context, db DBTX, arg GetMembershipFallbackAccountIDParams) (GetMembershipFallbackAccountIDRow, error) {
+	row := db.QueryRowContext(ctx, q.getMembershipFallbackAccountID,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+	)
+
+	var i GetMembershipFallbackAccountIDRow
+
+	err := row.Scan(
+		&i.BelongsToAccount,
+	)
+
+	return i, err
+}
+
+// GetMembershipIDByUserAndAccount runs the :one query against postgresql.
+func (q *postgresqlQueries) GetMembershipIDByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipIDByUserAndAccountParams) (GetMembershipIDByUserAndAccountRow, error) {
+	row := db.QueryRowContext(ctx, q.getMembershipIdbyUserAndAccount,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+	)
+
+	var i GetMembershipIDByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
 	)
 
 	return i, err
@@ -744,6 +976,126 @@ func (q *postgresqlQueries) GetUser(ctx context.Context, db DBTX, arg GetUserPar
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
 		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetUserByEmailAddress runs the :one query against postgresql.
+func (q *postgresqlQueries) GetUserByEmailAddress(ctx context.Context, db DBTX, arg GetUserByEmailAddressParams) (GetUserByEmailAddressRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserByEmailAddress,
+		arg.EmailAddress,
+		arg.Scope,
+	)
+
+	var i GetUserByEmailAddressRow
+
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.Username,
+		&i.EmailAddress,
+		&i.FirstName,
+		&i.LastName,
+		&i.HashedPassword,
+		&i.RequiresPasswordChange,
+		&i.PasswordLastChangedAt,
+		&i.TwoFactorSecret,
+		&i.TwoFactorSecretVerifiedAt,
+		&i.EmailAddressVerifiedAt,
+		&i.EmailAddressVerificationToken,
+		&i.AccountStatus,
+		&i.AccountStatusExplanation,
+		&i.LastAcceptedTermsOfService,
+		&i.LastAcceptedPrivacyPolicy,
+		&i.CreatedAt,
+		&i.LastUpdatedAt,
+		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetUserByEmailVerificationToken runs the :one query against postgresql.
+func (q *postgresqlQueries) GetUserByEmailVerificationToken(ctx context.Context, db DBTX, arg GetUserByEmailVerificationTokenParams) (GetUserByEmailVerificationTokenRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserByEmailVerificationToken,
+		arg.EmailAddressVerificationToken,
+		arg.Scope,
+	)
+
+	var i GetUserByEmailVerificationTokenRow
+
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.Username,
+		&i.EmailAddress,
+		&i.FirstName,
+		&i.LastName,
+		&i.HashedPassword,
+		&i.RequiresPasswordChange,
+		&i.PasswordLastChangedAt,
+		&i.TwoFactorSecret,
+		&i.TwoFactorSecretVerifiedAt,
+		&i.EmailAddressVerifiedAt,
+		&i.EmailAddressVerificationToken,
+		&i.AccountStatus,
+		&i.AccountStatusExplanation,
+		&i.LastAcceptedTermsOfService,
+		&i.LastAcceptedPrivacyPolicy,
+		&i.CreatedAt,
+		&i.LastUpdatedAt,
+		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetUserByUsername runs the :one query against postgresql.
+func (q *postgresqlQueries) GetUserByUsername(ctx context.Context, db DBTX, arg GetUserByUsernameParams) (GetUserByUsernameRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserByUsername,
+		arg.Username,
+		arg.Scope,
+	)
+
+	var i GetUserByUsernameRow
+
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.Username,
+		&i.EmailAddress,
+		&i.FirstName,
+		&i.LastName,
+		&i.HashedPassword,
+		&i.RequiresPasswordChange,
+		&i.PasswordLastChangedAt,
+		&i.TwoFactorSecret,
+		&i.TwoFactorSecretVerifiedAt,
+		&i.EmailAddressVerifiedAt,
+		&i.EmailAddressVerificationToken,
+		&i.AccountStatus,
+		&i.AccountStatusExplanation,
+		&i.LastAcceptedTermsOfService,
+		&i.LastAcceptedPrivacyPolicy,
+		&i.CreatedAt,
+		&i.LastUpdatedAt,
+		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetUserCreatedAt runs the :one query against postgresql.
+func (q *postgresqlQueries) GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUserCreatedAtParams) (GetUserCreatedAtRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserCreatedAt,
+		arg.ID,
+	)
+
+	var i GetUserCreatedAtRow
+
+	err := row.Scan(
+		&i.CreatedAt,
 	)
 
 	return i, err
@@ -1165,6 +1517,12 @@ var (
 		ArchivedAt                  *time.Time
 	}(GetAccountRow{})
 	_ = struct {
+		ID string
+	}(GetAccountCreatedAtParams{})
+	_ = struct {
+		CreatedAt time.Time
+	}(GetAccountCreatedAtRow{})
+	_ = struct {
 		ID    string
 		Scope tenancy.Scope
 	}(GetInvitationParams{})
@@ -1184,6 +1542,43 @@ var (
 		LastUpdatedAt    *time.Time
 		ArchivedAt       *time.Time
 	}(GetInvitationRow{})
+	_ = struct {
+		ID string
+	}(GetInvitationCreatedAtParams{})
+	_ = struct {
+		CreatedAt time.Time
+	}(GetInvitationCreatedAtRow{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(GetMembershipByUserAndAccountParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+	}(GetMembershipByUserAndAccountRow{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(GetMembershipFallbackAccountIDParams{})
+	_ = struct {
+		BelongsToAccount string
+	}(GetMembershipFallbackAccountIDRow{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(GetMembershipIDByUserAndAccountParams{})
+	_ = struct {
+		ID string
+	}(GetMembershipIDByUserAndAccountRow{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope
@@ -1210,6 +1605,90 @@ var (
 		LastUpdatedAt                 *time.Time
 		ArchivedAt                    *time.Time
 	}(GetUserRow{})
+	_ = struct {
+		EmailAddress string
+		Scope        tenancy.Scope
+	}(GetUserByEmailAddressParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(GetUserByEmailAddressRow{})
+	_ = struct {
+		EmailAddressVerificationToken string
+		Scope                         tenancy.Scope
+	}(GetUserByEmailVerificationTokenParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(GetUserByEmailVerificationTokenRow{})
+	_ = struct {
+		Username string
+		Scope    tenancy.Scope
+	}(GetUserByUsernameParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(GetUserByUsernameRow{})
+	_ = struct {
+		ID string
+	}(GetUserCreatedAtParams{})
+	_ = struct {
+		CreatedAt time.Time
+	}(GetUserCreatedAtRow{})
 	_ = struct {
 		CreatedAfter    *time.Time
 		CreatedBefore   *time.Time

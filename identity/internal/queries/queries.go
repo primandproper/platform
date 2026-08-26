@@ -31,6 +31,24 @@ const (
 	InvitationStatusColumn   = "status"
 )
 
+// The user columns the keyed sign-in reads name. Exported for the same reason
+// the invitation columns above are: the store spells them too, and two
+// spellings of one column is the drift this package exists to prevent.
+const (
+	UserUsernameColumn               = "username"
+	UserEmailAddressColumn           = "email_address"
+	UserEmailVerificationTokenColumn = "email_address_verification_token"
+)
+
+// The two columns a membership is keyed on. Together they are the row's natural
+// key — one live membership per (user, account) pair — which is why every
+// membership statement addresses a row by both rather than by the id the table
+// also carries.
+const (
+	MembershipUserColumn    = "belongs_to_user"
+	MembershipAccountColumn = querygen.BelongsToAccountColumn
+)
+
 // EmailAddressVerifiedAtColumn is the proof a user's address is reachable.
 //
 // Spelled once because three declarations below name it — it is nullable, it is
@@ -53,8 +71,8 @@ var Users = Table{
 	Columns: []string{
 		querygen.IDColumn,
 		ScopeColumn,
-		"username",
-		"email_address",
+		UserUsernameColumn,
+		UserEmailAddressColumn,
 		"first_name",
 		"last_name",
 		"hashed_password",
@@ -63,7 +81,7 @@ var Users = Table{
 		"two_factor_secret",
 		"two_factor_secret_verified_at",
 		EmailAddressVerifiedAtColumn,
-		"email_address_verification_token",
+		UserEmailVerificationTokenColumn,
 		"account_status",
 		"account_status_explanation",
 		"last_accepted_terms_of_service",
@@ -80,8 +98,8 @@ var Users = Table{
 		"last_accepted_privacy_policy",
 	},
 	Updatable: []string{
-		"username",
-		"email_address",
+		UserUsernameColumn,
+		UserEmailAddressColumn,
 		"first_name",
 		"last_name",
 		EmailAddressVerifiedAtColumn,
@@ -174,7 +192,10 @@ var Invitations = Table{
 
 // Memberships is the many-to-many between the two, with facts of its own.
 //
-// It is declared for its columns and emits nothing — see the package comment.
+// It gets no standard queries — every one of its statements keys on the (user,
+// account) pair rather than on the id, and its write is an upsert that revives
+// an archived row — but the three keyed reads below are emitted from it, so its
+// columns are the canonical corpus's as well as the store's.
 var Memberships = Table{
 	Name:     MembershipsTable,
 	Singular: "Membership",
@@ -182,8 +203,8 @@ var Memberships = Table{
 	Columns: []string{
 		querygen.IDColumn,
 		ScopeColumn,
-		"belongs_to_user",
-		"belongs_to_account",
+		MembershipUserColumn,
+		MembershipAccountColumn,
 		"default_account",
 		querygen.CreatedAtColumn,
 		querygen.LastUpdatedAtColumn,
@@ -212,6 +233,9 @@ func Render(d dialect.Dialect) string {
 	}
 
 	rendered = append(rendered, keyedInvitationLists(g)...)
+	rendered = append(rendered, createdAtReads(g)...)
+	rendered = append(rendered, keyedUserReads(g)...)
+	rendered = append(rendered, keyedMembershipReads(g)...)
 
 	return querygen.RenderFile(rendered)
 }
@@ -236,6 +260,104 @@ func keyedInvitationLists(g *querygen.Generator) []*querygen.Query {
 			scope, querygen.Match{Column: InvitationFromUserColumn}, status),
 		g.ListQuery("ListInvitationsByToEmail", InvitationsTable, Invitations.Columns,
 			scope, querygen.Match{Column: InvitationToEmailColumn}, status),
+	}
+}
+
+// createdAtReads is the read-back of the one column an emitted table's create
+// does not carry: the creation time the database assigned it.
+//
+// created_at is database-owned — it is not in any create's column list, and the
+// schema gives it a DEFAULT — so the value the caller handed over still holds
+// the zero time when the INSERT returns, and the store reads it back inside the
+// same transaction. One per emitted table, because a query name is a Go method
+// name and the table is not a parameter of one.
+//
+// It keys on the id alone. The scope is absent because this is not a read a
+// caller reaches: it is the create's read-back of the row it has just written,
+// by the id it minted for it, and the row is not visible to anything else until
+// the transaction commits. The column list is the id and nothing else, which is
+// also what leaves the archived predicate off a row that cannot be archived yet.
+func createdAtReads(g *querygen.Generator) []*querygen.Query {
+	rendered := make([]*querygen.Query, 0, len(Emitted))
+
+	for _, table := range Emitted {
+		rendered = append(rendered, g.ReadQuery(
+			"Get"+table.Singular+"CreatedAt", table.Name,
+			[]string{querygen.IDColumn},
+			querygen.Read{Projection: []string{querygen.CreatedAtColumn}},
+		))
+	}
+
+	return rendered
+}
+
+// keyedUserReads is the three single-user reads that key on something other than
+// the id: the two sign-in reads and the one behind an email verification.
+//
+// They were one builder parameterized on the column, which is not a thing a
+// query name can be — sqlc turns a name into a Go method — so they enumerate
+// here into one named read each. What the builder was protecting is preserved
+// by construction instead: the scope predicate and the archived clause are
+// querygen's, rendered from one column list, so the sign-in read cannot be the
+// one that forgot either.
+func keyedUserReads(g *querygen.Generator) []*querygen.Query {
+	read := querygen.Read{Projection: Users.Columns}
+
+	// Statement name to the column it keys on, in the order the file lists
+	// them. A map would lose that order, and the .sql is compared byte for byte
+	// against its committed copy.
+	named := [][2]string{
+		{"GetUserByUsername", UserUsernameColumn},
+		{"GetUserByEmailAddress", UserEmailAddressColumn},
+		{"GetUserByEmailVerificationToken", UserEmailVerificationTokenColumn},
+	}
+
+	rendered := make([]*querygen.Query, 0, len(named))
+	for i := range named {
+		rendered = append(rendered, g.ReadQuery(named[i][0], UsersTable, Users.KeyedColumns(), read,
+			querygen.Match{Column: named[i][1]}, querygen.Match{Column: ScopeColumn}))
+	}
+
+	return rendered
+}
+
+// keyedMembershipReads is the three reads over the table that has no standard
+// queries at all: the membership itself, the id a revived one kept, and the
+// account a user falls back to when the default is being removed.
+//
+// All three key on the (user, account) pair rather than on the id the table
+// carries, which is why each is rendered from Memberships.KeyedColumns() while
+// projecting from Memberships.Columns.
+func keyedMembershipReads(g *querygen.Generator) []*querygen.Query {
+	var (
+		columns = Memberships.KeyedColumns()
+		scope   = querygen.Match{Column: ScopeColumn}
+		user    = querygen.Match{Column: MembershipUserColumn}
+		account = querygen.Match{Column: MembershipAccountColumn}
+	)
+
+	return []*querygen.Query{
+		g.ReadQuery("GetMembershipByUserAndAccount", MembershipsTable, columns,
+			querygen.Read{Projection: Memberships.Columns}, scope, user, account),
+
+		// The id the row actually carries, which is not always the id the
+		// caller generated: a user rejoining an account revives the archived
+		// membership, and it keeps the id it was created with. The roles are
+		// written against this one.
+		g.ReadQuery("GetMembershipIDByUserAndAccount", MembershipsTable, columns,
+			querygen.Read{Projection: []string{querygen.IDColumn}}, scope, user, account),
+
+		// Another live membership for the user, for moving the default off the
+		// one being removed — so a user is never left with memberships and
+		// nowhere to land. The account is excluded rather than matched, and the
+		// order is what makes "another" a row rather than whichever one the
+		// planner reached first.
+		g.ReadQuery("GetMembershipFallbackAccountID", MembershipsTable, columns,
+			querygen.Read{
+				Projection: []string{MembershipAccountColumn},
+				Order:      MembershipAccountColumn,
+			},
+			scope, user, querygen.Match{Column: MembershipAccountColumn, Exclude: true}),
 	}
 }
 

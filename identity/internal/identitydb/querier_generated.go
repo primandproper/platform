@@ -45,10 +45,28 @@ type Querier interface {
 	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) error
 	// GetAccount runs the :one query.
 	GetAccount(ctx context.Context, db DBTX, arg GetAccountParams) (GetAccountRow, error)
+	// GetAccountCreatedAt runs the :one query.
+	GetAccountCreatedAt(ctx context.Context, db DBTX, arg GetAccountCreatedAtParams) (GetAccountCreatedAtRow, error)
 	// GetInvitation runs the :one query.
 	GetInvitation(ctx context.Context, db DBTX, arg GetInvitationParams) (GetInvitationRow, error)
+	// GetInvitationCreatedAt runs the :one query.
+	GetInvitationCreatedAt(ctx context.Context, db DBTX, arg GetInvitationCreatedAtParams) (GetInvitationCreatedAtRow, error)
+	// GetMembershipByUserAndAccount runs the :one query.
+	GetMembershipByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipByUserAndAccountParams) (GetMembershipByUserAndAccountRow, error)
+	// GetMembershipFallbackAccountID runs the :one query.
+	GetMembershipFallbackAccountID(ctx context.Context, db DBTX, arg GetMembershipFallbackAccountIDParams) (GetMembershipFallbackAccountIDRow, error)
+	// GetMembershipIDByUserAndAccount runs the :one query.
+	GetMembershipIDByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipIDByUserAndAccountParams) (GetMembershipIDByUserAndAccountRow, error)
 	// GetUser runs the :one query.
 	GetUser(ctx context.Context, db DBTX, arg GetUserParams) (GetUserRow, error)
+	// GetUserByEmailAddress runs the :one query.
+	GetUserByEmailAddress(ctx context.Context, db DBTX, arg GetUserByEmailAddressParams) (GetUserByEmailAddressRow, error)
+	// GetUserByEmailVerificationToken runs the :one query.
+	GetUserByEmailVerificationToken(ctx context.Context, db DBTX, arg GetUserByEmailVerificationTokenParams) (GetUserByEmailVerificationTokenRow, error)
+	// GetUserByUsername runs the :one query.
+	GetUserByUsername(ctx context.Context, db DBTX, arg GetUserByUsernameParams) (GetUserByUsernameRow, error)
+	// GetUserCreatedAt runs the :one query.
+	GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUserCreatedAtParams) (GetUserCreatedAtRow, error)
 	// ListAccounts runs the :many query.
 	ListAccounts(ctx context.Context, db DBTX, arg ListAccountsParams) ([]ListAccountsRow, error)
 	// ListInvitations runs the :many query.

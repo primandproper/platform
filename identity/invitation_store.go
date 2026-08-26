@@ -64,8 +64,11 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 		}
 
 		// Read back for the reason CreateUser and CreateAccount read theirs
-		// back — see SQLStore.stampCreatedAt.
-		if err := s.stampCreatedAt(ctx, q, s.tables.invitations, invitation.ID, &invitation.CreatedAt); err != nil {
+		// back — see stampCreatedAt.
+		created, readErr := s.q.GetInvitationCreatedAt(ctx, q, identitydb.GetInvitationCreatedAtParams{
+			ID: invitation.ID,
+		})
+		if err := stampCreatedAt(&invitation.CreatedAt, created.CreatedAt, readErr); err != nil {
 			return err
 		}
 

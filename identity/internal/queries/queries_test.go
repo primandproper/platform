@@ -61,6 +61,10 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"CreateAccount", "GetAccount", "ListAccounts", "UpdateAccount", "ArchiveAccount",
 		"CreateInvitation", "GetInvitation", "ListInvitations",
 		"ListInvitationsByFromUser", "ListInvitationsByToEmail",
+		"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt",
+		"GetUserByUsername", "GetUserByEmailAddress", "GetUserByEmailVerificationToken",
+		"GetMembershipByUserAndAccount", "GetMembershipIDByUserAndAccount",
+		"GetMembershipFallbackAccountID",
 	}
 
 	for _, d := range everyDialect {
@@ -84,10 +88,11 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 			test.StrNotContains(t, rendered, "ArchiveInvitation")
 			test.StrNotContains(t, rendered, "Existence")
 
-			// Memberships is declared for its columns and emits nothing: every
-			// one of its statements keys on the (user, account) pair or is an
-			// upsert, and neither is a shape this generator produces.
-			test.StrNotContains(t, rendered, MembershipsTable)
+			// Memberships gets no standard query — every one of them would key
+			// on the id the table does not address rows by — but its three
+			// keyed reads are here, which is the point of the keyed forms.
+			test.StrNotContains(t, rendered, "GetMemberships")
+			test.StrNotContains(t, rendered, "ListMemberships")
 		})
 	}
 }
@@ -98,6 +103,15 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 func TestTables_ScopeIsInEveryStatement(T *testing.T) {
 	T.Parallel()
 
+	// The three exceptions, and they are the same exception three times: the
+	// read-back of the creation time a create's own INSERT just caused, by the
+	// id that create minted, inside that create's transaction. It is the
+	// component's own machinery servicing itself rather than a read a caller
+	// reaches — the row is not visible to anything else until the transaction
+	// commits — so it keys on the id alone. Everything else, without exception,
+	// names the scope.
+	unscoped := []string{"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt"}
+
 	for _, d := range everyDialect {
 		T.Run(string(d), func(t *testing.T) {
 			t.Parallel()
@@ -107,8 +121,127 @@ func TestTables_ScopeIsInEveryStatement(T *testing.T) {
 					continue
 				}
 
-				test.StrContains(t, statement, ScopeColumn,
-					test.Sprintf("statement %q", strings.SplitN(statement, "\n", 2)[0]))
+				name := strings.Fields(statement)[0]
+				if slices.Contains(unscoped, name) {
+					continue
+				}
+
+				test.StrContains(t, statement, ScopeColumn, test.Sprintf("statement %q", name))
+			}
+		})
+	}
+}
+
+// TestTable_KeyedColumns pins the idiom the keyed reads depend on: the column
+// list a statement's predicates are derived from, without the id.
+func TestTable_KeyedColumns(t *testing.T) {
+	t.Parallel()
+
+	for _, table := range allTables {
+		keyed := table.KeyedColumns()
+
+		test.False(t, slices.Contains(keyed, querygen.IDColumn), test.Sprintf("table %q", table.Name))
+		test.EqOp(t, len(table.Columns)-1, len(keyed), test.Sprintf("table %q", table.Name))
+
+		// Everything else survives, in order — the archived column above all,
+		// since it is what keeps a keyed read from returning archived rows.
+		test.True(t, slices.Contains(keyed, querygen.ArchivedAtColumn), test.Sprintf("table %q", table.Name))
+	}
+}
+
+// TestRender_KeyedReadsAddressARowByItsKey is the property the membership reads
+// exist for: they key on the (user, account) pair, not on the id the table also
+// carries, while still projecting whatever the store scans.
+func TestRender_KeyedReadsAddressARowByItsKey(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			byName := map[string]string{}
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				if statement != "" {
+					byName[strings.Fields(statement)[0]] = statement
+				}
+			}
+
+			for _, name := range []string{
+				"GetMembershipByUserAndAccount",
+				"GetMembershipIDByUserAndAccount",
+				"GetMembershipFallbackAccountID",
+			} {
+				statement, ok := byName[name]
+				must.True(t, ok, must.Sprintf("statement %q was not rendered", name))
+
+				// Keyed on the pair rather than on the id.
+				test.StrNotContains(t, statement, "sqlc.arg("+querygen.IDColumn+")",
+					test.Sprintf("statement %q", name))
+				test.StrContains(t, statement, "sqlc.arg("+MembershipUserColumn+")",
+					test.Sprintf("statement %q", name))
+				test.StrContains(t, statement, "sqlc.arg("+MembershipAccountColumn+")",
+					test.Sprintf("statement %q", name))
+
+				// Live rows only. A keyed read is not a filtered list, and an
+				// archived membership answering one is a departed member who
+				// still belongs to the account.
+				test.StrContains(t, statement, querygen.ArchivedAtColumn+" IS NULL",
+					test.Sprintf("statement %q", name))
+			}
+
+			// The membership read projects the id it does not key on, because
+			// the roles are written against it.
+			test.StrContains(t, byName["GetMembershipByUserAndAccount"],
+				querygen.Qualify(MembershipsTable, querygen.IDColumn))
+
+			// The fallback excludes rather than matches, and names the order
+			// that makes "another account" a row rather than whichever one the
+			// planner reached first.
+			test.StrContains(t, byName["GetMembershipFallbackAccountID"],
+				MembershipAccountColumn+" <> sqlc.arg("+MembershipAccountColumn+")")
+			test.StrContains(t, byName["GetMembershipFallbackAccountID"], "LIMIT 1")
+		})
+	}
+}
+
+// TestRender_KeyedUserReadsEnumerateTheColumn pins what replaced the builder
+// parameterized on a column: one named statement per column, each live-only and
+// each scoped.
+func TestRender_KeyedUserReadsEnumerateTheColumn(T *testing.T) {
+	T.Parallel()
+
+	byColumn := map[string]string{
+		"GetUserByUsername":               UserUsernameColumn,
+		"GetUserByEmailAddress":           UserEmailAddressColumn,
+		"GetUserByEmailVerificationToken": UserEmailVerificationTokenColumn,
+	}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			statements := map[string]string{}
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				if statement != "" {
+					statements[strings.Fields(statement)[0]] = statement
+				}
+			}
+
+			for name, column := range byColumn {
+				statement, ok := statements[name]
+				must.True(t, ok, must.Sprintf("statement %q was not rendered", name))
+
+				test.StrContains(t, statement, "sqlc.arg("+column+")", test.Sprintf("statement %q", name))
+				test.StrContains(t, statement, "sqlc.arg("+ScopeColumn+")", test.Sprintf("statement %q", name))
+				test.StrContains(t, statement, querygen.ArchivedAtColumn+" IS NULL",
+					test.Sprintf("statement %q", name))
+
+				// The whole user comes back — these are the sign-in reads, and
+				// the caller needs the credential columns.
+				for _, projected := range Users.Columns {
+					test.StrContains(t, statement, querygen.Qualify(UsersTable, projected),
+						test.Sprintf("statement %q column %q", name, projected))
+				}
 			}
 		})
 	}
