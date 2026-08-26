@@ -30,39 +30,6 @@ type pageRow[T any] struct {
 	total    int64
 }
 
-// countingScanner appends the two count destinations to whatever projection the
-// scanner it wraps asks for.
-//
-// This is what lets a page be scanned by the single-row scanner rather than by
-// a second one that repeats its column list. A second scanner would be the
-// exact mistake this file's header describes: a projection paired to a Scan by
-// eye, where a mismatch is a runtime error rather than a compile error, and the
-// page read is the one that has thirty chances per request to hit it.
-type countingScanner struct {
-	inner    database.Scanner
-	filtered int64
-	total    int64
-}
-
-func (c *countingScanner) Scan(dest ...any) error {
-	return c.inner.Scan(append(dest, &c.filtered, &c.total)...)
-}
-
-// scanPage adapts a single-row scanner into one that reads a list query's row,
-// counts included.
-func scanPage[T any](scan func(database.Scanner) (*T, error)) func(database.Scanner) (pageRow[T], error) {
-	return func(scanner database.Scanner) (pageRow[T], error) {
-		counting := &countingScanner{inner: scanner}
-
-		value, err := scan(counting)
-		if err != nil {
-			return pageRow[T]{}, err
-		}
-
-		return pageRow[T]{value: value, filtered: counting.filtered, total: counting.total}, nil
-	}
-}
-
 // pageCounts reads the counts off a row, for filtering.Drain.
 func pageCounts[T any](row pageRow[T]) (filtered, total int64) {
 	return row.filtered, row.total
@@ -282,48 +249,4 @@ func scanMembershipWithUser(scanner database.Scanner) (*MembershipWithUser, erro
 	uAux.apply(&user)
 
 	return &MembershipWithUser{Membership: membership, User: user.Redacted()}, nil
-}
-
-// invitationAux holds the nullable invitation columns.
-type invitationAux struct {
-	lastUpdatedAt sql.NullTime
-	archivedAt    sql.NullTime
-	status        string
-	toUser        sql.NullString
-}
-
-// targets returns one destination per column of queries.Invitations.Columns, in order.
-func (a *invitationAux) targets(i *Invitation) []any {
-	return []any{
-		&i.ID, &i.Scope, &i.BelongsToAccount,
-		&i.FromUser, &i.ToEmail, &i.ToName, &a.toUser,
-		&i.Token, &a.status, &i.Note,
-		&i.ExpiresAt, &i.CreatedAt, &a.lastUpdatedAt, &a.archivedAt,
-	}
-}
-
-// apply converts what targets scanned onto the Invitation.
-func (a *invitationAux) apply(i *Invitation) {
-	i.ExpiresAt = i.ExpiresAt.UTC()
-	i.CreatedAt = i.CreatedAt.UTC()
-	i.Status = InvitationStatus(a.status)
-	i.ToUser = stringPtr(a.toUser)
-	i.LastUpdatedAt = timePtr(a.lastUpdatedAt)
-	i.ArchivedAt = timePtr(a.archivedAt)
-}
-
-// scanInvitation projects one row of queries.Invitations.Columns.
-func scanInvitation(scanner database.Scanner) (*Invitation, error) {
-	var (
-		invitation Invitation
-		aux        invitationAux
-	)
-
-	if err := scanner.Scan(aux.targets(&invitation)...); err != nil {
-		return nil, err
-	}
-
-	aux.apply(&invitation)
-
-	return &invitation, nil
 }

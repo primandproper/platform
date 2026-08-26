@@ -8,11 +8,12 @@ import (
 
 	"github.com/primandproper/platform-go/v13/clock"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/querygen"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identifiers"
+	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/logging"
@@ -47,7 +48,7 @@ var _ Store = (*SQLStore)(nil)
 type SQLStore struct {
 	client database.Client
 	tables *tables
-	stmts  *statements
+	q      identitydb.Querier
 	o11y   observability.Observer
 	clock  clock.Clock
 
@@ -98,10 +99,16 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		return nil, err
 	}
 
-	// Rendered once, here, rather than per call. The prefix is settled by now
-	// and the dialect came off the client, which are the only two things the
-	// conventional statements do not already know — see statements.go.
-	s.stmts = newStatements(d, s.tables)
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see identity/internal/identitydb.
+	q, err := identitydb.New(identitydbDialect(d), ddl.Qualify(s.tables.prefix()))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building the identity querier")
+	}
+
+	s.q = q
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
 
@@ -116,7 +123,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	// indistinguishable from the real thing unless somebody is counting.
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
-	var err error
 	if s.unreportedRowsCounter, err = mp.NewInt64Counter(storeName + "_unreported_row_counts"); err != nil {
 		return nil, platformerrors.Wrap(err, "creating identity store unreported row count counter")
 	}
@@ -482,28 +488,45 @@ func pageWindow(filter *filtering.QueryFilter) (normalized *filtering.QueryFilte
 	return normalized, cursor, int(*normalized.MaxResponseSize)
 }
 
-// execBound runs a rendered write that must touch a row, binding its arguments
-// by name first.
+// identitydbDialect maps this module's dialect names onto the generated
+// package's. The set is closed on both sides — NewSQLStore has already
+// rejected anything d.Valid() declines — so the default arm is a programming
+// error surfaced by identitydb.New refusing the empty dialect.
+func identitydbDialect(d dialect.Dialect) identitydb.Dialect {
+	switch d {
+	case dialect.Postgres:
+		return identitydb.DialectPostgreSQL
+	case dialect.MySQL:
+		return identitydb.DialectMySQL
+	case dialect.SQLite:
+		return identitydb.DialectSQLite
+	default:
+		return ""
+	}
+}
+
+// guardCount is execExpectingRow's generated-statement half. The statement ran
+// through identitydb, whose :execrows methods already asked the driver for the
+// affected count, so what is left is mapping "touched nothing" onto the
+// sentinel for the entity that was not there — every predicate here includes
+// the scope, and without this a write aimed at another directory's row reports
+// success.
 //
-// It is execExpectingRow with the binding in front of it, because the two
-// belong together: a Bound holds names rather than values, so every one of
-// these writes is a Bind and an Exec, and splitting them across the call sites
-// would be nine copies of the same two lines.
-func (s *SQLStore) execBound(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	statement querygen.Bound,
-	values map[string]any,
-	missing error,
-	operation string,
-) error {
-	args, err := argsFor(statement, values, operation)
+// One narrowing against the hand-written path: a driver that declines to
+// report the count reaches this as an error rather than as an acknowledged
+// unknown, because the generated method has no seam between running the
+// statement and reading the count. None of the three supported drivers
+// declines; the old tolerance guarded a hypothetical.
+func guardCount(count int64, err, missing error, operation string) error {
 	if err != nil {
-		return err
+		return platformerrors.Wrap(err, operation)
 	}
 
-	return s.execExpectingRow(ctx, op, q, statement.SQL, args, missing, operation)
+	if count == 0 {
+		return missing
+	}
+
+	return nil
 }
 
 // stampCreatedAt reads back the creation time the database assigned and writes

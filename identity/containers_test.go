@@ -9,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/mysql"
 	"github.com/primandproper/platform-go/v13/database/postgres"
+	"github.com/primandproper/platform-go/v13/identifiers"
 	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/testutils/containers/mysqltest"
 	"github.com/primandproper/platform-go/v13/testutils/containers/pgtest"
@@ -156,11 +157,9 @@ func assertIndexRefusesDuplicate(t *testing.T, env *storeEnv) {
 
 	duplicate := newUser("ada")
 	duplicate.EmailAddress = "someone-else@example.com"
+	duplicate.ID = identifiers.New()
 
-	args, err := store.stmts.createUser.Bind(userValues(duplicate))
-	must.NoError(t, err)
-
-	_, err = store.client.Writer().ExecContext(t.Context(), store.stmts.createUser.SQL, args...)
+	err := store.q.CreateUser(t.Context(), store.client.Writer(), createUserParams(duplicate))
 	must.Error(t, err)
 }
 

@@ -22,6 +22,15 @@ const (
 // this schema is not expressible, because there is no statement that omits it.
 const ScopeColumn = "scope"
 
+// The invitation columns the keyed list variants below name. Exported because
+// the store spells them too — its argument maps key on them — and two spellings
+// of one column is the drift the rest of this package exists to prevent.
+const (
+	InvitationFromUserColumn = "from_user"
+	InvitationToEmailColumn  = "to_email"
+	InvitationStatusColumn   = "status"
+)
+
 // EmailAddressVerifiedAtColumn is the proof a user's address is reachable.
 //
 // Spelled once because three declarations below name it — it is nullable, it is
@@ -202,7 +211,32 @@ func Render(d dialect.Dialect) string {
 		rendered = append(rendered, g.StandardCRUD(table.Name, table.Columns, table.Options()...)...)
 	}
 
+	rendered = append(rendered, keyedInvitationLists(g)...)
+
 	return querygen.RenderFile(rendered)
+}
+
+// keyedInvitationLists is the two paged invitation reads the store actually
+// runs: pending invitations from one user, and pending invitations addressed to
+// one email. They are list variants rather than standard queries — a keyed
+// column and a status predicate on top of the standard list — and before they
+// were rendered here, the canonical .sql carried only the unkeyed list while
+// the store executed these, which is exactly the checked-versus-executed gap
+// the canonical file exists to close.
+//
+// The status is a bound argument rather than the literal 'pending', for the
+// same reason the store binds it: a quoted literal in SQL text is one more
+// place a status spelling lives.
+func keyedInvitationLists(g *querygen.Generator) []*querygen.Query {
+	scope := querygen.Match{Column: ScopeColumn}
+	status := querygen.Match{Column: InvitationStatusColumn}
+
+	return []*querygen.Query{
+		g.ListQuery("ListInvitationsByFromUser", InvitationsTable, Invitations.Columns,
+			scope, querygen.Match{Column: InvitationFromUserColumn}, status),
+		g.ListQuery("ListInvitationsByToEmail", InvitationsTable, Invitations.Columns,
+			scope, querygen.Match{Column: InvitationToEmailColumn}, status),
+	}
 }
 
 // FileName is the file one dialect's rendered queries are committed to.

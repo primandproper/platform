@@ -210,6 +210,26 @@ func (g *Generator) BoundList(table string, columns []string, matches ...Match) 
 	return g.bound(g.listStatement(table, columns, "", matches...))
 }
 
+// ListQuery is BoundList's canonical form: the same statement, in the sqlc
+// spelling, named and annotated for a query file.
+//
+// It exists so a keyed list variant can be part of the canonical .sql rather
+// than only of the running store. A store that renders BoundList with matches
+// executes a statement the standard set does not contain, and without this the
+// checked corpus and the executed set differ by exactly those variants — the
+// gap is invisible until one of them drifts. Emitting the variant through the
+// same listStatement call BoundList makes keeps the two the same text by
+// construction.
+//
+// The name must be unique across the consumer's whole sqlc package, as every
+// QueryAnnotation.Name must.
+func (g *Generator) ListQuery(name, table string, columns []string, matches ...Match) *Query {
+	return &Query{
+		Annotation: QueryAnnotation{Name: name, Type: ManyType},
+		Content:    g.listStatement(table, columns, "", matches...),
+	}
+}
+
 // The five Bound* statement builders below are the executable counterparts of
 // what StandardCRUD emits, and they are deliberately one per statement rather
 // than one call returning the set.

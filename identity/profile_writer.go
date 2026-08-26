@@ -5,6 +5,7 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -42,13 +43,14 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 			return err
 		}
 
-		values, err := s.profileUpdateValues(ctx, q, user)
+		params, err := s.profileUpdateParams(ctx, q, user)
 		if err != nil {
 			return err
 		}
 
-		return s.execBound(ctx, op, q, s.stmts.updateUser, values,
-			ErrUserNotFound, "updating identity user")
+		count, err := s.q.UpdateUser(ctx, q, params)
+
+		return guardCount(count, err, ErrUserNotFound, "updating identity user")
 	}); err != nil {
 		return op.Error(err, "updating identity user")
 	}
@@ -56,7 +58,7 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-// profileUpdateValues assembles what the profile update binds, deciding from the
+// profileUpdateParams assembles what the profile update binds, deciding from the
 // row as it stands what email_address_verified_at should hold afterwards: what
 // it holds now if the address is unchanged, and nothing if it is not.
 //
@@ -75,10 +77,10 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 // is inside the same transaction as the write — so the window is narrow and the
 // loss is a verification the user can repeat, rather than an unproven address
 // reading as verified, which is the direction that mattered.
-func (s *SQLStore) profileUpdateValues(ctx context.Context, q database.Tx, user *User) (map[string]any, error) {
+func (s *SQLStore) profileUpdateParams(ctx context.Context, q database.Tx, user *User) (identitydb.UpdateUserParams, error) {
 	stored, err := s.readUser(ctx, q, user.Scope, user.ID)
 	if err != nil {
-		return nil, err
+		return identitydb.UpdateUserParams{}, err
 	}
 
 	verifiedAt := stored.EmailAddressVerifiedAt
@@ -86,7 +88,7 @@ func (s *SQLStore) profileUpdateValues(ctx context.Context, q database.Tx, user 
 		verifiedAt = nil
 	}
 
-	return userUpdateValues(user, verifiedAt), nil
+	return updateUserParams(user, verifiedAt), nil
 }
 
 // UpdateAccount writes the account's name and billing address.
@@ -104,8 +106,8 @@ func (s *SQLStore) UpdateAccount(ctx context.Context, account *Account) error {
 
 	op.Set(accountIDKey, account.ID).Set(scopeKey, account.Scope.String())
 
-	if err := s.execBound(ctx, op, s.client.Writer(), s.stmts.updateAccount, accountUpdateValues(account),
-		ErrAccountNotFound, "updating identity account"); err != nil {
+	count, err := s.q.UpdateAccount(ctx, s.client.Writer(), updateAccountParams(account))
+	if err = guardCount(count, err, ErrAccountNotFound, "updating identity account"); err != nil {
 		return op.Error(err, "updating identity account")
 	}
 

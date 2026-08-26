@@ -16,6 +16,7 @@ make test           # Run tests (race detector, shuffle, failfast)
 make build          # Build all packages
 make generate       # Regenerate moq mocks after changing any mocked interface
 make proto format   # Regenerate the Go bindings for the .proto files this module ships
+make unison format  # Regenerate the sqlc-gen-unison packages (identity's identitydb) + schema files
 make setup          # Install dev tools + download deps
 ```
 

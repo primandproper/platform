@@ -6,6 +6,7 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -103,8 +104,8 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 	now := s.now()
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.execBound(ctx, op, q, s.stmts.archiveUser, keyed(scope, userID),
-			ErrUserNotFound, "archiving identity user"); err != nil {
+		count, err := s.q.ArchiveUser(ctx, q, identitydb.ArchiveUserParams{ID: userID, Scope: scope})
+		if err = guardCount(count, err, ErrUserNotFound, "archiving identity user"); err != nil {
 			return err
 		}
 
@@ -113,8 +114,8 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 		// to, which is the state an application discovers when a deleted
 		// colleague is still listed.
 		query, args := s.tables.buildArchiveMembershipsBy(s.dialect, membershipUserColumn, scope, userID, now)
-		if _, err := q.ExecContext(ctx, query, args...); err != nil {
-			return platformerrors.Wrap(err, "archiving identity memberships")
+		if _, execErr := q.ExecContext(ctx, query, args...); execErr != nil {
+			return platformerrors.Wrap(execErr, "archiving identity memberships")
 		}
 
 		return nil
@@ -178,8 +179,8 @@ func (s *SQLStore) ArchiveAccount(ctx context.Context, scope tenancy.Scope, acco
 	now := s.now()
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.execBound(ctx, op, q, s.stmts.archiveAccount, keyed(scope, accountID),
-			ErrAccountNotFound, "archiving identity account"); err != nil {
+		count, err := s.q.ArchiveAccount(ctx, q, identitydb.ArchiveAccountParams{ID: accountID, Scope: scope})
+		if err = guardCount(count, err, ErrAccountNotFound, "archiving identity account"); err != nil {
 			return err
 		}
 
@@ -187,8 +188,8 @@ func (s *SQLStore) ArchiveAccount(ctx context.Context, scope tenancy.Scope, acco
 		// against an archived account keep it in their switcher and keep
 		// resolving permissions through it.
 		query, args := s.tables.buildArchiveMembershipsBy(s.dialect, membershipAccountColumn, scope, accountID, now)
-		if _, err := q.ExecContext(ctx, query, args...); err != nil {
-			return platformerrors.Wrap(err, "archiving identity memberships")
+		if _, execErr := q.ExecContext(ctx, query, args...); execErr != nil {
+			return platformerrors.Wrap(execErr, "archiving identity memberships")
 		}
 
 		return nil
