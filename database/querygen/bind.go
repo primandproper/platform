@@ -158,7 +158,8 @@ func (g *Generator) bound(statement string) Bound {
 
 // Match is an equality predicate on one column, for a read keyed on something
 // other than the row's own id — comments on one reference, signups for one
-// waitlist.
+// waitlist, or the whole key of a table whose primary key is natural rather than
+// a surrogate id.
 //
 // It is a column name rather than rendered SQL because the statements it lands
 // in render it more than once: a list query carries its predicates in the SELECT
@@ -205,6 +206,15 @@ func (g *Generator) BoundList(table string, columns []string, matches ...Match) 
 // lets a caller add a tenancy scope column without this package knowing what a
 // tenancy scope is. Each is a call into the statement function StandardCRUD
 // calls, so what a store executes is what a generator would have emitted.
+//
+// None of them requires an id column, which is where they part company with
+// StandardCRUD. A table whose primary key is (subject_type, subject_id) names
+// both in Match values and addresses a row exactly; the id predicate is rendered
+// only when the column list has one, the same way every other predicate here is.
+// What such a table cannot have is the paged list, whose cursor is the id — see
+// ErrMissingIDColumn and the package comment. A statement with no id and no
+// Match keys on nothing at all, and panics with ErrUnaddressableRow rather than
+// addressing every row in the table.
 
 // BoundGet renders the read of one row by id, plus any extra predicate columns.
 func (g *Generator) BoundGet(table string, columns []string, extra ...Match) Bound {
@@ -230,15 +240,25 @@ func (g *Generator) BoundCreate(table string, insertColumns, nullable []string) 
 // A column that is both assigned and matched binds one argument to both, which
 // is a statement that sets a column to the value it is being required to already
 // hold. A caller wanting to move a row between owners wants that column out of
-// updateColumns, which is what ForUpdate's exceptions are for.
+// updateColumns, which is what ForUpdate's exceptions are for — and a table
+// keyed on a natural key wants every column of that key out of it, since
+// ForUpdate subtracts the id and knows nothing of the rest.
 func (g *Generator) BoundUpdate(table string, columns, updateColumns, nullable []string, extra ...Match) Bound {
 	return g.bound(updateStatement(table, columns, updateColumns, "", nullable, extra...))
 }
 
 // BoundArchive renders the soft delete of one row by id, plus any extra
 // predicate columns.
-func (g *Generator) BoundArchive(table string, extra ...Match) Bound {
-	return g.bound(archiveStatement(table, "", extra...))
+//
+// It takes the column list the other single-row statements take, because its
+// predicates are derived from one like theirs: the id predicate appears only for
+// a table that has an id, and the archived_at IS NULL that makes archiving
+// idempotent appears only for a table whose column list says the column is
+// there. A list omitting archived_at therefore yields an archive that restamps
+// an already-archived row and reports it as a write — so a caller passes the
+// table's columns rather than a subset chosen for this call.
+func (g *Generator) BoundArchive(table string, columns []string, extra ...Match) Bound {
+	return g.bound(archiveStatement(table, columns, "", extra...))
 }
 
 // BindFilter writes a filtering.QueryFilter's values into an argument map under
