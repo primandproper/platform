@@ -4,6 +4,7 @@ import (
 	"context"
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -14,12 +15,32 @@ var _ SignInReader = (*SQLStore)(nil)
 
 // GetUserByUsername reads a live user by the handle they sign in with.
 func (s *SQLStore) GetUserByUsername(ctx context.Context, scope tenancy.Scope, username string) (*User, error) {
-	return s.liveUserBy(ctx, usernameColumn, scope, username, "reading identity user by username")
+	return s.liveUser(ctx, scope, "reading identity user by username", func(ctx context.Context) (*User, error) {
+		row, err := s.q.GetUserByUsername(ctx, s.client.Reader(), identitydb.GetUserByUsernameParams{
+			Username: username,
+			Scope:    scope,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return userFromUsernameRow(&row), nil
+	})
 }
 
 // GetUserByEmailAddress reads a live user by their email address.
 func (s *SQLStore) GetUserByEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string) (*User, error) {
-	return s.liveUserBy(ctx, emailAddressColumn, scope, emailAddress, "reading identity user by email address")
+	return s.liveUser(ctx, scope, "reading identity user by email address", func(ctx context.Context) (*User, error) {
+		row, err := s.q.GetUserByEmailAddress(ctx, s.client.Reader(), identitydb.GetUserByEmailAddressParams{
+			EmailAddress: emailAddress,
+			Scope:        scope,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return userFromEmailAddressRow(&row), nil
+	})
 }
 
 // GetPrincipal reads a user with their memberships and resolves the active

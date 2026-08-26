@@ -132,6 +132,39 @@ time.DateTime spells rather than a time, and MySQL's LIMIT cannot
 coalesce so BindFilter supplies the default the other two coalesce to. Both are
 in BindFilter rather than in a caller for the same reason the SQL is here.
 
+# The canonical form of a keyed variant
+
+A store rendering [Bound] statements with [Match] values executes statements the
+standard set does not contain — a get keyed on a natural key, a list keyed on a
+reference, an update guarded by a status. Left there, the corpus sqlc checks and
+the set the store runs differ by exactly those variants: sqlc proves statements
+nobody executes while the store executes statements sqlc never saw, and the gap
+is invisible until one of them drifts.
+
+So every [Bound] method has a Query form beside it — [Generator.GetQuery],
+[Generator.ReadQuery], [Generator.ExistsQuery], [Generator.ListQuery],
+[Generator.UpdateQuery] and [Generator.ArchiveQuery] — which is the same
+statement in the sqlc spelling, named and annotated for a query file:
+
+	list := querygen.For(dialect.Postgres).ListQuery(
+		"ListInvitationsByFromUser", "identity_invitations", columns,
+		querygen.Match{Column: "scope"},
+		querygen.Match{Column: "from_user"})
+
+Each calls the statement function its [Bound] counterpart calls, so the checked
+text and the executed text are the same text by construction. A consumer renders
+its variants into the canonical .sql through these and executes the methods sqlc
+generates from it, which is what closes the gap rather than narrowing it.
+
+[Generator.ReadQuery] and [Generator.BoundRead] are the pair the standard get
+cannot express: a [Read] says what the SELECT lists, and — where the key admits
+more than one row — the column whose order decides which one answers. The
+column list stays the table's shape, which is what the id and archived
+predicates are derived from, so a table carrying an id it does not key on leaves
+the column out of that list and names it in [Read.Projection]. A [Match] can
+also exclude rather than include, for the read looking for another row like this
+one.
+
 # Tables with no id
 
 [Generator.StandardCRUD] requires an id column and the [Bound] methods do not,
@@ -162,14 +195,16 @@ works and one leaving half the ciphertext readable — metering_totals on
 (subject, meter, period_start), and scheduled_timers on (timer_set, timer_key).
 
 What that costs is worth stating rather than discovering. Those four execute
-[Bound] statements with no canonical .sql counterpart, so nothing about them
-passes through sqlc: the projection and the placeholders stop being
-hand-maintained, because this package renders both, but the statements are never
-checked against the schema at build time the way a generated one is. A column
-renamed in a migration is a runtime error on those four tables and a failed
-generate everywhere else, and the only thing that catches it first is their own
-container tests. That is a narrower guarantee than the rest of this package
-offers, and it is the price of a key that means something.
+[Bound] statements and render no canonical .sql, so nothing about them passes
+through sqlc: the projection and the placeholders stop being hand-maintained,
+because this package renders both, but the statements are never checked against
+the schema at build time the way a generated one is. A column renamed in a
+migration is a runtime error on those four tables and a failed generate
+everywhere else, and the only thing that catches it first is their own container
+tests. That is a narrower guarantee than the rest of this package offers, and it
+is a gap in those four packages rather than in what this one can express — the
+Query forms above render exactly these statements for a corpus, keyed on
+whatever the table keys on.
 
 A statement that keys on nothing at all — no id in the column list and no [Match]
 — is [ErrUnaddressableRow] rather than a statement whose WHERE clause is the

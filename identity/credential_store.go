@@ -4,6 +4,7 @@ import (
 	"context"
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -23,7 +24,19 @@ func (s *SQLStore) GetUserByEmailVerificationToken(ctx context.Context, scope te
 		return nil, platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "empty email verification token")
 	}
 
-	return s.liveUserBy(ctx, emailTokenColumn, scope, token, "reading identity user by email verification token")
+	return s.liveUser(ctx, scope, "reading identity user by email verification token",
+		func(ctx context.Context) (*User, error) {
+			row, err := s.q.GetUserByEmailVerificationToken(ctx, s.client.Reader(),
+				identitydb.GetUserByEmailVerificationTokenParams{
+					EmailAddressVerificationToken: token,
+					Scope:                         scope,
+				})
+			if err != nil {
+				return nil, err
+			}
+
+			return userFromEmailVerificationTokenRow(&row), nil
+		})
 }
 
 // UpdateUserPassword replaces the hash, stamps the change, and releases any

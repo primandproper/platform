@@ -194,6 +194,55 @@ type Match struct {
 	// value needs no escaping; the name itself is interpolated and is therefore
 	// restricted — see dialect.ValidIdentifier.
 	Column string
+	// Exclude inverts the predicate: the rows matched are the ones whose column
+	// does not hold the bound value.
+	//
+	// It is a field on Match rather than a second type because the two are the
+	// same predicate over the same bound argument, differing in one operator,
+	// and a caller assembling a mixed key writes one slice either way. The read
+	// that wants it is the one looking for another row like this one — the
+	// remaining live membership when the default is being removed — where the
+	// excluded value is as much a part of the key as the included ones.
+	Exclude bool
+}
+
+// Read is what a keyed read returns, and how it chooses when the key admits
+// more than one row.
+//
+// It exists because a keyed read's projection and its predicates come from
+// different lists, which the standard get's do not. The get projects the table
+// and keys on the table's id, so one column list says both things. A read of
+// the creation time the database assigned projects one column and keys on the
+// id; a read of the membership between a user and an account projects every
+// column and keys on neither its own id nor a filter. Deriving both from one
+// list would mean a narrow projection silently dropping the archived predicate
+// that the same list carries.
+//
+// The zero value is the standard get: the whole column list projected, and no
+// ordering, because the key names one row.
+type Read struct {
+	// Order names a column the read sorts ascending by and takes the first row
+	// of.
+	//
+	// It is for the key that admits more than one row — "another live
+	// membership for this user" — where without it the row answered is
+	// whichever the planner reached first, and a :one statement discards the
+	// rest after dragging them across the wire. Empty is a key that identifies
+	// a row, which needs neither.
+	Order string
+	// Projection is the columns the SELECT lists, in order. Empty projects the
+	// column list the statement was rendered from.
+	Projection []string
+}
+
+// projecting returns the columns this read lists, which is the statement's own
+// column list unless the read narrows it.
+func (r Read) projecting(columns []string) []string {
+	if len(r.Projection) == 0 {
+		return columns
+	}
+
+	return r.Projection
 }
 
 // BoundList renders a list query carrying extra equality predicates.
@@ -259,7 +308,20 @@ func (g *Generator) ListQuery(name, table string, columns []string, matches ...M
 
 // BoundGet renders the read of one row by id, plus any extra predicate columns.
 func (g *Generator) BoundGet(table string, columns []string, extra ...Match) Bound {
-	return g.bound(getStatement(table, columns, "", extra...))
+	return g.bound(getStatement(table, columns, "", Read{}, extra...))
+}
+
+// BoundRead renders a keyed read that is not the standard get: one that returns
+// a narrower projection than the table, or that keys on something other than
+// the row's own id, or both.
+//
+// columns stays the table's shape — what the id and archived predicates are
+// derived from — and read says what comes back. A table keyed on a natural key
+// while still carrying an id leaves the id out of columns and names it in
+// read.Projection, which is the same idiom a table with no id at all already
+// uses, with the projection now able to say so.
+func (g *Generator) BoundRead(table string, columns []string, read Read, extra ...Match) Bound {
+	return g.bound(getStatement(table, columns, "", read, extra...))
 }
 
 // BoundExists renders the existence check for one row by id, plus any extra
@@ -300,6 +362,70 @@ func (g *Generator) BoundUpdate(table string, columns, updateColumns, nullable [
 // table's columns rather than a subset chosen for this call.
 func (g *Generator) BoundArchive(table string, columns []string, extra ...Match) Bound {
 	return g.bound(g.archiveStatement(table, columns, "", extra...))
+}
+
+// The five Query forms below are ListQuery's siblings: each is the canonical,
+// sqlc-spelled form of the Bound method beside it, named and annotated for a
+// query file.
+//
+// They exist for the same reason ListQuery does. A store that renders a keyed
+// get, exists, update or archive executes a statement the standard set does not
+// contain, so the corpus sqlc checks and the set the store runs differ by
+// exactly those variants — sqlc proving statements nobody executes while the
+// store executes statements sqlc never saw. Each of these calls the statement
+// function its Bound counterpart calls, so the checked text and the executed
+// text are the same text by construction rather than by anybody keeping them in
+// step.
+//
+// Each takes the name, because a query file's names have to be unique across
+// the consumer's whole sqlc package rather than merely within one file, and
+// nothing here knows what else that package holds. None of them takes an
+// ownership column: a variant's predicates are its matches, which is where the
+// owner goes.
+
+// GetQuery is BoundGet's canonical form.
+func (g *Generator) GetQuery(name, table string, columns []string, extra ...Match) *Query {
+	return &Query{
+		Annotation: QueryAnnotation{Name: name, Type: OneType},
+		Content:    getStatement(table, columns, "", Read{}, extra...),
+	}
+}
+
+// ReadQuery is BoundRead's canonical form: the keyed read that projects
+// something other than the table, or keys on something other than the id.
+func (g *Generator) ReadQuery(name, table string, columns []string, read Read, extra ...Match) *Query {
+	return &Query{
+		Annotation: QueryAnnotation{Name: name, Type: OneType},
+		Content:    getStatement(table, columns, "", read, extra...),
+	}
+}
+
+// ExistsQuery is BoundExists's canonical form.
+func (g *Generator) ExistsQuery(name, table string, columns []string, extra ...Match) *Query {
+	return &Query{
+		Annotation: QueryAnnotation{Name: name, Type: OneType},
+		Content:    existsStatement(table, columns, "", extra...),
+	}
+}
+
+// UpdateQuery is BoundUpdate's canonical form.
+//
+// It is annotated :execrows rather than :exec, like the standard update, because
+// the count is the answer: an update whose predicate matched nothing is how a
+// caller learns the row was already gone.
+func (g *Generator) UpdateQuery(name, table string, columns, updateColumns, nullable []string, extra ...Match) *Query {
+	return &Query{
+		Annotation: QueryAnnotation{Name: name, Type: ExecRowsType},
+		Content:    g.updateStatement(table, columns, updateColumns, "", nullable, extra...),
+	}
+}
+
+// ArchiveQuery is BoundArchive's canonical form.
+func (g *Generator) ArchiveQuery(name, table string, columns []string, extra ...Match) *Query {
+	return &Query{
+		Annotation: QueryAnnotation{Name: name, Type: ExecRowsType},
+		Content:    g.archiveStatement(table, columns, "", extra...),
+	}
 }
 
 // BindFilter writes a filtering.QueryFilter's values into an argument map under

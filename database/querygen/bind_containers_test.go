@@ -253,6 +253,50 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		}
 	})
 
+	t.Run("a keyed read projects one column, excludes, and picks in a named order", func(t *testing.T) {
+		// The three things BoundRead adds over BoundGet, in one statement,
+		// because each of them is SQL a server either accepts or does not: a
+		// projection narrower than the table, a predicate that excludes rather
+		// than matches, and the ORDER BY ... LIMIT 1 that makes "another row
+		// like this one" a row rather than whichever the planner reached first.
+		//
+		// It runs before anything archives, so the four live gadgets are
+		// g_001 through g_004 and the answer is not a matter of timing.
+		columns := widgetsColumns()
+
+		read := For(d).BoundRead(gadgetsTable, without(columns, IDColumn),
+			Read{Projection: []string{IDColumn}, Order: IDColumn},
+			Match{Column: BelongsToAccountColumn},
+			Match{Column: "name", Exclude: true})
+
+		arguments, bindErr := read.Bind(map[string]any{
+			BelongsToAccountColumn: gadgetOwner,
+			"name":                 "gadget g_001",
+		})
+		must.NoError(t, bindErr)
+
+		var got string
+
+		must.NoError(t, db.QueryRowContext(ctx, read.SQL, arguments...).Scan(&got),
+			must.Sprintf("executing\n%s", read.SQL))
+
+		// g_001 is excluded by name and g_005 belongs to someone else, so the
+		// first row in id order is g_002. A statement whose exclusion had
+		// rendered as an equality would answer g_001, and one that had lost its
+		// ordering could answer any of the three.
+		test.EqOp(t, "g_002", got)
+
+		// The same read with nothing left to find is no rows rather than an
+		// arbitrary one — which is what lets a caller branch on sql.ErrNoRows.
+		arguments, bindErr = read.Bind(map[string]any{
+			BelongsToAccountColumn: "account_nobody",
+			"name":                 "gadget g_001",
+		})
+		must.NoError(t, bindErr)
+
+		test.ErrorIs(t, db.QueryRowContext(ctx, read.SQL, arguments...).Scan(&got), sql.ErrNoRows)
+	})
+
 	t.Run("the list pages without its counts moving", func(t *testing.T) {
 		// filtered_count carries the window and the archived toggle but not the
 		// cursor, so it answers "how many are left" rather than "how many are

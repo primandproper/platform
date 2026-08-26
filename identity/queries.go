@@ -149,36 +149,7 @@ func (b *binder) bind(value any) string {
 	return b.d.Placeholder(len(b.args))
 }
 
-// buildSelectCreatedAt reads back the creation time the database assigned to a
-// row this store has just written.
-//
-// created_at is database-owned — it is not in any create's column list, and the
-// schema gives it a DEFAULT — so the value a caller handed over still holds the
-// zero time when the INSERT returns. This is the read that fixes that; see
-// SQLStore.stampCreatedAt for why it is a read rather than a field left blank.
-//
-// It takes the table because the three creates share it and the name is this
-// package's own, never a caller's.
-func (t *tables) buildSelectCreatedAt(d dialect.Dialect, table, id string) (query string, args []any) {
-	return fmt.Sprintf("SELECT created_at FROM %s WHERE id = %s", table, d.Placeholder(1)),
-		[]any{id}
-}
-
 // ---------------------------------------------------------------- users
-
-// buildSelectLiveUserBy renders the sign-in reads: by username, by email
-// address, or by verification token, always live-only.
-//
-// The three share a builder because they differ in exactly one identifier and
-// nothing else — the scope predicate, the archived clause, and the projection
-// are the parts that must not differ, and three copies of them is three chances
-// for the sign-in read to be the one that forgot the archived clause.
-func (t *tables) buildSelectLiveUserBy(d dialect.Dialect, column string, scope tenancy.Scope, value string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s = %s AND scope = %s AND archived_at IS NULL",
-		userProjection, t.users, column, d.Placeholder(1), d.Placeholder(2),
-	), []any{value, scope}
-}
 
 // likeEscape is the character the prefix search escapes wildcards with.
 //
@@ -518,25 +489,6 @@ func (t *tables) buildUpsertMembership(d dialect.Dialect, m *Membership, now tim
 	}
 }
 
-// buildSelectMembershipID reads back the ID a revived membership kept, which is
-// the row the roles have to be written against — the ID the caller generated is
-// not the one in the table when the upsert took the conflict branch.
-func (t *tables) buildSelectMembershipID(d dialect.Dialect, userID, accountID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT id FROM %s WHERE belongs_to_user = %s AND belongs_to_account = %s",
-		t.memberships, d.Placeholder(1), d.Placeholder(2),
-	), []any{userID, accountID}
-}
-
-// buildSelectMembership reads the live membership between a user and an account.
-func (t *tables) buildSelectMembership(d dialect.Dialect, scope tenancy.Scope, userID, accountID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE scope = %s AND belongs_to_user = %s AND belongs_to_account = %s "+
-			"AND archived_at IS NULL",
-		membershipProjection, t.memberships, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
-	), []any{scope, userID, accountID}
-}
-
 // buildListMembershipsForUser reads every live membership a user holds, default
 // account first — so a caller that takes the first row gets the one the user
 // lands in.
@@ -650,17 +602,6 @@ func (t *tables) buildSetDefaultAccount(d dialect.Dialect, scope tenancy.Scope, 
 			"WHERE scope = %s AND belongs_to_user = %s AND belongs_to_account = %s AND archived_at IS NULL",
 		t.memberships, b.bind(now), b.bind(scope), b.bind(userID), b.bind(accountID),
 	), b.args
-}
-
-// buildSelectFallbackAccountID finds another live membership for a user, for
-// moving the default off one that is being removed — so a user is never left
-// with memberships and nowhere to land.
-func (t *tables) buildSelectFallbackAccountID(d dialect.Dialect, scope tenancy.Scope, userID, exceptAccountID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT belongs_to_account FROM %s WHERE scope = %s AND belongs_to_user = %s "+
-			"AND belongs_to_account <> %s AND archived_at IS NULL ORDER BY belongs_to_account LIMIT 1",
-		t.memberships, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
-	), []any{scope, userID, exceptAccountID}
 }
 
 // buildArchiveMembership ends one user's membership in one account.

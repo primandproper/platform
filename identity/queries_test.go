@@ -63,7 +63,6 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 		t := newTables("")
 
 		rendered := map[string]func() (string, []any){
-			"selectLiveUserBy":         func() (string, []any) { return t.buildSelectLiveUserBy(d, usernameColumn, scope, "ada") },
 			"searchUsers":              func() (string, []any) { return t.buildSearchUsers(d, scope, "ad", "cursor", 10) },
 			"countSearchUsers":         func() (string, []any) { return t.buildCountSearchUsers(d, scope, "ad") },
 			"selectUsersByIDs":         func() (string, []any) { return t.buildSelectUsersByIDs(d, scope, []string{"u1", "u2"}) },
@@ -91,15 +90,12 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 			"transferOwnership":    func() (string, []any) { return t.buildTransferAccountOwnership(d, scope, "a1", "u1", "u2", now) },
 
 			"upsertMembership":     func() (string, []any) { return t.buildUpsertMembership(d, membership, now) },
-			"selectMembershipID":   func() (string, []any) { return t.buildSelectMembershipID(d, "u1", "a1") },
-			"selectMembership":     func() (string, []any) { return t.buildSelectMembership(d, scope, "u1", "a1") },
 			"listMemberships":      func() (string, []any) { return t.buildListMembershipsForUser(d, scope, "u1") },
 			"countLiveMemberships": func() (string, []any) { return t.buildCountLiveMembershipsForUser(d, scope, "u1") },
 			"listAccountMembers":   func() (string, []any) { return t.buildListAccountMembers(d, scope, "a1", "cursor", 10) },
 			"countAccountMembers":  func() (string, []any) { return t.buildCountAccountMembers(d, scope, "a1") },
 			"clearDefaultAccount":  func() (string, []any) { return t.buildClearDefaultAccount(d, scope, "u1", "a1", now) },
 			"setDefaultAccount":    func() (string, []any) { return t.buildSetDefaultAccount(d, scope, "u1", "a1", now) },
-			"selectFallback":       func() (string, []any) { return t.buildSelectFallbackAccountID(d, scope, "u1", "a1") },
 			"archiveMembership":    func() (string, []any) { return t.buildArchiveMembership(d, scope, "u1", "a1", now) },
 			"archiveMembershipsBy": func() (string, []any) { return t.buildArchiveMembershipsBy(d, membershipUserColumn, scope, "u1", now) },
 
