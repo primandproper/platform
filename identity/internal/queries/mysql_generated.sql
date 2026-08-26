@@ -516,3 +516,22 @@ WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELE
 	AND identity_invitations.id > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_invitations.id ASC
 LIMIT ?;
+
+-- name: UpsertMembership :exec
+INSERT INTO identity_memberships (
+	id,
+	scope,
+	belongs_to_user,
+	belongs_to_account,
+	default_account
+) VALUES (
+	sqlc.arg(id),
+	sqlc.arg(scope),
+	sqlc.arg(belongs_to_user),
+	sqlc.arg(belongs_to_account),
+	sqlc.arg(default_account)
+)
+ON DUPLICATE KEY UPDATE
+	default_account = VALUES(default_account),
+	archived_at = NULL,
+	last_updated_at = CURRENT_TIMESTAMP(6);

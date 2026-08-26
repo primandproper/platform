@@ -516,6 +516,24 @@ WHERE archived_at IS NULL
 	AND id = $6
 	AND scope = $7`
 
+const upsertMembershipPostgreSQL = `INSERT INTO {{prefix}}identity_memberships (
+	id,
+	scope,
+	belongs_to_user,
+	belongs_to_account,
+	default_account
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5
+)
+ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET
+	default_account = EXCLUDED.default_account,
+	archived_at = NULL,
+	last_updated_at = CURRENT_TIMESTAMP`
+
 // postgresqlQueries answers every query in Querier against postgresql.
 type postgresqlQueries struct {
 	archiveAccount            string
@@ -533,6 +551,7 @@ type postgresqlQueries struct {
 	listUsers                 string
 	updateAccount             string
 	updateUser                string
+	upsertMembership          string
 }
 
 // newPostgreSQL returns the postgresql querier with prefix substituted into every
@@ -554,6 +573,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		listUsers:                 strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
 		updateAccount:             strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
 		updateUser:                strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
+		upsertMembership:          strings.ReplaceAll(upsertMembershipPostgreSQL, prefixMarker, prefix),
 	}
 }
 
@@ -1074,6 +1094,19 @@ func (q *postgresqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateU
 	return result.RowsAffected()
 }
 
+// UpsertMembership runs the :exec query against postgresql.
+func (q *postgresqlQueries) UpsertMembership(ctx context.Context, db DBTX, arg UpsertMembershipParams) error {
+	_, err := db.ExecContext(ctx, q.upsertMembership,
+		arg.ID,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+
+	return err
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1387,4 +1420,11 @@ var (
 		ID                     string
 		Scope                  tenancy.Scope
 	}(UpdateUserParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+	}(UpsertMembershipParams{})
 )

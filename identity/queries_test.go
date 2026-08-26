@@ -55,10 +55,6 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
 	scope := tenancy.Of("dir")
 
-	membership := &Membership{
-		ID: "m1", Scope: scope, BelongsToUser: "u1", BelongsToAccount: "a1", Roles: []string{"r"},
-	}
-
 	for _, d := range allDialects {
 		t := newTables("")
 
@@ -90,8 +86,9 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 			"countAccountsForUser": func() (string, []any) { return t.buildCountAccountsForUser(d, scope, "u1") },
 			"transferOwnership":    func() (string, []any) { return t.buildTransferAccountOwnership(d, scope, "a1", "u1", "u2", now) },
 
-			"upsertMembership":     func() (string, []any) { return t.buildUpsertMembership(d, membership, now) },
-			"selectMembershipID":   func() (string, []any) { return t.buildSelectMembershipID(d, "u1", "a1") },
+			"selectWrittenMembership": func() (string, []any) {
+				return t.buildSelectWrittenMembership(d, "u1", "a1")
+			},
 			"selectMembership":     func() (string, []any) { return t.buildSelectMembership(d, scope, "u1", "a1") },
 			"listMemberships":      func() (string, []any) { return t.buildListMembershipsForUser(d, scope, "u1") },
 			"countLiveMemberships": func() (string, []any) { return t.buildCountLiveMembershipsForUser(d, scope, "u1") },
@@ -186,30 +183,6 @@ func TestLikePrefix(t *testing.T) {
 
 	// The escape rule must not double the escapes the wildcard rules introduce.
 	test.EqOp(t, `!%!!%`, likePrefix("%!"))
-}
-
-func TestUpsertMembership_DialectSyntax(t *testing.T) {
-	t.Parallel()
-
-	tables := newTables("")
-	membership := &Membership{ID: "m1", Scope: tenancy.Global(), BelongsToUser: "u1", BelongsToAccount: "a1"}
-	now := time.Now().UTC()
-
-	pg, _ := tables.buildUpsertMembership(dialect.Postgres, membership, now)
-	test.StrContains(t, pg, "ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET")
-	test.StrContains(t, pg, "archived_at = NULL")
-
-	my, _ := tables.buildUpsertMembership(dialect.MySQL, membership, now)
-	test.StrContains(t, my, "ON DUPLICATE KEY UPDATE")
-
-	lite, _ := tables.buildUpsertMembership(dialect.SQLite, membership, now)
-	test.StrContains(t, lite, "ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET")
-
-	// created_at is not in any update clause: rejoining an account does not make
-	// the relationship new.
-	for _, query := range []string{pg, my, lite} {
-		test.EqOp(t, 1, strings.Count(query, "created_at"))
-	}
 }
 
 func TestBuildUpdateAccountBilling_WritesOnlyWhatIsNamed(t *testing.T) {

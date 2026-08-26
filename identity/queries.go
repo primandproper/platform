@@ -131,8 +131,11 @@ func nullableString(s string) any {
 //	buildAnswerInvitation          a status-guarded update
 //	the field-specific user writes  password, flags, the two-factor secret, the
 //	                               verification token, the agreements
-//	the membership writes           keyed on the (user, account) pair rather
-//	                               than on id, and an upsert that revives
+//	the remaining membership       keyed on the (user, account) pair rather
+//	statements                     than on id
+//
+// The membership upsert used to be on that list and is not any more: querygen
+// renders it, sqlc checks it, and the store executes the generated method.
 type binder struct {
 	d    dialect.Dialect
 	args []any
@@ -489,41 +492,20 @@ func (t *tables) buildTransferAccountOwnership(d dialect.Dialect, scope tenancy.
 
 // ------------------------------------------------------------ memberships
 
-// buildUpsertMembership writes a membership, reviving an archived one for the
-// same pair rather than writing a second row.
+// buildSelectWrittenMembership reads back the two facts the upsert decided
+// rather than took: the ID the row carries, and the creation time the database
+// stamped it with.
 //
-// Reviving is what makes rejoining an account work: the pair is unique across
-// live and archived rows, so an INSERT would fail and a DELETE-then-INSERT would
-// lose when the user first joined. created_at is deliberately not updated —
-// rejoining does not make the relationship new.
-func (t *tables) buildUpsertMembership(d dialect.Dialect, m *Membership, now time.Time) (query string, args []any) {
-	args = []any{m.ID, m.Scope, m.BelongsToUser, m.BelongsToAccount, m.DefaultAccount, now}
-
-	base := fmt.Sprintf(
-		"INSERT INTO %s (id, scope, belongs_to_user, belongs_to_account, default_account, created_at) VALUES (%s)",
-		t.memberships, d.Placeholders(1, len(args)),
-	)
-
-	switch d {
-	case dialect.MySQL:
-		return base + " ON DUPLICATE KEY UPDATE" +
-			" default_account = VALUES(default_account), archived_at = NULL," +
-			" last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
-	case dialect.Postgres, dialect.SQLite:
-		return base + " ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET" +
-			" default_account = EXCLUDED.default_account, archived_at = NULL," +
-			" last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
-	default:
-		return base, args
-	}
-}
-
-// buildSelectMembershipID reads back the ID a revived membership kept, which is
-// the row the roles have to be written against — the ID the caller generated is
-// not the one in the table when the upsert took the conflict branch.
-func (t *tables) buildSelectMembershipID(d dialect.Dialect, userID, accountID string) (query string, args []any) {
+// Neither is the one the caller sent. The upsert converges on the (user,
+// account) pair, so a rejoin lands on the row that is already there — which
+// keeps the ID it was created with, and that ID is what the membership's roles
+// hang off, so writing them against the generated one would attach them to a
+// membership that does not exist. created_at is database-owned on this table as
+// on every other, so even the inserting branch stores a time this process never
+// saw.
+func (t *tables) buildSelectWrittenMembership(d dialect.Dialect, userID, accountID string) (query string, args []any) {
 	return fmt.Sprintf(
-		"SELECT id FROM %s WHERE belongs_to_user = %s AND belongs_to_account = %s",
+		"SELECT id, created_at FROM %s WHERE belongs_to_user = %s AND belongs_to_account = %s",
 		t.memberships, d.Placeholder(1), d.Placeholder(2),
 	), []any{userID, accountID}
 }

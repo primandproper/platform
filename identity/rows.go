@@ -389,3 +389,23 @@ func createInvitationParams(i *Invitation) identitydb.CreateInvitationParams {
 		ExpiresAt:        i.ExpiresAt.UTC(),
 	}
 }
+
+// Memberships.
+
+// upsertMembershipParams is the write that puts a user in an account, and the
+// only generated statement this table has: the rest key on the (user, account)
+// pair rather than on the id.
+//
+// Neither the id nor the creation time is what comes back out of it. A rejoin
+// converges onto the row that is already there, which keeps both — see
+// SQLStore.writeMembership, which reads them back rather than assuming the ones
+// it sent.
+func upsertMembershipParams(m *Membership) identitydb.UpsertMembershipParams {
+	return identitydb.UpsertMembershipParams{
+		ID:               m.ID,
+		Scope:            m.Scope,
+		BelongsToUser:    m.BelongsToUser,
+		BelongsToAccount: m.BelongsToAccount,
+		DefaultAccount:   m.DefaultAccount,
+	}
+}

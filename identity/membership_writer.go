@@ -140,7 +140,6 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 				BelongsToUser:    newOwnerUserID,
 				BelongsToAccount: accountID,
 				Roles:            []string{},
-				CreatedAt:        now,
 			}); err != nil {
 				return err
 			}

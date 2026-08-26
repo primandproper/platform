@@ -516,6 +516,24 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
 
+const upsertMembershipMySQL = `INSERT INTO {{prefix}}identity_memberships (
+	id,
+	scope,
+	belongs_to_user,
+	belongs_to_account,
+	default_account
+) VALUES (
+	?,
+	?,
+	?,
+	?,
+	?
+)
+ON DUPLICATE KEY UPDATE
+	default_account = VALUES(default_account),
+	archived_at = NULL,
+	last_updated_at = CURRENT_TIMESTAMP(6)`
+
 // mysqlQueries answers every query in Querier against mysql.
 type mysqlQueries struct {
 	archiveAccount            string
@@ -533,6 +551,7 @@ type mysqlQueries struct {
 	listUsers                 string
 	updateAccount             string
 	updateUser                string
+	upsertMembership          string
 }
 
 // newMySQL returns the mysql querier with prefix substituted into every
@@ -554,6 +573,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		listUsers:                 strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
 		updateAccount:             strings.ReplaceAll(updateAccountMySQL, prefixMarker, prefix),
 		updateUser:                strings.ReplaceAll(updateUserMySQL, prefixMarker, prefix),
+		upsertMembership:          strings.ReplaceAll(upsertMembershipMySQL, prefixMarker, prefix),
 	}
 }
 
@@ -1122,6 +1142,19 @@ func (q *mysqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserPa
 	return result.RowsAffected()
 }
 
+// UpsertMembership runs the :exec query against mysql.
+func (q *mysqlQueries) UpsertMembership(ctx context.Context, db DBTX, arg UpsertMembershipParams) error {
+	_, err := db.ExecContext(ctx, q.upsertMembership,
+		arg.ID,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+
+	return err
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1435,4 +1468,11 @@ var (
 		ID                     string
 		Scope                  tenancy.Scope
 	}(UpdateUserParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+	}(UpsertMembershipParams{})
 )

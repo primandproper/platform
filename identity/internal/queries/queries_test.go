@@ -61,6 +61,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"CreateAccount", "GetAccount", "ListAccounts", "UpdateAccount", "ArchiveAccount",
 		"CreateInvitation", "GetInvitation", "ListInvitations",
 		"ListInvitationsByFromUser", "ListInvitationsByToEmail",
+		"UpsertMembership",
 	}
 
 	for _, d := range everyDialect {
@@ -84,10 +85,14 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 			test.StrNotContains(t, rendered, "ArchiveInvitation")
 			test.StrNotContains(t, rendered, "Existence")
 
-			// Memberships is declared for its columns and emits nothing: every
-			// one of its statements keys on the (user, account) pair or is an
-			// upsert, and neither is a shape this generator produces.
-			test.StrNotContains(t, rendered, MembershipsTable)
+			// Memberships gets no standard set: every read and archive it needs
+			// keys on the (user, account) pair rather than on the id, which is
+			// not a shape this generator produces. Its write is the exception,
+			// and it is the only statement the table contributes.
+			test.StrNotContains(t, rendered, "GetMembership")
+			test.StrNotContains(t, rendered, "ListMemberships")
+			test.StrNotContains(t, rendered, "ArchiveMembership")
+			test.EqOp(t, 1, strings.Count(rendered, "INSERT INTO "+MembershipsTable))
 		})
 	}
 }
@@ -201,4 +206,76 @@ func TestTables_ColumnsAreUniqueAndConventional(t *testing.T) {
 				test.Sprintf("table %q is missing %q", table.Name, column))
 		}
 	}
+}
+
+// TestRender_MembershipUpsertDivergesByDialect is the one statement in this
+// schema whose three renderings differ in more than their placeholders, pinned
+// against each dialect's own grammar.
+//
+// It is pinned here rather than left to the committed .sql alone because the
+// regeneration gate above compares whatever Render produces against whatever was
+// committed: both sides move together, so a renderer that started emitting
+// Postgres's clause on MySQL would regenerate cleanly and fail at the server.
+func TestRender_MembershipUpsertDivergesByDialect(T *testing.T) {
+	T.Parallel()
+
+	// upsert returns the UpsertMembership statement out of a rendered file.
+	upsert := func(t *testing.T, d dialect.Dialect) string {
+		t.Helper()
+
+		for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+			if name, body, found := strings.Cut(statement, "\n"); found && strings.HasPrefix(name, "UpsertMembership ") {
+				return body
+			}
+		}
+
+		t.Fatalf("no UpsertMembership statement in the %s rendering", d)
+
+		return ""
+	}
+
+	T.Run("converges on the pair where the dialect can name a target", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
+			statement := upsert(t, d)
+
+			// Exactly the columns of the schema's UNIQUE index: Postgres
+			// rejects an ON CONFLICT target that matches no index it has.
+			test.StrContains(t, statement,
+				"ON CONFLICT ("+MembershipUserColumn+", "+MembershipAccountColumn+") DO UPDATE SET")
+			test.StrContains(t, statement, "default_account = EXCLUDED.default_account")
+		}
+	})
+
+	T.Run("takes MySQL's targetless clause", func(t *testing.T) {
+		t.Parallel()
+
+		statement := upsert(t, dialect.MySQL)
+
+		test.StrContains(t, statement, "ON DUPLICATE KEY UPDATE")
+		test.StrNotContains(t, statement, "ON CONFLICT")
+		test.StrContains(t, statement, "default_account = VALUES(default_account)")
+	})
+
+	T.Run("revives the archived row and keeps its creation time", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect {
+			statement := upsert(t, d)
+
+			// Rejoining an account revives the membership that is already
+			// there. Leaving archived_at set would report success and leave the
+			// row invisible to every read; assigning created_at would make an
+			// old relationship look new.
+			test.StrContains(t, statement, "archived_at = NULL")
+			test.StrNotContains(t, statement, querygen.CreatedAtColumn)
+
+			// The id is what the membership's roles hang off, so a converging
+			// write must not move it — nor the scope, which would carry a
+			// membership between directories.
+			test.StrNotContains(t, statement, querygen.IDColumn+" = ")
+			test.StrNotContains(t, statement, ScopeColumn+" = ")
+		}
+	})
 }

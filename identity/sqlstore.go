@@ -400,23 +400,27 @@ func (s *SQLStore) attachMembershipRoles(ctx context.Context, q database.SQLQuer
 	return nil
 }
 
-// writeMembership upserts the membership row, resolves the ID the row actually
-// carries, and replaces its roles.
+// writeMembership upserts the membership row, resolves the ID and creation time
+// the row actually carries, and replaces its roles.
 //
-// The ID is read back rather than assumed because the upsert may have taken its
-// conflict branch — a user rejoining an account revives the archived membership,
-// which keeps the ID it was created with. Writing the roles against the ID the
-// caller generated would attach them to a membership that does not exist.
+// Both are read back rather than assumed, because neither is what this process
+// sent. The upsert converges on the (user, account) pair, so a user rejoining an
+// account revives the archived membership and it keeps the ID it was created
+// with — writing the roles against the ID the caller generated would attach them
+// to a membership that does not exist. And created_at is database-owned here as
+// everywhere else in this schema, so the inserting branch stores the server's
+// clock rather than the one the caller was handed.
 func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error {
-	query, args := s.tables.buildUpsertMembership(s.dialect, membership, membership.CreatedAt)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	if err := s.q.UpsertMembership(ctx, q, upsertMembershipParams(membership)); err != nil {
 		return platformerrors.Wrap(err, "writing identity membership")
 	}
 
-	query, args = s.tables.buildSelectMembershipID(s.dialect, membership.BelongsToUser, membership.BelongsToAccount)
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&membership.ID); err != nil {
+	query, args := s.tables.buildSelectWrittenMembership(s.dialect, membership.BelongsToUser, membership.BelongsToAccount)
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&membership.ID, &membership.CreatedAt); err != nil {
 		return platformerrors.Wrap(err, "reading back identity membership")
 	}
+
+	membership.CreatedAt = membership.CreatedAt.UTC()
 
 	if err := s.replaceRoles(ctx, q, s.tables.membershipRoles, membershipIDColumn, membership.ID, membership.Roles); err != nil {
 		return err
@@ -426,8 +430,11 @@ func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecu
 		return nil
 	}
 
+	// The clock, not the row's creation time. A revived membership carries the
+	// time it was first written, and stamping the *other* memberships'
+	// last_updated_at with it would date a write that is happening now.
 	query, args = s.tables.buildClearDefaultAccount(
-		s.dialect, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount, membership.CreatedAt,
+		s.dialect, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount, s.now(),
 	)
 	if _, err := q.ExecContext(ctx, query, args...); err != nil {
 		return platformerrors.Wrap(err, "clearing other identity default accounts")

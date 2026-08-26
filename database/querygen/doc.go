@@ -220,15 +220,26 @@ what makes that unrepresentable.
 
 # The three dialects
 
-Postgres, MySQL and SQLite each get SQL their own server parses, and the
-difference is confined to five expressions: the case-insensitive substring
+Postgres, MySQL and SQLite each get SQL their own server parses, and almost all
+of the difference is a handful of expressions: the case-insensitive substring
 match, the byte-ordered comparison the reindex scan walks, the sentinel an unset
-time bound coalesces to, the nullable boolean the archived toggle binds, and the
-set membership the bulk stamp keys on. They live together in generator.go, as
+time bound coalesces to, the precision the current time is stored at, the
+nullable boolean the archived toggle binds, the page-size clause, and the set
+membership the bulk stamp keys on. They live together in generator.go, as
 unexported methods, so that what this package assumes about a server is one
-screen rather than a grep for casts. Everything else — the statement shapes, the
-query names, which queries a column list justifies — is the same text on all
+screen rather than a grep for casts. The statement shapes those land in, the
+query names, and which queries a column list justifies are the same on all
 three.
+
+The upsert is the exception, and it is the only one. An INSERT that has to
+converge rather than fail on a second call is two grammars rather than one
+grammar with a substituted expression: Postgres and SQLite name the conflict
+target and read the incoming row through the EXCLUDED alias, and MySQL names no
+target at all — its ON DUPLICATE KEY UPDATE fires on whichever unique key was
+violated — and spells the incoming value VALUES(column). Both halves are in
+generator.go with the rest, so the one-screen property survives; what a
+consumer sees is still one query name with one signature, rendered per dialect
+by [Generator.UpsertQuery].
 
 The set is closed at the type. [For] takes a dialect.Dialect and rejects one
 outside dialect.Valid rather than emitting a plausible default, and the dialect

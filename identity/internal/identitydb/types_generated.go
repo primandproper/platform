@@ -362,3 +362,12 @@ type UpdateUserParams struct {
 	ID                     string
 	Scope                  tenancy.Scope
 }
+
+// UpsertMembershipParams are the arguments to UpsertMembership.
+type UpsertMembershipParams struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+	DefaultAccount   bool
+}
