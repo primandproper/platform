@@ -31,6 +31,34 @@ const (
 	InvitationStatusColumn   = "status"
 )
 
+// The columns the field-specific writes assign, and the arguments the guarded
+// ones compare against.
+//
+// A guard's argument cannot be spelled with the column it names. Requiring the
+// invitation to still be pending while setting its status is one comparison
+// against the stored value and one assignment of the new one, and under a single
+// argument name the statement would set the column to the value it had just
+// required it to already hold — legal SQL that guards nothing. So the guards are
+// named apart, and the "current_" prefix says which end of the comparison each
+// one is.
+const (
+	hashedPasswordColumn           = "hashed_password"
+	requiresPasswordChangeColumn   = "requires_password_change"
+	passwordLastChangedAtColumn    = "password_last_changed_at"
+	twoFactorColumn                = "two_factor_secret"
+	twoFactorVerifiedAtColumn      = "two_factor_secret_verified_at"
+	accountStatusColumn            = "account_status"
+	accountStatusExplanationColumn = "account_status_explanation"
+	emailVerificationTokenColumn   = "email_address_verification_token"
+	ownerUserIDColumn              = "owner_user_id"
+	invitationNoteColumn           = "note"
+	invitationToUserColumn         = "to_user"
+
+	currentEmailVerificationTokenArg = "current_" + emailVerificationTokenColumn
+	currentOwnerUserIDArg            = "current_" + ownerUserIDColumn
+	currentInvitationStatusArg       = "current_" + InvitationStatusColumn
+)
+
 // EmailAddressVerifiedAtColumn is the proof a user's address is reachable.
 //
 // Spelled once because three declarations below name it — it is nullable, it is
@@ -140,10 +168,11 @@ var Accounts = Table{
 
 // Invitations is an offer of membership addressed to an email address.
 //
-// It gets no update and no archive. An invitation is answered rather than
-// edited, and the answer is a status-guarded write — still pending in the
-// predicate, so two clicks on one link produce one membership — which is not a
-// shape this generator emits.
+// It gets no standard update and no archive. An invitation is answered rather
+// than edited, and the answer is a status-guarded write — still pending in the
+// predicate, so two clicks on one link produce one membership — which is
+// AnswerInvitation in fieldWrites rather than the whole-row assignment the
+// standard set would emit.
 var Invitations = Table{
 	Name:     InvitationsTable,
 	Singular: "Invitation",
@@ -212,6 +241,7 @@ func Render(d dialect.Dialect) string {
 	}
 
 	rendered = append(rendered, keyedInvitationLists(g)...)
+	rendered = append(rendered, fieldWrites(g)...)
 
 	return querygen.RenderFile(rendered)
 }
@@ -236,6 +266,79 @@ func keyedInvitationLists(g *querygen.Generator) []*querygen.Query {
 			scope, querygen.Match{Column: InvitationFromUserColumn}, status),
 		g.ListQuery("ListInvitationsByToEmail", InvitationsTable, Invitations.Columns,
 			scope, querygen.Match{Column: InvitationToEmailColumn}, status),
+	}
+}
+
+// fieldWrites is the writes that assign one fact about a row rather than the
+// row, plus the three that guard the assignment on the value being replaced.
+//
+// They are the largest block of statements this schema has and the standard set
+// contains none of them, because "assign every mutable column" is the wrong
+// shape for all of them. A password change writes the hash, the stamp and the
+// forced-change release together, and must not touch a profile column; a status
+// move writes the status and its explanation, and must not touch a credential.
+// The struct a caller is holding is often a redacted copy, so a whole-row write
+// reached from one of these paths blanks whatever it left out.
+//
+// Three of them are guarded, and the guard is the mechanism rather than a
+// belt-and-braces check:
+//
+//	MarkUserEmailAddressVerified  names the token in the predicate, so two
+//	                              clicks on one verification link write once —
+//	                              the second finds it already cleared
+//	TransferAccountOwnership      names the owner being moved away from, so two
+//	                              concurrent transfers cannot both succeed and
+//	                              leave the account owned by whichever committed
+//	                              last
+//	AnswerInvitation              names the pending status, so two answers
+//	                              produce one membership rather than an
+//	                              acceptance overwritten by a rejection
+//
+// Each reports zero rows when it loses, which every caller reads as the entity
+// not being there — see SQLStore's guardCount.
+//
+// The values the guards compare against are bound rather than written into the
+// SQL as literals, for the reason the keyed invitation lists bind the status: a
+// quoted literal is one more place a spelling lives.
+func fieldWrites(g *querygen.Generator) []*querygen.Query {
+	scope := querygen.Match{Column: ScopeColumn}
+
+	return []*querygen.Query{
+		g.UpdateQuery("UpdateUserPassword", UsersTable, Users.Columns,
+			[]string{hashedPasswordColumn, requiresPasswordChangeColumn, passwordLastChangedAtColumn},
+			Users.Nullable, scope),
+
+		g.UpdateQuery("SetUserRequiresPasswordChange", UsersTable, Users.Columns,
+			[]string{requiresPasswordChangeColumn}, Users.Nullable, scope),
+
+		// The secret and its verification move together. Two statements would
+		// leave a window in which a freshly issued secret reads as already
+		// proven, which is a window in which a second factor is bypassed by
+		// re-enrolling.
+		g.UpdateQuery("UpdateUserTwoFactorSecret", UsersTable, Users.Columns,
+			[]string{twoFactorColumn, twoFactorVerifiedAtColumn}, Users.Nullable, scope),
+
+		g.UpdateQuery("SetUserEmailAddressVerificationToken", UsersTable, Users.Columns,
+			[]string{emailVerificationTokenColumn}, Users.Nullable, scope),
+
+		g.UpdateQuery("MarkUserEmailAddressVerified", UsersTable, Users.Columns,
+			[]string{EmailAddressVerifiedAtColumn, emailVerificationTokenColumn}, Users.Nullable,
+			scope,
+			querygen.Match{Column: emailVerificationTokenColumn, Arg: currentEmailVerificationTokenArg}),
+
+		g.UpdateQuery("UpdateUserAccountStatus", UsersTable, Users.Columns,
+			[]string{accountStatusColumn, accountStatusExplanationColumn}, Users.Nullable, scope),
+
+		g.UpdateQuery("TransferAccountOwnership", AccountsTable, Accounts.Columns,
+			[]string{ownerUserIDColumn}, Accounts.Nullable,
+			scope,
+			querygen.Match{Column: ownerUserIDColumn, Arg: currentOwnerUserIDArg}),
+
+		g.UpdateQuery("AnswerInvitation", InvitationsTable, Invitations.Columns,
+			[]string{InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
+			Invitations.Nullable,
+			scope,
+			querygen.Match{Column: InvitationStatusColumn, Arg: currentInvitationStatusArg}),
 	}
 }
 

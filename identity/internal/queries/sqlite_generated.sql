@@ -516,3 +516,77 @@ WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELE
 	AND identity_invitations.id > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_invitations.id ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
+-- name: UpdateUserPassword :execrows
+UPDATE identity_users SET
+	hashed_password = sqlc.arg(hashed_password),
+	requires_password_change = sqlc.arg(requires_password_change),
+	password_last_changed_at = sqlc.narg(password_last_changed_at),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: SetUserRequiresPasswordChange :execrows
+UPDATE identity_users SET
+	requires_password_change = sqlc.arg(requires_password_change),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: UpdateUserTwoFactorSecret :execrows
+UPDATE identity_users SET
+	two_factor_secret = sqlc.arg(two_factor_secret),
+	two_factor_secret_verified_at = sqlc.narg(two_factor_secret_verified_at),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: SetUserEmailAddressVerificationToken :execrows
+UPDATE identity_users SET
+	email_address_verification_token = sqlc.arg(email_address_verification_token),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: MarkUserEmailAddressVerified :execrows
+UPDATE identity_users SET
+	email_address_verified_at = sqlc.narg(email_address_verified_at),
+	email_address_verification_token = sqlc.arg(email_address_verification_token),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope)
+	AND email_address_verification_token = sqlc.arg(current_email_address_verification_token);
+
+-- name: UpdateUserAccountStatus :execrows
+UPDATE identity_users SET
+	account_status = sqlc.arg(account_status),
+	account_status_explanation = sqlc.arg(account_status_explanation),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: TransferAccountOwnership :execrows
+UPDATE identity_accounts SET
+	owner_user_id = sqlc.arg(owner_user_id),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope)
+	AND owner_user_id = sqlc.arg(current_owner_user_id);
+
+-- name: AnswerInvitation :execrows
+UPDATE identity_invitations SET
+	status = sqlc.arg(status),
+	note = sqlc.arg(note),
+	to_user = sqlc.narg(to_user),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope)
+	AND status = sqlc.arg(current_status);

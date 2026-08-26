@@ -13,6 +13,16 @@ import (
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
+const answerInvitationMySQL = `UPDATE {{prefix}}identity_invitations SET
+	status = ?,
+	note = ?,
+	to_user = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?
+	AND status = ?`
+
 const archiveAccountMySQL = `UPDATE {{prefix}}identity_accounts SET
 	archived_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
@@ -490,6 +500,37 @@ WHERE {{prefix}}identity_users.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAM
 ORDER BY {{prefix}}identity_users.id ASC
 LIMIT ?`
 
+const markUserEmailAddressVerifiedMySQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verified_at = ?,
+	email_address_verification_token = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?
+	AND email_address_verification_token = ?`
+
+const setUserEmailAddressVerificationTokenMySQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verification_token = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const setUserRequiresPasswordChangeMySQL = `UPDATE {{prefix}}identity_users SET
+	requires_password_change = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const transferAccountOwnershipMySQL = `UPDATE {{prefix}}identity_accounts SET
+	owner_user_id = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?
+	AND owner_user_id = ?`
+
 const updateAccountMySQL = `UPDATE {{prefix}}identity_accounts SET
 	name = ?,
 	address_line1 = ?,
@@ -516,45 +557,103 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
 
+const updateUserAccountStatusMySQL = `UPDATE {{prefix}}identity_users SET
+	account_status = ?,
+	account_status_explanation = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const updateUserPasswordMySQL = `UPDATE {{prefix}}identity_users SET
+	hashed_password = ?,
+	requires_password_change = ?,
+	password_last_changed_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const updateUserTwoFactorSecretMySQL = `UPDATE {{prefix}}identity_users SET
+	two_factor_secret = ?,
+	two_factor_secret_verified_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
 // mysqlQueries answers every query in Querier against mysql.
 type mysqlQueries struct {
-	archiveAccount            string
-	archiveUser               string
-	createAccount             string
-	createInvitation          string
-	createUser                string
-	getAccount                string
-	getInvitation             string
-	getUser                   string
-	listAccounts              string
-	listInvitations           string
-	listInvitationsByFromUser string
-	listInvitationsByToEmail  string
-	listUsers                 string
-	updateAccount             string
-	updateUser                string
+	answerInvitation                     string
+	archiveAccount                       string
+	archiveUser                          string
+	createAccount                        string
+	createInvitation                     string
+	createUser                           string
+	getAccount                           string
+	getInvitation                        string
+	getUser                              string
+	listAccounts                         string
+	listInvitations                      string
+	listInvitationsByFromUser            string
+	listInvitationsByToEmail             string
+	listUsers                            string
+	markUserEmailAddressVerified         string
+	setUserEmailAddressVerificationToken string
+	setUserRequiresPasswordChange        string
+	transferAccountOwnership             string
+	updateAccount                        string
+	updateUser                           string
+	updateUserAccountStatus              string
+	updateUserPassword                   string
+	updateUserTwoFactorSecret            string
 }
 
 // newMySQL returns the mysql querier with prefix substituted into every
 // table name the analyzer identified.
 func newMySQL(prefix string) *mysqlQueries {
 	return &mysqlQueries{
-		archiveAccount:            strings.ReplaceAll(archiveAccountMySQL, prefixMarker, prefix),
-		archiveUser:               strings.ReplaceAll(archiveUserMySQL, prefixMarker, prefix),
-		createAccount:             strings.ReplaceAll(createAccountMySQL, prefixMarker, prefix),
-		createInvitation:          strings.ReplaceAll(createInvitationMySQL, prefixMarker, prefix),
-		createUser:                strings.ReplaceAll(createUserMySQL, prefixMarker, prefix),
-		getAccount:                strings.ReplaceAll(getAccountMySQL, prefixMarker, prefix),
-		getInvitation:             strings.ReplaceAll(getInvitationMySQL, prefixMarker, prefix),
-		getUser:                   strings.ReplaceAll(getUserMySQL, prefixMarker, prefix),
-		listAccounts:              strings.ReplaceAll(listAccountsMySQL, prefixMarker, prefix),
-		listInvitations:           strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
-		listInvitationsByFromUser: strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
-		listInvitationsByToEmail:  strings.ReplaceAll(listInvitationsByToEmailMySQL, prefixMarker, prefix),
-		listUsers:                 strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
-		updateAccount:             strings.ReplaceAll(updateAccountMySQL, prefixMarker, prefix),
-		updateUser:                strings.ReplaceAll(updateUserMySQL, prefixMarker, prefix),
+		answerInvitation:                     strings.ReplaceAll(answerInvitationMySQL, prefixMarker, prefix),
+		archiveAccount:                       strings.ReplaceAll(archiveAccountMySQL, prefixMarker, prefix),
+		archiveUser:                          strings.ReplaceAll(archiveUserMySQL, prefixMarker, prefix),
+		createAccount:                        strings.ReplaceAll(createAccountMySQL, prefixMarker, prefix),
+		createInvitation:                     strings.ReplaceAll(createInvitationMySQL, prefixMarker, prefix),
+		createUser:                           strings.ReplaceAll(createUserMySQL, prefixMarker, prefix),
+		getAccount:                           strings.ReplaceAll(getAccountMySQL, prefixMarker, prefix),
+		getInvitation:                        strings.ReplaceAll(getInvitationMySQL, prefixMarker, prefix),
+		getUser:                              strings.ReplaceAll(getUserMySQL, prefixMarker, prefix),
+		listAccounts:                         strings.ReplaceAll(listAccountsMySQL, prefixMarker, prefix),
+		listInvitations:                      strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
+		listInvitationsByFromUser:            strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
+		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailMySQL, prefixMarker, prefix),
+		listUsers:                            strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
+		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
+		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenMySQL, prefixMarker, prefix),
+		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangeMySQL, prefixMarker, prefix),
+		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipMySQL, prefixMarker, prefix),
+		updateAccount:                        strings.ReplaceAll(updateAccountMySQL, prefixMarker, prefix),
+		updateUser:                           strings.ReplaceAll(updateUserMySQL, prefixMarker, prefix),
+		updateUserAccountStatus:              strings.ReplaceAll(updateUserAccountStatusMySQL, prefixMarker, prefix),
+		updateUserPassword:                   strings.ReplaceAll(updateUserPasswordMySQL, prefixMarker, prefix),
+		updateUserTwoFactorSecret:            strings.ReplaceAll(updateUserTwoFactorSecretMySQL, prefixMarker, prefix),
 	}
+}
+
+// AnswerInvitation runs the :execrows query against mysql.
+func (q *mysqlQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.answerInvitation,
+		arg.Status,
+		arg.Note,
+		arg.ToUser,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentStatus,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
 
 // ArchiveAccount runs the :execrows query against mysql.
@@ -1082,6 +1181,65 @@ func (q *mysqlQueries) ListUsers(ctx context.Context, db DBTX, arg ListUsersPara
 	return items, nil
 }
 
+// MarkUserEmailAddressVerified runs the :execrows query against mysql.
+func (q *mysqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
+		arg.EmailAddressVerifiedAt,
+		arg.EmailAddressVerificationToken,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentEmailAddressVerificationToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetUserEmailAddressVerificationToken runs the :execrows query against mysql.
+func (q *mysqlQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
+		arg.EmailAddressVerificationToken,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetUserRequiresPasswordChange runs the :execrows query against mysql.
+func (q *mysqlQueries) SetUserRequiresPasswordChange(ctx context.Context, db DBTX, arg SetUserRequiresPasswordChangeParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setUserRequiresPasswordChange,
+		arg.RequiresPasswordChange,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// TransferAccountOwnership runs the :execrows query against mysql.
+func (q *mysqlQueries) TransferAccountOwnership(ctx context.Context, db DBTX, arg TransferAccountOwnershipParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.transferAccountOwnership,
+		arg.OwnerUserID,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentOwnerUserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // UpdateAccount runs the :execrows query against mysql.
 func (q *mysqlQueries) UpdateAccount(ctx context.Context, db DBTX, arg UpdateAccountParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.updateAccount,
@@ -1122,6 +1280,52 @@ func (q *mysqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserPa
 	return result.RowsAffected()
 }
 
+// UpdateUserAccountStatus runs the :execrows query against mysql.
+func (q *mysqlQueries) UpdateUserAccountStatus(ctx context.Context, db DBTX, arg UpdateUserAccountStatusParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserAccountStatus,
+		arg.AccountStatus,
+		arg.AccountStatusExplanation,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateUserPassword runs the :execrows query against mysql.
+func (q *mysqlQueries) UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserPassword,
+		arg.HashedPassword,
+		arg.RequiresPasswordChange,
+		arg.PasswordLastChangedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateUserTwoFactorSecret runs the :execrows query against mysql.
+func (q *mysqlQueries) UpdateUserTwoFactorSecret(ctx context.Context, db DBTX, arg UpdateUserTwoFactorSecretParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserTwoFactorSecret,
+		arg.TwoFactorSecret,
+		arg.TwoFactorSecretVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1129,6 +1333,14 @@ func (q *mysqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserPa
 // disagreement between dialects a compile error here rather than a
 // transposition at run time.
 var (
+	_ = struct {
+		Status        string
+		Note          string
+		ToUser        *string
+		ID            string
+		Scope         tenancy.Scope
+		CurrentStatus string
+	}(AnswerInvitationParams{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope
@@ -1414,6 +1626,29 @@ var (
 		TotalCount                    int64
 	}(ListUsersRow{})
 	_ = struct {
+		EmailAddressVerifiedAt               *time.Time
+		EmailAddressVerificationToken        string
+		ID                                   string
+		Scope                                tenancy.Scope
+		CurrentEmailAddressVerificationToken string
+	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		EmailAddressVerificationToken string
+		ID                            string
+		Scope                         tenancy.Scope
+	}(SetUserEmailAddressVerificationTokenParams{})
+	_ = struct {
+		RequiresPasswordChange bool
+		ID                     string
+		Scope                  tenancy.Scope
+	}(SetUserRequiresPasswordChangeParams{})
+	_ = struct {
+		OwnerUserID        string
+		ID                 string
+		Scope              tenancy.Scope
+		CurrentOwnerUserID string
+	}(TransferAccountOwnershipParams{})
+	_ = struct {
 		Name              string
 		AddressLine1      string
 		AddressLine2      string
@@ -1435,4 +1670,23 @@ var (
 		ID                     string
 		Scope                  tenancy.Scope
 	}(UpdateUserParams{})
+	_ = struct {
+		AccountStatus            string
+		AccountStatusExplanation string
+		ID                       string
+		Scope                    tenancy.Scope
+	}(UpdateUserAccountStatusParams{})
+	_ = struct {
+		HashedPassword         string
+		RequiresPasswordChange bool
+		PasswordLastChangedAt  *time.Time
+		ID                     string
+		Scope                  tenancy.Scope
+	}(UpdateUserPasswordParams{})
+	_ = struct {
+		TwoFactorSecret           string
+		TwoFactorSecretVerifiedAt *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(UpdateUserTwoFactorSecretParams{})
 )

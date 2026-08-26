@@ -11,6 +11,16 @@ import (
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
+// AnswerInvitationParams are the arguments to AnswerInvitation.
+type AnswerInvitationParams struct {
+	Status        string
+	Note          string
+	ToUser        *string
+	ID            string
+	Scope         tenancy.Scope
+	CurrentStatus string
+}
+
 // ArchiveAccountParams are the arguments to ArchiveAccount.
 type ArchiveAccountParams struct {
 	ID    string
@@ -337,6 +347,37 @@ type ListUsersRow struct {
 	TotalCount                    int64
 }
 
+// MarkUserEmailAddressVerifiedParams are the arguments to MarkUserEmailAddressVerified.
+type MarkUserEmailAddressVerifiedParams struct {
+	EmailAddressVerifiedAt               *time.Time
+	EmailAddressVerificationToken        string
+	ID                                   string
+	Scope                                tenancy.Scope
+	CurrentEmailAddressVerificationToken string
+}
+
+// SetUserEmailAddressVerificationTokenParams are the arguments to SetUserEmailAddressVerificationToken.
+type SetUserEmailAddressVerificationTokenParams struct {
+	EmailAddressVerificationToken string
+	ID                            string
+	Scope                         tenancy.Scope
+}
+
+// SetUserRequiresPasswordChangeParams are the arguments to SetUserRequiresPasswordChange.
+type SetUserRequiresPasswordChangeParams struct {
+	RequiresPasswordChange bool
+	ID                     string
+	Scope                  tenancy.Scope
+}
+
+// TransferAccountOwnershipParams are the arguments to TransferAccountOwnership.
+type TransferAccountOwnershipParams struct {
+	OwnerUserID        string
+	ID                 string
+	Scope              tenancy.Scope
+	CurrentOwnerUserID string
+}
+
 // UpdateAccountParams are the arguments to UpdateAccount.
 type UpdateAccountParams struct {
 	Name              string
@@ -361,4 +402,29 @@ type UpdateUserParams struct {
 	EmailAddressVerifiedAt *time.Time
 	ID                     string
 	Scope                  tenancy.Scope
+}
+
+// UpdateUserAccountStatusParams are the arguments to UpdateUserAccountStatus.
+type UpdateUserAccountStatusParams struct {
+	AccountStatus            string
+	AccountStatusExplanation string
+	ID                       string
+	Scope                    tenancy.Scope
+}
+
+// UpdateUserPasswordParams are the arguments to UpdateUserPassword.
+type UpdateUserPasswordParams struct {
+	HashedPassword         string
+	RequiresPasswordChange bool
+	PasswordLastChangedAt  *time.Time
+	ID                     string
+	Scope                  tenancy.Scope
+}
+
+// UpdateUserTwoFactorSecretParams are the arguments to UpdateUserTwoFactorSecret.
+type UpdateUserTwoFactorSecretParams struct {
+	TwoFactorSecret           string
+	TwoFactorSecretVerifiedAt *time.Time
+	ID                        string
+	Scope                     tenancy.Scope
 }

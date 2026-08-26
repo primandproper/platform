@@ -27,6 +27,11 @@ import (
 // that discriminates, or set clientFoundRows=true in the MySQL DSN, which
 // switches MySQL to matched semantics.
 type Querier interface {
+	// AnswerInvitation runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error)
 	// ArchiveAccount runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note
@@ -59,6 +64,26 @@ type Querier interface {
 	ListInvitationsByToEmail(ctx context.Context, db DBTX, arg ListInvitationsByToEmailParams) ([]ListInvitationsByToEmailRow, error)
 	// ListUsers runs the :many query.
 	ListUsers(ctx context.Context, db DBTX, arg ListUsersParams) ([]ListUsersRow, error)
+	// MarkUserEmailAddressVerified runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error)
+	// SetUserEmailAddressVerificationToken runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error)
+	// SetUserRequiresPasswordChange runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	SetUserRequiresPasswordChange(ctx context.Context, db DBTX, arg SetUserRequiresPasswordChangeParams) (int64, error)
+	// TransferAccountOwnership runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	TransferAccountOwnership(ctx context.Context, db DBTX, arg TransferAccountOwnershipParams) (int64, error)
 	// UpdateAccount runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note
@@ -69,4 +94,19 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	UpdateUser(ctx context.Context, db DBTX, arg UpdateUserParams) (int64, error)
+	// UpdateUserAccountStatus runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	UpdateUserAccountStatus(ctx context.Context, db DBTX, arg UpdateUserAccountStatusParams) (int64, error)
+	// UpdateUserPassword runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) (int64, error)
+	// UpdateUserTwoFactorSecret runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	UpdateUserTwoFactorSecret(ctx context.Context, db DBTX, arg UpdateUserTwoFactorSecretParams) (int64, error)
 }

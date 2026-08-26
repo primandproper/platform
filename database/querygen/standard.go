@@ -424,7 +424,7 @@ func existsProjection(table string, columns []string) string {
 func (g *Generator) listStatement(table string, columns []string, ownership string, extra ...Match) string {
 	var conditions []string
 	if ownership != "" {
-		conditions = append(conditions, equalityPredicate(table, ownership, true))
+		conditions = append(conditions, equalityPredicate(table, ownership, ownership, true))
 	}
 
 	conditions = append(conditions, matchPredicates(table, true, extra)...)
@@ -511,11 +511,11 @@ func singleRowPredicates(table string, columns []string, ownership string, quali
 	}
 
 	if slices.Contains(columns, IDColumn) {
-		predicates = append(predicates, equalityPredicate(table, IDColumn, qualified))
+		predicates = append(predicates, equalityPredicate(table, IDColumn, IDColumn, qualified))
 	}
 
 	if ownership != "" {
-		predicates = append(predicates, equalityPredicate(table, ownership, qualified))
+		predicates = append(predicates, equalityPredicate(table, ownership, ownership, qualified))
 	}
 
 	predicates = append(predicates, matchPredicates(table, qualified, extra)...)
@@ -528,13 +528,17 @@ func singleRowPredicates(table string, columns []string, ownership string, quali
 // WithOwnership names or one of the Match columns a bound statement adds — the
 // two say the same thing about a row and there is no version of this that is
 // right for one and wrong for the other.
-func equalityPredicate(table, column string, qualified bool) string {
+//
+// argument is the name the value binds under, which is the column for every
+// keyed read and something else for a guard that names a column the same
+// statement assigns — see Match.Arg.
+func equalityPredicate(table, column, argument string, qualified bool) string {
 	name := column
 	if qualified {
 		name = Qualify(table, column)
 	}
 
-	return fmt.Sprintf("%s = sqlc.arg(%s)", name, column)
+	return fmt.Sprintf("%s = sqlc.arg(%s)", name, argument)
 }
 
 // matchPredicates renders one equality predicate per match.
@@ -547,8 +551,8 @@ func equalityPredicate(table, column string, qualified bool) string {
 // tenancy scope is.
 func matchPredicates(table string, qualified bool, matches []Match) []string {
 	predicates := make([]string, 0, len(matches))
-	for _, match := range matches {
-		predicates = append(predicates, equalityPredicate(table, match.Column, qualified))
+	for i := range matches {
+		predicates = append(predicates, equalityPredicate(table, matches[i].Column, matches[i].argument(), qualified))
 	}
 
 	return predicates

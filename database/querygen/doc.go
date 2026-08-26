@@ -132,6 +132,32 @@ time.DateTime spells rather than a time, and MySQL's LIMIT cannot
 coalesce so BindFilter supplies the default the other two coalesce to. Both are
 in BindFilter rather than in a caller for the same reason the SQL is here.
 
+# Guarded writes
+
+The update is not only the conventional whole-row one. It assigns the columns it
+is handed, so a store's field-specific writes — the password and the stamp that
+goes with it, a status and its explanation, a verification token — are that same
+statement with a shorter SET list, and last_updated_at stamps by convention in
+every one of them.
+
+What turns a field-specific write into a safe one is a predicate naming the
+value the row must still hold:
+
+	update := querygen.For(dialect.Postgres).BoundUpdate("accounts", columns,
+		[]string{"owner_user_id"}, nil,
+		querygen.Match{Column: "scope"},
+		querygen.Match{Column: "owner_user_id", Arg: "current_owner_user_id"})
+
+Two concurrent transfers there cannot both succeed: the second finds the owner
+already moved, matches nothing, and its row count says so. That is the whole
+mechanism, and it needs the guard and the assignment to be two arguments —
+[Match.Arg] is what separates them, since both halves are the same column and
+one name would set it to the value it was requiring it to already hold.
+
+[Generator.UpdateQuery] is the canonical form of the same statement, so a
+guarded write joins the checked corpus rather than living only in the running
+store — see [Generator.ListQuery], which does this for the keyed list.
+
 # Tables with no id
 
 [Generator.StandardCRUD] requires an id column and the [Bound] methods do not,

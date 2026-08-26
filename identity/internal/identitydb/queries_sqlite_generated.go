@@ -13,6 +13,16 @@ import (
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
+const answerInvitationSQLite = `UPDATE {{prefix}}identity_invitations SET
+	status = ?1,
+	note = ?2,
+	to_user = ?3,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?4
+	AND scope = ?5
+	AND status = ?6`
+
 const archiveAccountSQLite = `UPDATE {{prefix}}identity_accounts SET
 	archived_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
@@ -490,6 +500,37 @@ WHERE {{prefix}}identity_users.created_at > COALESCE(?1, (SELECT datetime(CURREN
 ORDER BY {{prefix}}identity_users.id ASC
 LIMIT COALESCE(?8, 50)`
 
+const markUserEmailAddressVerifiedSQLite = `UPDATE {{prefix}}identity_users SET
+	email_address_verified_at = ?1,
+	email_address_verification_token = ?2,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?3
+	AND scope = ?4
+	AND email_address_verification_token = ?5`
+
+const setUserEmailAddressVerificationTokenSQLite = `UPDATE {{prefix}}identity_users SET
+	email_address_verification_token = ?1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?2
+	AND scope = ?3`
+
+const setUserRequiresPasswordChangeSQLite = `UPDATE {{prefix}}identity_users SET
+	requires_password_change = ?1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?2
+	AND scope = ?3`
+
+const transferAccountOwnershipSQLite = `UPDATE {{prefix}}identity_accounts SET
+	owner_user_id = ?1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?2
+	AND scope = ?3
+	AND owner_user_id = ?4`
+
 const updateAccountSQLite = `UPDATE {{prefix}}identity_accounts SET
 	name = ?1,
 	address_line1 = ?2,
@@ -516,45 +557,103 @@ WHERE archived_at IS NULL
 	AND id = ?6
 	AND scope = ?7`
 
+const updateUserAccountStatusSQLite = `UPDATE {{prefix}}identity_users SET
+	account_status = ?1,
+	account_status_explanation = ?2,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?3
+	AND scope = ?4`
+
+const updateUserPasswordSQLite = `UPDATE {{prefix}}identity_users SET
+	hashed_password = ?1,
+	requires_password_change = ?2,
+	password_last_changed_at = ?3,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?4
+	AND scope = ?5`
+
+const updateUserTwoFactorSecretSQLite = `UPDATE {{prefix}}identity_users SET
+	two_factor_secret = ?1,
+	two_factor_secret_verified_at = ?2,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?3
+	AND scope = ?4`
+
 // sqliteQueries answers every query in Querier against sqlite.
 type sqliteQueries struct {
-	archiveAccount            string
-	archiveUser               string
-	createAccount             string
-	createInvitation          string
-	createUser                string
-	getAccount                string
-	getInvitation             string
-	getUser                   string
-	listAccounts              string
-	listInvitations           string
-	listInvitationsByFromUser string
-	listInvitationsByToEmail  string
-	listUsers                 string
-	updateAccount             string
-	updateUser                string
+	answerInvitation                     string
+	archiveAccount                       string
+	archiveUser                          string
+	createAccount                        string
+	createInvitation                     string
+	createUser                           string
+	getAccount                           string
+	getInvitation                        string
+	getUser                              string
+	listAccounts                         string
+	listInvitations                      string
+	listInvitationsByFromUser            string
+	listInvitationsByToEmail             string
+	listUsers                            string
+	markUserEmailAddressVerified         string
+	setUserEmailAddressVerificationToken string
+	setUserRequiresPasswordChange        string
+	transferAccountOwnership             string
+	updateAccount                        string
+	updateUser                           string
+	updateUserAccountStatus              string
+	updateUserPassword                   string
+	updateUserTwoFactorSecret            string
 }
 
 // newSQLite returns the sqlite querier with prefix substituted into every
 // table name the analyzer identified.
 func newSQLite(prefix string) *sqliteQueries {
 	return &sqliteQueries{
-		archiveAccount:            strings.ReplaceAll(archiveAccountSQLite, prefixMarker, prefix),
-		archiveUser:               strings.ReplaceAll(archiveUserSQLite, prefixMarker, prefix),
-		createAccount:             strings.ReplaceAll(createAccountSQLite, prefixMarker, prefix),
-		createInvitation:          strings.ReplaceAll(createInvitationSQLite, prefixMarker, prefix),
-		createUser:                strings.ReplaceAll(createUserSQLite, prefixMarker, prefix),
-		getAccount:                strings.ReplaceAll(getAccountSQLite, prefixMarker, prefix),
-		getInvitation:             strings.ReplaceAll(getInvitationSQLite, prefixMarker, prefix),
-		getUser:                   strings.ReplaceAll(getUserSQLite, prefixMarker, prefix),
-		listAccounts:              strings.ReplaceAll(listAccountsSQLite, prefixMarker, prefix),
-		listInvitations:           strings.ReplaceAll(listInvitationsSQLite, prefixMarker, prefix),
-		listInvitationsByFromUser: strings.ReplaceAll(listInvitationsByFromUserSQLite, prefixMarker, prefix),
-		listInvitationsByToEmail:  strings.ReplaceAll(listInvitationsByToEmailSQLite, prefixMarker, prefix),
-		listUsers:                 strings.ReplaceAll(listUsersSQLite, prefixMarker, prefix),
-		updateAccount:             strings.ReplaceAll(updateAccountSQLite, prefixMarker, prefix),
-		updateUser:                strings.ReplaceAll(updateUserSQLite, prefixMarker, prefix),
+		answerInvitation:                     strings.ReplaceAll(answerInvitationSQLite, prefixMarker, prefix),
+		archiveAccount:                       strings.ReplaceAll(archiveAccountSQLite, prefixMarker, prefix),
+		archiveUser:                          strings.ReplaceAll(archiveUserSQLite, prefixMarker, prefix),
+		createAccount:                        strings.ReplaceAll(createAccountSQLite, prefixMarker, prefix),
+		createInvitation:                     strings.ReplaceAll(createInvitationSQLite, prefixMarker, prefix),
+		createUser:                           strings.ReplaceAll(createUserSQLite, prefixMarker, prefix),
+		getAccount:                           strings.ReplaceAll(getAccountSQLite, prefixMarker, prefix),
+		getInvitation:                        strings.ReplaceAll(getInvitationSQLite, prefixMarker, prefix),
+		getUser:                              strings.ReplaceAll(getUserSQLite, prefixMarker, prefix),
+		listAccounts:                         strings.ReplaceAll(listAccountsSQLite, prefixMarker, prefix),
+		listInvitations:                      strings.ReplaceAll(listInvitationsSQLite, prefixMarker, prefix),
+		listInvitationsByFromUser:            strings.ReplaceAll(listInvitationsByFromUserSQLite, prefixMarker, prefix),
+		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailSQLite, prefixMarker, prefix),
+		listUsers:                            strings.ReplaceAll(listUsersSQLite, prefixMarker, prefix),
+		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedSQLite, prefixMarker, prefix),
+		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenSQLite, prefixMarker, prefix),
+		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangeSQLite, prefixMarker, prefix),
+		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipSQLite, prefixMarker, prefix),
+		updateAccount:                        strings.ReplaceAll(updateAccountSQLite, prefixMarker, prefix),
+		updateUser:                           strings.ReplaceAll(updateUserSQLite, prefixMarker, prefix),
+		updateUserAccountStatus:              strings.ReplaceAll(updateUserAccountStatusSQLite, prefixMarker, prefix),
+		updateUserPassword:                   strings.ReplaceAll(updateUserPasswordSQLite, prefixMarker, prefix),
+		updateUserTwoFactorSecret:            strings.ReplaceAll(updateUserTwoFactorSecretSQLite, prefixMarker, prefix),
 	}
+}
+
+// AnswerInvitation runs the :execrows query against sqlite.
+func (q *sqliteQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.answerInvitation,
+		arg.Status,
+		arg.Note,
+		arg.ToUser,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentStatus,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
 
 // ArchiveAccount runs the :execrows query against sqlite.
@@ -1034,6 +1133,65 @@ func (q *sqliteQueries) ListUsers(ctx context.Context, db DBTX, arg ListUsersPar
 	return items, nil
 }
 
+// MarkUserEmailAddressVerified runs the :execrows query against sqlite.
+func (q *sqliteQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
+		arg.EmailAddressVerifiedAt,
+		arg.EmailAddressVerificationToken,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentEmailAddressVerificationToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetUserEmailAddressVerificationToken runs the :execrows query against sqlite.
+func (q *sqliteQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
+		arg.EmailAddressVerificationToken,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetUserRequiresPasswordChange runs the :execrows query against sqlite.
+func (q *sqliteQueries) SetUserRequiresPasswordChange(ctx context.Context, db DBTX, arg SetUserRequiresPasswordChangeParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setUserRequiresPasswordChange,
+		arg.RequiresPasswordChange,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// TransferAccountOwnership runs the :execrows query against sqlite.
+func (q *sqliteQueries) TransferAccountOwnership(ctx context.Context, db DBTX, arg TransferAccountOwnershipParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.transferAccountOwnership,
+		arg.OwnerUserID,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentOwnerUserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // UpdateAccount runs the :execrows query against sqlite.
 func (q *sqliteQueries) UpdateAccount(ctx context.Context, db DBTX, arg UpdateAccountParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.updateAccount,
@@ -1074,6 +1232,52 @@ func (q *sqliteQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserP
 	return result.RowsAffected()
 }
 
+// UpdateUserAccountStatus runs the :execrows query against sqlite.
+func (q *sqliteQueries) UpdateUserAccountStatus(ctx context.Context, db DBTX, arg UpdateUserAccountStatusParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserAccountStatus,
+		arg.AccountStatus,
+		arg.AccountStatusExplanation,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateUserPassword runs the :execrows query against sqlite.
+func (q *sqliteQueries) UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserPassword,
+		arg.HashedPassword,
+		arg.RequiresPasswordChange,
+		arg.PasswordLastChangedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateUserTwoFactorSecret runs the :execrows query against sqlite.
+func (q *sqliteQueries) UpdateUserTwoFactorSecret(ctx context.Context, db DBTX, arg UpdateUserTwoFactorSecretParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserTwoFactorSecret,
+		arg.TwoFactorSecret,
+		arg.TwoFactorSecretVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1081,6 +1285,14 @@ func (q *sqliteQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserP
 // disagreement between dialects a compile error here rather than a
 // transposition at run time.
 var (
+	_ = struct {
+		Status        string
+		Note          string
+		ToUser        *string
+		ID            string
+		Scope         tenancy.Scope
+		CurrentStatus string
+	}(AnswerInvitationParams{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope
@@ -1366,6 +1578,29 @@ var (
 		TotalCount                    int64
 	}(ListUsersRow{})
 	_ = struct {
+		EmailAddressVerifiedAt               *time.Time
+		EmailAddressVerificationToken        string
+		ID                                   string
+		Scope                                tenancy.Scope
+		CurrentEmailAddressVerificationToken string
+	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		EmailAddressVerificationToken string
+		ID                            string
+		Scope                         tenancy.Scope
+	}(SetUserEmailAddressVerificationTokenParams{})
+	_ = struct {
+		RequiresPasswordChange bool
+		ID                     string
+		Scope                  tenancy.Scope
+	}(SetUserRequiresPasswordChangeParams{})
+	_ = struct {
+		OwnerUserID        string
+		ID                 string
+		Scope              tenancy.Scope
+		CurrentOwnerUserID string
+	}(TransferAccountOwnershipParams{})
+	_ = struct {
 		Name              string
 		AddressLine1      string
 		AddressLine2      string
@@ -1387,4 +1622,23 @@ var (
 		ID                     string
 		Scope                  tenancy.Scope
 	}(UpdateUserParams{})
+	_ = struct {
+		AccountStatus            string
+		AccountStatusExplanation string
+		ID                       string
+		Scope                    tenancy.Scope
+	}(UpdateUserAccountStatusParams{})
+	_ = struct {
+		HashedPassword         string
+		RequiresPasswordChange bool
+		PasswordLastChangedAt  *time.Time
+		ID                     string
+		Scope                  tenancy.Scope
+	}(UpdateUserPasswordParams{})
+	_ = struct {
+		TwoFactorSecret           string
+		TwoFactorSecretVerifiedAt *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(UpdateUserTwoFactorSecretParams{})
 )

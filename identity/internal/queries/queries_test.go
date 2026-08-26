@@ -61,6 +61,9 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"CreateAccount", "GetAccount", "ListAccounts", "UpdateAccount", "ArchiveAccount",
 		"CreateInvitation", "GetInvitation", "ListInvitations",
 		"ListInvitationsByFromUser", "ListInvitationsByToEmail",
+		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
+		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
+		"UpdateUserAccountStatus", "TransferAccountOwnership", "AnswerInvitation",
 	}
 
 	for _, d := range everyDialect {
@@ -200,5 +203,129 @@ func TestTables_ColumnsAreUniqueAndConventional(t *testing.T) {
 			test.True(t, slices.Contains(table.Columns, column),
 				test.Sprintf("table %q is missing %q", table.Name, column))
 		}
+	}
+}
+
+// TestFieldWrites_NameRealColumns catches the typo neither sqlc nor the
+// compiler would report as one. A column name the table does not have makes an
+// UPDATE sqlc rejects, which is loud — but a *guard argument* misspelled to
+// match a column name silently collapses the guard onto the assignment, and the
+// statement still generates, still compiles, and no longer guards anything.
+func TestFieldWrites_NameRealColumns(t *testing.T) {
+	t.Parallel()
+
+	assigned := map[*Table][]string{
+		&Users: {
+			hashedPasswordColumn, requiresPasswordChangeColumn, passwordLastChangedAtColumn,
+			twoFactorColumn, twoFactorVerifiedAtColumn,
+			EmailAddressVerifiedAtColumn, emailVerificationTokenColumn,
+			accountStatusColumn, accountStatusExplanationColumn,
+		},
+		&Accounts:    {ownerUserIDColumn},
+		&Invitations: {InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
+	}
+
+	for table, columns := range assigned {
+		for _, column := range columns {
+			test.True(t, slices.Contains(table.Columns, column),
+				test.Sprintf("table %q does not have column %q", table.Name, column))
+		}
+	}
+
+	// A guard argument is a name, not a column, and it must not be one: sharing
+	// a name with the column it compares would make the write set the column to
+	// the value it was requiring it to already hold.
+	for _, table := range allTables {
+		for _, arg := range []string{currentEmailVerificationTokenArg, currentOwnerUserIDArg, currentInvitationStatusArg} {
+			test.False(t, slices.Contains(table.Columns, arg),
+				test.Sprintf("guard argument %q collides with a column of %q", arg, table.Name))
+		}
+	}
+}
+
+// TestFieldWrites_GuardsSurvive pins the three predicates whose absence is
+// silent. Each is what makes a losing writer report zero rows rather than
+// overwrite the winner — a second click on a verification link, a second
+// concurrent ownership transfer, a rejection landing on top of an acceptance —
+// and a statement that lost its guard behaves correctly right up until two
+// requests arrive together.
+func TestFieldWrites_GuardsSurvive(T *testing.T) {
+	T.Parallel()
+
+	guards := map[string]string{
+		"MarkUserEmailAddressVerified": emailVerificationTokenColumn + " = sqlc.arg(" + currentEmailVerificationTokenArg + ")",
+		"TransferAccountOwnership":     ownerUserIDColumn + " = sqlc.arg(" + currentOwnerUserIDArg + ")",
+		"AnswerInvitation":             InvitationStatusColumn + " = sqlc.arg(" + currentInvitationStatusArg + ")",
+	}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var seen []string
+
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				name, _, _ := strings.Cut(statement, " ")
+
+				guard, ok := guards[name]
+				if !ok {
+					continue
+				}
+
+				test.StrContains(t, statement, guard, test.Sprintf("statement %q", name))
+
+				// The assignment is there too, under the column's own name, so
+				// the two ends of the comparison are two arguments rather than
+				// one — which is the whole of what makes the guard a guard.
+				test.StrContains(t, statement, strings.SplitN(guard, " = ", 2)[0]+" = sqlc.",
+					test.Sprintf("statement %q", name))
+
+				seen = append(seen, name)
+			}
+
+			// Without this the loop above passes for a rendering that emits
+			// none of the three, which is the failure it exists to catch.
+			test.SliceLen(t, len(guards), seen)
+		})
+	}
+}
+
+// TestFieldWrites_StampLastUpdatedAt pins the convention half: every one of
+// these writes stamps the column from the server's clock, rather than assigning
+// it from a bound value or leaving it behind. A row whose last_updated_at came
+// off an application clock is a row the updated_after window can exclude while
+// another instance's rows of the same age survive.
+func TestFieldWrites_StampLastUpdatedAt(T *testing.T) {
+	T.Parallel()
+
+	written := []string{
+		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
+		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
+		"UpdateUserAccountStatus", "TransferAccountOwnership", "AnswerInvitation",
+	}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var seen []string
+
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				name, _, _ := strings.Cut(statement, " ")
+
+				if !slices.Contains(written, name) {
+					continue
+				}
+
+				test.StrContains(t, statement, querygen.LastUpdatedAtColumn+" = "+querygen.NowExpression,
+					test.Sprintf("statement %q", name))
+				test.StrNotContains(t, statement, "sqlc.arg("+querygen.LastUpdatedAtColumn+")",
+					test.Sprintf("statement %q", name))
+
+				seen = append(seen, name)
+			}
+
+			test.SliceLen(t, len(written), seen)
+		})
 	}
 }

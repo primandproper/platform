@@ -34,6 +34,15 @@ three of the four options carry a fact that a column list cannot:
     [identity.User.Redacted] copy whose credential fields are empty, so a
     password hash left in the update set is blanked on every profile save.
 
+The columns Updatable leaves out are not columns nothing writes — they are the
+columns a *named* statement writes, and those statements are emitted too. See
+fieldWrites: the password and its stamp, the two-factor secret and its
+verification, the email verification token, the account status, the ownership
+transfer, the invitation answer. Each names its own SET list rather than the
+table's mutable set, and three of them carry a predicate on the value being
+replaced, which is what makes a losing concurrent writer report zero rows
+instead of overwriting the winner.
+
 Memberships is the fourth table and is deliberately not emitted. Its columns are
 textbook and not one of its statements is: the get, the archive and the bulk
 archive key on the (belongs_to_user, belongs_to_account) pair rather than on id,
