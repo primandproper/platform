@@ -53,21 +53,14 @@ func pageValues[T any](rows []pageRow[T]) []*T {
 }
 
 // timePtr turns a nullable timestamp column into the *time.Time the domain
-// types carry, in UTC.
-//
-// The UTC conversion is not cosmetic. Postgres hands back a time in the
-// session's zone, MySQL in the server's, and SQLite whatever the string parsed
-// as; a caller comparing two of those, or rendering one into JSON, would get an
-// answer that depends on where the row was read. Every timestamp this package
-// writes is UTC, so every timestamp it returns is too.
+// types carry — utcPtr's normalization, for the nullable-column input shape;
+// utcPtr carries the rationale.
 func timePtr(nt sql.NullTime) *time.Time {
 	if !nt.Valid {
 		return nil
 	}
 
-	t := nt.Time.UTC()
-
-	return &t
+	return utcPtr(&nt.Time)
 }
 
 // stringPtr turns a nullable text column into a *string, distinguishing a NULL

@@ -24,12 +24,15 @@ import (
 // restate the fields rather than casting. Restating is the cost; the compiler
 // checking every field name is what it buys.
 
-// utcPtr normalizes an optional timestamp to UTC, preserving absence.
+// utcPtr normalizes an optional timestamp to UTC, preserving absence. It is
+// the one home for the rule; timePtr is the same rule for the nullable-column
+// input shape.
 //
 // Every timestamp this package writes is UTC, so every one it returns is too —
-// the drivers hand back rows in the session's zone on Postgres and the server's
-// on MySQL, and a caller comparing two of those would get an answer that
-// depends on where the row was read.
+// Postgres hands back a time in the session's zone, MySQL in the server's, and
+// SQLite whatever the string parsed as, so a caller comparing two of those, or
+// rendering one into JSON, would get an answer that depends on where the row
+// was read.
 func utcPtr(t *time.Time) *time.Time {
 	if t == nil {
 		return nil

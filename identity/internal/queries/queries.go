@@ -199,10 +199,10 @@ var Emitted = []*Table{&Users, &Accounts, &Invitations}
 // queries, in one file's worth of text.
 //
 // It is what identity/internal/queriesgen writes to the .sql beside this file
-// and what CI regenerates to check the committed copy still matches. Nothing
-// executes what it returns — the store renders the same statements through the
-// Bound methods, with the prefix on the table name and the argument references
-// rewritten into bind markers.
+// and what CI regenerates to check the committed copy still matches. That .sql
+// is sqlc-gen-unison's input, so what the store executes is this text exactly:
+// the generated identitydb package carries it per dialect, with the consumer's
+// table prefix substituted once at construction.
 func Render(d dialect.Dialect) string {
 	g := querygen.For(d)
 

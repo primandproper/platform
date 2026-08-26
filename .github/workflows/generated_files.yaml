@@ -97,8 +97,8 @@ jobs:
           cache-dependency-path: go.sum
 
       # Both halves of the toolchain are pinned — sqlc by .sqlc-version, unison
-      # by .unison-version — because unison stamps both versions into every
-      # file it writes. sqlc-gen-unison is an org-private module, so resolving
+      # by .unison-version — enforced by unison_generate.sh installing exactly
+      # what the pins name. sqlc-gen-unison is an org-private module, so resolving
       # it needs credentials the default workflow token does not carry:
       # UNISON_MODULE_TOKEN is an org token with read access to that repo.
       - name: Regenerate

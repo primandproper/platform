@@ -7,9 +7,11 @@ set -euo pipefail
 # unison is the emitter, never the analyzer: it shells out to the pinned sqlc
 # once per dialect and turns the analysis into one shared set of Go types plus
 # per-dialect statements. Both halves of the toolchain are pinned — sqlc by
-# .sqlc-version, unison by .unison-version — because unison stamps both
-# versions into every file it writes, and an unpinned either one turns the
-# generated-files check into a report on which machine ran it.
+# .sqlc-version, unison by .unison-version — because an unpinned either one
+# turns the generated-files check into a report on which machine ran it. The
+# pins are enforced right here, by installing exactly what they name: the
+# version header unison writes carries only the sqlc pin, since a go-installed
+# unison stamps `dev` — its release artifacts alone carry a real version.
 
 PROJECT_ROOT="${1:-$(pwd)}"
 
