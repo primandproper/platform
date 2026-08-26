@@ -4,15 +4,18 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v13/capitalism"
-	"github.com/primandproper/platform-go/v13/capitalism/stripe"
 	"github.com/primandproper/platform-go/v13/observability"
 
 	"github.com/samber/do/v2"
 )
 
-// RegisterPaymentManager registers a capitalism.PaymentManager with the injector. A
-// stripe.EventHandler may optionally be registered in the container; when present, it is wired into
-// the Stripe manager so consumers can act on verified webhook events.
+// RegisterPaymentManager registers a capitalism.PaymentManager with the injector.
+//
+// Nothing optional is resolved out of the container alongside it. The manager used to look
+// for a registered stripe.EventHandler, which made acting on a webhook depend on a type from
+// the provider subpackage and on a registration whose absence was silent;
+// PaymentManager.HandleEventWebhook now returns the verified capitalism.Event to whoever
+// mounted the endpoint.
 func RegisterPaymentManager(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (capitalism.PaymentManager, error) {
 		pillars, err := observability.InvokePillars(i)
@@ -20,16 +23,9 @@ func RegisterPaymentManager(i do.Injector) {
 			return nil, err
 		}
 
-		// The event handler is optional; a resolution error means none was registered.
-		var stripeEventHandler stripe.EventHandler
-		if h, handlerErr := do.Invoke[stripe.EventHandler](i); handlerErr == nil {
-			stripeEventHandler = h
-		}
-
 		return NewPaymentManager(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
-			stripeEventHandler,
 			WithPillars(pillars),
 		)
 	})

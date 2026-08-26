@@ -17,6 +17,16 @@ import (
 // the answer so that the rule has one place to read it from, and so that the
 // question "which accounts lapsed" is an indexed query rather than a call out
 // to a vendor.
+//
+// The four values here are not what a processor reports. That vocabulary is
+// capitalism.SubscriptionStatus, which a webhook arrives carrying: each payments
+// adapter maps its provider's words onto it — capitalism/stripe holds the Stripe
+// table — so no consumer decodes provider JSON to learn a customer's standing.
+// The step from one of those statuses to one of these is the application's,
+// because it is policy rather than translation: whether trialing counts as paid,
+// and whether past_due is still entitled, are the rules this package stores the
+// answer to rather than derives. BillingSuspended has no counterpart at all — it
+// is an operator action no processor reports.
 type BillingStatus string
 
 const (

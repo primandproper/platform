@@ -8,8 +8,16 @@
 # whether anything is tested. Left in, a package that adds a mock for a wide
 # interface reports a coverage drop for having made itself easier to test, which
 # is precisely the wrong incentive.
+#
+# Generated protobuf bindings are excluded for the same reason. A .pb.go is
+# protoc-gen-go's output verbatim — getters, Reset, String, and a descriptor
+# table — and a test written to raise its number would be a test of protobuf
+# rather than of anything here. What is worth testing about the schema is
+# whether it still describes the Go types, and filtering/grpc's conformance
+# test does that.
 ignore:
   - "**/mock/**"
+  - "**/*.pb.go"
 
 coverage:
   status:

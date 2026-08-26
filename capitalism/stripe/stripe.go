@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/capitalism"
@@ -18,6 +19,11 @@ import (
 
 const (
 	implementationName = "stripe_payment_manager"
+	// subscriptionEventPrefix is the prefix every Stripe event whose data object is a
+	// Subscription shares — created, updated, deleted, paused, resumed, trial_will_end and
+	// the pending-update pair. Matching the prefix rather than listing the eight is what
+	// keeps a subscription event Stripe adds later from arriving with its status undecoded.
+	subscriptionEventPrefix = "customer.subscription."
 	// maxWebhookBodyBytes bounds how much of a webhook request body we read; Stripe
 	// event payloads are well under this, and it stops a hostile client from forcing
 	// an unbounded allocation on this public endpoint.
@@ -44,34 +50,7 @@ var (
 	ErrWebhookSecretNotConfigured = platformerrors.New("stripe webhook secret not configured; set the webhook secret to receive events")
 )
 
-var _ capitalism.PaymentManager = (*PaymentManager)(nil)
-
 type (
-	// Event is a verified webhook event, in this module's own vocabulary.
-	//
-	// It exists so that stripe-go's types stay out of the exported API. A handler
-	// typed on *stripe.Event pins every consumer of this module to the exact
-	// stripe-go major it was built against, and turns each of that SDK's major
-	// bumps into a breaking change for platform-go — for callers who never
-	// mention Stripe.
-	//
-	// Payload is the raw JSON of the event's data object, exactly as it arrived.
-	// A consumer that needs the typed struct decodes it with whatever stripe-go
-	// version it chooses, on its own schedule.
-	Event struct {
-		// ID is the provider's event identifier, stable for deduplication.
-		ID string
-		// Type is the provider's event type, e.g. "payment_intent.succeeded".
-		Type string
-		// Payload is the raw JSON of the event's data object.
-		Payload []byte
-	}
-
-	// EventHandler is an optional callback invoked with each verified Stripe event, letting a
-	// consumer act on a webhook (e.g. fulfill an order) after signature verification succeeds.
-	// A nil handler leaves the default behavior (decode known events + log) in place.
-	EventHandler func(ctx context.Context, event *Event) error
-
 	// PaymentManager is the Stripe capitalism.PaymentManager implementation. It is
 	// exported, and returned by NewPaymentManager, so a caller who has chosen
 	// Stripe can depend on that choice rather than on the interface every payment
@@ -80,7 +59,6 @@ type (
 		o11y           observability.Observer
 		encoderDecoder encoding.ServerEncoderDecoder
 		client         *client.API
-		handler        EventHandler
 		instruments    *instruments
 		verifier       inbound.Verifier
 	}
@@ -89,8 +67,13 @@ type (
 // NewPaymentManager builds a Stripe-backed PaymentManager. When cfg.APIKey is set, an API
 // client is initialized for outbound operations; when cfg.WebhookSecret is set, a verifier is
 // built for the inbound webhook path. Either half works without the other.
-// handler is optional and invoked for every verified event.
-func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (*PaymentManager, error) {
+//
+// It takes no event handler. HandleEventWebhook returns the verified delivery as a
+// capitalism.Event, so acting on a webhook is something the caller does with a return value
+// on the request's own goroutine, rather than something it registers here — which is what
+// forced a consumer that never otherwise names Stripe to import this package for a callback
+// signature.
+func NewPaymentManager(cfg *Config, opts ...Option) (*PaymentManager, error) {
 	if cfg == nil {
 		return nil, ErrNilConfig
 	}
@@ -105,7 +88,6 @@ func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (*Paym
 	m := &PaymentManager{
 		encoderDecoder: encoding.NewServerEncoderDecoder(encoding.ContentTypeJSON, encoding.WithLogger(o.logger), encoding.WithTracerProvider(o.tracerProvider)),
 		o11y:           observability.NewObserver(implementationName, o.logger, o.tracerProvider),
-		handler:        handler,
 		instruments:    instruments,
 	}
 
@@ -127,18 +109,23 @@ func NewPaymentManager(cfg *Config, handler EventHandler, opts ...Option) (*Paym
 	return m, nil
 }
 
-// HandleEventWebhook verifies an inbound Stripe delivery and hands it to the configured
-// handler.
+// HandleEventWebhook verifies an inbound Stripe delivery and returns what it says, in this
+// module's own vocabulary.
 //
 // Verification runs through webhooks/inbound's Stripe scheme rather than through stripe-go's,
 // so this module has one implementation of the t=…,v1=… format — the same one a service that
 // receives Stripe webhooks without a PaymentManager gets from inbound.NewStripeVerifier.
 //
+// A delivery about a subscription comes back with its Subscription populated, its status
+// mapped through this package's table, so the caller reconciling an account's standing does
+// not decode Stripe JSON to find out what changed. Everything else comes back with the raw
+// payload and nothing decoded, which is all this package can honestly say about it.
+//
 // This does the work inline, on the request's goroutine, and so couples Stripe's ack deadline
-// to how long the handler takes. A service whose handler does anything slow should mount an
-// inbound.Receiver instead, which publishes the delivery and acks; this path exists for
-// handlers that are genuinely fast.
-func (s *PaymentManager) HandleEventWebhook(req *http.Request) (err error) {
+// to how long the caller takes with what it returns. A service whose handling does anything
+// slow should mount an inbound.Receiver instead, which publishes the delivery and acks; this
+// path exists for handling that is genuinely fast.
+func (s *PaymentManager) HandleEventWebhook(req *http.Request) (_ *capitalism.Event, err error) {
 	ctx, op := s.o11y.Begin(req.Context())
 	defer op.End()
 
@@ -146,24 +133,24 @@ func (s *PaymentManager) HandleEventWebhook(req *http.Request) (err error) {
 	defer func() { s.instruments.record(ctx, opHandleWebhook, startedAt, err) }()
 
 	if s.verifier == nil {
-		return op.Error(ErrWebhookSecretNotConfigured, "verifying webhook signature")
+		return nil, op.Error(ErrWebhookSecretNotConfigured, "verifying webhook signature")
 	}
 
 	// Cap the body of this public, unauthenticated endpoint so a hostile client
 	// can't exhaust memory with an arbitrarily large payload.
 	payload, err := io.ReadAll(http.MaxBytesReader(nil, req.Body, maxWebhookBodyBytes))
 	if err != nil {
-		return op.Error(err, "reading webhook body")
+		return nil, op.Error(err, "reading webhook body")
 	}
 
 	if err = s.verifier.Verify(ctx, req.Header, payload); err != nil {
-		return op.Error(err, "verifying webhook signature")
+		return nil, op.Error(err, "verifying webhook signature")
 	}
 
 	// Decoded only after verification, so nothing here ever parses bytes Stripe did not send.
 	var event stripe.Event
 	if err = s.encoderDecoder.DecodeBytes(ctx, payload, &event); err != nil {
-		return op.Error(err, "decoding webhook event")
+		return nil, op.Error(err, "decoding webhook event")
 	}
 
 	op.Set("stripe.event_id", event.ID).Set("stripe.event_type", event.Type)
@@ -176,34 +163,70 @@ func (s *PaymentManager) HandleEventWebhook(req *http.Request) (err error) {
 		raw = event.Data.Raw
 	}
 
-	switch event.Type {
-	case stripe.EventTypePaymentIntentSucceeded:
+	out := &capitalism.Event{ID: event.ID, Type: string(event.Type), Payload: raw}
+
+	switch {
+	case event.Type == stripe.EventTypePaymentIntentSucceeded:
 		var paymentIntent stripe.PaymentIntent
-		if decodeErr := s.encoderDecoder.DecodeBytes(ctx, raw, &paymentIntent); decodeErr != nil {
-			return op.Error(decodeErr, "decoding payment intent")
+		if err = s.encoderDecoder.DecodeBytes(ctx, raw, &paymentIntent); err != nil {
+			return nil, op.Error(err, "decoding payment intent")
 		}
 
 		op.Set("stripe.payment_intent_id", paymentIntent.ID).
 			Set("stripe.amount", paymentIntent.Amount).
 			Set("stripe.currency", paymentIntent.Currency)
+	case strings.HasPrefix(string(event.Type), subscriptionEventPrefix):
+		// Every customer.subscription.* event's data object is a Subscription, including
+		// the deleted one — Stripe reports a cancellation as a final state on the object
+		// rather than as an absence.
+		var subscription stripe.Subscription
+		if err = s.encoderDecoder.DecodeBytes(ctx, raw, &subscription); err != nil {
+			return nil, op.Error(err, "decoding subscription")
+		}
+
+		out.Subscription = subscriptionState(&subscription)
+
+		op.Set("stripe.subscription_id", out.Subscription.ID).
+			Set("stripe.customer_id", out.Subscription.CustomerID).
+			Set("stripe.subscription_status", out.Subscription.ProviderStatus).
+			Set("capitalism.subscription_status", out.Subscription.Status.String())
+
+		if !out.Subscription.Status.Known() {
+			// Logged rather than errored: the delivery is genuine and the caller is
+			// handed the raw status, so refusing it would drop an event Stripe will
+			// not send again. What it needs is an entry in the mapping table, and this
+			// is the line that says which one.
+			op.Logger().WithValue("stripe.subscription_status", out.Subscription.ProviderStatus).
+				Info("unrecognized subscription status")
+		}
 	default:
 		op.Set("event_type", event.Type)
 		op.Logger().WithRequest(req).Info("Unhandled event type")
 	}
 
-	// Hand the verified event to the consumer callback (if any) so it can act on it, rather than
-	// decoding it here and dropping it on the floor.
-	if s.handler != nil {
-		if err = s.handler(ctx, &Event{
-			ID:      event.ID,
-			Type:    string(event.Type),
-			Payload: raw,
-		}); err != nil {
-			return op.Error(err, "handling stripe event")
-		}
+	return out, nil
+}
+
+// subscriptionState projects a decoded Stripe subscription onto this module's vocabulary.
+//
+// Customer is read through its pointer because stripe-go leaves it nil for a payload that
+// named no customer, and because the field arrives as either an ID string or an expanded
+// object depending on how the endpoint is configured — stripe-go's own unmarshaller absorbs
+// that difference, which is the reason this decodes through the SDK's type rather than
+// through a hand-rolled struct.
+func subscriptionState(subscription *stripe.Subscription) *capitalism.SubscriptionState {
+	state := &capitalism.SubscriptionState{
+		ID:             subscription.ID,
+		ProviderStatus: string(subscription.Status),
 	}
 
-	return nil
+	state.Status, _ = MapSubscriptionStatus(string(subscription.Status))
+
+	if subscription.Customer != nil {
+		state.CustomerID = subscription.Customer.ID
+	}
+
+	return state
 }
 
 // CreateCustomer creates a Stripe customer.
