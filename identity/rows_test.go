@@ -23,8 +23,8 @@ import (
 // into the generated params, and the conversions in rows.go.
 
 // TestIdentitydbDialect pins the mapping onto the generated package's dialect
-// set, for all three, and that the unknown case reaches identitydb.New as a
-// refusal rather than as a working-looking querier.
+// set, for all three, and that the unknown case is an error naming the
+// dialect rather than a working-looking querier.
 func TestIdentitydbDialect(t *testing.T) {
 	t.Parallel()
 
@@ -33,15 +33,18 @@ func TestIdentitydbDialect(t *testing.T) {
 		dialect.MySQL:    identitydb.DialectMySQL,
 		dialect.SQLite:   identitydb.DialectSQLite,
 	} {
-		test.EqOp(t, generated, identitydbDialect(platform), test.Sprintf("dialect %q", platform))
+		mapped, err := identitydbDialect(platform)
+		must.NoError(t, err, must.Sprintf("dialect %q", platform))
+		test.EqOp(t, generated, mapped, test.Sprintf("dialect %q", platform))
 
-		q, err := identitydb.New(identitydbDialect(platform), "ddb_")
+		q, err := identitydb.New(mapped, "ddb_")
 		must.NoError(t, err)
 		must.NotNil(t, q)
 	}
 
-	_, err := identitydb.New(identitydbDialect("oracle"), "")
-	must.Error(t, err)
+	_, err := identitydbDialect("oracle")
+	must.ErrorIs(t, err, dialect.ErrUnsupported)
+	must.StrContains(t, err.Error(), "oracle")
 }
 
 // TestWindowFrom pins the one reading of a filter every generated list binds:

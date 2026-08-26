@@ -53,7 +53,7 @@ for component in "${COMPONENTS[@]}"; do
   for d in postgres mysql sqlite; do
     (cd "${PROJECT_ROOT}" &&
       go run "./${component}/internal/queriesgen" -schema "${d}" \
-        > "${component}/internal/queries/schema/${d}.sql")
+        > "${component}/migrations/schema/${d}.sql")
   done
 
   (cd "${PROJECT_ROOT}/${component}" && "${UNISON}" generate)

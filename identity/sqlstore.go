@@ -103,7 +103,12 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	// dialect is known — the only two things the generated statements do not
 	// already carry. What executes is what sqlc analyzed, with one marker
 	// substitution; see identity/internal/identitydb.
-	q, err := identitydb.New(identitydbDialect(d), ddl.Qualify(s.tables.prefix()))
+	qd, err := identitydbDialect(d)
+	if err != nil {
+		return nil, err
+	}
+
+	q, err := identitydb.New(qd, ddl.Qualify(s.tables.prefix()))
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "building the identity querier")
 	}
@@ -490,18 +495,21 @@ func pageWindow(filter *filtering.QueryFilter) (normalized *filtering.QueryFilte
 
 // identitydbDialect maps this module's dialect names onto the generated
 // package's. The set is closed on both sides — NewSQLStore has already
-// rejected anything d.Valid() declines — so the default arm is a programming
-// error surfaced by identitydb.New refusing the empty dialect.
-func identitydbDialect(d dialect.Dialect) identitydb.Dialect {
+// rejected anything d.Valid() declines — so the default arm is reachable only
+// when this module learns a dialect the generated package was not generated
+// for. That is a construction failure like any other, and it names the
+// dialect, rather than panicking or leaning on identitydb.New refusing the
+// empty string.
+func identitydbDialect(d dialect.Dialect) (identitydb.Dialect, error) {
 	switch d {
 	case dialect.Postgres:
-		return identitydb.DialectPostgreSQL
+		return identitydb.DialectPostgreSQL, nil
 	case dialect.MySQL:
-		return identitydb.DialectMySQL
+		return identitydb.DialectMySQL, nil
 	case dialect.SQLite:
-		return identitydb.DialectSQLite
+		return identitydb.DialectSQLite, nil
 	default:
-		return ""
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "no generated identity queries for dialect %q", d)
 	}
 }
 

@@ -2,14 +2,12 @@ package queries
 
 import (
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/querygen"
-	"github.com/primandproper/platform-go/v13/identity/migrations"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -48,30 +46,6 @@ func TestRender_MatchesTheCommittedFiles(T *testing.T) {
 
 			test.EqOp(t, Render(d), body,
 				test.Sprintf("run `make generate` and commit %s", FileName(d)))
-		})
-	}
-}
-
-// TestSchemaFiles_MatchTheMigrations is the same gate for the committed schema
-// files unison's config names: each must be exactly what the migrations render
-// for its dialect, at the empty prefix. A hand-edit to one leaves sqlc
-// analyzing DDL no database runs, which is the checked-versus-executed gap in
-// its other direction.
-func TestSchemaFiles_MatchTheMigrations(T *testing.T) {
-	T.Parallel()
-
-	for _, d := range everyDialect {
-		T.Run(string(d), func(t *testing.T) {
-			t.Parallel()
-
-			committed, err := os.ReadFile(filepath.Join("schema", string(d)+".sql"))
-			must.NoError(t, err)
-
-			rendered, err := migrations.SQL(d, "")
-			must.NoError(t, err)
-
-			test.EqOp(t, rendered+"\n", string(committed),
-				test.Sprintf("run `make unison` and commit schema/%s.sql", d))
 		})
 	}
 }

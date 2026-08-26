@@ -2,13 +2,14 @@ sqlc_version: 1.31.1
 package: identitydb
 out: internal/identitydb
 
-# The keys of `schemas:` are the dialect roster. The schema files are rendered
-# from identity/migrations by `go run ./internal/queriesgen -schema <dialect>`,
-# at the empty table prefix — never edited by hand.
+# The keys of `schemas:` are the dialect roster. The schema files live beside
+# their source: rendered from identity/migrations by
+# `go run ./internal/queriesgen -schema <dialect>`, at the empty table prefix —
+# never edited by hand.
 schemas:
-  postgresql: internal/queries/schema/postgres.sql
-  mysql: internal/queries/schema/mysql.sql
-  sqlite: internal/queries/schema/sqlite.sql
+  postgresql: migrations/schema/postgres.sql
+  mysql: migrations/schema/mysql.sql
+  sqlite: migrations/schema/sqlite.sql
 
 queries:
   postgresql: internal/queries/postgres_generated.sql
