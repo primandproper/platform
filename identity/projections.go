@@ -11,11 +11,13 @@ import (
 //
 // Each entity has an "aux" type holding the nullable columns the domain type
 // carries as pointers, a targets method producing the destinations for one
-// Scan, and an apply method converting them onto the value. The split is what
-// lets the roster join scan a membership and a user in a single Scan call
-// without a second copy of either column list — a copy that would drift from
-// this one silently, since a mismatched projection is a runtime scan error
-// rather than a compile error.
+// Scan, and an apply method converting them onto the value.
+//
+// What is left here is the scan side of the statements querygen does not render
+// — the sign-in reads, the batch read by id, the membership reads keyed on the
+// (user, account) pair. Everything the generated package answers converts
+// through identity/rows.go instead, where a renamed column is a compile error
+// rather than a scan that lands one column to the left.
 
 // pageRow is one row of a rendered list query: the value, and the two counts
 // the statement carries beside it.
@@ -61,19 +63,6 @@ func timePtr(nt sql.NullTime) *time.Time {
 	}
 
 	return utcPtr(&nt.Time)
-}
-
-// stringPtr turns a nullable text column into a *string, distinguishing a NULL
-// from a stored empty string — which for a subscription plan is the difference
-// between "no plan" and a plan whose ID is blank.
-func stringPtr(ns sql.NullString) *string {
-	if !ns.Valid {
-		return nil
-	}
-
-	s := ns.String
-
-	return &s
 }
 
 // userAux holds the user columns that the User carries as pointers or
@@ -132,54 +121,6 @@ func scanUser(scanner database.Scanner) (*User, error) {
 	return &user, nil
 }
 
-// accountAux holds the nullable account columns.
-type accountAux struct {
-	syncedAt      sql.NullTime
-	lastUpdatedAt sql.NullTime
-	archivedAt    sql.NullTime
-	status        string
-	planID        sql.NullString
-}
-
-// targets returns one destination per column of queries.Accounts.Columns, in order.
-func (a *accountAux) targets(account *Account) []any {
-	return []any{
-		&account.ID, &account.Scope, &account.Name, &account.OwnerUserID, &a.status,
-		&a.planID, &account.PaymentProcessorCustomerID, &a.syncedAt,
-		&account.BillingAddress.Line1, &account.BillingAddress.Line2,
-		&account.BillingAddress.City, &account.BillingAddress.State,
-		&account.BillingAddress.PostalCode, &account.BillingAddress.Country,
-		&account.BillingAddress.Phone, &account.TimeZone,
-		&account.CreatedAt, &a.lastUpdatedAt, &a.archivedAt,
-	}
-}
-
-// apply converts what targets scanned onto the Account.
-func (a *accountAux) apply(account *Account) {
-	account.CreatedAt = account.CreatedAt.UTC()
-	account.BillingStatus = BillingStatus(a.status)
-	account.SubscriptionPlanID = stringPtr(a.planID)
-	account.LastPaymentProviderSyncedAt = timePtr(a.syncedAt)
-	account.LastUpdatedAt = timePtr(a.lastUpdatedAt)
-	account.ArchivedAt = timePtr(a.archivedAt)
-}
-
-// scanAccount projects one row of queries.Accounts.Columns.
-func scanAccount(scanner database.Scanner) (*Account, error) {
-	var (
-		account Account
-		aux     accountAux
-	)
-
-	if err := scanner.Scan(aux.targets(&account)...); err != nil {
-		return nil, err
-	}
-
-	aux.apply(&account)
-
-	return &account, nil
-}
-
 // membershipAux holds the nullable membership columns.
 type membershipAux struct {
 	lastUpdatedAt sql.NullTime
@@ -218,28 +159,4 @@ func scanMembership(scanner database.Scanner) (*Membership, error) {
 	aux.apply(&membership)
 
 	return &membership, nil
-}
-
-// scanMembershipWithUser projects the roster join — the membership columns
-// then the user columns — in one Scan, and redacts the user before it leaves.
-//
-// The redaction is here rather than at the call site because this is the value a
-// roster page is made of, and a roster is the read most likely to reach a
-// response body: thirty members is thirty chances to serve a password hash.
-func scanMembershipWithUser(scanner database.Scanner) (*MembershipWithUser, error) {
-	var (
-		membership Membership
-		user       User
-		mAux       membershipAux
-		uAux       userAux
-	)
-
-	if err := scanner.Scan(append(mAux.targets(&membership), uAux.targets(&user)...)...); err != nil {
-		return nil, err
-	}
-
-	mAux.apply(&membership)
-	uAux.apply(&user)
-
-	return &MembershipWithUser{Membership: membership, User: user.Redacted()}, nil
 }

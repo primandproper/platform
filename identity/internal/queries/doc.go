@@ -34,10 +34,18 @@ three of the four options carry a fact that a column list cannot:
     [identity.User.Redacted] copy whose credential fields are empty, so a
     password hash left in the update set is blanked on every profile save.
 
-Memberships is the fourth table and is deliberately not emitted. Its columns are
-textbook and not one of its statements is: the get, the archive and the bulk
+Memberships is the fourth table and gets no standard set. Its columns are
+textbook and most of its statements are not: the get, the archive and the bulk
 archive key on the (belongs_to_user, belongs_to_account) pair rather than on id,
-and its write is an upsert that revives an archived row. It is declared here
-anyway, because the store still projects its columns and one list is the point.
+and its write is an upsert that revives an archived row.
+
+Its reads are another matter, and they are the three junction lists [Render]
+appends after the standard sets. An account's roster is a page of memberships
+with the member's columns projected beside them; a user's account list is a page
+of accounts reached through the same table; a user's own membership list is the
+unpaged read behind every authorization decision this package answers. All three
+were hand-built until querygen learned the shape, and the roster was what kept a
+two-entity scan-by-position pairing alive after everything single-table had been
+generated.
 */
 package queries

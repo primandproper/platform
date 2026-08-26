@@ -197,6 +197,83 @@ WHERE {{prefix}}identity_users.archived_at IS NULL
 	AND {{prefix}}identity_users.id = ?1
 	AND {{prefix}}identity_users.scope = ?2`
 
+const listAccountMembersSQLite = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at,
+	{{prefix}}identity_users.id AS user_id,
+	{{prefix}}identity_users.scope AS user_scope,
+	{{prefix}}identity_users.username AS user_username,
+	{{prefix}}identity_users.email_address AS user_email_address,
+	{{prefix}}identity_users.first_name AS user_first_name,
+	{{prefix}}identity_users.last_name AS user_last_name,
+	{{prefix}}identity_users.hashed_password AS user_hashed_password,
+	{{prefix}}identity_users.requires_password_change AS user_requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at AS user_password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret AS user_two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at AS user_two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at AS user_email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token AS user_email_address_verification_token,
+	{{prefix}}identity_users.account_status AS user_account_status,
+	{{prefix}}identity_users.account_status_explanation AS user_account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service AS user_last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy AS user_last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at AS user_created_at,
+	{{prefix}}identity_users.last_updated_at AS user_last_updated_at,
+	{{prefix}}identity_users.archived_at AS user_archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_memberships.id)
+		FROM {{prefix}}identity_memberships
+		JOIN {{prefix}}identity_users ON {{prefix}}identity_memberships.belongs_to_user={{prefix}}identity_users.id
+		WHERE {{prefix}}identity_memberships.created_at > COALESCE(?1, (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+			AND {{prefix}}identity_memberships.created_at < COALESCE(?2, (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
+			AND (
+				{{prefix}}identity_memberships.last_updated_at IS NULL
+				OR {{prefix}}identity_memberships.last_updated_at > COALESCE(?3, (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+			)
+			AND (
+				{{prefix}}identity_memberships.last_updated_at IS NULL
+				OR {{prefix}}identity_memberships.last_updated_at < COALESCE(?4, (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
+			)
+			AND (COALESCE(?5, false) = true OR {{prefix}}identity_memberships.archived_at IS NULL)
+			AND {{prefix}}identity_memberships.scope = ?6
+			AND {{prefix}}identity_memberships.belongs_to_account = ?7
+			AND {{prefix}}identity_users.archived_at IS NULL
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_memberships.id)
+		FROM {{prefix}}identity_memberships
+		JOIN {{prefix}}identity_users ON {{prefix}}identity_memberships.belongs_to_user={{prefix}}identity_users.id
+		WHERE (COALESCE(?5, false) = true OR {{prefix}}identity_memberships.archived_at IS NULL)
+			AND {{prefix}}identity_memberships.scope = ?6
+			AND {{prefix}}identity_memberships.belongs_to_account = ?7
+			AND {{prefix}}identity_users.archived_at IS NULL
+	) AS total_count
+FROM {{prefix}}identity_memberships
+JOIN {{prefix}}identity_users ON {{prefix}}identity_memberships.belongs_to_user={{prefix}}identity_users.id
+WHERE {{prefix}}identity_memberships.created_at > COALESCE(?1, (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+	AND {{prefix}}identity_memberships.created_at < COALESCE(?2, (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
+	AND (
+		{{prefix}}identity_memberships.last_updated_at IS NULL
+		OR {{prefix}}identity_memberships.last_updated_at > COALESCE(?3, (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+	)
+	AND (
+		{{prefix}}identity_memberships.last_updated_at IS NULL
+		OR {{prefix}}identity_memberships.last_updated_at < COALESCE(?4, (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
+	)
+	AND (COALESCE(?5, false) = true OR {{prefix}}identity_memberships.archived_at IS NULL)
+	AND {{prefix}}identity_memberships.scope = ?6
+	AND {{prefix}}identity_memberships.belongs_to_account = ?7
+	AND {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_memberships.id > COALESCE(?8, '')
+ORDER BY {{prefix}}identity_memberships.id ASC
+LIMIT COALESCE(?9, 50)`
+
 const listAccountsSQLite = `SELECT
 	{{prefix}}identity_accounts.id,
 	{{prefix}}identity_accounts.scope,
@@ -255,6 +332,74 @@ WHERE {{prefix}}identity_accounts.created_at > COALESCE(?1, (SELECT datetime(CUR
 	AND {{prefix}}identity_accounts.id > COALESCE(?7, '')
 ORDER BY {{prefix}}identity_accounts.id ASC
 LIMIT COALESCE(?8, 50)`
+
+const listAccountsForUserSQLite = `SELECT
+	{{prefix}}identity_accounts.id,
+	{{prefix}}identity_accounts.scope,
+	{{prefix}}identity_accounts.name,
+	{{prefix}}identity_accounts.owner_user_id,
+	{{prefix}}identity_accounts.billing_status,
+	{{prefix}}identity_accounts.subscription_plan_id,
+	{{prefix}}identity_accounts.payment_processor_customer_id,
+	{{prefix}}identity_accounts.last_payment_provider_synced_at,
+	{{prefix}}identity_accounts.address_line1,
+	{{prefix}}identity_accounts.address_line2,
+	{{prefix}}identity_accounts.address_city,
+	{{prefix}}identity_accounts.address_state,
+	{{prefix}}identity_accounts.address_postal_code,
+	{{prefix}}identity_accounts.address_country,
+	{{prefix}}identity_accounts.address_phone,
+	{{prefix}}identity_accounts.time_zone,
+	{{prefix}}identity_accounts.created_at,
+	{{prefix}}identity_accounts.last_updated_at,
+	{{prefix}}identity_accounts.archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_accounts.id)
+		FROM {{prefix}}identity_accounts
+		JOIN {{prefix}}identity_memberships ON {{prefix}}identity_accounts.id={{prefix}}identity_memberships.belongs_to_account
+		WHERE {{prefix}}identity_accounts.created_at > COALESCE(?1, (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+			AND {{prefix}}identity_accounts.created_at < COALESCE(?2, (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
+			AND (
+				{{prefix}}identity_accounts.last_updated_at IS NULL
+				OR {{prefix}}identity_accounts.last_updated_at > COALESCE(?3, (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+			)
+			AND (
+				{{prefix}}identity_accounts.last_updated_at IS NULL
+				OR {{prefix}}identity_accounts.last_updated_at < COALESCE(?4, (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
+			)
+			AND (COALESCE(?5, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+			AND {{prefix}}identity_accounts.scope = ?6
+			AND {{prefix}}identity_memberships.archived_at IS NULL
+			AND {{prefix}}identity_memberships.belongs_to_user = ?7
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_accounts.id)
+		FROM {{prefix}}identity_accounts
+		JOIN {{prefix}}identity_memberships ON {{prefix}}identity_accounts.id={{prefix}}identity_memberships.belongs_to_account
+		WHERE (COALESCE(?5, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+			AND {{prefix}}identity_accounts.scope = ?6
+			AND {{prefix}}identity_memberships.archived_at IS NULL
+			AND {{prefix}}identity_memberships.belongs_to_user = ?7
+	) AS total_count
+FROM {{prefix}}identity_accounts
+JOIN {{prefix}}identity_memberships ON {{prefix}}identity_accounts.id={{prefix}}identity_memberships.belongs_to_account
+WHERE {{prefix}}identity_accounts.created_at > COALESCE(?1, (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+	AND {{prefix}}identity_accounts.created_at < COALESCE(?2, (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
+	AND (
+		{{prefix}}identity_accounts.last_updated_at IS NULL
+		OR {{prefix}}identity_accounts.last_updated_at > COALESCE(?3, (SELECT datetime(CURRENT_TIMESTAMP, '-999 years')))
+	)
+	AND (
+		{{prefix}}identity_accounts.last_updated_at IS NULL
+		OR {{prefix}}identity_accounts.last_updated_at < COALESCE(?4, (SELECT datetime(CURRENT_TIMESTAMP, '+999 years')))
+	)
+	AND (COALESCE(?5, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+	AND {{prefix}}identity_accounts.scope = ?6
+	AND {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.belongs_to_user = ?7
+	AND {{prefix}}identity_accounts.id > COALESCE(?8, '')
+ORDER BY {{prefix}}identity_accounts.id ASC
+LIMIT COALESCE(?9, 50)`
 
 const listInvitationsSQLite = `SELECT
 	{{prefix}}identity_invitations.id,
@@ -430,6 +575,21 @@ WHERE {{prefix}}identity_invitations.created_at > COALESCE(?1, (SELECT datetime(
 ORDER BY {{prefix}}identity_invitations.id ASC
 LIMIT COALESCE(?10, 50)`
 
+const listMembershipsForUserSQLite = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?1
+	AND {{prefix}}identity_memberships.belongs_to_user = ?2
+ORDER BY {{prefix}}identity_memberships.default_account DESC, {{prefix}}identity_memberships.belongs_to_account ASC`
+
 const listUsersSQLite = `SELECT
 	{{prefix}}identity_users.id,
 	{{prefix}}identity_users.scope,
@@ -526,10 +686,13 @@ type sqliteQueries struct {
 	getAccount                string
 	getInvitation             string
 	getUser                   string
+	listAccountMembers        string
 	listAccounts              string
+	listAccountsForUser       string
 	listInvitations           string
 	listInvitationsByFromUser string
 	listInvitationsByToEmail  string
+	listMembershipsForUser    string
 	listUsers                 string
 	updateAccount             string
 	updateUser                string
@@ -547,10 +710,13 @@ func newSQLite(prefix string) *sqliteQueries {
 		getAccount:                strings.ReplaceAll(getAccountSQLite, prefixMarker, prefix),
 		getInvitation:             strings.ReplaceAll(getInvitationSQLite, prefixMarker, prefix),
 		getUser:                   strings.ReplaceAll(getUserSQLite, prefixMarker, prefix),
+		listAccountMembers:        strings.ReplaceAll(listAccountMembersSQLite, prefixMarker, prefix),
 		listAccounts:              strings.ReplaceAll(listAccountsSQLite, prefixMarker, prefix),
+		listAccountsForUser:       strings.ReplaceAll(listAccountsForUserSQLite, prefixMarker, prefix),
 		listInvitations:           strings.ReplaceAll(listInvitationsSQLite, prefixMarker, prefix),
 		listInvitationsByFromUser: strings.ReplaceAll(listInvitationsByFromUserSQLite, prefixMarker, prefix),
 		listInvitationsByToEmail:  strings.ReplaceAll(listInvitationsByToEmailSQLite, prefixMarker, prefix),
+		listMembershipsForUser:    strings.ReplaceAll(listMembershipsForUserSQLite, prefixMarker, prefix),
 		listUsers:                 strings.ReplaceAll(listUsersSQLite, prefixMarker, prefix),
 		updateAccount:             strings.ReplaceAll(updateAccountSQLite, prefixMarker, prefix),
 		updateUser:                strings.ReplaceAll(updateUserSQLite, prefixMarker, prefix),
@@ -749,6 +915,75 @@ func (q *sqliteQueries) GetUser(ctx context.Context, db DBTX, arg GetUserParams)
 	return i, err
 }
 
+// ListAccountMembers runs the :many query against sqlite.
+func (q *sqliteQueries) ListAccountMembers(ctx context.Context, db DBTX, arg ListAccountMembersParams) ([]ListAccountMembersRow, error) {
+	rows, err := db.QueryContext(ctx, q.listAccountMembers,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListAccountMembersRow
+
+	for rows.Next() {
+		var i ListAccountMembersRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToUser,
+			&i.BelongsToAccount,
+			&i.DefaultAccount,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.UserID,
+			&i.UserScope,
+			&i.UserUsername,
+			&i.UserEmailAddress,
+			&i.UserFirstName,
+			&i.UserLastName,
+			&i.UserHashedPassword,
+			&i.UserRequiresPasswordChange,
+			&i.UserPasswordLastChangedAt,
+			&i.UserTwoFactorSecret,
+			&i.UserTwoFactorSecretVerifiedAt,
+			&i.UserEmailAddressVerifiedAt,
+			&i.UserEmailAddressVerificationToken,
+			&i.UserAccountStatus,
+			&i.UserAccountStatusExplanation,
+			&i.UserLastAcceptedTermsOfService,
+			&i.UserLastAcceptedPrivacyPolicy,
+			&i.UserCreatedAt,
+			&i.UserLastUpdatedAt,
+			&i.UserArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // ListAccounts runs the :many query against sqlite.
 func (q *sqliteQueries) ListAccounts(ctx context.Context, db DBTX, arg ListAccountsParams) ([]ListAccountsRow, error) {
 	rows, err := db.QueryContext(ctx, q.listAccounts,
@@ -771,6 +1006,66 @@ func (q *sqliteQueries) ListAccounts(ctx context.Context, db DBTX, arg ListAccou
 
 	for rows.Next() {
 		var i ListAccountsRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.Name,
+			&i.OwnerUserID,
+			&i.BillingStatus,
+			&i.SubscriptionPlanID,
+			&i.PaymentProcessorCustomerID,
+			&i.LastPaymentProviderSyncedAt,
+			&i.AddressLine1,
+			&i.AddressLine2,
+			&i.AddressCity,
+			&i.AddressState,
+			&i.AddressPostalCode,
+			&i.AddressCountry,
+			&i.AddressPhone,
+			&i.TimeZone,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// ListAccountsForUser runs the :many query against sqlite.
+func (q *sqliteQueries) ListAccountsForUser(ctx context.Context, db DBTX, arg ListAccountsForUserParams) ([]ListAccountsForUserRow, error) {
+	rows, err := db.QueryContext(ctx, q.listAccountsForUser,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListAccountsForUserRow
+
+	for rows.Next() {
+		var i ListAccountsForUserRow
 
 		if err := rows.Scan(
 			&i.ID,
@@ -960,6 +1255,46 @@ func (q *sqliteQueries) ListInvitationsByToEmail(ctx context.Context, db DBTX, a
 			&i.ArchivedAt,
 			&i.FilteredCount,
 			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// ListMembershipsForUser runs the :many query against sqlite.
+func (q *sqliteQueries) ListMembershipsForUser(ctx context.Context, db DBTX, arg ListMembershipsForUserParams) ([]ListMembershipsForUserRow, error) {
+	rows, err := db.QueryContext(ctx, q.listMembershipsForUser,
+		arg.Scope,
+		arg.BelongsToUser,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListMembershipsForUserRow
+
+	for rows.Next() {
+		var i ListMembershipsForUserRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToUser,
+			&i.BelongsToAccount,
+			&i.DefaultAccount,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1211,6 +1546,49 @@ var (
 		ArchivedAt                    *time.Time
 	}(GetUserRow{})
 	_ = struct {
+		CreatedAfter     *time.Time
+		CreatedBefore    *time.Time
+		UpdatedAfter     *time.Time
+		UpdatedBefore    *time.Time
+		IncludeArchived  bool
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		PageCursor       *string
+		ResultLimit      int64
+	}(ListAccountMembersParams{})
+	_ = struct {
+		ID                                string
+		Scope                             tenancy.Scope
+		BelongsToUser                     string
+		BelongsToAccount                  string
+		DefaultAccount                    bool
+		CreatedAt                         time.Time
+		LastUpdatedAt                     *time.Time
+		ArchivedAt                        *time.Time
+		UserID                            string
+		UserScope                         tenancy.Scope
+		UserUsername                      string
+		UserEmailAddress                  string
+		UserFirstName                     string
+		UserLastName                      string
+		UserHashedPassword                string
+		UserRequiresPasswordChange        bool
+		UserPasswordLastChangedAt         *time.Time
+		UserTwoFactorSecret               string
+		UserTwoFactorSecretVerifiedAt     *time.Time
+		UserEmailAddressVerifiedAt        *time.Time
+		UserEmailAddressVerificationToken string
+		UserAccountStatus                 string
+		UserAccountStatusExplanation      string
+		UserLastAcceptedTermsOfService    *time.Time
+		UserLastAcceptedPrivacyPolicy     *time.Time
+		UserCreatedAt                     time.Time
+		UserLastUpdatedAt                 *time.Time
+		UserArchivedAt                    *time.Time
+		FilteredCount                     int64
+		TotalCount                        int64
+	}(ListAccountMembersRow{})
+	_ = struct {
 		CreatedAfter    *time.Time
 		CreatedBefore   *time.Time
 		UpdatedAfter    *time.Time
@@ -1243,6 +1621,40 @@ var (
 		FilteredCount               int64
 		TotalCount                  int64
 	}(ListAccountsRow{})
+	_ = struct {
+		CreatedAfter    *time.Time
+		CreatedBefore   *time.Time
+		UpdatedAfter    *time.Time
+		UpdatedBefore   *time.Time
+		IncludeArchived bool
+		Scope           tenancy.Scope
+		BelongsToUser   string
+		PageCursor      *string
+		ResultLimit     int64
+	}(ListAccountsForUserParams{})
+	_ = struct {
+		ID                          string
+		Scope                       tenancy.Scope
+		Name                        string
+		OwnerUserID                 string
+		BillingStatus               string
+		SubscriptionPlanID          *string
+		PaymentProcessorCustomerID  string
+		LastPaymentProviderSyncedAt *time.Time
+		AddressLine1                string
+		AddressLine2                string
+		AddressCity                 string
+		AddressState                string
+		AddressPostalCode           string
+		AddressCountry              string
+		AddressPhone                string
+		TimeZone                    string
+		CreatedAt                   time.Time
+		LastUpdatedAt               *time.Time
+		ArchivedAt                  *time.Time
+		FilteredCount               int64
+		TotalCount                  int64
+	}(ListAccountsForUserRow{})
 	_ = struct {
 		CreatedAfter    *time.Time
 		CreatedBefore   *time.Time
@@ -1331,6 +1743,20 @@ var (
 		FilteredCount    int64
 		TotalCount       int64
 	}(ListInvitationsByToEmailRow{})
+	_ = struct {
+		Scope         tenancy.Scope
+		BelongsToUser string
+	}(ListMembershipsForUserParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+	}(ListMembershipsForUserRow{})
 	_ = struct {
 		CreatedAfter    *time.Time
 		CreatedBefore   *time.Time

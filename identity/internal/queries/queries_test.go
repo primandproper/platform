@@ -61,6 +61,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"CreateAccount", "GetAccount", "ListAccounts", "UpdateAccount", "ArchiveAccount",
 		"CreateInvitation", "GetInvitation", "ListInvitations",
 		"ListInvitationsByFromUser", "ListInvitationsByToEmail",
+		"ListAccountMembers", "ListAccountsForUser", "ListMembershipsForUser",
 	}
 
 	for _, d := range everyDialect {
@@ -84,10 +85,17 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 			test.StrNotContains(t, rendered, "ArchiveInvitation")
 			test.StrNotContains(t, rendered, "Existence")
 
-			// Memberships is declared for its columns and emits nothing: every
-			// one of its statements keys on the (user, account) pair or is an
-			// upsert, and neither is a shape this generator produces.
-			test.StrNotContains(t, rendered, MembershipsTable)
+			// Memberships gets three reads and no standard set. Its single-row
+			// statements key on the (user, account) pair and its write is an
+			// upsert that revives an archived row, neither of which is a shape
+			// this generator produces — but a junction list is, so the table is
+			// named by the roster, by the accounts a user belongs to, and by
+			// the user's own membership list.
+			for _, absent := range []string{"CreateMembership", "GetMembership", "ArchiveMembership", "UpdateMembership"} {
+				test.StrNotContains(t, rendered, absent)
+			}
+
+			test.StrContains(t, rendered, MembershipsTable)
 		})
 	}
 }

@@ -283,7 +283,7 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	queries := []*Query{
 		s.query(GetQuery, OneType, getStatement(table, columns, s.ownership)),
 		s.query(ExistsQuery, OneType, existsStatement(table, columns, s.ownership)),
-		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership)),
+		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil)),
 	}
 
 	// An INSERT with an empty column list is not a degenerate insert, it is a
@@ -421,19 +421,26 @@ func existsProjection(table string, columns []string) string {
 	return "1"
 }
 
-func (g *Generator) listStatement(table string, columns []string, ownership string, extra ...Match) string {
+// listStatement is the one filtered read this package emits. It takes a
+// junction because the joined form is this statement with a join spliced into
+// its FROM rather than a statement of its own — see junction.go for why that is
+// worth a parameter every single-table caller passes a zero value for.
+func (g *Generator) listStatement(table string, columns []string, ownership string, junction *Junction, extra ...Match) string {
 	var conditions []string
 	if ownership != "" {
 		conditions = append(conditions, equalityPredicate(table, ownership, true))
 	}
 
 	conditions = append(conditions, matchPredicates(table, true, extra)...)
+	conditions = append(conditions, junction.conditions()...)
 
-	return fmt.Sprintf("SELECT\n\t%s,\n\t%s,\n\t%s\nFROM %s\nWHERE %s\n%s;",
-		strings.Join(QualifyAll(table, columns), ",\n\t"),
-		g.FilterCountSelect(table, columns, nil, conditions...),
-		g.TotalCountSelect(table, columns, nil, conditions...),
-		table,
+	joins := junction.joins(table)
+
+	return fmt.Sprintf("SELECT\n\t%s,\n\t%s,\n\t%s\n%s\nWHERE %s\n%s;",
+		strings.Join(append(QualifyAll(table, columns), junction.projection()...), ",\n\t"),
+		g.FilterCountSelect(table, columns, joins, conditions...),
+		g.TotalCountSelect(table, columns, joins, conditions...),
+		fromClause(table, joins),
 		g.FilterConditions(table, columns, conditions...),
 		g.CursorLimitClause(table),
 	)

@@ -49,14 +49,20 @@ type Querier interface {
 	GetInvitation(ctx context.Context, db DBTX, arg GetInvitationParams) (GetInvitationRow, error)
 	// GetUser runs the :one query.
 	GetUser(ctx context.Context, db DBTX, arg GetUserParams) (GetUserRow, error)
+	// ListAccountMembers runs the :many query.
+	ListAccountMembers(ctx context.Context, db DBTX, arg ListAccountMembersParams) ([]ListAccountMembersRow, error)
 	// ListAccounts runs the :many query.
 	ListAccounts(ctx context.Context, db DBTX, arg ListAccountsParams) ([]ListAccountsRow, error)
+	// ListAccountsForUser runs the :many query.
+	ListAccountsForUser(ctx context.Context, db DBTX, arg ListAccountsForUserParams) ([]ListAccountsForUserRow, error)
 	// ListInvitations runs the :many query.
 	ListInvitations(ctx context.Context, db DBTX, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	// ListInvitationsByFromUser runs the :many query.
 	ListInvitationsByFromUser(ctx context.Context, db DBTX, arg ListInvitationsByFromUserParams) ([]ListInvitationsByFromUserRow, error)
 	// ListInvitationsByToEmail runs the :many query.
 	ListInvitationsByToEmail(ctx context.Context, db DBTX, arg ListInvitationsByToEmailParams) ([]ListInvitationsByToEmailRow, error)
+	// ListMembershipsForUser runs the :many query.
+	ListMembershipsForUser(ctx context.Context, db DBTX, arg ListMembershipsForUserParams) ([]ListMembershipsForUserRow, error)
 	// ListUsers runs the :many query.
 	ListUsers(ctx context.Context, db DBTX, arg ListUsersParams) ([]ListUsersRow, error)
 	// UpdateAccount runs the :execrows query.

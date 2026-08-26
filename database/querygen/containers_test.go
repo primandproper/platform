@@ -345,6 +345,12 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 	t.Run("the composite-key suite", func(t *testing.T) {
 		runCompositeSuite(t, ctx, d, db)
 	})
+
+	// The two-table reads, against their own pair of tables — see
+	// junction_containers_test.go.
+	t.Run("the junction suite", func(t *testing.T) {
+		runJunctionSuite(t, ctx, d, db)
+	})
 }
 
 // prepare asks the server to plan the statement, which is the cheapest way to

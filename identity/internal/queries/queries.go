@@ -31,6 +31,19 @@ const (
 	InvitationStatusColumn   = "status"
 )
 
+// The membership columns the junction lists below name: the two sides of the
+// pair, and the flag that decides which account a user lands in.
+//
+// Exported for the same reason the invitation columns above are — the store
+// spells them too — and named here rather than at each call site because a
+// junction list names a column three times over: in the join, in the key it is
+// read by, and in the order it comes back in.
+const (
+	MembershipUserColumn    = "belongs_to_user"
+	MembershipAccountColumn = "belongs_to_account"
+	MembershipDefaultColumn = "default_account"
+)
+
 // EmailAddressVerifiedAtColumn is the proof a user's address is reachable.
 //
 // Spelled once because three declarations below name it — it is nullable, it is
@@ -174,7 +187,9 @@ var Invitations = Table{
 
 // Memberships is the many-to-many between the two, with facts of its own.
 //
-// It is declared for its columns and emits nothing — see the package comment.
+// It gets no standard set — see the package comment — but it is the junction the
+// three reads below cross, so its columns are projected by two of them and its
+// key predicates by all three.
 var Memberships = Table{
 	Name:     MembershipsTable,
 	Singular: "Membership",
@@ -182,9 +197,9 @@ var Memberships = Table{
 	Columns: []string{
 		querygen.IDColumn,
 		ScopeColumn,
-		"belongs_to_user",
-		"belongs_to_account",
-		"default_account",
+		MembershipUserColumn,
+		MembershipAccountColumn,
+		MembershipDefaultColumn,
 		querygen.CreatedAtColumn,
 		querygen.LastUpdatedAtColumn,
 		querygen.ArchivedAtColumn,
@@ -212,6 +227,7 @@ func Render(d dialect.Dialect) string {
 	}
 
 	rendered = append(rendered, keyedInvitationLists(g)...)
+	rendered = append(rendered, junctionLists(g)...)
 
 	return querygen.RenderFile(rendered)
 }
@@ -236,6 +252,72 @@ func keyedInvitationLists(g *querygen.Generator) []*querygen.Query {
 			scope, querygen.Match{Column: InvitationFromUserColumn}, status),
 		g.ListQuery("ListInvitationsByToEmail", InvitationsTable, Invitations.Columns,
 			scope, querygen.Match{Column: InvitationToEmailColumn}, status),
+	}
+}
+
+// junctionLists is the three reads that cross the membership junction: an
+// account's roster, the accounts a user belongs to, and a user's own
+// memberships.
+//
+// They were the last statements identity ran that no generator could render,
+// because every other query here projects one table's columns and these span
+// two. That is what kept a hand-paired two-entity scanner alive after everything
+// single-table had been ported — a projection and a list of scan targets written
+// in two files, where a mismatch is a runtime scan error rather than a failed
+// build.
+//
+// Which table is listed and which is joined is decided by what a page is a page
+// of, and the two differ here. A roster is a page of memberships with the member
+// attached, so memberships is listed and its cursor is the membership id; a
+// user's account list is a page of accounts reached through memberships, so
+// accounts is listed and the membership contributes only its key. Reversing
+// either would page over an id the caller never sees.
+func junctionLists(g *querygen.Generator) []*querygen.Query {
+	scope := querygen.Match{Column: ScopeColumn}
+
+	return []*querygen.Query{
+		// The roster. The user's columns are projected beside the membership's
+		// under a user_ prefix, so a page of thirty members is one query rather
+		// than thirty-one, and the two tables' shared column names — id, scope,
+		// created_at — stay distinguishable in the row type.
+		g.JunctionListQuery("ListAccountMembers", MembershipsTable, Memberships.Columns,
+			&querygen.Junction{
+				Table:    UsersTable,
+				Column:   querygen.IDColumn,
+				OnColumn: MembershipUserColumn,
+				Columns:  Users.Columns,
+				Prefix:   "user",
+			},
+			scope, querygen.Match{Column: MembershipAccountColumn}),
+
+		// The accounts a user is a live member of. The membership's columns are
+		// declared and not projected: the caller wants accounts, and what the
+		// junction owes the statement is its key and the requirement that the
+		// membership itself has not been archived — a user removed from an
+		// account they are still nominally listed against would otherwise keep
+		// seeing it in their switcher.
+		g.JunctionListQuery("ListAccountsForUser", AccountsTable, Accounts.Columns,
+			&querygen.Junction{
+				Table:    MembershipsTable,
+				Column:   MembershipAccountColumn,
+				OnColumn: querygen.IDColumn,
+				Columns:  Memberships.Columns,
+				Matches:  []querygen.Match{{Column: MembershipUserColumn}},
+			},
+			scope),
+
+		// A user's memberships, default account first — so a caller that takes
+		// the first row gets the one the user lands in. Unpaged and unjoined:
+		// it answers "where may this principal act", which is every row or none
+		// of them, and the account behind each is read separately when it is
+		// read at all.
+		g.JunctionListAllQuery("ListMembershipsForUser", MembershipsTable, Memberships.Columns,
+			nil,
+			[]querygen.Order{
+				{Column: MembershipDefaultColumn, Descending: true},
+				{Column: MembershipAccountColumn},
+			},
+			scope, querygen.Match{Column: MembershipUserColumn}),
 	}
 }
 

@@ -285,39 +285,22 @@ func (s *SQLStore) ListAccountsForUser(ctx context.Context, scope tenancy.Scope,
 		return nil, op.Error(err, "listing identity accounts for user")
 	}
 
-	filter, cursor, limit := pageWindow(filter)
+	filter = pageFilter(filter)
 
-	query, args := s.tables.buildListAccountsForUser(s.dialect, scope, userID, cursor, limit)
-	countQuery, countArgs := s.tables.buildCountAccountsForUser(s.dialect, scope, userID)
-
-	return s.pageAccounts(ctx, op, filter, query, args, countQuery, countArgs)
-}
-
-// pageAccounts runs an account page and its count.
-func (s *SQLStore) pageAccounts(
-	ctx context.Context,
-	op observability.Operation,
-	filter *filtering.QueryFilter,
-	query string, args []any,
-	countQuery string, countArgs []any,
-) (*filtering.QueryFilteredResult[Account], error) {
-	accounts, err := database.ScanAll(ctx, s.client.Reader(), "identity account", query, args, scanAccount)
+	listRows, err := s.q.ListAccountsForUser(ctx, s.client.Reader(), listAccountsForUserParams(scope, userID, filter))
 	if err != nil {
-		return nil, op.Error(err, "listing identity accounts")
+		return nil, op.Error(err, "listing identity accounts for user")
 	}
 
-	var total uint64
-	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, op.Error(err, "counting identity accounts")
+	rows := make([]pageRow[Account], 0, len(listRows))
+	for i := range listRows {
+		rows = append(rows, accountPageRowForUser(&listRows[i]))
 	}
 
-	op.SpanOnly(countKey, len(accounts))
+	op.SpanOnly(countKey, len(rows))
 
-	return filtering.NewQueryFilteredResult(
-		accounts, uint64(len(accounts)), total,
-		func(a *Account) string { return a.ID },
-		filter,
-	), nil
+	return filtering.Drain(rows, pageValue, pageCounts,
+		func(a *Account) string { return a.ID }, filter), nil
 }
 
 // GetMembership reads the live membership between a user and an account.
@@ -382,14 +365,19 @@ func (s *SQLStore) ListAccountMembers(ctx context.Context, scope tenancy.Scope, 
 		return nil, op.Error(err, "listing identity account members")
 	}
 
-	filter, cursor, limit := pageWindow(filter)
+	filter = pageFilter(filter)
 
-	query, args := s.tables.buildListAccountMembers(s.dialect, scope, accountID, cursor, limit)
-
-	members, err := database.ScanAll(ctx, s.client.Reader(), "identity account member", query, args, scanMembershipWithUser)
+	listRows, err := s.q.ListAccountMembers(ctx, s.client.Reader(), listAccountMembersParams(scope, accountID, filter))
 	if err != nil {
 		return nil, op.Error(err, "listing identity account members")
 	}
+
+	rows := make([]pageRow[MembershipWithUser], 0, len(listRows))
+	for i := range listRows {
+		rows = append(rows, memberPageRow(&listRows[i]))
+	}
+
+	members := pageValues(rows)
 
 	memberships := make([]*Membership, 0, len(members))
 	for _, member := range members {
@@ -400,18 +388,11 @@ func (s *SQLStore) ListAccountMembers(ctx context.Context, scope tenancy.Scope, 
 		return nil, op.Error(err, "listing identity account member roles")
 	}
 
-	countQuery, countArgs := s.tables.buildCountAccountMembers(s.dialect, scope, accountID)
+	op.SpanOnly(countKey, len(rows))
 
-	var total uint64
-	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, op.Error(err, "counting identity account members")
-	}
-
-	op.SpanOnly(countKey, len(members))
-
-	return filtering.NewQueryFilteredResult(
-		members, uint64(len(members)), total,
-		func(m *MembershipWithUser) string { return m.ID },
-		filter,
-	), nil
+	// The cursor is the membership id, because the statement orders by it — the
+	// roster is a page of memberships with the member attached, not a page of
+	// users.
+	return filtering.Drain(rows, pageValue, pageCounts,
+		func(m *MembershipWithUser) string { return m.ID }, filter), nil
 }
