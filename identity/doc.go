@@ -137,8 +137,10 @@ failure with no database running, where it used to be a scan error at runtime.
 Nothing imports the .sql and nothing executes it: it is the check, not the code.
 
 What remains hand-written is what querygen does not emit — the sign-in reads,
-the field-specific writes, the username prefix search, the roster and account
-joins, the membership upsert, and the status-guarded answer to an invitation.
+the field-specific writes, the roster and account joins, the membership upsert,
+and the status-guarded answer to an invitation. The username prefix search is
+no longer among them: it is a rendered pair, the page and the count beside it,
+which is the one read here whose statement is not a filtered list.
 */
 package identity
 

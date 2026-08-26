@@ -35,6 +35,22 @@ func pageCounts[T any](row pageRow[T]) (filtered, total int64) {
 	return row.filtered, row.total
 }
 
+// countOf narrows a COUNT that came back from its own statement to the unsigned
+// pair filtering.Pagination reports.
+//
+// The rendered lists carry their counts on the rows and go through
+// filtering.Drain, which narrows them itself. The prefix search's count is a
+// second statement, so the narrowing is here — and it is not a guard against
+// the database: a COUNT cannot be negative, and what it stops is the conversion
+// turning one into a number larger than the table could hold.
+func countOf(count int64) uint64 {
+	if count < 0 {
+		return 0
+	}
+
+	return uint64(count)
+}
+
 // pageValue reads the value off a row, for filtering.Drain. The value is
 // returned as it stands rather than copied, so whatever a caller did to the
 // slice of pointers before draining — attaching roles, redacting — is what the

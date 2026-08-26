@@ -177,6 +177,37 @@ archived predicate alone. Reading one row by reading all of them is not a
 degenerate read; it is a different query, and archiving through one empties a
 table.
 
+# The prefix search
+
+[Generator.PrefixSearchQueries] is the one read shape that is not a filtered
+list: a page of rows whose column begins with what somebody typed, and the count
+of everything that prefix matched.
+
+	search := querygen.For(dialect.Postgres).PrefixSearchQueries("users", columns,
+		querygen.PrefixSearch{
+			Column:    "username",
+			Name:      "SearchUsersByUsername",
+			CountName: "CountSearchUsersByUsername",
+		},
+		querygen.Match{Column: "scope"})
+
+Three things about it are not the standard list's, and each is why it is its own
+shape rather than a [Match] on that one. One column is matched, ordered by, and
+paged over, where a list orders by the id — a cursor names a position in an
+order, so the search's is a keyset walk over the searched column. The count is a
+second statement rather than a subquery riding on the rows, because the number a
+caller wants is of everything the pattern matched rather than of what remains
+after the cursor. And archived rows are excluded outright rather than through
+include_archived: a name search is a lookup somebody is about to act on.
+
+The pattern is an argument rather than something the SQL assembles, and
+[PrefixPattern] is what builds it — the wildcards escaped, a trailing % added,
+and [LikeEscape] as the escape character the emitted ESCAPE clause names. Both
+halves are here because they are one decision: a caller that binds a raw prefix
+leaves whatever wildcard somebody typed a wildcard, so a prefix of "%" returns
+every row — which reads as a working search returning too much rather than as a
+bug.
+
 # The table registry
 
 Some of what a consumer needs per table is not a query. The TRUNCATE an
@@ -221,10 +252,11 @@ what makes that unrepresentable.
 # The three dialects
 
 Postgres, MySQL and SQLite each get SQL their own server parses, and the
-difference is confined to five expressions: the case-insensitive substring
-match, the byte-ordered comparison the reindex scan walks, the sentinel an unset
-time bound coalesces to, the nullable boolean the archived toggle binds, and the
-set membership the bulk stamp keys on. They live together in generator.go, as
+difference is confined to a handful of expressions: the case-insensitive
+substring match, the pattern a prefix search's LIKE binds, the byte-ordered
+comparison the reindex scan walks, the sentinel an unset time bound coalesces
+to, the nullable boolean the archived toggle binds, and the set membership the
+bulk stamp keys on. They live together in generator.go, as
 unexported methods, so that what this package assumes about a server is one
 screen rather than a grep for casts. Everything else — the statement shapes, the
 query names, which queries a column list justifies — is the same text on all

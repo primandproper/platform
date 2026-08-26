@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
+	"github.com/primandproper/platform-go/v13/database/querygen"
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/pointer"
@@ -149,6 +150,51 @@ func TestUserRowRoundTrip(t *testing.T) {
 	filtered, total := pageCounts(page)
 	test.EqOp(t, int64(7), filtered)
 	test.EqOp(t, int64(9), total)
+
+	// The search row is those same columns with no counts beside them, because
+	// the search's count is a statement of its own.
+	found := userFromSearchRow(&identitydb.SearchUsersByUsernameRow{
+		ID: "u3", Scope: tenancy.Of("dir"), Username: "hopper",
+		EmailAddress:          "grace@example.com",
+		AccountStatus:         string(StatusGood),
+		CreatedAt:             created,
+		PasswordLastChangedAt: pointer.To(verified),
+	})
+
+	test.EqOp(t, "u3", found.ID)
+	test.EqOp(t, "hopper", found.Username)
+	test.EqOp(t, "grace@example.com", found.EmailAddress)
+	must.NotNil(t, found.PasswordLastChangedAt)
+	test.EqOp(t, verified.UTC(), *found.PasswordLastChangedAt)
+}
+
+// TestSearchUsersParams pins what the two halves of the prefix search bind: an
+// escaped pattern rather than the prefix somebody typed, the same one on both,
+// and the window through the same clamp every other paged read goes through.
+func TestSearchUsersParams(t *testing.T) {
+	t.Parallel()
+
+	scope := tenancy.Of("dir")
+
+	// The wildcard is the user's literal, and the trailing one is the search.
+	pattern := querygen.PrefixPattern("a%")
+	test.EqOp(t, `a!%%`, pattern)
+
+	search := searchUsersParams(scope, pattern, pageFilter(nil))
+	test.EqOp(t, scope, search.Scope)
+	test.EqOp(t, pattern, search.UsernamePrefix)
+	test.EqOp(t, int64(filtering.DefaultQueryFilterLimit), search.ResultLimit)
+	test.Nil(t, search.PageCursor)
+
+	// The cursor is a username here, because the statement orders by that
+	// column rather than by the id.
+	cursored := searchUsersParams(scope, pattern, pageFilter(&filtering.QueryFilter{Cursor: pointer.To("ada")}))
+	must.NotNil(t, cursored.PageCursor)
+	test.EqOp(t, "ada", *cursored.PageCursor)
+
+	count := countSearchUsersParams(scope, pattern)
+	test.EqOp(t, scope, count.Scope)
+	test.EqOp(t, search.UsernamePrefix, count.UsernamePrefix)
 }
 
 // TestListInvitationRows_RefusesAnUnkeyedColumn pins the closed switch: the two

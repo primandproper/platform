@@ -37,6 +37,8 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	ArchiveUser(ctx context.Context, db DBTX, arg ArchiveUserParams) (int64, error)
+	// CountSearchUsersByUsername runs the :one query.
+	CountSearchUsersByUsername(ctx context.Context, db DBTX, arg CountSearchUsersByUsernameParams) (CountSearchUsersByUsernameRow, error)
 	// CreateAccount runs the :exec query.
 	CreateAccount(ctx context.Context, db DBTX, arg CreateAccountParams) error
 	// CreateInvitation runs the :exec query.
@@ -59,6 +61,8 @@ type Querier interface {
 	ListInvitationsByToEmail(ctx context.Context, db DBTX, arg ListInvitationsByToEmailParams) ([]ListInvitationsByToEmailRow, error)
 	// ListUsers runs the :many query.
 	ListUsers(ctx context.Context, db DBTX, arg ListUsersParams) ([]ListUsersRow, error)
+	// SearchUsersByUsername runs the :many query.
+	SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error)
 	// UpdateAccount runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

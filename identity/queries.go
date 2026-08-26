@@ -180,68 +180,6 @@ func (t *tables) buildSelectLiveUserBy(d dialect.Dialect, column string, scope t
 	), []any{value, scope}
 }
 
-// likeEscape is the character the prefix search escapes wildcards with.
-//
-// Deliberately not a backslash. A backslash is itself an escape inside a string
-// literal on MySQL and MariaDB unless NO_BACKSLASH_ESCAPES is set, so `ESCAPE
-// '\'` is a syntax error there and `ESCAPE '\\'` is one on a server that has
-// the mode set — there is no spelling of it that is right on both. An exclamation
-// mark is ordinary in every dialect's string literal, and likePrefix escapes it
-// in the pattern like any other special character.
-const likeEscape = "!"
-
-// buildSearchUsers renders the username prefix search.
-//
-// The pattern is built here rather than by the caller so that a prefix
-// containing % or _ cannot become a wildcard: those are escaped, and the ESCAPE
-// clause names the escape character explicitly rather than relying on a server
-// default. Without this a search for "a%" matches the whole directory, which
-// reads as a working search returning too much rather than as a bug.
-func (t *tables) buildSearchUsers(d dialect.Dialect, scope tenancy.Scope, prefix, cursor string, limit int) (query string, args []any) {
-	args = []any{scope, likePrefix(prefix)}
-
-	where := fmt.Sprintf(
-		"scope = %s AND archived_at IS NULL AND username LIKE %s ESCAPE '"+likeEscape+"'",
-		d.Placeholder(1), d.Placeholder(2),
-	)
-
-	if cursor != "" {
-		args = append(args, cursor)
-		where += " AND username > " + d.Placeholder(len(args))
-	}
-
-	args = append(args, limit)
-
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s ORDER BY username LIMIT %s",
-		userProjection, t.users, where, d.Placeholder(len(args)),
-	), args
-}
-
-// buildCountSearchUsers counts what buildSearchUsers pages over.
-func (t *tables) buildCountSearchUsers(d dialect.Dialect, scope tenancy.Scope, prefix string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s WHERE scope = %s AND archived_at IS NULL AND username LIKE %s ESCAPE '"+likeEscape+"'",
-		t.users, d.Placeholder(1), d.Placeholder(2),
-	), []any{scope, likePrefix(prefix)}
-}
-
-// likePrefix turns a literal prefix into a LIKE pattern, escaping the two
-// wildcards and the escape character itself.
-//
-// strings.NewReplacer scans the input once and never re-examines what it has
-// written, so the escape character's own rule cannot double the escapes the
-// other two rules introduce — which a sequence of Replace calls would.
-func likePrefix(prefix string) string {
-	replaced := strings.NewReplacer(
-		likeEscape, likeEscape+likeEscape,
-		"%", likeEscape+"%",
-		"_", likeEscape+"_",
-	).Replace(prefix)
-
-	return replaced + "%"
-}
-
 // buildSelectUserIDByField renders the collision check CreateUser and UpdateUser
 // run before writing, so a taken username reports ErrUsernameTaken rather than a
 // driver's constraint violation.

@@ -31,6 +31,13 @@ const (
 	InvitationStatusColumn   = "status"
 )
 
+// UsernameColumn is the name a user signs in with, and the column the directory
+// search matches a prefix against.
+//
+// Spelled once because three declarations name it: the projection below, the
+// prefix search's shape, and the store's own collision check and sign-in read.
+const UsernameColumn = "username"
+
 // EmailAddressVerifiedAtColumn is the proof a user's address is reachable.
 //
 // Spelled once because three declarations below name it — it is nullable, it is
@@ -53,7 +60,7 @@ var Users = Table{
 	Columns: []string{
 		querygen.IDColumn,
 		ScopeColumn,
-		"username",
+		UsernameColumn,
 		"email_address",
 		"first_name",
 		"last_name",
@@ -80,7 +87,7 @@ var Users = Table{
 		"last_accepted_privacy_policy",
 	},
 	Updatable: []string{
-		"username",
+		UsernameColumn,
 		"email_address",
 		"first_name",
 		"last_name",
@@ -212,6 +219,7 @@ func Render(d dialect.Dialect) string {
 	}
 
 	rendered = append(rendered, keyedInvitationLists(g)...)
+	rendered = append(rendered, usernamePrefixSearch(g)...)
 
 	return querygen.RenderFile(rendered)
 }
@@ -237,6 +245,30 @@ func keyedInvitationLists(g *querygen.Generator) []*querygen.Query {
 		g.ListQuery("ListInvitationsByToEmail", InvitationsTable, Invitations.Columns,
 			scope, querygen.Match{Column: InvitationToEmailColumn}, status),
 	}
+}
+
+// usernamePrefixSearch is the directory's search: the page of users whose
+// username begins with what somebody typed, and the count of everything that
+// prefix matched.
+//
+// It is a pair rather than a list variant because a search is not the standard
+// list keyed on another column. It orders by the username, which is the column
+// its cursor pages over — a search that ordered by id would page in creation
+// order while the caller reads a list sorted by name — and its count is a
+// second statement rather than a subquery riding on the rows, since the number
+// a caller wants is of everything the prefix matched rather than of what is
+// left after the cursor.
+//
+// The scope is a Match like every other statement's here, so a search cannot
+// answer across directories.
+func usernamePrefixSearch(g *querygen.Generator) []*querygen.Query {
+	return g.PrefixSearchQueries(UsersTable, Users.Columns,
+		querygen.PrefixSearch{
+			Column:    UsernameColumn,
+			Name:      "SearchUsersByUsername",
+			CountName: "CountSearchUsersByUsername",
+		},
+		querygen.Match{Column: ScopeColumn})
 }
 
 // FileName is the file one dialect's rendered queries are committed to.

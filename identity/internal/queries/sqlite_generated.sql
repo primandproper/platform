@@ -516,3 +516,40 @@ WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELE
 	AND identity_invitations.id > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_invitations.id ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
+-- name: SearchUsersByUsername :many
+SELECT
+	identity_users.id,
+	identity_users.scope,
+	identity_users.username,
+	identity_users.email_address,
+	identity_users.first_name,
+	identity_users.last_name,
+	identity_users.hashed_password,
+	identity_users.requires_password_change,
+	identity_users.password_last_changed_at,
+	identity_users.two_factor_secret,
+	identity_users.two_factor_secret_verified_at,
+	identity_users.email_address_verified_at,
+	identity_users.email_address_verification_token,
+	identity_users.account_status,
+	identity_users.account_status_explanation,
+	identity_users.last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy,
+	identity_users.created_at,
+	identity_users.last_updated_at,
+	identity_users.archived_at
+FROM identity_users
+WHERE identity_users.archived_at IS NULL
+	AND identity_users.scope = sqlc.arg(scope)
+	AND (identity_users.username LIKE sqlc.arg(username_prefix) ESCAPE '!')
+	AND identity_users.username > COALESCE(sqlc.narg(page_cursor), '')
+ORDER BY identity_users.username ASC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
+-- name: CountSearchUsersByUsername :one
+SELECT COUNT(*)
+FROM identity_users
+WHERE identity_users.archived_at IS NULL
+	AND identity_users.scope = sqlc.arg(scope)
+	AND (identity_users.username LIKE sqlc.arg(username_prefix) ESCAPE '!');

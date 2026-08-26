@@ -14,6 +14,7 @@ import (
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identifiers"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
+	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/logging"
@@ -298,7 +299,7 @@ func newID(existing string) string {
 // two places — a builder's predicate and the method that calls it — and a typo
 // in one of them is a query that compiles, runs, and matches nothing.
 const (
-	usernameColumn     = "username"
+	usernameColumn     = queries.UsernameColumn
 	emailAddressColumn = "email_address"
 	emailTokenColumn   = "email_address_verification_token"
 )
@@ -480,9 +481,9 @@ func pageFilter(filter *filtering.QueryFilter) *filtering.QueryFilter {
 // pageWindow reads the cursor and limit a hand-written page query binds out of
 // a filter, through the same clamp the rendered ones go through.
 //
-// It serves the reads querygen does not emit — the username prefix search and
-// the two joins — which take the cursor and the limit as ordinary arguments
-// rather than through Generator.BindFilter.
+// It serves the reads querygen does not emit — the roster and account joins —
+// which take the cursor and the limit as ordinary arguments rather than
+// through a generated params struct.
 func pageWindow(filter *filtering.QueryFilter) (normalized *filtering.QueryFilter, cursor string, limit int) {
 	normalized = pageFilter(filter)
 

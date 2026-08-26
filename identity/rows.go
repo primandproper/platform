@@ -143,6 +143,33 @@ func userPageRow(r *identitydb.ListUsersRow) pageRow[User] {
 	}
 }
 
+// userFromSearchRow is userPageRow's counterpart for the prefix search, whose
+// row carries the projection and no counts — the count is its own statement.
+func userFromSearchRow(r *identitydb.SearchUsersByUsernameRow) *User {
+	return userFromRow(&identitydb.GetUserRow{
+		ID:                            r.ID,
+		Scope:                         r.Scope,
+		Username:                      r.Username,
+		EmailAddress:                  r.EmailAddress,
+		FirstName:                     r.FirstName,
+		LastName:                      r.LastName,
+		HashedPassword:                r.HashedPassword,
+		RequiresPasswordChange:        r.RequiresPasswordChange,
+		PasswordLastChangedAt:         r.PasswordLastChangedAt,
+		TwoFactorSecret:               r.TwoFactorSecret,
+		TwoFactorSecretVerifiedAt:     r.TwoFactorSecretVerifiedAt,
+		EmailAddressVerifiedAt:        r.EmailAddressVerifiedAt,
+		EmailAddressVerificationToken: r.EmailAddressVerificationToken,
+		AccountStatus:                 r.AccountStatus,
+		AccountStatusExplanation:      r.AccountStatusExplanation,
+		LastAcceptedTermsOfService:    r.LastAcceptedTermsOfService,
+		LastAcceptedPrivacyPolicy:     r.LastAcceptedPrivacyPolicy,
+		CreatedAt:                     r.CreatedAt,
+		LastUpdatedAt:                 r.LastUpdatedAt,
+		ArchivedAt:                    r.ArchivedAt,
+	})
+}
+
 func createUserParams(u *User) identitydb.CreateUserParams {
 	return identitydb.CreateUserParams{
 		ID:                            u.ID,
@@ -178,6 +205,34 @@ func updateUserParams(u *User, verifiedAt *time.Time) identitydb.UpdateUserParam
 		FirstName:              u.FirstName,
 		LastName:               u.LastName,
 		EmailAddressVerifiedAt: verifiedAt,
+	}
+}
+
+// searchUsersParams and countSearchUsersParams take the pattern rather than the
+// prefix somebody typed, because the escaping is the caller's to have done: the
+// statement's ESCAPE clause is meaningless over a pattern nothing escaped, and
+// the two statements have to search for the same thing. See
+// SQLStore.SearchUsersByUsername, which renders it once through
+// querygen.PrefixPattern and hands it to both.
+//
+// The window is the same one the rendered lists bind, less the four time bounds
+// the search's statement does not carry: the cursor is a username here, because
+// the statement orders by that column.
+func searchUsersParams(scope tenancy.Scope, pattern string, filter *filtering.QueryFilter) identitydb.SearchUsersByUsernameParams {
+	w := windowFrom(filter)
+
+	return identitydb.SearchUsersByUsernameParams{
+		Scope:          scope,
+		UsernamePrefix: pattern,
+		PageCursor:     w.pageCursor,
+		ResultLimit:    w.resultLimit,
+	}
+}
+
+func countSearchUsersParams(scope tenancy.Scope, pattern string) identitydb.CountSearchUsersByUsernameParams {
+	return identitydb.CountSearchUsersByUsernameParams{
+		Scope:          scope,
+		UsernamePrefix: pattern,
 	}
 }
 

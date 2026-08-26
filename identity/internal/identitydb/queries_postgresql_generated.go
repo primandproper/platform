@@ -25,6 +25,12 @@ WHERE archived_at IS NULL
 	AND id = $1
 	AND scope = $2`
 
+const countSearchUsersByUsernamePostgreSQL = `SELECT COUNT(*)
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.scope = $1
+	AND ({{prefix}}identity_users.username LIKE $2::text ESCAPE '!')`
+
 const createAccountPostgreSQL = `INSERT INTO {{prefix}}identity_accounts (
 	id,
 	scope,
@@ -490,6 +496,35 @@ WHERE {{prefix}}identity_users.created_at > COALESCE($1, (SELECT CURRENT_TIMESTA
 ORDER BY {{prefix}}identity_users.id ASC
 LIMIT COALESCE($8, 50)`
 
+const searchUsersByUsernamePostgreSQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.scope = $1
+	AND ({{prefix}}identity_users.username LIKE $2::text ESCAPE '!')
+	AND {{prefix}}identity_users.username > COALESCE($3, '')
+ORDER BY {{prefix}}identity_users.username ASC
+LIMIT COALESCE($4, 50)`
+
 const updateAccountPostgreSQL = `UPDATE {{prefix}}identity_accounts SET
 	name = $1,
 	address_line1 = $2,
@@ -518,42 +553,46 @@ WHERE archived_at IS NULL
 
 // postgresqlQueries answers every query in Querier against postgresql.
 type postgresqlQueries struct {
-	archiveAccount            string
-	archiveUser               string
-	createAccount             string
-	createInvitation          string
-	createUser                string
-	getAccount                string
-	getInvitation             string
-	getUser                   string
-	listAccounts              string
-	listInvitations           string
-	listInvitationsByFromUser string
-	listInvitationsByToEmail  string
-	listUsers                 string
-	updateAccount             string
-	updateUser                string
+	archiveAccount             string
+	archiveUser                string
+	countSearchUsersByUsername string
+	createAccount              string
+	createInvitation           string
+	createUser                 string
+	getAccount                 string
+	getInvitation              string
+	getUser                    string
+	listAccounts               string
+	listInvitations            string
+	listInvitationsByFromUser  string
+	listInvitationsByToEmail   string
+	listUsers                  string
+	searchUsersByUsername      string
+	updateAccount              string
+	updateUser                 string
 }
 
 // newPostgreSQL returns the postgresql querier with prefix substituted into every
 // table name the analyzer identified.
 func newPostgreSQL(prefix string) *postgresqlQueries {
 	return &postgresqlQueries{
-		archiveAccount:            strings.ReplaceAll(archiveAccountPostgreSQL, prefixMarker, prefix),
-		archiveUser:               strings.ReplaceAll(archiveUserPostgreSQL, prefixMarker, prefix),
-		createAccount:             strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
-		createInvitation:          strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
-		createUser:                strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
-		getAccount:                strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
-		getInvitation:             strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
-		getUser:                   strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
-		listAccounts:              strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
-		listInvitations:           strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
-		listInvitationsByFromUser: strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
-		listInvitationsByToEmail:  strings.ReplaceAll(listInvitationsByToEmailPostgreSQL, prefixMarker, prefix),
-		listUsers:                 strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
-		updateAccount:             strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
-		updateUser:                strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
+		archiveAccount:             strings.ReplaceAll(archiveAccountPostgreSQL, prefixMarker, prefix),
+		archiveUser:                strings.ReplaceAll(archiveUserPostgreSQL, prefixMarker, prefix),
+		countSearchUsersByUsername: strings.ReplaceAll(countSearchUsersByUsernamePostgreSQL, prefixMarker, prefix),
+		createAccount:              strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
+		createInvitation:           strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
+		createUser:                 strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
+		getAccount:                 strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
+		getInvitation:              strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
+		getUser:                    strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
+		listAccounts:               strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
+		listInvitations:            strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
+		listInvitationsByFromUser:  strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
+		listInvitationsByToEmail:   strings.ReplaceAll(listInvitationsByToEmailPostgreSQL, prefixMarker, prefix),
+		listUsers:                  strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
+		searchUsersByUsername:      strings.ReplaceAll(searchUsersByUsernamePostgreSQL, prefixMarker, prefix),
+		updateAccount:              strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
+		updateUser:                 strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
 	}
 }
 
@@ -581,6 +620,22 @@ func (q *postgresqlQueries) ArchiveUser(ctx context.Context, db DBTX, arg Archiv
 	}
 
 	return result.RowsAffected()
+}
+
+// CountSearchUsersByUsername runs the :one query against postgresql.
+func (q *postgresqlQueries) CountSearchUsersByUsername(ctx context.Context, db DBTX, arg CountSearchUsersByUsernameParams) (CountSearchUsersByUsernameRow, error) {
+	row := db.QueryRowContext(ctx, q.countSearchUsersByUsername,
+		arg.Scope,
+		arg.UsernamePrefix,
+	)
+
+	var i CountSearchUsersByUsernameRow
+
+	err := row.Scan(
+		&i.Count,
+	)
+
+	return i, err
 }
 
 // CreateAccount runs the :exec query against postgresql.
@@ -1034,6 +1089,60 @@ func (q *postgresqlQueries) ListUsers(ctx context.Context, db DBTX, arg ListUser
 	return items, nil
 }
 
+// SearchUsersByUsername runs the :many query against postgresql.
+func (q *postgresqlQueries) SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error) {
+	rows, err := db.QueryContext(ctx, q.searchUsersByUsername,
+		arg.Scope,
+		arg.UsernamePrefix,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []SearchUsersByUsernameRow
+
+	for rows.Next() {
+		var i SearchUsersByUsernameRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.Username,
+			&i.EmailAddress,
+			&i.FirstName,
+			&i.LastName,
+			&i.HashedPassword,
+			&i.RequiresPasswordChange,
+			&i.PasswordLastChangedAt,
+			&i.TwoFactorSecret,
+			&i.TwoFactorSecretVerifiedAt,
+			&i.EmailAddressVerifiedAt,
+			&i.EmailAddressVerificationToken,
+			&i.AccountStatus,
+			&i.AccountStatusExplanation,
+			&i.LastAcceptedTermsOfService,
+			&i.LastAcceptedPrivacyPolicy,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // UpdateAccount runs the :execrows query against postgresql.
 func (q *postgresqlQueries) UpdateAccount(ctx context.Context, db DBTX, arg UpdateAccountParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.updateAccount,
@@ -1089,6 +1198,13 @@ var (
 		ID    string
 		Scope tenancy.Scope
 	}(ArchiveUserParams{})
+	_ = struct {
+		Scope          tenancy.Scope
+		UsernamePrefix string
+	}(CountSearchUsersByUsernameParams{})
+	_ = struct {
+		Count int64
+	}(CountSearchUsersByUsernameRow{})
 	_ = struct {
 		ID                          string
 		Scope                       tenancy.Scope
@@ -1365,6 +1481,34 @@ var (
 		FilteredCount                 int64
 		TotalCount                    int64
 	}(ListUsersRow{})
+	_ = struct {
+		Scope          tenancy.Scope
+		UsernamePrefix string
+		PageCursor     *string
+		ResultLimit    int64
+	}(SearchUsersByUsernameParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(SearchUsersByUsernameRow{})
 	_ = struct {
 		Name              string
 		AddressLine1      string

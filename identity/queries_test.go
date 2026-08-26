@@ -64,8 +64,6 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 
 		rendered := map[string]func() (string, []any){
 			"selectLiveUserBy":         func() (string, []any) { return t.buildSelectLiveUserBy(d, usernameColumn, scope, "ada") },
-			"searchUsers":              func() (string, []any) { return t.buildSearchUsers(d, scope, "ad", "cursor", 10) },
-			"countSearchUsers":         func() (string, []any) { return t.buildCountSearchUsers(d, scope, "ad") },
 			"selectUsersByIDs":         func() (string, []any) { return t.buildSelectUsersByIDs(d, scope, []string{"u1", "u2"}) },
 			"selectUserIDByField":      func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "u1") },
 			"selectUserIDByFieldNoExc": func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "") },
@@ -169,24 +167,6 @@ func countPlaceholders(query string, d dialect.Dialect) int {
 
 //go:fix inline
 func ptr[T any](v T) *T { return new(v) }
-
-func TestLikePrefix(t *testing.T) {
-	t.Parallel()
-
-	// Without the escaping, a search for "a%" matches the whole directory —
-	// which reads as a working search returning too much rather than as a bug.
-	test.EqOp(t, `ad%`, likePrefix("ad"))
-	test.EqOp(t, `a!%%`, likePrefix("a%"))
-	test.EqOp(t, `a!_%`, likePrefix("a_"))
-	test.EqOp(t, `a!!%`, likePrefix("a!"))
-
-	// A backslash is ordinary here, which is the point of not using it as the
-	// escape character.
-	test.EqOp(t, `a\%`, likePrefix(`a\`))
-
-	// The escape rule must not double the escapes the wildcard rules introduce.
-	test.EqOp(t, `!%!!%`, likePrefix("%!"))
-}
 
 func TestUpsertMembership_DialectSyntax(t *testing.T) {
 	t.Parallel()
