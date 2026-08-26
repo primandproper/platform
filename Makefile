@@ -95,6 +95,13 @@ shellcheck:
 sqlc_compile:
 	@$(SCRIPTS_DIR)/sqlc_compile.sh $(PWD)
 
+# Deliberately not a prerequisite of `generate`, for the reason proto is not:
+# the unison toolchain is a pinned download that almost no `go generate` run
+# needs, and the generated-files workflow diffs its output separately.
+.PHONY: unison
+unison:
+	@$(SCRIPTS_DIR)/unison_generate.sh $(PWD)
+
 .PHONY: lint
 lint: golang_lint shellcheck
 

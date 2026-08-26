@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
@@ -16,16 +17,11 @@ import (
 // answered.
 var _ InvitationStore = (*SQLStore)(nil)
 
-// The invitation columns the two paged reads name, the status column both of
-// them match on, and the column the invitation role table keys on.
-//
-// The status used to be the literal 'pending' inside a format string. It is now
-// a column matched against a bound value, which renders identically and puts
-// the name where dialect.ValidIdentifier vets it.
+// The invitation columns the two paged reads name, spelled where the canonical
+// statements spell them, and the column the invitation role table keys on.
 const (
-	invitationFromUserColumn = "from_user"
-	invitationToEmailColumn  = "to_email"
-	invitationStatusColumn   = "status"
+	invitationFromUserColumn = queries.InvitationFromUserColumn
+	invitationToEmailColumn  = queries.InvitationToEmailColumn
 	invitationIDColumn       = "invitation_id"
 )
 
@@ -63,18 +59,13 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 	// no roles produces a membership that may do nothing, which is discovered
 	// only once somebody has accepted it.
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		args, err := argsFor(s.stmts.createInvitation, invitationValues(invitation), "writing identity invitation")
-		if err != nil {
-			return err
-		}
-
-		if _, err = q.ExecContext(ctx, s.stmts.createInvitation.SQL, args...); err != nil {
+		if err := s.q.CreateInvitation(ctx, q, createInvitationParams(invitation)); err != nil {
 			return platformerrors.Wrap(err, "writing identity invitation")
 		}
 
 		// Read back for the reason CreateUser and CreateAccount read theirs
 		// back — see SQLStore.stampCreatedAt.
-		if err = s.stampCreatedAt(ctx, q, s.tables.invitations, invitation.ID, &invitation.CreatedAt); err != nil {
+		if err := s.stampCreatedAt(ctx, q, s.tables.invitations, invitation.ID, &invitation.CreatedAt); err != nil {
 			return err
 		}
 
@@ -114,15 +105,12 @@ func (s *SQLStore) readInvitation(
 	scope tenancy.Scope,
 	invitationID string,
 ) (*Invitation, error) {
-	args, err := argsFor(s.stmts.getInvitation, keyed(scope, invitationID), "reading identity invitation")
-	if err != nil {
-		return nil, err
-	}
-
-	invitation, err := scanInvitation(q.QueryRowContext(ctx, s.stmts.getInvitation.SQL, args...))
+	row, err := s.q.GetInvitation(ctx, q, identitydb.GetInvitationParams{ID: invitationID, Scope: scope})
 	if err != nil {
 		return nil, notFound(err, ErrInvitationNotFound)
 	}
+
+	invitation := invitationFromRow(&row)
 
 	byInvitation, err := s.rolesFor(ctx, q, s.tables.invitationRoles, invitationIDColumn, []string{invitation.ID})
 	if err != nil {
@@ -216,21 +204,7 @@ func (s *SQLStore) pageInvitations(
 
 	filter = pageFilter(filter)
 
-	statement := s.stmts.listInvitationsBy[column]
-
-	values := s.stmts.listValues(filter, map[string]any{
-		queries.ScopeColumn:    scope,
-		column:                 value,
-		invitationStatusColumn: InvitationPending.String(),
-	})
-
-	args, err := argsFor(statement, values, description)
-	if err != nil {
-		return nil, op.Error(err, "%s", description)
-	}
-
-	rows, err := database.ScanAll(ctx, s.client.Reader(), "identity invitation",
-		statement.SQL, args, scanPage(scanInvitation))
+	rows, err := s.listInvitationRows(ctx, column, scope, value, filter)
 	if err != nil {
 		return nil, op.Error(err, "%s", description)
 	}
@@ -261,6 +235,78 @@ func (s *SQLStore) pageInvitations(
 
 	return filtering.Drain(rows, pageValue, pageCounts,
 		func(i *Invitation) string { return i.ID }, filter), nil
+}
+
+// listInvitationRows runs the generated list variant the column names, pending
+// invitations only.
+//
+// The switch is closed on purpose: its two arms are the two canonical
+// statements, and a third column is not a wider query — it is a statement that
+// was never rendered or checked, which is exactly what the old map of rendered
+// statements refused too. The status is bound rather than baked in, and both
+// arms bind the same one, so "paged reads return only pending" stays a fact
+// with one spelling.
+func (s *SQLStore) listInvitationRows(
+	ctx context.Context,
+	column string,
+	scope tenancy.Scope,
+	value string,
+	filter *filtering.QueryFilter,
+) ([]pageRow[Invitation], error) {
+	w := windowFrom(filter)
+
+	switch column {
+	case invitationFromUserColumn:
+		got, err := s.q.ListInvitationsByFromUser(ctx, s.client.Reader(), identitydb.ListInvitationsByFromUserParams{
+			CreatedAfter:    w.createdAfter,
+			CreatedBefore:   w.createdBefore,
+			UpdatedAfter:    w.updatedAfter,
+			UpdatedBefore:   w.updatedBefore,
+			IncludeArchived: w.includeArchived,
+			Scope:           scope,
+			FromUser:        value,
+			Status:          InvitationPending.String(),
+			PageCursor:      w.pageCursor,
+			ResultLimit:     w.resultLimit,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		rows := make([]pageRow[Invitation], 0, len(got))
+		for i := range got {
+			rows = append(rows, invitationPageRowFromUser(&got[i]))
+		}
+
+		return rows, nil
+
+	case invitationToEmailColumn:
+		got, err := s.q.ListInvitationsByToEmail(ctx, s.client.Reader(), identitydb.ListInvitationsByToEmailParams{
+			CreatedAfter:    w.createdAfter,
+			CreatedBefore:   w.createdBefore,
+			UpdatedAfter:    w.updatedAfter,
+			UpdatedBefore:   w.updatedBefore,
+			IncludeArchived: w.includeArchived,
+			Scope:           scope,
+			ToEmail:         value,
+			Status:          InvitationPending.String(),
+			PageCursor:      w.pageCursor,
+			ResultLimit:     w.resultLimit,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		rows := make([]pageRow[Invitation], 0, len(got))
+		for i := range got {
+			rows = append(rows, invitationPageRowToEmail(&got[i]))
+		}
+
+		return rows, nil
+
+	default:
+		return nil, platformerrors.Newf("identity: no rendered invitation list keyed on %q", column)
+	}
 }
 
 // AcceptInvitation marks an invitation accepted and writes the membership it

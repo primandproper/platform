@@ -5,6 +5,7 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -46,15 +47,12 @@ func (s *SQLStore) readUser(
 	scope tenancy.Scope,
 	userID string,
 ) (*User, error) {
-	args, err := argsFor(s.stmts.getUser, keyed(scope, userID), "reading identity user")
-	if err != nil {
-		return nil, err
-	}
-
-	user, err := scanUser(q.QueryRowContext(ctx, s.stmts.getUser.SQL, args...))
+	row, err := s.q.GetUser(ctx, q, identitydb.GetUserParams{ID: userID, Scope: scope})
 	if err != nil {
 		return nil, notFound(err, ErrUserNotFound)
 	}
+
+	user := userFromRow(&row)
 
 	if err = s.attachServiceRoles(ctx, q, []*User{user}); err != nil {
 		return nil, err
@@ -74,17 +72,14 @@ func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *f
 
 	filter = pageFilter(filter)
 
-	values := s.stmts.listValues(filter, keyedScope(scope))
-
-	args, err := argsFor(s.stmts.listUsers, values, "listing identity users")
+	listRows, err := s.q.ListUsers(ctx, s.client.Reader(), listUsersParams(scope, filter))
 	if err != nil {
 		return nil, op.Error(err, "listing identity users")
 	}
 
-	rows, err := database.ScanAll(ctx, s.client.Reader(), "identity user",
-		s.stmts.listUsers.SQL, args, scanPage(scanUser))
-	if err != nil {
-		return nil, op.Error(err, "listing identity users")
+	rows := make([]pageRow[User], 0, len(listRows))
+	for i := range listRows {
+		rows = append(rows, userPageRow(&listRows[i]))
 	}
 
 	if err = s.hydrateUsers(ctx, s.client.Reader(), pageValues(rows)); err != nil {
@@ -243,17 +238,12 @@ func (s *SQLStore) readAccount(
 	scope tenancy.Scope,
 	accountID string,
 ) (*Account, error) {
-	args, err := argsFor(s.stmts.getAccount, keyed(scope, accountID), "reading identity account")
-	if err != nil {
-		return nil, err
-	}
-
-	account, err := scanAccount(q.QueryRowContext(ctx, s.stmts.getAccount.SQL, args...))
+	row, err := s.q.GetAccount(ctx, q, identitydb.GetAccountParams{ID: accountID, Scope: scope})
 	if err != nil {
 		return nil, notFound(err, ErrAccountNotFound)
 	}
 
-	return account, nil
+	return accountFromRow(&row), nil
 }
 
 // ListAccounts pages the scope's accounts.
@@ -267,15 +257,14 @@ func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter
 
 	filter = pageFilter(filter)
 
-	args, err := argsFor(s.stmts.listAccounts, s.stmts.listValues(filter, keyedScope(scope)), "listing identity accounts")
+	listRows, err := s.q.ListAccounts(ctx, s.client.Reader(), listAccountsParams(scope, filter))
 	if err != nil {
 		return nil, op.Error(err, "listing identity accounts")
 	}
 
-	rows, err := database.ScanAll(ctx, s.client.Reader(), "identity account",
-		s.stmts.listAccounts.SQL, args, scanPage(scanAccount))
-	if err != nil {
-		return nil, op.Error(err, "listing identity accounts")
+	rows := make([]pageRow[Account], 0, len(listRows))
+	for i := range listRows {
+		rows = append(rows, accountPageRow(&listRows[i]))
 	}
 
 	op.SpanOnly(countKey, len(rows))

@@ -394,3 +394,125 @@ WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELE
 	AND identity_invitations.id > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_invitations.id ASC
 LIMIT ?;
+
+-- name: ListInvitationsByFromUser :many
+SELECT
+	identity_invitations.id,
+	identity_invitations.scope,
+	identity_invitations.belongs_to_account,
+	identity_invitations.from_user,
+	identity_invitations.to_email,
+	identity_invitations.to_name,
+	identity_invitations.to_user,
+	identity_invitations.token,
+	identity_invitations.status,
+	identity_invitations.note,
+	identity_invitations.expires_at,
+	identity_invitations.created_at,
+	identity_invitations.last_updated_at,
+	identity_invitations.archived_at,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+			AND identity_invitations.from_user = sqlc.arg(from_user)
+			AND identity_invitations.status = sqlc.arg(status)
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+			AND identity_invitations.from_user = sqlc.arg(from_user)
+			AND identity_invitations.status = sqlc.arg(status)
+	) AS total_count
+FROM identity_invitations
+WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
+	AND identity_invitations.scope = sqlc.arg(scope)
+	AND identity_invitations.from_user = sqlc.arg(from_user)
+	AND identity_invitations.status = sqlc.arg(status)
+	AND identity_invitations.id > COALESCE(sqlc.narg(page_cursor), '')
+ORDER BY identity_invitations.id ASC
+LIMIT ?;
+
+-- name: ListInvitationsByToEmail :many
+SELECT
+	identity_invitations.id,
+	identity_invitations.scope,
+	identity_invitations.belongs_to_account,
+	identity_invitations.from_user,
+	identity_invitations.to_email,
+	identity_invitations.to_name,
+	identity_invitations.to_user,
+	identity_invitations.token,
+	identity_invitations.status,
+	identity_invitations.note,
+	identity_invitations.expires_at,
+	identity_invitations.created_at,
+	identity_invitations.last_updated_at,
+	identity_invitations.archived_at,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+			AND identity_invitations.to_email = sqlc.arg(to_email)
+			AND identity_invitations.status = sqlc.arg(status)
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+			AND identity_invitations.to_email = sqlc.arg(to_email)
+			AND identity_invitations.status = sqlc.arg(status)
+	) AS total_count
+FROM identity_invitations
+WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false) = true OR identity_invitations.archived_at IS NULL)
+	AND identity_invitations.scope = sqlc.arg(scope)
+	AND identity_invitations.to_email = sqlc.arg(to_email)
+	AND identity_invitations.status = sqlc.arg(status)
+	AND identity_invitations.id > COALESCE(sqlc.narg(page_cursor), '')
+ORDER BY identity_invitations.id ASC
+LIMIT ?;

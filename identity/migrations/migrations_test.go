@@ -1,6 +1,8 @@
 package migrations
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -164,6 +166,30 @@ func TestSchema_UniquenessCoversArchivedRows(T *testing.T) {
 				test.StrNotContains(t, stmt, "WHERE",
 					test.Sprintf("unique index is partial: %s", stmt))
 			}
+		})
+	}
+}
+
+// TestSchemaFiles_MatchTheMigrations is the regeneration gate for the
+// committed schema files unison's config names, living beside them: each must
+// be exactly what the migrations render for its dialect, at the empty prefix.
+// A hand-edit to one leaves sqlc analyzing DDL no database runs, which is the
+// checked-versus-executed gap in its other direction.
+func TestSchemaFiles_MatchTheMigrations(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range allDialects {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			committed, err := os.ReadFile(filepath.Join("schema", string(d)+".sql"))
+			must.NoError(t, err)
+
+			rendered, err := SQL(d, "")
+			must.NoError(t, err)
+
+			test.EqOp(t, rendered+"\n", string(committed),
+				test.Sprintf("run `make unison` and commit schema/%s.sql", d))
 		})
 	}
 }

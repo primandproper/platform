@@ -60,6 +60,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"CreateUser", "GetUser", "ListUsers", "UpdateUser", "ArchiveUser",
 		"CreateAccount", "GetAccount", "ListAccounts", "UpdateAccount", "ArchiveAccount",
 		"CreateInvitation", "GetInvitation", "ListInvitations",
+		"ListInvitationsByFromUser", "ListInvitationsByToEmail",
 	}
 
 	for _, d := range everyDialect {
