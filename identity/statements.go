@@ -83,13 +83,13 @@ func newStatements(d dialect.Dialect, t *tables) *statements {
 		getUser:     g.BoundGet(t.users, queries.Users.Columns, scopeMatch),
 		listUsers:   g.BoundList(t.users, queries.Users.Columns, scopeMatch),
 		updateUser:  g.BoundUpdate(t.users, queries.Users.Columns, queries.Users.UpdateColumns(), queries.Users.Nullable, scopeMatch),
-		archiveUser: g.BoundArchive(t.users, scopeMatch),
+		archiveUser: g.BoundArchive(t.users, queries.Users.Columns, scopeMatch),
 
 		createAccount:  g.BoundCreate(t.accounts, queries.Accounts.InsertColumns(), queries.Accounts.Nullable),
 		getAccount:     g.BoundGet(t.accounts, queries.Accounts.Columns, scopeMatch),
 		listAccounts:   g.BoundList(t.accounts, queries.Accounts.Columns, scopeMatch),
 		updateAccount:  g.BoundUpdate(t.accounts, queries.Accounts.Columns, queries.Accounts.UpdateColumns(), queries.Accounts.Nullable, scopeMatch),
-		archiveAccount: g.BoundArchive(t.accounts, scopeMatch),
+		archiveAccount: g.BoundArchive(t.accounts, queries.Accounts.Columns, scopeMatch),
 
 		createInvitation: g.BoundCreate(t.invitations, queries.Invitations.InsertColumns(), queries.Invitations.Nullable),
 		getInvitation:    g.BoundGet(t.invitations, queries.Invitations.Columns, scopeMatch),

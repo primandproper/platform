@@ -38,7 +38,8 @@ list them. Everything else is read off the column set:
 	archived_at present     → soft delete, and the include_archived toggle
 	last_indexed_at present → the reindex scan search/sync reads through, and
 	                          the bulk stamp that maintains it
-	id                      → required; the cursor and every query's key
+	id                      → required by StandardCRUD; the cursor its list
+	                          pages by, and every query's key
 
 A query whose column is absent is not emitted, and a predicate whose column is
 absent is not rendered. That is the point of deriving them: a table without
@@ -130,6 +131,51 @@ timestamps as text and compares them as text, so BindFilter hands it the shape
 time.DateTime spells rather than a time, and MySQL's LIMIT cannot
 coalesce so BindFilter supplies the default the other two coalesce to. Both are
 in BindFilter rather than in a caller for the same reason the SQL is here.
+
+# Tables with no id
+
+[Generator.StandardCRUD] requires an id column and the [Bound] methods do not,
+and the asymmetry is the one place the two halves of this package genuinely
+disagree about what a table has to look like.
+
+StandardCRUD emits the list, and the list pages by keyset over the id: the cursor
+predicate compares against that column, so it has to sort by creation time, and a
+composite key is not a cursor without machinery this package does not have. The
+single-row statements need no such thing. They need to address one row, and a
+table whose primary key is (subject_type, subject_id) addresses one exactly by
+naming both — which is what [Match] has always been for, an equality predicate on
+a column, bound rather than interpolated. So the id predicate is rendered when
+the column list has an id and not when it does not, exactly as the archived_at
+predicate is, and [Generator.BoundGet], [Generator.BoundExists],
+[Generator.BoundUpdate] and [Generator.BoundArchive] key a row on whatever it
+actually keys on:
+
+	get := querygen.For(dialect.Postgres).BoundGet("shredding_subject_keys", columns,
+		querygen.Match{Column: "subject_type"},
+		querygen.Match{Column: "subject_id"})
+
+Four tables in this module are in that position, each with a natural key that
+carries a meaning a surrogate id would not: audit_log_chains keys on its scope,
+shredding_subject_keys on (subject_type, subject_id) — which is the constraint
+enforcing one live key per subject, and so the difference between a shred that
+works and one leaving half the ciphertext readable — metering_totals on
+(subject, meter, period_start), and scheduled_timers on (timer_set, timer_key).
+
+What that costs is worth stating rather than discovering. Those four execute
+[Bound] statements with no canonical .sql counterpart, so nothing about them
+passes through sqlc: the projection and the placeholders stop being
+hand-maintained, because this package renders both, but the statements are never
+checked against the schema at build time the way a generated one is. A column
+renamed in a migration is a runtime error on those four tables and a failed
+generate everywhere else, and the only thing that catches it first is their own
+container tests. That is a narrower guarantee than the rest of this package
+offers, and it is the price of a key that means something.
+
+A statement that keys on nothing at all — no id in the column list and no [Match]
+— is [ErrUnaddressableRow] rather than a statement whose WHERE clause is the
+archived predicate alone. Reading one row by reading all of them is not a
+degenerate read; it is a different query, and archiving through one empties a
+table.
 
 # The table registry
 

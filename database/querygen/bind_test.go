@@ -194,7 +194,7 @@ func TestGenerator_BoundArchive(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range everyDialect() {
-			got := For(d).BoundArchive(boundTable)
+			got := For(d).BoundArchive(boundTable, boundColumns())
 
 			test.StrContains(t, got.SQL, "UPDATE "+boundTable, test.Sprintf("dialect %q", d))
 			test.StrContains(t, got.SQL, ArchivedAtColumn+" = "+NowExpression, test.Sprintf("dialect %q", d))
@@ -385,7 +385,7 @@ func boundStatements(tb testing.TB, d dialect.Dialect) map[string]Bound {
 		"get":     g.BoundGet(boundTable, columns, owner),
 		"exists":  g.BoundExists(boundTable, columns, owner),
 		"update":  g.BoundUpdate(boundTable, columns, ForUpdate(columns, BelongsToAccountColumn), nil, owner),
-		"archive": g.BoundArchive(boundTable, owner),
+		"archive": g.BoundArchive(boundTable, columns, owner),
 		"list":    g.BoundList(boundTable, columns, owner),
 	}
 }
@@ -743,6 +743,204 @@ func TestListArgumentsAreTheOnesFilteringBinds(T *testing.T) {
 			names = slices.Compact(names)
 
 			test.Eq(t, expected, names, test.Sprintf("dialect %q", d))
+		}
+	})
+}
+
+// The fixture for a table whose primary key is natural rather than a surrogate
+// id — shredding_subject_keys' shape, whose key is what enforces one live key
+// per subject. It has every column this package has an opinion about except the
+// one it used to insist on.
+const compositeTable = "sprockets"
+
+func compositeColumns() []string {
+	return []string{
+		"subject_type",
+		"subject_id",
+		"key_material",
+		CreatedAtColumn,
+		LastUpdatedAtColumn,
+		ArchivedAtColumn,
+	}
+}
+
+// compositeKey is what such a store passes where a conventional one passes
+// nothing and lets the id predicate appear on its own.
+func compositeKey() []Match {
+	return []Match{{Column: "subject_type"}, {Column: "subject_id"}}
+}
+
+// compositeStatements is the composite-key counterpart of boundStatements: the
+// four single-row statements, each keyed on the whole natural key.
+func compositeStatements(d dialect.Dialect) map[string]Bound {
+	var (
+		g       = For(d)
+		columns = compositeColumns()
+		key     = compositeKey()
+	)
+
+	return map[string]Bound{
+		"get":     g.BoundGet(compositeTable, columns, key...),
+		"exists":  g.BoundExists(compositeTable, columns, key...),
+		"update":  g.BoundUpdate(compositeTable, columns, ForUpdate(columns, "subject_type", "subject_id"), nil, key...),
+		"archive": g.BoundArchive(compositeTable, columns, key...),
+	}
+}
+
+func TestBoundStatementsWithoutAnID(T *testing.T) {
+	T.Parallel()
+
+	T.Run("address a row by the whole natural key", func(t *testing.T) {
+		t.Parallel()
+
+		// The id predicate is presence-conditional like every other predicate
+		// here, so a table that deliberately has no id gets a statement keyed
+		// on what it does key on rather than one naming a column the schema
+		// does not have.
+		for _, d := range everyDialect() {
+			for name, b := range compositeStatements(d) {
+				test.SliceContains(t, b.Args, "subject_type", test.Sprintf("dialect %q, statement %q", d, name))
+				test.SliceContains(t, b.Args, "subject_id", test.Sprintf("dialect %q, statement %q", d, name))
+				test.SliceNotContains(t, b.Args, IDColumn, test.Sprintf("dialect %q, statement %q", d, name))
+				test.StrNotContains(t, b.SQL, Qualify(compositeTable, IDColumn),
+					test.Sprintf("dialect %q, statement %q", d, name))
+				test.StrNotContains(t, b.SQL, "sqlc.", test.Sprintf("dialect %q, statement %q", d, name))
+				assertMarkersMatchArgs(t, d, b)
+			}
+		}
+	})
+
+	T.Run("still exclude archived rows outright", func(t *testing.T) {
+		t.Parallel()
+
+		// Losing this alongside the id predicate would be the quiet half of the
+		// change: a get that reads shredded rows back, and an archive that
+		// restamps one already archived and reports it as a write.
+		for _, d := range everyDialect() {
+			statements := compositeStatements(d)
+
+			test.StrContains(t, statements["get"].SQL, Qualify(compositeTable, ArchivedAtColumn)+" IS NULL",
+				test.Sprintf("dialect %q", d))
+			test.StrContains(t, statements["archive"].SQL, ArchivedAtColumn+" IS NULL", test.Sprintf("dialect %q", d))
+			test.StrContains(t, statements["update"].SQL, ArchivedAtColumn+" IS NULL", test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("exists selects something every server accepts rather than a column the table lacks", func(t *testing.T) {
+		t.Parallel()
+
+		// Nothing reads the EXISTS subquery's projection, so the id case keeps
+		// selecting the id — the emitted SQL of every conventional table in the
+		// module is unchanged — and the no-id case selects the literal.
+		for _, d := range everyDialect() {
+			test.StrContains(t, compositeStatements(d)["exists"].SQL, "SELECT 1", test.Sprintf("dialect %q", d))
+			test.StrContains(t, For(d).BoundExists(boundTable, boundColumns(), Match{Column: BelongsToAccountColumn}).SQL,
+				"SELECT "+Qualify(boundTable, IDColumn), test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("exists asks what get asks", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			statements := compositeStatements(d)
+
+			test.Eq(t, statements["get"].Args, statements["exists"].Args, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("archive keys the row on exactly what the other three key it on", func(t *testing.T) {
+		t.Parallel()
+
+		// archiveStatement used to build its own predicate list, which is how
+		// it came to be the one statement here that could not skip the id. It
+		// routes through singleRowPredicates now, so there is one rendering of
+		// "this row, unarchived" rather than two.
+		for _, d := range everyDialect() {
+			statements := compositeStatements(d)
+
+			test.Eq(t, statements["get"].Args, statements["archive"].Args, test.Sprintf("dialect %q", d))
+		}
+
+		// And on a conventional table it still keys on the id, in the position
+		// it always did.
+		conventional := For(dialect.Postgres).BoundArchive(boundTable, boundColumns(),
+			Match{Column: BelongsToAccountColumn})
+
+		test.Eq(t, []string{IDColumn, BelongsToAccountColumn}, conventional.Args)
+	})
+
+	T.Run("the archived predicate follows the column list like the id one", func(t *testing.T) {
+		t.Parallel()
+
+		// The parameter BoundArchive gained is the table's columns, so a caller
+		// handing it a subset gets a statement derived from that subset. It is
+		// the reason the doc says to pass the table's columns rather than the
+		// ones this call happens to touch.
+		for _, d := range everyDialect() {
+			got := For(d).BoundArchive(compositeTable, without(compositeColumns(), ArchivedAtColumn), compositeKey()...)
+
+			test.StrNotContains(t, got.SQL, "IS NULL", test.Sprintf("dialect %q", d))
+		}
+	})
+}
+
+func TestBoundStatementsKeyOnSomething(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a single-row statement with no id and no match is refused", func(t *testing.T) {
+		t.Parallel()
+
+		// Rather than a WHERE clause that is the archived predicate and nothing
+		// else: a get returning the whole table, an update assigning every row
+		// in it, and an archive emptying it.
+		columns := without(compositeColumns(), IDColumn)
+
+		for _, d := range everyDialect() {
+			g := For(d)
+
+			statements := map[string]func(){
+				"get":     func() { _ = g.BoundGet(compositeTable, columns) },
+				"exists":  func() { _ = g.BoundExists(compositeTable, columns) },
+				"update":  func() { _ = g.BoundUpdate(compositeTable, columns, ForUpdate(columns), nil) },
+				"archive": func() { _ = g.BoundArchive(compositeTable, columns) },
+			}
+
+			for name, render := range statements {
+				err := recovered(render)
+
+				must.Error(t, err, must.Sprintf("dialect %q, statement %q", d, name))
+				test.ErrorIs(t, err, ErrUnaddressableRow, test.Sprintf("dialect %q, statement %q", d, name))
+				test.StrContains(t, err.Error(), compositeTable, test.Sprintf("dialect %q, statement %q", d, name))
+			}
+		}
+	})
+
+	T.Run("one match is enough, and so is an id on its own", func(t *testing.T) {
+		t.Parallel()
+
+		// The requirement is that the statement keys on something, not that it
+		// keys on the whole primary key — this package never reads a schema and
+		// has no way to know what the whole key is.
+		for _, d := range everyDialect() {
+			columns := without(compositeColumns(), IDColumn)
+
+			test.SliceNotEmpty(t, For(d).BoundGet(compositeTable, columns, Match{Column: "subject_id"}).Args,
+				test.Sprintf("dialect %q", d))
+			test.SliceNotEmpty(t, For(d).BoundGet(boundTable, boundColumns()).Args, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("the list is unaffected, because a page is not a row", func(t *testing.T) {
+		t.Parallel()
+
+		// An unkeyed list is the ordinary case: it addresses a page of a table
+		// rather than a row of one, and the filter and the cursor are what
+		// bound it.
+		for _, d := range everyDialect() {
+			err := recovered(func() { _ = For(d).BoundList(compositeTable, without(compositeColumns(), IDColumn)) })
+
+			must.NoError(t, err, must.Sprintf("dialect %q", d))
 		}
 	})
 }

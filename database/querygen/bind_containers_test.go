@@ -71,7 +71,7 @@ func gadgetsFor(d dialect.Dialect) *gadgetStatements {
 		// column it keys on binds one argument to both, and there is no value
 		// of it that moves a row anywhere.
 		update:  g.BoundUpdate(gadgetsTable, columns, ForUpdate(columns, BelongsToAccountColumn), nil, owner),
-		archive: g.BoundArchive(gadgetsTable, owner),
+		archive: g.BoundArchive(gadgetsTable, columns, owner),
 		list:    g.BoundList(gadgetsTable, columns, owner),
 	}
 }
@@ -356,5 +356,231 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 
 		test.Eq(t, []string{"g_001", "g_002", "g_003", "g_004"}, ids)
 		test.EqOp(t, int64(4), filtered)
+	})
+}
+
+// The composite-key half of the bound suite. Its table has no id at all, so the
+// four single-row statements key on the whole natural key, and the thing worth
+// running against a server is that both of its columns bind: a statement that
+// dropped one would still parse, still return a row, and return the wrong one
+// whenever two rows share the column it kept.
+//
+// It stands its own table up beside gadgets for the same reason gadgets stands
+// one up beside widgets — neither suite should be able to see the other's writes.
+
+// compositeDDL is compositeColumns() in each dialect's spelling, with the
+// natural key as the primary key. The dialect differences are conventionalDDL's:
+// MySQL cannot key on a TEXT column without a prefix length, and SQLite's
+// timestamps are the text its own CURRENT_TIMESTAMP writes.
+func compositeDDL(d dialect.Dialect) string {
+	switch d {
+	case dialect.MySQL:
+		return `CREATE TABLE ` + compositeTable + ` (
+			subject_type VARCHAR(64) NOT NULL,
+			subject_id VARCHAR(64) NOT NULL,
+			key_material VARCHAR(255) NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_updated_at DATETIME NULL,
+			archived_at DATETIME NULL,
+			PRIMARY KEY (subject_type, subject_id)
+		)`
+	case dialect.SQLite:
+		return `CREATE TABLE ` + compositeTable + ` (
+			subject_type TEXT NOT NULL,
+			subject_id TEXT NOT NULL,
+			key_material TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_updated_at TEXT,
+			archived_at TEXT,
+			PRIMARY KEY (subject_type, subject_id)
+		)`
+	// Postgres, which For has already narrowed the alternatives to.
+	default:
+		return `CREATE TABLE ` + compositeTable + ` (
+			subject_type TEXT NOT NULL,
+			subject_id TEXT NOT NULL,
+			key_material TEXT NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			last_updated_at TIMESTAMP WITH TIME ZONE,
+			archived_at TIMESTAMP WITH TIME ZONE,
+			PRIMARY KEY (subject_type, subject_id)
+		)`
+	}
+}
+
+// subjectKey is the argument map a composite-keyed statement binds its key from,
+// which is the whole difference at the call site: two entries where a
+// conventional store writes one.
+func subjectKey(subjectType, subjectID string) map[string]any {
+	return map[string]any{"subject_type": subjectType, "subject_id": subjectID}
+}
+
+// getSubjectKey runs the bound get, returning the key material it read and
+// whether there was a row at all.
+func getSubjectKey(tb testing.TB, ctx context.Context, db *sql.DB, statements map[string]Bound, subjectType, subjectID string) (material string, found bool) {
+	tb.Helper()
+
+	arguments, err := statements["get"].Bind(subjectKey(subjectType, subjectID))
+	must.NoError(tb, err)
+
+	var (
+		gotType, gotID             string
+		read                       any
+		created, updated, archived any
+	)
+
+	err = db.QueryRowContext(ctx, statements["get"].SQL, arguments...).
+		Scan(&gotType, &gotID, &read, &created, &updated, &archived)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false
+	}
+
+	must.NoError(tb, err)
+
+	got, ok := read.(string)
+	if !ok {
+		// MySQL hands a VARCHAR back as bytes.
+		raw, isBytes := read.([]byte)
+		must.True(tb, isBytes, must.Sprintf("key material came back as %T", read))
+		got = string(raw)
+	}
+
+	return got, true
+}
+
+// runCompositeSuite is the composite-key counterpart of runBoundSuite, and like
+// it is written once and run against each of the three servers.
+func runCompositeSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB) {
+	t.Helper()
+
+	_, err := db.ExecContext(ctx, compositeDDL(d))
+	must.NoError(t, err)
+
+	var (
+		g          = For(d)
+		columns    = compositeColumns()
+		statements = compositeStatements(d)
+	)
+
+	// The create is not one of the four this ticket is about — an INSERT keys on
+	// nothing — but the suite needs rows.
+	create := g.BoundCreate(compositeTable, ForInsert(columns), nil)
+
+	t.Run("every bound statement is one the server accepts", func(t *testing.T) {
+		all := map[string]Bound{"create": create}
+		for name := range statements {
+			all[name] = statements[name]
+		}
+
+		for name := range all {
+			stmt, prepareErr := db.PrepareContext(ctx, all[name].SQL)
+			must.NoError(t, prepareErr, must.Sprintf("preparing %s:\n%s", name, all[name].SQL))
+			must.NoError(t, stmt.Close()) //nolint:sqlclosecheck // the prepare is the assertion; there is nothing to read.
+		}
+	})
+
+	// Three rows across two subject types, deliberately sharing an id between
+	// two of them: the row a half-keyed statement would return instead.
+	rows := []struct{ subjectType, subjectID, material string }{
+		{"user", "s_001", "user s_001 material"},
+		{"device", "s_001", "device s_001 material"},
+		{"user", "s_002", "user s_002 material"},
+	}
+
+	for i := range rows {
+		values := subjectKey(rows[i].subjectType, rows[i].subjectID)
+		values["key_material"] = rows[i].material
+
+		execBound(t, ctx, db, create, values)
+	}
+
+	t.Run("a read is answered by the whole key rather than half of it", func(t *testing.T) {
+		// Two rows share s_001 and two share user, so a statement that dropped
+		// either column of the key would answer here — with a row, and with the
+		// wrong one. That is the failure the id predicate's unconditional
+		// rendering used to make unrepresentable by making the table
+		// unrepresentable.
+		material, found := getSubjectKey(t, ctx, db, statements, "user", "s_001")
+
+		test.True(t, found)
+		test.EqOp(t, "user s_001 material", material)
+
+		material, found = getSubjectKey(t, ctx, db, statements, "device", "s_001")
+
+		test.True(t, found)
+		test.EqOp(t, "device s_001 material", material)
+
+		// A pairing no row has, whose halves are each present.
+		_, found = getSubjectKey(t, ctx, db, statements, "device", "s_002")
+		test.False(t, found)
+	})
+
+	t.Run("exists reports what get would find", func(t *testing.T) {
+		cases := []struct {
+			subjectType, subjectID string
+			want                   bool
+		}{
+			{"user", "s_001", true},
+			{"device", "s_001", true},
+			{"device", "s_002", false},
+			{"nobody", "s_001", false},
+		}
+
+		for i := range cases {
+			tc := cases[i]
+
+			arguments, bindErr := statements["exists"].Bind(subjectKey(tc.subjectType, tc.subjectID))
+			must.NoError(t, bindErr)
+
+			var got bool
+
+			must.NoError(t, db.QueryRowContext(ctx, statements["exists"].SQL, arguments...).Scan(&got))
+			test.EqOp(t, tc.want, got, test.Sprintf("%s/%s", tc.subjectType, tc.subjectID))
+		}
+	})
+
+	t.Run("an update writes the row its key names and no other", func(t *testing.T) {
+		values := subjectKey("user", "s_001")
+		values["key_material"] = "rotated"
+
+		test.EqOp(t, int64(1), affectedRows(t, execBound(t, ctx, db, statements["update"], values)))
+
+		material, found := getSubjectKey(t, ctx, db, statements, "user", "s_001")
+		test.True(t, found)
+		test.EqOp(t, "rotated", material)
+
+		// The two rows sharing a column with it are untouched, which is the
+		// assertion an update keyed on one half of the key would fail.
+		material, found = getSubjectKey(t, ctx, db, statements, "device", "s_001")
+		test.True(t, found)
+		test.EqOp(t, "device s_001 material", material)
+
+		material, found = getSubjectKey(t, ctx, db, statements, "user", "s_002")
+		test.True(t, found)
+		test.EqOp(t, "user s_002 material", material)
+	})
+
+	t.Run("archive soft-deletes once and reports the second attempt", func(t *testing.T) {
+		values := subjectKey("user", "s_002")
+
+		test.EqOp(t, int64(1), affectedRows(t, execBound(t, ctx, db, statements["archive"], values)))
+
+		// The archived_at IS NULL that makes the second count zero survived
+		// archiveStatement's move onto singleRowPredicates.
+		test.EqOp(t, int64(0), affectedRows(t, execBound(t, ctx, db, statements["archive"], values)))
+
+		_, found := getSubjectKey(t, ctx, db, statements, "user", "s_002")
+		test.False(t, found)
+
+		// And the row it shares a subject type with is still live.
+		_, found = getSubjectKey(t, ctx, db, statements, "user", "s_001")
+		test.True(t, found)
+	})
+
+	t.Run("an archived row is not updatable", func(t *testing.T) {
+		values := subjectKey("user", "s_002")
+		values["key_material"] = "should not land"
+
+		test.EqOp(t, int64(0), affectedRows(t, execBound(t, ctx, db, statements["update"], values)))
 	})
 }

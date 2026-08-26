@@ -67,7 +67,7 @@ func TestNewPaymentManager(T *testing.T) {
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
 		}
 
-		pm, err := NewPaymentManager(t.Context(), cfg, nil)
+		pm, err := NewPaymentManager(t.Context(), cfg)
 		must.NoError(t, err)
 		test.NotNil(t, pm)
 	})
@@ -77,7 +77,7 @@ func TestNewPaymentManager(T *testing.T) {
 
 		cfg := &Config{Provider: NoopProvider}
 
-		pm, err := NewPaymentManager(t.Context(), cfg, nil)
+		pm, err := NewPaymentManager(t.Context(), cfg)
 		must.NoError(t, err)
 		test.NotNil(t, pm)
 	})
@@ -89,7 +89,7 @@ func TestNewPaymentManager(T *testing.T) {
 			Provider: "unknown",
 		}
 
-		pm, err := NewPaymentManager(t.Context(), cfg, nil)
+		pm, err := NewPaymentManager(t.Context(), cfg)
 		test.Nil(t, pm)
 		test.Error(t, err)
 	})

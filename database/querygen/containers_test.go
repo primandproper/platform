@@ -339,6 +339,12 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 	t.Run("the bound suite", func(t *testing.T) {
 		runBoundSuite(t, ctx, d, db)
 	})
+
+	// And the bound statements for a table with no id at all, whose four
+	// single-row statements key on a natural key.
+	t.Run("the composite-key suite", func(t *testing.T) {
+		runCompositeSuite(t, ctx, d, db)
+	})
 }
 
 // prepare asks the server to plan the statement, which is the cheapest way to

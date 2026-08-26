@@ -2,7 +2,7 @@ package stripe
 
 import (
 	"bytes"
-	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +13,6 @@ import (
 
 	"github.com/primandproper/platform-go/v13/capitalism"
 	"github.com/primandproper/platform-go/v13/encoding"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
 	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
 	metricsnoop "github.com/primandproper/platform-go/v13/observability/metrics/noop"
@@ -27,8 +26,6 @@ import (
 	"github.com/stripe/stripe-go/v81/client"
 	"github.com/stripe/stripe-go/v81/webhook"
 )
-
-var errArbitraryHandler = platformerrors.New("arbitrary handler error")
 
 type capturedRequest struct {
 	form           url.Values
@@ -121,7 +118,7 @@ func TestStripePaymentManager_CreatePaymentIntent(T *testing.T) {
 	T.Run("errors without an API key", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"}, nil)
+		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"})
 		must.NoError(t, err)
 
 		result, err := pm.CreatePaymentIntent(t.Context(), &capitalism.PaymentIntentCreationInput{Amount: 1, Currency: "usd"})
@@ -173,7 +170,7 @@ func TestStripePaymentManager_CreateCustomer(T *testing.T) {
 	T.Run("errors without an API key", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"}, nil)
+		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"})
 		must.NoError(t, err)
 
 		id, err := pm.CreateCustomer(t.Context(), &capitalism.CustomerCreationInput{Email: "x@y.z"})
@@ -235,7 +232,7 @@ func TestStripePaymentManager_CreateSubscription(T *testing.T) {
 	T.Run("errors without an API key", func(t *testing.T) {
 		t.Parallel()
 
-		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"}, nil)
+		pm, err := NewPaymentManager(&Config{WebhookSecret: "whsec"})
 		must.NoError(t, err)
 
 		id, err := pm.CreateSubscription(t.Context(), &capitalism.SubscriptionCreationInput{CustomerID: "cus_abc", PriceID: "price_xyz"})
@@ -244,19 +241,13 @@ func TestStripePaymentManager_CreateSubscription(T *testing.T) {
 	})
 }
 
-func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
+func TestStripePaymentManager_HandleEventWebhook_ReturnsEvent(T *testing.T) {
 	T.Parallel()
 
-	signedRequest := func(t *testing.T, pm *PaymentManager, secret string) *http.Request {
+	signedRequest := func(t *testing.T, pm *PaymentManager, secret string, event *stripe.Event) *http.Request {
 		t.Helper()
 
 		ctx := t.Context()
-		event := &stripe.Event{
-			APIVersion: stripeAPIVersion,
-			ID:         "evt_test_123",
-			Data:       &stripe.EventData{Raw: []byte(`{}`)},
-			Type:       stripe.EventTypePaymentIntentSucceeded,
-		}
 		// Signed with stripe-go's own test helper, which is what makes this a cross-check:
 		// the header comes from the SDK and the verification comes from webhooks/inbound, so
 		// the two agreeing is evidence the extracted scheme is the same scheme.
@@ -273,46 +264,207 @@ func TestStripePaymentManager_HandleEventWebhook_Callback(T *testing.T) {
 		return req
 	}
 
-	T.Run("invokes the handler with the verified event", func(t *testing.T) {
+	newManager := func(t *testing.T) (*PaymentManager, string) {
+		t.Helper()
+
+		secret, err := random.GenerateHexEncodedString(t.Context(), 32)
+		must.NoError(t, err)
+
+		pm, err := NewPaymentManager(&Config{WebhookSecret: secret})
+		must.NoError(t, err)
+
+		return pm, secret
+	}
+
+	T.Run("hands the verified event back to the caller", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		secret, err := random.GenerateHexEncodedString(ctx, 32)
+		pm, secret := newManager(t)
+
+		req := signedRequest(t, pm, secret, &stripe.Event{
+			APIVersion: stripeAPIVersion,
+			ID:         "evt_test_123",
+			Data:       &stripe.EventData{Raw: []byte(`{"id":"pi_1"}`)},
+			Type:       stripe.EventTypePaymentIntentSucceeded,
+		})
+
+		// The whole point of the return: observing a delivery no longer takes a callback
+		// registered with the constructor, and so no longer takes naming this package.
+		event, err := pm.HandleEventWebhook(req)
 		must.NoError(t, err)
+		must.NotNil(t, event)
 
-		var (
-			called bool
-			gotID  string
-		)
-		handler := func(_ context.Context, event *Event) error {
-			called = true
-			gotID = event.ID
-			return nil
-		}
-
-		pm, err := NewPaymentManager(&Config{WebhookSecret: secret}, handler)
-		must.NoError(t, err)
-
-		must.NoError(t, pm.HandleEventWebhook(signedRequest(t, pm, secret)))
-
-		test.True(t, called)
-		test.EqOp(t, "evt_test_123", gotID)
+		test.EqOp(t, "evt_test_123", event.ID)
+		test.EqOp(t, string(stripe.EventTypePaymentIntentSucceeded), event.Type)
+		test.Eq(t, []byte(`{"id":"pi_1"}`), event.Payload)
 	})
 
-	T.Run("propagates a handler error", func(t *testing.T) {
+	T.Run("maps every subscription status Stripe reports", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := t.Context()
-		secret, err := random.GenerateHexEncodedString(ctx, 32)
-		must.NoError(t, err)
+		// Every status stripe-go v81 declares, paired with what this module calls it. It is
+		// spelled out rather than derived from the mapping table so that the table and the
+		// expectation cannot drift together into agreeing on the wrong thing.
+		for _, tc := range []struct {
+			stripeStatus stripe.SubscriptionStatus
+			want         capitalism.SubscriptionStatus
+		}{
+			{stripe.SubscriptionStatusIncomplete, capitalism.SubscriptionStatusIncomplete},
+			{stripe.SubscriptionStatusIncompleteExpired, capitalism.SubscriptionStatusIncompleteExpired},
+			{stripe.SubscriptionStatusTrialing, capitalism.SubscriptionStatusTrialing},
+			{stripe.SubscriptionStatusActive, capitalism.SubscriptionStatusActive},
+			{stripe.SubscriptionStatusPastDue, capitalism.SubscriptionStatusPastDue},
+			{stripe.SubscriptionStatusCanceled, capitalism.SubscriptionStatusCanceled},
+			{stripe.SubscriptionStatusUnpaid, capitalism.SubscriptionStatusUnpaid},
+			{stripe.SubscriptionStatusPaused, capitalism.SubscriptionStatusPaused},
+		} {
+			t.Run(string(tc.stripeStatus), func(t *testing.T) {
+				t.Parallel()
 
-		handler := func(_ context.Context, _ *Event) error {
-			return errArbitraryHandler
+				pm, secret := newManager(t)
+
+				req := signedRequest(t, pm, secret, subscriptionEvent(t, stripe.EventTypeCustomerSubscriptionUpdated, `{
+					"id": "sub_123",
+					"customer": "cus_123",
+					"status": "`+string(tc.stripeStatus)+`"
+				}`))
+
+				event, err := pm.HandleEventWebhook(req)
+				must.NoError(t, err)
+				must.NotNil(t, event)
+				must.NotNil(t, event.Subscription)
+
+				test.EqOp(t, tc.want, event.Subscription.Status)
+				test.True(t, event.Subscription.Status.Known())
+				test.EqOp(t, string(tc.stripeStatus), event.Subscription.ProviderStatus)
+				test.EqOp(t, "sub_123", event.Subscription.ID)
+				test.EqOp(t, "cus_123", event.Subscription.CustomerID)
+			})
 		}
-
-		pm, err := NewPaymentManager(&Config{WebhookSecret: secret}, handler)
-		must.NoError(t, err)
-
-		test.Error(t, pm.HandleEventWebhook(signedRequest(t, pm, secret)))
 	})
+
+	T.Run("reports a status it does not recognize as unknown", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newManager(t)
+
+		req := signedRequest(t, pm, secret, subscriptionEvent(t, stripe.EventTypeCustomerSubscriptionUpdated, `{
+			"id": "sub_123",
+			"customer": "cus_123",
+			"status": "gone_fishing"
+		}`))
+
+		event, err := pm.HandleEventWebhook(req)
+		must.NoError(t, err)
+		must.NotNil(t, event)
+		must.NotNil(t, event.Subscription)
+
+		// The delivery is genuine, so it is not rejected — but a status this module has
+		// never seen must not arrive looking like one of the eight it has. A consumer
+		// cutting off an account reads Known() before it reads Status.
+		test.EqOp(t, capitalism.SubscriptionStatusUnknown, event.Subscription.Status)
+		test.False(t, event.Subscription.Status.Known())
+		test.EqOp(t, "gone_fishing", event.Subscription.ProviderStatus)
+	})
+
+	T.Run("reads a customer Stripe expanded into an object", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newManager(t)
+
+		// The same field arrives as an ID or as the whole customer depending on how the
+		// endpoint is configured, and a webhook handler does not get to choose which.
+		req := signedRequest(t, pm, secret, subscriptionEvent(t, stripe.EventTypeCustomerSubscriptionCreated, `{
+			"id": "sub_123",
+			"customer": {"id": "cus_expanded", "object": "customer"},
+			"status": "active"
+		}`))
+
+		event, err := pm.HandleEventWebhook(req)
+		must.NoError(t, err)
+		must.NotNil(t, event)
+		must.NotNil(t, event.Subscription)
+
+		test.EqOp(t, "cus_expanded", event.Subscription.CustomerID)
+		test.EqOp(t, capitalism.SubscriptionStatusActive, event.Subscription.Status)
+	})
+
+	T.Run("reports a cancellation as the status on the deleted subscription", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newManager(t)
+
+		req := signedRequest(t, pm, secret, subscriptionEvent(t, stripe.EventTypeCustomerSubscriptionDeleted, `{
+			"id": "sub_123",
+			"customer": "cus_123",
+			"status": "canceled"
+		}`))
+
+		event, err := pm.HandleEventWebhook(req)
+		must.NoError(t, err)
+		must.NotNil(t, event)
+		must.NotNil(t, event.Subscription)
+
+		test.EqOp(t, capitalism.SubscriptionStatusCanceled, event.Subscription.Status)
+	})
+
+	T.Run("leaves the customer empty when the subscription names none", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newManager(t)
+
+		req := signedRequest(t, pm, secret, subscriptionEvent(t, stripe.EventTypeCustomerSubscriptionUpdated, `{"id":"sub_123","status":"active"}`))
+
+		event, err := pm.HandleEventWebhook(req)
+		must.NoError(t, err)
+		must.NotNil(t, event)
+		must.NotNil(t, event.Subscription)
+
+		// A verified delivery is still whatever its sender chose to send; the customer
+		// pointer is not dereferenced on trust.
+		test.EqOp(t, "", event.Subscription.CustomerID)
+	})
+
+	T.Run("errors on a subscription that does not decode", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newManager(t)
+
+		req := signedRequest(t, pm, secret, subscriptionEvent(t, stripe.EventTypeCustomerSubscriptionUpdated, `["not","a","subscription"]`))
+
+		event, err := pm.HandleEventWebhook(req)
+		test.Error(t, err)
+		test.Nil(t, event)
+	})
+
+	T.Run("keeps the raw payload for a consumer with its own stripe-go", func(t *testing.T) {
+		t.Parallel()
+
+		pm, secret := newManager(t)
+
+		raw := `{"id":"sub_123","customer":"cus_123","status":"active","cancel_at_period_end":true}`
+		req := signedRequest(t, pm, secret, subscriptionEvent(t, stripe.EventTypeCustomerSubscriptionUpdated, raw))
+
+		event, err := pm.HandleEventWebhook(req)
+		must.NoError(t, err)
+		must.NotNil(t, event)
+
+		// Everything richer than the status is still decodable by the caller, with whatever
+		// stripe-go version it pins — which is why Payload stays bytes.
+		var decoded stripe.Subscription
+		must.NoError(t, json.Unmarshal(event.Payload, &decoded))
+		test.True(t, decoded.CancelAtPeriodEnd)
+	})
+}
+
+// subscriptionEvent builds a customer.subscription.* event carrying raw as its data object.
+func subscriptionEvent(t *testing.T, eventType stripe.EventType, raw string) *stripe.Event {
+	t.Helper()
+
+	return &stripe.Event{
+		APIVersion: stripeAPIVersion,
+		ID:         "evt_sub_123",
+		Data:       &stripe.EventData{Raw: json.RawMessage(raw)},
+		Type:       eventType,
+	}
 }

@@ -168,7 +168,7 @@ func TestGenerator_storedNow(T *testing.T) {
 
 		for _, statement := range []string{
 			g.updateStatement("widgets", []string{IDColumn, LastUpdatedAtColumn}, []string{}, "", nil),
-			g.archiveStatement("widgets", ""),
+			g.archiveStatement("widgets", []string{IDColumn, ArchivedAtColumn}, ""),
 			g.IndexStampQuery("widgets"),
 		} {
 			test.StrContains(t, statement, g.storedNow())

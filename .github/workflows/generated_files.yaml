@@ -5,6 +5,8 @@ on:
     paths:
       - '**/*.go'
       - '**/*.sql'
+      - '**/*.proto'
+      - .protoc-version
       - go.mod
       - go.sum
 
@@ -39,6 +41,39 @@ jobs:
           if [ -n "$(git status --porcelain)" ]; then
             echo "go generate produced a diff. Run 'make generate' locally and commit the result."
             echo "A _generated.sql under a package's internal/queries is generated too — edit the column list, not the SQL."
+            git status --short
+            git diff
+            exit 1
+          fi
+
+  proto:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.27.x']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      # Both halves of the toolchain are pinned — protoc by .protoc-version,
+      # protoc-gen-go by go.mod's tool directive — because protoc-gen-go stamps
+      # both versions into every file it writes. Unpinned, this job would report
+      # which runner image it drew rather than whether the tree is current.
+      - name: Regenerate
+        run: make proto format
+
+      - name: Verify no drift
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "make proto produced a diff. Run 'make proto format' locally and commit the result."
             git status --short
             git diff
             exit 1

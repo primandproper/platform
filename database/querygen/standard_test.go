@@ -1,6 +1,7 @@
 package querygen
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -541,6 +542,26 @@ func TestStandardCRUD_panics(T *testing.T) {
 		err := recovered(func() { pg().StandardCRUD("things", []string{"name"}) })
 
 		must.ErrorIs(t, err, ErrMissingIDColumn)
+	})
+
+	T.Run("a column set with no id, which the bound statements accept", func(t *testing.T) {
+		t.Parallel()
+
+		// The asymmetry is deliberate and it is this package's one genuine
+		// disagreement with itself about what a table has to look like.
+		// StandardCRUD emits the list, and the list pages by keyset over the
+		// id; the single-row statements only have to address a row, which a
+		// natural key does.
+		columns := compositeColumns()
+
+		err := recovered(func() { pg().StandardCRUD(compositeTable, columns) })
+
+		must.ErrorIs(t, err, ErrMissingIDColumn)
+		test.False(t, errors.Is(err, ErrUnaddressableRow))
+
+		err = recovered(func() { _ = pg().BoundGet(compositeTable, columns, compositeKey()...) })
+
+		must.NoError(t, err)
 	})
 
 	T.Run("two queries renamed onto the same name", func(t *testing.T) {
