@@ -7,7 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database"
 )
 
-// The scan side of the projections in queries.go.
+// The scan side of the column lists in identity/internal/queries.
 //
 // Each entity has an "aux" type holding the nullable columns the domain type
 // carries as pointers, a targets method producing the destinations for one
@@ -16,6 +16,74 @@ import (
 // without a second copy of either column list — a copy that would drift from
 // this one silently, since a mismatched projection is a runtime scan error
 // rather than a compile error.
+
+// pageRow is one row of a rendered list query: the value, and the two counts
+// the statement carries beside it.
+//
+// The counts ride on the rows rather than arriving from a second query, which
+// is what makes a page and the number describing it come from one snapshot of
+// the table. It also means a page with no rows carries no counts — see
+// filtering.Drain, which is what reports that as unknown rather than as zero.
+type pageRow[T any] struct {
+	value    *T
+	filtered int64
+	total    int64
+}
+
+// countingScanner appends the two count destinations to whatever projection the
+// scanner it wraps asks for.
+//
+// This is what lets a page be scanned by the single-row scanner rather than by
+// a second one that repeats its column list. A second scanner would be the
+// exact mistake this file's header describes: a projection paired to a Scan by
+// eye, where a mismatch is a runtime error rather than a compile error, and the
+// page read is the one that has thirty chances per request to hit it.
+type countingScanner struct {
+	inner    database.Scanner
+	filtered int64
+	total    int64
+}
+
+func (c *countingScanner) Scan(dest ...any) error {
+	return c.inner.Scan(append(dest, &c.filtered, &c.total)...)
+}
+
+// scanPage adapts a single-row scanner into one that reads a list query's row,
+// counts included.
+func scanPage[T any](scan func(database.Scanner) (*T, error)) func(database.Scanner) (pageRow[T], error) {
+	return func(scanner database.Scanner) (pageRow[T], error) {
+		counting := &countingScanner{inner: scanner}
+
+		value, err := scan(counting)
+		if err != nil {
+			return pageRow[T]{}, err
+		}
+
+		return pageRow[T]{value: value, filtered: counting.filtered, total: counting.total}, nil
+	}
+}
+
+// pageCounts reads the counts off a row, for filtering.Drain.
+func pageCounts[T any](row pageRow[T]) (filtered, total int64) {
+	return row.filtered, row.total
+}
+
+// pageValue reads the value off a row, for filtering.Drain. The value is
+// returned as it stands rather than copied, so whatever a caller did to the
+// slice of pointers before draining — attaching roles, redacting — is what the
+// page carries.
+func pageValue[T any](row pageRow[T]) *T { return row.value }
+
+// pageValues collects a page's values, for the passes a caller makes over them
+// before draining.
+func pageValues[T any](rows []pageRow[T]) []*T {
+	values := make([]*T, 0, len(rows))
+	for _, row := range rows {
+		values = append(values, row.value)
+	}
+
+	return values
+}
 
 // timePtr turns a nullable timestamp column into the *time.Time the domain
 // types carry, in UTC.
@@ -48,7 +116,7 @@ func stringPtr(ns sql.NullString) *string {
 	return &s
 }
 
-// userAux holds the columns of userColumns that the User carries as pointers or
+// userAux holds the user columns that the User carries as pointers or
 // as a named type.
 type userAux struct {
 	status        string
@@ -61,7 +129,7 @@ type userAux struct {
 	archivedAt    sql.NullTime
 }
 
-// targets returns one destination per column of userColumns, in order.
+// targets returns one destination per column of queries.Users.Columns, in order.
 func (a *userAux) targets(u *User) []any {
 	return []any{
 		&u.ID, &u.Scope, &u.Username, &u.EmailAddress,
@@ -88,7 +156,7 @@ func (a *userAux) apply(u *User) {
 	u.ArchivedAt = timePtr(a.archivedAt)
 }
 
-// scanUser projects one row of userColumns.
+// scanUser projects one row of queries.Users.Columns.
 func scanUser(scanner database.Scanner) (*User, error) {
 	var (
 		user User
@@ -104,7 +172,7 @@ func scanUser(scanner database.Scanner) (*User, error) {
 	return &user, nil
 }
 
-// accountAux holds the nullable columns of accountColumns.
+// accountAux holds the nullable account columns.
 type accountAux struct {
 	syncedAt      sql.NullTime
 	lastUpdatedAt sql.NullTime
@@ -113,7 +181,7 @@ type accountAux struct {
 	planID        sql.NullString
 }
 
-// targets returns one destination per column of accountColumns, in order.
+// targets returns one destination per column of queries.Accounts.Columns, in order.
 func (a *accountAux) targets(account *Account) []any {
 	return []any{
 		&account.ID, &account.Scope, &account.Name, &account.OwnerUserID, &a.status,
@@ -136,7 +204,7 @@ func (a *accountAux) apply(account *Account) {
 	account.ArchivedAt = timePtr(a.archivedAt)
 }
 
-// scanAccount projects one row of accountColumns.
+// scanAccount projects one row of queries.Accounts.Columns.
 func scanAccount(scanner database.Scanner) (*Account, error) {
 	var (
 		account Account
@@ -152,13 +220,13 @@ func scanAccount(scanner database.Scanner) (*Account, error) {
 	return &account, nil
 }
 
-// membershipAux holds the nullable columns of membershipColumns.
+// membershipAux holds the nullable membership columns.
 type membershipAux struct {
 	lastUpdatedAt sql.NullTime
 	archivedAt    sql.NullTime
 }
 
-// targets returns one destination per column of membershipColumns, in order.
+// targets returns one destination per column of queries.Memberships.Columns, in order.
 func (a *membershipAux) targets(m *Membership) []any {
 	return []any{
 		&m.ID, &m.Scope,
@@ -174,7 +242,7 @@ func (a *membershipAux) apply(m *Membership) {
 	m.ArchivedAt = timePtr(a.archivedAt)
 }
 
-// scanMembership projects one row of membershipColumns. Roles are not in the
+// scanMembership projects one row of queries.Memberships.Columns. Roles are not in the
 // projection — they live in their own table and are read for a whole page at
 // once.
 func scanMembership(scanner database.Scanner) (*Membership, error) {
@@ -192,8 +260,8 @@ func scanMembership(scanner database.Scanner) (*Membership, error) {
 	return &membership, nil
 }
 
-// scanMembershipWithUser projects the roster join — membershipColumns then
-// userColumns — in one Scan, and redacts the user before it leaves.
+// scanMembershipWithUser projects the roster join — the membership columns
+// then the user columns — in one Scan, and redacts the user before it leaves.
 //
 // The redaction is here rather than at the call site because this is the value a
 // roster page is made of, and a roster is the read most likely to reach a
@@ -216,7 +284,7 @@ func scanMembershipWithUser(scanner database.Scanner) (*MembershipWithUser, erro
 	return &MembershipWithUser{Membership: membership, User: user.Redacted()}, nil
 }
 
-// invitationAux holds the nullable columns of invitationColumns.
+// invitationAux holds the nullable invitation columns.
 type invitationAux struct {
 	lastUpdatedAt sql.NullTime
 	archivedAt    sql.NullTime
@@ -224,7 +292,7 @@ type invitationAux struct {
 	toUser        sql.NullString
 }
 
-// targets returns one destination per column of invitationColumns, in order.
+// targets returns one destination per column of queries.Invitations.Columns, in order.
 func (a *invitationAux) targets(i *Invitation) []any {
 	return []any{
 		&i.ID, &i.Scope, &i.BelongsToAccount,
@@ -244,7 +312,7 @@ func (a *invitationAux) apply(i *Invitation) {
 	i.ArchivedAt = timePtr(a.archivedAt)
 }
 
-// scanInvitation projects one row of invitationColumns.
+// scanInvitation projects one row of queries.Invitations.Columns.
 func scanInvitation(scanner database.Scanner) (*Invitation, error) {
 	var (
 		invitation Invitation

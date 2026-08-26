@@ -9,6 +9,7 @@ import (
 	"github.com/primandproper/platform-go/v13/clock"
 	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/database/dialect"
+	"github.com/primandproper/platform-go/v13/database/querygen"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identifiers"
@@ -46,6 +47,7 @@ var _ Store = (*SQLStore)(nil)
 type SQLStore struct {
 	client database.Client
 	tables *tables
+	stmts  *statements
 	o11y   observability.Observer
 	clock  clock.Clock
 
@@ -95,6 +97,11 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	if err := migrations.ValidatePrefix(s.tables.prefix()); err != nil {
 		return nil, err
 	}
+
+	// Rendered once, here, rather than per call. The prefix is settled by now
+	// and the dialect came off the client, which are the only two things the
+	// conventional statements do not already know — see statements.go.
+	s.stmts = newStatements(d, s.tables)
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
 
@@ -431,27 +438,103 @@ func (s *SQLStore) liveMembershipCount(ctx context.Context, q database.SQLQueryE
 	return count, nil
 }
 
-// pageWindow reads the cursor and limit a page query binds out of a filter,
-// defaulting a nil one.
+// pageFilter is the filter a paged read is answered under: the caller's, with
+// the page-size ceiling every other paged read in this module applies.
 //
-// The limit goes through the filtering package's own clamp rather than being
-// read straight off the filter, so a caller that asked for fifty thousand rows
-// gets the ceiling every other paged read in this module applies.
-func pageWindow(filter *filtering.QueryFilter) (normalized *filtering.QueryFilter, cursor string, limit int) {
+// It works on a copy. The clamp has to be applied to what the query binds and
+// to what the result reports, and doing that by writing through the caller's
+// pointer would hand them back a filter they did not pass — a store that
+// rewrites its argument is a store whose caller cannot reuse one.
+//
+// A page size that is present and zero is left alone and returns no rows, which
+// is the loud reading of an explicit zero and the same distinction
+// filtering.ClampResponseSize draws. Only absence is defaulted.
+func pageFilter(filter *filtering.QueryFilter) *filtering.QueryFilter {
 	if filter == nil {
-		filter = filtering.DefaultQueryFilter()
+		return filtering.DefaultQueryFilter()
 	}
 
-	limit = int(filtering.DefaultQueryFilterLimit)
-	if filter.MaxResponseSize != nil {
-		limit = int(filtering.ClampResponseSize(uint64(*filter.MaxResponseSize)))
+	bounded := *filter
+
+	size := uint16(filtering.DefaultQueryFilterLimit)
+	if bounded.MaxResponseSize != nil {
+		size = filtering.ClampResponseSize(uint64(*bounded.MaxResponseSize))
 	}
 
-	if filter.Cursor != nil {
-		cursor = *filter.Cursor
+	bounded.MaxResponseSize = &size
+
+	return &bounded
+}
+
+// pageWindow reads the cursor and limit a hand-written page query binds out of
+// a filter, through the same clamp the rendered ones go through.
+//
+// It serves the reads querygen does not emit — the username prefix search and
+// the two joins — which take the cursor and the limit as ordinary arguments
+// rather than through Generator.BindFilter.
+func pageWindow(filter *filtering.QueryFilter) (normalized *filtering.QueryFilter, cursor string, limit int) {
+	normalized = pageFilter(filter)
+
+	if normalized.Cursor != nil {
+		cursor = *normalized.Cursor
 	}
 
-	return filter, cursor, limit
+	return normalized, cursor, int(*normalized.MaxResponseSize)
+}
+
+// execBound runs a rendered write that must touch a row, binding its arguments
+// by name first.
+//
+// It is execExpectingRow with the binding in front of it, because the two
+// belong together: a Bound holds names rather than values, so every one of
+// these writes is a Bind and an Exec, and splitting them across the call sites
+// would be nine copies of the same two lines.
+func (s *SQLStore) execBound(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	statement querygen.Bound,
+	values map[string]any,
+	missing error,
+	operation string,
+) error {
+	args, err := argsFor(statement, values, operation)
+	if err != nil {
+		return err
+	}
+
+	return s.execExpectingRow(ctx, op, q, statement.SQL, args, missing, operation)
+}
+
+// stampCreatedAt reads back the creation time the database assigned and writes
+// it onto the value the caller handed over.
+//
+// The column is the database's — see identity/internal/queries — so the create
+// does not carry it, and the alternative to this read is a caller whose struct
+// says 0001-01-01 for a row that was written a moment ago. That is the worse
+// answer by some distance: CreatedAt is exported and a service serializes the
+// value it just created straight into a response, where a zero time renders as
+// a date rather than reading as an absence. So the create reads it back, and
+// the field means what it says on both sides of the call.
+//
+// It costs one round trip inside a transaction the write already needed, and it
+// reads its own uncommitted row on all three servers.
+func (s *SQLStore) stampCreatedAt(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	table, id string,
+	at *time.Time,
+) error {
+	query, args := s.tables.buildSelectCreatedAt(s.dialect, table, id)
+
+	var created time.Time
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&created); err != nil {
+		return platformerrors.Wrap(err, "reading back the assigned creation time")
+	}
+
+	*at = created.UTC()
+
+	return nil
 }
 
 // execExpectingRow runs a write that must touch a row, mapping "touched

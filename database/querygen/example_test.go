@@ -94,7 +94,7 @@ func ExampleGenerator_FilterConditions() {
 	// 	AND things.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
 	// 	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR things.archived_at IS NULL)
 	// 	AND things.name ILIKE '%' || sqlc.arg(name_query)::text || '%'
-	// 	AND things.id > COALESCE(sqlc.narg(cursor), '')
+	// 	AND things.id > COALESCE(sqlc.narg(page_cursor), '')
 }
 
 // The registry is the list of tables an application has, which is not the same

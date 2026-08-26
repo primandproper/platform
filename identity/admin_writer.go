@@ -76,10 +76,8 @@ func (s *SQLStore) SetUserServiceRoles(ctx context.Context, scope tenancy.Scope,
 	// writes rows nothing will ever read and reports success — and the scope is
 	// the part that makes "does not exist" the common case rather than a typo.
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		query, args := s.tables.buildSelectUser(s.dialect, scope, userID)
-
-		if _, err := scanUser(q.QueryRowContext(ctx, query, args...)); err != nil {
-			return notFound(err, ErrUserNotFound)
+		if _, err := s.readUser(ctx, q, scope, userID); err != nil {
+			return err
 		}
 
 		return s.replaceRoles(ctx, q, s.tables.userRoles, userIDColumn, userID, roles)
@@ -105,8 +103,8 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 	now := s.now()
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		query, args := s.tables.buildArchiveUser(s.dialect, scope, userID, now)
-		if err := s.execExpectingRow(ctx, op, q, query, args, ErrUserNotFound, "archiving identity user"); err != nil {
+		if err := s.execBound(ctx, op, q, s.stmts.archiveUser, keyed(scope, userID),
+			ErrUserNotFound, "archiving identity user"); err != nil {
 			return err
 		}
 
@@ -114,7 +112,7 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 		// memberships still appears on the rosters of the accounts they belonged
 		// to, which is the state an application discovers when a deleted
 		// colleague is still listed.
-		query, args = s.tables.buildArchiveMembershipsBy(s.dialect, membershipUserColumn, scope, userID, now)
+		query, args := s.tables.buildArchiveMembershipsBy(s.dialect, membershipUserColumn, scope, userID, now)
 		if _, err := q.ExecContext(ctx, query, args...); err != nil {
 			return platformerrors.Wrap(err, "archiving identity memberships")
 		}
@@ -180,15 +178,15 @@ func (s *SQLStore) ArchiveAccount(ctx context.Context, scope tenancy.Scope, acco
 	now := s.now()
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		query, args := s.tables.buildArchiveAccount(s.dialect, scope, accountID, now)
-		if err := s.execExpectingRow(ctx, op, q, query, args, ErrAccountNotFound, "archiving identity account"); err != nil {
+		if err := s.execBound(ctx, op, q, s.stmts.archiveAccount, keyed(scope, accountID),
+			ErrAccountNotFound, "archiving identity account"); err != nil {
 			return err
 		}
 
 		// The memberships go with it, in the same transaction. Members left live
 		// against an archived account keep it in their switcher and keep
 		// resolving permissions through it.
-		query, args = s.tables.buildArchiveMembershipsBy(s.dialect, membershipAccountColumn, scope, accountID, now)
+		query, args := s.tables.buildArchiveMembershipsBy(s.dialect, membershipAccountColumn, scope, accountID, now)
 		if _, err := q.ExecContext(ctx, query, args...); err != nil {
 			return platformerrors.Wrap(err, "archiving identity memberships")
 		}

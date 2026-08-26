@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '**/*.go'
+      - '**/*.sql'
       - '**/*.proto'
       - .protoc-version
       - go.mod
@@ -39,6 +40,7 @@ jobs:
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             echo "go generate produced a diff. Run 'make generate' locally and commit the result."
+            echo "A _generated.sql under a package's internal/queries is generated too — edit the column list, not the SQL."
             git status --short
             git diff
             exit 1

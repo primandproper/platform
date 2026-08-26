@@ -31,13 +31,21 @@ import (
 var ErrUnboundableStatement = platformerrors.New("statement cannot be rendered as bound SQL")
 
 // sqlcArgument matches an argument reference in emitted SQL: the required and
-// nullable forms, and the set form that has no single rendering.
+// nullable forms, the set form that has no single rendering, and the bare `?`
+// that is MySQL's page size.
 //
 // The name alphabet admits '#' because sqlc's own expansion of a set synthesizes
 // one name per element, and a synthetic name has to be unmistakable for a real
 // one. No identifier dialect.ValidIdentifier accepts contains a '#', so the two
 // cannot collide.
-var sqlcArgument = regexp.MustCompile(`sqlc\.(n?arg|slice)\(([a-zA-Z0-9_#]+)\)`)
+//
+// The bare marker is here because one argument cannot be named in the SQL that
+// declares it: MySQL's grammar takes a placeholder after LIMIT and nothing else,
+// so Generator.limitClause writes the marker itself. It is unambiguous — no
+// other fragment this package emits contains a '?', and LIMIT is the clause a
+// statement ends on, so the marker is matched where it appears like every other
+// and lands last in Bound.Args.
+var sqlcArgument = regexp.MustCompile(`sqlc\.(n?arg|slice)\(([a-zA-Z0-9_#]+)\)|\?`)
 
 // bindArguments rewrites a statement's sqlc argument references into d's bind
 // markers, returning the statement a driver takes and the argument each marker
@@ -88,6 +96,19 @@ func bindArguments(d dialect.Dialect, statement string) (sql string, args []stri
 	sql = sqlcArgument.ReplaceAllStringFunc(statement, func(reference string) string {
 		parts := sqlcArgument.FindStringSubmatch(reference)
 		kind, name := parts[1], parts[2]
+
+		// The bare marker, which only MySQL's limit clause emits — it stands
+		// for the page size and is numbered here like a named reference. On
+		// any other dialect a '?' in a statement this package rendered is a
+		// marker somebody placed by hand, and the name it stands for is not
+		// recoverable, so it says so rather than binding the page size to it.
+		if kind == "" {
+			if d != dialect.MySQL {
+				panic(platformerrors.Wrapf(ErrUnboundableStatement, "querygen: %s statement contains an unnamed bind marker", d))
+			}
+
+			name = LimitArg
+		}
 
 		if kind == "slice" {
 			panic(platformerrors.Wrapf(ErrUnboundableStatement, "querygen: argument %q is a set", name))
@@ -244,7 +265,7 @@ func (g *Generator) BoundCreate(table string, insertColumns, nullable []string) 
 // keyed on a natural key wants every column of that key out of it, since
 // ForUpdate subtracts the id and knows nothing of the rest.
 func (g *Generator) BoundUpdate(table string, columns, updateColumns, nullable []string, extra ...Match) Bound {
-	return g.bound(updateStatement(table, columns, updateColumns, "", nullable, extra...))
+	return g.bound(g.updateStatement(table, columns, updateColumns, "", nullable, extra...))
 }
 
 // BoundArchive renders the soft delete of one row by id, plus any extra
@@ -258,7 +279,7 @@ func (g *Generator) BoundUpdate(table string, columns, updateColumns, nullable [
 // an already-archived row and reports it as a write — so a caller passes the
 // table's columns rather than a subset chosen for this call.
 func (g *Generator) BoundArchive(table string, columns []string, extra ...Match) Bound {
-	return g.bound(archiveStatement(table, columns, "", extra...))
+	return g.bound(g.archiveStatement(table, columns, "", extra...))
 }
 
 // BindFilter writes a filtering.QueryFilter's values into an argument map under

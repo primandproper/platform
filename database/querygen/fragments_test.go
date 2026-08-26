@@ -50,7 +50,7 @@ func TestGenerator_CursorCondition(T *testing.T) {
 	T.Run("an absent cursor coalesces rather than branching", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, "things.id > COALESCE(sqlc.narg(cursor), '')", pg().CursorCondition("things"))
+		test.EqOp(t, "things.id > COALESCE(sqlc.narg(page_cursor), '')", pg().CursorCondition("things"))
 	})
 }
 
@@ -81,7 +81,7 @@ func TestGenerator_CursorPaginationFragment(T *testing.T) {
 	T.Run("prefixes the predicate with AND, for the tail of a WHERE", func(t *testing.T) {
 		t.Parallel()
 
-		want := "AND things.id > COALESCE(sqlc.narg(cursor), '')\n" +
+		want := "AND things.id > COALESCE(sqlc.narg(page_cursor), '')\n" +
 			"ORDER BY things.id ASC\nLIMIT COALESCE(sqlc.narg(result_limit), 50)"
 
 		test.EqOp(t, want, pg().CursorPaginationFragment("things"))
@@ -97,7 +97,7 @@ func TestGenerator_ReindexScanQuery(T *testing.T) {
 		want := `SELECT things.id
 FROM things
 WHERE things.archived_at IS NULL
-	AND things.id COLLATE "C" > sqlc.arg(cursor)
+	AND things.id COLLATE "C" > sqlc.arg(page_cursor)
 ORDER BY things.id COLLATE "C"
 LIMIT COALESCE(sqlc.narg(result_limit), 50);`
 
@@ -165,7 +165,7 @@ func TestGenerator_FilterConditions(T *testing.T) {
 		OR things.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
 	)
 	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR things.archived_at IS NULL)
-	AND things.id > COALESCE(sqlc.narg(cursor), '')`
+	AND things.id > COALESCE(sqlc.narg(page_cursor), '')`
 
 		test.EqOp(t, want, pg().FilterConditions("things", columnsFor()))
 	})
@@ -189,7 +189,7 @@ func TestGenerator_FilterConditions(T *testing.T) {
 
 		got := pg().FilterConditions("things", []string{IDColumn, "name"})
 
-		test.EqOp(t, "things.id > COALESCE(sqlc.narg(cursor), '')", got)
+		test.EqOp(t, "things.id > COALESCE(sqlc.narg(page_cursor), '')", got)
 	})
 
 	T.Run("places the caller's conditions before the cursor", func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestGenerator_FilterConditions(T *testing.T) {
 
 		got := pg().FilterConditions("things", []string{IDColumn}, "things.kind = sqlc.arg(kind)")
 
-		test.EqOp(t, "things.kind = sqlc.arg(kind)\n\tAND things.id > COALESCE(sqlc.narg(cursor), '')", got)
+		test.EqOp(t, "things.kind = sqlc.arg(kind)\n\tAND things.id > COALESCE(sqlc.narg(page_cursor), '')", got)
 	})
 }
 

@@ -120,5 +120,26 @@ The three writes that make a registration are the three this package makes
 transactional, because a user without an account, or an account without an
 owner, is the failure mode every application discovers in production rather
 than in a test.
+
+# Where the SQL comes from
+
+The conventional statements against users, accounts and invitations — the
+create, the read by id, the filtered page, the update and the archive — are
+rendered by database/querygen at construction, from the column lists in
+identity/internal/queries, with the configured prefix on the table name. They
+are not composed per request and there is no column projection paired to a Scan
+by eye.
+
+The same column lists are rendered a second way by `make generate`, into the
+canonical .sql files beside them, and CI runs sqlc over those against the DDL
+identity/migrations produces. So a column that does not exist is a build
+failure with no database running, where it used to be a scan error at runtime.
+Nothing imports the .sql and nothing executes it: it is the check, not the code.
+
+What remains hand-written is what querygen does not emit — the sign-in reads,
+the field-specific writes, the username prefix search, the roster and account
+joins, the membership upsert, and the status-guarded answer to an invitation.
 */
 package identity
+
+//go:generate go run ./internal/queriesgen

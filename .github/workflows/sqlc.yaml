@@ -1,0 +1,39 @@
+---
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**/*.sql'
+      - '**/*.go'
+      - .sqlc-version
+      - .scripts/sqlc_compile.sh
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+name: sqlc
+jobs:
+  compile:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.27.x']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      # The queries are checked against the schema, with no database running.
+      # It is the half of the SQL story a container test cannot reach cheaply:
+      # a mistyped column here is a compile failure naming the column, where at
+      # runtime it is a scan error naming nothing.
+      - name: Compile the generated queries
+        run: make sqlc_compile

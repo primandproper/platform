@@ -29,10 +29,10 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 
 	op.Set(userIDKey, user.ID).Set(scopeKey, user.Scope.String())
 
-	// The uniqueness checks and the write share a transaction: checking outside
-	// one leaves a window in which the handle is free at the check and taken at
-	// the write, which surfaces as the driver's constraint violation rather than
-	// as ErrUsernameTaken.
+	// The uniqueness checks, the read and the write share a transaction:
+	// checking outside one leaves a window in which the handle is free at the
+	// check and taken at the write, which surfaces as the driver's constraint
+	// violation rather than as ErrUsernameTaken.
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		if err := s.ensureUnique(ctx, q, usernameColumn, user.Scope, user.Username, user.ID, ErrUsernameTaken); err != nil {
 			return err
@@ -42,14 +42,51 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 			return err
 		}
 
-		query, args := s.tables.buildUpdateUser(s.dialect, user, s.now())
+		values, err := s.profileUpdateValues(ctx, q, user)
+		if err != nil {
+			return err
+		}
 
-		return s.execExpectingRow(ctx, op, q, query, args, ErrUserNotFound, "updating identity user")
+		return s.execBound(ctx, op, q, s.stmts.updateUser, values,
+			ErrUserNotFound, "updating identity user")
 	}); err != nil {
 		return op.Error(err, "updating identity user")
 	}
 
 	return nil
+}
+
+// profileUpdateValues assembles what the profile update binds, deciding from the
+// row as it stands what email_address_verified_at should hold afterwards: what
+// it holds now if the address is unchanged, and nothing if it is not.
+//
+// Changing an address has to clear the proof that went with it, or a user could
+// move to an address they have never proven and stay verified. That used to be
+// a CASE inside the UPDATE, comparing the stored address against the new one in
+// the same statement, and the statement querygen renders assigns columns rather
+// than computing them — so the comparison moves here, into the transaction the
+// update already ran in.
+//
+// What that costs is precise and worth stating: the CASE read the stored
+// address as part of the write, where this reads it a moment before. Another
+// transaction proving the address in that gap would have its stamp overwritten
+// by the value read here. The only writer of that column is MarkEmailVerified,
+// which requires a token this update has no reason to be racing, and the read
+// is inside the same transaction as the write — so the window is narrow and the
+// loss is a verification the user can repeat, rather than an unproven address
+// reading as verified, which is the direction that mattered.
+func (s *SQLStore) profileUpdateValues(ctx context.Context, q database.Tx, user *User) (map[string]any, error) {
+	stored, err := s.readUser(ctx, q, user.Scope, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	verifiedAt := stored.EmailAddressVerifiedAt
+	if stored.EmailAddress != user.EmailAddress {
+		verifiedAt = nil
+	}
+
+	return userUpdateValues(user, verifiedAt), nil
 }
 
 // UpdateAccount writes the account's name and billing address.
@@ -67,9 +104,8 @@ func (s *SQLStore) UpdateAccount(ctx context.Context, account *Account) error {
 
 	op.Set(accountIDKey, account.ID).Set(scopeKey, account.Scope.String())
 
-	query, args := s.tables.buildUpdateAccount(s.dialect, account, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrAccountNotFound, "updating identity account"); err != nil {
+	if err := s.execBound(ctx, op, s.client.Writer(), s.stmts.updateAccount, accountUpdateValues(account),
+		ErrAccountNotFound, "updating identity account"); err != nil {
 		return op.Error(err, "updating identity account")
 	}
 

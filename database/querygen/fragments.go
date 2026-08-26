@@ -128,7 +128,7 @@ func (g *Generator) IndexStampQuery(table string) string {
 WHERE %[4]s;`,
 		table,
 		LastIndexedAtColumn,
-		NowExpression,
+		g.storedNow(),
 		g.idSetPredicate(),
 	)
 }

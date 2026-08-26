@@ -2,7 +2,9 @@ package identity
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/filtering"
@@ -42,8 +44,14 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		for _, name := range []string{"ada", "brian", "carol", "dennis"} {
-			createUser(t, store, newUser(name))
+
+		// Written with ascending ids, because the page is ordered by id — the
+		// cursor names a position in an order, and the order is the statement's.
+		var created []*User
+		for i, name := range []string{"ada", "brian", "carol", "dennis"} {
+			user := newUser(name)
+			user.ID = fmt.Sprintf("u_%02d", i)
+			created = append(created, createUser(t, store, user))
 		}
 
 		neighbor := newUser("eve")
@@ -64,19 +72,59 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 			test.EqOp(t, "", user.TwoFactorSecret)
 		}
 
+		// Both counts ride on the rows of the one statement, so the first page
+		// already knows how many there are.
+		filtered, total, known := page.Counts()
+		test.True(t, known)
+		test.EqOp(t, uint64(4), total)
+		test.EqOp(t, uint64(4), filtered)
+
 		next, err := store.ListUsers(t.Context(), testScope, &filtering.QueryFilter{
 			MaxResponseSize: pointer.To(uint16(2)),
-			Cursor:          pointer.To("brian"),
+			Cursor:          pointer.To(created[1].ID),
 		})
 		must.NoError(t, err)
 		must.SliceLen(t, 2, next.Data)
 		test.EqOp(t, "carol", next.Data[0].Username)
 
-		// The neighbor's directory is not in the count.
-		filtered, total, known := next.Counts()
+		// The neighbor's directory is in neither count.
+		filtered, total, known = next.Counts()
 		test.True(t, known)
 		test.EqOp(t, uint64(4), total)
-		test.EqOp(t, uint64(2), filtered)
+		test.EqOp(t, uint64(4), filtered)
+	})
+
+	// The window the hand-written page could not express. It is the reason the
+	// list signatures moved to a filter rather than a cursor and a limit.
+	t.Run("pages the directory through the created window", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		early := createUser(t, store, newUser("ada"))
+
+		// A whole second, not a millisecond: SQLite has no timestamp type, so
+		// its created_at holds the text CURRENT_TIMESTAMP wrote and compares
+		// lexicographically at second granularity — a sub-second cutoff there
+		// is the same string as the row's own stamp and excludes it.
+		cutoff := early.CreatedAt.Add(time.Second)
+
+		before, err := store.ListUsers(t.Context(), testScope, &filtering.QueryFilter{
+			CreatedBefore: pointer.To(cutoff),
+		})
+		must.NoError(t, err)
+		must.SliceLen(t, 1, before.Data)
+
+		after, err := store.ListUsers(t.Context(), testScope, &filtering.QueryFilter{
+			CreatedAfter: pointer.To(cutoff),
+		})
+		must.NoError(t, err)
+		test.SliceEmpty(t, after.Data)
+
+		// An empty page carries no counts, because the counts ride on the rows
+		// — and reporting the resulting zero would be indistinguishable from
+		// "nothing matched".
+		_, _, known := after.Counts()
+		test.False(t, known)
 	})
 
 	t.Run("searches by username prefix", func(t *testing.T) {

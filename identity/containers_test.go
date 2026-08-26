@@ -156,11 +156,11 @@ func assertIndexRefusesDuplicate(t *testing.T, env *storeEnv) {
 
 	duplicate := newUser("ada")
 	duplicate.EmailAddress = "someone-else@example.com"
-	duplicate.CreatedAt = baseTime
 
-	query, args := store.tables.buildInsertUser(store.dialect, duplicate, baseTime)
+	args, err := store.stmts.createUser.Bind(userValues(duplicate))
+	must.NoError(t, err)
 
-	_, err := store.client.Writer().ExecContext(t.Context(), query, args...)
+	_, err = store.client.Writer().ExecContext(t.Context(), store.stmts.createUser.SQL, args...)
 	must.Error(t, err)
 }
 

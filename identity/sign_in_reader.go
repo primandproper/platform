@@ -35,14 +35,8 @@ func (s *SQLStore) GetPrincipal(ctx context.Context, scope tenancy.Scope, userID
 		return nil, op.Error(err, "reading identity principal")
 	}
 
-	query, args := s.tables.buildSelectUser(s.dialect, scope, userID)
-
-	user, err := scanUser(s.client.Reader().QueryRowContext(ctx, query, args...))
+	user, err := s.readUser(ctx, s.client.Reader(), scope, userID)
 	if err != nil {
-		return nil, op.Error(notFound(err, ErrUserNotFound), "reading identity principal")
-	}
-
-	if err = s.attachServiceRoles(ctx, s.client.Reader(), []*User{user}); err != nil {
 		return nil, op.Error(err, "reading identity principal")
 	}
 

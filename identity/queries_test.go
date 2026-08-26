@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
+	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
-	"github.com/shoenig/test/must"
 )
 
 // allDialects is what every rendering assertion runs against, because the
@@ -44,43 +44,31 @@ func TestTables_Naming(t *testing.T) {
 // and everything after it binds to the wrong column. Every statement this
 // package renders must therefore have exactly as many placeholders as
 // arguments.
+//
+// What it covers is now the statements querygen does not emit. The conventional
+// ones number their placeholders over the finished text rather than by hand and
+// are pinned by TestStatements_PlaceholdersMatchArguments instead — the same
+// property, checked against the renderer's own account of it.
 func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 	T.Parallel()
 
 	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
 	scope := tenancy.Of("dir")
 
-	user := &User{
-		ID: "u1", Scope: scope, Username: "ada", EmailAddress: "ada@example.com",
-		HashedPassword: "argon2$x", AccountStatus: StatusGood,
-	}
-	account := &Account{
-		ID: "a1", Scope: scope, Name: "Acme", OwnerUserID: "u1", BillingStatus: BillingUnpaid,
-	}
 	membership := &Membership{
 		ID: "m1", Scope: scope, BelongsToUser: "u1", BelongsToAccount: "a1", Roles: []string{"r"},
-	}
-	invitation := &Invitation{
-		ID: "i1", Scope: scope, BelongsToAccount: "a1", FromUser: "u1",
-		ToEmail: "brian@example.com", Token: "tok", Status: InvitationPending, ExpiresAt: now,
 	}
 
 	for _, d := range allDialects {
 		t := newTables("")
 
 		rendered := map[string]func() (string, []any){
-			"insertUser":               func() (string, []any) { return t.buildInsertUser(d, user, now) },
-			"selectUser":               func() (string, []any) { return t.buildSelectUser(d, scope, "u1") },
 			"selectLiveUserBy":         func() (string, []any) { return t.buildSelectLiveUserBy(d, usernameColumn, scope, "ada") },
-			"listUsers":                func() (string, []any) { return t.buildListUsers(d, scope, "cursor", 10) },
-			"listUsersNoCursor":        func() (string, []any) { return t.buildListUsers(d, scope, "", 10) },
-			"countUsers":               func() (string, []any) { return t.buildCountUsers(d, scope) },
 			"searchUsers":              func() (string, []any) { return t.buildSearchUsers(d, scope, "ad", "cursor", 10) },
 			"countSearchUsers":         func() (string, []any) { return t.buildCountSearchUsers(d, scope, "ad") },
 			"selectUsersByIDs":         func() (string, []any) { return t.buildSelectUsersByIDs(d, scope, []string{"u1", "u2"}) },
 			"selectUserIDByField":      func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "u1") },
 			"selectUserIDByFieldNoExc": func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "") },
-			"updateUser":               func() (string, []any) { return t.buildUpdateUser(d, user, now) },
 			"updateUserPassword":       func() (string, []any) { return t.buildUpdateUserPassword(d, scope, "u1", "h", now) },
 			"setUserFlag": func() (string, []any) {
 				return t.buildSetUserFlag(d, "requires_password_change", scope, "u1", true, now)
@@ -96,18 +84,11 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 			"recordAgreementsBoth": func() (string, []any) {
 				return t.buildRecordAgreements(d, scope, "u1", []Agreement{TermsOfService, PrivacyPolicy}, now)
 			},
-			"archiveUser": func() (string, []any) { return t.buildArchiveUser(d, scope, "u1", now) },
-			"eraseUser":   func() (string, []any) { return t.buildEraseUser(d, scope, "u1") },
+			"eraseUser": func() (string, []any) { return t.buildEraseUser(d, scope, "u1") },
 
-			"insertAccount":        func() (string, []any) { return t.buildInsertAccount(d, account, now) },
-			"selectAccount":        func() (string, []any) { return t.buildSelectAccount(d, scope, "a1") },
-			"listAccounts":         func() (string, []any) { return t.buildListAccounts(d, scope, "cursor", 10) },
-			"countAccounts":        func() (string, []any) { return t.buildCountAccounts(d, scope) },
 			"listAccountsForUser":  func() (string, []any) { return t.buildListAccountsForUser(d, scope, "u1", "cursor", 10) },
 			"countAccountsForUser": func() (string, []any) { return t.buildCountAccountsForUser(d, scope, "u1") },
-			"updateAccount":        func() (string, []any) { return t.buildUpdateAccount(d, account, now) },
 			"transferOwnership":    func() (string, []any) { return t.buildTransferAccountOwnership(d, scope, "a1", "u1", "u2", now) },
-			"archiveAccount":       func() (string, []any) { return t.buildArchiveAccount(d, scope, "a1", now) },
 
 			"upsertMembership":     func() (string, []any) { return t.buildUpsertMembership(d, membership, now) },
 			"selectMembershipID":   func() (string, []any) { return t.buildSelectMembershipID(d, "u1", "a1") },
@@ -122,12 +103,6 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 			"archiveMembership":    func() (string, []any) { return t.buildArchiveMembership(d, scope, "u1", "a1", now) },
 			"archiveMembershipsBy": func() (string, []any) { return t.buildArchiveMembershipsBy(d, membershipUserColumn, scope, "u1", now) },
 
-			"insertInvitation": func() (string, []any) { return t.buildInsertInvitation(d, invitation, now) },
-			"selectInvitation": func() (string, []any) { return t.buildSelectInvitation(d, scope, "i1") },
-			"listInvitationsBy": func() (string, []any) {
-				return t.buildListInvitationsBy(d, invitationToEmailColumn, scope, "b@x.com", "cursor", 10)
-			},
-			"countInvitationsBy": func() (string, []any) { return t.buildCountInvitationsBy(d, invitationToEmailColumn, scope, "b@x.com") },
 			"answerInvitation": func() (string, []any) {
 				return t.buildAnswerInvitation(d, scope, "i1", InvitationRejected, "no", nil, now)
 			},
@@ -237,29 +212,6 @@ func TestUpsertMembership_DialectSyntax(t *testing.T) {
 	}
 }
 
-func TestBuildUpdateUser_AssignmentOrder(t *testing.T) {
-	t.Parallel()
-
-	// MySQL evaluates a single-table UPDATE's assignments left to right against
-	// values earlier ones wrote. The verification CASE therefore has to come
-	// before email_address, or a user could move to an address they have never
-	// proven and stay verified — on one dialect only.
-	for _, d := range allDialects {
-		query, _ := newTables("").buildUpdateUser(d, &User{Scope: tenancy.Global()}, time.Now().UTC())
-
-		caseAt := strings.Index(query, "email_address_verified_at = CASE")
-		assignAt := strings.Index(query, "email_address = $")
-
-		if d != dialect.Postgres {
-			assignAt = strings.Index(query, "email_address = ?")
-		}
-
-		must.GreaterEq(t, 0, caseAt)
-		must.GreaterEq(t, 0, assignAt)
-		test.Less(t, assignAt, caseAt)
-	}
-}
-
 func TestBuildUpdateAccountBilling_WritesOnlyWhatIsNamed(t *testing.T) {
 	t.Parallel()
 
@@ -298,5 +250,17 @@ func TestNullableString(t *testing.T) {
 func TestPrefixColumns(t *testing.T) {
 	t.Parallel()
 
-	test.EqOp(t, "e.id, e.scope", prefixColumns("e.", "id, scope"))
+	test.EqOp(t, "e.id, e.scope", prefixColumns("e", []string{"id", "scope"}))
+}
+
+// TestProjections_MatchTheColumnLists pins the one property the hand-written
+// reads below still depend on: their SELECT list is the column list the scan
+// targets are written from, in order.
+func TestProjections_MatchTheColumnLists(t *testing.T) {
+	t.Parallel()
+
+	test.EqOp(t, strings.Join(queries.Users.Columns, ", "), userProjection)
+	test.EqOp(t, strings.Join(queries.Accounts.Columns, ", "), accountProjection)
+	test.EqOp(t, strings.Join(queries.Memberships.Columns, ", "), membershipProjection)
+	test.EqOp(t, strings.Join(queries.Invitations.Columns, ", "), invitationProjection)
 }

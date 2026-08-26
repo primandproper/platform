@@ -43,13 +43,19 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 		return op.Error(err, "creating identity user")
 	}
 
-	// Stamped from the store's clock and written back onto the value, so the
-	// caller's copy agrees with the row rather than being whatever zero time it
-	// arrived with.
-	user.CreatedAt = s.now()
+	args, err := argsFor(s.stmts.createUser, userValues(user), "creating identity user")
+	if err != nil {
+		return op.Error(err, "creating identity user")
+	}
 
-	query, args := s.tables.buildInsertUser(s.dialect, user, user.CreatedAt)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	if _, err = q.ExecContext(ctx, s.stmts.createUser.SQL, args...); err != nil {
+		return op.Error(err, "creating identity user")
+	}
+
+	// The creation time is the database's, and it is read back so the caller's
+	// copy agrees with the row rather than holding the zero time — see
+	// SQLStore.stampCreatedAt.
+	if err = s.stampCreatedAt(ctx, q, s.tables.users, user.ID, &user.CreatedAt); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
@@ -58,7 +64,7 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 	// That holds because the parameter is a database.Tx: the sentence used to
 	// be true only of a caller who had opened one, and nothing stopped a caller
 	// who had not.
-	if err := s.replaceRoles(ctx, q, s.tables.userRoles, userIDColumn, user.ID, user.ServiceRoles); err != nil {
+	if err = s.replaceRoles(ctx, q, s.tables.userRoles, userIDColumn, user.ID, user.ServiceRoles); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
@@ -85,12 +91,19 @@ func (s *SQLStore) CreateAccount(ctx context.Context, q database.Tx, account *Ac
 	}
 
 	account.ID = newID(account.ID)
-	account.CreatedAt = s.now()
 
 	op.Set(accountIDKey, account.ID).Set(scopeKey, account.Scope.String())
 
-	query, args := s.tables.buildInsertAccount(s.dialect, account, account.CreatedAt)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	args, err := argsFor(s.stmts.createAccount, accountValues(account), "creating identity account")
+	if err != nil {
+		return op.Error(err, "creating identity account")
+	}
+
+	if _, err = q.ExecContext(ctx, s.stmts.createAccount.SQL, args...); err != nil {
+		return op.Error(err, "creating identity account")
+	}
+
+	if err = s.stampCreatedAt(ctx, q, s.tables.accounts, account.ID, &account.CreatedAt); err != nil {
 		return op.Error(err, "creating identity account")
 	}
 

@@ -141,20 +141,57 @@ func TestGenerator_timeHorizon(T *testing.T) {
 	})
 }
 
+func TestGenerator_storedNow(T *testing.T) {
+	T.Parallel()
+
+	T.Run("per dialect", func(t *testing.T) {
+		t.Parallel()
+
+		// MySQL's bare CURRENT_TIMESTAMP is second-granular whatever the column
+		// holds, and MySQL counts rows changed rather than rows matched — so an
+		// update that assigns a row the values it already has, twice inside one
+		// second, reports zero rows and reaches a caller as "not found".
+		test.EqOp(t, "CURRENT_TIMESTAMP(6)", For(dialect.MySQL).storedNow())
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
+			test.EqOp(t, NowExpression, For(d).storedNow(), test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("every stored timestamp goes through it", func(t *testing.T) {
+		t.Parallel()
+
+		// The three columns a statement here assigns a time to. A fourth added
+		// with NowExpression rather than storedNow would be second-granular on
+		// MySQL and nothing would say so.
+		g := For(dialect.MySQL)
+
+		for _, statement := range []string{
+			g.updateStatement("widgets", []string{IDColumn, LastUpdatedAtColumn}, []string{}, "", nil),
+			g.archiveStatement("widgets", []string{IDColumn, ArchivedAtColumn}, ""),
+			g.IndexStampQuery("widgets"),
+		} {
+			test.StrContains(t, statement, g.storedNow())
+			test.StrNotContains(t, statement, "= "+NowExpression+"\n")
+		}
+	})
+}
+
 func TestGenerator_includeArchivedFlag(T *testing.T) {
 	T.Parallel()
 
 	T.Run("per dialect", func(t *testing.T) {
 		t.Parallel()
 
-		// The cast is what makes sqlc generate a *bool on Postgres rather than
-		// an interface{}. MySQL and SQLite have no boolean type to cast to, and
-		// take the COALESCE's type from the false.
+		// Each arm supplies the type sqlc cannot infer from a bare predicate,
+		// in the only spelling that dialect accepts: a cast on Postgres, which
+		// has a boolean to cast to, and a comparison against a literal on the
+		// two that spell one as an integer.
 		test.EqOp(t, `COALESCE(sqlc.narg(include_archived), false)::boolean`,
 			For(dialect.Postgres).includeArchivedFlag())
 
 		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
-			test.EqOp(t, `COALESCE(sqlc.narg(include_archived), false)`,
+			test.EqOp(t, `COALESCE(sqlc.narg(include_archived), false) = true`,
 				For(d).includeArchivedFlag(), test.Sprintf("dialect %q", d))
 		}
 	})
@@ -186,19 +223,23 @@ func TestGenerator_limitClause(T *testing.T) {
 			test.EqOp(t, want, For(d).limitClause(), test.Sprintf("dialect %q", d))
 		}
 
-		// MySQL admits an integer literal or a placeholder after LIMIT and
-		// nothing else, so it binds the size instead of defaulting it.
-		test.EqOp(t, "LIMIT sqlc.arg(result_limit)", For(dialect.MySQL).limitClause())
+		// MySQL admits an integer literal or a bare placeholder after LIMIT and
+		// nothing else — a named argument reference there is a parse error in
+		// MySQL's own parser, which is sqlc's — so it binds the size through
+		// the marker itself instead of defaulting it.
+		test.EqOp(t, "LIMIT ?", For(dialect.MySQL).limitClause())
 	})
 
-	T.Run("names the same argument on every dialect", func(t *testing.T) {
+	T.Run("binds the page size under the same name on every dialect", func(t *testing.T) {
 		t.Parallel()
 
-		// Only the nullability of the generated parameter differs. A dialect
-		// that also renamed the argument would make the difference a rewrite
-		// rather than a type change.
+		// The two that can name the argument do. MySQL cannot, and the point of
+		// the marker being recognized in bindArguments is that a caller still
+		// binds the page size under LimitArg there — so this asserts what a
+		// caller sees rather than what the SQL says.
 		for _, d := range everyDialect() {
-			test.StrContains(t, For(d).limitClause(), "("+LimitArg+")", test.Sprintf("dialect %q", d))
+			_, args := bindArguments(d, "SELECT 1\n"+For(d).limitClause())
+			test.SliceContains(t, args, LimitArg, test.Sprintf("dialect %q", d))
 		}
 	})
 }

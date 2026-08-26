@@ -293,11 +293,11 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	}
 
 	if len(updateColumns) > 0 {
-		queries = append(queries, s.query(UpdateQuery, ExecRowsType, updateStatement(table, columns, updateColumns, s.ownership, s.nullable)))
+		queries = append(queries, s.query(UpdateQuery, ExecRowsType, g.updateStatement(table, columns, updateColumns, s.ownership, s.nullable)))
 	}
 
 	if slices.Contains(columns, ArchivedAtColumn) {
-		queries = append(queries, s.query(ArchiveQuery, ExecRowsType, archiveStatement(table, columns, s.ownership)))
+		queries = append(queries, s.query(ArchiveQuery, ExecRowsType, g.archiveStatement(table, columns, s.ownership)))
 	}
 
 	if slices.Contains(columns, LastIndexedAtColumn) {
@@ -439,14 +439,14 @@ func (g *Generator) listStatement(table string, columns []string, ownership stri
 	)
 }
 
-func updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string, extra ...Match) string {
+func (g *Generator) updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string, extra ...Match) string {
 	assignments := make([]string, 0, len(updateColumns)+1)
 	for _, column := range updateColumns {
 		assignments = append(assignments, fmt.Sprintf("%s = %s", column, binding(column, nullable)))
 	}
 
 	if slices.Contains(columns, LastUpdatedAtColumn) {
-		assignments = append(assignments, fmt.Sprintf("%s = %s", LastUpdatedAtColumn, NowExpression))
+		assignments = append(assignments, fmt.Sprintf("%s = %s", LastUpdatedAtColumn, g.storedNow()))
 	}
 
 	return fmt.Sprintf("UPDATE %s SET\n\t%s\nWHERE %s;",
@@ -461,10 +461,10 @@ func updateStatement(table string, columns, updateColumns []string, ownership st
 // derived from it — and routes through singleRowPredicates rather than building
 // its own list, so there is one rendering of "this row, unarchived, and mine"
 // rather than two that could come to disagree about it.
-func archiveStatement(table string, columns []string, ownership string, extra ...Match) string {
+func (g *Generator) archiveStatement(table string, columns []string, ownership string, extra ...Match) string {
 	return fmt.Sprintf("UPDATE %s SET\n\t%s = %s\nWHERE %s;",
 		table,
-		ArchivedAtColumn, NowExpression,
+		ArchivedAtColumn, g.storedNow(),
 		joinPredicates(singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
 	)
 }

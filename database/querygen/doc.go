@@ -78,11 +78,18 @@ guessed from another, so they are written down here:
 	UpdatedAfter             updatedAfter       updated_after
 	UpdatedBefore            updatedBefore      updated_before
 	IncludeArchived          includeArchived    include_archived
-	Cursor                   cursor             cursor
+	Cursor                   cursor             page_cursor
 	MaxResponseSize          limit              result_limit
 
 The bulk stamp binds one argument that is not a filter field at all: ids, the
 list of row ids to mark as indexed.
+
+The keyset position is page_cursor rather than cursor because CURSOR is a
+reserved word in MySQL — see filtering's own constants for why the name moved
+rather than the dialect being special-cased. MySQL is also the one dialect whose
+page size is bound through no name at all: its grammar takes a bare placeholder
+after LIMIT, so the emitted SQL spells the marker directly and [Bound.Args]
+still reports it as result_limit.
 
 # The same statements, executed
 
