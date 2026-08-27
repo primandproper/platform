@@ -98,11 +98,20 @@ var _ identity.Store = &StoreMock{}
 //			ListUsersByIDsFunc: func(ctx context.Context, scope tenancy.Scope, userIDs []string) ([]*identity.User, error) {
 //				panic("mock out the ListUsersByIDs method")
 //			},
+//			MarkAccountBillingSyncedFunc: func(ctx context.Context, scope tenancy.Scope, accountID string) error {
+//				panic("mock out the MarkAccountBillingSynced method")
+//			},
 //			MarkUserEmailAddressVerifiedFunc: func(ctx context.Context, scope tenancy.Scope, userID string, token string) error {
 //				panic("mock out the MarkUserEmailAddressVerified method")
 //			},
 //			MarkUserTwoFactorSecretVerifiedFunc: func(ctx context.Context, scope tenancy.Scope, userID string) error {
 //				panic("mock out the MarkUserTwoFactorSecretVerified method")
+//			},
+//			RecordAccountSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus, planID string) error {
+//				panic("mock out the RecordAccountSubscription method")
+//			},
+//			RecordAccountSubscriptionEndedFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus) error {
+//				panic("mock out the RecordAccountSubscriptionEnded method")
 //			},
 //			RecordAgreementFunc: func(ctx context.Context, scope tenancy.Scope, userID string, agreements ...identity.Agreement) error {
 //				panic("mock out the RecordAgreement method")
@@ -112,6 +121,12 @@ var _ identity.Store = &StoreMock{}
 //			},
 //			SearchUsersByUsernameFunc: func(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[identity.User], error) {
 //				panic("mock out the SearchUsersByUsername method")
+//			},
+//			SetAccountBillingStatusFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus) error {
+//				panic("mock out the SetAccountBillingStatus method")
+//			},
+//			SetAccountPaymentProcessorCustomerIDFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, customerID string) error {
+//				panic("mock out the SetAccountPaymentProcessorCustomerID method")
 //			},
 //			SetDefaultAccountFunc: func(ctx context.Context, scope tenancy.Scope, userID string, accountID string) error {
 //				panic("mock out the SetDefaultAccount method")
@@ -136,9 +151,6 @@ var _ identity.Store = &StoreMock{}
 //			},
 //			UpdateAccountFunc: func(ctx context.Context, account *identity.Account) error {
 //				panic("mock out the UpdateAccount method")
-//			},
-//			UpdateAccountBillingFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, update *identity.BillingUpdate) error {
-//				panic("mock out the UpdateAccountBilling method")
 //			},
 //			UpdateUserFunc: func(ctx context.Context, user *identity.User) error {
 //				panic("mock out the UpdateUser method")
@@ -234,11 +246,20 @@ type StoreMock struct {
 	// ListUsersByIDsFunc mocks the ListUsersByIDs method.
 	ListUsersByIDsFunc func(ctx context.Context, scope tenancy.Scope, userIDs []string) ([]*identity.User, error)
 
+	// MarkAccountBillingSyncedFunc mocks the MarkAccountBillingSynced method.
+	MarkAccountBillingSyncedFunc func(ctx context.Context, scope tenancy.Scope, accountID string) error
+
 	// MarkUserEmailAddressVerifiedFunc mocks the MarkUserEmailAddressVerified method.
 	MarkUserEmailAddressVerifiedFunc func(ctx context.Context, scope tenancy.Scope, userID string, token string) error
 
 	// MarkUserTwoFactorSecretVerifiedFunc mocks the MarkUserTwoFactorSecretVerified method.
 	MarkUserTwoFactorSecretVerifiedFunc func(ctx context.Context, scope tenancy.Scope, userID string) error
+
+	// RecordAccountSubscriptionFunc mocks the RecordAccountSubscription method.
+	RecordAccountSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus, planID string) error
+
+	// RecordAccountSubscriptionEndedFunc mocks the RecordAccountSubscriptionEnded method.
+	RecordAccountSubscriptionEndedFunc func(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus) error
 
 	// RecordAgreementFunc mocks the RecordAgreement method.
 	RecordAgreementFunc func(ctx context.Context, scope tenancy.Scope, userID string, agreements ...identity.Agreement) error
@@ -248,6 +269,12 @@ type StoreMock struct {
 
 	// SearchUsersByUsernameFunc mocks the SearchUsersByUsername method.
 	SearchUsersByUsernameFunc func(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[identity.User], error)
+
+	// SetAccountBillingStatusFunc mocks the SetAccountBillingStatus method.
+	SetAccountBillingStatusFunc func(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus) error
+
+	// SetAccountPaymentProcessorCustomerIDFunc mocks the SetAccountPaymentProcessorCustomerID method.
+	SetAccountPaymentProcessorCustomerIDFunc func(ctx context.Context, scope tenancy.Scope, accountID string, customerID string) error
 
 	// SetDefaultAccountFunc mocks the SetDefaultAccount method.
 	SetDefaultAccountFunc func(ctx context.Context, scope tenancy.Scope, userID string, accountID string) error
@@ -272,9 +299,6 @@ type StoreMock struct {
 
 	// UpdateAccountFunc mocks the UpdateAccount method.
 	UpdateAccountFunc func(ctx context.Context, account *identity.Account) error
-
-	// UpdateAccountBillingFunc mocks the UpdateAccountBilling method.
-	UpdateAccountBillingFunc func(ctx context.Context, scope tenancy.Scope, accountID string, update *identity.BillingUpdate) error
 
 	// UpdateUserFunc mocks the UpdateUser method.
 	UpdateUserFunc func(ctx context.Context, user *identity.User) error
@@ -537,6 +561,15 @@ type StoreMock struct {
 			// UserIDs is the userIDs argument value.
 			UserIDs []string
 		}
+		// MarkAccountBillingSynced holds details about calls to the MarkAccountBillingSynced method.
+		MarkAccountBillingSynced []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// AccountID is the accountID argument value.
+			AccountID string
+		}
 		// MarkUserEmailAddressVerified holds details about calls to the MarkUserEmailAddressVerified method.
 		MarkUserEmailAddressVerified []struct {
 			// Ctx is the ctx argument value.
@@ -556,6 +589,30 @@ type StoreMock struct {
 			Scope tenancy.Scope
 			// UserID is the userID argument value.
 			UserID string
+		}
+		// RecordAccountSubscription holds details about calls to the RecordAccountSubscription method.
+		RecordAccountSubscription []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// AccountID is the accountID argument value.
+			AccountID string
+			// Status is the status argument value.
+			Status identity.BillingStatus
+			// PlanID is the planID argument value.
+			PlanID string
+		}
+		// RecordAccountSubscriptionEnded holds details about calls to the RecordAccountSubscriptionEnded method.
+		RecordAccountSubscriptionEnded []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// AccountID is the accountID argument value.
+			AccountID string
+			// Status is the status argument value.
+			Status identity.BillingStatus
 		}
 		// RecordAgreement holds details about calls to the RecordAgreement method.
 		RecordAgreement []struct {
@@ -589,6 +646,28 @@ type StoreMock struct {
 			Prefix string
 			// Filter is the filter argument value.
 			Filter *filtering.QueryFilter
+		}
+		// SetAccountBillingStatus holds details about calls to the SetAccountBillingStatus method.
+		SetAccountBillingStatus []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// AccountID is the accountID argument value.
+			AccountID string
+			// Status is the status argument value.
+			Status identity.BillingStatus
+		}
+		// SetAccountPaymentProcessorCustomerID holds details about calls to the SetAccountPaymentProcessorCustomerID method.
+		SetAccountPaymentProcessorCustomerID []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// AccountID is the accountID argument value.
+			AccountID string
+			// CustomerID is the customerID argument value.
+			CustomerID string
 		}
 		// SetDefaultAccount holds details about calls to the SetDefaultAccount method.
 		SetDefaultAccount []struct {
@@ -678,17 +757,6 @@ type StoreMock struct {
 			// Account is the account argument value.
 			Account *identity.Account
 		}
-		// UpdateAccountBilling holds details about calls to the UpdateAccountBilling method.
-		UpdateAccountBilling []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// AccountID is the accountID argument value.
-			AccountID string
-			// Update is the update argument value.
-			Update *identity.BillingUpdate
-		}
 		// UpdateUser holds details about calls to the UpdateUser method.
 		UpdateUser []struct {
 			// Ctx is the ctx argument value.
@@ -757,11 +825,16 @@ type StoreMock struct {
 	lockListMembershipsForUser               sync.RWMutex
 	lockListUsers                            sync.RWMutex
 	lockListUsersByIDs                       sync.RWMutex
+	lockMarkAccountBillingSynced             sync.RWMutex
 	lockMarkUserEmailAddressVerified         sync.RWMutex
 	lockMarkUserTwoFactorSecretVerified      sync.RWMutex
+	lockRecordAccountSubscription            sync.RWMutex
+	lockRecordAccountSubscriptionEnded       sync.RWMutex
 	lockRecordAgreement                      sync.RWMutex
 	lockRemoveMembership                     sync.RWMutex
 	lockSearchUsersByUsername                sync.RWMutex
+	lockSetAccountBillingStatus              sync.RWMutex
+	lockSetAccountPaymentProcessorCustomerID sync.RWMutex
 	lockSetDefaultAccount                    sync.RWMutex
 	lockSetInvitationStatus                  sync.RWMutex
 	lockSetMembershipRoles                   sync.RWMutex
@@ -770,7 +843,6 @@ type StoreMock struct {
 	lockSetUserServiceRoles                  sync.RWMutex
 	lockTransferAccountOwnership             sync.RWMutex
 	lockUpdateAccount                        sync.RWMutex
-	lockUpdateAccountBilling                 sync.RWMutex
 	lockUpdateUser                           sync.RWMutex
 	lockUpdateUserAccountStatus              sync.RWMutex
 	lockUpdateUserPassword                   sync.RWMutex
@@ -1821,6 +1893,46 @@ func (mock *StoreMock) ListUsersByIDsCalls() []struct {
 	return calls
 }
 
+// MarkAccountBillingSynced calls MarkAccountBillingSyncedFunc.
+func (mock *StoreMock) MarkAccountBillingSynced(ctx context.Context, scope tenancy.Scope, accountID string) error {
+	if mock.MarkAccountBillingSyncedFunc == nil {
+		panic("StoreMock.MarkAccountBillingSyncedFunc: method is nil but Store.MarkAccountBillingSynced was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Scope     tenancy.Scope
+		AccountID string
+	}{
+		Ctx:       ctx,
+		Scope:     scope,
+		AccountID: accountID,
+	}
+	mock.lockMarkAccountBillingSynced.Lock()
+	mock.calls.MarkAccountBillingSynced = append(mock.calls.MarkAccountBillingSynced, callInfo)
+	mock.lockMarkAccountBillingSynced.Unlock()
+	return mock.MarkAccountBillingSyncedFunc(ctx, scope, accountID)
+}
+
+// MarkAccountBillingSyncedCalls gets all the calls that were made to MarkAccountBillingSynced.
+// Check the length with:
+//
+//	len(mockedStore.MarkAccountBillingSyncedCalls())
+func (mock *StoreMock) MarkAccountBillingSyncedCalls() []struct {
+	Ctx       context.Context
+	Scope     tenancy.Scope
+	AccountID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Scope     tenancy.Scope
+		AccountID string
+	}
+	mock.lockMarkAccountBillingSynced.RLock()
+	calls = mock.calls.MarkAccountBillingSynced
+	mock.lockMarkAccountBillingSynced.RUnlock()
+	return calls
+}
+
 // MarkUserEmailAddressVerified calls MarkUserEmailAddressVerifiedFunc.
 func (mock *StoreMock) MarkUserEmailAddressVerified(ctx context.Context, scope tenancy.Scope, userID string, token string) error {
 	if mock.MarkUserEmailAddressVerifiedFunc == nil {
@@ -1902,6 +2014,98 @@ func (mock *StoreMock) MarkUserTwoFactorSecretVerifiedCalls() []struct {
 	mock.lockMarkUserTwoFactorSecretVerified.RLock()
 	calls = mock.calls.MarkUserTwoFactorSecretVerified
 	mock.lockMarkUserTwoFactorSecretVerified.RUnlock()
+	return calls
+}
+
+// RecordAccountSubscription calls RecordAccountSubscriptionFunc.
+func (mock *StoreMock) RecordAccountSubscription(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus, planID string) error {
+	if mock.RecordAccountSubscriptionFunc == nil {
+		panic("StoreMock.RecordAccountSubscriptionFunc: method is nil but Store.RecordAccountSubscription was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Scope     tenancy.Scope
+		AccountID string
+		Status    identity.BillingStatus
+		PlanID    string
+	}{
+		Ctx:       ctx,
+		Scope:     scope,
+		AccountID: accountID,
+		Status:    status,
+		PlanID:    planID,
+	}
+	mock.lockRecordAccountSubscription.Lock()
+	mock.calls.RecordAccountSubscription = append(mock.calls.RecordAccountSubscription, callInfo)
+	mock.lockRecordAccountSubscription.Unlock()
+	return mock.RecordAccountSubscriptionFunc(ctx, scope, accountID, status, planID)
+}
+
+// RecordAccountSubscriptionCalls gets all the calls that were made to RecordAccountSubscription.
+// Check the length with:
+//
+//	len(mockedStore.RecordAccountSubscriptionCalls())
+func (mock *StoreMock) RecordAccountSubscriptionCalls() []struct {
+	Ctx       context.Context
+	Scope     tenancy.Scope
+	AccountID string
+	Status    identity.BillingStatus
+	PlanID    string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Scope     tenancy.Scope
+		AccountID string
+		Status    identity.BillingStatus
+		PlanID    string
+	}
+	mock.lockRecordAccountSubscription.RLock()
+	calls = mock.calls.RecordAccountSubscription
+	mock.lockRecordAccountSubscription.RUnlock()
+	return calls
+}
+
+// RecordAccountSubscriptionEnded calls RecordAccountSubscriptionEndedFunc.
+func (mock *StoreMock) RecordAccountSubscriptionEnded(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus) error {
+	if mock.RecordAccountSubscriptionEndedFunc == nil {
+		panic("StoreMock.RecordAccountSubscriptionEndedFunc: method is nil but Store.RecordAccountSubscriptionEnded was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Scope     tenancy.Scope
+		AccountID string
+		Status    identity.BillingStatus
+	}{
+		Ctx:       ctx,
+		Scope:     scope,
+		AccountID: accountID,
+		Status:    status,
+	}
+	mock.lockRecordAccountSubscriptionEnded.Lock()
+	mock.calls.RecordAccountSubscriptionEnded = append(mock.calls.RecordAccountSubscriptionEnded, callInfo)
+	mock.lockRecordAccountSubscriptionEnded.Unlock()
+	return mock.RecordAccountSubscriptionEndedFunc(ctx, scope, accountID, status)
+}
+
+// RecordAccountSubscriptionEndedCalls gets all the calls that were made to RecordAccountSubscriptionEnded.
+// Check the length with:
+//
+//	len(mockedStore.RecordAccountSubscriptionEndedCalls())
+func (mock *StoreMock) RecordAccountSubscriptionEndedCalls() []struct {
+	Ctx       context.Context
+	Scope     tenancy.Scope
+	AccountID string
+	Status    identity.BillingStatus
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Scope     tenancy.Scope
+		AccountID string
+		Status    identity.BillingStatus
+	}
+	mock.lockRecordAccountSubscriptionEnded.RLock()
+	calls = mock.calls.RecordAccountSubscriptionEnded
+	mock.lockRecordAccountSubscriptionEnded.RUnlock()
 	return calls
 }
 
@@ -2034,6 +2238,94 @@ func (mock *StoreMock) SearchUsersByUsernameCalls() []struct {
 	mock.lockSearchUsersByUsername.RLock()
 	calls = mock.calls.SearchUsersByUsername
 	mock.lockSearchUsersByUsername.RUnlock()
+	return calls
+}
+
+// SetAccountBillingStatus calls SetAccountBillingStatusFunc.
+func (mock *StoreMock) SetAccountBillingStatus(ctx context.Context, scope tenancy.Scope, accountID string, status identity.BillingStatus) error {
+	if mock.SetAccountBillingStatusFunc == nil {
+		panic("StoreMock.SetAccountBillingStatusFunc: method is nil but Store.SetAccountBillingStatus was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Scope     tenancy.Scope
+		AccountID string
+		Status    identity.BillingStatus
+	}{
+		Ctx:       ctx,
+		Scope:     scope,
+		AccountID: accountID,
+		Status:    status,
+	}
+	mock.lockSetAccountBillingStatus.Lock()
+	mock.calls.SetAccountBillingStatus = append(mock.calls.SetAccountBillingStatus, callInfo)
+	mock.lockSetAccountBillingStatus.Unlock()
+	return mock.SetAccountBillingStatusFunc(ctx, scope, accountID, status)
+}
+
+// SetAccountBillingStatusCalls gets all the calls that were made to SetAccountBillingStatus.
+// Check the length with:
+//
+//	len(mockedStore.SetAccountBillingStatusCalls())
+func (mock *StoreMock) SetAccountBillingStatusCalls() []struct {
+	Ctx       context.Context
+	Scope     tenancy.Scope
+	AccountID string
+	Status    identity.BillingStatus
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Scope     tenancy.Scope
+		AccountID string
+		Status    identity.BillingStatus
+	}
+	mock.lockSetAccountBillingStatus.RLock()
+	calls = mock.calls.SetAccountBillingStatus
+	mock.lockSetAccountBillingStatus.RUnlock()
+	return calls
+}
+
+// SetAccountPaymentProcessorCustomerID calls SetAccountPaymentProcessorCustomerIDFunc.
+func (mock *StoreMock) SetAccountPaymentProcessorCustomerID(ctx context.Context, scope tenancy.Scope, accountID string, customerID string) error {
+	if mock.SetAccountPaymentProcessorCustomerIDFunc == nil {
+		panic("StoreMock.SetAccountPaymentProcessorCustomerIDFunc: method is nil but Store.SetAccountPaymentProcessorCustomerID was just called")
+	}
+	callInfo := struct {
+		Ctx        context.Context
+		Scope      tenancy.Scope
+		AccountID  string
+		CustomerID string
+	}{
+		Ctx:        ctx,
+		Scope:      scope,
+		AccountID:  accountID,
+		CustomerID: customerID,
+	}
+	mock.lockSetAccountPaymentProcessorCustomerID.Lock()
+	mock.calls.SetAccountPaymentProcessorCustomerID = append(mock.calls.SetAccountPaymentProcessorCustomerID, callInfo)
+	mock.lockSetAccountPaymentProcessorCustomerID.Unlock()
+	return mock.SetAccountPaymentProcessorCustomerIDFunc(ctx, scope, accountID, customerID)
+}
+
+// SetAccountPaymentProcessorCustomerIDCalls gets all the calls that were made to SetAccountPaymentProcessorCustomerID.
+// Check the length with:
+//
+//	len(mockedStore.SetAccountPaymentProcessorCustomerIDCalls())
+func (mock *StoreMock) SetAccountPaymentProcessorCustomerIDCalls() []struct {
+	Ctx        context.Context
+	Scope      tenancy.Scope
+	AccountID  string
+	CustomerID string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		Scope      tenancy.Scope
+		AccountID  string
+		CustomerID string
+	}
+	mock.lockSetAccountPaymentProcessorCustomerID.RLock()
+	calls = mock.calls.SetAccountPaymentProcessorCustomerID
+	mock.lockSetAccountPaymentProcessorCustomerID.RUnlock()
 	return calls
 }
 
@@ -2386,50 +2678,6 @@ func (mock *StoreMock) UpdateAccountCalls() []struct {
 	mock.lockUpdateAccount.RLock()
 	calls = mock.calls.UpdateAccount
 	mock.lockUpdateAccount.RUnlock()
-	return calls
-}
-
-// UpdateAccountBilling calls UpdateAccountBillingFunc.
-func (mock *StoreMock) UpdateAccountBilling(ctx context.Context, scope tenancy.Scope, accountID string, update *identity.BillingUpdate) error {
-	if mock.UpdateAccountBillingFunc == nil {
-		panic("StoreMock.UpdateAccountBillingFunc: method is nil but Store.UpdateAccountBilling was just called")
-	}
-	callInfo := struct {
-		Ctx       context.Context
-		Scope     tenancy.Scope
-		AccountID string
-		Update    *identity.BillingUpdate
-	}{
-		Ctx:       ctx,
-		Scope:     scope,
-		AccountID: accountID,
-		Update:    update,
-	}
-	mock.lockUpdateAccountBilling.Lock()
-	mock.calls.UpdateAccountBilling = append(mock.calls.UpdateAccountBilling, callInfo)
-	mock.lockUpdateAccountBilling.Unlock()
-	return mock.UpdateAccountBillingFunc(ctx, scope, accountID, update)
-}
-
-// UpdateAccountBillingCalls gets all the calls that were made to UpdateAccountBilling.
-// Check the length with:
-//
-//	len(mockedStore.UpdateAccountBillingCalls())
-func (mock *StoreMock) UpdateAccountBillingCalls() []struct {
-	Ctx       context.Context
-	Scope     tenancy.Scope
-	AccountID string
-	Update    *identity.BillingUpdate
-} {
-	var calls []struct {
-		Ctx       context.Context
-		Scope     tenancy.Scope
-		AccountID string
-		Update    *identity.BillingUpdate
-	}
-	mock.lockUpdateAccountBilling.RLock()
-	calls = mock.calls.UpdateAccountBilling
-	mock.lockUpdateAccountBilling.RUnlock()
 	return calls
 }
 

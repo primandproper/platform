@@ -90,13 +90,33 @@ type Querier interface {
 	ListMembershipsForUser(ctx context.Context, db DBTX, arg ListMembershipsForUserParams) ([]ListMembershipsForUserRow, error)
 	// ListUsers runs the :many query.
 	ListUsers(ctx context.Context, db DBTX, arg ListUsersParams) ([]ListUsersRow, error)
+	// MarkAccountBillingSynced runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	MarkAccountBillingSynced(ctx context.Context, db DBTX, arg MarkAccountBillingSyncedParams) (int64, error)
 	// MarkUserEmailAddressVerified runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note
 	// on Querier.
 	MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error)
+	// RecordAccountSubscription runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	RecordAccountSubscription(ctx context.Context, db DBTX, arg RecordAccountSubscriptionParams) (int64, error)
 	// SearchUsersByUsername runs the :many query.
 	SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error)
+	// SetAccountBillingStatus runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	SetAccountBillingStatus(ctx context.Context, db DBTX, arg SetAccountBillingStatusParams) (int64, error)
+	// SetAccountPaymentProcessorCustomerID runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	SetAccountPaymentProcessorCustomerID(ctx context.Context, db DBTX, arg SetAccountPaymentProcessorCustomerIDParams) (int64, error)
 	// SetUserEmailAddressVerificationToken runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

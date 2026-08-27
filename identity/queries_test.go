@@ -137,41 +137,6 @@ func countPlaceholders(query string, d dialect.Dialect) int {
 //go:fix inline
 func ptr[T any](v T) *T { return new(v) }
 
-func TestBuildUpdateAccountBilling_WritesOnlyWhatIsNamed(t *testing.T) {
-	t.Parallel()
-
-	tables := newTables("")
-	now := time.Now().UTC()
-
-	query, args := tables.buildUpdateAccountBilling(dialect.Postgres, tenancy.Global(), "a1", &BillingUpdate{
-		Status: new(BillingPaid),
-	}, now)
-
-	// A processor webhook carrying a status alone must not read-modify-write the
-	// rest and lose what a concurrent one did.
-	test.StrContains(t, query, "billing_status =")
-	test.StrNotContains(t, query, "subscription_plan_id =")
-	test.StrNotContains(t, query, "payment_processor_customer_id =")
-	test.SliceLen(t, 4, args)
-
-	full, fullArgs := tables.buildUpdateAccountBilling(dialect.Postgres, tenancy.Global(), "a1", &BillingUpdate{
-		Status:                     new(BillingTrial),
-		SubscriptionPlanID:         new("plan"),
-		PaymentProcessorCustomerID: new("cus"),
-		SyncedAt:                   &now,
-	}, now)
-	test.StrContains(t, full, "subscription_plan_id =")
-	test.SliceLen(t, 7, fullArgs)
-}
-
-func TestNullableString(t *testing.T) {
-	t.Parallel()
-
-	// A cancelled subscription and one whose ID is blank are different facts.
-	test.Nil(t, nullableString(""))
-	test.EqOp(t, "plan", nullableString("plan"))
-}
-
 // TestProjections_MatchTheColumnLists pins the one property the hand-written
 // reads below still depend on: their SELECT list is the column list the scan
 // targets are written from, in order.

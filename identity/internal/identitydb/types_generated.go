@@ -624,6 +624,13 @@ type ListUsersRow struct {
 	TotalCount                    int64
 }
 
+// MarkAccountBillingSyncedParams are the arguments to MarkAccountBillingSynced.
+type MarkAccountBillingSyncedParams struct {
+	LastPaymentProviderSyncedAt *time.Time
+	ID                          string
+	Scope                       tenancy.Scope
+}
+
 // MarkUserEmailAddressVerifiedParams are the arguments to MarkUserEmailAddressVerified.
 type MarkUserEmailAddressVerifiedParams struct {
 	EmailAddressVerifiedAt               *time.Time
@@ -631,6 +638,15 @@ type MarkUserEmailAddressVerifiedParams struct {
 	ID                                   string
 	Scope                                tenancy.Scope
 	CurrentEmailAddressVerificationToken string
+}
+
+// RecordAccountSubscriptionParams are the arguments to RecordAccountSubscription.
+type RecordAccountSubscriptionParams struct {
+	BillingStatus               string
+	SubscriptionPlanID          *string
+	LastPaymentProviderSyncedAt *time.Time
+	ID                          string
+	Scope                       tenancy.Scope
 }
 
 // SearchUsersByUsernameParams are the arguments to SearchUsersByUsername.
@@ -663,6 +679,20 @@ type SearchUsersByUsernameRow struct {
 	CreatedAt                     time.Time
 	LastUpdatedAt                 *time.Time
 	ArchivedAt                    *time.Time
+}
+
+// SetAccountBillingStatusParams are the arguments to SetAccountBillingStatus.
+type SetAccountBillingStatusParams struct {
+	BillingStatus string
+	ID            string
+	Scope         tenancy.Scope
+}
+
+// SetAccountPaymentProcessorCustomerIDParams are the arguments to SetAccountPaymentProcessorCustomerID.
+type SetAccountPaymentProcessorCustomerIDParams struct {
+	PaymentProcessorCustomerID string
+	ID                         string
+	Scope                      tenancy.Scope
 }
 
 // SetUserEmailAddressVerificationTokenParams are the arguments to SetUserEmailAddressVerificationToken.

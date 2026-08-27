@@ -69,7 +69,10 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"SearchUsersByUsername", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
-		"UpdateUserAccountStatus", "TransferAccountOwnership", "AnswerInvitation",
+		"UpdateUserAccountStatus", "TransferAccountOwnership",
+		"RecordAccountSubscription", "SetAccountBillingStatus",
+		"SetAccountPaymentProcessorCustomerID", "MarkAccountBillingSynced",
+		"AnswerInvitation",
 		"UpsertMembership",
 	}
 
@@ -474,7 +477,11 @@ func TestFieldWrites_NameRealColumns(t *testing.T) {
 			EmailAddressVerifiedAtColumn, UserEmailVerificationTokenColumn,
 			accountStatusColumn, accountStatusExplanationColumn,
 		},
-		&Accounts:    {ownerUserIDColumn},
+		&Accounts: {
+			ownerUserIDColumn,
+			billingStatusColumn, subscriptionPlanIDColumn,
+			paymentProcessorCustomerIDColumn, billingSyncedAtColumn,
+		},
 		&Invitations: {InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
 	}
 
@@ -543,6 +550,85 @@ func TestFieldWrites_GuardsSurvive(T *testing.T) {
 	}
 }
 
+// TestFieldWrites_BillingWritesAreEnumerated pins what replaced the one
+// statement whose SET list was assembled per call.
+//
+// Each statement assigns the columns its event moves and no others, which is
+// what makes a delivery carrying one fact unable to overwrite another's — and
+// what keeps the three columns of a processor delivery in one statement rather
+// than three, since an account paid on the plan it just left is the state a
+// per-column split would pass through. Under the COALESCE(narg, column)
+// encoding a single statement would have needed, the NULL that cancels a plan
+// would mean "leave it alone" and a cancellation would be inexpressible.
+func TestFieldWrites_BillingWritesAreEnumerated(T *testing.T) {
+	T.Parallel()
+
+	// Statement name to the billing columns it assigns, and how each is bound.
+	// The plan is sqlc.narg where the standing is sqlc.arg, which is the
+	// distinction the enumeration exists to keep: the plan's argument decides
+	// what the column becomes, NULL included, rather than whether the column is
+	// written at all.
+	assigned := map[string][]string{
+		"RecordAccountSubscription": {
+			billingStatusColumn + " = sqlc.arg(" + billingStatusColumn + ")",
+			subscriptionPlanIDColumn + " = sqlc.narg(" + subscriptionPlanIDColumn + ")",
+			billingSyncedAtColumn + " = sqlc.narg(" + billingSyncedAtColumn + ")",
+		},
+		"SetAccountBillingStatus": {
+			billingStatusColumn + " = sqlc.arg(" + billingStatusColumn + ")",
+		},
+		"SetAccountPaymentProcessorCustomerID": {
+			paymentProcessorCustomerIDColumn + " = sqlc.arg(" + paymentProcessorCustomerIDColumn + ")",
+		},
+		"MarkAccountBillingSynced": {
+			billingSyncedAtColumn + " = sqlc.narg(" + billingSyncedAtColumn + ")",
+		},
+	}
+
+	// Every billing column, so that what a statement does not assign is read
+	// off the text rather than assumed from the call.
+	billing := []string{
+		billingStatusColumn, subscriptionPlanIDColumn,
+		paymentProcessorCustomerIDColumn, billingSyncedAtColumn,
+	}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var seen []string
+
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				name, _, _ := strings.Cut(statement, " ")
+
+				assignments, ok := assigned[name]
+				if !ok {
+					continue
+				}
+
+				for _, assignment := range assignments {
+					test.StrContains(t, statement, assignment, test.Sprintf("statement %q", name))
+				}
+
+				for _, column := range billing {
+					if slices.ContainsFunc(assignments, func(a string) bool {
+						return strings.HasPrefix(a, column+" ")
+					}) {
+						continue
+					}
+
+					test.StrNotContains(t, statement, column+" = sqlc.",
+						test.Sprintf("statement %q assigns %q as well", name, column))
+				}
+
+				seen = append(seen, name)
+			}
+
+			test.SliceLen(t, len(assigned), seen)
+		})
+	}
+}
+
 // TestFieldWrites_StampLastUpdatedAt pins the convention half: every one of
 // these writes stamps the column from the server's clock, rather than assigning
 // it from a bound value or leaving it behind. A row whose last_updated_at came
@@ -554,7 +640,10 @@ func TestFieldWrites_StampLastUpdatedAt(T *testing.T) {
 	written := []string{
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
-		"UpdateUserAccountStatus", "TransferAccountOwnership", "AnswerInvitation",
+		"UpdateUserAccountStatus", "TransferAccountOwnership",
+		"RecordAccountSubscription", "SetAccountBillingStatus",
+		"SetAccountPaymentProcessorCustomerID", "MarkAccountBillingSynced",
+		"AnswerInvitation",
 	}
 
 	for _, d := range everyDialect {

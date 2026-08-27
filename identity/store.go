@@ -374,7 +374,7 @@ type ProfileWriter interface {
 	// UpdateUser writes no credential: both are changed by flows that do not
 	// hold the rest of the account, and a read-modify-write over them loses
 	// whatever a processor webhook or an ownership transfer did in between. See
-	// UpdateAccountBilling and TransferAccountOwnership.
+	// BillingWriter and TransferAccountOwnership.
 	UpdateAccount(ctx context.Context, account *Account) error
 
 	// RecordAgreement stamps the user's acceptance of one or more documents, as
@@ -480,15 +480,55 @@ type AdminWriter interface {
 // BillingWriter is what a payment processor's webhook handler needs, and
 // nothing else.
 //
-// One method, because that is genuinely the whole surface: a processor tells
-// this application that an account's standing changed, and this is where that
-// lands. A webhook endpoint is unauthenticated and public, so what it can reach
-// is worth being able to state in one line.
+// One method per billing event, and the events are what an application handles
+// rather than what the table holds: a processor reports that a subscription is
+// current on a plan, or that it has ended, or a reconciliation runs and finds
+// nothing moved, or an operator suspends an account, or the account is created
+// at the processor for the first time. A webhook endpoint is unauthenticated
+// and public, so what it can reach is worth being able to enumerate.
+//
+// It used to be one method taking a struct of four optional fields, which is the
+// same set of writes with two differences that both cost. The statement's SET
+// list was assembled per call, so it was dynamic SQL: there was no static text
+// for sqlc to check or for identity/internal/queries to emit. And the encoding
+// of "leave this alone" was a nil, which on the one nullable column of the four
+// collided with the value a cancellation has to write — an update naming no plan
+// and an update cancelling the plan were the same struct.
+//
+// Each method writes the columns its event moves and no others, so a delivery
+// carrying a standing cannot silently restate a plan; and the columns one event
+// does move go in one statement, so there is no intermediate state in which an
+// account is paid on the plan it just left.
 type BillingWriter interface {
-	// UpdateAccountBilling writes only the billing fields the update names, so a
-	// processor webhook carrying a status alone does not have to read the rest
-	// first.
-	UpdateAccountBilling(ctx context.Context, scope tenancy.Scope, accountID string, update *BillingUpdate) error
+	// RecordAccountSubscription writes what a processor delivery reported: the
+	// standing, the plan, and the reconciliation, together. The plan is
+	// required — an ended subscription is RecordAccountSubscriptionEnded, so a
+	// handler passing through an unchecked payload cannot cancel a subscription
+	// while believing it renewed one.
+	RecordAccountSubscription(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus, planID string) error
+
+	// RecordAccountSubscriptionEnded writes the delivery that says there is no
+	// subscription any more: the new standing, no plan, and the reconciliation.
+	// The account is left on no plan rather than on the one it stopped paying
+	// for, which is what an entitlement check downstream would otherwise read.
+	RecordAccountSubscriptionEnded(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus) error
+
+	// SetAccountBillingStatus moves an account between standings without
+	// touching its plan or its reconciliation stamp. This is the operator's
+	// move — a suspension, which no processor reports and so has nothing to
+	// stamp.
+	SetAccountBillingStatus(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus) error
+
+	// SetAccountPaymentProcessorCustomerID attaches the account to its customer
+	// at the processor, which is the write that happens the first time it is
+	// created there. The identifier is required.
+	SetAccountPaymentProcessorCustomerID(ctx context.Context, scope tenancy.Scope, accountID, customerID string) error
+
+	// MarkAccountBillingSynced stamps a reconciliation that moved nothing, as of
+	// the Store's clock. It is the write a reconciler owes the next run: without
+	// it, an account that has been current for a year is indistinguishable from
+	// one nobody has looked at since.
+	MarkAccountBillingSynced(ctx context.Context, scope tenancy.Scope, accountID string) error
 }
 
 // InvitationStore covers an invitation's whole life: issued, looked up,

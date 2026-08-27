@@ -83,17 +83,6 @@ func projection(columns []string) string {
 	return strings.Join(columns, ", ")
 }
 
-// nullableString maps an empty string to a SQL NULL, for the columns where "not
-// set" and "set to nothing" are different facts — a subscription plan that was
-// cancelled versus one named by the empty string.
-func nullableString(s string) any {
-	if s == "" {
-		return nil
-	}
-
-	return s
-}
-
 // binder accumulates a statement's arguments and hands back the placeholder for
 // each as it goes.
 //
@@ -116,7 +105,7 @@ func nullableString(s string) any {
 // against users, accounts and invitations, and now the field-specific and
 // guarded ones beside them, no longer come through here. The password, the
 // flags, the two-factor secret, the verification token, the account status, the
-// ownership transfer and the invitation answer are all
+// ownership transfer, the four billing writes and the invitation answer are all
 // querygen.Generator.UpdateQuery statements in the canonical .sql, executed
 // through the generated querier.
 //
@@ -128,7 +117,6 @@ func nullableString(s string) any {
 //	                               a secret that exists and has not been
 //	                               proven, which is a `<> ''` and an IS NULL
 //	buildRecordAgreements          an update whose SET list is chosen per call
-//	buildUpdateAccountBilling      the same, over the billing columns
 //	buildEraseUser                 a hard DELETE rather than an update
 //	the default-flag maintenance   a clear whose predicate excludes a row
 //	                               rather than matching one
@@ -224,49 +212,6 @@ func (t *tables) buildRecordAgreements(d dialect.Dialect, scope tenancy.Scope, u
 func (t *tables) buildEraseUser(d dialect.Dialect, scope tenancy.Scope, userID string) (query string, args []any) {
 	return fmt.Sprintf("DELETE FROM %s WHERE id = %s AND scope = %s", t.users, d.Placeholder(1), d.Placeholder(2)),
 		[]any{userID, scope}
-}
-
-// ---------------------------------------------------------------- accounts
-
-// buildUpdateAccountBilling writes only the fields the update names, so a
-// processor webhook carrying a status alone does not read-modify-write the rest
-// and lose what another webhook did in between.
-func (t *tables) buildUpdateAccountBilling(d dialect.Dialect, scope tenancy.Scope, accountID string, u *BillingUpdate, now time.Time) (query string, args []any) {
-	assignments := make([]string, 0, 5)
-
-	if u.Status != nil {
-		args = append(args, u.Status.String())
-		assignments = append(assignments, "billing_status = "+d.Placeholder(len(args)))
-	}
-
-	if u.SubscriptionPlanID != nil {
-		args = append(args, nullableString(*u.SubscriptionPlanID))
-		assignments = append(assignments, "subscription_plan_id = "+d.Placeholder(len(args)))
-	}
-
-	if u.PaymentProcessorCustomerID != nil {
-		args = append(args, *u.PaymentProcessorCustomerID)
-		assignments = append(assignments, "payment_processor_customer_id = "+d.Placeholder(len(args)))
-	}
-
-	if u.SyncedAt != nil {
-		args = append(args, u.SyncedAt.UTC())
-		assignments = append(assignments, "last_payment_provider_synced_at = "+d.Placeholder(len(args)))
-	}
-
-	args = append(args, now)
-	assignments = append(assignments, "last_updated_at = "+d.Placeholder(len(args)))
-
-	args = append(args, accountID)
-	where := "id = " + d.Placeholder(len(args))
-
-	args = append(args, scope)
-	where += " AND scope = " + d.Placeholder(len(args))
-
-	return fmt.Sprintf(
-		"UPDATE %s SET %s WHERE %s AND archived_at IS NULL",
-		t.accounts, strings.Join(assignments, ", "), where,
-	), args
 }
 
 // ------------------------------------------------------------ memberships

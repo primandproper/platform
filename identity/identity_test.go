@@ -595,14 +595,3 @@ func TestAccount_TimeZone(T *testing.T) {
 		test.EqOp(t, time.UTC, loc)
 	})
 }
-
-func TestBillingUpdate_Empty(t *testing.T) {
-	t.Parallel()
-
-	// An update that writes nothing would be an UPDATE with no SET clause.
-	test.True(t, (*BillingUpdate)(nil).Empty())
-	test.True(t, (&BillingUpdate{}).Empty())
-
-	status := BillingPaid
-	test.False(t, (&BillingUpdate{Status: &status}).Empty())
-}
