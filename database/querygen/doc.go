@@ -347,6 +347,85 @@ Two sources, one list. A consumer reading that list does not have to know which
 tables came from where, and a table moving from one source to the other does not
 change what comes out.
 
+# The packages that are not on this tier
+
+The registry's problem has a larger version one level up. One tier executes this
+module's SQL: a package renders its statements into a canonical .sql, sqlc checks
+them against that package's own schema on each dialect it serves, and the store
+executes the querier the generator emits. Every package here that owns tables is
+on that tier or is being ported onto it — and "every package" is a claim about a
+set, which is checkable only if the exceptions to it are named. An exemption nobody wrote
+down is indistinguishable from a package somebody missed: both look like a
+package that simply never comes up. The reader who notices reconstructs the list
+by grepping the module for SELECT, which is a survey with a shelf life of one
+branch, and the survey that produced this section had to do exactly that.
+
+So the boundary is stated here, and internal/sqltier is where a build checks it
+is still where this says: it walks the module for the packages holding SQL and
+fails on one no ruling covers, in either direction — a package that grew a
+statement and a ruling that outlived one.
+
+Four packages hold SQL that is not table SQL, and a corpus has nothing to say
+about any of it:
+
+  - database/postgres/tableaccess and database/mysql/tableaccess create users,
+    grant privileges, and read the server's own catalogs. sqlc generates queries
+    against a schema; it has no spelling for CREATE USER or GRANT, and pg_roles
+    is not in any schema this module ships. Each is single-dialect because its
+    statements are, rather than because nobody reached the other two.
+
+  - distributedlock/postgres calls pg_try_advisory_lock and its siblings. The
+    lock is a number the server holds for a session: no table, no schema, and no
+    projection for a generator to type.
+
+  - database/migrate asks a connection which schema its search path resolves to,
+    so migrations of one schema serialize against each other rather than against
+    the whole server. goose owns the bookkeeping table and ships its DDL; this
+    package owns one session-scoped question.
+
+search/vector/pgvector is exempt for a different reason, and the reason is not
+the one that looked likely. Its operators were worth checking rather than
+assuming, and sqlc accepts them: `embedding <=> $1::vector` parses, generates,
+and comes back typed as interface{} on both sides, because a vector is an
+extension type the analyzer resolves nothing for — and a column type override
+reaches the stored column while leaving the distance an ANN search exists to
+return untyped. That alone would only weaken the guarantee. What removes it is
+that the index table is a runtime product of configuration: its name, its
+dimension, and its metadata column's name are all values a caller supplies, and
+the manager issues the CREATE TABLE itself at startup. There is no committed DDL
+for sqlc to check a statement against, and no fixed column name for a statement
+to project.
+
+filtering holds no SQL at all. It was surveyed at one keyword and the keyword is
+a word in a comment: what the package supplies is the argument names a rendered
+statement binds — the seven above — and the conversions that bind them, which is
+why every statement here says created_after rather than inventing a spelling of
+its own. That it holds none is recorded as an assertion rather than left as an
+absence, because an absence goes on reading true after the package stops
+deserving it.
+
+The remaining two are ports rather than exemptions.
+
+authorization/database owns four tables and builds thirteen statements over
+them, which a survey counting functions that return a query and its arguments
+read as zero: these return the query alone, and their arguments are assembled at
+the call site. Roles and permissions carry the convention triple, so the reads
+and the writes over them are this package's ordinary shapes. What the port waits
+on is the rest: the mapping rows between them are the id-less child tables that
+have no delete and no standalone insert here yet, the seed's lookups match a
+bound set rather than a single value, and the resolution query is a recursive
+closure — a shape this package cannot render at all. sqlc is not the obstacle; it
+analyzes that query on all three engines, binding the role names through ANY on
+Postgres and sqlc.slice on the other two.
+
+dataprivacy/auditerasure owns no table. Its three statements — two deletes of a
+subject's audit scopes and the count of what the hash chain will not let go of —
+address the audit log's tables, which the audit package ships the migrations
+for. So they belong in that package's corpus rather than in one of its own: a
+second corpus over somebody else's schema would be a second place a column
+rename has to be noticed. It ports when the audit log does, and it waits on the
+same delete shape.
+
 # include_archived actually includes archived rows
 
 A filtered list's WHERE clause is FilterConditions in its entirety, not an
