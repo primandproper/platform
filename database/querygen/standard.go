@@ -555,12 +555,14 @@ func equalityPredicate(table, column string, qualified bool) string {
 	return matchPredicate(table, Match{Column: column}, qualified)
 }
 
-// matchPredicate renders one match: the column against the argument bound under
-// its own name, equal or unequal.
+// matchPredicate renders one match: the column against its bound argument,
+// equal or unequal.
 //
 // The excluded form binds the same argument under the same name as the included
 // one, so a caller assembling an argument map keys on the column either way and
-// nothing downstream has to know which operator the statement carries.
+// nothing downstream has to know which operator the statement carries. The
+// argument name is the column's unless the match names another — see Match.Arg,
+// which is what a guard naming a column the same statement assigns needs.
 func matchPredicate(table string, match Match, qualified bool) string {
 	name := match.Column
 	if qualified {
@@ -572,7 +574,7 @@ func matchPredicate(table string, match Match, qualified bool) string {
 		operator = "<>"
 	}
 
-	return fmt.Sprintf("%s %s sqlc.arg(%s)", name, operator, match.Column)
+	return fmt.Sprintf("%s %s sqlc.arg(%s)", name, operator, match.argument())
 }
 
 // matchPredicates renders one equality predicate per match.
@@ -585,8 +587,8 @@ func matchPredicate(table string, match Match, qualified bool) string {
 // tenancy scope is.
 func matchPredicates(table string, qualified bool, matches []Match) []string {
 	predicates := make([]string, 0, len(matches))
-	for _, match := range matches {
-		predicates = append(predicates, matchPredicate(table, match, qualified))
+	for i := range matches {
+		predicates = append(predicates, matchPredicate(table, matches[i], qualified))
 	}
 
 	return predicates

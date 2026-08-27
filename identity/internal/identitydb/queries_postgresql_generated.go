@@ -13,6 +13,16 @@ import (
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
+const answerInvitationPostgreSQL = `UPDATE {{prefix}}identity_invitations SET
+	status = $1,
+	note = $2,
+	to_user = $3,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $4
+	AND scope = $5
+	AND status = $6`
+
 const archiveAccountPostgreSQL = `UPDATE {{prefix}}identity_accounts SET
 	archived_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
@@ -616,6 +626,37 @@ WHERE {{prefix}}identity_users.created_at > COALESCE($1, (SELECT CURRENT_TIMESTA
 ORDER BY {{prefix}}identity_users.id ASC
 LIMIT COALESCE($8, 50)`
 
+const markUserEmailAddressVerifiedPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verified_at = $1,
+	email_address_verification_token = $2,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $3
+	AND scope = $4
+	AND email_address_verification_token = $5`
+
+const setUserEmailAddressVerificationTokenPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verification_token = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $2
+	AND scope = $3`
+
+const setUserRequiresPasswordChangePostgreSQL = `UPDATE {{prefix}}identity_users SET
+	requires_password_change = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $2
+	AND scope = $3`
+
+const transferAccountOwnershipPostgreSQL = `UPDATE {{prefix}}identity_accounts SET
+	owner_user_id = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $2
+	AND scope = $3
+	AND owner_user_id = $4`
+
 const updateAccountPostgreSQL = `UPDATE {{prefix}}identity_accounts SET
 	name = $1,
 	address_line1 = $2,
@@ -642,63 +683,121 @@ WHERE archived_at IS NULL
 	AND id = $6
 	AND scope = $7`
 
+const updateUserAccountStatusPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	account_status = $1,
+	account_status_explanation = $2,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $3
+	AND scope = $4`
+
+const updateUserPasswordPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	hashed_password = $1,
+	requires_password_change = $2,
+	password_last_changed_at = $3,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $4
+	AND scope = $5`
+
+const updateUserTwoFactorSecretPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	two_factor_secret = $1,
+	two_factor_secret_verified_at = $2,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $3
+	AND scope = $4`
+
 // postgresqlQueries answers every query in Querier against postgresql.
 type postgresqlQueries struct {
-	archiveAccount                  string
-	archiveUser                     string
-	createAccount                   string
-	createInvitation                string
-	createUser                      string
-	getAccount                      string
-	getAccountCreatedAt             string
-	getInvitation                   string
-	getInvitationCreatedAt          string
-	getMembershipByUserAndAccount   string
-	getMembershipFallbackAccountID  string
-	getMembershipIdbyUserAndAccount string
-	getUser                         string
-	getUserByEmailAddress           string
-	getUserByEmailVerificationToken string
-	getUserByUsername               string
-	getUserCreatedAt                string
-	listAccounts                    string
-	listInvitations                 string
-	listInvitationsByFromUser       string
-	listInvitationsByToEmail        string
-	listUsers                       string
-	updateAccount                   string
-	updateUser                      string
+	answerInvitation                     string
+	archiveAccount                       string
+	archiveUser                          string
+	createAccount                        string
+	createInvitation                     string
+	createUser                           string
+	getAccount                           string
+	getAccountCreatedAt                  string
+	getInvitation                        string
+	getInvitationCreatedAt               string
+	getMembershipByUserAndAccount        string
+	getMembershipFallbackAccountID       string
+	getMembershipIdbyUserAndAccount      string
+	getUser                              string
+	getUserByEmailAddress                string
+	getUserByEmailVerificationToken      string
+	getUserByUsername                    string
+	getUserCreatedAt                     string
+	listAccounts                         string
+	listInvitations                      string
+	listInvitationsByFromUser            string
+	listInvitationsByToEmail             string
+	listUsers                            string
+	markUserEmailAddressVerified         string
+	setUserEmailAddressVerificationToken string
+	setUserRequiresPasswordChange        string
+	transferAccountOwnership             string
+	updateAccount                        string
+	updateUser                           string
+	updateUserAccountStatus              string
+	updateUserPassword                   string
+	updateUserTwoFactorSecret            string
 }
 
 // newPostgreSQL returns the postgresql querier with prefix substituted into every
 // table name the analyzer identified.
 func newPostgreSQL(prefix string) *postgresqlQueries {
 	return &postgresqlQueries{
-		archiveAccount:                  strings.ReplaceAll(archiveAccountPostgreSQL, prefixMarker, prefix),
-		archiveUser:                     strings.ReplaceAll(archiveUserPostgreSQL, prefixMarker, prefix),
-		createAccount:                   strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
-		createInvitation:                strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
-		createUser:                      strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
-		getAccount:                      strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
-		getAccountCreatedAt:             strings.ReplaceAll(getAccountCreatedAtPostgreSQL, prefixMarker, prefix),
-		getInvitation:                   strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
-		getInvitationCreatedAt:          strings.ReplaceAll(getInvitationCreatedAtPostgreSQL, prefixMarker, prefix),
-		getMembershipByUserAndAccount:   strings.ReplaceAll(getMembershipByUserAndAccountPostgreSQL, prefixMarker, prefix),
-		getMembershipFallbackAccountID:  strings.ReplaceAll(getMembershipFallbackAccountIDPostgreSQL, prefixMarker, prefix),
-		getMembershipIdbyUserAndAccount: strings.ReplaceAll(getMembershipIdbyUserAndAccountPostgreSQL, prefixMarker, prefix),
-		getUser:                         strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
-		getUserByEmailAddress:           strings.ReplaceAll(getUserByEmailAddressPostgreSQL, prefixMarker, prefix),
-		getUserByEmailVerificationToken: strings.ReplaceAll(getUserByEmailVerificationTokenPostgreSQL, prefixMarker, prefix),
-		getUserByUsername:               strings.ReplaceAll(getUserByUsernamePostgreSQL, prefixMarker, prefix),
-		getUserCreatedAt:                strings.ReplaceAll(getUserCreatedAtPostgreSQL, prefixMarker, prefix),
-		listAccounts:                    strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
-		listInvitations:                 strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
-		listInvitationsByFromUser:       strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
-		listInvitationsByToEmail:        strings.ReplaceAll(listInvitationsByToEmailPostgreSQL, prefixMarker, prefix),
-		listUsers:                       strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
-		updateAccount:                   strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
-		updateUser:                      strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
+		answerInvitation:                     strings.ReplaceAll(answerInvitationPostgreSQL, prefixMarker, prefix),
+		archiveAccount:                       strings.ReplaceAll(archiveAccountPostgreSQL, prefixMarker, prefix),
+		archiveUser:                          strings.ReplaceAll(archiveUserPostgreSQL, prefixMarker, prefix),
+		createAccount:                        strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
+		createInvitation:                     strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
+		createUser:                           strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
+		getAccount:                           strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
+		getAccountCreatedAt:                  strings.ReplaceAll(getAccountCreatedAtPostgreSQL, prefixMarker, prefix),
+		getInvitation:                        strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
+		getInvitationCreatedAt:               strings.ReplaceAll(getInvitationCreatedAtPostgreSQL, prefixMarker, prefix),
+		getMembershipByUserAndAccount:        strings.ReplaceAll(getMembershipByUserAndAccountPostgreSQL, prefixMarker, prefix),
+		getMembershipFallbackAccountID:       strings.ReplaceAll(getMembershipFallbackAccountIDPostgreSQL, prefixMarker, prefix),
+		getMembershipIdbyUserAndAccount:      strings.ReplaceAll(getMembershipIdbyUserAndAccountPostgreSQL, prefixMarker, prefix),
+		getUser:                              strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
+		getUserByEmailAddress:                strings.ReplaceAll(getUserByEmailAddressPostgreSQL, prefixMarker, prefix),
+		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenPostgreSQL, prefixMarker, prefix),
+		getUserByUsername:                    strings.ReplaceAll(getUserByUsernamePostgreSQL, prefixMarker, prefix),
+		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtPostgreSQL, prefixMarker, prefix),
+		listAccounts:                         strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
+		listInvitations:                      strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
+		listInvitationsByFromUser:            strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
+		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailPostgreSQL, prefixMarker, prefix),
+		listUsers:                            strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
+		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedPostgreSQL, prefixMarker, prefix),
+		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenPostgreSQL, prefixMarker, prefix),
+		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangePostgreSQL, prefixMarker, prefix),
+		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipPostgreSQL, prefixMarker, prefix),
+		updateAccount:                        strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
+		updateUser:                           strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
+		updateUserAccountStatus:              strings.ReplaceAll(updateUserAccountStatusPostgreSQL, prefixMarker, prefix),
+		updateUserPassword:                   strings.ReplaceAll(updateUserPasswordPostgreSQL, prefixMarker, prefix),
+		updateUserTwoFactorSecret:            strings.ReplaceAll(updateUserTwoFactorSecretPostgreSQL, prefixMarker, prefix),
 	}
+}
+
+// AnswerInvitation runs the :execrows query against postgresql.
+func (q *postgresqlQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.answerInvitation,
+		arg.Status,
+		arg.Note,
+		arg.ToUser,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentStatus,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
 
 // ArchiveAccount runs the :execrows query against postgresql.
@@ -1386,6 +1485,65 @@ func (q *postgresqlQueries) ListUsers(ctx context.Context, db DBTX, arg ListUser
 	return items, nil
 }
 
+// MarkUserEmailAddressVerified runs the :execrows query against postgresql.
+func (q *postgresqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
+		arg.EmailAddressVerifiedAt,
+		arg.EmailAddressVerificationToken,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentEmailAddressVerificationToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetUserEmailAddressVerificationToken runs the :execrows query against postgresql.
+func (q *postgresqlQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
+		arg.EmailAddressVerificationToken,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetUserRequiresPasswordChange runs the :execrows query against postgresql.
+func (q *postgresqlQueries) SetUserRequiresPasswordChange(ctx context.Context, db DBTX, arg SetUserRequiresPasswordChangeParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setUserRequiresPasswordChange,
+		arg.RequiresPasswordChange,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// TransferAccountOwnership runs the :execrows query against postgresql.
+func (q *postgresqlQueries) TransferAccountOwnership(ctx context.Context, db DBTX, arg TransferAccountOwnershipParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.transferAccountOwnership,
+		arg.OwnerUserID,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentOwnerUserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // UpdateAccount runs the :execrows query against postgresql.
 func (q *postgresqlQueries) UpdateAccount(ctx context.Context, db DBTX, arg UpdateAccountParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.updateAccount,
@@ -1426,6 +1584,52 @@ func (q *postgresqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateU
 	return result.RowsAffected()
 }
 
+// UpdateUserAccountStatus runs the :execrows query against postgresql.
+func (q *postgresqlQueries) UpdateUserAccountStatus(ctx context.Context, db DBTX, arg UpdateUserAccountStatusParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserAccountStatus,
+		arg.AccountStatus,
+		arg.AccountStatusExplanation,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateUserPassword runs the :execrows query against postgresql.
+func (q *postgresqlQueries) UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserPassword,
+		arg.HashedPassword,
+		arg.RequiresPasswordChange,
+		arg.PasswordLastChangedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateUserTwoFactorSecret runs the :execrows query against postgresql.
+func (q *postgresqlQueries) UpdateUserTwoFactorSecret(ctx context.Context, db DBTX, arg UpdateUserTwoFactorSecretParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserTwoFactorSecret,
+		arg.TwoFactorSecret,
+		arg.TwoFactorSecretVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1433,6 +1637,14 @@ func (q *postgresqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateU
 // disagreement between dialects a compile error here rather than a
 // transposition at run time.
 var (
+	_ = struct {
+		Status        string
+		Note          string
+		ToUser        *string
+		ID            string
+		Scope         tenancy.Scope
+		CurrentStatus string
+	}(AnswerInvitationParams{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope
@@ -1845,6 +2057,29 @@ var (
 		TotalCount                    int64
 	}(ListUsersRow{})
 	_ = struct {
+		EmailAddressVerifiedAt               *time.Time
+		EmailAddressVerificationToken        string
+		ID                                   string
+		Scope                                tenancy.Scope
+		CurrentEmailAddressVerificationToken string
+	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		EmailAddressVerificationToken string
+		ID                            string
+		Scope                         tenancy.Scope
+	}(SetUserEmailAddressVerificationTokenParams{})
+	_ = struct {
+		RequiresPasswordChange bool
+		ID                     string
+		Scope                  tenancy.Scope
+	}(SetUserRequiresPasswordChangeParams{})
+	_ = struct {
+		OwnerUserID        string
+		ID                 string
+		Scope              tenancy.Scope
+		CurrentOwnerUserID string
+	}(TransferAccountOwnershipParams{})
+	_ = struct {
 		Name              string
 		AddressLine1      string
 		AddressLine2      string
@@ -1866,4 +2101,23 @@ var (
 		ID                     string
 		Scope                  tenancy.Scope
 	}(UpdateUserParams{})
+	_ = struct {
+		AccountStatus            string
+		AccountStatusExplanation string
+		ID                       string
+		Scope                    tenancy.Scope
+	}(UpdateUserAccountStatusParams{})
+	_ = struct {
+		HashedPassword         string
+		RequiresPasswordChange bool
+		PasswordLastChangedAt  *time.Time
+		ID                     string
+		Scope                  tenancy.Scope
+	}(UpdateUserPasswordParams{})
+	_ = struct {
+		TwoFactorSecret           string
+		TwoFactorSecretVerifiedAt *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(UpdateUserTwoFactorSecretParams{})
 )

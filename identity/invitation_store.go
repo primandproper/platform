@@ -25,6 +25,30 @@ const (
 	invitationIDColumn       = "invitation_id"
 )
 
+// answerInvitationParams moves an invitation to a terminal status.
+//
+// The predicate requires it to still be pending, which is what makes two
+// concurrent answers write once: the second matches nothing and reports zero
+// rows, rather than overwriting an acceptance with a rejection. It is one
+// function because both answers owe that guard, and a second construction of
+// these params is a second chance for one of them to be written without it.
+func answerInvitationParams(
+	scope tenancy.Scope,
+	invitationID string,
+	status InvitationStatus,
+	note string,
+	toUser *string,
+) identitydb.AnswerInvitationParams {
+	return identitydb.AnswerInvitationParams{
+		ID:            invitationID,
+		Scope:         scope,
+		Status:        status.String(),
+		Note:          note,
+		ToUser:        toUser,
+		CurrentStatus: InvitationPending.String(),
+	}
+}
+
 // CreateInvitation writes an invitation and the roles it promises.
 func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation) error {
 	ctx, op := s.o11y.Begin(ctx)
@@ -356,10 +380,9 @@ func (s *SQLStore) AcceptInvitation(
 	// The answer carries the same pending predicate every other answer does, so
 	// two clicks on one link produce one membership: the second finds nothing
 	// pending and stops here.
-	query, args := s.tables.buildAnswerInvitation(
-		s.dialect, scope, invitationID, InvitationAccepted, note, &acceptingUserID, now,
-	)
-	if err = s.execExpectingRow(ctx, op, q, query, args, ErrInvitationNotFound, "accepting identity invitation"); err != nil {
+	count, err := s.q.AnswerInvitation(ctx, q,
+		answerInvitationParams(scope, invitationID, InvitationAccepted, note, &acceptingUserID))
+	if err = guardCount(count, err, ErrInvitationNotFound, "accepting identity invitation"); err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
 	}
 
@@ -423,9 +446,9 @@ func (s *SQLStore) SetInvitationStatus(ctx context.Context, scope tenancy.Scope,
 		)
 	}
 
-	query, args := s.tables.buildAnswerInvitation(s.dialect, scope, invitationID, status, note, nil, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrInvitationNotFound, "setting identity invitation status"); err != nil {
+	count, err := s.q.AnswerInvitation(ctx, s.client.Writer(),
+		answerInvitationParams(scope, invitationID, status, note, nil))
+	if err = guardCount(count, err, ErrInvitationNotFound, "setting identity invitation status"); err != nil {
 		return op.Error(err, "setting identity invitation status")
 	}
 

@@ -194,6 +194,22 @@ type Match struct {
 	// value needs no escaping; the name itself is interpolated and is therefore
 	// restricted — see dialect.ValidIdentifier.
 	Column string
+	// Arg names the argument the column is compared against, for a predicate
+	// whose value is not simply "this column's value". It defaults to Column,
+	// which is what every keyed read wants: a get by account binds the account
+	// under belongs_to_account and nothing is clearer than that.
+	//
+	// A guarded write is what needs the other spelling. Naming the current
+	// owner in a transfer's predicate as well as the new one in its SET is the
+	// whole mechanism that stops two concurrent transfers from both succeeding,
+	// and both halves are the owner column — so under one argument name the
+	// statement would set the column to the value it was requiring it to
+	// already hold, which is legal SQL that guards nothing. Arg is what makes
+	// the two ends of that comparison two arguments.
+	//
+	// It is a name rather than a value, and it is interpolated into the
+	// statement the way Column is, so it is restricted the same way.
+	Arg string
 	// Exclude inverts the predicate: the rows matched are the ones whose column
 	// does not hold the bound value.
 	//
@@ -204,6 +220,16 @@ type Match struct {
 	// remaining live membership when the default is being removed — where the
 	// excluded value is as much a part of the key as the included ones.
 	Exclude bool
+}
+
+// argument returns the name this match binds through: Arg where the caller gave
+// one, and the column otherwise.
+func (m Match) argument() string {
+	if m.Arg != "" {
+		return m.Arg
+	}
+
+	return m.Column
 }
 
 // Read is what a keyed read returns, and how it chooses when the key admits
@@ -337,15 +363,29 @@ func (g *Generator) BoundCreate(table string, insertColumns, nullable []string) 
 	return g.bound(createStatement(table, insertColumns, nullable))
 }
 
-// BoundUpdate renders the update: every mutable column assigned, last_updated_at
+// BoundUpdate renders the update: the named columns assigned, last_updated_at
 // stamped, keyed on the id and any extra predicate columns.
 //
-// A column that is both assigned and matched binds one argument to both, which
-// is a statement that sets a column to the value it is being required to already
-// hold. A caller wanting to move a row between owners wants that column out of
-// updateColumns, which is what ForUpdate's exceptions are for — and a table
-// keyed on a natural key wants every column of that key out of it, since
-// ForUpdate subtracts the id and knows nothing of the rest.
+// updateColumns is what this statement assigns rather than what the table lets
+// anyone assign, which is what makes it the field-specific writes as well as the
+// conventional one. A password change names the hash, the forced-change flag and
+// the stamp that goes with them; a status move names the status and its
+// explanation. Each is one statement whose SET list is written down, rather than
+// a whole-row write a caller has to remember not to reach for with a struct
+// whose credential fields it blanked.
+//
+// The extra matches are the guard. A write that must not race another one names
+// the value it requires the row to still hold — the token a verification link
+// carries, the owner a transfer is moving away from, the pending status an
+// answer replaces — and the row count reports whether it was the one that won.
+// Where such a guard names a column the SET list also assigns, the two ends need
+// two argument names or the statement sets the column to the value it is
+// requiring it to already hold; that is what Match.Arg is for.
+//
+// A caller wanting to move a row between owners without guarding also wants that
+// column out of updateColumns, which is what ForUpdate's exceptions are for —
+// and a table keyed on a natural key wants every column of that key out of it,
+// since ForUpdate subtracts the id and knows nothing of the rest.
 func (g *Generator) BoundUpdate(table string, columns, updateColumns, nullable []string, extra ...Match) Bound {
 	return g.bound(g.updateStatement(table, columns, updateColumns, "", nullable, extra...))
 }
@@ -408,11 +448,14 @@ func (g *Generator) ExistsQuery(name, table string, columns []string, extra ...M
 	}
 }
 
-// UpdateQuery is BoundUpdate's canonical form.
+// UpdateQuery is BoundUpdate's canonical form — the field-specific and guarded
+// writes included, since updateColumns and the extra matches are where those
+// live.
 //
 // It is annotated :execrows rather than :exec, like the standard update, because
-// the count is the answer: an update whose predicate matched nothing is how a
-// caller learns the row was already gone.
+// the count is the answer: a guarded write that matched nothing is how a caller
+// learns it lost the race, and an unguarded one that matched nothing is how it
+// learns the row was already gone.
 func (g *Generator) UpdateQuery(name, table string, columns, updateColumns, nullable []string, extra ...Match) *Query {
 	return &Query{
 		Annotation: QueryAnnotation{Name: name, Type: ExecRowsType},

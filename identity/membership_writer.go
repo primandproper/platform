@@ -145,9 +145,18 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 			return readErr
 		}
 
-		query, args := s.tables.buildTransferAccountOwnership(s.dialect, scope, accountID, account.OwnerUserID, newOwnerUserID, now)
+		// The owner being moved away from is in the predicate as well as the new
+		// one in the SET, so two concurrent transfers cannot both succeed and
+		// leave the account owned by whichever committed last: the second
+		// matches nothing and reports zero rows.
+		count, err := s.q.TransferAccountOwnership(ctx, q, identitydb.TransferAccountOwnershipParams{
+			ID:                 accountID,
+			Scope:              scope,
+			OwnerUserID:        newOwnerUserID,
+			CurrentOwnerUserID: account.OwnerUserID,
+		})
 
-		return s.execExpectingRow(ctx, op, q, query, args, ErrAccountNotFound, "transferring identity account ownership")
+		return guardCount(count, err, ErrAccountNotFound, "transferring identity account ownership")
 	}); err != nil {
 		return op.Error(err, "transferring identity account ownership")
 	}

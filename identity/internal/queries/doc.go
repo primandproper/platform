@@ -13,6 +13,9 @@ symptom would be a check that passes over SQL nobody executes.
 
 So it is spelled once, here, and both halves read it. The .sql files beside this
 file are the generator's output — see [Render] and identity/internal/queriesgen.
+Why the rendered .sql is committed at all, when the generated Go beside it in
+identity/internal/identitydb carries the same statements in executable form, is
+identity's package comment, under "Where the SQL comes from".
 
 # Which queries each table gets
 
@@ -33,6 +36,15 @@ three of the four options carry a fact that a column list cannot:
     options leave mutable, and the struct a caller is holding is often a
     [identity.User.Redacted] copy whose credential fields are empty, so a
     password hash left in the update set is blanked on every profile save.
+
+The columns Updatable leaves out are not columns nothing writes — they are the
+columns a *named* statement writes, and those statements are emitted too. See
+fieldWrites: the password and its stamp, the two-factor secret and its
+verification, the email verification token, the account status, the ownership
+transfer, the invitation answer. Each names its own SET list rather than the
+table's mutable set, and three of them carry a predicate on the value being
+replaced, which is what makes a losing concurrent writer report zero rows
+instead of overwriting the winner.
 
 Memberships is the fourth table and gets none of the standard set. Its columns
 are textbook and not one of its statements is: the get, the archive and the bulk

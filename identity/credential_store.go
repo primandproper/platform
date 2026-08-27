@@ -6,6 +6,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v13/pointer"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
@@ -61,9 +62,17 @@ func (s *SQLStore) UpdateUserPassword(ctx context.Context, scope tenancy.Scope, 
 		)
 	}
 
-	query, args := s.tables.buildUpdateUserPassword(s.dialect, scope, userID, hashedPassword, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrUserNotFound, "updating identity user password"); err != nil {
+	// The forced-change flag is released in the same statement rather than left
+	// to the caller — see Store.UpdateUserPassword for why that is what makes a
+	// forced password change terminate.
+	count, err := s.q.UpdateUserPassword(ctx, s.client.Writer(), identitydb.UpdateUserPasswordParams{
+		ID:                     userID,
+		Scope:                  scope,
+		HashedPassword:         hashedPassword,
+		RequiresPasswordChange: false,
+		PasswordLastChangedAt:  pointer.To(s.now()),
+	})
+	if err = guardCount(count, err, ErrUserNotFound, "updating identity user password"); err != nil {
 		return op.Error(err, "updating identity user password")
 	}
 
@@ -83,9 +92,12 @@ func (s *SQLStore) SetUserRequiresPasswordChange(ctx context.Context, scope tena
 		return op.Error(err, "setting identity password change requirement")
 	}
 
-	query, args := s.tables.buildSetUserFlag(s.dialect, "requires_password_change", scope, userID, requires, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrUserNotFound, "setting identity password change requirement"); err != nil {
+	count, err := s.q.SetUserRequiresPasswordChange(ctx, s.client.Writer(), identitydb.SetUserRequiresPasswordChangeParams{
+		ID:                     userID,
+		Scope:                  scope,
+		RequiresPasswordChange: requires,
+	})
+	if err = guardCount(count, err, ErrUserNotFound, "setting identity password change requirement"); err != nil {
 		return op.Error(err, "setting identity password change requirement")
 	}
 
@@ -111,9 +123,16 @@ func (s *SQLStore) UpdateUserTwoFactorSecret(ctx context.Context, scope tenancy.
 		)
 	}
 
-	query, args := s.tables.buildUpdateTwoFactorSecret(s.dialect, scope, userID, secret, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrUserNotFound, "updating identity two factor secret"); err != nil {
+	// The new secret and its cleared verification are one statement. Two would
+	// leave a window in which a freshly issued secret reads as already proven,
+	// which is a window in which a second factor is bypassed by re-enrolling.
+	count, err := s.q.UpdateUserTwoFactorSecret(ctx, s.client.Writer(), identitydb.UpdateUserTwoFactorSecretParams{
+		ID:                        userID,
+		Scope:                     scope,
+		TwoFactorSecret:           secret,
+		TwoFactorSecretVerifiedAt: nil,
+	})
+	if err = guardCount(count, err, ErrUserNotFound, "updating identity two factor secret"); err != nil {
 		return op.Error(err, "updating identity two factor secret")
 	}
 
@@ -169,9 +188,15 @@ func (s *SQLStore) SetUserEmailAddressVerificationToken(ctx context.Context, sco
 		)
 	}
 
-	query, args := s.tables.buildSetEmailVerificationToken(s.dialect, scope, userID, token, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrUserNotFound, "setting identity email verification token"); err != nil {
+	// Any outstanding token is replaced, so re-sending a verification email
+	// invalidates the previous link rather than leaving two live.
+	count, err := s.q.SetUserEmailAddressVerificationToken(ctx, s.client.Writer(),
+		identitydb.SetUserEmailAddressVerificationTokenParams{
+			ID:                            userID,
+			Scope:                         scope,
+			EmailAddressVerificationToken: token,
+		})
+	if err = guardCount(count, err, ErrUserNotFound, "setting identity email verification token"); err != nil {
 		return op.Error(err, "setting identity email verification token")
 	}
 
@@ -197,9 +222,19 @@ func (s *SQLStore) MarkUserEmailAddressVerified(ctx context.Context, scope tenan
 		)
 	}
 
-	query, args := s.tables.buildMarkEmailVerified(s.dialect, scope, userID, token, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrUserNotFound, "marking identity email address verified"); err != nil {
+	// The token is in the predicate as well as being cleared by the write, which
+	// is what makes two concurrent clicks on the same link write once: the
+	// second finds it already cleared and matches nothing. Comparing it here
+	// rather than trusting an earlier read is the whole of that guarantee.
+	count, err := s.q.MarkUserEmailAddressVerified(ctx, s.client.Writer(),
+		identitydb.MarkUserEmailAddressVerifiedParams{
+			ID:                                   userID,
+			Scope:                                scope,
+			EmailAddressVerifiedAt:               pointer.To(s.now()),
+			EmailAddressVerificationToken:        "",
+			CurrentEmailAddressVerificationToken: token,
+		})
+	if err = guardCount(count, err, ErrUserNotFound, "marking identity email address verified"); err != nil {
 		return op.Error(err, "marking identity email address verified")
 	}
 
