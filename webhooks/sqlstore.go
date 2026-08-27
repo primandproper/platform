@@ -778,15 +778,15 @@ func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor,
 func (s *SQLStore) scanAttempts(ctx context.Context, query string, args []any) ([]*Attempt, error) {
 	return database.ScanAll(ctx, s.client.Reader(), "webhook attempt", query, args, func(scanner database.Scanner) (*Attempt, error) {
 		var (
-			attempt     Attempt
-			failure     sql.NullString
-			durationMS  int64
-			attemptedAt any
+			attempt    Attempt
+			failure    sql.NullString
+			durationMS int64
+			createdAt  any
 		)
 
 		if err := scanner.Scan(
 			&attempt.ID, &attempt.DeliveryID, &attempt.EndpointID, &attempt.AttemptCount,
-			&attempt.StatusCode, &failure, &durationMS, &attemptedAt,
+			&attempt.StatusCode, &failure, &durationMS, &createdAt,
 		); err != nil {
 			return nil, err
 		}
@@ -794,8 +794,8 @@ func (s *SQLStore) scanAttempts(ctx context.Context, query string, args []any) (
 		attempt.Error = failure.String
 		attempt.Duration = time.Duration(durationMS) * time.Millisecond
 
-		if at, ok := database.CoerceTime(attemptedAt); ok {
-			attempt.AttemptedAt = at.UTC()
+		if at, ok := database.CoerceTime(createdAt); ok {
+			attempt.CreatedAt = at.UTC()
 		}
 
 		return &attempt, nil

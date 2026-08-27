@@ -129,15 +129,21 @@ func (t *tables) buildUpsertTotal(
 	quantity int64,
 	lastOccurredAt, at time.Time,
 ) (query string, args []any) {
+	// The inserted row carries created_at and no last_updated_at: a total nothing
+	// has folded a second record into has not been updated. The conflict branch
+	// binds the same instant again rather than reusing the insert's placeholder,
+	// because MySQL and SQLite number their placeholders positionally.
+	const inserted = 9
+
 	args = []any{
 		subject, meter, bounds.Start.UTC(), bounds.End.UTC(), string(aggregation),
-		quantity, lastOccurredAt.UTC(), at.UTC(), at.UTC(),
+		quantity, lastOccurredAt.UTC(), at.UTC(), at.UTC(), at.UTC(),
 	}
 
 	insert := fmt.Sprintf(
 		"INSERT INTO %s (subject, meter, period_start, period_end, aggregation, quantity, "+
-			"last_occurred_at, next_flush, updated_at) VALUES (%s)",
-		t.totals, d.Placeholders(1, len(args)),
+			"last_occurred_at, next_flush, created_at) VALUES (%s)",
+		t.totals, d.Placeholders(1, inserted),
 	)
 
 	existing, incoming := conflictRefs(d, t.totals)
@@ -149,7 +155,7 @@ func (t *tables) buildUpsertTotal(
 	sets := []string{
 		fmt.Sprintf("last_occurred_at = %s(%s, %s)",
 			greatestFunc(d), existing("last_occurred_at"), incoming("last_occurred_at")),
-		fmt.Sprintf("updated_at = %s", incoming("updated_at")),
+		fmt.Sprintf("last_updated_at = %s", d.Placeholder(inserted+1)),
 	}
 
 	switch aggregation {
@@ -239,7 +245,7 @@ func (t *tables) buildInsertZeroTotal(
 
 	query = fmt.Sprintf(
 		"INSERT %sINTO %s (subject, meter, period_start, period_end, aggregation, quantity, "+
-			"last_occurred_at, next_flush, updated_at) VALUES (%s, %s, %s, %s, %s, 0, %s, %s, %s)",
+			"last_occurred_at, next_flush, created_at) VALUES (%s, %s, %s, %s, %s, 0, %s, %s, %s)",
 		ignorePrefix(d), t.totals,
 		d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
 		d.Placeholder(5), d.Placeholder(6), d.Placeholder(7), d.Placeholder(8),
@@ -322,7 +328,7 @@ func (t *tables) buildApplyConsume(
 	args = []any{quantity, lastOccurredAt.UTC(), at.UTC(), subject, meter, periodStart.UTC()}
 
 	return fmt.Sprintf(
-		"UPDATE %s SET quantity = %s, last_occurred_at = %s(last_occurred_at, %s), updated_at = %s "+
+		"UPDATE %s SET quantity = %s, last_occurred_at = %s(last_occurred_at, %s), last_updated_at = %s "+
 			"WHERE subject = %s AND meter = %s AND period_start = %s",
 		t.totals, d.Placeholder(1), greatestFunc(d), d.Placeholder(2), d.Placeholder(3),
 		d.Placeholder(4), d.Placeholder(5), d.Placeholder(6),
@@ -432,7 +438,7 @@ func (t *tables) buildMarkFlushed(d dialect.Dialect, total *Total, flushed int64
 
 	return fmt.Sprintf(
 		"UPDATE %s SET flushed_quantity = %s, flush_sequence = flush_sequence + 1, flush_attempts = 0, "+
-			"next_flush = %s, claimed_until = NULL, last_error = '', updated_at = %s "+
+			"next_flush = %s, claimed_until = NULL, last_error = '', last_updated_at = %s "+
 			"WHERE subject = %s AND meter = %s AND period_start = %s AND flush_sequence = %s",
 		t.totals, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
 		d.Placeholder(4), d.Placeholder(5), d.Placeholder(6), d.Placeholder(7),
@@ -453,7 +459,7 @@ func (t *tables) buildReleaseFlush(d dialect.Dialect, total *Total, lastErr stri
 	}
 
 	return fmt.Sprintf(
-		"UPDATE %s SET next_flush = %s, last_error = %s, claimed_until = NULL, updated_at = %s "+
+		"UPDATE %s SET next_flush = %s, last_error = %s, claimed_until = NULL, last_updated_at = %s "+
 			"WHERE subject = %s AND meter = %s AND period_start = %s AND flush_sequence = %s",
 		t.totals, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
 		d.Placeholder(4), d.Placeholder(5), d.Placeholder(6), d.Placeholder(7),

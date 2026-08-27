@@ -156,7 +156,7 @@ func newRequest(id string, t RequestType, subject Subject, at time.Time) *Reques
 		Subject:     subject,
 		Status:      StatusInProgress,
 		OperationID: "op-" + id,
-		RequestedAt: at,
+		CreatedAt:   at,
 		DueAt:       at.Add(DefaultResponseWindow),
 	}
 }

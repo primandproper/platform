@@ -28,7 +28,7 @@ const DocumentFormat = "dataprivacy.export.v1"
 type Manifest struct {
 	// GeneratedAt is when the artifact was assembled.
 	//
-	// It is not Request.RequestedAt, and the gap between them is the queue wait
+	// It is not Request.CreatedAt, and the gap between them is the queue wait
 	// plus any retries. Sections are collected as of roughly this instant rather
 	// than as of the request — see Collector — so this is the time the document
 	// describes.

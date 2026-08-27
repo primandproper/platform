@@ -1,3 +1,8 @@
+-- No convention triple, and that is deliberate. Completed items are swept so the
+-- table stays sized by outstanding work rather than by everything ever queued,
+-- which makes archived_at a column that either does nothing or keeps the table
+-- growing forever. enqueued_at and available_at are the schedule the claim reads,
+-- not a creation stamp and a last mutation.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}work_queue_items (
     queue_name   TEXT        NOT NULL,
     item_key     TEXT        NOT NULL,

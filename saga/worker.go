@@ -677,10 +677,11 @@ func (w *Worker) reschedule(ctx context.Context, inst *Record, attempts int, pha
 // step that did not happen; an advance that commits without its event leaves a
 // subscriber waiting for a saga that has already finished.
 func (w *Worker) persist(ctx context.Context, inst *Record, nextAttempt time.Time, events ...Event) error {
-	inst.UpdatedAt = w.clock.Now().UTC()
+	now := w.clock.Now().UTC()
+	inst.LastUpdatedAt = &now
 
 	return w.store.WithTransaction(ctx, func(q database.Tx) error {
-		if err := w.store.Advance(ctx, q, inst, nextAttempt); err != nil {
+		if err := w.store.Advance(ctx, q, inst, nextAttempt, now); err != nil {
 			return err
 		}
 

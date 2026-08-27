@@ -79,7 +79,7 @@ func suiteSaveAndGet(t *testing.T, env *storeEnv) {
 		test.EqOp(t, "something went wrong", read.LastError)
 		test.Eq(t, req.Failures, read.Failures)
 		test.Eq(t, req.Retained, read.Retained)
-		test.True(t, read.RequestedAt.Equal(baseTime))
+		test.True(t, read.CreatedAt.Equal(baseTime))
 		test.True(t, read.ExpiresAt.Equal(req.ExpiresAt))
 		must.NotNil(t, read.CompletedAt)
 		test.True(t, read.CompletedAt.Equal(completedAt))

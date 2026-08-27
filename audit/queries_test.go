@@ -95,6 +95,20 @@ func TestBuildInsertChain(T *testing.T) {
 		test.StrNotContains(t, lite, "ON CONFLICT")
 	})
 
+	// The chain row is created here and updated by the head advance and the prune
+	// watermark. created_at is written once at insert; last_updated_at is left
+	// NULL until one of those updates moves the row.
+	T.Run("writes created_at and leaves the last mutation unset", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range allDialects {
+			query, _ := testTables.buildInsertChain(d, "acct_1", time.Time{})
+
+			test.StrContains(t, query, "created_at", test.Sprintf("dialect %q", d))
+			test.StrNotContains(t, query, "last_updated_at", test.Sprintf("dialect %q", d))
+		}
+	})
+
 	T.Run("seeds a chain that has recorded and pruned nothing", func(t *testing.T) {
 		t.Parallel()
 
@@ -106,6 +120,23 @@ func TestBuildInsertChain(T *testing.T) {
 			test.StrContains(t, query, "-1, '', -1, ''", test.Sprintf("dialect %q", d))
 		}
 	})
+}
+
+// Both writes to a chain row move it, so both stamp it. The column is what a
+// reader asks "when did this scope last record or prune" of, and an update that
+// left it alone would answer with the row's creation time forever.
+func TestChainUpdatesStampTheLastMutation(T *testing.T) {
+	T.Parallel()
+
+	now := time.Date(2026, time.July, 31, 12, 0, 0, 0, time.UTC)
+
+	for _, d := range allDialects {
+		head, _ := testTables.buildUpdateChainHead(d, "acct_1", "hash", 7, now)
+		pruned, _ := testTables.buildUpdateChainPruned(d, "acct_1", "hash", 3, now)
+
+		test.StrContains(T, head, "last_updated_at = ", test.Sprintf("dialect %q", d))
+		test.StrContains(T, pruned, "last_updated_at = ", test.Sprintf("dialect %q", d))
+	}
 }
 
 func TestIgnorePrefix(T *testing.T) {

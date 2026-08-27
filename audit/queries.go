@@ -111,7 +111,7 @@ func supportsRowLock(d dialect.Dialect) bool {
 // lock the row that now exists.
 func (t *tables) buildInsertChain(d dialect.Dialect, scope string, now time.Time) (query string, args []any) {
 	insert := fmt.Sprintf(
-		"INSERT %sINTO %s (scope, head_seq, head_hash, pruned_through_seq, pruned_through_hash, updated_at) "+
+		"INSERT %sINTO %s (scope, head_seq, head_hash, pruned_through_seq, pruned_through_hash, created_at) "+
 			"VALUES (%s, -1, '', -1, '', %s)",
 		ignorePrefix(d), t.chains, d.Placeholder(1), d.Placeholder(2),
 	)
@@ -143,7 +143,7 @@ func ignorePrefix(d dialect.Dialect) string {
 // the entries it covers have been inserted.
 func (t *tables) buildUpdateChainHead(d dialect.Dialect, scope, hash string, seq int64, now time.Time) (query string, args []any) {
 	return fmt.Sprintf(
-		"UPDATE %s SET head_seq = %s, head_hash = %s, updated_at = %s WHERE scope = %s",
+		"UPDATE %s SET head_seq = %s, head_hash = %s, last_updated_at = %s WHERE scope = %s",
 		t.chains, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
 	), []any{seq, hash, now, scope}
 }
@@ -369,7 +369,7 @@ func (t *tables) buildDeletePruned(d dialect.Dialect, scope string, through int6
 // retention pruned to, so Verify can tell the sweep's gap from anyone else's.
 func (t *tables) buildUpdateChainPruned(d dialect.Dialect, scope, hash string, through int64, now time.Time) (query string, args []any) {
 	return fmt.Sprintf(
-		"UPDATE %s SET pruned_through_seq = %s, pruned_through_hash = %s, updated_at = %s WHERE scope = %s",
+		"UPDATE %s SET pruned_through_seq = %s, pruned_through_hash = %s, last_updated_at = %s WHERE scope = %s",
 		t.chains, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
 	), []any{through, hash, now, scope}
 }

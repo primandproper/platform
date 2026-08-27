@@ -320,10 +320,10 @@ func (s Status) Valid() bool {
 
 // Request is one export or erasure and everything known about how it went.
 type Request struct {
-	// RequestedAt is when the request was submitted. It is the instant the
+	// CreatedAt is when the request was submitted. It is the instant the
 	// statutory clock starts, so it is stamped once and never rewritten — not
 	// by a confirmation, and not by a retry.
-	RequestedAt time.Time `json:"requestedAt"`
+	CreatedAt time.Time `json:"createdAt"`
 
 	// DueAt is when the response is legally owed, computed at submission from
 	// the configured response window for the request type. See Overdue.
@@ -544,7 +544,7 @@ type ErasureSummary struct {
 //
 // This matches the ordinary reading of a subject access request — the data held
 // when the response is produced — and it is the only thing a library can
-// promise. Bounding an export to data created on or before Request.RequestedAt
+// promise. Bounding an export to data created on or before Request.CreatedAt
 // would have to be a parameter here, honored by every registered Collector, and
 // nothing in this package could enforce it: a domain with no reliable creation
 // timestamp cannot answer the question at all, and one that ignored the bound

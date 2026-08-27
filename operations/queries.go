@@ -54,7 +54,7 @@ func p(args []any) string {
 const operationColumns = "id, kind, state, owner, request, " +
 	"units_total, units_done, progress_unit, progress_count, count_label, progress_message, " +
 	"result_uri, result_detail, error_code, error_message, error_retryable, " +
-	"revision, attempts, cancel_requested, created_at, updated_at, started_at, finished_at"
+	"revision, attempts, cancel_requested, created_at, last_updated_at, started_at, finished_at"
 
 // activeStatePredicate renders the guard every write that must not move a
 // terminal row carries. It is a literal rather than a bound list because the
@@ -89,10 +89,11 @@ type insertRow struct {
 
 // buildInsert renders the operation write.
 //
-// Every timestamp is now(). An operation is pending the instant it is recorded,
-// and binding the writer's clock for created_at would make the recovery sweep's
-// "pending for longer than a minute" a comparison between two processes' ideas
-// of what a minute is.
+// created_at is now(). An operation is pending the instant it is recorded, and
+// binding the writer's clock for it would make the recovery sweep's "pending for
+// longer than a minute" a comparison between two processes' ideas of what a
+// minute is. last_updated_at is left unwritten, and so NULL: nothing has changed
+// the row yet, which is what the column says.
 //
 // It RETURNs the row it wrote, which is not an optimization but a requirement.
 // The insert may be inside a transaction the caller has not committed, so a
@@ -110,8 +111,8 @@ func (t *tables) buildInsert(row *insertRow) (query string, args []any) {
 
 	return fmt.Sprintf(
 		"INSERT INTO %s (id, kind, state, owner, request, count_label, "+
-			"revision, created_at, updated_at, claimed_until) "+
-			"VALUES (%s, %s, 'pending', %s, %s, %s, 1, now(), now(), %s) "+
+			"revision, created_at, claimed_until) "+
+			"VALUES (%s, %s, 'pending', %s, %s, %s, 1, now(), %s) "+
 			"ON CONFLICT (id) DO NOTHING RETURNING %s",
 		t.operations, dialect.Postgres.Placeholder(1), dialect.Postgres.Placeholder(2),
 		dialect.Postgres.Placeholder(3), dialect.Postgres.Placeholder(4),
@@ -228,7 +229,7 @@ func (t *tables) buildBegin(id string, attempts int, leaseMicros int64) (query s
 
 	return fmt.Sprintf(
 		"UPDATE %s SET state = 'running', attempts = %s, "+
-			"started_at = COALESCE(started_at, now()), updated_at = now(), "+
+			"started_at = COALESCE(started_at, now()), last_updated_at = now(), "+
 			"claimed_until = now() + %s, revision = revision + 1 "+
 			"WHERE id = %s AND %s AND claimed_until <= now() "+
 			"RETURNING %s",
@@ -275,7 +276,7 @@ func (t *tables) buildProgress(id string, row progressRow, leaseMicros int64) (q
 	return fmt.Sprintf(
 		"UPDATE %s SET units_total = COALESCE(%s, units_total), units_done = GREATEST(units_done, %s), "+
 			"progress_unit = %s, progress_count = GREATEST(progress_count, %s), "+
-			"progress_message = %s, updated_at = now(), claimed_until = now() + %s, "+
+			"progress_message = %s, last_updated_at = now(), claimed_until = now() + %s, "+
 			"revision = revision + 1 "+
 			"WHERE id = %s AND state = 'running' "+
 			"RETURNING cancel_requested, revision",
@@ -335,7 +336,7 @@ func (t *tables) buildFinish(row finishRow) (query string, args []any) {
 	return fmt.Sprintf(
 		"UPDATE %s SET state = %s, result_uri = %s, result_detail = %s, "+
 			"error_code = %s, error_message = %s, error_retryable = %s, "+
-			"units_done = %s, progress_unit = '', finished_at = now(), updated_at = now(), "+
+			"units_done = %s, progress_unit = '', finished_at = now(), last_updated_at = now(), "+
 			"claimed_until = %s, revision = revision + 1 "+
 			"WHERE id = %s AND %s",
 		t.operations, dialect.Postgres.Placeholder(2), dialect.Postgres.Placeholder(3),
@@ -359,7 +360,7 @@ func (t *tables) buildRelease(id, code, message string) (query string, args []an
 
 	return fmt.Sprintf(
 		"UPDATE %s SET state = 'pending', error_code = %s, error_message = %s, "+
-			"error_retryable = TRUE, progress_unit = '', updated_at = now(), "+
+			"error_retryable = TRUE, progress_unit = '', last_updated_at = now(), "+
 			"claimed_until = %s, revision = revision + 1 "+
 			"WHERE id = %s AND state = 'running'",
 		t.operations, dialect.Postgres.Placeholder(2), dialect.Postgres.Placeholder(3),
@@ -385,7 +386,7 @@ func (t *tables) buildRequestCancel(id string) (query string, args []any) {
 			"state = CASE WHEN state = 'pending' THEN 'cancelled' ELSE state END, "+
 			"finished_at = CASE WHEN state = 'pending' THEN now() ELSE finished_at END, "+
 			"claimed_until = CASE WHEN state = 'pending' THEN %s ELSE claimed_until END, "+
-			"updated_at = now(), revision = revision + 1 "+
+			"last_updated_at = now(), revision = revision + 1 "+
 			"WHERE id = %s AND %s",
 		t.operations, epoch, dialect.Postgres.Placeholder(1), activeStatePredicate,
 	), args
@@ -400,6 +401,11 @@ func (t *tables) buildRequestCancel(id string) (query string, args []any) {
 // offering it. A running operation whose lease lapsed is one whose worker died
 // and whose queue item went with it.
 //
+// The pending arm reads created_at rather than last_updated_at. How long an
+// operation has sat unclaimed is measured from when it was recorded, and a
+// cancellation request — the one write that touches a pending row without
+// starting it — must not restart that clock.
+//
 // The grace period is what keeps this from re-enqueueing every operation the
 // fleet is starting right now, which is the moment it would hurt most.
 func (t *tables) buildSelectStranded(graceMicros int64, limit int) (query string, args []any) {
@@ -407,9 +413,9 @@ func (t *tables) buildSelectStranded(graceMicros int64, limit int) (query string
 
 	return fmt.Sprintf(
 		"SELECT %s FROM %s "+
-			"WHERE (state = 'pending' AND updated_at <= now() - %s) "+
+			"WHERE (state = 'pending' AND created_at <= now() - %s) "+
 			"OR (state = 'running' AND claimed_until <= now() - %s) "+
-			"ORDER BY updated_at LIMIT %s",
+			"ORDER BY created_at LIMIT %s",
 		operationColumns, t.operations,
 		micros(dialect.Postgres.Placeholder(1)), micros(dialect.Postgres.Placeholder(1)),
 		dialect.Postgres.Placeholder(2),

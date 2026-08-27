@@ -1,3 +1,13 @@
+-- Every table here carries the module's convention triple: created_at NOT NULL
+-- with a server-side default, last_updated_at NULL until something changes the
+-- row, archived_at NULL until the row is soft-deleted. webhooks_subscriptions is
+-- the exception, and the comment above it says why.
+--
+-- The endpoint is the only one of these a caller archives today. The delivery
+-- side carries archived_at for the convention's sake — a table querygen can read
+-- a shape from has all three or none — while the reaper still removes delivered
+-- dispatches outright, which is what keeps the claim index sized by backlog.
+
 -- scope is whose endpoint it is: an account, an organization, a workspace, or —
 -- as the empty string — nobody. Every read of this table filters on it.
 --
@@ -15,8 +25,8 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_endpoints (
     secret_previous VARBINARY(512),
     headers         BLOB NOT NULL,
     disabled        BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at      DATETIME(6) NOT NULL,
-    updated_at      DATETIME(6),
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_updated_at DATETIME(6),
     archived_at     DATETIME(6)
 );
 
@@ -33,6 +43,13 @@ CREATE INDEX {{PREFIX}}webhooks_endpoints_scope_idx
 -- that "who wants this event" is an index lookup instead of a scan over every
 -- registered endpoint. Dispatch runs that query inside the caller's
 -- transaction, so its cost is paid by the request that emitted the event.
+--
+-- Mapping rows, and deliberately without the convention triple every other table
+-- in this schema carries. Nothing lists, filters or soft-deletes a subscription
+-- independently of its endpoint: replacing an endpoint's event types rewrites
+-- the set wholesale, and archiving the endpoint already hides every row here.
+-- created_at, last_updated_at and archived_at would be three columns no
+-- statement in this package reads or writes.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_subscriptions (
     endpoint_id VARCHAR(64) NOT NULL,
     event_type  VARCHAR(255) NOT NULL,
@@ -50,12 +67,14 @@ CREATE INDEX {{PREFIX}}webhooks_subscriptions_event_idx
 -- dispatches below, and it is what the delivery log is read through — an attempt
 -- carries no scope of its own, because the delivery it describes already has one.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_deliveries (
-    id           VARCHAR(64) NOT NULL PRIMARY KEY,
-    scope        VARCHAR(255) NOT NULL,
-    event_type   VARCHAR(255) NOT NULL,
-    payload      LONGBLOB NOT NULL,
-    ordering_key VARCHAR(255) NOT NULL DEFAULT '',
-    created_at   DATETIME(6) NOT NULL
+    id              VARCHAR(64) NOT NULL PRIMARY KEY,
+    scope           VARCHAR(255) NOT NULL,
+    event_type      VARCHAR(255) NOT NULL,
+    payload         LONGBLOB NOT NULL,
+    ordering_key    VARCHAR(255) NOT NULL DEFAULT '',
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_updated_at DATETIME(6),
+    archived_at     DATETIME(6)
 );
 
 -- One dispatch per (delivery, endpoint): the row the worker claims, retries,
@@ -63,17 +82,19 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_deliveries (
 -- else, which is what lets four subscribers succeed on the first attempt while
 -- a fifth is still backing off.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_dispatches (
-    id            VARCHAR(64) NOT NULL PRIMARY KEY,
-    delivery_id   VARCHAR(64) NOT NULL,
-    endpoint_id   VARCHAR(64) NOT NULL,
-    ordering_key  VARCHAR(255) NOT NULL DEFAULT '',
-    created_at    DATETIME(6) NOT NULL,
-    next_attempt  DATETIME(6) NOT NULL,
-    claimed_until DATETIME(6),
-    delivered_at  DATETIME(6),
-    attempts      INT NOT NULL DEFAULT 0,
-    last_error    TEXT,
-    dead          BOOLEAN NOT NULL DEFAULT FALSE,
+    id              VARCHAR(64) NOT NULL PRIMARY KEY,
+    delivery_id     VARCHAR(64) NOT NULL,
+    endpoint_id     VARCHAR(64) NOT NULL,
+    ordering_key    VARCHAR(255) NOT NULL DEFAULT '',
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_updated_at DATETIME(6),
+    archived_at     DATETIME(6),
+    next_attempt    DATETIME(6) NOT NULL,
+    claimed_until   DATETIME(6),
+    delivered_at    DATETIME(6),
+    attempts        INT NOT NULL DEFAULT 0,
+    last_error      TEXT,
+    dead            BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE KEY {{PREFIX}}webhooks_dispatches_pair_uniq (delivery_id, endpoint_id),
     CONSTRAINT {{PREFIX}}webhooks_dispatches_delivery_fk
         FOREIGN KEY (delivery_id) REFERENCES {{PREFIX}}webhooks_deliveries (id) ON DELETE CASCADE
@@ -103,18 +124,20 @@ CREATE INDEX {{PREFIX}}webhooks_dispatches_reap_idx
 -- key to the endpoint: an endpoint can be archived, and "what did we send them"
 -- is asked most often after someone has been removed.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_attempts (
-    id            VARCHAR(64) NOT NULL PRIMARY KEY,
-    delivery_id   VARCHAR(64) NOT NULL,
-    endpoint_id   VARCHAR(64) NOT NULL,
-    attempt_count INT NOT NULL,
-    status_code   INT NOT NULL DEFAULT 0,
-    error         TEXT,
-    duration_ms   BIGINT NOT NULL DEFAULT 0,
-    attempted_at  DATETIME(6) NOT NULL
+    id              VARCHAR(64) NOT NULL PRIMARY KEY,
+    delivery_id     VARCHAR(64) NOT NULL,
+    endpoint_id     VARCHAR(64) NOT NULL,
+    attempt_count   INT NOT NULL,
+    status_code     INT NOT NULL DEFAULT 0,
+    error           TEXT,
+    duration_ms     BIGINT NOT NULL DEFAULT 0,
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_updated_at DATETIME(6),
+    archived_at     DATETIME(6)
 );
 
 CREATE INDEX {{PREFIX}}webhooks_attempts_delivery_idx
-    ON {{PREFIX}}webhooks_attempts (delivery_id, attempted_at, id);
+    ON {{PREFIX}}webhooks_attempts (delivery_id, created_at, id);
 
 CREATE INDEX {{PREFIX}}webhooks_attempts_endpoint_idx
-    ON {{PREFIX}}webhooks_attempts (endpoint_id, attempted_at, id);
+    ON {{PREFIX}}webhooks_attempts (endpoint_id, created_at, id);

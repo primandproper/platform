@@ -99,13 +99,19 @@ func (t *tables) buildInsertTombstone(d dialect.Dialect, subject Subject, at tim
 // NULL is what makes the operation idempotent without a read first: a second
 // call matches nothing, and zero rows affected is how the caller learns the
 // destruction was somebody else's.
+//
+// last_updated_at is bound to the same instant as shredded_at rather than to a
+// second clock read. This is the only statement that rewrites a key row, so the
+// two columns describe one event, and two reads of the clock could have them
+// disagree about when it happened. It is bound twice rather than through one
+// placeholder because MySQL and SQLite number their placeholders positionally.
 func (t *tables) buildShred(d dialect.Dialect, subject Subject, at time.Time) (query string, args []any) {
 	return fmt.Sprintf(
-			"UPDATE %s SET wrapped_key = NULL, shredded_at = %s "+
+			"UPDATE %s SET wrapped_key = NULL, shredded_at = %s, last_updated_at = %s "+
 				"WHERE subject_type = %s AND subject_id = %s AND shredded_at IS NULL",
-			t.keys, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
+			t.keys, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
 		),
-		[]any{at.UTC(), subject.Type, subject.ID}
+		[]any{at.UTC(), at.UTC(), subject.Type, subject.ID}
 }
 
 // ignorePrefix renders the dialect's "skip a duplicate row" clause prefix.

@@ -587,7 +587,7 @@ func scanRequest(scanner database.Scanner) (*Request, error) {
 	if err := scanner.Scan(
 		&req.ID, &requestType, &status, &req.OperationID,
 		&req.Subject.ID, &subjectType, &req.Subject.Scope,
-		&req.RequestedAt, &req.DueAt, &expiresAt, &completedAt,
+		&req.CreatedAt, &req.DueAt, &expiresAt, &completedAt,
 		&req.ArtifactRef, &req.ArtifactBytes, &req.Deleted, &req.Anonymized,
 		&failures, &retained, &lastError, &keyShreddedAt,
 	); err != nil {
@@ -597,7 +597,7 @@ func scanRequest(scanner database.Scanner) (*Request, error) {
 	req.Type = RequestType(requestType)
 	req.Status = Status(status)
 	req.Subject.Type = SubjectType(subjectType)
-	req.RequestedAt = req.RequestedAt.UTC()
+	req.CreatedAt = req.CreatedAt.UTC()
 	req.DueAt = req.DueAt.UTC()
 	req.ExpiresAt = database.TimeFromNullTime(expiresAt).UTC()
 	req.CompletedAt = database.TimePointerFromNullTime(completedAt)

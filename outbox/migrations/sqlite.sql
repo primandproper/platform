@@ -1,3 +1,8 @@
+-- No convention triple, and that is deliberate. The relay sweeps published
+-- messages, so this table is sized by the unpublished backlog rather than by
+-- every message ever sent, and archived_at would either do nothing or defeat the
+-- sweep. What a row's last write means here is already spelled by next_attempt,
+-- claimed_until and published_at.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}outbox_messages (
     id            TEXT PRIMARY KEY,
     topic         TEXT NOT NULL,

@@ -10,7 +10,16 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     subject_id     TEXT NOT NULL,
     subject_type   TEXT NOT NULL DEFAULT '',
     subject_scope  TEXT NOT NULL DEFAULT '',
-    requested_at   TIMESTAMPTZ NOT NULL,
+    -- The convention triple. created_at is when the request was submitted — the
+    -- instant the statutory clock starts — and no longer wears a second name for
+    -- the row's creation time. last_updated_at is NULL until the fulfiller first
+    -- moves the request. archived_at is written by nothing in this package: a
+    -- served request is reaped on its retention window rather than hidden, and
+    -- the column is here because a table querygen can read a shape from has all
+    -- three of these or none of them.
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_updated_at TIMESTAMPTZ,
+    archived_at     TIMESTAMPTZ,
     due_at         TIMESTAMPTZ NOT NULL,
     expires_at     TIMESTAMPTZ,
     completed_at   TIMESTAMPTZ,
@@ -26,11 +35,11 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
 
 -- "What has been asked in this person's name." Leading with the subject rather
 -- than the time is what makes List a range scan instead of a filter over every
--- request the system has ever served. requested_at descends because a subject
+-- request the system has ever served. created_at descends because a subject
 -- listing their requests wants the most recent first, and a DESC index is what
 -- keeps that from being a sort.
 CREATE INDEX IF NOT EXISTS {{PREFIX}}dataprivacy_requests_subject_idx
-    ON {{PREFIX}}dataprivacy_requests (subject_id, subject_scope, requested_at DESC, id DESC);
+    ON {{PREFIX}}dataprivacy_requests (subject_id, subject_scope, created_at DESC, id DESC);
 
 -- Serves the artifact expiry sweep. Partial on the one status that can hold a
 -- live artifact: an expired or failed request has nothing in the bucket, and a

@@ -10,7 +10,16 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     subject_id      VARCHAR(255) NOT NULL,
     subject_type    VARCHAR(64) NOT NULL DEFAULT '',
     subject_scope   VARCHAR(255) NOT NULL DEFAULT '',
-    requested_at    DATETIME(6) NOT NULL,
+    -- The convention triple. created_at is when the request was submitted — the
+    -- instant the statutory clock starts — and no longer wears a second name for
+    -- the row's creation time. last_updated_at is NULL until the fulfiller first
+    -- moves the request. archived_at is written by nothing in this package: a
+    -- served request is reaped on its retention window rather than hidden, and
+    -- the column is here because a table querygen can read a shape from has all
+    -- three of these or none of them.
+    created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_updated_at DATETIME(6),
+    archived_at     DATETIME(6),
     due_at          DATETIME(6) NOT NULL,
     expires_at      DATETIME(6),
     completed_at    DATETIME(6),
@@ -33,7 +42,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
 -- than the time is what makes List a range scan instead of a filter over every
 -- request the system has ever served.
 CREATE INDEX {{PREFIX}}dataprivacy_requests_subject_idx
-    ON {{PREFIX}}dataprivacy_requests (subject_id, subject_scope, requested_at, id);
+    ON {{PREFIX}}dataprivacy_requests (subject_id, subject_scope, created_at, id);
 
 -- Serves both the artifact expiry sweep and the confirmation-window lapse
 -- sweep; they differ only in the status they filter on, which leads the index.

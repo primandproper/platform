@@ -133,9 +133,14 @@ func (r *Resolver) selectIDByNameQuery(table string) string {
 
 // updateNamedQuery refreshes a row's description and clears any archival, which
 // is how an upsert revives a previously archived role.
+//
+// last_updated_at is stamped from the server's clock rather than bound from the
+// caller's, for the reason querygen.NowExpression gives: a row's stamp and a
+// filter's window have to come from one clock, and two application instances
+// whose clocks differ would otherwise write rows a window excludes at random.
 func (r *Resolver) updateNamedQuery(table string) string {
 	return fmt.Sprintf(
-		`UPDATE %s%s SET description = %s, archived_at = NULL WHERE id = %s`,
+		`UPDATE %s%s SET description = %s, last_updated_at = CURRENT_TIMESTAMP, archived_at = NULL WHERE id = %s`,
 		r.prefix, table,
 		r.dialect.Placeholder(1), r.dialect.Placeholder(2),
 	)

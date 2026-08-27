@@ -78,7 +78,7 @@ func TestRunner_Start(T *testing.T) {
 		test.EqOp(t, 0, inst.CurrentStep)
 		test.EqOp(t, 12, inst.State.Amount)
 		test.Eq(t, []string{"one", "two"}, inst.StepNames)
-		test.EqOp(t, baseTime, inst.StartedAt)
+		test.EqOp(t, baseTime, inst.CreatedAt)
 
 		stored, err := store.Get(t.Context(), inst.ID)
 		must.NoError(t, err)
@@ -573,9 +573,8 @@ func TestRunner_Resume(T *testing.T) {
 
 		inst := saveInstance(t, store, newRecord("i1", "orders", []string{"one"}, testState{}, baseTime), baseTime)
 		inst.Status = StatusStuck
-		inst.UpdatedAt = baseTime
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime)
+			return store.Advance(t.Context(), q, inst, baseTime, baseTime)
 		}))
 
 		runner := newTestRunner(t, store, registry)

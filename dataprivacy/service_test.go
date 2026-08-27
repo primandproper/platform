@@ -59,7 +59,7 @@ func TestService_Submit(T *testing.T) {
 
 		test.EqOp(t, StatusInProgress, req.Status)
 		test.EqOp(t, RequestExport, req.Type)
-		test.True(t, req.RequestedAt.Equal(baseTime))
+		test.True(t, req.CreatedAt.Equal(baseTime))
 		test.True(t, req.DueAt.Equal(baseTime.Add(DefaultResponseWindow)))
 
 		// The operation is what the caller polls, so its ID has to come back and

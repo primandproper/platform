@@ -258,6 +258,58 @@ func TestQueries_DialectSpelling(T *testing.T) {
 	})
 }
 
+// The totals table is the one this package means to keep, so it carries the
+// module's convention triple. The upsert's two halves say different things about
+// it: the insert writes created_at and no last mutation, and the conflict branch
+// — which is the update — stamps one.
+func TestQueries_StampTheConventionColumns(T *testing.T) {
+	T.Parallel()
+
+	tbl := newTables("mtr")
+
+	T.Run("the upsert writes created_at and stamps only on conflict", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range allDialects {
+			query, args := tbl.buildUpsertTotal(d, testSubject, testMeter, AggregationSum, monthBounds, 5, baseTime, baseTime)
+
+			inserted, conflict, found := strings.Cut(query, " VALUES ")
+			must.True(t, found, must.Sprintf("dialect %q", d))
+			test.StrContains(t, inserted, "created_at", test.Sprintf("dialect %q", d))
+			test.StrNotContains(t, inserted, "last_updated_at", test.Sprintf("dialect %q", d))
+			test.StrContains(t, conflict, "last_updated_at = ", test.Sprintf("dialect %q", d))
+
+			// One bound value per placeholder, insert half and conflict half
+			// together — the conflict branch binds the clock a second time
+			// rather than reusing the insert's, because MySQL and SQLite number
+			// their placeholders positionally.
+			test.SliceLen(t, 10, args, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("every update stamps the last mutation", func(t *testing.T) {
+		t.Parallel()
+
+		total := &Total{
+			Subject: testSubject, Meter: testMeter,
+			PeriodStart: monthBounds.Start, FlushSequence: 3,
+		}
+
+		for _, d := range allDialects {
+			consume, _ := tbl.buildApplyConsume(d, testSubject, testMeter, monthBounds.Start, 10, baseTime, baseTime)
+			flushed, _ := tbl.buildMarkFlushed(d, total, 40, baseTime)
+			released, _ := tbl.buildReleaseFlush(d, total, "boom", baseTime, baseTime)
+
+			for name, query := range map[string]string{
+				"consume": consume, "mark_flushed": flushed, "release_flush": released,
+			} {
+				test.StrContains(t, query, "last_updated_at = ",
+					test.Sprintf("dialect %q write %q", d, name))
+			}
+		}
+	})
+}
+
 func TestQueries_Guards(T *testing.T) {
 	T.Parallel()
 

@@ -194,8 +194,7 @@ func newRecord(id, definitionName string, stepNames []string, state any, at time
 	}
 
 	return &Record{
-		StartedAt:   at,
-		UpdatedAt:   at,
+		CreatedAt:   at,
 		State:       encoded,
 		StepNames:   stepNames,
 		ID:          id,
@@ -336,7 +335,7 @@ type failingAdvanceStore struct {
 	Store
 }
 
-func (s *failingAdvanceStore) Advance(context.Context, database.Tx, *Record, time.Time) error {
+func (s *failingAdvanceStore) Advance(context.Context, database.Tx, *Record, time.Time, time.Time) error {
 	return platformerrors.New("the write replica is unreachable")
 }
 

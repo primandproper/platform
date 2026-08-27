@@ -90,7 +90,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, 0, got.CurrentStep)
 		test.EqOp(t, 0, got.Attempts)
 		test.Eq(t, []string{"a", "b"}, got.StepNames)
-		test.EqOp(t, baseTime, got.StartedAt)
+		test.EqOp(t, baseTime, got.CreatedAt)
 		test.Eq(t, []byte(`{"trail":null,"amount":3}`), []byte(got.State))
 	})
 
@@ -151,9 +151,8 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		inst := saveInstance(t, store, newRecord("done", "orders", []string{"a"}, testState{}, baseTime), baseTime)
 
 		inst.Status = StatusCompleted
-		inst.UpdatedAt = baseTime
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime)
+			return store.Advance(t.Context(), q, inst, baseTime, baseTime)
 		}))
 
 		claimed, err := store.Claim(t.Context(), baseTime, 10, baseTime.Add(time.Minute))
@@ -183,10 +182,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		inst.CurrentStep = 1
 		inst.State = []byte(`{"amount":9}`)
-		inst.UpdatedAt = baseTime.Add(time.Second)
 
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime.Add(time.Second))
+			return store.Advance(t.Context(), q, inst, baseTime.Add(time.Second), baseTime.Add(time.Second))
 		}))
 
 		got, err := store.Get(t.Context(), "i1")
@@ -211,10 +209,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 
 		inst.CurrentStep = 1
-		inst.UpdatedAt = baseTime
 
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime.Add(time.Minute))
+			return store.Advance(t.Context(), q, inst, baseTime.Add(time.Minute), baseTime)
 		}))
 
 		// Not claimable before the delay elapses...
@@ -235,14 +232,13 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		inst := saveInstance(t, store, newRecord("i1", "orders", []string{"a"}, testState{}, baseTime), baseTime)
 
 		inst.Status = StatusCompleted
-		inst.UpdatedAt = baseTime
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime)
+			return store.Advance(t.Context(), q, inst, baseTime, baseTime)
 		}))
 
 		inst.Status = StatusRunning
 		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime)
+			return store.Advance(t.Context(), q, inst, baseTime, baseTime)
 		})
 		test.ErrorIs(t, err, ErrInstanceNotFound)
 	})
@@ -252,10 +248,10 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		test.ErrorIs(t, store.Advance(t.Context(), nil, &Record{}, baseTime), ErrNilExecutor)
+		test.ErrorIs(t, store.Advance(t.Context(), nil, &Record{}, baseTime, baseTime), ErrNilExecutor)
 
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			test.ErrorIs(t, store.Advance(t.Context(), q, nil, baseTime), ErrNilInstance)
+			test.ErrorIs(t, store.Advance(t.Context(), q, nil, baseTime, baseTime), ErrNilInstance)
 
 			return nil
 		}))
@@ -317,9 +313,8 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		inst.Status = StatusStuck
 		inst.ResumeStatus = StatusCompensating
 		inst.LastError = "the refund failed"
-		inst.UpdatedAt = baseTime
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime)
+			return store.Advance(t.Context(), q, inst, baseTime, baseTime)
 		}))
 
 		stuck, err := store.Get(t.Context(), "i1")
@@ -370,9 +365,8 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		stuck := newRecord("a3", "orders", []string{"a"}, testState{}, baseTime)
 		saveInstance(t, store, stuck, baseTime)
 		stuck.Status = StatusStuck
-		stuck.UpdatedAt = baseTime
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, stuck, baseTime)
+			return store.Advance(t.Context(), q, stuck, baseTime, baseTime)
 		}))
 
 		all, err := store.List(t.Context(), nil, nil)

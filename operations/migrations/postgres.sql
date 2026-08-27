@@ -48,8 +48,16 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}operations (
     attempts         INTEGER     NOT NULL DEFAULT 0,
     cancel_requested BOOLEAN     NOT NULL DEFAULT FALSE,
 
+    -- The convention triple, spelled as every other consumer-row table in the
+    -- module spells it. last_updated_at is NULL until something changes the
+    -- row, which is why no predicate here reads it: the recovery sweep asks how
+    -- long an operation has been pending, and that is created_at. archived_at is
+    -- written by nothing in this package — terminal rows are reaped rather than
+    -- hidden — and is here because a table querygen can read a shape from has
+    -- all three of these or none of them.
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_updated_at  TIMESTAMPTZ,
+    archived_at      TIMESTAMPTZ,
     -- Null until a worker picks the operation up, and null until it finishes.
     -- The gap between created_at and started_at is queue latency, which is the
     -- number that explains a slow export that ran quickly.
@@ -68,7 +76,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}operations (
 -- active ones by orders of magnitude between reaps, and no sweep ever looks at
 -- them.
 CREATE INDEX IF NOT EXISTS {{PREFIX}}operations_active_idx
-    ON {{PREFIX}}operations (updated_at, claimed_until)
+    ON {{PREFIX}}operations (created_at, claimed_until)
     WHERE state IN ('pending', 'running');
 
 -- Serves the API read: "what has this account got running", and its narrowing

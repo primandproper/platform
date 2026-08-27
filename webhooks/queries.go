@@ -62,7 +62,7 @@ const dispatchColumns = "d.id, d.delivery_id, d.endpoint_id, d.ordering_key, d.a
 	"e.id, e.scope, e.url, e.content_type, e.secret_current, e.secret_previous, e.headers, e.disabled"
 
 // attemptColumns is the projection an attempt read scans.
-const attemptColumns = "id, delivery_id, endpoint_id, attempt_count, status_code, error, duration_ms, attempted_at"
+const attemptColumns = "id, delivery_id, endpoint_id, attempt_count, status_code, error, duration_ms, created_at"
 
 // buildUpsertEndpoint renders the endpoint write. It is an upsert rather than
 // separate insert and update paths because SaveEndpoint is the only write and a
@@ -91,13 +91,13 @@ func (t *tables) buildUpsertEndpoint(d dialect.Dialect, e *Endpoint, headers []b
 			" url = VALUES(url), content_type = VALUES(content_type)," +
 			" secret_current = VALUES(secret_current), secret_previous = VALUES(secret_previous)," +
 			" headers = VALUES(headers), disabled = VALUES(disabled)," +
-			" archived_at = NULL, updated_at = " + d.Placeholder(len(args)+1), append(args, now)
+			" archived_at = NULL, last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
 	case dialect.Postgres, dialect.SQLite:
 		return base + " ON CONFLICT (id) DO UPDATE SET" +
 			" url = EXCLUDED.url, content_type = EXCLUDED.content_type," +
 			" secret_current = EXCLUDED.secret_current, secret_previous = EXCLUDED.secret_previous," +
 			" headers = EXCLUDED.headers, disabled = EXCLUDED.disabled," +
-			" archived_at = NULL, updated_at = " + d.Placeholder(len(args)+1), append(args, now)
+			" archived_at = NULL, last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
 	default:
 		return base, args
 	}
@@ -395,7 +395,7 @@ func (t *tables) buildRecordFailure(d dialect.Dialect, dispatchID string, attemp
 func (t *tables) buildInsertAttempt(d dialect.Dialect, a *Attempt) (query string, args []any) {
 	args = []any{
 		a.ID, a.DeliveryID, a.EndpointID, a.AttemptCount,
-		a.StatusCode, a.Error, a.Duration.Milliseconds(), a.AttemptedAt,
+		a.StatusCode, a.Error, a.Duration.Milliseconds(), a.CreatedAt,
 	}
 
 	return fmt.Sprintf(
@@ -430,7 +430,7 @@ func (t *tables) buildListAttempts(d dialect.Dialect, scope tenancy.Scope, deliv
 
 	return fmt.Sprintf(
 		"SELECT %s FROM %s AS a INNER JOIN %s AS v ON v.id = a.delivery_id "+
-			"WHERE %s ORDER BY a.attempted_at, a.id LIMIT %s",
+			"WHERE %s ORDER BY a.created_at, a.id LIMIT %s",
 		prefixColumns("a.", attemptColumns), t.attempts, t.deliveries, where, d.Placeholder(len(args)),
 	), args
 }
