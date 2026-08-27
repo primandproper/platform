@@ -587,8 +587,8 @@ func matchPredicate(table string, match Match, qualified bool) string {
 // tenancy scope is.
 func matchPredicates(table string, qualified bool, matches []Match) []string {
 	predicates := make([]string, 0, len(matches))
-	for _, match := range matches {
-		predicates = append(predicates, matchPredicate(table, match, qualified))
+	for i := range matches {
+		predicates = append(predicates, matchPredicate(table, matches[i], qualified))
 	}
 
 	return predicates
