@@ -7,7 +7,6 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/querygen"
 	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -84,12 +83,6 @@ func projection(columns []string) string {
 	return strings.Join(columns, ", ")
 }
 
-// prefixColumns qualifies a column list with a table alias, for the joins whose
-// projection names two tables at once.
-func prefixColumns(alias string, columns []string) string {
-	return projection(querygen.QualifyAll(alias, columns))
-}
-
 // nullableString maps an empty string to a SQL NULL, for the columns where "not
 // set" and "set to nothing" are different facts — a subscription plan that was
 // cancelled versus one named by the empty string.
@@ -137,15 +130,16 @@ func nullableString(s string) any {
 //	buildRecordAgreements          an update whose SET list is chosen per call
 //	buildUpdateAccountBilling      the same, over the billing columns
 //	buildEraseUser                 a hard DELETE rather than an update
-//	the membership list and joins  keyed on the (user, account) pair rather
-//	                               than on id, and a default-flag clear whose
-//	                               predicate excludes a row rather than
-//	                               matching one
+//	the default-flag maintenance   a clear whose predicate excludes a row
+//	                               rather than matching one
 //	the prefix search              a LIKE with an ESCAPE and one conditional
 //	                               cursor predicate
 //
 // The membership upsert used to be on that list and is not any more: querygen
-// renders it, sqlc checks it, and the store executes the generated method.
+// renders it, sqlc checks it, and the store executes the generated method. The
+// membership reads left with it — querygen renders a junction list, so the
+// roster, the accounts a user belongs to, and the user's own membership list
+// all come from the generated package.
 type binder struct {
 	d    dialect.Dialect
 	args []any
@@ -296,43 +290,6 @@ func (t *tables) buildEraseUser(d dialect.Dialect, scope tenancy.Scope, userID s
 
 // ---------------------------------------------------------------- accounts
 
-// buildListAccountsForUser pages the accounts a user is a live member of.
-//
-// The membership's archived_at is checked as well as the account's: a user
-// removed from an account they are still nominally listed against would
-// otherwise keep seeing it in their switcher.
-func (t *tables) buildListAccountsForUser(d dialect.Dialect, scope tenancy.Scope, userID, cursor string, limit int) (query string, args []any) {
-	args = []any{scope, userID}
-
-	where := fmt.Sprintf(
-		"a.scope = %s AND m.belongs_to_user = %s AND a.archived_at IS NULL AND m.archived_at IS NULL",
-		d.Placeholder(1), d.Placeholder(2),
-	)
-
-	if cursor != "" {
-		args = append(args, cursor)
-		where += " AND a.id > " + d.Placeholder(len(args))
-	}
-
-	args = append(args, limit)
-
-	return fmt.Sprintf(
-		"SELECT %s FROM %s AS a INNER JOIN %s AS m ON m.belongs_to_account = a.id "+
-			"WHERE %s ORDER BY a.id LIMIT %s",
-		prefixColumns("a", queries.Accounts.Columns), t.accounts, t.memberships,
-		where, d.Placeholder(len(args)),
-	), args
-}
-
-// buildCountAccountsForUser counts what buildListAccountsForUser pages over.
-func (t *tables) buildCountAccountsForUser(d dialect.Dialect, scope tenancy.Scope, userID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s AS a INNER JOIN %s AS m ON m.belongs_to_account = a.id "+
-			"WHERE a.scope = %s AND m.belongs_to_user = %s AND a.archived_at IS NULL AND m.archived_at IS NULL",
-		t.accounts, t.memberships, d.Placeholder(1), d.Placeholder(2),
-	), []any{scope, userID}
-}
-
 // buildUpdateAccountBilling writes only the fields the update names, so a
 // processor webhook carrying a status alone does not read-modify-write the rest
 // and lose what another webhook did in between.
@@ -375,52 +332,6 @@ func (t *tables) buildUpdateAccountBilling(d dialect.Dialect, scope tenancy.Scop
 }
 
 // ------------------------------------------------------------ memberships
-
-// buildListMembershipsForUser reads every live membership a user holds, default
-// account first — so a caller that takes the first row gets the one the user
-// lands in.
-func (t *tables) buildListMembershipsForUser(d dialect.Dialect, scope tenancy.Scope, userID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE scope = %s AND belongs_to_user = %s AND archived_at IS NULL "+
-			"ORDER BY default_account DESC, belongs_to_account",
-		membershipProjection, t.memberships, d.Placeholder(1), d.Placeholder(2),
-	), []any{scope, userID}
-}
-
-// buildListAccountMembers pages an account's roster, joining each membership to
-// the user it names so a page of thirty members is one query rather than
-// thirty-one.
-func (t *tables) buildListAccountMembers(d dialect.Dialect, scope tenancy.Scope, accountID, cursor string, limit int) (query string, args []any) {
-	args = []any{scope, accountID}
-
-	where := fmt.Sprintf(
-		"m.scope = %s AND m.belongs_to_account = %s AND m.archived_at IS NULL AND u.archived_at IS NULL",
-		d.Placeholder(1), d.Placeholder(2),
-	)
-
-	if cursor != "" {
-		args = append(args, cursor)
-		where += " AND m.id > " + d.Placeholder(len(args))
-	}
-
-	args = append(args, limit)
-
-	return fmt.Sprintf(
-		"SELECT %s, %s FROM %s AS m INNER JOIN %s AS u ON u.id = m.belongs_to_user "+
-			"WHERE %s ORDER BY m.id LIMIT %s",
-		prefixColumns("m", queries.Memberships.Columns), prefixColumns("u", queries.Users.Columns),
-		t.memberships, t.users, where, d.Placeholder(len(args)),
-	), args
-}
-
-// buildCountAccountMembers counts what buildListAccountMembers pages over.
-func (t *tables) buildCountAccountMembers(d dialect.Dialect, scope tenancy.Scope, accountID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s AS m INNER JOIN %s AS u ON u.id = m.belongs_to_user "+
-			"WHERE m.scope = %s AND m.belongs_to_account = %s AND m.archived_at IS NULL AND u.archived_at IS NULL",
-		t.memberships, t.users, d.Placeholder(1), d.Placeholder(2),
-	), []any{scope, accountID}
-}
 
 // buildDeleteRoles clears an owner's roles against either role table, so a role
 // set can be replaced wholesale rather than diffed. Diffing would mean reading

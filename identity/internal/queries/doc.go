@@ -58,6 +58,15 @@ converging on the pair: it is unique across live and archived rows alike, so
 rejoining an account revives the row that is already there rather than adding a
 second, and the id it keeps is what the membership's roles hang off.
 
+Its reads are another matter, and they are the three junction lists [Render]
+appends after the standard sets. An account's roster is a page of memberships
+with the member's columns projected beside them; a user's account list is a page
+of accounts reached through the same table; a user's own membership list is the
+unpaged read behind every authorization decision this package answers. All three
+were hand-built until querygen learned the shape, and the roster was what kept a
+two-entity scan-by-position pairing alive after everything single-table had been
+generated.
+
 # The keyed variants
 
 A table's standard queries are not all of what a store runs against it, and the

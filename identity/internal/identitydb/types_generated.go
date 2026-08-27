@@ -335,6 +335,53 @@ type GetUserCreatedAtRow struct {
 	CreatedAt time.Time
 }
 
+// ListAccountMembersParams are the arguments to ListAccountMembers.
+type ListAccountMembersParams struct {
+	CreatedAfter     *time.Time
+	CreatedBefore    *time.Time
+	UpdatedAfter     *time.Time
+	UpdatedBefore    *time.Time
+	IncludeArchived  bool
+	Scope            tenancy.Scope
+	BelongsToAccount string
+	PageCursor       *string
+	ResultLimit      int64
+}
+
+// ListAccountMembersRow is one row of ListAccountMembers's result.
+type ListAccountMembersRow struct {
+	ID                                string
+	Scope                             tenancy.Scope
+	BelongsToUser                     string
+	BelongsToAccount                  string
+	DefaultAccount                    bool
+	CreatedAt                         time.Time
+	LastUpdatedAt                     *time.Time
+	ArchivedAt                        *time.Time
+	UserID                            string
+	UserScope                         tenancy.Scope
+	UserUsername                      string
+	UserEmailAddress                  string
+	UserFirstName                     string
+	UserLastName                      string
+	UserHashedPassword                string
+	UserRequiresPasswordChange        bool
+	UserPasswordLastChangedAt         *time.Time
+	UserTwoFactorSecret               string
+	UserTwoFactorSecretVerifiedAt     *time.Time
+	UserEmailAddressVerifiedAt        *time.Time
+	UserEmailAddressVerificationToken string
+	UserAccountStatus                 string
+	UserAccountStatusExplanation      string
+	UserLastAcceptedTermsOfService    *time.Time
+	UserLastAcceptedPrivacyPolicy     *time.Time
+	UserCreatedAt                     time.Time
+	UserLastUpdatedAt                 *time.Time
+	UserArchivedAt                    *time.Time
+	FilteredCount                     int64
+	TotalCount                        int64
+}
+
 // ListAccountsParams are the arguments to ListAccounts.
 type ListAccountsParams struct {
 	CreatedAfter    *time.Time
@@ -349,6 +396,44 @@ type ListAccountsParams struct {
 
 // ListAccountsRow is one row of ListAccounts's result.
 type ListAccountsRow struct {
+	ID                          string
+	Scope                       tenancy.Scope
+	Name                        string
+	OwnerUserID                 string
+	BillingStatus               string
+	SubscriptionPlanID          *string
+	PaymentProcessorCustomerID  string
+	LastPaymentProviderSyncedAt *time.Time
+	AddressLine1                string
+	AddressLine2                string
+	AddressCity                 string
+	AddressState                string
+	AddressPostalCode           string
+	AddressCountry              string
+	AddressPhone                string
+	TimeZone                    string
+	CreatedAt                   time.Time
+	LastUpdatedAt               *time.Time
+	ArchivedAt                  *time.Time
+	FilteredCount               int64
+	TotalCount                  int64
+}
+
+// ListAccountsForUserParams are the arguments to ListAccountsForUser.
+type ListAccountsForUserParams struct {
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	UpdatedAfter    *time.Time
+	UpdatedBefore   *time.Time
+	IncludeArchived bool
+	Scope           tenancy.Scope
+	BelongsToUser   string
+	PageCursor      *string
+	ResultLimit     int64
+}
+
+// ListAccountsForUserRow is one row of ListAccountsForUser's result.
+type ListAccountsForUserRow struct {
 	ID                          string
 	Scope                       tenancy.Scope
 	Name                        string
@@ -470,6 +555,24 @@ type ListInvitationsByToEmailRow struct {
 	ArchivedAt       *time.Time
 	FilteredCount    int64
 	TotalCount       int64
+}
+
+// ListMembershipsForUserParams are the arguments to ListMembershipsForUser.
+type ListMembershipsForUserParams struct {
+	Scope         tenancy.Scope
+	BelongsToUser string
+}
+
+// ListMembershipsForUserRow is one row of ListMembershipsForUser's result.
+type ListMembershipsForUserRow struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+	DefaultAccount   bool
+	CreatedAt        time.Time
+	LastUpdatedAt    *time.Time
+	ArchivedAt       *time.Time
 }
 
 // ListUsersParams are the arguments to ListUsers.

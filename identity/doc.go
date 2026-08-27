@@ -152,8 +152,15 @@ debugging seam when sqlc rejects a statement, because the file is exactly what
 the analyzer was handed. The two cannot drift from each other: one is rendered
 from code, the other is generated from the first, and the gates hold both ends.
 
+The three reads that cross the membership junction come from the same place —
+an account's roster, the accounts a user belongs to, and the user's own
+membership list — because querygen renders a junction list as well as a
+single-table one. The roster projects the member's columns beside the
+membership's under a user_ prefix, so a page of thirty members is one query and
+the row it comes back as is generated rather than paired to a Scan by eye.
+
 What remains hand-written is what querygen does not yet emit — the username
-prefix search, the roster and account joins, and the membership upsert.
+prefix search and the billing update's conditional SET.
 */
 package identity
 
