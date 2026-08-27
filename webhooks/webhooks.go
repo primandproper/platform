@@ -34,24 +34,25 @@ const (
 // so the webhooks. prefix is applied uniformly — an un-namespaced attribute
 // name collides with every other component writing to the same trace.
 const (
-	endpointIDKey   = "webhooks.endpoint_id"
-	endpointURLKey  = "webhooks.endpoint_url"
-	scopeKey        = "webhooks.scope"
-	deliveryIDKey   = "webhooks.delivery_id"
-	dispatchIDKey   = "webhooks.dispatch_id"
-	eventTypeKey    = "webhooks.event_type"
-	orderingKeyKey  = "webhooks.ordering_key"
-	attemptsKey     = "webhooks.attempts"
-	fanoutKey       = "webhooks.fanout"
-	claimedKey      = "webhooks.claimed"
-	statusCodeKey   = "webhooks.status_code"
-	circuitOpenKey  = "webhooks.circuit_open"
-	backlogDepthKey = "webhooks.backlog_depth"
-	backlogAgeKey   = "webhooks.backlog_age_seconds"
-	reapedKey       = "webhooks.reaped"
-	replayedKey     = "webhooks.replayed"
-	deadKey         = "webhooks.dead"
-	limitKey        = "webhooks.limit"
+	endpointIDKey     = "webhooks.endpoint_id"
+	endpointURLKey    = "webhooks.endpoint_url"
+	subscriptionIDKey = "webhooks.subscription_id"
+	scopeKey          = "webhooks.scope"
+	deliveryIDKey     = "webhooks.delivery_id"
+	dispatchIDKey     = "webhooks.dispatch_id"
+	eventTypeKey      = "webhooks.event_type"
+	orderingKeyKey    = "webhooks.ordering_key"
+	attemptsKey       = "webhooks.attempts"
+	fanoutKey         = "webhooks.fanout"
+	claimedKey        = "webhooks.claimed"
+	statusCodeKey     = "webhooks.status_code"
+	circuitOpenKey    = "webhooks.circuit_open"
+	backlogDepthKey   = "webhooks.backlog_depth"
+	backlogAgeKey     = "webhooks.backlog_age_seconds"
+	reapedKey         = "webhooks.reaped"
+	replayedKey       = "webhooks.replayed"
+	deadKey           = "webhooks.dead"
+	limitKey          = "webhooks.limit"
 
 	// storeOpKey names which of the store's methods a measurement came from,
 	// for the one counter that can be reached from more than one of them.
@@ -59,8 +60,9 @@ const (
 
 	// The row counts a store read produced, which are what distinguish an empty
 	// page from a query that never ran.
-	endpointCountKey = "webhooks.endpoint_count"
-	attemptCountKey  = "webhooks.attempt_count"
+	endpointCountKey     = "webhooks.endpoint_count"
+	subscriptionCountKey = "webhooks.subscription_count"
+	attemptCountKey      = "webhooks.attempt_count"
 )
 
 var (
@@ -231,6 +233,17 @@ type Secret = requestsigning.Keyring
 // Endpoint is one subscriber: whose it is, where deliveries go, what they are
 // signed with, and which events reach it.
 type Endpoint struct {
+	// CreatedAt is when the endpoint was registered, stamped by the Store.
+	CreatedAt time.Time `json:"createdAt"`
+	// LastUpdatedAt is when the endpoint was last re-registered.
+	LastUpdatedAt *time.Time `json:"lastUpdatedAt"`
+	// ArchivedAt is when the endpoint was retired by ArchiveEndpoint. The row is
+	// kept rather than deleted: the attempts log outlives the endpoint, because
+	// "what did we send them" is asked most often after someone has been removed.
+	//
+	// Re-registering an archived endpoint clears it — SaveEndpoint is an upsert,
+	// and a caller who registers an ID that exists means to have it live.
+	ArchivedAt *time.Time `json:"archivedAt"`
 	// Headers are static headers added to every request to this endpoint, for
 	// subscribers that need a routing token or a tenant hint. The signature,
 	// timestamp, content type, and event headers this package sets are not
@@ -244,8 +257,27 @@ type Endpoint struct {
 	// An application whose events are global says tenancy.Global() here, which
 	// is a scope like any other and matches only deliveries dispatched in it.
 	Scope tenancy.Scope `json:"scope"`
+	// CreatedBy names the principal that registered the endpoint — the user who
+	// clicked the button, where an application tracks that.
+	//
+	// It is a tenancy.Scope rather than a bare user ID on purpose. "Whose is
+	// this" already has a type in this module, and the answer here is finer
+	// grained than Scope rather than a different kind of answer: an application
+	// that lists "the endpoints I created" filters on the same value type it
+	// filters tenants by, and a second string field would be a parallel owner
+	// dimension that nothing else in the module understands.
+	//
+	// Unlike Scope it is optional. An endpoint belongs to its Scope, which is
+	// what bounds fan-out and every read; who registered it is provenance, and an
+	// application with no per-user attribution leaves this unset. It is written
+	// once, at registration, and is not part of what a re-registration updates —
+	// an endpoint does not change hands, and neither does its provenance.
+	CreatedBy tenancy.Scope `json:"createdBy"`
 	// ID identifies the endpoint. Generated at registration when empty.
 	ID string `json:"id"`
+	// Name is the label an endpoint-management UI shows. Optional, and free-form:
+	// this package never reads it, and two endpoints in one scope may share one.
+	Name string `json:"name"`
 	// URL is the absolute https:// URL deliveries are POSTed to.
 	URL string `json:"url"`
 	// ContentType is the request's Content-Type. Defaults to application/json.
@@ -253,11 +285,111 @@ type Endpoint struct {
 	// Secret carries the signing keys. Never serialized: an endpoint travels
 	// through API responses and logs, and its secret must not.
 	Secret Secret `json:"-"`
-	// Events are the catalog event types this endpoint subscribes to.
-	Events []EventType `json:"events"`
+	// Subscriptions are the endpoint's live subscriptions — one identified,
+	// individually archivable row per catalog event type it wants.
+	//
+	// On the way in it is the set to register: SubscribeTo builds one from event
+	// types, and SaveEndpoint reconciles the stored rows against it, so an entry
+	// that is not there any more is archived rather than deleted. On the way out
+	// the Store fills it with the live rows, IDs and timestamps included.
+	//
+	// It is rows rather than a []EventType because a subscription is something an
+	// application's own API lets a user retire one of, and a flat list can only be
+	// rewritten: "unsubscribe from order.created" becomes "here is the list
+	// again, minus one", which loses when it happened, and there is no identifier
+	// to name in the request that asked for it. EventTypes derives the flat form
+	// where one is wanted, so nothing has to keep two copies agreeing.
+	Subscriptions []Subscription `json:"subscriptions"`
 	// Disabled stops delivery without deleting the endpoint or its history,
 	// which is what an operator wants when a subscriber is misbehaving.
 	Disabled bool `json:"disabled"`
+}
+
+// Archived reports whether the endpoint has been retired.
+func (e *Endpoint) Archived() bool { return e != nil && e.ArchivedAt != nil }
+
+// EventTypes returns the event types the endpoint's live subscriptions name, in
+// the order the subscriptions are held.
+//
+// It is derived rather than stored. The flat list is still the useful shape for
+// a Catalog check or a subscription UI's checkboxes, and keeping a second copy
+// of it on the struct would be a copy that can disagree with the rows.
+func (e *Endpoint) EventTypes() []EventType {
+	if e == nil {
+		return nil
+	}
+
+	events := make([]EventType, 0, len(e.Subscriptions))
+	for i := range e.Subscriptions {
+		if e.Subscriptions[i].Archived() {
+			continue
+		}
+
+		events = append(events, e.Subscriptions[i].EventType)
+	}
+
+	return events
+}
+
+// Subscription is one endpoint's interest in one event type, as a row of its
+// own: identified, timestamped, and archivable without touching the rest.
+//
+// It is a row and not an entry in a list because retiring one subscription is
+// something an application's API is asked to do. Against a flat list the only
+// available answer is to rewrite the whole set, which cannot say when a
+// subscription ended, has no identifier for the request to name, and races any
+// concurrent edit of the same endpoint. Against rows it is an archive of one ID.
+//
+// It carries no tenancy.Scope. Its owner is the endpoint's — a subscription is a
+// fact about an endpoint, and a second copy of the scope on every row here is a
+// copy that can disagree with the first. Every store read of a subscription
+// takes a scope and reaches it through the endpoint, the same way the delivery
+// log reaches it through the delivery.
+type Subscription struct {
+	// CreatedAt is when the subscription was made, stamped by the Store.
+	CreatedAt time.Time `json:"createdAt"`
+	// LastUpdatedAt is when a write last named this subscription: the save or the
+	// AddSubscription that would have created it had it not already existed.
+	// Nil until one has, so a subscription made once and left alone has none.
+	LastUpdatedAt *time.Time `json:"lastUpdatedAt"`
+	// ArchivedAt is when the subscription was retired. Archived subscriptions
+	// are excluded from fan-out and from the endpoint's Subscriptions, and are
+	// kept so that "when did they stop receiving this" has an answer.
+	ArchivedAt *time.Time `json:"archivedAt"`
+	// ID identifies the subscription, and is what ArchiveSubscription names.
+	// Generated by the Store when empty.
+	ID string `json:"id"`
+	// EndpointID is the endpoint that subscribed.
+	EndpointID string `json:"endpointID"`
+	// EventType is the catalog event type subscribed to.
+	EventType EventType `json:"eventType"`
+}
+
+// Archived reports whether the subscription has been retired.
+func (s *Subscription) Archived() bool { return s != nil && s.ArchivedAt != nil }
+
+// SubscribeTo builds the subscription set for an endpoint being registered.
+//
+// Registration names event types, not subscription IDs — there are none yet —
+// so this is the form the write side takes:
+//
+//	dispatcher.Register(ctx, &webhooks.Endpoint{
+//		Scope:         tenancy.Of(accountID),
+//		URL:           "https://subscriber.example/hooks",
+//		Secret:        webhooks.Secret{Current: key},
+//		Subscriptions: webhooks.SubscribeTo(OrderCreated, OrderUpdated),
+//	})
+//
+// Duplicates are not filtered here. SaveEndpoint reconciles by event type, so a
+// repeated type is one row either way, and dropping them silently would hide a
+// caller building the list from something that had a bug in it.
+func SubscribeTo(events ...EventType) []Subscription {
+	subscriptions := make([]Subscription, 0, len(events))
+	for _, event := range events {
+		subscriptions = append(subscriptions, Subscription{EventType: event})
+	}
+
+	return subscriptions
 }
 
 // Delivery is one event to fan out. It is the application's unit; the
