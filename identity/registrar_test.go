@@ -208,6 +208,35 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		test.False(t, later.DefaultAccount)
 	})
 
+	t.Run("stamps a new membership with the database's creation time", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+		member := createUser(t, store, newUser("brian"))
+
+		membership := &Membership{
+			Scope:            testScope,
+			BelongsToUser:    member.ID,
+			BelongsToAccount: account.ID,
+			Roles:            []string{"account_member"},
+		}
+
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateMembership(ctx, q, membership)
+		}))
+
+		// created_at is database-owned on this table as on every other, so the
+		// value the caller is left holding has to be the one the row carries —
+		// not the zero time, and not this process's clock.
+		test.False(t, membership.CreatedAt.IsZero())
+
+		stored, err := store.GetMembership(t.Context(), testScope, member.ID, account.ID)
+		must.NoError(t, err)
+		test.EqOp(t, stored.CreatedAt, membership.CreatedAt)
+	})
+
 	t.Run("revives an archived membership rather than duplicating it", func(t *testing.T) {
 		t.Parallel()
 
@@ -224,14 +253,23 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		// Rejoining. The pair is unique across live and archived rows, so this
 		// has to revive rather than insert — and it keeps the ID it was created
 		// with, which is what the roles are written against.
+		rejoined := &Membership{
+			Scope:            testScope,
+			BelongsToUser:    member.ID,
+			BelongsToAccount: account.ID,
+			Roles:            []string{"account_admin"},
+		}
+
 		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
-			return store.CreateMembership(ctx, q, &Membership{
-				Scope:            testScope,
-				BelongsToUser:    member.ID,
-				BelongsToAccount: account.ID,
-				Roles:            []string{"account_admin"},
-			})
+			return store.CreateMembership(ctx, q, rejoined)
 		}))
+
+		// The struct the caller is holding carries the row that is actually
+		// there, not the one it asked for: the upsert converged on the pair, so
+		// the ID it generated and the creation time it never sent are both read
+		// back off the row.
+		test.EqOp(t, original.ID, rejoined.ID)
+		test.EqOp(t, original.CreatedAt, rejoined.CreatedAt)
 
 		revived, err := store.GetMembership(t.Context(), testScope, member.ID, account.ID)
 		must.NoError(t, err)

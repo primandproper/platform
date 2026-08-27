@@ -13,6 +13,9 @@ symptom would be a check that passes over SQL nobody executes.
 
 So it is spelled once, here, and both halves read it. The .sql files beside this
 file are the generator's output — see [Render] and identity/internal/queriesgen.
+Why the rendered .sql is committed at all, when the generated Go beside it in
+identity/internal/identitydb carries the same statements in executable form, is
+identity's package comment, under "Where the SQL comes from".
 
 # Which queries each table gets
 
@@ -34,10 +37,48 @@ three of the four options carry a fact that a column list cannot:
     [identity.User.Redacted] copy whose credential fields are empty, so a
     password hash left in the update set is blanked on every profile save.
 
-Memberships is the fourth table and is deliberately not emitted. Its columns are
-textbook and not one of its statements is: the get, the archive and the bulk
+The columns Updatable leaves out are not columns nothing writes — they are the
+columns a *named* statement writes, and those statements are emitted too. See
+fieldWrites: the password and its stamp, the two-factor secret and its
+verification, the email verification token, the account status, the ownership
+transfer, the invitation answer. Each names its own SET list rather than the
+table's mutable set, and three of them carry a predicate on the value being
+replaced, which is what makes a losing concurrent writer report zero rows
+instead of overwriting the winner.
+
+Memberships is the fourth table and gets none of the standard set. Its columns
+are textbook and not one of its statements is: the get, the archive and the bulk
 archive key on the (belongs_to_user, belongs_to_account) pair rather than on id,
-and its write is an upsert that revives an archived row. It is declared here
-anyway, because the store still projects its columns and one list is the point.
+which the standard set has no way to express.
+
+Its write is emitted, though — [querygen.Generator.UpsertQuery] renders it — and
+it is the statement whose three dialect files genuinely diverge rather than
+merely renumbering their placeholders. A membership has to be written by
+converging on the pair: it is unique across live and archived rows alike, so
+rejoining an account revives the row that is already there rather than adding a
+second, and the id it keeps is what the membership's roles hang off.
+
+# The keyed variants
+
+A table's standard queries are not all of what a store runs against it, and the
+difference used to be the hand-written half. A read keyed on a reference, a read
+of one database-owned column, a read keyed on a natural key the table carries an
+id alongside — each of those was rendered by the store and by nothing else, so
+sqlc proved statements the store did not run while the store ran statements sqlc
+never saw.
+
+So they are rendered here too, through the Query forms beside querygen's Bound
+methods, which are the same statement text by construction:
+
+  - the two paged invitation reads, keyed on the sender or the addressee
+  - the read-back of created_at, one per emitted table
+  - the three single-user reads keyed on a username, an email address, or a
+    verification token
+  - the three membership reads, all keyed on the (user, account) pair
+
+The membership ones are why Memberships is declared at all despite emitting no
+standard query, and why [Table.KeyedColumns] exists: querygen derives a
+statement's id predicate from the column list it is handed, so a read that keys
+on the natural key hands over the list without the id while still projecting it.
 */
 package queries

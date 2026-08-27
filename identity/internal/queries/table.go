@@ -23,9 +23,10 @@ type Table struct {
 	Columns []string
 	// Nullable names the columns a write may set to NULL.
 	Nullable []string
-	// Updatable names the columns the standard update assigns. Everything else
-	// this table would otherwise let an update assign becomes immutable to it —
-	// see Immutable.
+	// Updatable names the columns a write may assign after the insert: what the
+	// standard update sets, and what an upsert's conflict branch carries over.
+	// Everything else this table would otherwise let an update assign becomes
+	// immutable to it — see Immutable.
 	Updatable []string
 	// Omitted names the standard queries this table has no caller for.
 	Omitted []querygen.StandardQuery
@@ -71,6 +72,27 @@ func (t *Table) Immutable() []string {
 // remembered.
 func (t *Table) UpdateColumns() []string {
 	return querygen.ForUpdate(t.Columns, append(t.Immutable(), ScopeColumn)...)
+}
+
+// KeyedColumns returns the table's shape as a read keyed on something other
+// than the row's own id sees it: every column but the id.
+//
+// querygen derives a single-row statement's predicates from the column list it
+// is handed — the id predicate is rendered when the list has an id, exactly as
+// the archived one is — so leaving the id out is how a statement says it keys on
+// something else. What it does not decide is what comes back: the projection is
+// a separate list, and every keyed read below still returns the id where the
+// caller needs it.
+func (t *Table) KeyedColumns() []string {
+	keyed := make([]string, 0, len(t.Columns))
+
+	for _, column := range t.Columns {
+		if column != querygen.IDColumn {
+			keyed = append(keyed, column)
+		}
+	}
+
+	return keyed
 }
 
 // Options renders this table's shape as the options StandardCRUD reads.

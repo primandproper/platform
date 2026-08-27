@@ -55,27 +55,14 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
 	scope := tenancy.Of("dir")
 
-	membership := &Membership{
-		ID: "m1", Scope: scope, BelongsToUser: "u1", BelongsToAccount: "a1", Roles: []string{"r"},
-	}
-
 	for _, d := range allDialects {
 		t := newTables("")
 
 		rendered := map[string]func() (string, []any){
-			"selectLiveUserBy":         func() (string, []any) { return t.buildSelectLiveUserBy(d, usernameColumn, scope, "ada") },
 			"selectUsersByIDs":         func() (string, []any) { return t.buildSelectUsersByIDs(d, scope, []string{"u1", "u2"}) },
 			"selectUserIDByField":      func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "u1") },
 			"selectUserIDByFieldNoExc": func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "") },
-			"updateUserPassword":       func() (string, []any) { return t.buildUpdateUserPassword(d, scope, "u1", "h", now) },
-			"setUserFlag": func() (string, []any) {
-				return t.buildSetUserFlag(d, "requires_password_change", scope, "u1", true, now)
-			},
-			"updateTwoFactorSecret": func() (string, []any) { return t.buildUpdateTwoFactorSecret(d, scope, "u1", "s", now) },
-			"markTwoFactorVerified": func() (string, []any) { return t.buildMarkTwoFactorVerified(d, scope, "u1", now) },
-			"setEmailToken":         func() (string, []any) { return t.buildSetEmailVerificationToken(d, scope, "u1", "tok", now) },
-			"markEmailVerified":     func() (string, []any) { return t.buildMarkEmailVerified(d, scope, "u1", "tok", now) },
-			"updateAccountStatus":   func() (string, []any) { return t.buildUpdateAccountStatus(d, scope, "u1", StatusBanned, "why", now) },
+			"markTwoFactorVerified":    func() (string, []any) { return t.buildMarkTwoFactorVerified(d, scope, "u1", now) },
 			"recordAgreementsOne": func() (string, []any) {
 				return t.buildRecordAgreements(d, scope, "u1", []Agreement{TermsOfService}, now)
 			},
@@ -86,27 +73,15 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 
 			"listAccountsForUser":  func() (string, []any) { return t.buildListAccountsForUser(d, scope, "u1", "cursor", 10) },
 			"countAccountsForUser": func() (string, []any) { return t.buildCountAccountsForUser(d, scope, "u1") },
-			"transferOwnership":    func() (string, []any) { return t.buildTransferAccountOwnership(d, scope, "a1", "u1", "u2", now) },
 
-			"upsertMembership":     func() (string, []any) { return t.buildUpsertMembership(d, membership, now) },
-			"selectMembershipID":   func() (string, []any) { return t.buildSelectMembershipID(d, "u1", "a1") },
-			"selectMembership":     func() (string, []any) { return t.buildSelectMembership(d, scope, "u1", "a1") },
 			"listMemberships":      func() (string, []any) { return t.buildListMembershipsForUser(d, scope, "u1") },
 			"countLiveMemberships": func() (string, []any) { return t.buildCountLiveMembershipsForUser(d, scope, "u1") },
 			"listAccountMembers":   func() (string, []any) { return t.buildListAccountMembers(d, scope, "a1", "cursor", 10) },
 			"countAccountMembers":  func() (string, []any) { return t.buildCountAccountMembers(d, scope, "a1") },
 			"clearDefaultAccount":  func() (string, []any) { return t.buildClearDefaultAccount(d, scope, "u1", "a1", now) },
 			"setDefaultAccount":    func() (string, []any) { return t.buildSetDefaultAccount(d, scope, "u1", "a1", now) },
-			"selectFallback":       func() (string, []any) { return t.buildSelectFallbackAccountID(d, scope, "u1", "a1") },
 			"archiveMembership":    func() (string, []any) { return t.buildArchiveMembership(d, scope, "u1", "a1", now) },
 			"archiveMembershipsBy": func() (string, []any) { return t.buildArchiveMembershipsBy(d, membershipUserColumn, scope, "u1", now) },
-
-			"answerInvitation": func() (string, []any) {
-				return t.buildAnswerInvitation(d, scope, "i1", InvitationRejected, "no", nil, now)
-			},
-			"answerInvitationUser": func() (string, []any) {
-				return t.buildAnswerInvitation(d, scope, "i1", InvitationAccepted, "", new("u2"), now)
-			},
 
 			"deleteRoles": func() (string, []any) { return buildDeleteRoles(d, t.membershipRoles, membershipIDColumn, "m1") },
 			"insertRoles": func() (string, []any) {
@@ -167,30 +142,6 @@ func countPlaceholders(query string, d dialect.Dialect) int {
 
 //go:fix inline
 func ptr[T any](v T) *T { return new(v) }
-
-func TestUpsertMembership_DialectSyntax(t *testing.T) {
-	t.Parallel()
-
-	tables := newTables("")
-	membership := &Membership{ID: "m1", Scope: tenancy.Global(), BelongsToUser: "u1", BelongsToAccount: "a1"}
-	now := time.Now().UTC()
-
-	pg, _ := tables.buildUpsertMembership(dialect.Postgres, membership, now)
-	test.StrContains(t, pg, "ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET")
-	test.StrContains(t, pg, "archived_at = NULL")
-
-	my, _ := tables.buildUpsertMembership(dialect.MySQL, membership, now)
-	test.StrContains(t, my, "ON DUPLICATE KEY UPDATE")
-
-	lite, _ := tables.buildUpsertMembership(dialect.SQLite, membership, now)
-	test.StrContains(t, lite, "ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET")
-
-	// created_at is not in any update clause: rejoining an account does not make
-	// the relationship new.
-	for _, query := range []string{pg, my, lite} {
-		test.EqOp(t, 1, strings.Count(query, "created_at"))
-	}
-}
 
 func TestBuildUpdateAccountBilling_WritesOnlyWhatIsNamed(t *testing.T) {
 	t.Parallel()

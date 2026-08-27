@@ -11,6 +11,16 @@ import (
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
+// AnswerInvitationParams are the arguments to AnswerInvitation.
+type AnswerInvitationParams struct {
+	Status        string
+	Note          string
+	ToUser        *string
+	ID            string
+	Scope         tenancy.Scope
+	CurrentStatus string
+}
+
 // ArchiveAccountParams are the arguments to ArchiveAccount.
 type ArchiveAccountParams struct {
 	ID    string
@@ -119,6 +129,16 @@ type GetAccountRow struct {
 	ArchivedAt                  *time.Time
 }
 
+// GetAccountCreatedAtParams are the arguments to GetAccountCreatedAt.
+type GetAccountCreatedAtParams struct {
+	ID string
+}
+
+// GetAccountCreatedAtRow is one row of GetAccountCreatedAt's result.
+type GetAccountCreatedAtRow struct {
+	CreatedAt time.Time
+}
+
 // GetInvitationParams are the arguments to GetInvitation.
 type GetInvitationParams struct {
 	ID    string
@@ -141,6 +161,59 @@ type GetInvitationRow struct {
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
 	ArchivedAt       *time.Time
+}
+
+// GetInvitationCreatedAtParams are the arguments to GetInvitationCreatedAt.
+type GetInvitationCreatedAtParams struct {
+	ID string
+}
+
+// GetInvitationCreatedAtRow is one row of GetInvitationCreatedAt's result.
+type GetInvitationCreatedAtRow struct {
+	CreatedAt time.Time
+}
+
+// GetMembershipByUserAndAccountParams are the arguments to GetMembershipByUserAndAccount.
+type GetMembershipByUserAndAccountParams struct {
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+}
+
+// GetMembershipByUserAndAccountRow is one row of GetMembershipByUserAndAccount's result.
+type GetMembershipByUserAndAccountRow struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+	DefaultAccount   bool
+	CreatedAt        time.Time
+	LastUpdatedAt    *time.Time
+	ArchivedAt       *time.Time
+}
+
+// GetMembershipFallbackAccountIDParams are the arguments to GetMembershipFallbackAccountID.
+type GetMembershipFallbackAccountIDParams struct {
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+}
+
+// GetMembershipFallbackAccountIDRow is one row of GetMembershipFallbackAccountID's result.
+type GetMembershipFallbackAccountIDRow struct {
+	BelongsToAccount string
+}
+
+// GetMembershipIDByUserAndAccountParams are the arguments to GetMembershipIDByUserAndAccount.
+type GetMembershipIDByUserAndAccountParams struct {
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+}
+
+// GetMembershipIDByUserAndAccountRow is one row of GetMembershipIDByUserAndAccount's result.
+type GetMembershipIDByUserAndAccountRow struct {
+	ID string
 }
 
 // GetUserParams are the arguments to GetUser.
@@ -171,6 +244,106 @@ type GetUserRow struct {
 	CreatedAt                     time.Time
 	LastUpdatedAt                 *time.Time
 	ArchivedAt                    *time.Time
+}
+
+// GetUserByEmailAddressParams are the arguments to GetUserByEmailAddress.
+type GetUserByEmailAddressParams struct {
+	EmailAddress string
+	Scope        tenancy.Scope
+}
+
+// GetUserByEmailAddressRow is one row of GetUserByEmailAddress's result.
+type GetUserByEmailAddressRow struct {
+	ID                            string
+	Scope                         tenancy.Scope
+	Username                      string
+	EmailAddress                  string
+	FirstName                     string
+	LastName                      string
+	HashedPassword                string
+	RequiresPasswordChange        bool
+	PasswordLastChangedAt         *time.Time
+	TwoFactorSecret               string
+	TwoFactorSecretVerifiedAt     *time.Time
+	EmailAddressVerifiedAt        *time.Time
+	EmailAddressVerificationToken string
+	AccountStatus                 string
+	AccountStatusExplanation      string
+	LastAcceptedTermsOfService    *time.Time
+	LastAcceptedPrivacyPolicy     *time.Time
+	CreatedAt                     time.Time
+	LastUpdatedAt                 *time.Time
+	ArchivedAt                    *time.Time
+}
+
+// GetUserByEmailVerificationTokenParams are the arguments to GetUserByEmailVerificationToken.
+type GetUserByEmailVerificationTokenParams struct {
+	EmailAddressVerificationToken string
+	Scope                         tenancy.Scope
+}
+
+// GetUserByEmailVerificationTokenRow is one row of GetUserByEmailVerificationToken's result.
+type GetUserByEmailVerificationTokenRow struct {
+	ID                            string
+	Scope                         tenancy.Scope
+	Username                      string
+	EmailAddress                  string
+	FirstName                     string
+	LastName                      string
+	HashedPassword                string
+	RequiresPasswordChange        bool
+	PasswordLastChangedAt         *time.Time
+	TwoFactorSecret               string
+	TwoFactorSecretVerifiedAt     *time.Time
+	EmailAddressVerifiedAt        *time.Time
+	EmailAddressVerificationToken string
+	AccountStatus                 string
+	AccountStatusExplanation      string
+	LastAcceptedTermsOfService    *time.Time
+	LastAcceptedPrivacyPolicy     *time.Time
+	CreatedAt                     time.Time
+	LastUpdatedAt                 *time.Time
+	ArchivedAt                    *time.Time
+}
+
+// GetUserByUsernameParams are the arguments to GetUserByUsername.
+type GetUserByUsernameParams struct {
+	Username string
+	Scope    tenancy.Scope
+}
+
+// GetUserByUsernameRow is one row of GetUserByUsername's result.
+type GetUserByUsernameRow struct {
+	ID                            string
+	Scope                         tenancy.Scope
+	Username                      string
+	EmailAddress                  string
+	FirstName                     string
+	LastName                      string
+	HashedPassword                string
+	RequiresPasswordChange        bool
+	PasswordLastChangedAt         *time.Time
+	TwoFactorSecret               string
+	TwoFactorSecretVerifiedAt     *time.Time
+	EmailAddressVerifiedAt        *time.Time
+	EmailAddressVerificationToken string
+	AccountStatus                 string
+	AccountStatusExplanation      string
+	LastAcceptedTermsOfService    *time.Time
+	LastAcceptedPrivacyPolicy     *time.Time
+	CreatedAt                     time.Time
+	LastUpdatedAt                 *time.Time
+	ArchivedAt                    *time.Time
+}
+
+// GetUserCreatedAtParams are the arguments to GetUserCreatedAt.
+type GetUserCreatedAtParams struct {
+	ID string
+}
+
+// GetUserCreatedAtRow is one row of GetUserCreatedAt's result.
+type GetUserCreatedAtRow struct {
+	CreatedAt time.Time
 }
 
 // ListAccountsParams are the arguments to ListAccounts.
@@ -348,6 +521,15 @@ type ListUsersRow struct {
 	TotalCount                    int64
 }
 
+// MarkUserEmailAddressVerifiedParams are the arguments to MarkUserEmailAddressVerified.
+type MarkUserEmailAddressVerifiedParams struct {
+	EmailAddressVerifiedAt               *time.Time
+	EmailAddressVerificationToken        string
+	ID                                   string
+	Scope                                tenancy.Scope
+	CurrentEmailAddressVerificationToken string
+}
+
 // SearchUsersByUsernameParams are the arguments to SearchUsersByUsername.
 type SearchUsersByUsernameParams struct {
 	Scope          tenancy.Scope
@@ -380,6 +562,28 @@ type SearchUsersByUsernameRow struct {
 	ArchivedAt                    *time.Time
 }
 
+// SetUserEmailAddressVerificationTokenParams are the arguments to SetUserEmailAddressVerificationToken.
+type SetUserEmailAddressVerificationTokenParams struct {
+	EmailAddressVerificationToken string
+	ID                            string
+	Scope                         tenancy.Scope
+}
+
+// SetUserRequiresPasswordChangeParams are the arguments to SetUserRequiresPasswordChange.
+type SetUserRequiresPasswordChangeParams struct {
+	RequiresPasswordChange bool
+	ID                     string
+	Scope                  tenancy.Scope
+}
+
+// TransferAccountOwnershipParams are the arguments to TransferAccountOwnership.
+type TransferAccountOwnershipParams struct {
+	OwnerUserID        string
+	ID                 string
+	Scope              tenancy.Scope
+	CurrentOwnerUserID string
+}
+
 // UpdateAccountParams are the arguments to UpdateAccount.
 type UpdateAccountParams struct {
 	Name              string
@@ -404,4 +608,38 @@ type UpdateUserParams struct {
 	EmailAddressVerifiedAt *time.Time
 	ID                     string
 	Scope                  tenancy.Scope
+}
+
+// UpdateUserAccountStatusParams are the arguments to UpdateUserAccountStatus.
+type UpdateUserAccountStatusParams struct {
+	AccountStatus            string
+	AccountStatusExplanation string
+	ID                       string
+	Scope                    tenancy.Scope
+}
+
+// UpdateUserPasswordParams are the arguments to UpdateUserPassword.
+type UpdateUserPasswordParams struct {
+	HashedPassword         string
+	RequiresPasswordChange bool
+	PasswordLastChangedAt  *time.Time
+	ID                     string
+	Scope                  tenancy.Scope
+}
+
+// UpdateUserTwoFactorSecretParams are the arguments to UpdateUserTwoFactorSecret.
+type UpdateUserTwoFactorSecretParams struct {
+	TwoFactorSecret           string
+	TwoFactorSecretVerifiedAt *time.Time
+	ID                        string
+	Scope                     tenancy.Scope
+}
+
+// UpsertMembershipParams are the arguments to UpsertMembership.
+type UpsertMembershipParams struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+	DefaultAccount   bool
 }
