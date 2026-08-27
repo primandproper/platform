@@ -792,6 +792,13 @@ WHERE {{prefix}}identity_users.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAM
 ORDER BY {{prefix}}identity_users.id ASC
 LIMIT ?`
 
+const markAccountBillingSyncedMySQL = `UPDATE {{prefix}}identity_accounts SET
+	last_payment_provider_synced_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
 const markUserEmailAddressVerifiedMySQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verified_at = ?,
 	email_address_verification_token = ?,
@@ -800,6 +807,15 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?
 	AND email_address_verification_token = ?`
+
+const recordAccountSubscriptionMySQL = `UPDATE {{prefix}}identity_accounts SET
+	billing_status = ?,
+	subscription_plan_id = ?,
+	last_payment_provider_synced_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
 
 const searchUsersByUsernameMySQL = `SELECT
 	{{prefix}}identity_users.id,
@@ -829,6 +845,20 @@ WHERE {{prefix}}identity_users.archived_at IS NULL
 	AND {{prefix}}identity_users.username > COALESCE(?, '')
 ORDER BY {{prefix}}identity_users.username ASC
 LIMIT ?`
+
+const setAccountBillingStatusMySQL = `UPDATE {{prefix}}identity_accounts SET
+	billing_status = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const setAccountPaymentProcessorCustomerIDMySQL = `UPDATE {{prefix}}identity_accounts SET
+	payment_processor_customer_id = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
 
 const setUserEmailAddressVerificationTokenMySQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = ?,
@@ -950,8 +980,12 @@ type mysqlQueries struct {
 	listInvitationsByToEmail             string
 	listMembershipsForUser               string
 	listUsers                            string
+	markAccountBillingSynced             string
 	markUserEmailAddressVerified         string
+	recordAccountSubscription            string
 	searchUsersByUsername                string
+	setAccountBillingStatus              string
+	setAccountPaymentProcessorCustomerID string
 	setUserEmailAddressVerificationToken string
 	setUserRequiresPasswordChange        string
 	transferAccountOwnership             string
@@ -994,8 +1028,12 @@ func newMySQL(prefix string) *mysqlQueries {
 		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailMySQL, prefixMarker, prefix),
 		listMembershipsForUser:               strings.ReplaceAll(listMembershipsForUserMySQL, prefixMarker, prefix),
 		listUsers:                            strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
+		markAccountBillingSynced:             strings.ReplaceAll(markAccountBillingSyncedMySQL, prefixMarker, prefix),
 		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
+		recordAccountSubscription:            strings.ReplaceAll(recordAccountSubscriptionMySQL, prefixMarker, prefix),
 		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernameMySQL, prefixMarker, prefix),
+		setAccountBillingStatus:              strings.ReplaceAll(setAccountBillingStatusMySQL, prefixMarker, prefix),
+		setAccountPaymentProcessorCustomerID: strings.ReplaceAll(setAccountPaymentProcessorCustomerIDMySQL, prefixMarker, prefix),
 		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenMySQL, prefixMarker, prefix),
 		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangeMySQL, prefixMarker, prefix),
 		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipMySQL, prefixMarker, prefix),
@@ -1963,6 +2001,20 @@ func (q *mysqlQueries) ListUsers(ctx context.Context, db DBTX, arg ListUsersPara
 	return items, nil
 }
 
+// MarkAccountBillingSynced runs the :execrows query against mysql.
+func (q *mysqlQueries) MarkAccountBillingSynced(ctx context.Context, db DBTX, arg MarkAccountBillingSyncedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markAccountBillingSynced,
+		arg.LastPaymentProviderSyncedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // MarkUserEmailAddressVerified runs the :execrows query against mysql.
 func (q *mysqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
@@ -1971,6 +2023,22 @@ func (q *mysqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX
 		arg.ID,
 		arg.Scope,
 		arg.CurrentEmailAddressVerificationToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// RecordAccountSubscription runs the :execrows query against mysql.
+func (q *mysqlQueries) RecordAccountSubscription(ctx context.Context, db DBTX, arg RecordAccountSubscriptionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.recordAccountSubscription,
+		arg.BillingStatus,
+		arg.SubscriptionPlanID,
+		arg.LastPaymentProviderSyncedAt,
+		arg.ID,
+		arg.Scope,
 	)
 	if err != nil {
 		return 0, err
@@ -2031,6 +2099,34 @@ func (q *mysqlQueries) SearchUsersByUsername(ctx context.Context, db DBTX, arg S
 	}
 
 	return items, nil
+}
+
+// SetAccountBillingStatus runs the :execrows query against mysql.
+func (q *mysqlQueries) SetAccountBillingStatus(ctx context.Context, db DBTX, arg SetAccountBillingStatusParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setAccountBillingStatus,
+		arg.BillingStatus,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetAccountPaymentProcessorCustomerID runs the :execrows query against mysql.
+func (q *mysqlQueries) SetAccountPaymentProcessorCustomerID(ctx context.Context, db DBTX, arg SetAccountPaymentProcessorCustomerIDParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setAccountPaymentProcessorCustomerID,
+		arg.PaymentProcessorCustomerID,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
 
 // SetUserEmailAddressVerificationToken runs the :execrows query against mysql.
@@ -2700,12 +2796,24 @@ var (
 		TotalCount                    int64
 	}(ListUsersRow{})
 	_ = struct {
+		LastPaymentProviderSyncedAt *time.Time
+		ID                          string
+		Scope                       tenancy.Scope
+	}(MarkAccountBillingSyncedParams{})
+	_ = struct {
 		EmailAddressVerifiedAt               *time.Time
 		EmailAddressVerificationToken        string
 		ID                                   string
 		Scope                                tenancy.Scope
 		CurrentEmailAddressVerificationToken string
 	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		BillingStatus               string
+		SubscriptionPlanID          *string
+		LastPaymentProviderSyncedAt *time.Time
+		ID                          string
+		Scope                       tenancy.Scope
+	}(RecordAccountSubscriptionParams{})
 	_ = struct {
 		Scope          tenancy.Scope
 		UsernamePrefix string
@@ -2734,6 +2842,16 @@ var (
 		LastUpdatedAt                 *time.Time
 		ArchivedAt                    *time.Time
 	}(SearchUsersByUsernameRow{})
+	_ = struct {
+		BillingStatus string
+		ID            string
+		Scope         tenancy.Scope
+	}(SetAccountBillingStatusParams{})
+	_ = struct {
+		PaymentProcessorCustomerID string
+		ID                         string
+		Scope                      tenancy.Scope
+	}(SetAccountPaymentProcessorCustomerIDParams{})
 	_ = struct {
 		EmailAddressVerificationToken string
 		ID                            string

@@ -81,6 +81,15 @@ const (
 	invitationNoteColumn           = "note"
 	invitationToUserColumn         = "to_user"
 
+	// The four billing columns, one per statement. They are named here rather
+	// than at the call site for the reason every other column in this block is:
+	// the statement that assigns one and the store that binds it are two files,
+	// and a column spelled twice is a column that can be spelled differently.
+	billingStatusColumn              = "billing_status"
+	subscriptionPlanIDColumn         = "subscription_plan_id"
+	paymentProcessorCustomerIDColumn = "payment_processor_customer_id"
+	billingSyncedAtColumn            = "last_payment_provider_synced_at"
+
 	currentEmailVerificationTokenArg = "current_" + UserEmailVerificationTokenColumn
 	currentOwnerUserIDArg            = "current_" + ownerUserIDColumn
 	currentInvitationStatusArg       = "current_" + InvitationStatusColumn
@@ -149,7 +158,9 @@ var Users = Table{
 // The owner and every billing column are immutable to the standard update:
 // transferring ownership names the current owner in its predicate so two
 // concurrent transfers cannot both win, and a processor webhook carrying one
-// field must not read-modify-write the rest.
+// field must not read-modify-write the rest. Each of the four billing columns
+// is assigned by a statement of its own in fieldWrites, one per event a
+// processor actually reports.
 var Accounts = Table{
 	Name:     AccountsTable,
 	Singular: "Account",
@@ -409,6 +420,48 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 			[]string{ownerUserIDColumn}, Accounts.Nullable,
 			scope,
 			querygen.Match{Column: ownerUserIDColumn, Arg: currentOwnerUserIDArg}),
+
+		// The billing writes, one statement per event rather than one statement
+		// per column. They were a single statement whose SET list was assembled
+		// per call from four optional fields, which is dynamic SQL by
+		// construction — there was no static text for sqlc to check or for this
+		// package to emit.
+		//
+		// The tempting static rewrite is one statement with a
+		// COALESCE(sqlc.narg(column), column) per field, and it is wrong here in
+		// a way that only shows up on the write nobody tests: subscription_plan_id
+		// is nullable, so under that encoding NULL means "leave it alone" and a
+		// cancellation — set the plan to NULL — becomes inexpressible. Naming the
+		// columns keeps the whole domain writable, because the argument saying
+		// what a column becomes is not also the argument saying whether to write
+		// it.
+		//
+		// The shapes are the events an application actually handles, which is
+		// not the same list as the columns. A processor delivery reports a
+		// subscription's standing and the plan it is on together, and the
+		// reconciliation stamp goes with them: those three columns move as one
+		// fact, so a statement per column would write them in three round trips
+		// with two intermediate states — an account that is paid on last month's
+		// plan being the one somebody notices.
+		g.UpdateQuery("RecordAccountSubscription", AccountsTable, Accounts.Columns,
+			[]string{billingStatusColumn, subscriptionPlanIDColumn, billingSyncedAtColumn},
+			Accounts.Nullable, scope),
+
+		// The standing alone, for the move no processor reports: an operator
+		// suspending an account. It stamps no reconciliation because none
+		// happened — nothing was asked of the processor — and a statement that
+		// stamped one would date the account's billing state to an operator's
+		// click.
+		g.UpdateQuery("SetAccountBillingStatus", AccountsTable, Accounts.Columns,
+			[]string{billingStatusColumn}, Accounts.Nullable, scope),
+
+		g.UpdateQuery("SetAccountPaymentProcessorCustomerID", AccountsTable, Accounts.Columns,
+			[]string{paymentProcessorCustomerIDColumn}, Accounts.Nullable, scope),
+
+		// The stamp alone, for the reconciliation that found nothing moved —
+		// which is the run whose result the next run needs most.
+		g.UpdateQuery("MarkAccountBillingSynced", AccountsTable, Accounts.Columns,
+			[]string{billingSyncedAtColumn}, Accounts.Nullable, scope),
 
 		g.UpdateQuery("AnswerInvitation", InvitationsTable, Invitations.Columns,
 			[]string{InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},

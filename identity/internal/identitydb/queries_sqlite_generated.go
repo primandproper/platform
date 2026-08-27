@@ -792,6 +792,13 @@ WHERE {{prefix}}identity_users.created_at > COALESCE(?1, (SELECT datetime(CURREN
 ORDER BY {{prefix}}identity_users.id ASC
 LIMIT COALESCE(?8, 50)`
 
+const markAccountBillingSyncedSQLite = `UPDATE {{prefix}}identity_accounts SET
+	last_payment_provider_synced_at = ?1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?2
+	AND scope = ?3`
+
 const markUserEmailAddressVerifiedSQLite = `UPDATE {{prefix}}identity_users SET
 	email_address_verified_at = ?1,
 	email_address_verification_token = ?2,
@@ -800,6 +807,15 @@ WHERE archived_at IS NULL
 	AND id = ?3
 	AND scope = ?4
 	AND email_address_verification_token = ?5`
+
+const recordAccountSubscriptionSQLite = `UPDATE {{prefix}}identity_accounts SET
+	billing_status = ?1,
+	subscription_plan_id = ?2,
+	last_payment_provider_synced_at = ?3,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?4
+	AND scope = ?5`
 
 const searchUsersByUsernameSQLite = `SELECT
 	{{prefix}}identity_users.id,
@@ -829,6 +845,20 @@ WHERE {{prefix}}identity_users.archived_at IS NULL
 	AND {{prefix}}identity_users.username > COALESCE(?3, '')
 ORDER BY {{prefix}}identity_users.username ASC
 LIMIT COALESCE(?4, 50)`
+
+const setAccountBillingStatusSQLite = `UPDATE {{prefix}}identity_accounts SET
+	billing_status = ?1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?2
+	AND scope = ?3`
+
+const setAccountPaymentProcessorCustomerIDSQLite = `UPDATE {{prefix}}identity_accounts SET
+	payment_processor_customer_id = ?1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?2
+	AND scope = ?3`
 
 const setUserEmailAddressVerificationTokenSQLite = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = ?1,
@@ -950,8 +980,12 @@ type sqliteQueries struct {
 	listInvitationsByToEmail             string
 	listMembershipsForUser               string
 	listUsers                            string
+	markAccountBillingSynced             string
 	markUserEmailAddressVerified         string
+	recordAccountSubscription            string
 	searchUsersByUsername                string
+	setAccountBillingStatus              string
+	setAccountPaymentProcessorCustomerID string
 	setUserEmailAddressVerificationToken string
 	setUserRequiresPasswordChange        string
 	transferAccountOwnership             string
@@ -994,8 +1028,12 @@ func newSQLite(prefix string) *sqliteQueries {
 		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailSQLite, prefixMarker, prefix),
 		listMembershipsForUser:               strings.ReplaceAll(listMembershipsForUserSQLite, prefixMarker, prefix),
 		listUsers:                            strings.ReplaceAll(listUsersSQLite, prefixMarker, prefix),
+		markAccountBillingSynced:             strings.ReplaceAll(markAccountBillingSyncedSQLite, prefixMarker, prefix),
 		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedSQLite, prefixMarker, prefix),
+		recordAccountSubscription:            strings.ReplaceAll(recordAccountSubscriptionSQLite, prefixMarker, prefix),
 		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernameSQLite, prefixMarker, prefix),
+		setAccountBillingStatus:              strings.ReplaceAll(setAccountBillingStatusSQLite, prefixMarker, prefix),
+		setAccountPaymentProcessorCustomerID: strings.ReplaceAll(setAccountPaymentProcessorCustomerIDSQLite, prefixMarker, prefix),
 		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenSQLite, prefixMarker, prefix),
 		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangeSQLite, prefixMarker, prefix),
 		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipSQLite, prefixMarker, prefix),
@@ -1895,6 +1933,20 @@ func (q *sqliteQueries) ListUsers(ctx context.Context, db DBTX, arg ListUsersPar
 	return items, nil
 }
 
+// MarkAccountBillingSynced runs the :execrows query against sqlite.
+func (q *sqliteQueries) MarkAccountBillingSynced(ctx context.Context, db DBTX, arg MarkAccountBillingSyncedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markAccountBillingSynced,
+		arg.LastPaymentProviderSyncedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // MarkUserEmailAddressVerified runs the :execrows query against sqlite.
 func (q *sqliteQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
@@ -1903,6 +1955,22 @@ func (q *sqliteQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBT
 		arg.ID,
 		arg.Scope,
 		arg.CurrentEmailAddressVerificationToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// RecordAccountSubscription runs the :execrows query against sqlite.
+func (q *sqliteQueries) RecordAccountSubscription(ctx context.Context, db DBTX, arg RecordAccountSubscriptionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.recordAccountSubscription,
+		arg.BillingStatus,
+		arg.SubscriptionPlanID,
+		arg.LastPaymentProviderSyncedAt,
+		arg.ID,
+		arg.Scope,
 	)
 	if err != nil {
 		return 0, err
@@ -1963,6 +2031,34 @@ func (q *sqliteQueries) SearchUsersByUsername(ctx context.Context, db DBTX, arg 
 	}
 
 	return items, nil
+}
+
+// SetAccountBillingStatus runs the :execrows query against sqlite.
+func (q *sqliteQueries) SetAccountBillingStatus(ctx context.Context, db DBTX, arg SetAccountBillingStatusParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setAccountBillingStatus,
+		arg.BillingStatus,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetAccountPaymentProcessorCustomerID runs the :execrows query against sqlite.
+func (q *sqliteQueries) SetAccountPaymentProcessorCustomerID(ctx context.Context, db DBTX, arg SetAccountPaymentProcessorCustomerIDParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setAccountPaymentProcessorCustomerID,
+		arg.PaymentProcessorCustomerID,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
 
 // SetUserEmailAddressVerificationToken runs the :execrows query against sqlite.
@@ -2632,12 +2728,24 @@ var (
 		TotalCount                    int64
 	}(ListUsersRow{})
 	_ = struct {
+		LastPaymentProviderSyncedAt *time.Time
+		ID                          string
+		Scope                       tenancy.Scope
+	}(MarkAccountBillingSyncedParams{})
+	_ = struct {
 		EmailAddressVerifiedAt               *time.Time
 		EmailAddressVerificationToken        string
 		ID                                   string
 		Scope                                tenancy.Scope
 		CurrentEmailAddressVerificationToken string
 	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		BillingStatus               string
+		SubscriptionPlanID          *string
+		LastPaymentProviderSyncedAt *time.Time
+		ID                          string
+		Scope                       tenancy.Scope
+	}(RecordAccountSubscriptionParams{})
 	_ = struct {
 		Scope          tenancy.Scope
 		UsernamePrefix string
@@ -2666,6 +2774,16 @@ var (
 		LastUpdatedAt                 *time.Time
 		ArchivedAt                    *time.Time
 	}(SearchUsersByUsernameRow{})
+	_ = struct {
+		BillingStatus string
+		ID            string
+		Scope         tenancy.Scope
+	}(SetAccountBillingStatusParams{})
+	_ = struct {
+		PaymentProcessorCustomerID string
+		ID                         string
+		Scope                      tenancy.Scope
+	}(SetAccountPaymentProcessorCustomerIDParams{})
 	_ = struct {
 		EmailAddressVerificationToken string
 		ID                            string

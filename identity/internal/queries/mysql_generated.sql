@@ -915,6 +915,40 @@ WHERE archived_at IS NULL
 	AND scope = sqlc.arg(scope)
 	AND owner_user_id = sqlc.arg(current_owner_user_id);
 
+-- name: RecordAccountSubscription :execrows
+UPDATE identity_accounts SET
+	billing_status = sqlc.arg(billing_status),
+	subscription_plan_id = sqlc.narg(subscription_plan_id),
+	last_payment_provider_synced_at = sqlc.narg(last_payment_provider_synced_at),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: SetAccountBillingStatus :execrows
+UPDATE identity_accounts SET
+	billing_status = sqlc.arg(billing_status),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: SetAccountPaymentProcessorCustomerID :execrows
+UPDATE identity_accounts SET
+	payment_processor_customer_id = sqlc.arg(payment_processor_customer_id),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: MarkAccountBillingSynced :execrows
+UPDATE identity_accounts SET
+	last_payment_provider_synced_at = sqlc.narg(last_payment_provider_synced_at),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
 -- name: AnswerInvitation :execrows
 UPDATE identity_invitations SET
 	status = sqlc.arg(status),

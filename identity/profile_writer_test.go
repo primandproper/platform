@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/pointer"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -131,9 +130,7 @@ func runProfileWriterSuite(t *testing.T, env *storeEnv) {
 		other := createUser(t, store, newUser("grace"))
 		account := createAccountFor(t, store, owner, "Acme")
 
-		must.NoError(t, store.UpdateAccountBilling(t.Context(), testScope, account.ID, &BillingUpdate{
-			Status: pointer.To(BillingPaid),
-		}))
+		must.NoError(t, store.SetAccountBillingStatus(t.Context(), testScope, account.ID, BillingPaid))
 
 		// A caller writing back the Account it read before the webhook landed.
 		// The name lands; the stale billing status and a substituted owner do
