@@ -2,6 +2,7 @@ package querygen
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
@@ -50,15 +51,21 @@ func (g *Generator) Dialect() dialect.Dialect {
 	return g.dialect
 }
 
-// The six expressions below are every place the three dialects genuinely
-// disagree. They live together, in one file, so that adding a fourth dialect is
-// a matter of reading one screen rather than grepping for casts — and so that a
-// reader asking "what does this package assume about Postgres" gets a complete
-// answer instead of a representative sample.
+// The expressions below are every place the three dialects genuinely disagree.
+// They live together, in one file, so that adding a fourth dialect is a matter
+// of reading one screen rather than grepping for casts — and so that a reader
+// asking "what does this package assume about Postgres" gets a complete answer
+// instead of a representative sample. They are not counted here, because a
+// count in a comment is a fact that goes stale the first time one is added.
 //
 // Each carries the divergence and nothing else. The statements that use them are
-// written once, in fragments.go and standard.go, and are the same text on every
-// dialect apart from what these return.
+// written once, in fragments.go, standard.go and upsert.go, and are the same
+// text on every dialect apart from what these return.
+//
+// The last two are the exception that proves the shape of the rest: an upsert's
+// conflict branch is not one statement with a substituted expression in it but
+// two grammars, and they are still here rather than in upsert.go so that the
+// answer to "what does this package assume about MySQL" stays one screen.
 
 // substringMatch renders a case-insensitive substring match of column against a
 // bound argument.
@@ -282,4 +289,50 @@ func (g *Generator) idSetPredicate() string {
 	}
 
 	return fmt.Sprintf("%s IN (sqlc.slice(%s))", IDColumn, IDsArg)
+}
+
+// conflictHeader opens an upsert's conflict branch: everything between the
+// INSERT and the assignments the colliding row receives.
+//
+// This is the one place the three dialects disagree about a statement's shape
+// rather than about an expression inside one, and the disagreement is not
+// cosmetic. Postgres and SQLite take a conflict target — the columns of the
+// unique index the collision is detected on — and act only on that index; MySQL
+// has no such clause and fires on whichever unique key was violated, primary key
+// included.
+//
+// So the target is written where it can be written and the difference is
+// documented where it cannot. What follows from it is in upsertStatement: the
+// key's own columns are never assigned, because on MySQL a collision may have
+// been on some other key and an assignment would then move the row rather than
+// restate it.
+func (g *Generator) conflictHeader(keyColumns []string) string {
+	if g.dialect == dialect.MySQL {
+		return "ON DUPLICATE KEY UPDATE"
+	}
+
+	// Postgres and SQLite, which For has already narrowed the alternatives to,
+	// spell the target and the SET the same way.
+	return fmt.Sprintf("ON CONFLICT (%s) DO UPDATE SET", strings.Join(keyColumns, ", "))
+}
+
+// insertedValue names, inside a conflict branch, the value the INSERT that
+// collided supplied for column — as against the value already in the row.
+//
+// Postgres and SQLite expose the rejected row under the EXCLUDED alias. MySQL
+// has no such alias and spells it VALUES(column), which reads as the VALUES
+// clause and is not one.
+//
+// MySQL 8.0.19 added a row alias (`... AS new` before the ON DUPLICATE clause)
+// and deprecated this spelling, and it is still the spelling emitted here: the
+// alias form is a parse error on 8.0.18 and earlier, and MariaDB — which speaks
+// the rest of this dialect — has no version that accepts it. A deprecation
+// warning on the newest server is a cheaper failure than a syntax error on
+// every older one.
+func (g *Generator) insertedValue(column string) string {
+	if g.dialect == dialect.MySQL {
+		return fmt.Sprintf("VALUES(%s)", column)
+	}
+
+	return "EXCLUDED." + column
 }

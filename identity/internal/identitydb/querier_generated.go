@@ -127,4 +127,6 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	UpdateUserTwoFactorSecret(ctx context.Context, db DBTX, arg UpdateUserTwoFactorSecretParams) (int64, error)
+	// UpsertMembership runs the :exec query.
+	UpsertMembership(ctx context.Context, db DBTX, arg UpsertMembershipParams) error
 }

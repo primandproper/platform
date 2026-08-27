@@ -137,12 +137,15 @@ func nullableString(s string) any {
 //	buildRecordAgreements          an update whose SET list is chosen per call
 //	buildUpdateAccountBilling      the same, over the billing columns
 //	buildEraseUser                 a hard DELETE rather than an update
-//	the membership writes          keyed on the (user, account) pair rather
-//	                               than on id, an upsert that revives, and a
-//	                               default-flag clear whose predicate excludes
-//	                               a row rather than matching one
+//	the membership list and joins  keyed on the (user, account) pair rather
+//	                               than on id, and a default-flag clear whose
+//	                               predicate excludes a row rather than
+//	                               matching one
 //	the prefix search              a LIKE with an ESCAPE and one conditional
 //	                               cursor predicate
+//
+// The membership upsert used to be on that list and is not any more: querygen
+// renders it, sqlc checks it, and the store executes the generated method.
 type binder struct {
 	d    dialect.Dialect
 	args []any
@@ -372,35 +375,6 @@ func (t *tables) buildUpdateAccountBilling(d dialect.Dialect, scope tenancy.Scop
 }
 
 // ------------------------------------------------------------ memberships
-
-// buildUpsertMembership writes a membership, reviving an archived one for the
-// same pair rather than writing a second row.
-//
-// Reviving is what makes rejoining an account work: the pair is unique across
-// live and archived rows, so an INSERT would fail and a DELETE-then-INSERT would
-// lose when the user first joined. created_at is deliberately not updated —
-// rejoining does not make the relationship new.
-func (t *tables) buildUpsertMembership(d dialect.Dialect, m *Membership, now time.Time) (query string, args []any) {
-	args = []any{m.ID, m.Scope, m.BelongsToUser, m.BelongsToAccount, m.DefaultAccount, now}
-
-	base := fmt.Sprintf(
-		"INSERT INTO %s (id, scope, belongs_to_user, belongs_to_account, default_account, created_at) VALUES (%s)",
-		t.memberships, d.Placeholders(1, len(args)),
-	)
-
-	switch d {
-	case dialect.MySQL:
-		return base + " ON DUPLICATE KEY UPDATE" +
-			" default_account = VALUES(default_account), archived_at = NULL," +
-			" last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
-	case dialect.Postgres, dialect.SQLite:
-		return base + " ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET" +
-			" default_account = EXCLUDED.default_account, archived_at = NULL," +
-			" last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
-	default:
-		return base, args
-	}
-}
 
 // buildListMembershipsForUser reads every live membership a user holds, default
 // account first — so a caller that takes the first row gets the one the user

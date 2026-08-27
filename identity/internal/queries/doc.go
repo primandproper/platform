@@ -49,7 +49,14 @@ instead of overwriting the winner.
 Memberships is the fourth table and gets none of the standard set. Its columns
 are textbook and not one of its statements is: the get, the archive and the bulk
 archive key on the (belongs_to_user, belongs_to_account) pair rather than on id,
-and its write is an upsert that revives an archived row.
+which the standard set has no way to express.
+
+Its write is emitted, though — [querygen.Generator.UpsertQuery] renders it — and
+it is the statement whose three dialect files genuinely diverge rather than
+merely renumbering their placeholders. A membership has to be written by
+converging on the pair: it is unique across live and archived rows alike, so
+rejoining an account revives the row that is already there rather than adding a
+second, and the id it keeps is what the membership's roles hang off.
 
 # The keyed variants
 

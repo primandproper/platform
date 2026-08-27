@@ -725,3 +725,22 @@ WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope)
 	AND status = sqlc.arg(current_status);
+
+-- name: UpsertMembership :exec
+INSERT INTO identity_memberships (
+	id,
+	scope,
+	belongs_to_user,
+	belongs_to_account,
+	default_account
+) VALUES (
+	sqlc.arg(id),
+	sqlc.arg(scope),
+	sqlc.arg(belongs_to_user),
+	sqlc.arg(belongs_to_account),
+	sqlc.arg(default_account)
+)
+ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET
+	default_account = EXCLUDED.default_account,
+	archived_at = NULL,
+	last_updated_at = CURRENT_TIMESTAMP;

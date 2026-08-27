@@ -112,8 +112,6 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 		)
 	}
 
-	now := s.now()
-
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		account, err := s.readAccount(ctx, q, scope, accountID)
 		if err != nil {
@@ -137,7 +135,6 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 				BelongsToUser:    newOwnerUserID,
 				BelongsToAccount: accountID,
 				Roles:            []string{},
-				CreatedAt:        now,
 			}); err != nil {
 				return err
 			}

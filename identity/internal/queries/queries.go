@@ -40,10 +40,14 @@ const (
 	UserEmailVerificationTokenColumn = "email_address_verification_token"
 )
 
-// The two columns a membership is keyed on. Together they are the row's natural
-// key — one live membership per (user, account) pair — which is why every
-// membership statement addresses a row by both rather than by the id the table
-// also carries.
+// The two columns a membership is keyed on, unique on the pair live and
+// archived alike. Together they are the row's natural key — one live membership
+// per (user, account) pair — which is why every membership statement addresses
+// a row by both rather than by the id the table also carries, and why the
+// upsert converges on them: the schema's UNIQUE, the upsert's ON CONFLICT and
+// the store's own reads all name these two columns, and a conflict target that
+// disagreed with the key would insert a second row where it meant to revive the
+// first.
 const (
 	MembershipUserColumn    = "belongs_to_user"
 	MembershipAccountColumn = querygen.BelongsToAccountColumn
@@ -221,9 +225,14 @@ var Invitations = Table{
 // Memberships is the many-to-many between the two, with facts of its own.
 //
 // It gets no standard queries — every one of its statements keys on the (user,
-// account) pair rather than on the id, and its write is an upsert that revives
-// an archived row — but the three keyed reads below are emitted from it, so its
-// columns are the canonical corpus's as well as the store's.
+// account) pair rather than on the id — but the three keyed reads below and the
+// upsert that revives an archived membership when a user rejoins are emitted
+// from it, so its columns are the canonical corpus's as well as the store's.
+//
+// Updatable is the one column a rejoin may carry over, and stating it is what
+// keeps the upsert's conflict branch off the rest: the id is what the
+// membership's roles hang from and must survive a revival, and the scope is
+// immutable here as it is everywhere else in this schema.
 var Memberships = Table{
 	Name:     MembershipsTable,
 	Singular: "Membership",
@@ -238,14 +247,19 @@ var Memberships = Table{
 		querygen.LastUpdatedAtColumn,
 		querygen.ArchivedAtColumn,
 	},
+	Updatable: []string{"default_account"},
 }
 
-// Emitted is the tables the canonical .sql covers, in the order they appear in
-// it.
+// Emitted is the tables the canonical .sql covers with the standard set, in the
+// order they appear in it.
+//
+// Memberships is deliberately absent and still contributes one statement — see
+// [membershipUpsert]. The list is what gets a set, not what gets a statement.
 var Emitted = []*Table{&Users, &Accounts, &Invitations}
 
 // Render returns the canonical sqlc input for d: every emitted table's standard
-// queries, in one file's worth of text.
+// queries, the two keyed invitation lists, and the membership upsert, in one
+// file's worth of text.
 //
 // It is what identity/internal/queriesgen writes to the .sql beside this file
 // and what CI regenerates to check the committed copy still matches. That .sql
@@ -265,6 +279,7 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, keyedUserReads(g)...)
 	rendered = append(rendered, keyedMembershipReads(g)...)
 	rendered = append(rendered, fieldWrites(g)...)
+	rendered = append(rendered, membershipUpsert(g))
 
 	return querygen.RenderFile(rendered)
 }
@@ -290,6 +305,35 @@ func keyedInvitationLists(g *querygen.Generator) []*querygen.Query {
 		g.ListQuery("ListInvitationsByToEmail", InvitationsTable, Invitations.Columns,
 			scope, querygen.Match{Column: InvitationToEmailColumn}, status),
 	}
+}
+
+// membershipUpsert is the write that puts a user in an account, and the one
+// statement in this schema whose three renderings differ beyond their
+// placeholders: Postgres and SQLite take ON CONFLICT on the pair, MySQL takes
+// ON DUPLICATE KEY UPDATE and no target at all.
+//
+// It has to converge rather than insert, because the pair is unique across live
+// and archived rows alike. A plain INSERT fails when a user rejoins an account
+// they once left; a DELETE followed by an INSERT loses when they first joined
+// and takes the membership's roles with it, since those hang off the id. So the
+// conflict branch clears archived_at and leaves the id and created_at as they
+// were, which is what makes a rejoin a revival of the old relationship.
+//
+// The conflict target is the key rather than the key plus the scope, and it is
+// not free to be otherwise: Postgres matches ON CONFLICT against a unique index
+// the table actually has, and this schema's is on the pair. Nothing is lost by
+// it — a user and an account are each scoped rows, so a pair naming both has
+// already named one directory — and the scope is not assigned in the conflict
+// branch, so a converging write cannot move a membership between them.
+func membershipUpsert(g *querygen.Generator) *querygen.Query {
+	return g.UpsertQuery("UpsertMembership", MembershipsTable,
+		Memberships.Columns,
+		Memberships.InsertColumns(),
+		Memberships.UpdateColumns(),
+		Memberships.Nullable,
+		querygen.Match{Column: MembershipUserColumn},
+		querygen.Match{Column: MembershipAccountColumn},
+	)
 }
 
 // fieldWrites is the writes that assign one fact about a row rather than the

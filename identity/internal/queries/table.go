@@ -23,9 +23,10 @@ type Table struct {
 	Columns []string
 	// Nullable names the columns a write may set to NULL.
 	Nullable []string
-	// Updatable names the columns the standard update assigns. Everything else
-	// this table would otherwise let an update assign becomes immutable to it —
-	// see Immutable.
+	// Updatable names the columns a write may assign after the insert: what the
+	// standard update sets, and what an upsert's conflict branch carries over.
+	// Everything else this table would otherwise let an update assign becomes
+	// immutable to it — see Immutable.
 	Updatable []string
 	// Omitted names the standard queries this table has no caller for.
 	Omitted []querygen.StandardQuery

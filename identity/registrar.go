@@ -121,7 +121,6 @@ func (s *SQLStore) CreateMembership(ctx context.Context, q database.Tx, membersh
 	}
 
 	membership.ID = newID(membership.ID)
-	membership.CreatedAt = s.now()
 
 	op.Set(userIDKey, membership.BelongsToUser).
 		Set(accountIDKey, membership.BelongsToAccount).
