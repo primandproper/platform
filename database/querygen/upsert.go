@@ -98,8 +98,8 @@ func (g *Generator) upsertStatement(table string, columns, insertColumns, update
 	}
 
 	keyColumns := make([]string, 0, len(key))
-	for _, match := range key {
-		keyColumns = append(keyColumns, match.Column)
+	for i := range key {
+		keyColumns = append(keyColumns, key[i].Column)
 	}
 
 	assignments := make([]string, 0, len(updateColumns)+2)
