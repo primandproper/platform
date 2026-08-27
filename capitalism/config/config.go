@@ -1,12 +1,18 @@
 // Package capitalismcfg builds both halves of the payments seam from one
 // configuration — a capitalism.PaymentManager and a capitalism.UsageReporter —
-// over Stripe or the noop provider.
+// over Stripe, RevenueCat, or the noop provider.
 //
 // The two constructors share a validation path, so a deployment cannot build a
 // payment manager against a config the usage reporter would have rejected.
 // Naming the noop provider is what makes "meter everything, bill nothing" a
 // supported deployment; reaching it by leaving Provider unset is not, because a
 // manager that accepts every charge and moves no money looks like a working one.
+//
+// Not every provider serves both halves. RevenueCat prices whole subscriptions
+// through the mobile stores and has no metered usage API, so selecting it
+// builds a payment manager and refuses a usage reporter — refuses, rather than
+// quietly handing back the noop one, because a worker that flushes usage into
+// nothing looks exactly like a worker that is billing.
 package capitalismcfg
 
 import (
@@ -15,6 +21,7 @@ import (
 
 	"github.com/primandproper/platform-go/v13/capitalism"
 	"github.com/primandproper/platform-go/v13/capitalism/noop"
+	"github.com/primandproper/platform-go/v13/capitalism/revenuecat"
 	"github.com/primandproper/platform-go/v13/capitalism/stripe"
 	"github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/internal/cfgnorm"
@@ -25,6 +32,10 @@ import (
 const (
 	// StripeProvider is the key that indicates Stripe should be used for payments.
 	StripeProvider = "stripe"
+	// RevenueCatProvider is the key that indicates RevenueCat should be used for
+	// payments. It builds an inbound-only payment manager — mobile store
+	// purchases are made on the device — and no usage reporter.
+	RevenueCatProvider = "revenuecat"
 	// NoopProvider charges nothing and reports no usage. It must be selected
 	// deliberately — an unset or typo'd provider is an error, because a payment
 	// manager that silently accepts every call without charging anyone looks like
@@ -39,24 +50,27 @@ const (
 type (
 	// Config allows for the configuration of this package and its subpackages.
 	Config struct {
-		Stripe   *stripe.Config `env:",init"    envPrefix:"STRIPE_"       json:"stripe,omitempty"   yaml:"stripe,omitempty"`
-		Provider string         `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
+		Stripe     *stripe.Config     `env:",init"    envPrefix:"STRIPE_"       json:"stripe,omitempty"     yaml:"stripe,omitempty"`
+		RevenueCat *revenuecat.Config `env:",init"    envPrefix:"REVENUECAT_"   json:"revenueCat,omitempty" yaml:"revenueCat,omitempty"`
+		Provider   string             `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 	}
 )
 
 // providers are every provider this package implements. Validation and both
 // constructors read it.
-var providers = []string{StripeProvider, NoopProvider}
+var providers = []string{StripeProvider, RevenueCatProvider, NoopProvider}
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config struct.
 //
-// The Stripe sub-config is skipped rather than merely unguarded when Stripe is
-// not the provider: ozzo validates any non-nil pointer to a Validatable once a
-// field's rules have run, and `env:",init"` leaves every sub-config non-nil. A
-// validation.When guard alone stops the Required rule and nothing else, so a
-// webhook secret was demanded of deployments that charge nobody.
+// A provider's sub-config is skipped rather than merely unguarded when that
+// provider is not the selected one: ozzo validates any non-nil pointer to a
+// Validatable once a field's rules have run, and `env:",init"` leaves every
+// sub-config non-nil. A validation.When guard alone stops the Required rule and
+// nothing else, so a webhook secret was demanded of deployments that charge
+// nobody — and, with a second provider, of deployments that charge through the
+// other one.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	provider := cfgnorm.Provider(cfg.Provider)
 
@@ -71,6 +85,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 			return nil
 		})),
 		validation.Field(&cfg.Stripe, validation.Skip.When(provider != StripeProvider), validation.Required),
+		validation.Field(&cfg.RevenueCat, validation.Skip.When(provider != RevenueCatProvider), validation.Required),
 	)
 }
 
@@ -125,6 +140,13 @@ func NewPaymentManager(ctx context.Context, cfg *Config, opts ...Option) (capita
 		}
 
 		return m, nil
+	case RevenueCatProvider:
+		m, managerErr := revenuecat.NewPaymentManager(cfg.RevenueCat, revenuecat.WithLogger(logger), revenuecat.WithTracerProvider(tracerProvider), revenuecat.WithMetricsProvider(metricsProvider))
+		if managerErr != nil {
+			return nil, managerErr
+		}
+
+		return m, nil
 	case NoopProvider:
 		return noop.NewPaymentManager(), nil
 	default:
@@ -156,6 +178,12 @@ func NewUsageReporter(ctx context.Context, cfg *Config, opts ...Option) (capital
 		}
 
 		return r, nil
+	case RevenueCatProvider:
+		// Refused rather than answered with the noop reporter. RevenueCat prices
+		// whole subscriptions and has no meter to post to, and a flush loop
+		// reporting into a reporter that discards everything is indistinguishable
+		// from one that is billing — right up until somebody reconciles the books.
+		return nil, errors.Wrap(revenuecat.ErrOutboundUnsupported, "reporting usage")
 	case NoopProvider:
 		return noop.NewUsageReporter(), nil
 	default:

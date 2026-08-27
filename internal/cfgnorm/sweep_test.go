@@ -13,6 +13,7 @@ import (
 	cachecfg "github.com/primandproper/platform-go/v13/cache/config"
 	cacheredis "github.com/primandproper/platform-go/v13/cache/redis"
 	capitalismcfg "github.com/primandproper/platform-go/v13/capitalism/config"
+	capitalismrevenuecat "github.com/primandproper/platform-go/v13/capitalism/revenuecat"
 	capitalismstripe "github.com/primandproper/platform-go/v13/capitalism/stripe"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	distributedlockcfg "github.com/primandproper/platform-go/v13/distributedlock/config"
@@ -135,6 +136,7 @@ func TestSelectedProviderMustBeConfigured(T *testing.T) {
 		{name: "authorization/database", provider: authorizationcfg.ProviderDatabase, cfg: &authorizationcfg.Config{Provider: authorizationcfg.ProviderDatabase}},
 		{name: "cache/redis", provider: cachecfg.ProviderRedis, cfg: &cachecfg.Config{Provider: cachecfg.ProviderRedis}},
 		{name: "capitalism/stripe", provider: capitalismcfg.StripeProvider, cfg: &capitalismcfg.Config{Provider: capitalismcfg.StripeProvider}},
+		{name: "capitalism/revenuecat", provider: capitalismcfg.RevenueCatProvider, cfg: &capitalismcfg.Config{Provider: capitalismcfg.RevenueCatProvider}},
 		{name: "distributedlock/redis", provider: distributedlockcfg.RedisProvider, cfg: &distributedlockcfg.Config{Provider: distributedlockcfg.RedisProvider}},
 		{name: "email/sendgrid", provider: emailcfg.ProviderSendgrid, cfg: &emailcfg.Config{Provider: emailcfg.ProviderSendgrid}},
 		{name: "email/mailgun", provider: emailcfg.ProviderMailgun, cfg: &emailcfg.Config{Provider: emailcfg.ProviderMailgun}},
@@ -271,6 +273,13 @@ func TestUnselectedProvidersAreNotEnforced(T *testing.T) {
 			cfg: &capitalismcfg.Config{
 				Provider: capitalismcfg.StripeProvider,
 				Stripe:   &capitalismstripe.Config{APIKey: "key", WebhookSecret: "secret"},
+			},
+		},
+		{
+			name: "capitalism/revenuecat",
+			cfg: &capitalismcfg.Config{
+				Provider:   capitalismcfg.RevenueCatProvider,
+				RevenueCat: &capitalismrevenuecat.Config{WebhookSecret: "secret"},
 			},
 		},
 

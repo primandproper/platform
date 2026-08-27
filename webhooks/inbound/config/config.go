@@ -34,6 +34,11 @@ const (
 	ProviderStripe = "stripe"
 	// ProviderGitHub verifies GitHub's X-Hub-Signature-256.
 	ProviderGitHub = "github"
+	// ProviderRevenueCat verifies RevenueCat's X-RevenueCat-Webhook-Signature,
+	// which is Stripe's scheme under a different header. It is the signed mode,
+	// not the Authorization header RevenueCat also offers; see
+	// inbound.RevenueCatSignatureHeader.
+	ProviderRevenueCat = "revenuecat"
 	// ProviderHMAC verifies a configurable single-header HMAC over the raw
 	// body, for providers this package does not name. It must be selected
 	// deliberately — it is never what an unrecognized provider falls back to.
@@ -42,7 +47,7 @@ const (
 
 // providers are every provider this package implements. Validation and the
 // dispatch switch both read it, so they cannot drift apart.
-var providers = []string{ProviderStripe, ProviderGitHub, ProviderHMAC}
+var providers = []string{ProviderStripe, ProviderGitHub, ProviderRevenueCat, ProviderHMAC}
 
 type (
 	// HMACConfig describes the generic single-header HMAC scheme. It is read
@@ -80,7 +85,8 @@ type (
 		// is "hmac".
 		HMAC HMACConfig `env:",init" envPrefix:"HMAC_" json:"hmac,omitzero" yaml:"hmac,omitempty"`
 
-		// Provider selects the signing scheme: "stripe", "github", or "hmac".
+		// Provider selects the signing scheme: "stripe", "github",
+		// "revenuecat", or "hmac".
 		Provider string `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
 
 		// Topic is the queue topic verified deliveries are published to.
@@ -178,7 +184,7 @@ func (cfg *HMACConfig) ValidateWithContext(ctx context.Context) error {
 //
 // Each provider is built into a variable and returned only once its error is
 // known to be nil. The provider constructors return their own concrete types,
-// so returning one straight through would convert a nil *inbound.StripeVerifier into a
+// so returning one straight through would convert a nil *inbound.TimestampedHMACVerifier into a
 // non-nil inbound.Verifier on the error path, and a caller testing the result against
 // nil would find a verifier that panics on first use.
 func NewVerifier(ctx context.Context, cfg *Config, opts ...Option) (inbound.Verifier, error) {
@@ -210,6 +216,13 @@ func NewVerifier(ctx context.Context, cfg *Config, opts ...Option) (inbound.Veri
 		return v, nil
 	case ProviderGitHub:
 		v, verifierErr := inbound.NewGitHubVerifier(cfg.Secret, base...)
+		if verifierErr != nil {
+			return nil, verifierErr
+		}
+
+		return v, nil
+	case ProviderRevenueCat:
+		v, verifierErr := inbound.NewRevenueCatVerifier(cfg.Secret, base...)
 		if verifierErr != nil {
 			return nil, verifierErr
 		}

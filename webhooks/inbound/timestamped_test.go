@@ -9,17 +9,20 @@ import (
 	clockmock "github.com/primandproper/platform-go/v13/clock/mock"
 	"github.com/primandproper/platform-go/v13/cryptography/hashing"
 	"github.com/primandproper/platform-go/v13/cryptography/hashing/hmac"
+	platformerrors "github.com/primandproper/platform-go/v13/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
 
-// signedAt is the instant every Stripe test signs at and verifies against, so nothing here
-// depends on how long the test took to run.
+// signedAt is the instant every timestamped-HMAC test signs at and verifies against, so
+// nothing here depends on how long the test took to run.
 var signedAt = time.Unix(1614556800, 0)
 
-// stripeHeader renders a Stripe-Signature header signing body at ts under each secret.
-func stripeHeader(ts time.Time, body []byte, secrets ...string) string {
+// timestampedHeader renders a t=…,v1=… header signing body at ts under each secret. It is
+// the same rendering for every provider on this scheme, which is the fact the scheme exists
+// to record.
+func timestampedHeader(ts time.Time, body []byte, secrets ...string) string {
 	seconds := fmt.Sprintf("%d", ts.Unix())
 
 	elements := []string{"t=" + seconds}
@@ -55,7 +58,7 @@ func TestNewStripeVerifier(T *testing.T) {
 		test.EqOp(t, providerStripe, verifier.Provider())
 		test.NoError(t, verifier.Verify(
 			t.Context(),
-			signedHeaders(StripeSignatureHeader, stripeHeader(signedAt, body, "whsec_test")),
+			signedHeaders(StripeSignatureHeader, timestampedHeader(signedAt, body, "whsec_test")),
 			body,
 		))
 	})
@@ -82,7 +85,7 @@ func TestNewStripeVerifier(T *testing.T) {
 
 		verifier := newVerifier(t, "whsec_test")
 
-		header := stripeHeader(signedAt, body, "whsec_someone_else", "whsec_test", "whsec_also_not_ours")
+		header := timestampedHeader(signedAt, body, "whsec_someone_else", "whsec_test", "whsec_also_not_ours")
 
 		test.NoError(t, verifier.Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), body))
 	})
@@ -93,7 +96,7 @@ func TestNewStripeVerifier(T *testing.T) {
 		verifier := newVerifier(t, "whsec_incoming", WithAdditionalSecrets("whsec_outgoing"))
 
 		for _, secret := range []string{"whsec_incoming", "whsec_outgoing"} {
-			header := stripeHeader(signedAt, body, secret)
+			header := timestampedHeader(signedAt, body, secret)
 
 			test.NoError(t, verifier.Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), body))
 		}
@@ -106,7 +109,7 @@ func TestNewStripeVerifier(T *testing.T) {
 
 		verifier := newVerifier(t, "whsec_test")
 
-		header := stripeHeader(signedAt, body, "whsec_test") + ",v0=deadbeef,junk"
+		header := timestampedHeader(signedAt, body, "whsec_test") + ",v0=deadbeef,junk"
 
 		test.NoError(t, verifier.Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), body))
 	})
@@ -116,7 +119,7 @@ func TestNewStripeVerifier(T *testing.T) {
 
 		verifier := newVerifier(t, "whsec_test")
 
-		header := "v1=not-hex," + stripeHeader(signedAt, body, "whsec_test")
+		header := "v1=not-hex," + timestampedHeader(signedAt, body, "whsec_test")
 
 		test.NoError(t, verifier.Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), body))
 	})
@@ -126,7 +129,7 @@ func TestNewStripeVerifier(T *testing.T) {
 
 		verifier := newVerifier(t, "whsec_test")
 
-		header := stripeHeader(signedAt, body, "whsec_test")
+		header := timestampedHeader(signedAt, body, "whsec_test")
 
 		test.ErrorIs(t,
 			verifier.Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), append(body, ' ')),
@@ -139,7 +142,7 @@ func TestNewStripeVerifier(T *testing.T) {
 
 		verifier := newVerifier(t, "whsec_test")
 
-		header := stripeHeader(signedAt, body, "whsec_someone_else")
+		header := timestampedHeader(signedAt, body, "whsec_someone_else")
 
 		test.ErrorIs(t, verifier.Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), body), ErrInvalidSignature)
 	})
@@ -184,7 +187,7 @@ func TestNewStripeVerifier(T *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 
-				header := stripeHeader(ts, body, "whsec_test")
+				header := timestampedHeader(ts, body, "whsec_test")
 
 				test.ErrorIs(t,
 					verifier.Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), body),
@@ -197,7 +200,7 @@ func TestNewStripeVerifier(T *testing.T) {
 	T.Run("honors a widened tolerance", func(t *testing.T) {
 		t.Parallel()
 
-		header := stripeHeader(signedAt.Add(-time.Hour), body, "whsec_test")
+		header := timestampedHeader(signedAt.Add(-time.Hour), body, "whsec_test")
 		headers := signedHeaders(StripeSignatureHeader, header)
 
 		test.ErrorIs(t, newVerifier(t, "whsec_test").Verify(t.Context(), headers, body), ErrStaleSignature)
@@ -222,19 +225,19 @@ func TestNewStripeVerifier(T *testing.T) {
 		}))
 		must.NoError(t, err)
 
-		header := stripeHeader(signedAt, body, "whsec_test")
+		header := timestampedHeader(signedAt, body, "whsec_test")
 
 		test.NoError(t, verifier.Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), body))
 	})
 }
 
-func TestParseStripeSignature(T *testing.T) {
+func TestParseTimestampedSignature(T *testing.T) {
 	T.Parallel()
 
 	T.Run("tolerates whitespace around elements", func(t *testing.T) {
 		t.Parallel()
 
-		sig := parseStripeSignature(" t=1614556800 , v1=deadbeef ")
+		sig := parseTimestampedSignature(" t=1614556800 , v1=deadbeef ")
 
 		test.EqOp(t, "1614556800", sig.rawTimestamp)
 		test.EqOp(t, signedAt.Unix(), sig.timestamp.Unix())
@@ -244,9 +247,168 @@ func TestParseStripeSignature(T *testing.T) {
 	T.Run("abandons a header whose timestamp does not parse", func(t *testing.T) {
 		t.Parallel()
 
-		sig := parseStripeSignature("t=nope,v1=deadbeef")
+		sig := parseTimestampedSignature("t=nope,v1=deadbeef")
 
 		test.True(t, sig.timestamp.IsZero())
 		test.SliceLen(t, 0, sig.candidates)
+	})
+}
+
+func TestNewTimestampedHMACVerifier(T *testing.T) {
+	T.Parallel()
+
+	scheme := &TimestampedHMACScheme{Provider: "acme", Header: "X-Acme-Signature"}
+
+	T.Run("refuses a nil scheme", func(t *testing.T) {
+		t.Parallel()
+
+		verifier, err := NewTimestampedHMACVerifier(nil, "sekrit")
+
+		test.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
+		test.Nil(t, verifier)
+	})
+
+	T.Run("refuses a scheme naming no provider", func(t *testing.T) {
+		t.Parallel()
+
+		verifier, err := NewTimestampedHMACVerifier(&TimestampedHMACScheme{Header: "X-Acme-Signature"}, "sekrit")
+
+		test.ErrorIs(t, err, platformerrors.ErrEmptyInputParameter)
+		test.Nil(t, verifier)
+	})
+
+	T.Run("refuses a scheme naming no header", func(t *testing.T) {
+		t.Parallel()
+
+		verifier, err := NewTimestampedHMACVerifier(&TimestampedHMACScheme{Provider: "acme"}, "sekrit")
+
+		test.ErrorIs(t, err, platformerrors.ErrEmptyInputParameter)
+		test.Nil(t, verifier)
+	})
+
+	T.Run("does not edit the caller's scheme", func(t *testing.T) {
+		t.Parallel()
+
+		// The descriptor is copied before it is read, so a literal a caller keeps and
+		// reuses cannot be changed underneath them by a constructor.
+		given := *scheme
+
+		_, err := NewTimestampedHMACVerifier(&given, "sekrit")
+		must.NoError(t, err)
+
+		test.Eq(t, *scheme, given)
+	})
+
+	T.Run("verifies an arbitrary provider on the same scheme", func(t *testing.T) {
+		t.Parallel()
+
+		body := []byte(`{"whatever":true}`)
+
+		verifier, err := NewTimestampedHMACVerifier(scheme, "sekrit", WithVerificationTime(signedAt))
+		must.NoError(t, err)
+
+		test.EqOp(t, "acme", verifier.Provider())
+		test.NoError(t, verifier.Verify(
+			t.Context(),
+			signedHeaders(scheme.Header, timestampedHeader(signedAt, body, "sekrit")),
+			body,
+		))
+	})
+}
+
+func TestNewRevenueCatVerifier(T *testing.T) {
+	T.Parallel()
+
+	// A RevenueCat delivery, in the envelope shape the capitalism adapter decodes.
+	body := []byte(`{"api_version":"1.0","event":{"id":"evt_rc","type":"RENEWAL"}}`)
+
+	newVerifier := func(t *testing.T, secret string, opts ...VerifierOption) Verifier {
+		t.Helper()
+
+		verifier, err := NewRevenueCatVerifier(secret, append([]VerifierOption{WithVerificationTime(signedAt)}, opts...)...)
+		must.NoError(t, err)
+
+		return verifier
+	}
+
+	T.Run("verifies a signature over the timestamp and body", func(t *testing.T) {
+		t.Parallel()
+
+		verifier := newVerifier(t, "rcsec_test")
+
+		test.EqOp(t, providerRevenueCat, verifier.Provider())
+		test.NoError(t, verifier.Verify(
+			t.Context(),
+			signedHeaders(RevenueCatSignatureHeader, timestampedHeader(signedAt, body, "rcsec_test")),
+			body,
+		))
+	})
+
+	T.Run("reads its own header rather than Stripe's", func(t *testing.T) {
+		t.Parallel()
+
+		// The two schemes are identical apart from the header name, so the header is
+		// the only thing keeping a delivery from one provider out of the other's
+		// verifier. A correctly signed RevenueCat body presented under
+		// Stripe-Signature is not a RevenueCat delivery.
+		header := timestampedHeader(signedAt, body, "rcsec_test")
+
+		test.ErrorIs(t,
+			newVerifier(t, "rcsec_test").Verify(t.Context(), signedHeaders(StripeSignatureHeader, header), body),
+			ErrInvalidSignature,
+		)
+	})
+
+	T.Run("rejects a body that was not the one signed", func(t *testing.T) {
+		t.Parallel()
+
+		header := timestampedHeader(signedAt, body, "rcsec_test")
+
+		test.ErrorIs(t,
+			newVerifier(t, "rcsec_test").Verify(t.Context(), signedHeaders(RevenueCatSignatureHeader, header), append(body, ' ')),
+			ErrInvalidSignature,
+		)
+	})
+
+	T.Run("rejects a delivery signed under another secret", func(t *testing.T) {
+		t.Parallel()
+
+		header := timestampedHeader(signedAt, body, "rcsec_other")
+
+		test.ErrorIs(t,
+			newVerifier(t, "rcsec_test").Verify(t.Context(), signedHeaders(RevenueCatSignatureHeader, header), body),
+			ErrInvalidSignature,
+		)
+	})
+
+	T.Run("rejects a stale delivery", func(t *testing.T) {
+		t.Parallel()
+
+		// RevenueCat re-signs each attempt, so a timestamp outside tolerance is a
+		// captured request being replayed rather than a retry of an old event.
+		header := timestampedHeader(signedAt.Add(-time.Hour), body, "rcsec_test")
+
+		test.ErrorIs(t,
+			newVerifier(t, "rcsec_test").Verify(t.Context(), signedHeaders(RevenueCatSignatureHeader, header), body),
+			ErrStaleSignature,
+		)
+	})
+
+	T.Run("survives a secret rotation", func(t *testing.T) {
+		t.Parallel()
+
+		header := timestampedHeader(signedAt, body, "rcsec_old")
+
+		test.NoError(t, newVerifier(t, "rcsec_new", WithAdditionalSecrets("rcsec_old")).
+			Verify(t.Context(), signedHeaders(RevenueCatSignatureHeader, header), body))
+	})
+
+	T.Run("refuses to build without a secret", func(t *testing.T) {
+		t.Parallel()
+
+		verifier, err := NewRevenueCatVerifier("")
+
+		test.ErrorIs(t, err, ErrNoSecret)
+		test.Nil(t, verifier)
 	})
 }
