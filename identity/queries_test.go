@@ -59,21 +59,12 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 		t := newTables("")
 
 		rendered := map[string]func() (string, []any){
-			"selectLiveUserBy":         func() (string, []any) { return t.buildSelectLiveUserBy(d, usernameColumn, scope, "ada") },
 			"searchUsers":              func() (string, []any) { return t.buildSearchUsers(d, scope, "ad", "cursor", 10) },
 			"countSearchUsers":         func() (string, []any) { return t.buildCountSearchUsers(d, scope, "ad") },
 			"selectUsersByIDs":         func() (string, []any) { return t.buildSelectUsersByIDs(d, scope, []string{"u1", "u2"}) },
 			"selectUserIDByField":      func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "u1") },
 			"selectUserIDByFieldNoExc": func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "") },
-			"updateUserPassword":       func() (string, []any) { return t.buildUpdateUserPassword(d, scope, "u1", "h", now) },
-			"setUserFlag": func() (string, []any) {
-				return t.buildSetUserFlag(d, "requires_password_change", scope, "u1", true, now)
-			},
-			"updateTwoFactorSecret": func() (string, []any) { return t.buildUpdateTwoFactorSecret(d, scope, "u1", "s", now) },
-			"markTwoFactorVerified": func() (string, []any) { return t.buildMarkTwoFactorVerified(d, scope, "u1", now) },
-			"setEmailToken":         func() (string, []any) { return t.buildSetEmailVerificationToken(d, scope, "u1", "tok", now) },
-			"markEmailVerified":     func() (string, []any) { return t.buildMarkEmailVerified(d, scope, "u1", "tok", now) },
-			"updateAccountStatus":   func() (string, []any) { return t.buildUpdateAccountStatus(d, scope, "u1", StatusBanned, "why", now) },
+			"markTwoFactorVerified":    func() (string, []any) { return t.buildMarkTwoFactorVerified(d, scope, "u1", now) },
 			"recordAgreementsOne": func() (string, []any) {
 				return t.buildRecordAgreements(d, scope, "u1", []Agreement{TermsOfService}, now)
 			},
@@ -84,28 +75,15 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 
 			"listAccountsForUser":  func() (string, []any) { return t.buildListAccountsForUser(d, scope, "u1", "cursor", 10) },
 			"countAccountsForUser": func() (string, []any) { return t.buildCountAccountsForUser(d, scope, "u1") },
-			"transferOwnership":    func() (string, []any) { return t.buildTransferAccountOwnership(d, scope, "a1", "u1", "u2", now) },
 
-			"selectWrittenMembership": func() (string, []any) {
-				return t.buildSelectWrittenMembership(d, "u1", "a1")
-			},
-			"selectMembership":     func() (string, []any) { return t.buildSelectMembership(d, scope, "u1", "a1") },
 			"listMemberships":      func() (string, []any) { return t.buildListMembershipsForUser(d, scope, "u1") },
 			"countLiveMemberships": func() (string, []any) { return t.buildCountLiveMembershipsForUser(d, scope, "u1") },
 			"listAccountMembers":   func() (string, []any) { return t.buildListAccountMembers(d, scope, "a1", "cursor", 10) },
 			"countAccountMembers":  func() (string, []any) { return t.buildCountAccountMembers(d, scope, "a1") },
 			"clearDefaultAccount":  func() (string, []any) { return t.buildClearDefaultAccount(d, scope, "u1", "a1", now) },
 			"setDefaultAccount":    func() (string, []any) { return t.buildSetDefaultAccount(d, scope, "u1", "a1", now) },
-			"selectFallback":       func() (string, []any) { return t.buildSelectFallbackAccountID(d, scope, "u1", "a1") },
 			"archiveMembership":    func() (string, []any) { return t.buildArchiveMembership(d, scope, "u1", "a1", now) },
 			"archiveMembershipsBy": func() (string, []any) { return t.buildArchiveMembershipsBy(d, membershipUserColumn, scope, "u1", now) },
-
-			"answerInvitation": func() (string, []any) {
-				return t.buildAnswerInvitation(d, scope, "i1", InvitationRejected, "no", nil, now)
-			},
-			"answerInvitationUser": func() (string, []any) {
-				return t.buildAnswerInvitation(d, scope, "i1", InvitationAccepted, "", new("u2"), now)
-			},
 
 			"deleteRoles": func() (string, []any) { return buildDeleteRoles(d, t.membershipRoles, membershipIDColumn, "m1") },
 			"insertRoles": func() (string, []any) {

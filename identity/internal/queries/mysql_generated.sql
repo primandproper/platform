@@ -517,6 +517,215 @@ WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELE
 ORDER BY identity_invitations.id ASC
 LIMIT ?;
 
+-- name: GetUserCreatedAt :one
+SELECT
+	identity_users.created_at
+FROM identity_users
+WHERE identity_users.id = sqlc.arg(id);
+
+-- name: GetAccountCreatedAt :one
+SELECT
+	identity_accounts.created_at
+FROM identity_accounts
+WHERE identity_accounts.id = sqlc.arg(id);
+
+-- name: GetInvitationCreatedAt :one
+SELECT
+	identity_invitations.created_at
+FROM identity_invitations
+WHERE identity_invitations.id = sqlc.arg(id);
+
+-- name: GetUserByUsername :one
+SELECT
+	identity_users.id,
+	identity_users.scope,
+	identity_users.username,
+	identity_users.email_address,
+	identity_users.first_name,
+	identity_users.last_name,
+	identity_users.hashed_password,
+	identity_users.requires_password_change,
+	identity_users.password_last_changed_at,
+	identity_users.two_factor_secret,
+	identity_users.two_factor_secret_verified_at,
+	identity_users.email_address_verified_at,
+	identity_users.email_address_verification_token,
+	identity_users.account_status,
+	identity_users.account_status_explanation,
+	identity_users.last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy,
+	identity_users.created_at,
+	identity_users.last_updated_at,
+	identity_users.archived_at
+FROM identity_users
+WHERE identity_users.archived_at IS NULL
+	AND identity_users.username = sqlc.arg(username)
+	AND identity_users.scope = sqlc.arg(scope);
+
+-- name: GetUserByEmailAddress :one
+SELECT
+	identity_users.id,
+	identity_users.scope,
+	identity_users.username,
+	identity_users.email_address,
+	identity_users.first_name,
+	identity_users.last_name,
+	identity_users.hashed_password,
+	identity_users.requires_password_change,
+	identity_users.password_last_changed_at,
+	identity_users.two_factor_secret,
+	identity_users.two_factor_secret_verified_at,
+	identity_users.email_address_verified_at,
+	identity_users.email_address_verification_token,
+	identity_users.account_status,
+	identity_users.account_status_explanation,
+	identity_users.last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy,
+	identity_users.created_at,
+	identity_users.last_updated_at,
+	identity_users.archived_at
+FROM identity_users
+WHERE identity_users.archived_at IS NULL
+	AND identity_users.email_address = sqlc.arg(email_address)
+	AND identity_users.scope = sqlc.arg(scope);
+
+-- name: GetUserByEmailVerificationToken :one
+SELECT
+	identity_users.id,
+	identity_users.scope,
+	identity_users.username,
+	identity_users.email_address,
+	identity_users.first_name,
+	identity_users.last_name,
+	identity_users.hashed_password,
+	identity_users.requires_password_change,
+	identity_users.password_last_changed_at,
+	identity_users.two_factor_secret,
+	identity_users.two_factor_secret_verified_at,
+	identity_users.email_address_verified_at,
+	identity_users.email_address_verification_token,
+	identity_users.account_status,
+	identity_users.account_status_explanation,
+	identity_users.last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy,
+	identity_users.created_at,
+	identity_users.last_updated_at,
+	identity_users.archived_at
+FROM identity_users
+WHERE identity_users.archived_at IS NULL
+	AND identity_users.email_address_verification_token = sqlc.arg(email_address_verification_token)
+	AND identity_users.scope = sqlc.arg(scope);
+
+-- name: GetMembershipByUserAndAccount :one
+SELECT
+	identity_memberships.id,
+	identity_memberships.scope,
+	identity_memberships.belongs_to_user,
+	identity_memberships.belongs_to_account,
+	identity_memberships.default_account,
+	identity_memberships.created_at,
+	identity_memberships.last_updated_at,
+	identity_memberships.archived_at
+FROM identity_memberships
+WHERE identity_memberships.archived_at IS NULL
+	AND identity_memberships.scope = sqlc.arg(scope)
+	AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
+	AND identity_memberships.belongs_to_account = sqlc.arg(belongs_to_account);
+
+-- name: GetMembershipIDByUserAndAccount :one
+SELECT
+	identity_memberships.id
+FROM identity_memberships
+WHERE identity_memberships.archived_at IS NULL
+	AND identity_memberships.scope = sqlc.arg(scope)
+	AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
+	AND identity_memberships.belongs_to_account = sqlc.arg(belongs_to_account);
+
+-- name: GetMembershipFallbackAccountID :one
+SELECT
+	identity_memberships.belongs_to_account
+FROM identity_memberships
+WHERE identity_memberships.archived_at IS NULL
+	AND identity_memberships.scope = sqlc.arg(scope)
+	AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
+	AND identity_memberships.belongs_to_account <> sqlc.arg(belongs_to_account)
+ORDER BY identity_memberships.belongs_to_account ASC
+LIMIT 1;
+
+-- name: UpdateUserPassword :execrows
+UPDATE identity_users SET
+	hashed_password = sqlc.arg(hashed_password),
+	requires_password_change = sqlc.arg(requires_password_change),
+	password_last_changed_at = sqlc.narg(password_last_changed_at),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: SetUserRequiresPasswordChange :execrows
+UPDATE identity_users SET
+	requires_password_change = sqlc.arg(requires_password_change),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: UpdateUserTwoFactorSecret :execrows
+UPDATE identity_users SET
+	two_factor_secret = sqlc.arg(two_factor_secret),
+	two_factor_secret_verified_at = sqlc.narg(two_factor_secret_verified_at),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: SetUserEmailAddressVerificationToken :execrows
+UPDATE identity_users SET
+	email_address_verification_token = sqlc.arg(email_address_verification_token),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: MarkUserEmailAddressVerified :execrows
+UPDATE identity_users SET
+	email_address_verified_at = sqlc.narg(email_address_verified_at),
+	email_address_verification_token = sqlc.arg(email_address_verification_token),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope)
+	AND email_address_verification_token = sqlc.arg(current_email_address_verification_token);
+
+-- name: UpdateUserAccountStatus :execrows
+UPDATE identity_users SET
+	account_status = sqlc.arg(account_status),
+	account_status_explanation = sqlc.arg(account_status_explanation),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: TransferAccountOwnership :execrows
+UPDATE identity_accounts SET
+	owner_user_id = sqlc.arg(owner_user_id),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope)
+	AND owner_user_id = sqlc.arg(current_owner_user_id);
+
+-- name: AnswerInvitation :execrows
+UPDATE identity_invitations SET
+	status = sqlc.arg(status),
+	note = sqlc.arg(note),
+	to_user = sqlc.narg(to_user),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope)
+	AND status = sqlc.arg(current_status);
+
 -- name: UpsertMembership :exec
 INSERT INTO identity_memberships (
 	id,

@@ -123,22 +123,37 @@ than in a test.
 
 # Where the SQL comes from
 
-The conventional statements against users, accounts and invitations — the
-create, the read by id, the filtered page, the update and the archive — are
-rendered by database/querygen at construction, from the column lists in
-identity/internal/queries, with the configured prefix on the table name. They
-are not composed per request and there is no column projection paired to a Scan
-by eye.
+Every statement this package executes is generated, through a pipeline with two
+committed artifacts, and the duplication between them is deliberate.
 
-The same column lists are rendered a second way by `make generate`, into the
-canonical .sql files beside them, and CI runs sqlc over those against the DDL
-identity/migrations produces. So a column that does not exist is a build
-failure with no database running, where it used to be a scan error at runtime.
-Nothing imports the .sql and nothing executes it: it is the check, not the code.
+The schema's facts — the table names, each table's columns in projection order,
+the subsets a write may assign — are spelled once, in identity/internal/queries.
+`make generate` renders them through database/querygen into the canonical .sql
+files beside that package, in sqlc's spelling: named statements whose arguments
+are sqlc.arg references. sqlc compiles every one of those statements against the
+DDL identity/migrations produces, on all three dialects, and sqlc-gen-unison
+emits identity/internal/identitydb from them — typed params and methods over
+driver placeholders — which is what the store executes. A column that does not
+exist is a build failure with no database running, where it used to be a scan
+error at runtime.
 
-What remains hand-written is what querygen does not emit — the sign-in reads,
-the field-specific writes, the username prefix search, the roster and account
-joins, the membership upsert, and the status-guarded answer to an invitation.
+Committing the generated Go is not a choice: consumers compile this module from
+the module cache, so the package the store executes has to be in the tree. The
+.sql could in principle be rendered into a temp directory on each generation and
+never committed, and it is committed anyway because of what would go with it.
+It is the reviewable form of the contract — the generated Go embeds the same
+statements, but in driver spelling, argument names erased into positional
+markers, where the .sql's sqlc.arg(current_owner_user_id) is the spelling in
+which a reviewer can see that a guard and its assignment are two arguments. It
+anchors the drift gate — a test pins the committed text byte for byte against
+the renderer, so "the SQL sqlc checks is the SQL the store runs" is a fact a
+test states rather than a property of a pipeline taken on trust. And it is the
+debugging seam when sqlc rejects a statement, because the file is exactly what
+the analyzer was handed. The two cannot drift from each other: one is rendered
+from code, the other is generated from the first, and the gates hold both ends.
+
+What remains hand-written is what querygen does not yet emit — the username
+prefix search, the roster and account joins, and the membership upsert.
 */
 package identity
 

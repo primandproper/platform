@@ -40,9 +40,13 @@ func (s *SQLStore) UpdateUserAccountStatus(ctx context.Context, scope tenancy.Sc
 		)
 	}
 
-	query, args := s.tables.buildUpdateAccountStatus(s.dialect, scope, userID, status, explanation, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrUserNotFound, "updating identity account status"); err != nil {
+	count, err := s.q.UpdateUserAccountStatus(ctx, s.client.Writer(), identitydb.UpdateUserAccountStatusParams{
+		ID:                       userID,
+		Scope:                    scope,
+		AccountStatus:            status.String(),
+		AccountStatusExplanation: explanation,
+	})
+	if err = guardCount(count, err, ErrUserNotFound, "updating identity account status"); err != nil {
 		return op.Error(err, "updating identity account status")
 	}
 

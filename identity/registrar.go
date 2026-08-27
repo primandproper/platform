@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 )
 
 // The SQLStore's Registrar: the three writes that make a registration, each
@@ -49,8 +50,9 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 
 	// The creation time is the database's, and it is read back so the caller's
 	// copy agrees with the row rather than holding the zero time — see
-	// SQLStore.stampCreatedAt.
-	if err := s.stampCreatedAt(ctx, q, s.tables.users, user.ID, &user.CreatedAt); err != nil {
+	// stampCreatedAt.
+	created, readErr := s.q.GetUserCreatedAt(ctx, q, identitydb.GetUserCreatedAtParams{ID: user.ID})
+	if err := stampCreatedAt(&user.CreatedAt, created.CreatedAt, readErr); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
@@ -93,7 +95,8 @@ func (s *SQLStore) CreateAccount(ctx context.Context, q database.Tx, account *Ac
 		return op.Error(err, "creating identity account")
 	}
 
-	if err := s.stampCreatedAt(ctx, q, s.tables.accounts, account.ID, &account.CreatedAt); err != nil {
+	created, readErr := s.q.GetAccountCreatedAt(ctx, q, identitydb.GetAccountCreatedAtParams{ID: account.ID})
+	if err := stampCreatedAt(&account.CreatedAt, created.CreatedAt, readErr); err != nil {
 		return op.Error(err, "creating identity account")
 	}
 

@@ -203,9 +203,16 @@ func TestResolveActiveAccount(T *testing.T) {
 //
 // created_at is the database's — the create does not carry the column and the
 // schema defaults it — so a fixed store clock cannot pin it, and what is worth
-// pinning instead is that the value reaches the caller's struct at all. The
-// writes querygen does not render still stamp last_updated_at from the store's
-// clock, and those a fixed clock does pin.
+// pinning instead is that the value reaches the caller's struct at all.
+// last_updated_at is now the database's too on every write querygen renders,
+// which since the field-specific writes joined the canonical .sql is all of
+// them bar the handful queries.go still builds. That is the point of the
+// convention rather than a loss: a row's created_at and a filter's created_after
+// are compared against each other, so they have to come off the same clock.
+//
+// What a fixed store clock can still pin, then, is not the value but the
+// relation — the stamp exists, it is UTC, and it is not before the creation it
+// follows.
 func runClockSuite(t *testing.T, env *storeEnv) {
 	t.Helper()
 
@@ -235,7 +242,8 @@ func runClockSuite(t *testing.T, env *storeEnv) {
 		updated, err := store.GetUser(t.Context(), testScope, user.ID)
 		must.NoError(t, err)
 		must.NotNil(t, updated.LastUpdatedAt)
-		test.EqOp(t, baseTime.Add(time.Hour), *updated.LastUpdatedAt)
+		test.EqOp(t, time.UTC, updated.LastUpdatedAt.Location())
+		test.False(t, updated.LastUpdatedAt.Before(updated.CreatedAt))
 	})
 
 	t.Run("stamps account times in UTC", func(t *testing.T) {

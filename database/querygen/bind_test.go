@@ -166,8 +166,9 @@ func TestGenerator_BoundUpdate(T *testing.T) {
 		// behavior too, since WithOwnership renders the owner into the SET and
 		// the WHERE from the same argument name. It is named here so that the
 		// argument list stops being a surprise: a caller wanting to move a row
-		// between owners wants the owner column out of its updatable set, which
-		// is what ForUpdate's exceptions are for.
+		// between owners guards the move with Match.Arg, and one wanting not to
+		// assign the column at all keeps it out of the updatable set, which is
+		// what ForUpdate's exceptions are for.
 		got := For(dialect.Postgres).BoundUpdate(boundTable, boundColumns(), ForUpdate(boundColumns()), nil,
 			Match{Column: BelongsToAccountColumn})
 
@@ -184,6 +185,53 @@ func TestGenerator_BoundUpdate(T *testing.T) {
 		bound, err := got.Bind(values)
 		must.NoError(t, err)
 		test.SliceLen(t, len(got.Args), bound)
+	})
+
+	T.Run("a guard on an assigned column binds under its own argument name", func(t *testing.T) {
+		t.Parallel()
+
+		// The transfer: the new owner in the SET, the current one in the WHERE,
+		// and two arguments rather than one — which is the difference between a
+		// statement two concurrent transfers race for and one that assigns the
+		// owner it just required the row to already have.
+		const current = "current_" + BelongsToAccountColumn
+
+		for _, d := range everyDialect() {
+			got := For(d).BoundUpdate(boundTable, boundColumns(), []string{BelongsToAccountColumn}, nil,
+				Match{Column: BelongsToAccountColumn, Arg: current})
+
+			test.Eq(t, []string{BelongsToAccountColumn, IDColumn, current}, got.Args,
+				test.Sprintf("dialect %q", d))
+			test.StrContains(t, got.SQL, BelongsToAccountColumn+" = ", test.Sprintf("dialect %q", d))
+			assertMarkersMatchArgs(t, d, got)
+		}
+	})
+}
+
+func TestMatch_Arg(T *testing.T) {
+	T.Parallel()
+
+	T.Run("defaults to the column, which is what every keyed read wants", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			got := For(d).BoundGet(boundTable, boundColumns(), Match{Column: BelongsToAccountColumn})
+
+			test.SliceContains(t, got.Args, BelongsToAccountColumn, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("renames the argument without renaming the column", func(t *testing.T) {
+		t.Parallel()
+
+		// The predicate still names the column — a guard compares the row's own
+		// column against something, and only the something is being named
+		// differently.
+		got := For(dialect.Postgres).BoundGet(boundTable, boundColumns(),
+			Match{Column: BelongsToAccountColumn, Arg: "previous_account"})
+
+		test.StrContains(t, got.SQL, Qualify(boundTable, BelongsToAccountColumn)+" = ")
+		test.Eq(t, []string{IDColumn, "previous_account"}, got.Args)
 	})
 }
 
@@ -678,10 +726,10 @@ func TestGenerator_boundIsPerStatement(T *testing.T) {
 		for _, d := range everyDialect() {
 			g := For(d)
 
-			before := getStatement(boundTable, boundColumns(), "")
+			before := getStatement(boundTable, boundColumns(), "", Read{})
 			_ = g.BoundGet(boundTable, boundColumns())
 			_ = g.BoundList(boundTable, boundColumns(), Match{Column: BelongsToAccountColumn})
-			after := getStatement(boundTable, boundColumns(), "")
+			after := getStatement(boundTable, boundColumns(), "", Read{})
 
 			test.EqOp(t, before, after, test.Sprintf("dialect %q", d))
 			test.StrContains(t, after, "sqlc.arg("+IDColumn+")", test.Sprintf("dialect %q", d))
