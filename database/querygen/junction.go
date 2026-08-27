@@ -121,8 +121,8 @@ func (j *Junction) must() {
 		mustIdentifier("junction column", column)
 	}
 
-	for _, match := range j.Matches {
-		mustIdentifier("junction match column", match.Column)
+	for i := range j.Matches {
+		mustIdentifier("junction match column", j.Matches[i].Column)
 	}
 
 	if j.Prefix != "" {
@@ -217,7 +217,7 @@ func (o Order) qualified(table string) string {
 	return Order{Column: Qualify(table, o.Column), Descending: o.Descending}.String()
 }
 
-// orderClause renders an unpaged list's ordering, or nothing when the caller
+// listOrderClause renders an unpaged list's ordering, or nothing when the caller
 // named none.
 //
 // A list with no ordering returns its rows in whatever order the planner found
@@ -227,7 +227,7 @@ func (o Order) qualified(table string) string {
 // rather than something defaulted here, and the paged form does not accept one
 // at all: its order is the cursor's, and a page ordered by anything else is a
 // keyset walk whose cursor names a position in an order that no longer holds.
-func orderClause(table string, order []Order) string {
+func listOrderClause(table string, order []Order) string {
 	if len(order) == 0 {
 		return ""
 	}
@@ -289,7 +289,7 @@ func (g *Generator) JunctionListQuery(name, table string, columns []string, junc
 // — so there is no flag to read, and a caller who wants archived rows back wants
 // the paged form rather than an argument on this one.
 //
-// order is the caller's, and may be empty; see orderClause for what an empty one
+// order is the caller's, and may be empty; see listOrderClause for what an empty one
 // means. The terms name columns on table, not on the junction.
 func (g *Generator) JunctionListAllQuery(name, table string, columns []string, junction *Junction, order []Order, matches ...Match) *Query {
 	return &Query{
@@ -331,7 +331,7 @@ func (g *Generator) junctionListAllStatement(table string, columns []string, jun
 		statement += "\nWHERE " + joinPredicates(predicates, "\t")
 	}
 
-	return statement + orderClause(table, order) + ";"
+	return statement + listOrderClause(table, order) + ";"
 }
 
 // mustJunctionList panics unless every identifier a junction list interpolates

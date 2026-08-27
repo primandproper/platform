@@ -27,6 +27,11 @@ import (
 // that discriminates, or set clientFoundRows=true in the MySQL DSN, which
 // switches MySQL to matched semantics.
 type Querier interface {
+	// AnswerInvitation runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error)
 	// ArchiveAccount runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note
@@ -45,10 +50,28 @@ type Querier interface {
 	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) error
 	// GetAccount runs the :one query.
 	GetAccount(ctx context.Context, db DBTX, arg GetAccountParams) (GetAccountRow, error)
+	// GetAccountCreatedAt runs the :one query.
+	GetAccountCreatedAt(ctx context.Context, db DBTX, arg GetAccountCreatedAtParams) (GetAccountCreatedAtRow, error)
 	// GetInvitation runs the :one query.
 	GetInvitation(ctx context.Context, db DBTX, arg GetInvitationParams) (GetInvitationRow, error)
+	// GetInvitationCreatedAt runs the :one query.
+	GetInvitationCreatedAt(ctx context.Context, db DBTX, arg GetInvitationCreatedAtParams) (GetInvitationCreatedAtRow, error)
+	// GetMembershipByUserAndAccount runs the :one query.
+	GetMembershipByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipByUserAndAccountParams) (GetMembershipByUserAndAccountRow, error)
+	// GetMembershipFallbackAccountID runs the :one query.
+	GetMembershipFallbackAccountID(ctx context.Context, db DBTX, arg GetMembershipFallbackAccountIDParams) (GetMembershipFallbackAccountIDRow, error)
+	// GetMembershipIDByUserAndAccount runs the :one query.
+	GetMembershipIDByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipIDByUserAndAccountParams) (GetMembershipIDByUserAndAccountRow, error)
 	// GetUser runs the :one query.
 	GetUser(ctx context.Context, db DBTX, arg GetUserParams) (GetUserRow, error)
+	// GetUserByEmailAddress runs the :one query.
+	GetUserByEmailAddress(ctx context.Context, db DBTX, arg GetUserByEmailAddressParams) (GetUserByEmailAddressRow, error)
+	// GetUserByEmailVerificationToken runs the :one query.
+	GetUserByEmailVerificationToken(ctx context.Context, db DBTX, arg GetUserByEmailVerificationTokenParams) (GetUserByEmailVerificationTokenRow, error)
+	// GetUserByUsername runs the :one query.
+	GetUserByUsername(ctx context.Context, db DBTX, arg GetUserByUsernameParams) (GetUserByUsernameRow, error)
+	// GetUserCreatedAt runs the :one query.
+	GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUserCreatedAtParams) (GetUserCreatedAtRow, error)
 	// ListAccountMembers runs the :many query.
 	ListAccountMembers(ctx context.Context, db DBTX, arg ListAccountMembersParams) ([]ListAccountMembersRow, error)
 	// ListAccounts runs the :many query.
@@ -65,6 +88,26 @@ type Querier interface {
 	ListMembershipsForUser(ctx context.Context, db DBTX, arg ListMembershipsForUserParams) ([]ListMembershipsForUserRow, error)
 	// ListUsers runs the :many query.
 	ListUsers(ctx context.Context, db DBTX, arg ListUsersParams) ([]ListUsersRow, error)
+	// MarkUserEmailAddressVerified runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error)
+	// SetUserEmailAddressVerificationToken runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error)
+	// SetUserRequiresPasswordChange runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	SetUserRequiresPasswordChange(ctx context.Context, db DBTX, arg SetUserRequiresPasswordChangeParams) (int64, error)
+	// TransferAccountOwnership runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	TransferAccountOwnership(ctx context.Context, db DBTX, arg TransferAccountOwnershipParams) (int64, error)
 	// UpdateAccount runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note
@@ -75,4 +118,21 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	UpdateUser(ctx context.Context, db DBTX, arg UpdateUserParams) (int64, error)
+	// UpdateUserAccountStatus runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	UpdateUserAccountStatus(ctx context.Context, db DBTX, arg UpdateUserAccountStatusParams) (int64, error)
+	// UpdateUserPassword runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) (int64, error)
+	// UpdateUserTwoFactorSecret runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	UpdateUserTwoFactorSecret(ctx context.Context, db DBTX, arg UpdateUserTwoFactorSecretParams) (int64, error)
+	// UpsertMembership runs the :exec query.
+	UpsertMembership(ctx context.Context, db DBTX, arg UpsertMembershipParams) error
 }

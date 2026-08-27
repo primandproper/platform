@@ -13,6 +13,16 @@ import (
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
+const answerInvitationMySQL = `UPDATE {{prefix}}identity_invitations SET
+	status = ?,
+	note = ?,
+	to_user = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?
+	AND status = ?`
+
 const archiveAccountMySQL = `UPDATE {{prefix}}identity_accounts SET
 	archived_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
@@ -151,6 +161,11 @@ WHERE {{prefix}}identity_accounts.archived_at IS NULL
 	AND {{prefix}}identity_accounts.id = ?
 	AND {{prefix}}identity_accounts.scope = ?`
 
+const getAccountCreatedAtMySQL = `SELECT
+	{{prefix}}identity_accounts.created_at
+FROM {{prefix}}identity_accounts
+WHERE {{prefix}}identity_accounts.id = ?`
+
 const getInvitationMySQL = `SELECT
 	{{prefix}}identity_invitations.id,
 	{{prefix}}identity_invitations.scope,
@@ -170,6 +185,44 @@ FROM {{prefix}}identity_invitations
 WHERE {{prefix}}identity_invitations.archived_at IS NULL
 	AND {{prefix}}identity_invitations.id = ?
 	AND {{prefix}}identity_invitations.scope = ?`
+
+const getInvitationCreatedAtMySQL = `SELECT
+	{{prefix}}identity_invitations.created_at
+FROM {{prefix}}identity_invitations
+WHERE {{prefix}}identity_invitations.id = ?`
+
+const getMembershipByUserAndAccountMySQL = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?
+	AND {{prefix}}identity_memberships.belongs_to_user = ?
+	AND {{prefix}}identity_memberships.belongs_to_account = ?`
+
+const getMembershipFallbackAccountIDMySQL = `SELECT
+	{{prefix}}identity_memberships.belongs_to_account
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?
+	AND {{prefix}}identity_memberships.belongs_to_user = ?
+	AND {{prefix}}identity_memberships.belongs_to_account <> ?
+ORDER BY {{prefix}}identity_memberships.belongs_to_account ASC
+LIMIT 1`
+
+const getMembershipIdbyUserAndAccountMySQL = `SELECT
+	{{prefix}}identity_memberships.id
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?
+	AND {{prefix}}identity_memberships.belongs_to_user = ?
+	AND {{prefix}}identity_memberships.belongs_to_account = ?`
 
 const getUserMySQL = `SELECT
 	{{prefix}}identity_users.id,
@@ -196,6 +249,89 @@ FROM {{prefix}}identity_users
 WHERE {{prefix}}identity_users.archived_at IS NULL
 	AND {{prefix}}identity_users.id = ?
 	AND {{prefix}}identity_users.scope = ?`
+
+const getUserByEmailAddressMySQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.email_address = ?
+	AND {{prefix}}identity_users.scope = ?`
+
+const getUserByEmailVerificationTokenMySQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.email_address_verification_token = ?
+	AND {{prefix}}identity_users.scope = ?`
+
+const getUserByUsernameMySQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.username = ?
+	AND {{prefix}}identity_users.scope = ?`
+
+const getUserCreatedAtMySQL = `SELECT
+	{{prefix}}identity_users.created_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.id = ?`
 
 const listAccountMembersMySQL = `SELECT
 	{{prefix}}identity_memberships.id,
@@ -650,6 +786,37 @@ WHERE {{prefix}}identity_users.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAM
 ORDER BY {{prefix}}identity_users.id ASC
 LIMIT ?`
 
+const markUserEmailAddressVerifiedMySQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verified_at = ?,
+	email_address_verification_token = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?
+	AND email_address_verification_token = ?`
+
+const setUserEmailAddressVerificationTokenMySQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verification_token = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const setUserRequiresPasswordChangeMySQL = `UPDATE {{prefix}}identity_users SET
+	requires_password_change = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const transferAccountOwnershipMySQL = `UPDATE {{prefix}}identity_accounts SET
+	owner_user_id = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?
+	AND owner_user_id = ?`
+
 const updateAccountMySQL = `UPDATE {{prefix}}identity_accounts SET
 	name = ?,
 	address_line1 = ?,
@@ -676,51 +843,147 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
 
+const updateUserAccountStatusMySQL = `UPDATE {{prefix}}identity_users SET
+	account_status = ?,
+	account_status_explanation = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const updateUserPasswordMySQL = `UPDATE {{prefix}}identity_users SET
+	hashed_password = ?,
+	requires_password_change = ?,
+	password_last_changed_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const updateUserTwoFactorSecretMySQL = `UPDATE {{prefix}}identity_users SET
+	two_factor_secret = ?,
+	two_factor_secret_verified_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const upsertMembershipMySQL = `INSERT INTO {{prefix}}identity_memberships (
+	id,
+	scope,
+	belongs_to_user,
+	belongs_to_account,
+	default_account
+) VALUES (
+	?,
+	?,
+	?,
+	?,
+	?
+)
+ON DUPLICATE KEY UPDATE
+	default_account = VALUES(default_account),
+	archived_at = NULL,
+	last_updated_at = CURRENT_TIMESTAMP(6)`
+
 // mysqlQueries answers every query in Querier against mysql.
 type mysqlQueries struct {
-	archiveAccount            string
-	archiveUser               string
-	createAccount             string
-	createInvitation          string
-	createUser                string
-	getAccount                string
-	getInvitation             string
-	getUser                   string
-	listAccountMembers        string
-	listAccounts              string
-	listAccountsForUser       string
-	listInvitations           string
-	listInvitationsByFromUser string
-	listInvitationsByToEmail  string
-	listMembershipsForUser    string
-	listUsers                 string
-	updateAccount             string
-	updateUser                string
+	answerInvitation                     string
+	archiveAccount                       string
+	archiveUser                          string
+	createAccount                        string
+	createInvitation                     string
+	createUser                           string
+	getAccount                           string
+	getAccountCreatedAt                  string
+	getInvitation                        string
+	getInvitationCreatedAt               string
+	getMembershipByUserAndAccount        string
+	getMembershipFallbackAccountID       string
+	getMembershipIdbyUserAndAccount      string
+	getUser                              string
+	getUserByEmailAddress                string
+	getUserByEmailVerificationToken      string
+	getUserByUsername                    string
+	getUserCreatedAt                     string
+	listAccountMembers                   string
+	listAccounts                         string
+	listAccountsForUser                  string
+	listInvitations                      string
+	listInvitationsByFromUser            string
+	listInvitationsByToEmail             string
+	listMembershipsForUser               string
+	listUsers                            string
+	markUserEmailAddressVerified         string
+	setUserEmailAddressVerificationToken string
+	setUserRequiresPasswordChange        string
+	transferAccountOwnership             string
+	updateAccount                        string
+	updateUser                           string
+	updateUserAccountStatus              string
+	updateUserPassword                   string
+	updateUserTwoFactorSecret            string
+	upsertMembership                     string
 }
 
 // newMySQL returns the mysql querier with prefix substituted into every
 // table name the analyzer identified.
 func newMySQL(prefix string) *mysqlQueries {
 	return &mysqlQueries{
-		archiveAccount:            strings.ReplaceAll(archiveAccountMySQL, prefixMarker, prefix),
-		archiveUser:               strings.ReplaceAll(archiveUserMySQL, prefixMarker, prefix),
-		createAccount:             strings.ReplaceAll(createAccountMySQL, prefixMarker, prefix),
-		createInvitation:          strings.ReplaceAll(createInvitationMySQL, prefixMarker, prefix),
-		createUser:                strings.ReplaceAll(createUserMySQL, prefixMarker, prefix),
-		getAccount:                strings.ReplaceAll(getAccountMySQL, prefixMarker, prefix),
-		getInvitation:             strings.ReplaceAll(getInvitationMySQL, prefixMarker, prefix),
-		getUser:                   strings.ReplaceAll(getUserMySQL, prefixMarker, prefix),
-		listAccountMembers:        strings.ReplaceAll(listAccountMembersMySQL, prefixMarker, prefix),
-		listAccounts:              strings.ReplaceAll(listAccountsMySQL, prefixMarker, prefix),
-		listAccountsForUser:       strings.ReplaceAll(listAccountsForUserMySQL, prefixMarker, prefix),
-		listInvitations:           strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
-		listInvitationsByFromUser: strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
-		listInvitationsByToEmail:  strings.ReplaceAll(listInvitationsByToEmailMySQL, prefixMarker, prefix),
-		listMembershipsForUser:    strings.ReplaceAll(listMembershipsForUserMySQL, prefixMarker, prefix),
-		listUsers:                 strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
-		updateAccount:             strings.ReplaceAll(updateAccountMySQL, prefixMarker, prefix),
-		updateUser:                strings.ReplaceAll(updateUserMySQL, prefixMarker, prefix),
+		answerInvitation:                     strings.ReplaceAll(answerInvitationMySQL, prefixMarker, prefix),
+		archiveAccount:                       strings.ReplaceAll(archiveAccountMySQL, prefixMarker, prefix),
+		archiveUser:                          strings.ReplaceAll(archiveUserMySQL, prefixMarker, prefix),
+		createAccount:                        strings.ReplaceAll(createAccountMySQL, prefixMarker, prefix),
+		createInvitation:                     strings.ReplaceAll(createInvitationMySQL, prefixMarker, prefix),
+		createUser:                           strings.ReplaceAll(createUserMySQL, prefixMarker, prefix),
+		getAccount:                           strings.ReplaceAll(getAccountMySQL, prefixMarker, prefix),
+		getAccountCreatedAt:                  strings.ReplaceAll(getAccountCreatedAtMySQL, prefixMarker, prefix),
+		getInvitation:                        strings.ReplaceAll(getInvitationMySQL, prefixMarker, prefix),
+		getInvitationCreatedAt:               strings.ReplaceAll(getInvitationCreatedAtMySQL, prefixMarker, prefix),
+		getMembershipByUserAndAccount:        strings.ReplaceAll(getMembershipByUserAndAccountMySQL, prefixMarker, prefix),
+		getMembershipFallbackAccountID:       strings.ReplaceAll(getMembershipFallbackAccountIDMySQL, prefixMarker, prefix),
+		getMembershipIdbyUserAndAccount:      strings.ReplaceAll(getMembershipIdbyUserAndAccountMySQL, prefixMarker, prefix),
+		getUser:                              strings.ReplaceAll(getUserMySQL, prefixMarker, prefix),
+		getUserByEmailAddress:                strings.ReplaceAll(getUserByEmailAddressMySQL, prefixMarker, prefix),
+		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenMySQL, prefixMarker, prefix),
+		getUserByUsername:                    strings.ReplaceAll(getUserByUsernameMySQL, prefixMarker, prefix),
+		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtMySQL, prefixMarker, prefix),
+		listAccountMembers:                   strings.ReplaceAll(listAccountMembersMySQL, prefixMarker, prefix),
+		listAccounts:                         strings.ReplaceAll(listAccountsMySQL, prefixMarker, prefix),
+		listAccountsForUser:                  strings.ReplaceAll(listAccountsForUserMySQL, prefixMarker, prefix),
+		listInvitations:                      strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
+		listInvitationsByFromUser:            strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
+		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailMySQL, prefixMarker, prefix),
+		listMembershipsForUser:               strings.ReplaceAll(listMembershipsForUserMySQL, prefixMarker, prefix),
+		listUsers:                            strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
+		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
+		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenMySQL, prefixMarker, prefix),
+		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangeMySQL, prefixMarker, prefix),
+		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipMySQL, prefixMarker, prefix),
+		updateAccount:                        strings.ReplaceAll(updateAccountMySQL, prefixMarker, prefix),
+		updateUser:                           strings.ReplaceAll(updateUserMySQL, prefixMarker, prefix),
+		updateUserAccountStatus:              strings.ReplaceAll(updateUserAccountStatusMySQL, prefixMarker, prefix),
+		updateUserPassword:                   strings.ReplaceAll(updateUserPasswordMySQL, prefixMarker, prefix),
+		updateUserTwoFactorSecret:            strings.ReplaceAll(updateUserTwoFactorSecretMySQL, prefixMarker, prefix),
+		upsertMembership:                     strings.ReplaceAll(upsertMembershipMySQL, prefixMarker, prefix),
 	}
+}
+
+// AnswerInvitation runs the :execrows query against mysql.
+func (q *mysqlQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.answerInvitation,
+		arg.Status,
+		arg.Note,
+		arg.ToUser,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentStatus,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
 
 // ArchiveAccount runs the :execrows query against mysql.
@@ -851,6 +1114,21 @@ func (q *mysqlQueries) GetAccount(ctx context.Context, db DBTX, arg GetAccountPa
 	return i, err
 }
 
+// GetAccountCreatedAt runs the :one query against mysql.
+func (q *mysqlQueries) GetAccountCreatedAt(ctx context.Context, db DBTX, arg GetAccountCreatedAtParams) (GetAccountCreatedAtRow, error) {
+	row := db.QueryRowContext(ctx, q.getAccountCreatedAt,
+		arg.ID,
+	)
+
+	var i GetAccountCreatedAtRow
+
+	err := row.Scan(
+		&i.CreatedAt,
+	)
+
+	return i, err
+}
+
 // GetInvitation runs the :one query against mysql.
 func (q *mysqlQueries) GetInvitation(ctx context.Context, db DBTX, arg GetInvitationParams) (GetInvitationRow, error) {
 	row := db.QueryRowContext(ctx, q.getInvitation,
@@ -875,6 +1153,79 @@ func (q *mysqlQueries) GetInvitation(ctx context.Context, db DBTX, arg GetInvita
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
 		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetInvitationCreatedAt runs the :one query against mysql.
+func (q *mysqlQueries) GetInvitationCreatedAt(ctx context.Context, db DBTX, arg GetInvitationCreatedAtParams) (GetInvitationCreatedAtRow, error) {
+	row := db.QueryRowContext(ctx, q.getInvitationCreatedAt,
+		arg.ID,
+	)
+
+	var i GetInvitationCreatedAtRow
+
+	err := row.Scan(
+		&i.CreatedAt,
+	)
+
+	return i, err
+}
+
+// GetMembershipByUserAndAccount runs the :one query against mysql.
+func (q *mysqlQueries) GetMembershipByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipByUserAndAccountParams) (GetMembershipByUserAndAccountRow, error) {
+	row := db.QueryRowContext(ctx, q.getMembershipByUserAndAccount,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+	)
+
+	var i GetMembershipByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.BelongsToUser,
+		&i.BelongsToAccount,
+		&i.DefaultAccount,
+		&i.CreatedAt,
+		&i.LastUpdatedAt,
+		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetMembershipFallbackAccountID runs the :one query against mysql.
+func (q *mysqlQueries) GetMembershipFallbackAccountID(ctx context.Context, db DBTX, arg GetMembershipFallbackAccountIDParams) (GetMembershipFallbackAccountIDRow, error) {
+	row := db.QueryRowContext(ctx, q.getMembershipFallbackAccountID,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+	)
+
+	var i GetMembershipFallbackAccountIDRow
+
+	err := row.Scan(
+		&i.BelongsToAccount,
+	)
+
+	return i, err
+}
+
+// GetMembershipIDByUserAndAccount runs the :one query against mysql.
+func (q *mysqlQueries) GetMembershipIDByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipIDByUserAndAccountParams) (GetMembershipIDByUserAndAccountRow, error) {
+	row := db.QueryRowContext(ctx, q.getMembershipIdbyUserAndAccount,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+	)
+
+	var i GetMembershipIDByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
 	)
 
 	return i, err
@@ -910,6 +1261,126 @@ func (q *mysqlQueries) GetUser(ctx context.Context, db DBTX, arg GetUserParams) 
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
 		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetUserByEmailAddress runs the :one query against mysql.
+func (q *mysqlQueries) GetUserByEmailAddress(ctx context.Context, db DBTX, arg GetUserByEmailAddressParams) (GetUserByEmailAddressRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserByEmailAddress,
+		arg.EmailAddress,
+		arg.Scope,
+	)
+
+	var i GetUserByEmailAddressRow
+
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.Username,
+		&i.EmailAddress,
+		&i.FirstName,
+		&i.LastName,
+		&i.HashedPassword,
+		&i.RequiresPasswordChange,
+		&i.PasswordLastChangedAt,
+		&i.TwoFactorSecret,
+		&i.TwoFactorSecretVerifiedAt,
+		&i.EmailAddressVerifiedAt,
+		&i.EmailAddressVerificationToken,
+		&i.AccountStatus,
+		&i.AccountStatusExplanation,
+		&i.LastAcceptedTermsOfService,
+		&i.LastAcceptedPrivacyPolicy,
+		&i.CreatedAt,
+		&i.LastUpdatedAt,
+		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetUserByEmailVerificationToken runs the :one query against mysql.
+func (q *mysqlQueries) GetUserByEmailVerificationToken(ctx context.Context, db DBTX, arg GetUserByEmailVerificationTokenParams) (GetUserByEmailVerificationTokenRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserByEmailVerificationToken,
+		arg.EmailAddressVerificationToken,
+		arg.Scope,
+	)
+
+	var i GetUserByEmailVerificationTokenRow
+
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.Username,
+		&i.EmailAddress,
+		&i.FirstName,
+		&i.LastName,
+		&i.HashedPassword,
+		&i.RequiresPasswordChange,
+		&i.PasswordLastChangedAt,
+		&i.TwoFactorSecret,
+		&i.TwoFactorSecretVerifiedAt,
+		&i.EmailAddressVerifiedAt,
+		&i.EmailAddressVerificationToken,
+		&i.AccountStatus,
+		&i.AccountStatusExplanation,
+		&i.LastAcceptedTermsOfService,
+		&i.LastAcceptedPrivacyPolicy,
+		&i.CreatedAt,
+		&i.LastUpdatedAt,
+		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetUserByUsername runs the :one query against mysql.
+func (q *mysqlQueries) GetUserByUsername(ctx context.Context, db DBTX, arg GetUserByUsernameParams) (GetUserByUsernameRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserByUsername,
+		arg.Username,
+		arg.Scope,
+	)
+
+	var i GetUserByUsernameRow
+
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.Username,
+		&i.EmailAddress,
+		&i.FirstName,
+		&i.LastName,
+		&i.HashedPassword,
+		&i.RequiresPasswordChange,
+		&i.PasswordLastChangedAt,
+		&i.TwoFactorSecret,
+		&i.TwoFactorSecretVerifiedAt,
+		&i.EmailAddressVerifiedAt,
+		&i.EmailAddressVerificationToken,
+		&i.AccountStatus,
+		&i.AccountStatusExplanation,
+		&i.LastAcceptedTermsOfService,
+		&i.LastAcceptedPrivacyPolicy,
+		&i.CreatedAt,
+		&i.LastUpdatedAt,
+		&i.ArchivedAt,
+	)
+
+	return i, err
+}
+
+// GetUserCreatedAt runs the :one query against mysql.
+func (q *mysqlQueries) GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUserCreatedAtParams) (GetUserCreatedAtRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserCreatedAt,
+		arg.ID,
+	)
+
+	var i GetUserCreatedAtRow
+
+	err := row.Scan(
+		&i.CreatedAt,
 	)
 
 	return i, err
@@ -1437,6 +1908,65 @@ func (q *mysqlQueries) ListUsers(ctx context.Context, db DBTX, arg ListUsersPara
 	return items, nil
 }
 
+// MarkUserEmailAddressVerified runs the :execrows query against mysql.
+func (q *mysqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
+		arg.EmailAddressVerifiedAt,
+		arg.EmailAddressVerificationToken,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentEmailAddressVerificationToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetUserEmailAddressVerificationToken runs the :execrows query against mysql.
+func (q *mysqlQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
+		arg.EmailAddressVerificationToken,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetUserRequiresPasswordChange runs the :execrows query against mysql.
+func (q *mysqlQueries) SetUserRequiresPasswordChange(ctx context.Context, db DBTX, arg SetUserRequiresPasswordChangeParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setUserRequiresPasswordChange,
+		arg.RequiresPasswordChange,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// TransferAccountOwnership runs the :execrows query against mysql.
+func (q *mysqlQueries) TransferAccountOwnership(ctx context.Context, db DBTX, arg TransferAccountOwnershipParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.transferAccountOwnership,
+		arg.OwnerUserID,
+		arg.ID,
+		arg.Scope,
+		arg.CurrentOwnerUserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // UpdateAccount runs the :execrows query against mysql.
 func (q *mysqlQueries) UpdateAccount(ctx context.Context, db DBTX, arg UpdateAccountParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.updateAccount,
@@ -1477,6 +2007,65 @@ func (q *mysqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserPa
 	return result.RowsAffected()
 }
 
+// UpdateUserAccountStatus runs the :execrows query against mysql.
+func (q *mysqlQueries) UpdateUserAccountStatus(ctx context.Context, db DBTX, arg UpdateUserAccountStatusParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserAccountStatus,
+		arg.AccountStatus,
+		arg.AccountStatusExplanation,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateUserPassword runs the :execrows query against mysql.
+func (q *mysqlQueries) UpdateUserPassword(ctx context.Context, db DBTX, arg UpdateUserPasswordParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserPassword,
+		arg.HashedPassword,
+		arg.RequiresPasswordChange,
+		arg.PasswordLastChangedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateUserTwoFactorSecret runs the :execrows query against mysql.
+func (q *mysqlQueries) UpdateUserTwoFactorSecret(ctx context.Context, db DBTX, arg UpdateUserTwoFactorSecretParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.updateUserTwoFactorSecret,
+		arg.TwoFactorSecret,
+		arg.TwoFactorSecretVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// UpsertMembership runs the :exec query against mysql.
+func (q *mysqlQueries) UpsertMembership(ctx context.Context, db DBTX, arg UpsertMembershipParams) error {
+	_, err := db.ExecContext(ctx, q.upsertMembership,
+		arg.ID,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+
+	return err
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1484,6 +2073,14 @@ func (q *mysqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserPa
 // disagreement between dialects a compile error here rather than a
 // transposition at run time.
 var (
+	_ = struct {
+		Status        string
+		Note          string
+		ToUser        *string
+		ID            string
+		Scope         tenancy.Scope
+		CurrentStatus string
+	}(AnswerInvitationParams{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope
@@ -1568,6 +2165,12 @@ var (
 		ArchivedAt                  *time.Time
 	}(GetAccountRow{})
 	_ = struct {
+		ID string
+	}(GetAccountCreatedAtParams{})
+	_ = struct {
+		CreatedAt time.Time
+	}(GetAccountCreatedAtRow{})
+	_ = struct {
 		ID    string
 		Scope tenancy.Scope
 	}(GetInvitationParams{})
@@ -1587,6 +2190,43 @@ var (
 		LastUpdatedAt    *time.Time
 		ArchivedAt       *time.Time
 	}(GetInvitationRow{})
+	_ = struct {
+		ID string
+	}(GetInvitationCreatedAtParams{})
+	_ = struct {
+		CreatedAt time.Time
+	}(GetInvitationCreatedAtRow{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(GetMembershipByUserAndAccountParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+	}(GetMembershipByUserAndAccountRow{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(GetMembershipFallbackAccountIDParams{})
+	_ = struct {
+		BelongsToAccount string
+	}(GetMembershipFallbackAccountIDRow{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(GetMembershipIDByUserAndAccountParams{})
+	_ = struct {
+		ID string
+	}(GetMembershipIDByUserAndAccountRow{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope
@@ -1613,6 +2253,90 @@ var (
 		LastUpdatedAt                 *time.Time
 		ArchivedAt                    *time.Time
 	}(GetUserRow{})
+	_ = struct {
+		EmailAddress string
+		Scope        tenancy.Scope
+	}(GetUserByEmailAddressParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(GetUserByEmailAddressRow{})
+	_ = struct {
+		EmailAddressVerificationToken string
+		Scope                         tenancy.Scope
+	}(GetUserByEmailVerificationTokenParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(GetUserByEmailVerificationTokenRow{})
+	_ = struct {
+		Username string
+		Scope    tenancy.Scope
+	}(GetUserByUsernameParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(GetUserByUsernameRow{})
+	_ = struct {
+		ID string
+	}(GetUserCreatedAtParams{})
+	_ = struct {
+		CreatedAt time.Time
+	}(GetUserCreatedAtRow{})
 	_ = struct {
 		CreatedAfter     *time.Time
 		CreatedBefore    *time.Time
@@ -1860,6 +2584,29 @@ var (
 		TotalCount                    int64
 	}(ListUsersRow{})
 	_ = struct {
+		EmailAddressVerifiedAt               *time.Time
+		EmailAddressVerificationToken        string
+		ID                                   string
+		Scope                                tenancy.Scope
+		CurrentEmailAddressVerificationToken string
+	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		EmailAddressVerificationToken string
+		ID                            string
+		Scope                         tenancy.Scope
+	}(SetUserEmailAddressVerificationTokenParams{})
+	_ = struct {
+		RequiresPasswordChange bool
+		ID                     string
+		Scope                  tenancy.Scope
+	}(SetUserRequiresPasswordChangeParams{})
+	_ = struct {
+		OwnerUserID        string
+		ID                 string
+		Scope              tenancy.Scope
+		CurrentOwnerUserID string
+	}(TransferAccountOwnershipParams{})
+	_ = struct {
 		Name              string
 		AddressLine1      string
 		AddressLine2      string
@@ -1881,4 +2628,30 @@ var (
 		ID                     string
 		Scope                  tenancy.Scope
 	}(UpdateUserParams{})
+	_ = struct {
+		AccountStatus            string
+		AccountStatusExplanation string
+		ID                       string
+		Scope                    tenancy.Scope
+	}(UpdateUserAccountStatusParams{})
+	_ = struct {
+		HashedPassword         string
+		RequiresPasswordChange bool
+		PasswordLastChangedAt  *time.Time
+		ID                     string
+		Scope                  tenancy.Scope
+	}(UpdateUserPasswordParams{})
+	_ = struct {
+		TwoFactorSecret           string
+		TwoFactorSecretVerifiedAt *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(UpdateUserTwoFactorSecretParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+	}(UpsertMembershipParams{})
 )

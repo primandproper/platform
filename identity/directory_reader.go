@@ -316,11 +316,9 @@ func (s *SQLStore) GetMembership(ctx context.Context, scope tenancy.Scope, userI
 		return nil, op.Error(err, "reading identity membership")
 	}
 
-	query, args := s.tables.buildSelectMembership(s.dialect, scope, userID, accountID)
-
-	membership, err := scanMembership(s.client.Reader().QueryRowContext(ctx, query, args...))
+	membership, err := s.readMembership(ctx, s.client.Reader(), scope, userID, accountID)
 	if err != nil {
-		return nil, op.Error(notFound(err, ErrMembershipNotFound), "reading identity membership")
+		return nil, op.Error(err, "reading identity membership")
 	}
 
 	if err = s.attachMembershipRoles(ctx, s.client.Reader(), []*Membership{membership}); err != nil {

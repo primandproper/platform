@@ -114,6 +114,91 @@ func userFromRow(r *identitydb.GetUserRow) *User {
 	}
 }
 
+// The three single-user reads keyed on something other than the id each have a
+// row type of their own, because sqlc's row types are nominal per statement:
+// two statements projecting the same twenty columns still produce two structs
+// that cannot convert to one another.
+//
+// So each restates the fields into the get's row and converts from there. That
+// is the cost the package comment describes, and what it buys is a compiler
+// error at every one of these the day a column is renamed or retyped, rather
+// than three reads that scan a row into the wrong fields.
+
+func userFromUsernameRow(r *identitydb.GetUserByUsernameRow) *User {
+	return userFromRow(&identitydb.GetUserRow{
+		ID:                            r.ID,
+		Scope:                         r.Scope,
+		Username:                      r.Username,
+		EmailAddress:                  r.EmailAddress,
+		FirstName:                     r.FirstName,
+		LastName:                      r.LastName,
+		HashedPassword:                r.HashedPassword,
+		RequiresPasswordChange:        r.RequiresPasswordChange,
+		PasswordLastChangedAt:         r.PasswordLastChangedAt,
+		TwoFactorSecret:               r.TwoFactorSecret,
+		TwoFactorSecretVerifiedAt:     r.TwoFactorSecretVerifiedAt,
+		EmailAddressVerifiedAt:        r.EmailAddressVerifiedAt,
+		EmailAddressVerificationToken: r.EmailAddressVerificationToken,
+		AccountStatus:                 r.AccountStatus,
+		AccountStatusExplanation:      r.AccountStatusExplanation,
+		LastAcceptedTermsOfService:    r.LastAcceptedTermsOfService,
+		LastAcceptedPrivacyPolicy:     r.LastAcceptedPrivacyPolicy,
+		CreatedAt:                     r.CreatedAt,
+		LastUpdatedAt:                 r.LastUpdatedAt,
+		ArchivedAt:                    r.ArchivedAt,
+	})
+}
+
+func userFromEmailAddressRow(r *identitydb.GetUserByEmailAddressRow) *User {
+	return userFromRow(&identitydb.GetUserRow{
+		ID:                            r.ID,
+		Scope:                         r.Scope,
+		Username:                      r.Username,
+		EmailAddress:                  r.EmailAddress,
+		FirstName:                     r.FirstName,
+		LastName:                      r.LastName,
+		HashedPassword:                r.HashedPassword,
+		RequiresPasswordChange:        r.RequiresPasswordChange,
+		PasswordLastChangedAt:         r.PasswordLastChangedAt,
+		TwoFactorSecret:               r.TwoFactorSecret,
+		TwoFactorSecretVerifiedAt:     r.TwoFactorSecretVerifiedAt,
+		EmailAddressVerifiedAt:        r.EmailAddressVerifiedAt,
+		EmailAddressVerificationToken: r.EmailAddressVerificationToken,
+		AccountStatus:                 r.AccountStatus,
+		AccountStatusExplanation:      r.AccountStatusExplanation,
+		LastAcceptedTermsOfService:    r.LastAcceptedTermsOfService,
+		LastAcceptedPrivacyPolicy:     r.LastAcceptedPrivacyPolicy,
+		CreatedAt:                     r.CreatedAt,
+		LastUpdatedAt:                 r.LastUpdatedAt,
+		ArchivedAt:                    r.ArchivedAt,
+	})
+}
+
+func userFromEmailVerificationTokenRow(r *identitydb.GetUserByEmailVerificationTokenRow) *User {
+	return userFromRow(&identitydb.GetUserRow{
+		ID:                            r.ID,
+		Scope:                         r.Scope,
+		Username:                      r.Username,
+		EmailAddress:                  r.EmailAddress,
+		FirstName:                     r.FirstName,
+		LastName:                      r.LastName,
+		HashedPassword:                r.HashedPassword,
+		RequiresPasswordChange:        r.RequiresPasswordChange,
+		PasswordLastChangedAt:         r.PasswordLastChangedAt,
+		TwoFactorSecret:               r.TwoFactorSecret,
+		TwoFactorSecretVerifiedAt:     r.TwoFactorSecretVerifiedAt,
+		EmailAddressVerifiedAt:        r.EmailAddressVerifiedAt,
+		EmailAddressVerificationToken: r.EmailAddressVerificationToken,
+		AccountStatus:                 r.AccountStatus,
+		AccountStatusExplanation:      r.AccountStatusExplanation,
+		LastAcceptedTermsOfService:    r.LastAcceptedTermsOfService,
+		LastAcceptedPrivacyPolicy:     r.LastAcceptedPrivacyPolicy,
+		CreatedAt:                     r.CreatedAt,
+		LastUpdatedAt:                 r.LastUpdatedAt,
+		ArchivedAt:                    r.ArchivedAt,
+	})
+}
+
 func userPageRow(r *identitydb.ListUsersRow) pageRow[User] {
 	return pageRow[User]{
 		value: userFromRow(&identitydb.GetUserRow{
@@ -360,9 +445,12 @@ func listAccountsForUserParams(scope tenancy.Scope, userID string, filter *filte
 }
 
 // Memberships.
+//
+// The membership read is keyed on the (user, account) pair rather than on the
+// id — the table carries one but nothing addresses a row by it — so its row
+// type is the keyed read's rather than a standard get's.
 
-// membershipFromRow converts one row of the unpaged memberships list.
-func membershipFromRow(r *identitydb.ListMembershipsForUserRow) *Membership {
+func membershipFromRow(r *identitydb.GetMembershipByUserAndAccountRow) *Membership {
 	return &Membership{
 		ID:               r.ID,
 		Scope:            r.Scope,
@@ -373,6 +461,22 @@ func membershipFromRow(r *identitydb.ListMembershipsForUserRow) *Membership {
 		LastUpdatedAt:    utcPtr(r.LastUpdatedAt),
 		ArchivedAt:       utcPtr(r.ArchivedAt),
 	}
+}
+
+// membershipFromListRow converts one row of the unpaged memberships list. It
+// restates the keyed read's row rather than sharing its type, because the
+// generated row types are nominal per statement.
+func membershipFromListRow(r *identitydb.ListMembershipsForUserRow) *Membership {
+	return membershipFromRow(&identitydb.GetMembershipByUserAndAccountRow{
+		ID:               r.ID,
+		Scope:            r.Scope,
+		BelongsToUser:    r.BelongsToUser,
+		BelongsToAccount: r.BelongsToAccount,
+		DefaultAccount:   r.DefaultAccount,
+		CreatedAt:        r.CreatedAt,
+		LastUpdatedAt:    r.LastUpdatedAt,
+		ArchivedAt:       r.ArchivedAt,
+	})
 }
 
 func listMembershipsForUserParams(scope tenancy.Scope, userID string) identitydb.ListMembershipsForUserParams {
@@ -522,5 +626,25 @@ func createInvitationParams(i *Invitation) identitydb.CreateInvitationParams {
 		Status:           i.Status.String(),
 		Note:             i.Note,
 		ExpiresAt:        i.ExpiresAt.UTC(),
+	}
+}
+
+// Memberships.
+
+// upsertMembershipParams is the write that puts a user in an account, and the
+// only generated statement this table has: the rest key on the (user, account)
+// pair rather than on the id.
+//
+// Neither the id nor the creation time is what comes back out of it. A rejoin
+// converges onto the row that is already there, which keeps both — see
+// SQLStore.writeMembership, which reads them back rather than assuming the ones
+// it sent.
+func upsertMembershipParams(m *Membership) identitydb.UpsertMembershipParams {
+	return identitydb.UpsertMembershipParams{
+		ID:               m.ID,
+		Scope:            m.Scope,
+		BelongsToUser:    m.BelongsToUser,
+		BelongsToAccount: m.BelongsToAccount,
+		DefaultAccount:   m.DefaultAccount,
 	}
 }

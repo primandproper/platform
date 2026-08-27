@@ -14,6 +14,7 @@ import (
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identifiers"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
+	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/logging"
@@ -293,14 +294,16 @@ func newID(existing string) string {
 // and the two guards every paged read and every guarded write goes through.
 // Anything reached from one file only lives in that file.
 
-// The user columns the collision checks and the sign-in reads name. They are
-// constants rather than literals at the call sites because each is spelled in
-// two places — a builder's predicate and the method that calls it — and a typo
-// in one of them is a query that compiles, runs, and matches nothing.
+// The two user columns the collision checks name, aliased from the package that
+// declares the schema as data rather than respelled here — a builder's predicate
+// and the method that calls it are two places, and a typo in one of them is a
+// query that compiles, runs, and matches nothing.
+//
+// The verification token used to be the third. Its read is a generated
+// statement now, so nothing above the SQL names the column any more.
 const (
-	usernameColumn     = "username"
-	emailAddressColumn = "email_address"
-	emailTokenColumn   = "email_address_verification_token"
+	usernameColumn     = queries.UserUsernameColumn
+	emailAddressColumn = queries.UserEmailAddressColumn
 )
 
 // userIDColumn is what the service-role table keys on.
@@ -309,11 +312,23 @@ const userIDColumn = "user_id"
 // membershipIDColumn is what the membership role table keys on.
 const membershipIDColumn = "membership_id"
 
-// liveUserBy is the one implementation behind the three single-user reads that
-// must exclude archived users. They differ in one column and nothing else, and
-// the parts that must not differ — the scope predicate and the archived clause —
-// are written once here.
-func (s *SQLStore) liveUserBy(ctx context.Context, column string, scope tenancy.Scope, value, description string) (*User, error) {
+// liveUser is what the three single-user reads keyed on something other than the
+// id share: the scope check, the not-found mapping, the service roles, and the
+// span.
+//
+// The read itself is the caller's closure rather than a column this takes, and
+// that is the shape the canonical corpus asks for. A query name is a Go method
+// name, so a builder parameterized on a column cannot be one generated
+// statement — it is three, and the store calls the one it means by name. What
+// the parameterized builder was protecting is not lost by enumerating: the
+// scope predicate and the archived clause come from querygen, rendered from one
+// column list, so the sign-in read cannot be the one that forgot either.
+func (s *SQLStore) liveUser(
+	ctx context.Context,
+	scope tenancy.Scope,
+	description string,
+	read func(context.Context) (*User, error),
+) (*User, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
@@ -321,9 +336,7 @@ func (s *SQLStore) liveUserBy(ctx context.Context, column string, scope tenancy.
 		return nil, op.Error(err, "%s", description)
 	}
 
-	query, args := s.tables.buildSelectLiveUserBy(s.dialect, column, scope, value)
-
-	user, err := scanUser(s.client.Reader().QueryRowContext(ctx, query, args...))
+	user, err := read(ctx)
 	if err != nil {
 		return nil, op.Error(notFound(err, ErrUserNotFound), "%s", description)
 	}
@@ -358,6 +371,35 @@ func (s *SQLStore) attachServiceRoles(ctx context.Context, q database.SQLQueryEx
 	return nil
 }
 
+// readMembership is the read of one live membership, keyed on the (user,
+// account) pair rather than on the id the table also carries.
+//
+// It maps a missing row onto ErrMembershipNotFound here rather than at each
+// caller, because two of the three read it as an error and the third reads it
+// as a question — TransferAccountOwnership asks whether the new owner is
+// already a member — and a sentinel is what lets the third one branch on the
+// answer without knowing which driver produced it.
+//
+// Roles are not attached: they live in their own table and are read for a whole
+// page at once, so the caller that needs them says so.
+func (s *SQLStore) readMembership(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID, accountID string,
+) (*Membership, error) {
+	row, err := s.q.GetMembershipByUserAndAccount(ctx, q, identitydb.GetMembershipByUserAndAccountParams{
+		Scope:            scope,
+		BelongsToUser:    userID,
+		BelongsToAccount: accountID,
+	})
+	if err != nil {
+		return nil, notFound(err, ErrMembershipNotFound)
+	}
+
+	return membershipFromRow(&row), nil
+}
+
 // readMembershipsForUser is the read behind both ListMembershipsForUser and
 // GetPrincipal, roles attached.
 func (s *SQLStore) readMembershipsForUser(
@@ -373,7 +415,7 @@ func (s *SQLStore) readMembershipsForUser(
 
 	memberships := make([]*Membership, 0, len(rows))
 	for i := range rows {
-		memberships = append(memberships, membershipFromRow(&rows[i]))
+		memberships = append(memberships, membershipFromListRow(&rows[i]))
 	}
 
 	if err = s.attachMembershipRoles(ctx, q, memberships); err != nil {
@@ -403,23 +445,37 @@ func (s *SQLStore) attachMembershipRoles(ctx context.Context, q database.SQLQuer
 	return nil
 }
 
-// writeMembership upserts the membership row, resolves the ID the row actually
-// carries, and replaces its roles.
+// writeMembership upserts the membership row, resolves the ID and creation time
+// the row actually carries, and replaces its roles.
 //
-// The ID is read back rather than assumed because the upsert may have taken its
-// conflict branch — a user rejoining an account revives the archived membership,
-// which keeps the ID it was created with. Writing the roles against the ID the
-// caller generated would attach them to a membership that does not exist.
+// Both are read back rather than assumed, because neither is what this process
+// sent. The upsert converges on the (user, account) pair, so a user rejoining an
+// account revives the archived membership and it keeps the ID it was created
+// with — writing the roles against the ID the caller generated would attach them
+// to a membership that does not exist. And created_at is database-owned here as
+// everywhere else in this schema, so the inserting branch stores the server's
+// clock rather than the one the caller was handed.
 func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error {
-	query, args := s.tables.buildUpsertMembership(s.dialect, membership, membership.CreatedAt)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	if err := s.q.UpsertMembership(ctx, q, upsertMembershipParams(membership)); err != nil {
 		return platformerrors.Wrap(err, "writing identity membership")
 	}
 
-	query, args = s.tables.buildSelectMembershipID(s.dialect, membership.BelongsToUser, membership.BelongsToAccount)
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&membership.ID); err != nil {
-		return platformerrors.Wrap(err, "reading back identity membership")
+	// The read-back wants two facts the upsert decided rather than took: the
+	// id the row carries — a rejoin converges on the row that is already
+	// there, which keeps the id its roles hang off — and the creation time the
+	// database stamped, which even the inserting branch owns. The full keyed
+	// read carries both.
+	row, readErr := s.q.GetMembershipByUserAndAccount(ctx, q, identitydb.GetMembershipByUserAndAccountParams{
+		Scope:            membership.Scope,
+		BelongsToUser:    membership.BelongsToUser,
+		BelongsToAccount: membership.BelongsToAccount,
+	})
+	if readErr != nil {
+		return platformerrors.Wrap(readErr, "reading back identity membership")
 	}
+
+	membership.ID = row.ID
+	membership.CreatedAt = row.CreatedAt.UTC()
 
 	if err := s.replaceRoles(ctx, q, s.tables.membershipRoles, membershipIDColumn, membership.ID, membership.Roles); err != nil {
 		return err
@@ -429,8 +485,11 @@ func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecu
 		return nil
 	}
 
-	query, args = s.tables.buildClearDefaultAccount(
-		s.dialect, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount, membership.CreatedAt,
+	// The clock, not the row's creation time. A revived membership carries the
+	// time it was first written, and stamping the *other* memberships'
+	// last_updated_at with it would date a write that is happening now.
+	query, args := s.tables.buildClearDefaultAccount(
+		s.dialect, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount, s.now(),
 	)
 	if _, err := q.ExecContext(ctx, query, args...); err != nil {
 		return platformerrors.Wrap(err, "clearing other identity default accounts")
@@ -541,8 +600,8 @@ func guardCount(count int64, err, missing error, operation string) error {
 	return nil
 }
 
-// stampCreatedAt reads back the creation time the database assigned and writes
-// it onto the value the caller handed over.
+// stampCreatedAt writes the creation time the database assigned onto the value
+// the caller handed over.
 //
 // The column is the database's — see identity/internal/queries — so the create
 // does not carry it, and the alternative to this read is a caller whose struct
@@ -554,16 +613,12 @@ func guardCount(count int64, err, missing error, operation string) error {
 //
 // It costs one round trip inside a transaction the write already needed, and it
 // reads its own uncommitted row on all three servers.
-func (s *SQLStore) stampCreatedAt(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	table, id string,
-	at *time.Time,
-) error {
-	query, args := s.tables.buildSelectCreatedAt(s.dialect, table, id)
-
-	var created time.Time
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&created); err != nil {
+//
+// It takes the read's result rather than performing it, because the statement is
+// one per emitted table — a query name is a Go method name, so the table cannot
+// be a parameter — and each create calls the one for its own.
+func stampCreatedAt(at *time.Time, created time.Time, err error) error {
+	if err != nil {
 		return platformerrors.Wrap(err, "reading back the assigned creation time")
 	}
 

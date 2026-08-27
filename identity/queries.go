@@ -113,23 +113,33 @@ func nullableString(s string) any {
 // It is on its way out. Every statement database/querygen renders has its
 // placeholders numbered by the renderer, over the finished text, which is the
 // same property with nobody left to remember it — so the conventional writes
-// against users, accounts and invitations no longer come through here. What is
-// left are the statements querygen does not emit, and they are worth naming
-// because each is a shape the epic behind this port still owes a generator:
+// against users, accounts and invitations, and now the field-specific and
+// guarded ones beside them, no longer come through here. The password, the
+// flags, the two-factor secret, the verification token, the account status, the
+// ownership transfer and the invitation answer are all
+// querygen.Generator.UpdateQuery statements in the canonical .sql, executed
+// through the generated querier.
 //
-//	buildTransferAccountOwnership  the one remaining accounts statement, and a
-//	                               guarded update — it names the current owner
-//	                               in the predicate as well as the new one in
-//	                               the SET
-//	buildAnswerInvitation          a status-guarded update
-//	the field-specific user writes  password, flags, the two-factor secret, the
-//	                               verification token, the agreements
-//	the membership writes           keyed on the (user, account) pair rather
-//	                               than on id, and an upsert that revives
+// What is left are the statements querygen still does not emit, and they are
+// worth naming because each is a shape the epic behind this port owes a
+// generator:
 //
-// The membership *reads* are no longer among them: querygen renders a junction
-// list, so the roster, the accounts a user belongs to, and the user's own
-// membership list all come from the generated package.
+//	buildMarkTwoFactorVerified     an update whose guard is not an equality —
+//	                               a secret that exists and has not been
+//	                               proven, which is a `<> ''` and an IS NULL
+//	buildRecordAgreements          an update whose SET list is chosen per call
+//	buildUpdateAccountBilling      the same, over the billing columns
+//	buildEraseUser                 a hard DELETE rather than an update
+//	the default-flag maintenance   a clear whose predicate excludes a row
+//	                               rather than matching one
+//	the prefix search              a LIKE with an ESCAPE and one conditional
+//	                               cursor predicate
+//
+// The membership upsert used to be on that list and is not any more: querygen
+// renders it, sqlc checks it, and the store executes the generated method. The
+// membership reads left with it — querygen renders a junction list, so the
+// roster, the accounts a user belongs to, and the user's own membership list
+// all come from the generated package.
 type binder struct {
 	d    dialect.Dialect
 	args []any
@@ -146,36 +156,7 @@ func (b *binder) bind(value any) string {
 	return b.d.Placeholder(len(b.args))
 }
 
-// buildSelectCreatedAt reads back the creation time the database assigned to a
-// row this store has just written.
-//
-// created_at is database-owned — it is not in any create's column list, and the
-// schema gives it a DEFAULT — so the value a caller handed over still holds the
-// zero time when the INSERT returns. This is the read that fixes that; see
-// SQLStore.stampCreatedAt for why it is a read rather than a field left blank.
-//
-// It takes the table because the three creates share it and the name is this
-// package's own, never a caller's.
-func (t *tables) buildSelectCreatedAt(d dialect.Dialect, table, id string) (query string, args []any) {
-	return fmt.Sprintf("SELECT created_at FROM %s WHERE id = %s", table, d.Placeholder(1)),
-		[]any{id}
-}
-
 // ---------------------------------------------------------------- users
-
-// buildSelectLiveUserBy renders the sign-in reads: by username, by email
-// address, or by verification token, always live-only.
-//
-// The three share a builder because they differ in exactly one identifier and
-// nothing else — the scope predicate, the archived clause, and the projection
-// are the parts that must not differ, and three copies of them is three chances
-// for the sign-in read to be the one that forgot the archived clause.
-func (t *tables) buildSelectLiveUserBy(d dialect.Dialect, column string, scope tenancy.Scope, value string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s = %s AND scope = %s AND archived_at IS NULL",
-		userProjection, t.users, column, d.Placeholder(1), d.Placeholder(2),
-	), []any{value, scope}
-}
 
 // likeEscape is the character the prefix search escapes wildcards with.
 //
@@ -257,46 +238,6 @@ func (t *tables) buildSelectUserIDByField(d dialect.Dialect, column string, scop
 	return fmt.Sprintf("SELECT id FROM %s WHERE %s", t.users, where), args
 }
 
-// buildUpdateUserPassword writes the hash, stamps the change, and clears the
-// forced-change flag in one statement — see Store.UpdateUserPassword for why
-// clearing it here rather than leaving it to the caller is what makes a forced
-// password change terminate.
-func (t *tables) buildUpdateUserPassword(d dialect.Dialect, scope tenancy.Scope, userID, hashedPassword string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET hashed_password = %s, requires_password_change = FALSE, "+
-			"password_last_changed_at = %s, last_updated_at = %s "+
-			"WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.users, b.bind(hashedPassword), b.bind(now), b.bind(now),
-		b.bind(userID), b.bind(scope),
-	), b.args
-}
-
-// buildSetUserFlag renders the single-boolean-column writes.
-func (t *tables) buildSetUserFlag(d dialect.Dialect, column string, scope tenancy.Scope, userID string, value bool, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET %s = %s, last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.users, column, b.bind(value), b.bind(now), b.bind(userID), b.bind(scope),
-	), b.args
-}
-
-// buildUpdateTwoFactorSecret stores a new secret and clears its verification in
-// the same statement. The two cannot be separate writes: a window in which a
-// freshly issued secret reads as already proven is a window in which a second
-// factor is bypassed by re-enrolling.
-func (t *tables) buildUpdateTwoFactorSecret(d dialect.Dialect, scope tenancy.Scope, userID, secret string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET two_factor_secret = %s, two_factor_secret_verified_at = NULL, "+
-			"last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.users, b.bind(secret), b.bind(now), b.bind(userID), b.bind(scope),
-	), b.args
-}
-
 // buildMarkTwoFactorVerified stamps a secret as proven, only where one exists
 // and has not already been proven — so a replayed verification writes nothing
 // and reports zero rows rather than moving the timestamp forward.
@@ -308,49 +249,6 @@ func (t *tables) buildMarkTwoFactorVerified(d dialect.Dialect, scope tenancy.Sco
 			"WHERE id = %s AND scope = %s AND archived_at IS NULL "+
 			"AND two_factor_secret <> '' AND two_factor_secret_verified_at IS NULL",
 		t.users, b.bind(now), b.bind(now), b.bind(userID), b.bind(scope),
-	), b.args
-}
-
-// buildSetEmailVerificationToken replaces any outstanding token, so re-sending
-// a verification email invalidates the previous link rather than leaving two
-// live.
-func (t *tables) buildSetEmailVerificationToken(d dialect.Dialect, scope tenancy.Scope, userID, token string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET email_address_verification_token = %s, last_updated_at = %s "+
-			"WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.users, b.bind(token), b.bind(now), b.bind(userID), b.bind(scope),
-	), b.args
-}
-
-// buildMarkEmailVerified stamps the address and clears the token, with the
-// token in the predicate.
-//
-// Comparing it here rather than trusting the caller's earlier read is what makes
-// two concurrent clicks on the same link write once: the second finds the token
-// already cleared and matches nothing.
-func (t *tables) buildMarkEmailVerified(d dialect.Dialect, scope tenancy.Scope, userID, token string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET email_address_verified_at = %s, email_address_verification_token = '', "+
-			"last_updated_at = %s WHERE id = %s AND scope = %s AND archived_at IS NULL "+
-			"AND email_address_verification_token = %s",
-		t.users, b.bind(now), b.bind(now),
-		b.bind(userID), b.bind(scope), b.bind(token),
-	), b.args
-}
-
-// buildUpdateAccountStatus moves a user between statuses.
-func (t *tables) buildUpdateAccountStatus(d dialect.Dialect, scope tenancy.Scope, userID string, status AccountStatus, explanation string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET account_status = %s, account_status_explanation = %s, last_updated_at = %s "+
-			"WHERE id = %s AND scope = %s AND archived_at IS NULL",
-		t.users, b.bind(status.String()), b.bind(explanation), b.bind(now),
-		b.bind(userID), b.bind(scope),
 	), b.args
 }
 
@@ -433,69 +331,7 @@ func (t *tables) buildUpdateAccountBilling(d dialect.Dialect, scope tenancy.Scop
 	), args
 }
 
-// buildTransferAccountOwnership names the current owner in the predicate as well
-// as the new one in the SET, so two concurrent transfers cannot both succeed and
-// leave the account owned by whichever committed last.
-func (t *tables) buildTransferAccountOwnership(d dialect.Dialect, scope tenancy.Scope, accountID, currentOwnerID, newOwnerID string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET owner_user_id = %s, last_updated_at = %s "+
-			"WHERE id = %s AND scope = %s AND owner_user_id = %s AND archived_at IS NULL",
-		t.accounts, b.bind(newOwnerID), b.bind(now), b.bind(accountID),
-		b.bind(scope), b.bind(currentOwnerID),
-	), b.args
-}
-
 // ------------------------------------------------------------ memberships
-
-// buildUpsertMembership writes a membership, reviving an archived one for the
-// same pair rather than writing a second row.
-//
-// Reviving is what makes rejoining an account work: the pair is unique across
-// live and archived rows, so an INSERT would fail and a DELETE-then-INSERT would
-// lose when the user first joined. created_at is deliberately not updated —
-// rejoining does not make the relationship new.
-func (t *tables) buildUpsertMembership(d dialect.Dialect, m *Membership, now time.Time) (query string, args []any) {
-	args = []any{m.ID, m.Scope, m.BelongsToUser, m.BelongsToAccount, m.DefaultAccount, now}
-
-	base := fmt.Sprintf(
-		"INSERT INTO %s (id, scope, belongs_to_user, belongs_to_account, default_account, created_at) VALUES (%s)",
-		t.memberships, d.Placeholders(1, len(args)),
-	)
-
-	switch d {
-	case dialect.MySQL:
-		return base + " ON DUPLICATE KEY UPDATE" +
-			" default_account = VALUES(default_account), archived_at = NULL," +
-			" last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
-	case dialect.Postgres, dialect.SQLite:
-		return base + " ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET" +
-			" default_account = EXCLUDED.default_account, archived_at = NULL," +
-			" last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
-	default:
-		return base, args
-	}
-}
-
-// buildSelectMembershipID reads back the ID a revived membership kept, which is
-// the row the roles have to be written against — the ID the caller generated is
-// not the one in the table when the upsert took the conflict branch.
-func (t *tables) buildSelectMembershipID(d dialect.Dialect, userID, accountID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT id FROM %s WHERE belongs_to_user = %s AND belongs_to_account = %s",
-		t.memberships, d.Placeholder(1), d.Placeholder(2),
-	), []any{userID, accountID}
-}
-
-// buildSelectMembership reads the live membership between a user and an account.
-func (t *tables) buildSelectMembership(d dialect.Dialect, scope tenancy.Scope, userID, accountID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE scope = %s AND belongs_to_user = %s AND belongs_to_account = %s "+
-			"AND archived_at IS NULL",
-		membershipProjection, t.memberships, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
-	), []any{scope, userID, accountID}
-}
 
 // buildDeleteRoles clears an owner's roles against either role table, so a role
 // set can be replaced wholesale rather than diffed. Diffing would mean reading
@@ -566,17 +402,6 @@ func (t *tables) buildSetDefaultAccount(d dialect.Dialect, scope tenancy.Scope, 
 	), b.args
 }
 
-// buildSelectFallbackAccountID finds another live membership for a user, for
-// moving the default off one that is being removed — so a user is never left
-// with memberships and nowhere to land.
-func (t *tables) buildSelectFallbackAccountID(d dialect.Dialect, scope tenancy.Scope, userID, exceptAccountID string) (query string, args []any) {
-	return fmt.Sprintf(
-		"SELECT belongs_to_account FROM %s WHERE scope = %s AND belongs_to_user = %s "+
-			"AND belongs_to_account <> %s AND archived_at IS NULL ORDER BY belongs_to_account LIMIT 1",
-		t.memberships, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
-	), []any{scope, userID, exceptAccountID}
-}
-
 // buildArchiveMembership ends one user's membership in one account.
 func (t *tables) buildArchiveMembership(d dialect.Dialect, scope tenancy.Scope, userID, accountID string, now time.Time) (query string, args []any) {
 	b := newBinder(d)
@@ -603,22 +428,6 @@ func (t *tables) buildArchiveMembershipsBy(d dialect.Dialect, column string, sco
 }
 
 // ----------------------------------------------------------- invitations
-
-// buildAnswerInvitation moves a pending invitation to a terminal status.
-//
-// The predicate requires it to still be pending, which is what makes two
-// concurrent answers write once: the second matches nothing and reports zero
-// rows, rather than overwriting an acceptance with a rejection.
-func (t *tables) buildAnswerInvitation(d dialect.Dialect, scope tenancy.Scope, invitationID string, status InvitationStatus, note string, toUser *string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET status = %s, note = %s, to_user = %s, last_updated_at = %s "+
-			"WHERE id = %s AND scope = %s AND status = 'pending' AND archived_at IS NULL",
-		t.invitations, b.bind(status.String()), b.bind(note), b.bind(toUser),
-		b.bind(now), b.bind(invitationID), b.bind(scope),
-	), b.args
-}
 
 // buildCountLiveMembershipsForUser counts a user's live memberships, which is
 // how CreateMembership finds out whether the one it is writing is their first
