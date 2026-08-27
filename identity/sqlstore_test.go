@@ -8,7 +8,6 @@ import (
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	databasemock "github.com/primandproper/platform-go/v13/database/mock"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/observability"
 
 	"github.com/shoenig/test"
@@ -130,29 +129,6 @@ func TestNewID(t *testing.T) {
 	test.EqOp(t, "given", newID("given"))
 	test.NotEq(t, "", newID(""))
 	test.NotEq(t, newID(""), newID(""))
-}
-
-func TestPageWindow(T *testing.T) {
-	T.Parallel()
-
-	T.Run("defaults a nil filter", func(t *testing.T) {
-		t.Parallel()
-
-		filter, cursor, limit := pageWindow(nil)
-		must.NotNil(t, filter)
-		test.EqOp(t, "", cursor)
-		test.Greater(t, 0, limit)
-	})
-
-	T.Run("clamps an over-large page", func(t *testing.T) {
-		t.Parallel()
-
-		// A caller that asked for fifty thousand rows gets the ceiling every
-		// other paged read in this module applies.
-		huge := uint16(65535)
-		_, _, limit := pageWindow(&filtering.QueryFilter{MaxResponseSize: &huge})
-		test.Less(t, int(huge), limit)
-	})
 }
 
 func TestResolveActiveAccount(T *testing.T) {

@@ -139,12 +139,56 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 		must.SliceLen(t, 2, page.Data)
 
-		// The escape is what stops "a%" matching the whole directory, which
+		// The escape is what keeps the typed % a character: without it the
+		// pattern widens past the prefix and takes ada and adam with it, which
 		// reads as a working search returning too much rather than as a bug.
 		wildcard, err := store.SearchUsersByUsername(t.Context(), testScope, "a%", nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, wildcard.Data)
 		test.EqOp(t, "a%wildcard", wildcard.Data[0].Username)
+	})
+
+	t.Run("pages a username search by the username", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		for _, name := range []string{"ada", "adam", "adele", "brian"} {
+			createUser(t, store, newUser(name))
+		}
+
+		// Archived after it was written, so what the search leaves out is a
+		// user the prefix matched rather than one it never did.
+		gone := createUser(t, store, newUser("adrian"))
+		must.NoError(t, store.ArchiveUser(t.Context(), testScope, gone.ID))
+
+		first, err := store.SearchUsersByUsername(t.Context(), testScope, "ad",
+			&filtering.QueryFilter{MaxResponseSize: pointer.To(uint16(2))})
+		must.NoError(t, err)
+		must.SliceLen(t, 2, first.Data)
+		test.EqOp(t, "ada", first.Data[0].Username)
+		test.EqOp(t, "adam", first.Data[1].Username)
+
+		// The count is its own statement rather than one riding on the rows, so
+		// it describes everything the prefix matched rather than what is left
+		// after the cursor — and a partial page still reports it.
+		_, total, known := first.Counts()
+		must.True(t, known)
+		test.EqOp(t, uint64(3), total)
+
+		// The cursor is the username, because that is what the statement
+		// ordered by. A cursor naming a position in an order the query does not
+		// use is a page that skips rows and repeats others.
+		test.EqOp(t, "adam", first.Cursor)
+
+		second, err := store.SearchUsersByUsername(t.Context(), testScope, "ad",
+			&filtering.QueryFilter{MaxResponseSize: pointer.To(uint16(2)), Cursor: pointer.To(first.Cursor)})
+		must.NoError(t, err)
+		must.SliceLen(t, 1, second.Data)
+		test.EqOp(t, "adele", second.Data[0].Username)
+
+		_, totalAgain, known := second.Counts()
+		must.True(t, known)
+		test.EqOp(t, total, totalAgain)
 	})
 
 	t.Run("reads a batch by ID", func(t *testing.T) {

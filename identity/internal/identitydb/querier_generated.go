@@ -42,6 +42,8 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	ArchiveUser(ctx context.Context, db DBTX, arg ArchiveUserParams) (int64, error)
+	// CountSearchUsersByUsername runs the :one query.
+	CountSearchUsersByUsername(ctx context.Context, db DBTX, arg CountSearchUsersByUsernameParams) (CountSearchUsersByUsernameRow, error)
 	// CreateAccount runs the :exec query.
 	CreateAccount(ctx context.Context, db DBTX, arg CreateAccountParams) error
 	// CreateInvitation runs the :exec query.
@@ -93,6 +95,8 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error)
+	// SearchUsersByUsername runs the :many query.
+	SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error)
 	// SetUserEmailAddressVerificationToken runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

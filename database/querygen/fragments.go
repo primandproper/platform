@@ -44,7 +44,18 @@ func (g *Generator) ContainsCondition(column, argument string) string {
 // second query, which is what keeps the first page and the fiftieth page the same
 // statement. It works because id sorts by creation time and no id is empty.
 func (g *Generator) CursorCondition(table string) string {
-	return fmt.Sprintf("%s > COALESCE(sqlc.narg(%s), '')", Qualify(table, IDColumn), CursorArg)
+	return g.cursorCondition(table, IDColumn)
+}
+
+// cursorCondition is CursorCondition over an arbitrary column, for the keyset
+// walks whose order is not the id's.
+//
+// The prefix search is the one that has one: it orders by the column it
+// searched, so its cursor names a position in that order. The predicate is
+// otherwise the same predicate — one rendering, so a search's cursor and a
+// list's cannot come to differ about what an absent one means.
+func (g *Generator) cursorCondition(table, column string) string {
+	return fmt.Sprintf("%s > COALESCE(sqlc.narg(%s), '')", Qualify(table, column), CursorArg)
 }
 
 // CursorLimitClause renders the ordering and page size a keyset walk needs.
@@ -55,7 +66,13 @@ func (g *Generator) CursorCondition(table string) string {
 // order that no longer holds — pages that skip rows and repeat others, with
 // nothing reporting an error.
 func (g *Generator) CursorLimitClause(table string) string {
-	return fmt.Sprintf("ORDER BY %s ASC\n%s", Qualify(table, IDColumn), g.limitClause())
+	return g.cursorLimitClause(table, IDColumn)
+}
+
+// cursorLimitClause is CursorLimitClause over an arbitrary column, ordering by
+// whatever the walk's cursor compares against — see cursorCondition.
+func (g *Generator) cursorLimitClause(table, column string) string {
+	return fmt.Sprintf("ORDER BY %s ASC\n%s", Qualify(table, column), g.limitClause())
 }
 
 // CursorPaginationFragment renders the cursor predicate and the ordering

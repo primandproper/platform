@@ -110,6 +110,30 @@ func (g *Generator) substringMatch(column, argument string) string {
 	}
 }
 
+// prefixPatternArgument renders the bound side of a prefix match: the argument
+// carrying the pattern, plus whatever the dialect's analyzer needs in order to
+// give it a type.
+//
+// Postgres needs the cast, and for a reason worth stating rather than
+// rediscovering. It desugars `x LIKE p ESCAPE e` into a call to like_escape,
+// which is overloaded on text and on bytea; an untyped parameter resolves to
+// the bytea arm, so the generated Go field for the pattern comes back []byte
+// while every other consumer of that column has a string. The cast picks the
+// arm the column is actually in. It is the same cast substringMatch applies for
+// the same reason.
+//
+// The other two need nothing, and on MySQL the absence is load-bearing rather
+// than an omission — a bound parameter is the weakest thing in its
+// coercibility order, so it adopts the column's collation, and a cast would
+// give it the connection's instead. substringMatch carries the long form.
+func (g *Generator) prefixPatternArgument(argument string) string {
+	if g.dialect == dialect.Postgres {
+		return fmt.Sprintf("sqlc.arg(%s)::text", argument)
+	}
+
+	return fmt.Sprintf("sqlc.arg(%s)", argument)
+}
+
 // byteOrdered wraps an expression so that comparing and ordering it is a
 // comparison of bytes rather than of collated text.
 //

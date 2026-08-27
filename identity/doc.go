@@ -157,10 +157,12 @@ an account's roster, the accounts a user belongs to, and the user's own
 membership list — because querygen renders a junction list as well as a
 single-table one. The roster projects the member's columns beside the
 membership's under a user_ prefix, so a page of thirty members is one query and
-the row it comes back as is generated rather than paired to a Scan by eye.
+the row it comes back as is generated rather than paired to a Scan by eye. The
+username prefix search is a rendered pair the same way: the page and the count
+beside it, which is the one read here whose statement is not a filtered list.
 
-What remains hand-written is what querygen does not yet emit — the username
-prefix search and the billing update's conditional SET.
+What remains hand-written is what querygen does not yet emit — the billing
+update's conditional SET.
 */
 package identity
 

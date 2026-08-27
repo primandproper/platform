@@ -539,23 +539,6 @@ func pageFilter(filter *filtering.QueryFilter) *filtering.QueryFilter {
 	return &bounded
 }
 
-// pageWindow reads the cursor and limit a hand-written page query binds out of
-// a filter, through the same clamp the rendered ones go through.
-//
-// One read is left that needs it: the username prefix search, whose pattern,
-// ESCAPE clause and ordering by username are its own, so it takes the cursor and
-// the limit as ordinary arguments rather than through the generated params. The
-// two junction reads used to be here too — see identity/internal/queries.
-func pageWindow(filter *filtering.QueryFilter) (normalized *filtering.QueryFilter, cursor string, limit int) {
-	normalized = pageFilter(filter)
-
-	if normalized.Cursor != nil {
-		cursor = *normalized.Cursor
-	}
-
-	return normalized, cursor, int(*normalized.MaxResponseSize)
-}
-
 // identitydbDialect maps this module's dialect names onto the generated
 // package's. The set is closed on both sides — NewSQLStore has already
 // rejected anything d.Valid() declines — so the default arm is reachable only

@@ -35,6 +35,12 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
 
+const countSearchUsersByUsernameMySQL = `SELECT COUNT(*)
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.scope = ?
+	AND ({{prefix}}identity_users.username LIKE ? ESCAPE '!')`
+
 const createAccountMySQL = `INSERT INTO {{prefix}}identity_accounts (
 	id,
 	scope,
@@ -795,6 +801,35 @@ WHERE archived_at IS NULL
 	AND scope = ?
 	AND email_address_verification_token = ?`
 
+const searchUsersByUsernameMySQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.scope = ?
+	AND ({{prefix}}identity_users.username LIKE ? ESCAPE '!')
+	AND {{prefix}}identity_users.username > COALESCE(?, '')
+ORDER BY {{prefix}}identity_users.username ASC
+LIMIT ?`
+
 const setUserEmailAddressVerificationTokenMySQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = ?,
 	last_updated_at = CURRENT_TIMESTAMP(6)
@@ -891,6 +926,7 @@ type mysqlQueries struct {
 	answerInvitation                     string
 	archiveAccount                       string
 	archiveUser                          string
+	countSearchUsersByUsername           string
 	createAccount                        string
 	createInvitation                     string
 	createUser                           string
@@ -915,6 +951,7 @@ type mysqlQueries struct {
 	listMembershipsForUser               string
 	listUsers                            string
 	markUserEmailAddressVerified         string
+	searchUsersByUsername                string
 	setUserEmailAddressVerificationToken string
 	setUserRequiresPasswordChange        string
 	transferAccountOwnership             string
@@ -933,6 +970,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		answerInvitation:                     strings.ReplaceAll(answerInvitationMySQL, prefixMarker, prefix),
 		archiveAccount:                       strings.ReplaceAll(archiveAccountMySQL, prefixMarker, prefix),
 		archiveUser:                          strings.ReplaceAll(archiveUserMySQL, prefixMarker, prefix),
+		countSearchUsersByUsername:           strings.ReplaceAll(countSearchUsersByUsernameMySQL, prefixMarker, prefix),
 		createAccount:                        strings.ReplaceAll(createAccountMySQL, prefixMarker, prefix),
 		createInvitation:                     strings.ReplaceAll(createInvitationMySQL, prefixMarker, prefix),
 		createUser:                           strings.ReplaceAll(createUserMySQL, prefixMarker, prefix),
@@ -957,6 +995,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		listMembershipsForUser:               strings.ReplaceAll(listMembershipsForUserMySQL, prefixMarker, prefix),
 		listUsers:                            strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
 		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
+		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernameMySQL, prefixMarker, prefix),
 		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenMySQL, prefixMarker, prefix),
 		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangeMySQL, prefixMarker, prefix),
 		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipMySQL, prefixMarker, prefix),
@@ -1010,6 +1049,22 @@ func (q *mysqlQueries) ArchiveUser(ctx context.Context, db DBTX, arg ArchiveUser
 	}
 
 	return result.RowsAffected()
+}
+
+// CountSearchUsersByUsername runs the :one query against mysql.
+func (q *mysqlQueries) CountSearchUsersByUsername(ctx context.Context, db DBTX, arg CountSearchUsersByUsernameParams) (CountSearchUsersByUsernameRow, error) {
+	row := db.QueryRowContext(ctx, q.countSearchUsersByUsername,
+		arg.Scope,
+		arg.UsernamePrefix,
+	)
+
+	var i CountSearchUsersByUsernameRow
+
+	err := row.Scan(
+		&i.Count,
+	)
+
+	return i, err
 }
 
 // CreateAccount runs the :exec query against mysql.
@@ -1924,6 +1979,60 @@ func (q *mysqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX
 	return result.RowsAffected()
 }
 
+// SearchUsersByUsername runs the :many query against mysql.
+func (q *mysqlQueries) SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error) {
+	rows, err := db.QueryContext(ctx, q.searchUsersByUsername,
+		arg.Scope,
+		arg.UsernamePrefix,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []SearchUsersByUsernameRow
+
+	for rows.Next() {
+		var i SearchUsersByUsernameRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.Username,
+			&i.EmailAddress,
+			&i.FirstName,
+			&i.LastName,
+			&i.HashedPassword,
+			&i.RequiresPasswordChange,
+			&i.PasswordLastChangedAt,
+			&i.TwoFactorSecret,
+			&i.TwoFactorSecretVerifiedAt,
+			&i.EmailAddressVerifiedAt,
+			&i.EmailAddressVerificationToken,
+			&i.AccountStatus,
+			&i.AccountStatusExplanation,
+			&i.LastAcceptedTermsOfService,
+			&i.LastAcceptedPrivacyPolicy,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // SetUserEmailAddressVerificationToken runs the :execrows query against mysql.
 func (q *mysqlQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
@@ -2089,6 +2198,13 @@ var (
 		ID    string
 		Scope tenancy.Scope
 	}(ArchiveUserParams{})
+	_ = struct {
+		Scope          tenancy.Scope
+		UsernamePrefix string
+	}(CountSearchUsersByUsernameParams{})
+	_ = struct {
+		Count int64
+	}(CountSearchUsersByUsernameRow{})
 	_ = struct {
 		ID                          string
 		Scope                       tenancy.Scope
@@ -2590,6 +2706,34 @@ var (
 		Scope                                tenancy.Scope
 		CurrentEmailAddressVerificationToken string
 	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		Scope          tenancy.Scope
+		UsernamePrefix string
+		PageCursor     *string
+		ResultLimit    int64
+	}(SearchUsersByUsernameParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(SearchUsersByUsernameRow{})
 	_ = struct {
 		EmailAddressVerificationToken string
 		ID                            string

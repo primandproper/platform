@@ -35,6 +35,12 @@ WHERE archived_at IS NULL
 	AND id = ?1
 	AND scope = ?2`
 
+const countSearchUsersByUsernameSQLite = `SELECT COUNT(*)
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.scope = ?1
+	AND ({{prefix}}identity_users.username LIKE ?2 ESCAPE '!')`
+
 const createAccountSQLite = `INSERT INTO {{prefix}}identity_accounts (
 	id,
 	scope,
@@ -795,6 +801,35 @@ WHERE archived_at IS NULL
 	AND scope = ?4
 	AND email_address_verification_token = ?5`
 
+const searchUsersByUsernameSQLite = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.scope = ?1
+	AND ({{prefix}}identity_users.username LIKE ?2 ESCAPE '!')
+	AND {{prefix}}identity_users.username > COALESCE(?3, '')
+ORDER BY {{prefix}}identity_users.username ASC
+LIMIT COALESCE(?4, 50)`
+
 const setUserEmailAddressVerificationTokenSQLite = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = ?1,
 	last_updated_at = CURRENT_TIMESTAMP
@@ -891,6 +926,7 @@ type sqliteQueries struct {
 	answerInvitation                     string
 	archiveAccount                       string
 	archiveUser                          string
+	countSearchUsersByUsername           string
 	createAccount                        string
 	createInvitation                     string
 	createUser                           string
@@ -915,6 +951,7 @@ type sqliteQueries struct {
 	listMembershipsForUser               string
 	listUsers                            string
 	markUserEmailAddressVerified         string
+	searchUsersByUsername                string
 	setUserEmailAddressVerificationToken string
 	setUserRequiresPasswordChange        string
 	transferAccountOwnership             string
@@ -933,6 +970,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		answerInvitation:                     strings.ReplaceAll(answerInvitationSQLite, prefixMarker, prefix),
 		archiveAccount:                       strings.ReplaceAll(archiveAccountSQLite, prefixMarker, prefix),
 		archiveUser:                          strings.ReplaceAll(archiveUserSQLite, prefixMarker, prefix),
+		countSearchUsersByUsername:           strings.ReplaceAll(countSearchUsersByUsernameSQLite, prefixMarker, prefix),
 		createAccount:                        strings.ReplaceAll(createAccountSQLite, prefixMarker, prefix),
 		createInvitation:                     strings.ReplaceAll(createInvitationSQLite, prefixMarker, prefix),
 		createUser:                           strings.ReplaceAll(createUserSQLite, prefixMarker, prefix),
@@ -957,6 +995,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		listMembershipsForUser:               strings.ReplaceAll(listMembershipsForUserSQLite, prefixMarker, prefix),
 		listUsers:                            strings.ReplaceAll(listUsersSQLite, prefixMarker, prefix),
 		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedSQLite, prefixMarker, prefix),
+		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernameSQLite, prefixMarker, prefix),
 		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenSQLite, prefixMarker, prefix),
 		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangeSQLite, prefixMarker, prefix),
 		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipSQLite, prefixMarker, prefix),
@@ -1010,6 +1049,22 @@ func (q *sqliteQueries) ArchiveUser(ctx context.Context, db DBTX, arg ArchiveUse
 	}
 
 	return result.RowsAffected()
+}
+
+// CountSearchUsersByUsername runs the :one query against sqlite.
+func (q *sqliteQueries) CountSearchUsersByUsername(ctx context.Context, db DBTX, arg CountSearchUsersByUsernameParams) (CountSearchUsersByUsernameRow, error) {
+	row := db.QueryRowContext(ctx, q.countSearchUsersByUsername,
+		arg.Scope,
+		arg.UsernamePrefix,
+	)
+
+	var i CountSearchUsersByUsernameRow
+
+	err := row.Scan(
+		&i.Count,
+	)
+
+	return i, err
 }
 
 // CreateAccount runs the :exec query against sqlite.
@@ -1856,6 +1911,60 @@ func (q *sqliteQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBT
 	return result.RowsAffected()
 }
 
+// SearchUsersByUsername runs the :many query against sqlite.
+func (q *sqliteQueries) SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error) {
+	rows, err := db.QueryContext(ctx, q.searchUsersByUsername,
+		arg.Scope,
+		arg.UsernamePrefix,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []SearchUsersByUsernameRow
+
+	for rows.Next() {
+		var i SearchUsersByUsernameRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.Username,
+			&i.EmailAddress,
+			&i.FirstName,
+			&i.LastName,
+			&i.HashedPassword,
+			&i.RequiresPasswordChange,
+			&i.PasswordLastChangedAt,
+			&i.TwoFactorSecret,
+			&i.TwoFactorSecretVerifiedAt,
+			&i.EmailAddressVerifiedAt,
+			&i.EmailAddressVerificationToken,
+			&i.AccountStatus,
+			&i.AccountStatusExplanation,
+			&i.LastAcceptedTermsOfService,
+			&i.LastAcceptedPrivacyPolicy,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // SetUserEmailAddressVerificationToken runs the :execrows query against sqlite.
 func (q *sqliteQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
@@ -2021,6 +2130,13 @@ var (
 		ID    string
 		Scope tenancy.Scope
 	}(ArchiveUserParams{})
+	_ = struct {
+		Scope          tenancy.Scope
+		UsernamePrefix string
+	}(CountSearchUsersByUsernameParams{})
+	_ = struct {
+		Count int64
+	}(CountSearchUsersByUsernameRow{})
 	_ = struct {
 		ID                          string
 		Scope                       tenancy.Scope
@@ -2522,6 +2638,34 @@ var (
 		Scope                                tenancy.Scope
 		CurrentEmailAddressVerificationToken string
 	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		Scope          tenancy.Scope
+		UsernamePrefix string
+		PageCursor     *string
+		ResultLimit    int64
+	}(SearchUsersByUsernameParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(SearchUsersByUsernameRow{})
 	_ = struct {
 		EmailAddressVerificationToken string
 		ID                            string

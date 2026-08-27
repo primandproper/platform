@@ -280,6 +280,81 @@ func listWidgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.
 	return ids, filtered, total
 }
 
+// searchAccount owns the rows the prefix-search subtest writes, so its inserts
+// cannot move the id lists the subtests above assert on.
+const searchAccount = "account_three"
+
+// widgetSearchQueries is the prefix search over the widgets' name column and the
+// count beside it, keyed on the owner like every other statement in this suite.
+func widgetSearchQueries(d dialect.Dialect) []*Query {
+	return For(d).PrefixSearchQueries(widgetsTable, widgetsColumns(),
+		PrefixSearch{
+			Column:    "name",
+			Name:      "SearchWidgetsByName",
+			CountName: "CountSearchWidgetsByName",
+		},
+		Match{Column: BelongsToAccountColumn})
+}
+
+// searchWidgets runs the emitted prefix search, returning the ids in the order
+// the statement produced them — which is the assertion, since the order is the
+// searched column's rather than the id's.
+//
+// Every column but the id is scanned into an any, for the reason listWidgets
+// gives: the three drivers hand back a stored timestamp as three different Go
+// types and none of this is about which.
+func searchWidgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, values map[string]any) []string {
+	tb.Helper()
+
+	statement, order := bindArguments(d, named(tb, widgetSearchQueries(d), "SearchWidgetsByName").Content)
+
+	rows, err := db.QueryContext(ctx, statement, argumentsFor(tb, order, values)...)
+	must.NoError(tb, err)
+
+	defer func() { must.NoError(tb, rows.Close()) }()
+
+	var ids []string
+
+	for rows.Next() {
+		var (
+			id                                                 string
+			name, account, indexed, created, updated, archived any
+		)
+
+		must.NoError(tb, rows.Scan(&id, &name, &account, &indexed, &created, &updated, &archived))
+
+		ids = append(ids, id)
+	}
+
+	must.NoError(tb, rows.Err())
+
+	return ids
+}
+
+// countSearchedWidgets runs the count the search is emitted with.
+func countSearchedWidgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, values map[string]any) int64 {
+	tb.Helper()
+
+	statement, order := bindArguments(d, named(tb, widgetSearchQueries(d), "CountSearchWidgetsByName").Content)
+
+	var count int64
+
+	must.NoError(tb, db.QueryRowContext(ctx, statement, argumentsFor(tb, order, values)...).Scan(&count))
+
+	return count
+}
+
+// searchValues is what the prefix search binds: the pattern PrefixPattern built,
+// the owner it is keyed on, and the keyset pair.
+func searchValues(prefix string) map[string]any {
+	return map[string]any{
+		PrefixArg("name"):      PrefixPattern(prefix),
+		BelongsToAccountColumn: searchAccount,
+		CursorArg:              nil,
+		LimitArg:               50,
+	}
+}
+
 func TestQuerygen_Postgres(T *testing.T) {
 	T.Parallel()
 
@@ -327,6 +402,10 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 	// assert against.
 	t.Run("every generated statement is one the server accepts", func(t *testing.T) {
 		for _, query := range widgetsQueries(d) {
+			prepare(t, ctx, d, db, query)
+		}
+
+		for _, query := range widgetSearchQueries(d) {
 			prepare(t, ctx, d, db, query)
 		}
 	})
@@ -645,5 +724,58 @@ func runWidgetSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sq
 			argumentsFor(t, order, map[string]any{"name_query": "SOMEONE ELSE"}))
 
 		test.Eq(t, []string{"w_005"}, found)
+	})
+
+	t.Run("the prefix search pages by the column it searched", func(t *testing.T) {
+		// id, name, owner. w_013 matches and is archived below, w_014 does not
+		// match, and w_015 matches but belongs to somebody else — one row per
+		// reason the search should leave a row out.
+		widgets := [][3]string{
+			{"w_010", "search alpha", searchAccount},
+			{"w_011", "search beta", searchAccount},
+			{"w_012", "search%gamma", searchAccount},
+			{"w_013", "search delta", searchAccount},
+			{"w_014", "unmatched", searchAccount},
+			{"w_015", "search zeta", "account_two"},
+		}
+
+		for i := range widgets {
+			insertWidget(t, ctx, d, db, widgets[i][0], widgets[i][1], widgets[i][2])
+		}
+
+		// Archived after it was written, so what the search leaves out is a row
+		// that matches the pattern rather than one that never did.
+		archive, arguments := widgetQuery(t, d, "ArchiveWidget", map[string]any{
+			IDColumn:               "w_013",
+			BelongsToAccountColumn: searchAccount,
+		})
+
+		_, err := db.ExecContext(ctx, archive, arguments...)
+		must.NoError(t, err)
+
+		values := searchValues("search")
+
+		// In the searched column's order on every dialect: the two spaced names
+		// before the one whose next character is a percent sign, whether the
+		// server compares bytes or collates the punctuation away.
+		test.Eq(t, []string{"w_010", "w_011", "w_012"}, searchWidgets(t, ctx, d, db, values))
+		test.EqOp(t, int64(3), countSearchedWidgets(t, ctx, d, db, values))
+
+		// The ESCAPE clause is what makes this one row rather than three: the
+		// pattern's percent sign is the user's literal, not a wildcard.
+		escaped := searchValues("search%")
+		test.Eq(t, []string{"w_012"}, searchWidgets(t, ctx, d, db, escaped))
+		test.EqOp(t, int64(1), countSearchedWidgets(t, ctx, d, db, escaped))
+
+		// The cursor is a position in the searched column's order, and the
+		// count does not move with it — a total that shrinks as the caller
+		// pages is a progress bar that never fills.
+		values[CursorArg] = "search alpha"
+		test.Eq(t, []string{"w_011", "w_012"}, searchWidgets(t, ctx, d, db, values))
+		test.EqOp(t, int64(3), countSearchedWidgets(t, ctx, d, db, values))
+
+		values[CursorArg] = nil
+		values[LimitArg] = 1
+		test.Eq(t, []string{"w_010"}, searchWidgets(t, ctx, d, db, values))
 	})
 }

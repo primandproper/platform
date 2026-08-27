@@ -33,6 +33,17 @@ type ArchiveUserParams struct {
 	Scope tenancy.Scope
 }
 
+// CountSearchUsersByUsernameParams are the arguments to CountSearchUsersByUsername.
+type CountSearchUsersByUsernameParams struct {
+	Scope          tenancy.Scope
+	UsernamePrefix string
+}
+
+// CountSearchUsersByUsernameRow is one row of CountSearchUsersByUsername's result.
+type CountSearchUsersByUsernameRow struct {
+	Count int64
+}
+
 // CreateAccountParams are the arguments to CreateAccount.
 type CreateAccountParams struct {
 	ID                          string
@@ -620,6 +631,38 @@ type MarkUserEmailAddressVerifiedParams struct {
 	ID                                   string
 	Scope                                tenancy.Scope
 	CurrentEmailAddressVerificationToken string
+}
+
+// SearchUsersByUsernameParams are the arguments to SearchUsersByUsername.
+type SearchUsersByUsernameParams struct {
+	Scope          tenancy.Scope
+	UsernamePrefix string
+	PageCursor     *string
+	ResultLimit    int64
+}
+
+// SearchUsersByUsernameRow is one row of SearchUsersByUsername's result.
+type SearchUsersByUsernameRow struct {
+	ID                            string
+	Scope                         tenancy.Scope
+	Username                      string
+	EmailAddress                  string
+	FirstName                     string
+	LastName                      string
+	HashedPassword                string
+	RequiresPasswordChange        bool
+	PasswordLastChangedAt         *time.Time
+	TwoFactorSecret               string
+	TwoFactorSecretVerifiedAt     *time.Time
+	EmailAddressVerifiedAt        *time.Time
+	EmailAddressVerificationToken string
+	AccountStatus                 string
+	AccountStatusExplanation      string
+	LastAcceptedTermsOfService    *time.Time
+	LastAcceptedPrivacyPolicy     *time.Time
+	CreatedAt                     time.Time
+	LastUpdatedAt                 *time.Time
+	ArchivedAt                    *time.Time
 }
 
 // SetUserEmailAddressVerificationTokenParams are the arguments to SetUserEmailAddressVerificationToken.

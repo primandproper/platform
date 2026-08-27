@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/querygen"
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/observability"
@@ -131,6 +132,19 @@ func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, user
 
 // SearchUsersByUsername pages the scope's users whose username begins with
 // prefix.
+//
+// The prefix is a literal somebody typed, and what the statement binds is
+// querygen.PrefixPattern's rendering of it — the wildcards escaped, a trailing
+// one appended. Without that a typed % or _ is a wildcard rather than a
+// character, and the directory comes back for a prefix of "%", which reads as a
+// working search returning too much rather than as a bug.
+//
+// The page and the count are two statements rather than one carrying the other,
+// unlike the rendered lists here whose counts ride along on their rows. The
+// count answers how many usernames the prefix matched, which does not move as
+// the caller pages, while the page is cut by a cursor over the column it is
+// ordered by. Both come from one call in identity/internal/queries — see
+// querygen.Generator.PrefixSearchQueries.
 func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
@@ -139,12 +153,42 @@ func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scop
 		return nil, op.Error(err, "searching identity users")
 	}
 
-	filter, cursor, limit := pageWindow(filter)
+	filter = pageFilter(filter)
 
-	query, args := s.tables.buildSearchUsers(s.dialect, scope, prefix, cursor, limit)
-	countQuery, countArgs := s.tables.buildCountSearchUsers(s.dialect, scope, prefix)
+	// Escaped once and bound twice, so the page and the number describing it
+	// cannot come to search for different things.
+	pattern := querygen.PrefixPattern(prefix)
 
-	return s.pageUsers(ctx, op, filter, query, args, countQuery, countArgs)
+	searchRows, err := s.q.SearchUsersByUsername(ctx, s.client.Reader(), searchUsersParams(scope, pattern, filter))
+	if err != nil {
+		return nil, op.Error(err, "searching identity users")
+	}
+
+	users := make([]*User, 0, len(searchRows))
+	for i := range searchRows {
+		users = append(users, userFromSearchRow(&searchRows[i]))
+	}
+
+	if err = s.hydrateUsers(ctx, s.client.Reader(), users); err != nil {
+		return nil, op.Error(err, "searching identity user service roles")
+	}
+
+	count, err := s.q.CountSearchUsersByUsername(ctx, s.client.Reader(), countSearchUsersParams(scope, pattern))
+	if err != nil {
+		return nil, op.Error(err, "counting identity users")
+	}
+
+	op.SpanOnly(countKey, len(users))
+
+	// The cursor is the username, because the statement orders by it. The
+	// counts are their own statement rather than riding on the rows, so an
+	// empty page still reports them — the ambiguity filtering.Drain exists to
+	// avoid does not arise here.
+	return filtering.NewQueryFilteredResult(
+		users, uint64(len(users)), countOf(count.Count),
+		func(u *User) string { return u.Username },
+		filter,
+	), nil
 }
 
 // hydrateUsers attaches a page's service roles and redacts every user in it.
@@ -169,42 +213,6 @@ func (s *SQLStore) hydrateUsers(ctx context.Context, q database.SQLQueryExecutor
 	}
 
 	return nil
-}
-
-// pageUsers runs a user page whose count is a separate query, redacting every
-// row.
-//
-// It serves the username prefix search, which querygen does not emit — the
-// pattern, the ESCAPE clause and the ordering by username are all its own — so
-// its count does not ride along on the rows the way a rendered list's does.
-func (s *SQLStore) pageUsers(
-	ctx context.Context,
-	op observability.Operation,
-	filter *filtering.QueryFilter,
-	query string, args []any,
-	countQuery string, countArgs []any,
-) (*filtering.QueryFilteredResult[User], error) {
-	users, err := database.ScanAll(ctx, s.client.Reader(), "identity user", query, args, scanUser)
-	if err != nil {
-		return nil, op.Error(err, "listing identity users")
-	}
-
-	if err = s.hydrateUsers(ctx, s.client.Reader(), users); err != nil {
-		return nil, op.Error(err, "listing identity user service roles")
-	}
-
-	var total uint64
-	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, op.Error(err, "counting identity users")
-	}
-
-	op.SpanOnly(countKey, len(users))
-
-	return filtering.NewQueryFilteredResult(
-		users, uint64(len(users)), total,
-		func(u *User) string { return u.Username },
-		filter,
-	), nil
 }
 
 // GetAccount reads one of the scope's accounts, archived accounts included.

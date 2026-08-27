@@ -66,6 +66,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"GetMembershipByUserAndAccount", "GetMembershipIDByUserAndAccount",
 		"GetMembershipFallbackAccountID",
 		"ListAccountMembers", "ListAccountsForUser", "ListMembershipsForUser",
+		"SearchUsersByUsername", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
 		"UpdateUserAccountStatus", "TransferAccountOwnership", "AnswerInvitation",
@@ -104,6 +105,45 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 			test.StrNotContains(t, rendered, "UpdateMembership")
 			test.StrNotContains(t, rendered, "ArchiveMembership")
 			test.EqOp(t, 1, strings.Count(rendered, "INSERT INTO "+MembershipsTable))
+		})
+	}
+}
+
+// TestRender_SearchesUsernamesByPrefix pins the shape of the pair the directory
+// search runs, since it is the one read here that is not a filtered list: the
+// escape clause that keeps a typed % a literal, the cursor over the searched
+// column, and a count that does not carry that cursor.
+func TestRender_SearchesUsernamesByPrefix(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			statements := map[string]string{}
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				if name, body, ok := strings.Cut(statement, "\n"); ok {
+					statements[strings.Fields(name)[0]] = body
+				}
+			}
+
+			search := statements["SearchUsersByUsername"]
+			must.StrContains(t, search, "ESCAPE")
+			test.StrContains(t, search, "ORDER BY identity_users.username ASC")
+			test.StrContains(t, search, "identity_users.username > COALESCE(sqlc.narg(page_cursor), '')")
+
+			// Archived users do not surface in a name search: the search is a
+			// lookup somebody is about to act on, and there is no toggle that
+			// admits them.
+			test.StrContains(t, search, "identity_users.archived_at IS NULL")
+			test.StrNotContains(t, search, "include_archived")
+
+			// The count is of what the prefix matched rather than of what is
+			// left after the cursor, so it does not move as the caller pages.
+			count := statements["CountSearchUsersByUsername"]
+			must.StrContains(t, count, "ESCAPE")
+			test.StrNotContains(t, count, "page_cursor")
+			test.StrNotContains(t, count, "LIMIT")
 		})
 	}
 }
