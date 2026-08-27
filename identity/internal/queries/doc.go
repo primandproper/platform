@@ -43,10 +43,32 @@ table's mutable set, and three of them carry a predicate on the value being
 replaced, which is what makes a losing concurrent writer report zero rows
 instead of overwriting the winner.
 
-Memberships is the fourth table and is deliberately not emitted. Its columns are
-textbook and not one of its statements is: the get, the archive and the bulk
+Memberships is the fourth table and gets none of the standard set. Its columns
+are textbook and not one of its statements is: the get, the archive and the bulk
 archive key on the (belongs_to_user, belongs_to_account) pair rather than on id,
-and its write is an upsert that revives an archived row. It is declared here
-anyway, because the store still projects its columns and one list is the point.
+and its write is an upsert that revives an archived row.
+
+# The keyed variants
+
+A table's standard queries are not all of what a store runs against it, and the
+difference used to be the hand-written half. A read keyed on a reference, a read
+of one database-owned column, a read keyed on a natural key the table carries an
+id alongside — each of those was rendered by the store and by nothing else, so
+sqlc proved statements the store did not run while the store ran statements sqlc
+never saw.
+
+So they are rendered here too, through the Query forms beside querygen's Bound
+methods, which are the same statement text by construction:
+
+  - the two paged invitation reads, keyed on the sender or the addressee
+  - the read-back of created_at, one per emitted table
+  - the three single-user reads keyed on a username, an email address, or a
+    verification token
+  - the three membership reads, all keyed on the (user, account) pair
+
+The membership ones are why Memberships is declared at all despite emitting no
+standard query, and why [Table.KeyedColumns] exists: querygen derives a
+statement's id predicate from the column list it is handed, so a read that keys
+on the natural key hands over the list without the id while still projecting it.
 */
 package queries

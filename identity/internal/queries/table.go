@@ -73,6 +73,27 @@ func (t *Table) UpdateColumns() []string {
 	return querygen.ForUpdate(t.Columns, append(t.Immutable(), ScopeColumn)...)
 }
 
+// KeyedColumns returns the table's shape as a read keyed on something other
+// than the row's own id sees it: every column but the id.
+//
+// querygen derives a single-row statement's predicates from the column list it
+// is handed — the id predicate is rendered when the list has an id, exactly as
+// the archived one is — so leaving the id out is how a statement says it keys on
+// something else. What it does not decide is what comes back: the projection is
+// a separate list, and every keyed read below still returns the id where the
+// caller needs it.
+func (t *Table) KeyedColumns() []string {
+	keyed := make([]string, 0, len(t.Columns))
+
+	for _, column := range t.Columns {
+		if column != querygen.IDColumn {
+			keyed = append(keyed, column)
+		}
+	}
+
+	return keyed
+}
+
 // Options renders this table's shape as the options StandardCRUD reads.
 func (t *Table) Options() []querygen.Option {
 	opts := []querygen.Option{

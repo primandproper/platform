@@ -281,7 +281,7 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	updateColumns := ForUpdate(columns, notUpdatable...)
 
 	queries := []*Query{
-		s.query(GetQuery, OneType, getStatement(table, columns, s.ownership)),
+		s.query(GetQuery, OneType, getStatement(table, columns, s.ownership, Read{})),
 		s.query(ExistsQuery, OneType, existsStatement(table, columns, s.ownership)),
 		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership)),
 	}
@@ -389,12 +389,35 @@ func createStatement(table string, insertColumns, nullable []string) string {
 	)
 }
 
-func getStatement(table string, columns []string, ownership string, extra ...Match) string {
-	return fmt.Sprintf("SELECT\n\t%s\nFROM %s\nWHERE %s;",
-		strings.Join(QualifyAll(table, columns), ",\n\t"),
+// getStatement renders the read of one row: what read projects, from table,
+// keyed on whatever the column list and the matches say addresses a row.
+//
+// columns is the table's shape rather than the projection — it is what the id
+// and archived predicates are derived from — and read.Projection is what the
+// SELECT lists. The two are the same list for the standard get and differ for
+// every keyed read that returns one column, or that projects an id it does not
+// key on.
+func getStatement(table string, columns []string, ownership string, read Read, extra ...Match) string {
+	return fmt.Sprintf("SELECT\n\t%s\nFROM %s\nWHERE %s%s;",
+		strings.Join(QualifyAll(table, read.projecting(columns)), ",\n\t"),
 		table,
 		joinPredicates(singleRowPredicates(table, columns, ownership, true, extra...), "\t"),
+		orderClause(table, read.Order),
 	)
+}
+
+// orderClause renders the ordering a keyed read whose key admits more than one
+// row picks with, and nothing at all for a key that identifies a row.
+//
+// The page size is the literal 1 rather than a bound argument, because it is
+// the statement's own shape rather than a caller's choice: this is a :one read,
+// and a caller wanting a page of these wants the list query.
+func orderClause(table, column string) string {
+	if column == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("\nORDER BY %s ASC\nLIMIT 1", Qualify(table, column))
 }
 
 func existsStatement(table string, columns []string, ownership string, extra ...Match) string {
@@ -424,7 +447,7 @@ func existsProjection(table string, columns []string) string {
 func (g *Generator) listStatement(table string, columns []string, ownership string, extra ...Match) string {
 	var conditions []string
 	if ownership != "" {
-		conditions = append(conditions, equalityPredicate(table, ownership, ownership, true))
+		conditions = append(conditions, equalityPredicate(table, ownership, true))
 	}
 
 	conditions = append(conditions, matchPredicates(table, true, extra)...)
@@ -511,11 +534,11 @@ func singleRowPredicates(table string, columns []string, ownership string, quali
 	}
 
 	if slices.Contains(columns, IDColumn) {
-		predicates = append(predicates, equalityPredicate(table, IDColumn, IDColumn, qualified))
+		predicates = append(predicates, equalityPredicate(table, IDColumn, qualified))
 	}
 
 	if ownership != "" {
-		predicates = append(predicates, equalityPredicate(table, ownership, ownership, qualified))
+		predicates = append(predicates, equalityPredicate(table, ownership, qualified))
 	}
 
 	predicates = append(predicates, matchPredicates(table, qualified, extra)...)
@@ -528,17 +551,30 @@ func singleRowPredicates(table string, columns []string, ownership string, quali
 // WithOwnership names or one of the Match columns a bound statement adds — the
 // two say the same thing about a row and there is no version of this that is
 // right for one and wrong for the other.
+func equalityPredicate(table, column string, qualified bool) string {
+	return matchPredicate(table, Match{Column: column}, qualified)
+}
+
+// matchPredicate renders one match: the column against its bound argument,
+// equal or unequal.
 //
-// argument is the name the value binds under, which is the column for every
-// keyed read and something else for a guard that names a column the same
-// statement assigns — see Match.Arg.
-func equalityPredicate(table, column, argument string, qualified bool) string {
-	name := column
+// The excluded form binds the same argument under the same name as the included
+// one, so a caller assembling an argument map keys on the column either way and
+// nothing downstream has to know which operator the statement carries. The
+// argument name is the column's unless the match names another — see Match.Arg,
+// which is what a guard naming a column the same statement assigns needs.
+func matchPredicate(table string, match Match, qualified bool) string {
+	name := match.Column
 	if qualified {
-		name = Qualify(table, column)
+		name = Qualify(table, match.Column)
 	}
 
-	return fmt.Sprintf("%s = sqlc.arg(%s)", name, argument)
+	operator := "="
+	if match.Exclude {
+		operator = "<>"
+	}
+
+	return fmt.Sprintf("%s %s sqlc.arg(%s)", name, operator, match.argument())
 }
 
 // matchPredicates renders one equality predicate per match.
@@ -551,8 +587,8 @@ func equalityPredicate(table, column, argument string, qualified bool) string {
 // tenancy scope is.
 func matchPredicates(table string, qualified bool, matches []Match) []string {
 	predicates := make([]string, 0, len(matches))
-	for i := range matches {
-		predicates = append(predicates, equalityPredicate(table, matches[i].Column, matches[i].argument(), qualified))
+	for _, match := range matches {
+		predicates = append(predicates, matchPredicate(table, match, qualified))
 	}
 
 	return predicates

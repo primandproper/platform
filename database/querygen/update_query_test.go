@@ -14,13 +14,13 @@ func updateQueryColumns() []string {
 	return []string{IDColumn, "scope", "owner", "name", CreatedAtColumn, LastUpdatedAtColumn, ArchivedAtColumn}
 }
 
-// TestGenerator_UpdateQuery pins the property that is UpdateQuery's whole reason
-// to exist, the one ListQuery has for the list: it is BoundUpdate's source text,
-// named and annotated. Rewriting its argument references for a driver must yield
-// exactly the SQL BoundUpdate executes — if the two ever render differently, a
-// consumer's canonical .sql would carry a guarded write that sqlc checked while
-// the store ran another one.
-func TestGenerator_UpdateQuery(T *testing.T) {
+// TestGenerator_UpdateQuery_GuardedWrite pins the pairing for the guarded
+// field-specific write, on top of keyed_query_test.go's conventional pair: with
+// a Match.Arg separating the guard from its assignment, rewriting the Query's
+// argument references for a driver must still yield exactly the SQL BoundUpdate
+// executes — if the two ever render differently, a consumer's canonical .sql
+// would carry a guarded write that sqlc checked while the store ran another one.
+func TestGenerator_UpdateQuery_GuardedWrite(T *testing.T) {
 	T.Parallel()
 
 	columns := updateQueryColumns()

@@ -42,11 +42,9 @@ func (s *SQLStore) SetMembershipRoles(ctx context.Context, scope tenancy.Scope, 
 	}
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		query, args := s.tables.buildSelectMembership(s.dialect, scope, userID, accountID)
-
-		membership, err := scanMembership(q.QueryRowContext(ctx, query, args...))
+		membership, err := s.readMembership(ctx, q, scope, userID, accountID)
 		if err != nil {
-			return notFound(err, ErrMembershipNotFound)
+			return err
 		}
 
 		return s.replaceRoles(ctx, q, s.tables.membershipRoles, membershipIDColumn, membership.ID, roles)
@@ -130,11 +128,9 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 		// a member is an account whose roster does not include the person
 		// responsible for it, and every roster-driven permission check then
 		// refuses them. An owner who already is one keeps the roles they have.
-		query, args := s.tables.buildSelectMembership(s.dialect, scope, newOwnerUserID, accountID)
-
-		switch _, readErr := scanMembership(q.QueryRowContext(ctx, query, args...)); {
+		switch _, readErr := s.readMembership(ctx, q, scope, newOwnerUserID, accountID); {
 		case readErr == nil:
-		case errors.Is(readErr, sql.ErrNoRows):
+		case errors.Is(readErr, ErrMembershipNotFound):
 			if err = s.writeMembership(ctx, q, &Membership{
 				ID:               newID(""),
 				Scope:            scope,
@@ -220,18 +216,20 @@ func (s *SQLStore) moveDefaultAccount(
 	userID, removedAccountID string,
 	now time.Time,
 ) error {
-	query, args := s.tables.buildSelectFallbackAccountID(s.dialect, scope, userID, removedAccountID)
+	fallback, readErr := s.q.GetMembershipFallbackAccountID(ctx, q, identitydb.GetMembershipFallbackAccountIDParams{
+		Scope:            scope,
+		BelongsToUser:    userID,
+		BelongsToAccount: removedAccountID,
+	})
 
-	var fallbackAccountID string
-
-	switch err := q.QueryRowContext(ctx, query, args...).Scan(&fallbackAccountID); {
-	case errors.Is(err, sql.ErrNoRows):
+	switch {
+	case errors.Is(readErr, sql.ErrNoRows):
 		return nil
-	case err != nil:
-		return platformerrors.Wrap(err, "reading identity fallback account")
+	case readErr != nil:
+		return platformerrors.Wrap(readErr, "reading identity fallback account")
 	}
 
-	query, args = s.tables.buildSetDefaultAccount(s.dialect, scope, userID, fallbackAccountID, now)
+	query, args := s.tables.buildSetDefaultAccount(s.dialect, scope, userID, fallback.BelongsToAccount, now)
 	if _, err := q.ExecContext(ctx, query, args...); err != nil {
 		return platformerrors.Wrap(err, "moving identity default account")
 	}
