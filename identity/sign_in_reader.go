@@ -44,7 +44,11 @@ func (s *SQLStore) GetUserByEmailAddress(ctx context.Context, scope tenancy.Scop
 }
 
 // GetPrincipal reads a user with their memberships and resolves the active
-// account, in one round trip.
+// account.
+//
+// Four statements on the read side, not one and not a snapshot: the user and
+// their service roles, then the memberships and the roles on those. The
+// interface's doc carries what that means for a caller.
 func (s *SQLStore) GetPrincipal(ctx context.Context, scope tenancy.Scope, userID, activeAccountID string) (*Principal, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),

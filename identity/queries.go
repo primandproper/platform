@@ -109,19 +109,24 @@ func projection(columns []string) string {
 // querygen.Generator.UpdateQuery statements in the canonical .sql, executed
 // through the generated querier.
 //
-// What is left are the statements querygen still does not emit, and they are
-// worth naming because each is a shape the epic behind this port owes a
-// generator:
+// What is left is thirteen builders, and the ones below are the shapes among
+// them that the epic behind this port still owes a generator — the rest are
+// conventional statements against tables the emitted corpus has yet to reach,
+// or ones addressed by a pair of columns rather than by id:
 //
 //	buildMarkTwoFactorVerified     an update whose guard is not an equality —
 //	                               a secret that exists and has not been
 //	                               proven, which is a `<> ''` and an IS NULL
+//	buildSelectUserIDByField       a predicate present only when the caller
+//	                               has a row to exclude from the collision
 //	buildRecordAgreements          an update whose SET list is chosen per call
-//	buildEraseUser                 a hard DELETE rather than an update
+//	buildEraseUser                 a hard DELETE rather than an update, as
+//	                               buildDeleteRoles is
 //	the default-flag maintenance   a clear whose predicate excludes a row
 //	                               rather than matching one
-//	the prefix search              a LIKE with an ESCAPE and one conditional
-//	                               cursor predicate
+//	the slice-bound reads          an IN list as wide as the argument count,
+//	                               for users by id and roles by owner
+//	buildInsertRoles               a multi-row INSERT, as wide as the set
 //
 // The membership upsert used to be on that list and is not any more: querygen
 // renders it, sqlc checks it, and the store executes the generated method. The

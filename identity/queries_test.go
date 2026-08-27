@@ -148,3 +148,32 @@ func TestProjections_MatchTheColumnLists(t *testing.T) {
 	test.EqOp(t, strings.Join(queries.Memberships.Columns, ", "), membershipProjection)
 	test.EqOp(t, strings.Join(queries.Invitations.Columns, ", "), invitationProjection)
 }
+
+// TestMembershipColumns_AreTheCanonicalSpellings pins the columns the
+// archive-by-side writes name to the ones the membership table declares.
+//
+// A fresh literal here would compile, run, and — on the day a column is renamed
+// in the canonical list — archive nothing, silently, because the predicate
+// would match no row rather than fail. Two spellings of one column is the drift
+// the queries package exists to prevent, so the spelling is asserted rather than
+// trusted to two files agreeing.
+func TestMembershipColumns_AreTheCanonicalSpellings(t *testing.T) {
+	t.Parallel()
+
+	test.EqOp(t, queries.MembershipUserColumn, membershipUserColumn)
+	test.EqOp(t, queries.MembershipAccountColumn, membershipAccountColumn)
+
+	test.SliceContains(t, queries.Memberships.Columns, membershipUserColumn)
+	test.SliceContains(t, queries.Memberships.Columns, membershipAccountColumn)
+
+	// And the statement built from each side names the column it was handed,
+	// which is what makes the two assertions above reach the rendered SQL.
+	for _, d := range allDialects {
+		for _, column := range []string{membershipUserColumn, membershipAccountColumn} {
+			query, _ := newTables("").buildArchiveMembershipsBy(d, column, tenancy.Of("dir"), "id", time.Time{})
+
+			test.True(t, strings.Contains(query, " "+column+" = "),
+				test.Sprintf("query: %s", query))
+		}
+	}
+}
