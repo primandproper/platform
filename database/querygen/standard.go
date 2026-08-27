@@ -69,10 +69,10 @@ func (s StandardQuery) String() string {
 // page in a sensible order. A composite key is not a cursor, so there is nothing
 // useful to emit for a table that has none.
 //
-// The Bound methods carry no such requirement. A store knows what it keys on,
-// and says so with Match values; a table whose primary key is (subject_type,
-// subject_id) passes two of them and addresses a row exactly. What it does not
-// get is a paged list — see the package comment.
+// The keyed Query forms carry no such requirement. A corpus knows what its
+// tables key on, and says so with Match values; a table whose primary key is
+// (subject_type, subject_id) passes two of them and addresses a row exactly.
+// What it does not get is a paged list — see the package comment.
 var ErrMissingIDColumn = platformerrors.New("column set has no id column")
 
 // ErrUnaddressableRow indicates a single-row statement with nothing to key on:

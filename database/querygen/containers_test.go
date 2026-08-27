@@ -43,7 +43,7 @@ const widgetsTable = "widgets"
 
 // conventionalDDL is a table with every column this package has an opinion
 // about, in each dialect's spelling of it. It takes the table name because the
-// bound half of the suite stands its own copy up — see bind_containers_test.go.
+// keyed half of the suite stands its own copy up — see keyed_containers_test.go.
 //
 // The differences are not stylistic. MySQL cannot make a TEXT column a primary
 // key without a prefix length, so ids live in a VARCHAR. SQLite has no timestamp
@@ -414,14 +414,14 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 		runWidgetSuite(t, ctx, d, db)
 	})
 
-	// The bound statements against their own table — see bind_containers_test.go.
-	t.Run("the bound suite", func(t *testing.T) {
-		runBoundSuite(t, ctx, d, db)
+	// The keyed variants against their own table — see keyed_containers_test.go.
+	t.Run("the keyed suite", func(t *testing.T) {
+		runKeyedSuite(t, ctx, d, db)
 	})
 
-	// And the bound statements for a table with no id at all, whose four
-	// single-row statements key on a natural key.
-	t.Run("the composite-key suite", func(t *testing.T) {
+	// And the variants for a table with no id at all, whose four single-row
+	// statements key on a natural key.
+	t.Run("the natural-key suite", func(t *testing.T) {
 		runCompositeSuite(t, ctx, d, db)
 	})
 
