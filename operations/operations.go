@@ -272,8 +272,9 @@ type Operation struct {
 	// CreatedAt is when Start recorded the operation. It never moves.
 	CreatedAt time.Time `json:"createdAt"`
 
-	// UpdatedAt is when the row last changed, progress included.
-	UpdatedAt time.Time `json:"updatedAt"`
+	// LastUpdatedAt is when the row last changed, progress included, and nil
+	// for an operation nothing has touched since Start recorded it.
+	LastUpdatedAt *time.Time `json:"lastUpdatedAt,omitempty"`
 
 	// StartedAt is when a worker first claimed the operation, and nil while it
 	// is still pending. It is separate from CreatedAt because the gap between

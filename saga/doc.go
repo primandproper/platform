@@ -253,7 +253,7 @@ When the answer is "not forever", it is one statement against the schema
 saga/migrations renders:
 
 	DELETE FROM saga_instances
-	WHERE status IN ('completed', 'compensated') AND updated_at < $1;
+	WHERE status IN ('completed', 'compensated') AND created_at < $1;
 
 Note what it does not delete: a stuck instance, at any age. That row is the only
 record that something is half-done.

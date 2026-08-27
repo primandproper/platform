@@ -315,7 +315,7 @@ func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 	return claimed, nil
 }
 
-func (s *SQLStore) Advance(ctx context.Context, q database.Tx, inst *Record, nextAttempt time.Time) error {
+func (s *SQLStore) Advance(ctx context.Context, q database.Tx, inst *Record, nextAttempt, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -335,7 +335,7 @@ func (s *SQLStore) Advance(ctx context.Context, q database.Tx, inst *Record, nex
 		nextAttemptKey: nextAttempt,
 	})
 
-	query, args := s.tables.buildAdvance(s.dialect, inst, nextAttempt, inst.UpdatedAt)
+	query, args := s.tables.buildAdvance(s.dialect, inst, nextAttempt, at)
 
 	return s.guard.Exec(ctx, op, q, query, args, inst.ID, "advance", "advancing saga instance")
 }
@@ -451,17 +451,18 @@ func scanInstances(ctx context.Context, q database.SQLQueryExecutor, query strin
 // scanInstance reads one row of instanceColumns.
 func scanInstance(scanner database.Scanner) (*Record, error) {
 	var (
-		inst         Record
-		status       string
-		resumeStatus string
-		stepNames    string
-		state        []byte
-		lastError    sql.NullString
+		inst          Record
+		status        string
+		resumeStatus  string
+		stepNames     string
+		state         []byte
+		lastError     sql.NullString
+		lastUpdatedAt sql.NullTime
 	)
 
 	if err := scanner.Scan(
 		&inst.ID, &inst.Definition, &status, &inst.CurrentStep, &stepNames, &state,
-		&inst.Attempts, &lastError, &resumeStatus, &inst.StartedAt, &inst.UpdatedAt,
+		&inst.Attempts, &lastError, &resumeStatus, &inst.CreatedAt, &lastUpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -469,8 +470,12 @@ func scanInstance(scanner database.Scanner) (*Record, error) {
 	inst.Status = Status(status)
 	inst.ResumeStatus = Status(resumeStatus)
 	inst.LastError = database.StringFromNullString(lastError)
-	inst.StartedAt = inst.StartedAt.UTC()
-	inst.UpdatedAt = inst.UpdatedAt.UTC()
+	inst.CreatedAt = inst.CreatedAt.UTC()
+
+	if lastUpdatedAt.Valid {
+		at := lastUpdatedAt.Time.UTC()
+		inst.LastUpdatedAt = &at
+	}
 
 	if len(state) > 0 {
 		// Copied out of the driver's buffer. database/sql reuses the byte slice

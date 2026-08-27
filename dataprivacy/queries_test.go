@@ -32,7 +32,7 @@ func testRequest() *Request {
 	completed := baseTime.Add(time.Hour)
 
 	return &Request{
-		RequestedAt:   baseTime,
+		CreatedAt:     baseTime,
 		DueAt:         baseTime.Add(30 * 24 * time.Hour),
 		ExpiresAt:     baseTime.Add(7 * 24 * time.Hour),
 		CompletedAt:   &completed,
@@ -232,7 +232,7 @@ func TestBuildInsertRequest(T *testing.T) {
 		t.Parallel()
 
 		// A resubmission is a new request with its own statutory clock. An upsert
-		// would let one overwrite the requested_at that clock runs from, which is
+		// would let one overwrite the created_at that clock runs from, which is
 		// the field a regulator is most likely to ask about.
 		for _, d := range allDialects {
 			query, _ := testTables.buildInsertRequest(d, testRequest(), nil, nil)
@@ -241,6 +241,24 @@ func TestBuildInsertRequest(T *testing.T) {
 			test.StrNotContains(t, query, "ON CONFLICT", test.Sprintf("dialect %q", d))
 			test.StrNotContains(t, query, "ON DUPLICATE", test.Sprintf("dialect %q", d))
 			test.StrNotContains(t, query, "OR REPLACE", test.Sprintf("dialect %q", d))
+		}
+	})
+
+	// The submission instant is created_at rather than a second name for the row's
+	// creation time, which is what makes this table one querygen can read a shape
+	// from. last_updated_at is left unwritten: a request the fulfiller has not
+	// moved yet has no last mutation.
+	T.Run("names the creation column by the convention", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range allDialects {
+			query, _ := testTables.buildInsertRequest(d, testRequest(), nil, nil)
+
+			inserted, _, found := strings.Cut(query, " VALUES ")
+			must.True(t, found, must.Sprintf("dialect %q", d))
+			test.StrContains(t, inserted, "created_at", test.Sprintf("dialect %q", d))
+			test.StrNotContains(t, inserted, "requested_at", test.Sprintf("dialect %q", d))
+			test.StrNotContains(t, inserted, "last_updated_at", test.Sprintf("dialect %q", d))
 		}
 	})
 
@@ -351,10 +369,10 @@ func TestBuildListRequests(T *testing.T) {
 		query, _ := testTables.buildListRequests(dialect.SQLite, Subject{ID: "user_1"}, "", 10, false)
 
 		// xid string form sorts in generation order, so id order is submission
-		// order. Adding requested_at to the sort would let a page boundary skip a
+		// order. Adding created_at to the sort would let a page boundary skip a
 		// row when two requests share a timestamp.
 		test.StrContains(t, query, "ORDER BY id ASC")
-		test.StrNotContains(t, query, "ORDER BY requested_at")
+		test.StrNotContains(t, query, "ORDER BY created_at")
 	})
 
 	T.Run("binds the limit last", func(t *testing.T) {

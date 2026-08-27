@@ -484,7 +484,7 @@ func resultFor(req *Request) *operations.Result {
 			Anonymized:    req.Anonymized,
 		})
 	} else {
-		generatedAt := req.RequestedAt
+		generatedAt := req.CreatedAt
 		if req.CompletedAt != nil {
 			generatedAt = *req.CompletedAt
 		}

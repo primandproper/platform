@@ -84,7 +84,7 @@ type Store interface {
 	// A terminal status also drops the lease: nothing will claim the instance
 	// again, and a claimed_until left in the future would keep it out of the
 	// claim index for no reason.
-	Advance(ctx context.Context, q database.Tx, inst *Record, nextAttempt time.Time) error
+	Advance(ctx context.Context, q database.Tx, inst *Record, nextAttempt, at time.Time) error
 
 	// Reschedule records a step that failed and will be tried again: the
 	// attempt count, the rendered error, and when. It drops the lease.

@@ -174,12 +174,12 @@ func (s *StoreService) Submit(ctx context.Context, subject Subject, t RequestTyp
 	now := s.clock.Now().UTC()
 
 	req := &Request{
-		ID:          identifiers.New(),
-		Type:        t,
-		Subject:     subject,
-		Status:      StatusInProgress,
-		RequestedAt: now,
-		DueAt:       now.Add(s.cfg.responseWindow(t)),
+		ID:        identifiers.New(),
+		Type:      t,
+		Subject:   subject,
+		Status:    StatusInProgress,
+		CreatedAt: now,
+		DueAt:     now.Add(s.cfg.responseWindow(t)),
 	}
 
 	// Only erasure is ever held for confirmation. An export is reversible in

@@ -233,10 +233,9 @@ func TestSQLStore_Faults(T *testing.T) {
 
 		// Advance, through execExpectingRow.
 		inst.CurrentStep = 1
-		inst.UpdatedAt = baseTime
 
 		err := faulty.WithTransaction(t.Context(), func(q database.Tx) error {
-			return faulty.Advance(t.Context(), q, inst, baseTime)
+			return faulty.Advance(t.Context(), q, inst, baseTime, baseTime)
 		})
 		test.ErrorIs(t, err, errDatabase)
 
@@ -267,9 +266,9 @@ func TestSQLStore_Faults(T *testing.T) {
 		_, err := env.client.Writer().ExecContext(t.Context(),
 			"INSERT INTO "+concrete.tables.instances+
 				" (id, definition, status, current_step, step_names, attempts, last_error, "+
-				"resume_status, started_at, updated_at, next_attempt) "+
-				"VALUES (NULL, 'orders', 'running', 0, '[\"one\"]', 0, '', '', ?, ?, ?)",
-			baseTime, baseTime, baseTime)
+				"resume_status, created_at, next_attempt) "+
+				"VALUES (NULL, 'orders', 'running', 0, '[\"one\"]', 0, '', '', ?, ?)",
+			baseTime, baseTime)
 		must.NoError(t, err)
 
 		_, err = store.Claim(t.Context(), baseTime.Add(time.Hour), 10, baseTime.Add(2*time.Hour))

@@ -297,8 +297,9 @@ type Delivery struct {
 // append-only and are the delivery log: what was tried, when, and what came
 // back.
 type Attempt struct {
-	// AttemptedAt is when the request was issued.
-	AttemptedAt time.Time `json:"attemptedAt"`
+	// CreatedAt is when the request was issued, which is the instant the log
+	// line was written.
+	CreatedAt time.Time `json:"createdAt"`
 	// ID identifies the attempt.
 	ID string `json:"id"`
 	// DeliveryID is the delivery this attempted.

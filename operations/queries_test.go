@@ -35,6 +35,16 @@ func TestBuildInsert(T *testing.T) {
 
 	test.StrContains(T, query, "INSERT INTO operations")
 	test.StrContains(T, query, "'pending'")
+
+	// last_updated_at is left out of the column list rather than seeded with the
+	// creation time. A row nothing has changed has no last mutation, and a stamp
+	// equal to created_at is a second spelling of the same fact. It is still in
+	// the RETURNING projection, which is why this looks at the insert's columns
+	// rather than at the whole statement.
+	inserted, _, found := strings.Cut(query, " VALUES ")
+	must.True(T, found)
+	test.StrContains(T, inserted, "created_at")
+	test.StrNotContains(T, inserted, "last_updated_at")
 	must.SliceLen(T, 5, args)
 	test.EqOp(T, "op1", args[0])
 	test.EqOp(T, "records", args[4])
@@ -240,6 +250,27 @@ func TestBuildRequestCancel(T *testing.T) {
 	test.SliceLen(T, 1, args)
 }
 
+// Every write that moves the row stamps it, so a watcher can tell a re-read that
+// changed from one that did not without comparing every column.
+func TestWritesStampTheLastMutation(T *testing.T) {
+	T.Parallel()
+
+	tables := newTables("")
+
+	begin, _ := tables.buildBegin("op1", 1, 30_000_000)
+	progress, _ := tables.buildProgress("op1", progressRow{}, 30_000_000)
+	finish, _ := tables.buildFinish(finishRow{id: "op1", state: StateSucceeded})
+	release, _ := tables.buildRelease("op1", "code", "message")
+	cancel, _ := tables.buildRequestCancel("op1")
+
+	for name, query := range map[string]string{
+		"begin": begin, "progress": progress, "finish": finish,
+		"release": release, "cancel": cancel,
+	} {
+		test.StrContains(T, query, "last_updated_at = now()", test.Sprintf("write %q", name))
+	}
+}
+
 func TestBuildSelectStranded(T *testing.T) {
 	T.Parallel()
 
@@ -247,7 +278,7 @@ func TestBuildSelectStranded(T *testing.T) {
 
 	// Two shapes, and they are the same fact seen from either side of Start's
 	// two writes.
-	test.StrContains(T, query, "state = 'pending' AND updated_at <= now() -")
+	test.StrContains(T, query, "state = 'pending' AND created_at <= now() -")
 	test.StrContains(T, query, "state = 'running' AND claimed_until <= now() -")
 	test.SliceLen(T, 2, args)
 }

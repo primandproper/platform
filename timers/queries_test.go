@@ -79,6 +79,23 @@ func TestBuildSchedule(T *testing.T) {
 	// The one rule that distinguishes this from a work queue's enqueue. A merge
 	// that only ever moved a timer earlier could not express the case the whole
 	// feature exists for: a deadline that moved out.
+	// created_at is left to the column's own default and last_updated_at is left
+	// unwritten, so a timer nobody has moved has no last mutation. Rescheduling
+	// is an update, and it stamps one rather than rewriting the creation time —
+	// which is what a scheduled_at reset used to do.
+	T.Run("the insert defaults created_at and the reschedule stamps the mutation", func(t *testing.T) {
+		t.Parallel()
+
+		query, _ := buildSchedule(testTable, "trials", []encodedTimer{{key: "a", runAt: instant}})
+
+		inserted, conflict, found := strings.Cut(query, " VALUES ")
+		must.True(t, found)
+		test.StrNotContains(t, inserted, "created_at")
+		test.StrNotContains(t, inserted, "last_updated_at")
+		test.StrContains(t, conflict, "last_updated_at = now()")
+		test.StrNotContains(t, conflict, "created_at = ")
+	})
+
 	T.Run("rescheduling takes the new instant outright, in either direction", func(t *testing.T) {
 		t.Parallel()
 

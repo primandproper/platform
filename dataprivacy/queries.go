@@ -47,7 +47,7 @@ func (t *tables) prefix() string {
 // requestColumns is the projection every request read scans. Declared once so
 // the SELECTs and the Scan cannot drift apart.
 const requestColumns = "id, request_type, status, operation_id, subject_id, subject_type, subject_scope, " +
-	"requested_at, due_at, expires_at, completed_at, " +
+	"created_at, due_at, expires_at, completed_at, " +
 	"artifact_ref, artifact_bytes, deleted_rows, anonymized_rows, failures, retained, last_error, " +
 	"key_shredded_at"
 
@@ -63,20 +63,20 @@ var terminalStatuses = []Status{StatusCompleted, StatusFailed, StatusExpired, St
 //
 // It is a plain INSERT rather than an upsert. A resubmission is a new request
 // with its own statutory clock, and an upsert here would let one quietly
-// overwrite the RequestedAt that clock runs from — which is the single field in
+// overwrite the CreatedAt that clock runs from — which is the single field in
 // this table a regulator is most likely to ask about.
 func (t *tables) buildInsertRequest(d dialect.Dialect, req *Request, failures, retained []byte) (query string, args []any) {
 	args = []any{
 		req.ID, string(req.Type), string(req.Status), req.OperationID,
 		req.Subject.ID, string(req.Subject.Type), req.Subject.Scope,
-		req.RequestedAt.UTC(), req.DueAt.UTC(), nullableTime(req.ExpiresAt), req.CompletedAt,
+		req.CreatedAt.UTC(), req.DueAt.UTC(), nullableTime(req.ExpiresAt), req.CompletedAt,
 		req.ArtifactRef, req.ArtifactBytes, req.Deleted, req.Anonymized,
 		database.BlobOrNil(failures), database.BlobOrNil(retained), req.LastError, req.KeyShreddedAt,
 	}
 
 	return fmt.Sprintf(
 		"INSERT INTO %s (id, request_type, status, operation_id, subject_id, subject_type, subject_scope, "+
-			"requested_at, due_at, expires_at, completed_at, "+
+			"created_at, due_at, expires_at, completed_at, "+
 			"artifact_ref, artifact_bytes, deleted_rows, anonymized_rows, failures, retained, last_error, "+
 			"key_shredded_at) "+
 			"VALUES (%s)",
@@ -98,7 +98,7 @@ func (t *tables) buildSelectRequest(d dialect.Dialect, requestID string) (query 
 // it, and a listing that silently omitted the scoped requests would be the
 // wrong answer to the one question this endpoint exists to answer.
 //
-// Ordering is on id alone rather than on (requested_at, id). identifiers.New is
+// Ordering is on id alone rather than on (created_at, id). identifiers.New is
 // xid, whose string form sorts in generation order, so id order is submission
 // order — and paginating on the single column the cursor names is what keeps a
 // page boundary from skipping a row when two requests share a timestamp.

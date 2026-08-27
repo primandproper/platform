@@ -74,9 +74,8 @@ func TestRunner_Degraded(T *testing.T) {
 		inst := saveInstance(t, store, newRecord("i1", "orders", []string{"one"}, testState{}, baseTime), baseTime)
 		inst.Status = StatusStuck
 		inst.ResumeStatus = StatusRunning
-		inst.UpdatedAt = baseTime
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime)
+			return store.Advance(t.Context(), q, inst, baseTime, baseTime)
 		}))
 
 		runner := newTestRunner(t, &failingRequeueStore{Store: store}, registry)
@@ -95,9 +94,8 @@ func TestRunner_Degraded(T *testing.T) {
 		inst := saveInstance(t, store, newRecord("i1", "orders", []string{"one"}, testState{}, baseTime), baseTime)
 		inst.Status = StatusStuck
 		inst.ResumeStatus = StatusRunning
-		inst.UpdatedAt = baseTime
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return store.Advance(t.Context(), q, inst, baseTime)
+			return store.Advance(t.Context(), q, inst, baseTime, baseTime)
 		}))
 
 		concrete, ok := store.(*SQLStore)

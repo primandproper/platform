@@ -47,19 +47,19 @@ func (t *tables) prefix() string {
 // instanceColumns is the projection every instance read scans. Declared once so
 // the SELECTs and the Scan cannot drift apart.
 const instanceColumns = "id, definition, status, current_step, step_names, state, " +
-	"attempts, last_error, resume_status, started_at, updated_at"
+	"attempts, last_error, resume_status, created_at, last_updated_at"
 
 // buildInsertInstance renders the instance write.
 func (t *tables) buildInsertInstance(d dialect.Dialect, inst *Record, stepNames []byte, nextAttempt time.Time) (query string, args []any) {
 	args = []any{
 		inst.ID, inst.Definition, string(inst.Status), inst.CurrentStep, string(stepNames),
 		database.BlobOrNil(inst.State), inst.Attempts, inst.LastError, string(inst.ResumeStatus),
-		inst.StartedAt.UTC(), inst.UpdatedAt.UTC(), nextAttempt.UTC(),
+		inst.CreatedAt.UTC(), nextAttempt.UTC(),
 	}
 
 	return fmt.Sprintf(
 		"INSERT INTO %s (id, definition, status, current_step, step_names, state, "+
-			"attempts, last_error, resume_status, started_at, updated_at, next_attempt) VALUES (%s)",
+			"attempts, last_error, resume_status, created_at, next_attempt) VALUES (%s)",
 		t.instances, d.Placeholders(1, len(args)),
 	), args
 }
@@ -103,7 +103,7 @@ func (t *tables) buildListWhere(d dialect.Dialect, scope *ListScope, args []any)
 
 // buildListInstances renders a listing, cursor-paginated on id.
 //
-// Ordering is on id alone rather than on (started_at, id). identifiers.New is
+// Ordering is on id alone rather than on (created_at, id). identifiers.New is
 // xid, whose string form sorts in generation order, so id order is start order
 // — and paginating on the single column the cursor names is what keeps a page
 // boundary from skipping a row when two instances share a timestamp.
@@ -163,7 +163,7 @@ func (t *tables) buildSelectClaimable(d dialect.Dialect, now time.Time, limit in
 	query = fmt.Sprintf(
 		"SELECT id FROM %s WHERE status IN (%s) AND next_attempt <= %s "+
 			"AND (claimed_until IS NULL OR claimed_until <= %s) "+
-			"ORDER BY next_attempt, started_at, id LIMIT %s",
+			"ORDER BY next_attempt, created_at, id LIMIT %s",
 		t.instances, strings.Join(placeholders, ", "), dueArg, leaseArg, d.Placeholder(len(args)),
 	)
 
@@ -199,7 +199,7 @@ func (t *tables) buildClaim(d dialect.Dialect, ids []string, claimedUntil, at ti
 	}
 
 	return fmt.Sprintf(
-		"UPDATE %s SET claimed_until = %s, updated_at = %s, attempts = attempts + 1 "+
+		"UPDATE %s SET claimed_until = %s, last_updated_at = %s, attempts = attempts + 1 "+
 			"WHERE id IN (%s) AND status IN (%s)",
 		t.instances, d.Placeholder(1), d.Placeholder(2), idPlaceholders, strings.Join(placeholders, ", "),
 	), args
@@ -221,7 +221,7 @@ func (t *tables) buildFetchByIDs(d dialect.Dialect, ids []string) (query string,
 	}
 
 	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE id IN (%s) AND status IN (%s) ORDER BY next_attempt, started_at, id",
+		"SELECT %s FROM %s WHERE id IN (%s) AND status IN (%s) ORDER BY next_attempt, created_at, id",
 		instanceColumns, t.instances, idPlaceholders, strings.Join(placeholders, ", "),
 	), args
 }
@@ -245,7 +245,7 @@ func (t *tables) buildAdvance(d dialect.Dialect, inst *Record, nextAttempt, at t
 
 	set := fmt.Sprintf(
 		"status = %s, current_step = %s, state = %s, last_error = %s, resume_status = %s, "+
-			"updated_at = %s, next_attempt = %s, attempts = 0",
+			"last_updated_at = %s, next_attempt = %s, attempts = 0",
 		d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4),
 		d.Placeholder(5), d.Placeholder(6), d.Placeholder(7),
 	)
@@ -301,7 +301,7 @@ func (t *tables) buildReschedule(
 	where += " AND status IN (" + strings.Join(placeholders, ", ") + ")"
 
 	return fmt.Sprintf(
-		"UPDATE %s SET attempts = %s, next_attempt = %s, last_error = %s, updated_at = %s, "+
+		"UPDATE %s SET attempts = %s, next_attempt = %s, last_error = %s, last_updated_at = %s, "+
 			"claimed_until = NULL WHERE %s",
 		t.instances, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4), where,
 	), args
@@ -311,7 +311,7 @@ func (t *tables) buildReschedule(
 // not touch next_attempt, so the instance is claimable on the next cycle.
 func (t *tables) buildRelease(d dialect.Dialect, instanceID string, at time.Time) (query string, args []any) {
 	return fmt.Sprintf(
-		"UPDATE %s SET claimed_until = NULL, updated_at = %s WHERE id = %s",
+		"UPDATE %s SET claimed_until = NULL, last_updated_at = %s WHERE id = %s",
 		t.instances, d.Placeholder(1), d.Placeholder(2),
 	), []any{
 		at.UTC(), instanceID,
@@ -349,7 +349,7 @@ func (t *tables) buildRequeue(
 	// "what would Resume do with this", and an instance that is running again
 	// has already had that question answered.
 	return fmt.Sprintf(
-		"UPDATE %s SET status = %s, next_attempt = %s, updated_at = %s, "+
+		"UPDATE %s SET status = %s, next_attempt = %s, last_updated_at = %s, "+
 			"resume_status = '', attempts = 0, claimed_until = NULL WHERE %s",
 		t.instances, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), where,
 	), args

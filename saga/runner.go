@@ -159,8 +159,7 @@ func (r *StoreRunner[T]) start(
 	now := r.clock.Now().UTC()
 
 	rec := &Record{
-		StartedAt: now,
-		UpdatedAt: now,
+		CreatedAt: now,
 		State:     state,
 		// Cloned, so the instance's record of the step list cannot alias the
 		// registry's and change with it. That list is the whole of the drift
@@ -351,16 +350,16 @@ func (r *StoreRunner[T]) decode(rec *Record) (*Instance[T], error) {
 // decodeInstance copies a record into a typed instance, decoding its state.
 func decodeInstance[T any](rec *Record) (*Instance[T], error) {
 	inst := &Instance[T]{
-		StartedAt:    rec.StartedAt,
-		UpdatedAt:    rec.UpdatedAt,
-		StepNames:    slices.Clone(rec.StepNames),
-		ID:           rec.ID,
-		Definition:   rec.Definition,
-		LastError:    rec.LastError,
-		Status:       rec.Status,
-		ResumeStatus: rec.ResumeStatus,
-		CurrentStep:  rec.CurrentStep,
-		Attempts:     rec.Attempts,
+		CreatedAt:     rec.CreatedAt,
+		LastUpdatedAt: rec.LastUpdatedAt,
+		StepNames:     slices.Clone(rec.StepNames),
+		ID:            rec.ID,
+		Definition:    rec.Definition,
+		LastError:     rec.LastError,
+		Status:        rec.Status,
+		ResumeStatus:  rec.ResumeStatus,
+		CurrentStep:   rec.CurrentStep,
+		Attempts:      rec.Attempts,
 	}
 
 	if len(rec.State) > 0 {

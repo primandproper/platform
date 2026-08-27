@@ -577,6 +577,7 @@ func scanOperation(scanner database.Scanner) (*Operation, error) {
 		errorCode      string
 		errorMessage   string
 		errorRetryable bool
+		lastUpdatedAt  sql.NullTime
 		startedAt      sql.NullTime
 		finishedAt     sql.NullTime
 	)
@@ -586,7 +587,7 @@ func scanOperation(scanner database.Scanner) (*Operation, error) {
 		&unitsTotal, &op.Progress.UnitsDone, &op.Progress.Unit, &op.Progress.Count,
 		&op.Progress.CountLabel, &op.Progress.Message,
 		&resultURI, &resultDetail, &errorCode, &errorMessage, &errorRetryable,
-		&op.Revision, &op.Attempts, &op.CancelRequested, &op.CreatedAt, &op.UpdatedAt,
+		&op.Revision, &op.Attempts, &op.CancelRequested, &op.CreatedAt, &lastUpdatedAt,
 		&startedAt, &finishedAt,
 	); err != nil {
 		return nil, err
@@ -595,7 +596,11 @@ func scanOperation(scanner database.Scanner) (*Operation, error) {
 	op.State = State(state)
 	op.Done = op.State.Terminal()
 	op.CreatedAt = op.CreatedAt.UTC()
-	op.UpdatedAt = op.UpdatedAt.UTC()
+
+	if lastUpdatedAt.Valid {
+		at := lastUpdatedAt.Time.UTC()
+		op.LastUpdatedAt = &at
+	}
 
 	if unitsTotal.Valid {
 		total := int(unitsTotal.Int64)

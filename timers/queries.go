@@ -126,7 +126,7 @@ func buildSchedule(table, setName string, rows []encodedTimer) (query string, ar
 		p := func(offset int) string { return dialect.Postgres.Placeholder(len(args) + offset) }
 
 		tuples = append(tuples, fmt.Sprintf(
-			"(%s, %s, %s::timestamptz, %s::bytea, 0, now(), %s)",
+			"(%s, %s, %s::timestamptz, %s::bytea, 0, %s)",
 			p(1), p(2), p(3), p(4), epoch,
 		))
 		args = append(args, setName, rows[i].key, rows[i].runAt, rows[i].payload)
@@ -134,12 +134,12 @@ func buildSchedule(table, setName string, rows []encodedTimer) (query string, ar
 
 	query = fmt.Sprintf(
 		"INSERT INTO %s AS s "+
-			"(timer_set, timer_key, run_at, payload, attempts, scheduled_at, lease_until) "+
+			"(timer_set, timer_key, run_at, payload, attempts, lease_until) "+
 			"VALUES %s "+
 			"ON CONFLICT (timer_set, timer_key) DO UPDATE SET "+
 			"run_at = excluded.run_at, "+
 			"payload = excluded.payload, "+
-			"scheduled_at = now(), "+
+			"last_updated_at = now(), "+
 			"attempts = 0, "+
 			"last_error = NULL, "+
 			"fired_at = NULL, "+

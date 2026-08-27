@@ -277,11 +277,12 @@ type Definition[T any] struct {
 // worker pool, and the DI container that holds them are all necessarily
 // non-generic. T appears at the API surface and nowhere below it.
 type Instance[T any] struct {
-	// StartedAt is when the instance was created. It never moves.
-	StartedAt time.Time `json:"startedAt"`
+	// CreatedAt is when the instance was started. It never moves.
+	CreatedAt time.Time `json:"createdAt"`
 
-	// UpdatedAt is when the instance last changed status, cursor, or state.
-	UpdatedAt time.Time `json:"updatedAt"`
+	// LastUpdatedAt is when the instance last changed status, cursor, or state,
+	// and nil for one no worker has advanced yet.
+	LastUpdatedAt *time.Time `json:"lastUpdatedAt,omitempty"`
 
 	// State is the saga's own data, as the last completed step left it.
 	State T `json:"state"`

@@ -23,7 +23,7 @@ var _ saga.Store = &StoreMock{}
 //
 //		// make and configure a mocked saga.Store
 //		mockedStore := &StoreMock{
-//			AdvanceFunc: func(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error {
+//			AdvanceFunc: func(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time, at time.Time) error {
 //				panic("mock out the Advance method")
 //			},
 //			ClaimFunc: func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*saga.Record, error) {
@@ -58,7 +58,7 @@ var _ saga.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// AdvanceFunc mocks the Advance method.
-	AdvanceFunc func(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error
+	AdvanceFunc func(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time, at time.Time) error
 
 	// ClaimFunc mocks the Claim method.
 	ClaimFunc func(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*saga.Record, error)
@@ -96,6 +96,8 @@ type StoreMock struct {
 			Inst *saga.Record
 			// NextAttempt is the nextAttempt argument value.
 			NextAttempt time.Time
+			// At is the at argument value.
+			At time.Time
 		}
 		// Claim holds details about calls to the Claim method.
 		Claim []struct {
@@ -192,7 +194,7 @@ type StoreMock struct {
 }
 
 // Advance calls AdvanceFunc.
-func (mock *StoreMock) Advance(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time) error {
+func (mock *StoreMock) Advance(ctx context.Context, q database.Tx, inst *saga.Record, nextAttempt time.Time, at time.Time) error {
 	if mock.AdvanceFunc == nil {
 		panic("StoreMock.AdvanceFunc: method is nil but Store.Advance was just called")
 	}
@@ -201,16 +203,18 @@ func (mock *StoreMock) Advance(ctx context.Context, q database.Tx, inst *saga.Re
 		Q           database.Tx
 		Inst        *saga.Record
 		NextAttempt time.Time
+		At          time.Time
 	}{
 		Ctx:         ctx,
 		Q:           q,
 		Inst:        inst,
 		NextAttempt: nextAttempt,
+		At:          at,
 	}
 	mock.lockAdvance.Lock()
 	mock.calls.Advance = append(mock.calls.Advance, callInfo)
 	mock.lockAdvance.Unlock()
-	return mock.AdvanceFunc(ctx, q, inst, nextAttempt)
+	return mock.AdvanceFunc(ctx, q, inst, nextAttempt, at)
 }
 
 // AdvanceCalls gets all the calls that were made to Advance.
@@ -222,12 +226,14 @@ func (mock *StoreMock) AdvanceCalls() []struct {
 	Q           database.Tx
 	Inst        *saga.Record
 	NextAttempt time.Time
+	At          time.Time
 } {
 	var calls []struct {
 		Ctx         context.Context
 		Q           database.Tx
 		Inst        *saga.Record
 		NextAttempt time.Time
+		At          time.Time
 	}
 	mock.lockAdvance.RLock()
 	calls = mock.calls.Advance

@@ -10,6 +10,12 @@
 -- Consume locks. Deriving it from the events table on every read would be a
 -- group-by over a table that grows with traffic, on the path this package exists
 -- to keep cheap.
+-- No convention triple here, and that is deliberate. A retention sweep deletes
+-- these rows outright once they age past the window, so archived_at would either
+-- do nothing or keep the table growing forever; recorded_at is the retention key
+-- rather than a creation stamp, and the row is written once and never updated,
+-- so there is no last mutation for last_updated_at to record. The totals table
+-- below is the one meant to be kept, and it carries the triple.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}metering_events (
     -- Dedupe is an INSERT that either takes or does not, decided by the database
     -- in one round trip, and durable for as long as the row is retained. A
@@ -63,7 +69,9 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}metering_totals (
     next_flush       DATETIME NOT NULL,
     claimed_until    DATETIME,
     last_error       TEXT NOT NULL DEFAULT '',
-    updated_at       DATETIME NOT NULL,
+    created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_at  DATETIME,
+    archived_at      DATETIME,
     PRIMARY KEY (subject, meter, period_start)
 );
 

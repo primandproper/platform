@@ -103,7 +103,11 @@ func TestBuildShred(T *testing.T) {
 			// The guard is what makes a second shred a no-op instead of
 			// rewriting the timestamp of a destruction that already happened.
 			test.StrContains(t, query, "shredded_at IS NULL", test.Sprintf("dialect %q", d))
-			test.Eq(t, []any{baseTime, testSubject.Type, testSubject.ID}, args, test.Sprintf("dialect %q", d))
+
+			// The destruction is one event, so the row's last-mutation stamp is
+			// the same instant as the tombstone rather than a second clock read.
+			test.StrContains(t, query, "last_updated_at = ", test.Sprintf("dialect %q", d))
+			test.Eq(t, []any{baseTime, baseTime, testSubject.Type, testSubject.ID}, args, test.Sprintf("dialect %q", d))
 		}
 	})
 }

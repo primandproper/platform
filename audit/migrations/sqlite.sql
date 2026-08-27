@@ -1,3 +1,12 @@
+-- No convention triple here, and each of the three columns is absent for its own
+-- reason. recorded_at is folded into every entry's hash, computed in Go before
+-- the INSERT and re-hashed on verification, so a database-assigned creation stamp
+-- would store a value the hash does not cover and read back as tampering; it is
+-- caller-assignable by design rather than a creation time, and this package
+-- refuses to order by it because it is not monotonic. The table is append-only by
+-- trigger besides, so last_updated_at and archived_at would be columns no
+-- statement can write. audit_log_chains, below, is a different table and carries
+-- the triple.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_entries (
     id            TEXT PRIMARY KEY,
     seq           BIGINT NOT NULL,
@@ -34,5 +43,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_chains (
     head_hash           TEXT NOT NULL DEFAULT '',
     pruned_through_seq  BIGINT NOT NULL DEFAULT -1,
     pruned_through_hash TEXT NOT NULL DEFAULT '',
-    updated_at          DATETIME NOT NULL
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_updated_at     DATETIME,
+    archived_at         DATETIME
 );

@@ -142,7 +142,7 @@ func (cfg *RetentionConfig) ValidateWithContext(ctx context.Context) error {
 // It is a value type with exported fields, like retention.Table, so a policy
 // set still reads as data.
 type PruneTarget struct {
-	// Clock stamps the prune watermark's updated_at. Nil means the system
+	// Clock stamps the prune watermark's last_updated_at. Nil means the system
 	// clock; it is here so a test can pin the value, and because nothing else
 	// in this package reads the wall clock directly either.
 	Clock clock.Clock

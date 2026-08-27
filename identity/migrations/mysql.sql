@@ -64,6 +64,12 @@ CREATE INDEX {{PREFIX}}identity_users_email_token_idx
 -- granted by different people. An operator's "support" role does not make them
 -- a member of anybody's account, and a role set that conflated the two would
 -- put them on every roster.
+--
+-- No convention triple, unlike every table this one hangs off. Nothing lists,
+-- filters or soft-deletes a role grant independently of its parent: the grants
+-- are rewritten wholesale when the parent's role set changes, and archiving the
+-- parent already hides them. created_at, last_updated_at and archived_at here
+-- would be three columns no statement in this package reads or writes.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_user_roles (
     user_id VARCHAR(64) NOT NULL,
     role    VARCHAR(255) NOT NULL,
@@ -143,6 +149,12 @@ CREATE INDEX {{PREFIX}}identity_memberships_account_idx
 -- deployment. Nothing in this package's Store asks that question today, and the
 -- table is what makes it possible to add without a migration that has to
 -- rewrite every row.
+--
+-- No convention triple, unlike every table this one hangs off. Nothing lists,
+-- filters or soft-deletes a role grant independently of its parent: the grants
+-- are rewritten wholesale when the parent's role set changes, and archiving the
+-- parent already hides them. created_at, last_updated_at and archived_at here
+-- would be three columns no statement in this package reads or writes.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_membership_roles (
     membership_id VARCHAR(64) NOT NULL,
     role          VARCHAR(255) NOT NULL,
@@ -189,6 +201,12 @@ CREATE INDEX {{PREFIX}}identity_invitations_account_idx
 -- The roles an invitation promises, fixed at invitation time so that what
 -- somebody was invited to is what they get. Same shape, and the same reason, as
 -- the membership roles above.
+--
+-- No convention triple, unlike every table this one hangs off. Nothing lists,
+-- filters or soft-deletes a role grant independently of its parent: the grants
+-- are rewritten wholesale when the parent's role set changes, and archiving the
+-- parent already hides them. created_at, last_updated_at and archived_at here
+-- would be three columns no statement in this package reads or writes.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_invitation_roles (
     invitation_id VARCHAR(64) NOT NULL,
     role          VARCHAR(255) NOT NULL,

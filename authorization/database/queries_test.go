@@ -118,6 +118,19 @@ func TestResolver_QueryBuilders(T *testing.T) {
 		test.StrContains(t, query, "archived_at = NULL")
 	})
 
+	// The row's last-mutation stamp comes from the server's clock, for the
+	// reason querygen.NowExpression gives: a stamp and the window a filter
+	// compares it against have to come from one clock.
+	T.Run("the named update stamps the row's last mutation", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range allDialects() {
+			query := newQueryBuilder(t, d).updateNamedQuery(rolesTable)
+
+			test.StrContains(t, query, "last_updated_at = CURRENT_TIMESTAMP", test.Sprintf("dialect %q", d))
+		}
+	})
+
 	T.Run("the batched insert scales its tuples", func(t *testing.T) {
 		t.Parallel()
 

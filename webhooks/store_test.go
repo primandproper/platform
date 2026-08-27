@@ -313,7 +313,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		must.NoError(t, store.RecordAttempt(ctxFor(t), &Attempt{
 			DeliveryID: delivery.ID, EndpointID: "endpoint-1",
-			AttemptCount: 1, StatusCode: 200, AttemptedAt: baseTime,
+			AttemptCount: 1, StatusCode: 200, CreatedAt: baseTime,
 		}))
 
 		listed, err := store.ListAttempts(ctxFor(t), testScope, delivery.ID, filtering.DefaultQueryFilter())
@@ -653,12 +653,12 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, store.RecordAttempt(ctxFor(t), &Attempt{
 			DeliveryID: delivery.ID, EndpointID: "endpoint-1",
 			AttemptCount: 1, StatusCode: 500, Error: "boom",
-			Duration: 250 * time.Millisecond, AttemptedAt: baseTime,
+			Duration: 250 * time.Millisecond, CreatedAt: baseTime,
 		}))
 		must.NoError(t, store.RecordAttempt(ctxFor(t), &Attempt{
 			DeliveryID: delivery.ID, EndpointID: "endpoint-1",
 			AttemptCount: 2, StatusCode: 200,
-			Duration: 120 * time.Millisecond, AttemptedAt: baseTime.Add(time.Minute),
+			Duration: 120 * time.Millisecond, CreatedAt: baseTime.Add(time.Minute),
 		}))
 
 		listed, err := store.ListAttempts(ctxFor(t), testScope, delivery.ID, filtering.DefaultQueryFilter())
@@ -673,7 +673,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, "boom", first.Error)
 		test.EqOp(t, 250*time.Millisecond, first.Duration)
 		test.False(t, first.Succeeded())
-		test.EqOp(t, baseTime.Unix(), first.AttemptedAt.Unix())
+		test.EqOp(t, baseTime.Unix(), first.CreatedAt.Unix())
 
 		test.EqOp(t, 2, second.AttemptCount)
 		test.True(t, second.Succeeded())
@@ -788,7 +788,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		must.NoError(t, store.RecordAttempt(ctxFor(t), &Attempt{
 			DeliveryID: delivery.ID, EndpointID: "endpoint-1",
-			AttemptCount: 1, StatusCode: 200, AttemptedAt: baseTime,
+			AttemptCount: 1, StatusCode: 200, CreatedAt: baseTime,
 		}))
 		must.NoError(t, store.MarkDelivered(ctxFor(t), claimed[0].ID, baseTime))
 
@@ -906,7 +906,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			must.NoError(t, store.RecordAttempt(ctxFor(t), &Attempt{
 				DeliveryID: delivery.ID, EndpointID: "endpoint-1",
 				AttemptCount: i + 1, StatusCode: 500,
-				AttemptedAt: baseTime.Add(time.Duration(i) * time.Minute),
+				CreatedAt: baseTime.Add(time.Duration(i) * time.Minute),
 			}))
 		}
 

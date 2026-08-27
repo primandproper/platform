@@ -70,6 +70,36 @@ func TestBuilders(T *testing.T) {
 			test.EqOp(t, strings.Count(columns, ",")+1, len(args))
 
 			assertPlaceholders(t, d, query, args)
+
+			// created_at is written and last_updated_at is not: an instance no
+			// worker has advanced has no last mutation, and a stamp equal to the
+			// creation time is a second spelling of the same fact.
+			test.StrContains(t, columns, "created_at")
+			test.StrNotContains(t, columns, "last_updated_at")
+		}
+	})
+
+	// Every write that moves an instance stamps it, which is what makes
+	// last_updated_at mean "a worker has been here" rather than "the row exists".
+	T.Run("every write stamps the last mutation", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range allDialects {
+			tbl := newTables("")
+
+			advance, _ := tbl.buildAdvance(d, inst, baseTime, baseTime)
+			claim, _ := tbl.buildClaim(d, []string{"i1"}, baseTime, baseTime)
+			reschedule, _ := tbl.buildReschedule(d, "i1", 3, baseTime, "boom", baseTime)
+			release, _ := tbl.buildRelease(d, "i1", baseTime)
+			requeue, _ := tbl.buildRequeue(d, "i1", []Status{StatusStuck}, StatusRunning, baseTime)
+
+			for name, query := range map[string]string{
+				"advance": advance, "claim": claim, "reschedule": reschedule,
+				"release": release, "requeue": requeue,
+			} {
+				test.StrContains(t, query, "last_updated_at = ",
+					test.Sprintf("dialect %q write %q", d, name))
+			}
 		}
 	})
 

@@ -377,7 +377,7 @@ func (w *Worker) deliver(ctx context.Context, dispatch *ClaimedDispatch) (*Attem
 		DeliveryID:   dispatch.DeliveryID,
 		EndpointID:   dispatch.EndpointID,
 		AttemptCount: dispatch.Attempts,
-		AttemptedAt:  w.clock.Now().UTC(),
+		CreatedAt:    w.clock.Now().UTC(),
 	}
 
 	if breaker.CannotProceed() {

@@ -59,8 +59,8 @@ func TestStatements(T *testing.T) {
 			create := stmts[0]
 			for _, column := range []string{
 				"id", "definition", "status", "current_step", "step_names", "state",
-				"attempts", "last_error", "resume_status", "started_at", "updated_at",
-				"next_attempt", "claimed_until",
+				"attempts", "last_error", "resume_status", "created_at", "last_updated_at",
+				"archived_at", "next_attempt", "claimed_until",
 			} {
 				test.StrContains(t, create, column, test.Sprintf("dialect %q column %q", d, column))
 			}
