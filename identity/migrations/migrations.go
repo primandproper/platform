@@ -64,6 +64,29 @@ the mistake tenancy.Scope is shaped to make unspellable in Go: an unset scope
 fails at Value rather than widening a predicate. The column enforces the same
 rule for a writer that did not come through SQLStore, and the write fails.
 
+# owner_user_id has no foreign key, and every other belongs-to column does
+
+identity_memberships references both parents, identity_invitations references
+the account, and the two role tables cascade from theirs. identity_accounts's
+owner_user_id references nothing, and that is a decision rather than the
+oversight the asymmetry looks like.
+
+Neither behavior the clause offers is the one this column wants. ON DELETE
+CASCADE would destroy an organization, its invoices and every other member's
+work because one member exercised a right to be forgotten — the erasure of a
+person taking a company with it. ON DELETE RESTRICT would refuse the erasure,
+which a right-to-be-forgotten transaction cannot survive: it spans every domain
+and has to commit, and a subject whose rights depend on an account they may not
+administer does not have them. SET NULL is not open to it either, since the
+column is NOT NULL — and it could not be otherwise, because an account with no
+owner is the state the whole guard exists to prevent.
+
+So the reference is one the application keeps. identity.Store's ArchiveUser
+refuses while a user still owns a live account, naming the account, which is the
+path that has an alternative — transfer it, or archive it. EraseUser is the path
+that does not, and it documents what it leaves behind: an account whose
+owner_user_id names an id that no longer exists anywhere.
+
 The rendering and prefix vetting live in database/ddl, shared with every other
 schema-shipping package in this module.
 */

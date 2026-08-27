@@ -64,10 +64,14 @@ var (
 	// rows were written by something else.
 	ErrNoDefaultAccount = platformerrors.New("user has no default account")
 
-	// ErrLastAccountOwner indicates an attempt to remove the only owner of an
-	// account. An ownerless account is unreachable by every permission check
-	// that resolves through its owner, so the removal is refused rather than
-	// leaving one behind.
+	// ErrLastAccountOwner indicates an act that would leave an account without
+	// an owner: removing the owner's membership, or archiving the owner
+	// themselves. An ownerless account is unreachable by every permission check
+	// that resolves through its owner, so both are refused rather than leaving
+	// one behind, and the error names the account that has to move first.
+	//
+	// EraseUser is the one path that reaches the same state and does not return
+	// this, because it cannot: see Store.EraseUser.
 	ErrLastAccountOwner = platformerrors.New("cannot remove the last owner of an account")
 
 	// ErrInvitationExpired indicates an invitation whose ExpiresAt has passed.

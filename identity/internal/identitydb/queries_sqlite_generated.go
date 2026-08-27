@@ -230,6 +230,15 @@ WHERE {{prefix}}identity_memberships.archived_at IS NULL
 	AND {{prefix}}identity_memberships.belongs_to_user = ?2
 	AND {{prefix}}identity_memberships.belongs_to_account = ?3`
 
+const getOwnedAccountIdforUserSQLite = `SELECT
+	{{prefix}}identity_accounts.id
+FROM {{prefix}}identity_accounts
+WHERE {{prefix}}identity_accounts.archived_at IS NULL
+	AND {{prefix}}identity_accounts.scope = ?1
+	AND {{prefix}}identity_accounts.owner_user_id = ?2
+ORDER BY {{prefix}}identity_accounts.id ASC
+LIMIT 1`
+
 const getUserSQLite = `SELECT
 	{{prefix}}identity_users.id,
 	{{prefix}}identity_users.scope,
@@ -967,6 +976,7 @@ type sqliteQueries struct {
 	getMembershipByUserAndAccount        string
 	getMembershipFallbackAccountID       string
 	getMembershipIdbyUserAndAccount      string
+	getOwnedAccountIdforUser             string
 	getUser                              string
 	getUserByEmailAddress                string
 	getUserByEmailVerificationToken      string
@@ -1015,6 +1025,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		getMembershipByUserAndAccount:        strings.ReplaceAll(getMembershipByUserAndAccountSQLite, prefixMarker, prefix),
 		getMembershipFallbackAccountID:       strings.ReplaceAll(getMembershipFallbackAccountIDSQLite, prefixMarker, prefix),
 		getMembershipIdbyUserAndAccount:      strings.ReplaceAll(getMembershipIdbyUserAndAccountSQLite, prefixMarker, prefix),
+		getOwnedAccountIdforUser:             strings.ReplaceAll(getOwnedAccountIdforUserSQLite, prefixMarker, prefix),
 		getUser:                              strings.ReplaceAll(getUserSQLite, prefixMarker, prefix),
 		getUserByEmailAddress:                strings.ReplaceAll(getUserByEmailAddressSQLite, prefixMarker, prefix),
 		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenSQLite, prefixMarker, prefix),
@@ -1316,6 +1327,22 @@ func (q *sqliteQueries) GetMembershipIDByUserAndAccount(ctx context.Context, db 
 	)
 
 	var i GetMembershipIDByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// GetOwnedAccountIDForUser runs the :one query against sqlite.
+func (q *sqliteQueries) GetOwnedAccountIDForUser(ctx context.Context, db DBTX, arg GetOwnedAccountIDForUserParams) (GetOwnedAccountIDForUserRow, error) {
+	row := db.QueryRowContext(ctx, q.getOwnedAccountIdforUser,
+		arg.Scope,
+		arg.OwnerUserID,
+	)
+
+	var i GetOwnedAccountIDForUserRow
 
 	err := row.Scan(
 		&i.ID,
@@ -2371,6 +2398,13 @@ var (
 	_ = struct {
 		ID string
 	}(GetMembershipIDByUserAndAccountRow{})
+	_ = struct {
+		Scope       tenancy.Scope
+		OwnerUserID string
+	}(GetOwnedAccountIDForUserParams{})
+	_ = struct {
+		ID string
+	}(GetOwnedAccountIDForUserRow{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope
