@@ -35,7 +35,7 @@ func (a Agreement) Valid() bool {
 
 // Principal is a user together with the memberships that say what they may do:
 // everything an authorization check, a session, or a request context needs
-// about who is calling, read in one round trip.
+// about who is calling, assembled by one call.
 //
 // It exists because every application builds this by hand out of three queries
 // on the hottest path it has — the one every authenticated request runs — and
@@ -251,7 +251,18 @@ type SignInReader interface {
 	GetUserByEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string) (*User, error)
 
 	// GetPrincipal reads a user with their memberships and resolves which
-	// account the request is against, in one round trip.
+	// account the request is against.
+	//
+	// One call, four statements, no shared snapshot. The user, the service
+	// roles they hold outside any account, their memberships, and the roles on
+	// those memberships are four reads, each taken from the read side on its
+	// own rather than from a single transaction — so a write landing partway
+	// through shows in whichever of the four have yet to run and not in the
+	// ones already back. That is the shape to size a connection pool and a
+	// consistency expectation against, on the path every authenticated request
+	// runs. Whether it should become fewer statements is a question about this
+	// method rather than about its callers: the answer changes here and nothing
+	// above it moves.
 	//
 	// An empty activeAccountID means the user's default account. A named one
 	// must be an account the user is a live member of; otherwise the read
