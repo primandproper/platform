@@ -70,6 +70,14 @@ const MaxIdentifierLength = 63
 // anyone maintaining a list of them.
 var placeholderToken = regexp.MustCompile(regexp.QuoteMeta(Placeholder) + `[A-Za-z0-9_]*`)
 
+// createTableToken matches a CREATE TABLE's name, which is the placeholder
+// token in the one position that means "this schema creates a table here"
+// rather than "this schema names one". An index names its table too, and a
+// foreign key names another package's — so the tables cannot be read off
+// placeholderToken's matches, and the statement keyword is what separates them.
+var createTableToken = regexp.MustCompile(
+	`(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?` + regexp.QuoteMeta(Placeholder) + `([A-Za-z0-9_]+)`)
+
 // ErrPrefixTooLong indicates a prefix that renders an identifier longer than the
 // supported engines accept. It is distinct from dialect.ErrInvalidIdentifier
 // because the fix is different: the prefix is well-formed, just too long.
@@ -166,6 +174,48 @@ func (s Schema) Identifiers(namespace string) []string {
 		}
 	}
 
+	return sorted(seen)
+}
+
+// Tables returns every table the schema creates under prefix, across all three
+// dialects, sorted and deduplicated.
+//
+// It is the answer to "what tables did this package create", which is a question
+// with consumers that have nothing to do with SQL text: the TRUNCATE an
+// integration suite runs between tests, a backup policy, a schema audit, a data
+// privacy inventory. Every schema-shipping package in this module should reach
+// it through an exported Tables of its own beside SQL and Statements — see
+// identity/migrations — because the alternative is a consumer hand-copying the
+// names out of the .sql and drifting from it at the first table added.
+//
+// Complete by construction, which is the property the list is worth having for:
+// it is read out of the DDL rather than from a list somebody maintains beside
+// it, so a table added to the .sql files is in this list the moment it is added.
+// A table the DDL creates without the placeholder would be missed — and would
+// also be a table created outside the consumer's namespace, which ValidatePrefix
+// cannot see either.
+//
+// It is deliberately not an ordering a caller can delete in, for the reason
+// querygen.Registry.Tables gives: foreign keys make deletion order a fact about
+// the schema that a set of names cannot express, so a consumer truncating these
+// wants the dialect's own way of ignoring the constraints rather than a sequence
+// inferred from this slice.
+func (s Schema) Tables(namespace string) []string {
+	seen := map[string]struct{}{}
+	qualifier := Qualify(namespace)
+
+	for _, body := range []string{s.Postgres, s.MySQL, s.SQLite} {
+		for _, match := range createTableToken.FindAllStringSubmatch(body, -1) {
+			seen[qualifier+match[1]] = struct{}{}
+		}
+	}
+
+	return sorted(seen)
+}
+
+// sorted renders a set of rendered names as the sorted slice Identifiers and
+// Tables both return.
+func sorted(seen map[string]struct{}) []string {
 	out := make([]string, 0, len(seen))
 	for name := range seen {
 		out = append(out, name)

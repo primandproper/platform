@@ -99,6 +99,11 @@ rendered per dialect and table prefix, and hands to database/migrate's
 WithGeneratedMigration so nothing is copied into a consumer's repository. See
 that package for why no numbered migration file ships.
 
+That package also answers which tables exist, at your prefix, through its Tables
+function — the list is complete and read from the DDL, so a between-tests
+TRUNCATE, a backup policy or a privacy inventory names every one of them without
+anybody copying seven names out of the schema.
+
 # What a consumer still writes
 
 The service layer, and that is the point of the split. Registration policy —

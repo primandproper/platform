@@ -1,15 +1,18 @@
 package identity
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/identity/internal/queries"
+	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 // allDialects is what every rendering assertion runs against, because the
@@ -34,6 +37,37 @@ func TestTables_Naming(t *testing.T) {
 	prefixed := newTables("ddb")
 	test.EqOp(t, "ddb_identity_users", prefixed.users)
 	test.EqOp(t, "ddb", prefixed.prefix())
+}
+
+// TestTables_AreTheOnesMigrationsExports is what makes migrations.Tables
+// complete for the caller who has to act on every table identity created —
+// truncating them between integration tests, inventorying them, backing them up.
+//
+// The store addresses seven tables and renders each name itself; the exported
+// list is read out of the DDL. A table the store writes to and the list omits is
+// a table left behind by a maintenance TRUNCATE, and the failure would surface
+// as some later test finding rows it did not write.
+func TestTables_AreTheOnesMigrationsExports(t *testing.T) {
+	t.Parallel()
+
+	for _, prefix := range []string{"", "ddb"} {
+		exported, err := migrations.Tables(prefix)
+		must.NoError(t, err)
+
+		rendered := newTables(prefix)
+		addressed := []string{
+			rendered.users,
+			rendered.userRoles,
+			rendered.accounts,
+			rendered.memberships,
+			rendered.membershipRoles,
+			rendered.invitations,
+			rendered.invitationRoles,
+		}
+		slices.Sort(addressed)
+
+		test.Eq(t, exported, addressed, test.Sprintf("prefix %q", prefix))
+	}
 }
 
 // TestBinder_NeverReusesAPlaceholder is the regression guard for the mistake
