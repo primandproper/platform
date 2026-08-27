@@ -13,6 +13,9 @@ symptom would be a check that passes over SQL nobody executes.
 
 So it is spelled once, here, and both halves read it. The .sql files beside this
 file are the generator's output — see [Render] and identity/internal/queriesgen.
+Why the rendered .sql is committed at all, when the generated Go beside it in
+identity/internal/identitydb carries the same statements in executable form, is
+identity's package comment, under "Where the SQL comes from".
 
 # Which queries each table gets
 
