@@ -1,12 +1,12 @@
--- No convention triple here, and each of the three columns is absent for its own
--- reason. recorded_at is folded into every entry's hash, computed in Go before
--- the INSERT and re-hashed on verification, so a database-assigned creation stamp
--- would store a value the hash does not cover and read back as tampering; it is
--- caller-assignable by design rather than a creation time, and this package
--- refuses to order by it because it is not monotonic. The table is append-only by
--- trigger besides, so last_updated_at and archived_at would be columns no
--- statement can write. audit_log_chains, below, is a different table and carries
--- the triple.
+-- No convention triple on this table, and each of the three columns is absent
+-- for its own reason. recorded_at is folded into every entry's hash, computed
+-- in Go before the INSERT and re-hashed on verification, so a database-assigned
+-- creation stamp would store a value the hash does not cover and read back as
+-- tampering; it is caller-assignable by design rather than a creation time, and
+-- this package refuses to order by it because it is not monotonic. The table is
+-- append-only by trigger besides, so last_updated_at and archived_at would be
+-- columns no statement can write. audit_log_chains, below, is a different table
+-- and carries the triple.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_entries (
     id            TEXT PRIMARY KEY,
     seq           BIGINT NOT NULL,
@@ -62,6 +62,16 @@ CREATE INDEX IF NOT EXISTS {{PREFIX}}audit_log_entries_resource_idx
 -- It also survives pruning. Once retention deletes a scope's last surviving
 -- entry there is nothing left to derive a head from, and a chain that restarted
 -- at zero would collide with positions it had already used.
+--
+-- Unlike the entries it serializes, this row mutates — every append advances
+-- the head and every retention pass moves the prune marker — so the entries'
+-- exemption does not apply and the row carries the convention triple:
+-- created_at is when the scope's chain began, and both writes stamp
+-- last_updated_at. archived_at is written by no statement here — suppressing a
+-- scope's tamper-evidence is not an operation this package offers — and is
+-- carried because a conventional table has all three columns or none. Keyed on
+-- scope rather than id, the table is conventional in schema only until the
+-- generator can address a natural key.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_chains (
     scope               TEXT PRIMARY KEY,
     head_seq            BIGINT NOT NULL DEFAULT -1,
