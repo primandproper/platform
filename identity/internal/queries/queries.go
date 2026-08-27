@@ -47,10 +47,16 @@ const (
 // upsert converges on them: the schema's UNIQUE, the upsert's ON CONFLICT and
 // the store's own reads all name these two columns, and a conflict target that
 // disagreed with the key would insert a second row where it meant to revive the
-// first.
+// first. The junction lists name the pair too — in the join, in the key a list
+// is read by, and in the order it comes back in — which is why they are here
+// rather than at each call site.
+//
+// MembershipDefaultColumn is the flag that decides which account a user lands
+// in: the one column the standard update assigns and a rejoin may carry over.
 const (
 	MembershipUserColumn    = "belongs_to_user"
 	MembershipAccountColumn = querygen.BelongsToAccountColumn
+	MembershipDefaultColumn = "default_account"
 )
 
 // The columns the field-specific writes assign, and the arguments the guarded
@@ -225,9 +231,10 @@ var Invitations = Table{
 // Memberships is the many-to-many between the two, with facts of its own.
 //
 // It gets no standard queries — every one of its statements keys on the (user,
-// account) pair rather than on the id — but the three keyed reads below and the
-// upsert that revives an archived membership when a user rejoins are emitted
-// from it, so its columns are the canonical corpus's as well as the store's.
+// account) pair rather than on the id — but the three keyed reads below, the
+// upsert that revives an archived membership when a user rejoins, and the three
+// junction lists that cross it are all emitted from it, so its columns are the
+// canonical corpus's as well as the store's.
 //
 // Updatable is the one column a rejoin may carry over, and stating it is what
 // keeps the upsert's conflict branch off the rest: the id is what the
@@ -242,12 +249,12 @@ var Memberships = Table{
 		ScopeColumn,
 		MembershipUserColumn,
 		MembershipAccountColumn,
-		"default_account",
+		MembershipDefaultColumn,
 		querygen.CreatedAtColumn,
 		querygen.LastUpdatedAtColumn,
 		querygen.ArchivedAtColumn,
 	},
-	Updatable: []string{"default_account"},
+	Updatable: []string{MembershipDefaultColumn},
 }
 
 // Emitted is the tables the canonical .sql covers with the standard set, in the
@@ -278,6 +285,7 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, createdAtReads(g)...)
 	rendered = append(rendered, keyedUserReads(g)...)
 	rendered = append(rendered, keyedMembershipReads(g)...)
+	rendered = append(rendered, junctionLists(g)...)
 	rendered = append(rendered, usernamePrefixSearch(g)...)
 	rendered = append(rendered, fieldWrites(g)...)
 	rendered = append(rendered, membershipUpsert(g))
@@ -505,6 +513,72 @@ func keyedMembershipReads(g *querygen.Generator) []*querygen.Query {
 				Order:      MembershipAccountColumn,
 			},
 			scope, user, querygen.Match{Column: MembershipAccountColumn, Exclude: true}),
+	}
+}
+
+// junctionLists is the three reads that cross the membership junction: an
+// account's roster, the accounts a user belongs to, and a user's own
+// memberships.
+//
+// They were the last statements identity ran that no generator could render,
+// because every other query here projects one table's columns and these span
+// two. That is what kept a hand-paired two-entity scanner alive after everything
+// single-table had been ported — a projection and a list of scan targets written
+// in two files, where a mismatch is a runtime scan error rather than a failed
+// build.
+//
+// Which table is listed and which is joined is decided by what a page is a page
+// of, and the two differ here. A roster is a page of memberships with the member
+// attached, so memberships is listed and its cursor is the membership id; a
+// user's account list is a page of accounts reached through memberships, so
+// accounts is listed and the membership contributes only its key. Reversing
+// either would page over an id the caller never sees.
+func junctionLists(g *querygen.Generator) []*querygen.Query {
+	scope := querygen.Match{Column: ScopeColumn}
+
+	return []*querygen.Query{
+		// The roster. The user's columns are projected beside the membership's
+		// under a user_ prefix, so a page of thirty members is one query rather
+		// than thirty-one, and the two tables' shared column names — id, scope,
+		// created_at — stay distinguishable in the row type.
+		g.JunctionListQuery("ListAccountMembers", MembershipsTable, Memberships.Columns,
+			&querygen.Junction{
+				Table:    UsersTable,
+				Column:   querygen.IDColumn,
+				OnColumn: MembershipUserColumn,
+				Columns:  Users.Columns,
+				Prefix:   "user",
+			},
+			scope, querygen.Match{Column: MembershipAccountColumn}),
+
+		// The accounts a user is a live member of. The membership's columns are
+		// declared and not projected: the caller wants accounts, and what the
+		// junction owes the statement is its key and the requirement that the
+		// membership itself has not been archived — a user removed from an
+		// account they are still nominally listed against would otherwise keep
+		// seeing it in their switcher.
+		g.JunctionListQuery("ListAccountsForUser", AccountsTable, Accounts.Columns,
+			&querygen.Junction{
+				Table:    MembershipsTable,
+				Column:   MembershipAccountColumn,
+				OnColumn: querygen.IDColumn,
+				Columns:  Memberships.Columns,
+				Matches:  []querygen.Match{{Column: MembershipUserColumn}},
+			},
+			scope),
+
+		// A user's memberships, default account first — so a caller that takes
+		// the first row gets the one the user lands in. Unpaged and unjoined:
+		// it answers "where may this principal act", which is every row or none
+		// of them, and the account behind each is read separately when it is
+		// read at all.
+		g.JunctionListAllQuery("ListMembershipsForUser", MembershipsTable, Memberships.Columns,
+			nil,
+			[]querygen.Order{
+				{Column: MembershipDefaultColumn, Descending: true},
+				{Column: MembershipAccountColumn},
+			},
+			scope, querygen.Match{Column: MembershipUserColumn}),
 	}
 }
 

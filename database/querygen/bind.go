@@ -282,7 +282,7 @@ func (r Read) projecting(columns []string) []string {
 // Each match binds under its own column name, so a caller assembles the argument
 // map by column and Bind puts the values where this dialect wants them.
 func (g *Generator) BoundList(table string, columns []string, matches ...Match) Bound {
-	return g.bound(g.listStatement(table, columns, "", matches...))
+	return g.bound(g.listStatement(table, columns, "", nil, matches...))
 }
 
 // ListQuery is BoundList's canonical form: the same statement, in the sqlc
@@ -301,7 +301,7 @@ func (g *Generator) BoundList(table string, columns []string, matches ...Match) 
 func (g *Generator) ListQuery(name, table string, columns []string, matches ...Match) *Query {
 	return &Query{
 		Annotation: QueryAnnotation{Name: name, Type: ManyType},
-		Content:    g.listStatement(table, columns, "", matches...),
+		Content:    g.listStatement(table, columns, "", nil, matches...),
 	}
 }
 

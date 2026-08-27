@@ -191,6 +191,57 @@ one name would set it to the value it was requiring it to already hold.
 guarded write joins the checked corpus rather than living only in the running
 store, the way every keyed variant above does.
 
+# Reads that cross a junction
+
+Everything above projects one table. The read that does not is the one a
+many-to-many brings with it: an account's roster is the membership rows with the
+member's own columns beside them, and a user's account list is the accounts
+reached through those same memberships. Both were hand-written for as long as
+this package was single-table, and the roster in particular kept a hand-paired
+two-entity scanner alive — a projection in one file and a list of scan targets
+in another, where a mismatch is a runtime scan error rather than a failed build.
+
+[Generator.JunctionListQuery] renders them, and [Generator.JunctionListAllQuery]
+renders the unpaged form. What a caller adds to a list is a [Junction]: the table
+joined in, the two columns the join matches, whatever key the far side carries,
+and — where the caller wants the joined row's columns too — the prefix they are
+aliased under.
+
+	roster := querygen.For(dialect.Postgres).JunctionListQuery(
+		"ListAccountMembers", "memberships", membershipColumns,
+		&querygen.Junction{
+			Table:    "users",
+			Column:   querygen.IDColumn,
+			OnColumn: "belongs_to_user",
+			Columns:  userColumns,
+			Prefix:   "user",
+		},
+		querygen.Match{Column: querygen.BelongsToAccountColumn})
+
+Three things about it are worth knowing before writing one.
+
+The listed table is the one the page is a page of, and it is the caller's
+decision rather than a property of the schema. The cursor walks its id and the
+filter window bounds its timestamps, so a roster lists memberships and joins
+users, while a user's account list lists accounts and joins the very same
+memberships. Getting it the wrong way round produces a working query that pages
+over an id the caller never sees.
+
+The join contributes predicates rather than sharing the filter. The listed
+table's archived_at is what include_archived admits rows through; the joined
+table's is required to be NULL outright, because the filter window describes the
+rows being listed and the joined row is a reference those rows hold. A roster
+asked for archived memberships wants the memberships that ended, not the users
+who were deleted.
+
+And a projection spanning two tables is aliased or it is not projected. Two
+tables following these conventions share most of their column names, so an
+unaliased pair has two columns called id and two called created_at, and what a
+generator downstream makes of that depends on the order the SELECT happened to
+list its tables in. [Junction.Prefix] is what names them apart; leaving it empty
+projects the listed table alone, which is what the accounts-through-memberships
+direction wants.
+
 # Tables with no id
 
 [Generator.StandardCRUD] requires an id column and the [Bound] methods do not,

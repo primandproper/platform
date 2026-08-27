@@ -123,3 +123,37 @@ func ExampleRegistry() {
 	// Output:
 	// sessions, webauthn_credentials, webhooks
 }
+
+// A junction list is the one read here that spans two tables. What decides which
+// of them is listed is what a page is a page of: a roster is a page of
+// memberships with the member attached, so memberships is listed, the cursor
+// walks its id, and the user's columns arrive beside them under a prefix.
+func ExampleGenerator_JunctionListQuery() {
+	roster := querygen.For(dialect.Postgres).JunctionListQuery(
+		"ListAccountMembers", "memberships",
+		[]string{querygen.IDColumn, querygen.BelongsToAccountColumn, "belongs_to_user", querygen.ArchivedAtColumn},
+		&querygen.Junction{
+			Table:    "users",
+			Column:   querygen.IDColumn,
+			OnColumn: "belongs_to_user",
+			Columns:  []string{querygen.IDColumn, "username", querygen.ArchivedAtColumn},
+			Prefix:   "user",
+		},
+		querygen.Match{Column: querygen.BelongsToAccountColumn},
+	)
+
+	for line := range strings.SplitSeq(roster.Content, "\n") {
+		if strings.HasPrefix(line, "FROM") || strings.HasPrefix(line, "JOIN") ||
+			strings.HasPrefix(line, "ORDER BY") || strings.Contains(line, " AS user_") {
+			fmt.Println(strings.TrimSpace(line))
+		}
+	}
+
+	// Output:
+	// users.id AS user_id,
+	// users.username AS user_username,
+	// users.archived_at AS user_archived_at,
+	// FROM memberships
+	// JOIN users ON memberships.belongs_to_user=users.id
+	// ORDER BY memberships.id ASC
+}

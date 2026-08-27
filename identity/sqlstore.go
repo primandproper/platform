@@ -408,11 +408,14 @@ func (s *SQLStore) readMembershipsForUser(
 	scope tenancy.Scope,
 	userID string,
 ) ([]*Membership, error) {
-	query, args := s.tables.buildListMembershipsForUser(s.dialect, scope, userID)
-
-	memberships, err := database.ScanAll(ctx, q, "identity membership", query, args, scanMembership)
+	rows, err := s.q.ListMembershipsForUser(ctx, q, listMembershipsForUserParams(scope, userID))
 	if err != nil {
 		return nil, err
+	}
+
+	memberships := make([]*Membership, 0, len(rows))
+	for i := range rows {
+		memberships = append(memberships, membershipFromListRow(&rows[i]))
 	}
 
 	if err = s.attachMembershipRoles(ctx, q, memberships); err != nil {
@@ -534,22 +537,6 @@ func pageFilter(filter *filtering.QueryFilter) *filtering.QueryFilter {
 	bounded.MaxResponseSize = &size
 
 	return &bounded
-}
-
-// pageWindow reads the cursor and limit a hand-written page query binds out of
-// a filter, through the same clamp the rendered ones go through.
-//
-// It serves the reads querygen does not emit — the roster and account joins —
-// which take the cursor and the limit as ordinary arguments rather than
-// through a generated params struct.
-func pageWindow(filter *filtering.QueryFilter) (normalized *filtering.QueryFilter, cursor string, limit int) {
-	normalized = pageFilter(filter)
-
-	if normalized.Cursor != nil {
-		cursor = *normalized.Cursor
-	}
-
-	return normalized, cursor, int(*normalized.MaxResponseSize)
 }
 
 // identitydbDialect maps this module's dialect names onto the generated

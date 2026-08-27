@@ -447,6 +447,58 @@ func listAccountsParams(scope tenancy.Scope, filter *filtering.QueryFilter) iden
 	}
 }
 
+// accountPageRowForUser converts one row of the accounts-through-memberships
+// junction list.
+//
+// It restates the account columns a third time rather than converting from
+// accountPageRow's row, because the generated row types are nominal per
+// statement: two statements projecting the same columns in the same order still
+// produce two types, and the compiler checking every field name at each seam is
+// what these conversions are for.
+func accountPageRowForUser(r *identitydb.ListAccountsForUserRow) pageRow[Account] {
+	return pageRow[Account]{
+		value: accountFromRow(&identitydb.GetAccountRow{
+			ID:                          r.ID,
+			Scope:                       r.Scope,
+			Name:                        r.Name,
+			OwnerUserID:                 r.OwnerUserID,
+			BillingStatus:               r.BillingStatus,
+			SubscriptionPlanID:          r.SubscriptionPlanID,
+			PaymentProcessorCustomerID:  r.PaymentProcessorCustomerID,
+			LastPaymentProviderSyncedAt: r.LastPaymentProviderSyncedAt,
+			AddressLine1:                r.AddressLine1,
+			AddressLine2:                r.AddressLine2,
+			AddressCity:                 r.AddressCity,
+			AddressState:                r.AddressState,
+			AddressPostalCode:           r.AddressPostalCode,
+			AddressCountry:              r.AddressCountry,
+			AddressPhone:                r.AddressPhone,
+			TimeZone:                    r.TimeZone,
+			CreatedAt:                   r.CreatedAt,
+			LastUpdatedAt:               r.LastUpdatedAt,
+			ArchivedAt:                  r.ArchivedAt,
+		}),
+		filtered: r.FilteredCount,
+		total:    r.TotalCount,
+	}
+}
+
+func listAccountsForUserParams(scope tenancy.Scope, userID string, filter *filtering.QueryFilter) identitydb.ListAccountsForUserParams {
+	w := windowFrom(filter)
+
+	return identitydb.ListAccountsForUserParams{
+		CreatedAfter:    w.createdAfter,
+		CreatedBefore:   w.createdBefore,
+		UpdatedAfter:    w.updatedAfter,
+		UpdatedBefore:   w.updatedBefore,
+		IncludeArchived: w.includeArchived,
+		Scope:           scope,
+		BelongsToUser:   userID,
+		PageCursor:      w.pageCursor,
+		ResultLimit:     w.resultLimit,
+	}
+}
+
 // Memberships.
 //
 // The membership read is keyed on the (user, account) pair rather than on the
@@ -463,6 +515,89 @@ func membershipFromRow(r *identitydb.GetMembershipByUserAndAccountRow) *Membersh
 		CreatedAt:        r.CreatedAt.UTC(),
 		LastUpdatedAt:    utcPtr(r.LastUpdatedAt),
 		ArchivedAt:       utcPtr(r.ArchivedAt),
+	}
+}
+
+// membershipFromListRow converts one row of the unpaged memberships list. It
+// restates the keyed read's row rather than sharing its type, because the
+// generated row types are nominal per statement.
+func membershipFromListRow(r *identitydb.ListMembershipsForUserRow) *Membership {
+	return membershipFromRow(&identitydb.GetMembershipByUserAndAccountRow{
+		ID:               r.ID,
+		Scope:            r.Scope,
+		BelongsToUser:    r.BelongsToUser,
+		BelongsToAccount: r.BelongsToAccount,
+		DefaultAccount:   r.DefaultAccount,
+		CreatedAt:        r.CreatedAt,
+		LastUpdatedAt:    r.LastUpdatedAt,
+		ArchivedAt:       r.ArchivedAt,
+	})
+}
+
+func listMembershipsForUserParams(scope tenancy.Scope, userID string) identitydb.ListMembershipsForUserParams {
+	return identitydb.ListMembershipsForUserParams{Scope: scope, BelongsToUser: userID}
+}
+
+// memberPageRow converts one roster row: the membership, and the member it
+// names under the projection's user_ prefix.
+//
+// The user is redacted here rather than at the call site because this is the
+// value a roster page is made of, and a roster is the read most likely to reach
+// a response body: thirty members is thirty chances to serve a password hash.
+func memberPageRow(r *identitydb.ListAccountMembersRow) pageRow[MembershipWithUser] {
+	user := userFromRow(&identitydb.GetUserRow{
+		ID:                            r.UserID,
+		Scope:                         r.UserScope,
+		Username:                      r.UserUsername,
+		EmailAddress:                  r.UserEmailAddress,
+		FirstName:                     r.UserFirstName,
+		LastName:                      r.UserLastName,
+		HashedPassword:                r.UserHashedPassword,
+		RequiresPasswordChange:        r.UserRequiresPasswordChange,
+		PasswordLastChangedAt:         r.UserPasswordLastChangedAt,
+		TwoFactorSecret:               r.UserTwoFactorSecret,
+		TwoFactorSecretVerifiedAt:     r.UserTwoFactorSecretVerifiedAt,
+		EmailAddressVerifiedAt:        r.UserEmailAddressVerifiedAt,
+		EmailAddressVerificationToken: r.UserEmailAddressVerificationToken,
+		AccountStatus:                 r.UserAccountStatus,
+		AccountStatusExplanation:      r.UserAccountStatusExplanation,
+		LastAcceptedTermsOfService:    r.UserLastAcceptedTermsOfService,
+		LastAcceptedPrivacyPolicy:     r.UserLastAcceptedPrivacyPolicy,
+		CreatedAt:                     r.UserCreatedAt,
+		LastUpdatedAt:                 r.UserLastUpdatedAt,
+		ArchivedAt:                    r.UserArchivedAt,
+	})
+
+	return pageRow[MembershipWithUser]{
+		value: &MembershipWithUser{
+			User:             user.Redacted(),
+			ID:               r.ID,
+			Scope:            r.Scope,
+			BelongsToUser:    r.BelongsToUser,
+			BelongsToAccount: r.BelongsToAccount,
+			DefaultAccount:   r.DefaultAccount,
+			CreatedAt:        r.CreatedAt.UTC(),
+			LastUpdatedAt:    utcPtr(r.LastUpdatedAt),
+			ArchivedAt:       utcPtr(r.ArchivedAt),
+		},
+		filtered: r.FilteredCount,
+		total:    r.TotalCount,
+	}
+}
+
+func listAccountMembersParams(scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) identitydb.ListAccountMembersParams {
+	w := windowFrom(filter)
+
+	return identitydb.ListAccountMembersParams{
+		CreatedAfter:     w.createdAfter,
+		CreatedBefore:    w.createdBefore,
+		UpdatedAfter:     w.updatedAfter,
+		UpdatedBefore:    w.updatedBefore,
+		IncludeArchived:  w.includeArchived,
+		Scope:            scope,
+		BelongsToAccount: accountID,
+		PageCursor:       w.pageCursor,
+		ResultLimit:      w.resultLimit,
 	}
 }
 

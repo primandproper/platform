@@ -152,10 +152,17 @@ debugging seam when sqlc rejects a statement, because the file is exactly what
 the analyzer was handed. The two cannot drift from each other: one is rendered
 from code, the other is generated from the first, and the gates hold both ends.
 
-What remains hand-written is what querygen does not yet emit — the roster and
-account joins, and the billing update's conditional SET. The username prefix
-search is no longer among them: it is a rendered pair, the page and the count
+The three reads that cross the membership junction come from the same place —
+an account's roster, the accounts a user belongs to, and the user's own
+membership list — because querygen renders a junction list as well as a
+single-table one. The roster projects the member's columns beside the
+membership's under a user_ prefix, so a page of thirty members is one query and
+the row it comes back as is generated rather than paired to a Scan by eye. The
+username prefix search is a rendered pair the same way: the page and the count
 beside it, which is the one read here whose statement is not a filtered list.
+
+What remains hand-written is what querygen does not yet emit — the billing
+update's conditional SET.
 */
 package identity
 

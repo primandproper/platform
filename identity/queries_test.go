@@ -71,13 +71,7 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 			},
 			"eraseUser": func() (string, []any) { return t.buildEraseUser(d, scope, "u1") },
 
-			"listAccountsForUser":  func() (string, []any) { return t.buildListAccountsForUser(d, scope, "u1", "cursor", 10) },
-			"countAccountsForUser": func() (string, []any) { return t.buildCountAccountsForUser(d, scope, "u1") },
-
-			"listMemberships":      func() (string, []any) { return t.buildListMembershipsForUser(d, scope, "u1") },
 			"countLiveMemberships": func() (string, []any) { return t.buildCountLiveMembershipsForUser(d, scope, "u1") },
-			"listAccountMembers":   func() (string, []any) { return t.buildListAccountMembers(d, scope, "a1", "cursor", 10) },
-			"countAccountMembers":  func() (string, []any) { return t.buildCountAccountMembers(d, scope, "a1") },
 			"clearDefaultAccount":  func() (string, []any) { return t.buildClearDefaultAccount(d, scope, "u1", "a1", now) },
 			"setDefaultAccount":    func() (string, []any) { return t.buildSetDefaultAccount(d, scope, "u1", "a1", now) },
 			"archiveMembership":    func() (string, []any) { return t.buildArchiveMembership(d, scope, "u1", "a1", now) },
@@ -176,12 +170,6 @@ func TestNullableString(t *testing.T) {
 	// A cancelled subscription and one whose ID is blank are different facts.
 	test.Nil(t, nullableString(""))
 	test.EqOp(t, "plan", nullableString("plan"))
-}
-
-func TestPrefixColumns(t *testing.T) {
-	t.Parallel()
-
-	test.EqOp(t, "e.id, e.scope", prefixColumns("e", []string{"id", "scope"}))
 }
 
 // TestProjections_MatchTheColumnLists pins the one property the hand-written

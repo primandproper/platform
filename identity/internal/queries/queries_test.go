@@ -65,6 +65,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"GetUserByUsername", "GetUserByEmailAddress", "GetUserByEmailVerificationToken",
 		"GetMembershipByUserAndAccount", "GetMembershipIDByUserAndAccount",
 		"GetMembershipFallbackAccountID",
+		"ListAccountMembers", "ListAccountsForUser", "ListMembershipsForUser",
 		"SearchUsersByUsername", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
@@ -95,10 +96,13 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 
 			// Memberships gets no standard query — every one of them would key
 			// on the id the table does not address rows by — but its three
-			// keyed reads and its upsert are here, which is the point of the
-			// keyed and upsert forms.
-			test.StrNotContains(t, rendered, "GetMemberships")
-			test.StrNotContains(t, rendered, "ListMemberships")
+			// keyed reads, its three junction lists and its upsert are here,
+			// which is the point of the keyed, junction and upsert forms. The
+			// standard list's name is a prefix of the junction list's, so its
+			// absence rests on the exact name list above rather than on a
+			// substring check.
+			test.StrNotContains(t, rendered, "CreateMembership")
+			test.StrNotContains(t, rendered, "UpdateMembership")
 			test.StrNotContains(t, rendered, "ArchiveMembership")
 			test.EqOp(t, 1, strings.Count(rendered, "INSERT INTO "+MembershipsTable))
 		})
