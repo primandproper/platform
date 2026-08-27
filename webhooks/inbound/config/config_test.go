@@ -163,6 +163,18 @@ func TestNewVerifier(T *testing.T) {
 		test.EqOp(t, "stripe", verifier.Provider())
 	})
 
+	T.Run("builds the RevenueCat scheme", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := validConfig()
+		cfg.Provider = ProviderRevenueCat
+
+		verifier, err := NewVerifier(t.Context(), cfg)
+		must.NoError(t, err)
+
+		test.EqOp(t, "revenuecat", verifier.Provider())
+	})
+
 	T.Run("builds the generic HMAC scheme", func(t *testing.T) {
 		t.Parallel()
 

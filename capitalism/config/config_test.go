@@ -3,6 +3,7 @@ package capitalismcfg
 import (
 	"testing"
 
+	"github.com/primandproper/platform-go/v13/capitalism/revenuecat"
 	"github.com/primandproper/platform-go/v13/capitalism/stripe"
 
 	"github.com/shoenig/test"
@@ -31,6 +32,35 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		cfg := &Config{Provider: NoopProvider}
 
 		test.NoError(t, cfg.ValidateWithContext(ctx))
+	})
+
+	T.Run("the revenuecat provider validates its own config", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		test.NoError(t, (&Config{
+			Provider:   RevenueCatProvider,
+			RevenueCat: &revenuecat.Config{WebhookSecret: t.Name()},
+		}).ValidateWithContext(ctx))
+
+		test.Error(t, (&Config{Provider: RevenueCatProvider}).ValidateWithContext(ctx))
+	})
+
+	T.Run("skips the sub-config of a provider it did not select", func(t *testing.T) {
+		t.Parallel()
+
+		// env:",init" leaves every sub-config non-nil, and ozzo validates any
+		// non-nil pointer to a Validatable — so an unselected provider's own
+		// Required rules would otherwise be enforced against a deployment that
+		// never named it.
+		cfg := &Config{
+			Provider:   StripeProvider,
+			Stripe:     &stripe.Config{WebhookSecret: t.Name()},
+			RevenueCat: &revenuecat.Config{},
+		}
+
+		test.NoError(t, cfg.ValidateWithContext(t.Context()))
 	})
 
 	T.Run("an unset provider is invalid", func(t *testing.T) {
@@ -65,6 +95,19 @@ func TestNewPaymentManager(T *testing.T) {
 		cfg := &Config{
 			Provider: StripeProvider,
 			Stripe:   &stripe.Config{WebhookSecret: t.Name()},
+		}
+
+		pm, err := NewPaymentManager(t.Context(), cfg)
+		must.NoError(t, err)
+		test.NotNil(t, pm)
+	})
+
+	T.Run("with revenuecat provider", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Provider:   RevenueCatProvider,
+			RevenueCat: &revenuecat.Config{WebhookSecret: t.Name()},
 		}
 
 		pm, err := NewPaymentManager(t.Context(), cfg)
@@ -123,6 +166,23 @@ func TestNewUsageReporter(T *testing.T) {
 
 		_, err := NewUsageReporter(t.Context(), cfg)
 		test.Error(t, err)
+	})
+
+	T.Run("refuses a usage reporter for revenuecat", func(t *testing.T) {
+		t.Parallel()
+
+		// RevenueCat prices whole subscriptions and has no meter to post to.
+		// Refused rather than answered with the noop reporter: a flush loop
+		// reporting into a reporter that discards everything is indistinguishable
+		// from one that is billing.
+		cfg := &Config{
+			Provider:   RevenueCatProvider,
+			RevenueCat: &revenuecat.Config{WebhookSecret: t.Name()},
+		}
+
+		reporter, err := NewUsageReporter(t.Context(), cfg)
+		test.ErrorIs(t, err, revenuecat.ErrOutboundUnsupported)
+		test.Nil(t, reporter)
 	})
 
 	T.Run("disabled returns noop", func(t *testing.T) {

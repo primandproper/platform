@@ -64,10 +64,10 @@ const (
 // "X-Acme-Signature", secret, "sha256=") is one transposition away from
 // verifying nothing while looking correct.
 //
-// It does not cover a scheme that signs anything other than the body —
-// Stripe's timestamp-prefixed payload, an AWS SNS canonical string. Those are
-// their own Verifier implementations; NewStripeVerifier is the one this
-// package ships.
+// It does not cover a scheme that signs anything other than the body — an AWS
+// SNS canonical string, or the timestamp-prefixed payload Stripe and RevenueCat
+// both sign. The latter is TimestampedHMACScheme, which this package also
+// ships; the rest are their own Verifier implementations.
 type HMACScheme struct {
 	// Provider is the label the verifier reports and the receiver stamps on
 	// every Delivery. Required.

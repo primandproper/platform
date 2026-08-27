@@ -77,7 +77,8 @@ func WithAdditionalSecrets(secrets ...string) VerifierOption {
 
 // WithTolerance overrides DefaultTolerance — how far a signed timestamp may sit
 // from the verifier's clock. A non-positive duration leaves the default in
-// place. Read by NewStripeVerifier; schemes with no signed timestamp ignore it.
+// place. Read by the timestamped-HMAC verifiers — NewStripeVerifier and
+// NewRevenueCatVerifier; schemes with no signed timestamp ignore it.
 //
 // There is deliberately no way to disable the check. A signature with no
 // freshness bound is replayable forever, which is the property a signed
@@ -91,7 +92,7 @@ func WithTolerance(d time.Duration) VerifierOption {
 }
 
 // WithClock swaps the source of time a verifier compares a signed timestamp
-// against. Read by NewStripeVerifier. A nil clock is ignored.
+// against. Read by the timestamped-HMAC verifiers. A nil clock is ignored.
 //
 // Inside a testing/synctest bubble clock.NewClock already reads the bubble's
 // fake time, so this is for what a bubble cannot express — a deliberately
@@ -107,7 +108,7 @@ func WithClock(c clock.Clock) VerifierOption {
 // WithVerificationTime pins the instant a verification compares a signed
 // timestamp against, instead of reading a clock. It wins over WithClock, and
 // exists for tests and for replaying a captured delivery against a known
-// instant. Read by NewStripeVerifier.
+// instant. Read by the timestamped-HMAC verifiers.
 //
 // A zero time is ignored, so this cannot accidentally pin verification to the
 // Unix epoch and reject everything.
