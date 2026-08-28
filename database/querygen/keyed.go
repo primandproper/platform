@@ -212,6 +212,15 @@ const (
 	// bounded by the window: a cutoff a second early deletes a row a second
 	// early, against a horizon measured in days.
 	//
+	// It is also the comparand for a deadline the application stamped from a
+	// clock it was handed, where [CurrentTime] would be the wrong clock rather
+	// than merely the inexpressible one: a deadline written as now-plus-a-TTL
+	// from an injected clock, compared against the server's, is two clocks
+	// deciding one row — and under a test clock that only moves when a test
+	// moves it, the two are years apart. Binding the same clock's reading puts
+	// the comparison back inside one clock, which is the property CurrentTime's
+	// doc asks for rather than an exception to it.
+	//
 	// The boundary is inclusive on the doomed side, for [CurrentTime]'s reason
 	// — that is the reading which leaves no value at which a row is neither
 	// past the horizon nor short of it — and Exclude is its complement rather

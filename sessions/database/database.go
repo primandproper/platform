@@ -8,12 +8,14 @@ import (
 
 	"github.com/primandproper/platform-go/v13/clock"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/encoding"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 	"github.com/primandproper/platform-go/v13/sessions"
+	"github.com/primandproper/platform-go/v13/sessions/database/internal/sessionsdb"
 	"github.com/primandproper/platform-go/v13/sessions/database/migrations"
 )
 
@@ -40,15 +42,13 @@ const DefaultTablePrefix = ""
 // has to be able to reach it.
 type Backend[T any] struct {
 	db    database.Client
+	q     sessionsdb.Querier
 	codec encoding.Codec
 	clock clock.Clock
 	o11y  observability.Observer
 
 	sweptCounter       metrics.Int64Counter
 	sweepErrorsCounter metrics.Int64Counter
-
-	table   string
-	dialect dialect.Dialect
 }
 
 var _ sessions.Backend[struct{}] = (*Backend[struct{}])(nil)
@@ -80,15 +80,25 @@ func NewBackend[T any](cfg *Config, db database.Client, opts ...Option) (*Backen
 	o := newOptions(opts)
 
 	b := &Backend[T]{
-		db:      db,
-		codec:   o.codec,
-		clock:   o.clock,
-		table:   tableName(cfg.TablePrefix),
-		dialect: d,
-		o11y:    observability.NewObserver(serviceName, o.logger, o.tracerProvider),
+		db:    db,
+		codec: o.codec,
+		clock: o.clock,
+		o11y:  observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}
 
-	var err error
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see sessions/database/internal/sessionsdb.
+	qd, err := sessionsdbDialect(d)
+	if err != nil {
+		return nil, err
+	}
+
+	if b.q, err = sessionsdb.New(qd, ddl.Qualify(cfg.TablePrefix)); err != nil {
+		return nil, platformerrors.Wrap(err, "building the session querier")
+	}
+
 	if b.sweptCounter, b.sweepErrorsCounter, err = newSweepInstruments(o.metricsProvider); err != nil {
 		return nil, err
 	}
@@ -100,22 +110,32 @@ func NewBackend[T any](cfg *Config, db database.Client, opts ...Option) (*Backen
 	return b, nil
 }
 
+// sessionsdbDialect maps this module's dialect names onto the generated
+// package's. The set is closed on both sides — NewBackend has already rejected
+// anything d.Valid() declines — so the default arm is reachable only when this
+// module learns a dialect the generated package was not generated for. That is
+// a construction failure like any other, and it names the dialect, rather than
+// panicking or leaning on sessionsdb.New refusing the empty string.
+func sessionsdbDialect(d dialect.Dialect) (sessionsdb.Dialect, error) {
+	switch d {
+	case dialect.Postgres:
+		return sessionsdb.DialectPostgreSQL, nil
+	case dialect.MySQL:
+		return sessionsdb.DialectMySQL, nil
+	case dialect.SQLite:
+		return sessionsdb.DialectSQLite, nil
+	default:
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "no generated session queries for dialect %q", d)
+	}
+}
+
 // Load reads the record stored under id.
 func (b *Backend[T]) Load(ctx context.Context, id string) (*sessions.Record[T], error) {
 	ctx, op := b.o11y.Begin(ctx)
 	defer op.End()
 
-	query, args := buildSelect(b.dialect, b.table, id)
-
-	var (
-		data       []byte
-		createdAt  time.Time
-		lastSeenAt time.Time
-		version    int
-	)
-
-	if err := b.db.Writer().QueryRowContext(ctx, query, args...).
-		Scan(&data, &createdAt, &lastSeenAt, &version); err != nil {
+	found, err := b.q.GetSession(ctx, b.db.Writer(), sessionsdb.GetSessionParams{ID: id})
+	if err != nil {
 		if stderrors.Is(err, sql.ErrNoRows) {
 			return nil, sessions.ErrNotFound
 		}
@@ -127,16 +147,16 @@ func (b *Backend[T]) Load(ctx context.Context, id string) (*sessions.Record[T], 
 		// Read back as UTC unconditionally: Postgres hands back a time in the
 		// session's zone, and every deadline is computed by comparing these
 		// against a UTC now.
-		CreatedAt:  createdAt.UTC(),
-		LastSeenAt: lastSeenAt.UTC(),
-		Version:    version,
+		CreatedAt:  found.CreatedAt.UTC(),
+		LastSeenAt: found.LastSeenAt.UTC(),
+		Version:    int(found.Version),
 	}
 
 	// A NULL payload is a session that was established without one, and comes
 	// back as the nil it went in as rather than as a zero T.
-	if data != nil {
+	if found.Data != nil {
 		var value T
-		if err := b.codec.Unmarshal(ctx, data, &value); err != nil {
+		if err = b.codec.Unmarshal(ctx, found.Data, &value); err != nil {
 			// Undecodable is treated the same as absent. The alternative is to
 			// fail every request carrying that identifier until it expires,
 			// where discarding it costs one sign-in — and a payload this
@@ -169,9 +189,7 @@ func (b *Backend[T]) Create(
 		return op.Error(err, "encoding new session row")
 	}
 
-	query, args := buildInsert(b.dialect, b.table, r)
-
-	affected, err := b.exec(ctx, b.db.Writer(), query, args)
+	affected, err := b.q.CreateSession(ctx, b.db.Writer(), r.create())
 	if err != nil {
 		return op.Error(err, "storing new session row")
 	}
@@ -203,9 +221,7 @@ func (b *Backend[T]) Update(
 		return op.Error(err, "encoding session row")
 	}
 
-	query, args := buildUpdate(b.dialect, b.table, r)
-
-	affected, err := b.exec(ctx, b.db.Writer(), query, args)
+	affected, err := b.q.UpdateSession(ctx, b.db.Writer(), r.update())
 	if err != nil {
 		return op.Error(err, "updating session row")
 	}
@@ -218,12 +234,12 @@ func (b *Backend[T]) Update(
 	// that matched a row and changed nothing. Only the row's continued
 	// existence separates "already signed out" from "wrote the same bytes
 	// twice", so it is asked rather than assumed.
-	exists, err := b.exists(ctx, id)
+	exists, err := b.q.SessionExists(ctx, b.db.Writer(), sessionsdb.SessionExistsParams{ID: id})
 	if err != nil {
 		return op.Error(err, "checking session row after a no-op update")
 	}
 
-	if !exists {
+	if !exists.Exists {
 		return sessions.ErrNotFound
 	}
 
@@ -251,9 +267,7 @@ func (b *Backend[T]) Rename(
 	}
 
 	if err = b.db.WithTransaction(ctx, func(q database.Tx) error {
-		deleteQuery, deleteArgs := buildDelete(b.dialect, b.table, oldID)
-
-		affected, execErr := b.exec(ctx, q, deleteQuery, deleteArgs)
+		affected, execErr := b.q.DeleteSession(ctx, q, sessionsdb.DeleteSessionParams{ID: oldID})
 		if execErr != nil {
 			return platformerrors.Wrap(execErr, "removing renewed session's previous row")
 		}
@@ -261,9 +275,7 @@ func (b *Backend[T]) Rename(
 			return sessions.ErrNotFound
 		}
 
-		insertQuery, insertArgs := buildInsert(b.dialect, b.table, r)
-
-		if affected, execErr = b.exec(ctx, q, insertQuery, insertArgs); execErr != nil {
+		if affected, execErr = b.q.CreateSession(ctx, q, r.create()); execErr != nil {
 			return platformerrors.Wrap(execErr, "storing renewed session row")
 		}
 		if affected == 0 {
@@ -288,9 +300,7 @@ func (b *Backend[T]) Delete(ctx context.Context, id string) error {
 	ctx, op := b.o11y.Begin(ctx)
 	defer op.End()
 
-	query, args := buildDelete(b.dialect, b.table, id)
-
-	if _, err := b.exec(ctx, b.db.Writer(), query, args); err != nil {
+	if _, err := b.q.DeleteSession(ctx, b.db.Writer(), sessionsdb.DeleteSessionParams{ID: id}); err != nil {
 		return op.Error(err, "removing session row")
 	}
 
@@ -300,74 +310,4 @@ func (b *Backend[T]) Delete(ctx context.Context, id string) error {
 // Close releases the database client.
 func (b *Backend[T]) Close() error {
 	return b.db.Close()
-}
-
-// row encodes a record into bound parameters.
-func (b *Backend[T]) row(
-	ctx context.Context,
-	id string,
-	record *sessions.Record[T],
-	ttl time.Duration,
-) (*row, error) {
-	r := &row{
-		createdAt:  record.CreatedAt,
-		lastSeenAt: record.LastSeenAt,
-		// Stamped from this backend's clock rather than from the store's, since
-		// the interface passes a duration. It feeds the sweeper and nothing
-		// else — whether a session is live is decided from the two anchors
-		// above — so the two clocks disagreeing costs a row swept early or
-		// late, never a session that reads as live when it is not.
-		expiresAt: b.clock.Now().UTC().Add(ttl),
-		id:        id,
-		version:   record.Version,
-	}
-
-	if record.Data == nil {
-		return r, nil
-	}
-
-	data, err := b.codec.Marshal(ctx, record.Data)
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "encoding session payload")
-	}
-
-	r.data = data
-
-	return r, nil
-}
-
-// exists reports whether a row is stored under id.
-func (b *Backend[T]) exists(ctx context.Context, id string) (bool, error) {
-	query, args := buildExists(b.dialect, b.table, id)
-
-	var found int
-	if err := b.db.Writer().QueryRowContext(ctx, query, args...).Scan(&found); err != nil {
-		if stderrors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-
-		return false, err
-	}
-
-	return true, nil
-}
-
-// exec runs a statement and reports how many rows it affected.
-func (b *Backend[T]) exec(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	query string,
-	args []any,
-) (int64, error) {
-	result, err := q.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, platformerrors.Wrap(err, "counting affected session rows")
-	}
-
-	return affected, nil
 }
