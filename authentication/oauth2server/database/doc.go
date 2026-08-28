@@ -93,5 +93,48 @@ This store and the memory one are held to the same suite,
 authentication/oauth2server/oauth2servertest, including the concurrent
 redemption and expiry-between-read-and-write cases. That is the only thing that
 says a guarded UPDATE and a mutex mean the same thing.
+
+# Where the SQL comes from
+
+Every statement this package executes is generated. The four tables' facts —
+their names, their columns in projection order, which of them a write assigns,
+and which may be NULL — are spelled once, in internal/queries. `make generate`
+renders them through database/querygen into the canonical .sql files beside that
+package, in sqlc's spelling: named statements whose arguments are sqlc.arg
+references. `make sqlc_compile` checks every one of them against the DDL
+migrations produces, on all three dialects, with no database running;
+sqlc-gen-unison emits internal/oauth2serverdb from the same files — typed params
+and methods over driver placeholders — and that is what the store executes.
+
+So a column renamed in the DDL is a failed generate rather than a scan error at
+run time, and the pairing between what a SELECT projects and what a Scan reads
+is generated rather than maintained by eye. What this package writes by hand is
+which statements it wants; it writes no SQL.
+
+Nineteen statements for what used to be fifteen builders, and the difference is
+the point rather than an inflation. A builder took the table as an argument, so
+one revocation served the access and refresh tables and one sweep served three —
+which is a statement checked against whichever table the argument happened to
+name. Enumerated, each is checked against the table it actually runs on.
+
+# Timestamps on SQLite
+
+Every instant this store binds is a UTC time.Time truncated to microseconds.
+Postgres and MySQL store those as real temporal types and compare them as such.
+SQLite has no date type: a DATETIME column holds text, and a comparison between
+two of them compares two strings — so the generated bindings write a bound time
+in the shape SQLite's own CURRENT_TIMESTAMP writes, `YYYY-MM-DD HH:MM:SS`, which
+is whole seconds.
+
+The consequence is that on SQLite a deadline is stored truncated down to the
+second, and so is the instant every guard and every sweep compares it against.
+Both ends truncate the same way, so the comparison stays the one the schema
+describes; what it costs is that a credential's deadline can land up to a second
+earlier than it was issued for. That is invisible at the lifetimes an
+authorization server uses — a code lives for minutes and a token for hours — and
+it is a reason not to reach for SQLite if some other consumer of these tables
+needs sub-second expiry.
 */
 package database
+
+//go:generate go run ./internal/queriesgen

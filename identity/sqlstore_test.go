@@ -14,6 +14,10 @@ import (
 	"github.com/shoenig/test/must"
 )
 
+// allDialects is what every construction assertion runs against, because the
+// interesting failures are the ones that are correct on two of the three.
+var allDialects = []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite}
+
 // mockClient answers Dialect and nothing else, which is all construction
 // reaches for.
 func mockClient(d dialect.Dialect) database.Client {
@@ -31,8 +35,10 @@ func TestNewSQLStore(T *testing.T) {
 			must.NoError(t, err, must.Sprintf("%s", d))
 			must.NotNil(t, store)
 
-			// The dialect comes off the client, so the two cannot disagree.
-			test.EqOp(t, d, store.dialect)
+			// The dialect comes off the client, so the two cannot disagree —
+			// and it is not kept, because the querier built from it is the
+			// only thing that needed it. A store that reached this line has one.
+			must.NotNil(t, store.q, must.Sprintf("%s", d))
 		}
 	})
 
@@ -180,11 +186,10 @@ func TestResolveActiveAccount(T *testing.T) {
 // created_at is the database's — the create does not carry the column and the
 // schema defaults it — so a fixed store clock cannot pin it, and what is worth
 // pinning instead is that the value reaches the caller's struct at all.
-// last_updated_at is now the database's too on every write querygen renders,
-// which since the field-specific writes joined the canonical .sql is all of
-// them bar the handful queries.go still builds. That is the point of the
-// convention rather than a loss: a row's created_at and a filter's created_after
-// are compared against each other, so they have to come off the same clock.
+// last_updated_at is the database's too, on every write in this store — there
+// is no other kind left. So is archived_at. That is the point of the convention
+// rather than a loss: a row's created_at and a filter's created_after are
+// compared against each other, so they have to come off the same clock.
 //
 // What a fixed store clock can still pin, then, is not the value but the
 // relation — the stamp exists, it is UTC, and it is not before the creation it

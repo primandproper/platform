@@ -26,6 +26,48 @@ func (j JoinStatement) String() string {
 	return fmt.Sprintf("JOIN %s ON %s.%s=%s.%s", j.JoinTarget, j.OnTable, j.OnColumn, j.JoinTarget, j.TargetColumn)
 }
 
+// LimitClause renders the page-size clause, for a read a consumer writes out
+// rather than one this package renders.
+//
+// It is the LIMIT [Generator.CursorLimitClause] ends with, exported on its own
+// because a keyset walk is not the only paged read: a claim reads a bounded
+// batch in an order of its own, and that read still owes its dialect the page
+// size that dialect accepts. Postgres and SQLite take an expression, so an
+// absent size coalesces to filtering.DefaultQueryFilterLimit; MySQL takes a
+// bare placeholder and nothing else, which is the one place a dialect changes
+// the generated signature rather than only the SQL — see this package's
+// comment, under "The one place a dialect changes a signature".
+//
+// A MySQL statement using it therefore has to place it last, since a bare
+// marker is positional and the generated parameter is named for whatever
+// position it landed in.
+func (g *Generator) LimitClause() string {
+	return g.limitClause()
+}
+
+// SetCondition renders a column matched against a whole set of values bound as
+// one argument, for a statement a consumer writes out rather than one this
+// package renders.
+//
+// It is the same predicate [Generator.SetReadQuery] keys on, and it is exported
+// for the same reason [Generator.FilterConditions] is: a corpus that authors a
+// statement this package has no shape for still has to spell the set the way
+// its dialect spells one. Postgres takes the whole set as an array argument and
+// the other two take a sqlc.slice expansion, which is a difference in what
+// reaches the server rather than in the []string a caller binds — and a second
+// copy of that fact in a consumer's generator is a copy that can drift.
+//
+// Where the predicate may sit in the statement is the caller's to get right,
+// and it is not free: an expansion is a run of bare markers, SQLite numbers a
+// bare marker one past the highest it has seen, and an argument bound after one
+// collides with an element of the set. So an authored statement renders its set
+// after every other bound value, exactly as SetReadQuery does.
+func (g *Generator) SetCondition(column, argument string) string {
+	mustIdentifier("set argument", argument)
+
+	return g.setPredicate(column, argument)
+}
+
 // ContainsCondition renders a case-insensitive substring match of column against
 // a bound argument, for a search query's own WHERE predicate.
 //
@@ -363,4 +405,18 @@ func joinPredicates(predicates []string, indent string) string {
 	}
 
 	return strings.Join(rendered, "\n"+indent)
+}
+
+// StoredNow renders the current time as a statement should store it, which is
+// not the same as [NowExpression] on every dialect — MySQL's bare
+// CURRENT_TIMESTAMP is second-granular whatever precision the column declares.
+//
+// It is what the generated writes assign last_updated_at from, exported for the
+// hand-authored ones beside them: a corpus with a generated update stamping
+// CURRENT_TIMESTAMP(6) and an authored one stamping CURRENT_TIMESTAMP has two
+// answers to the same question, and the difference only shows up as MySQL
+// reporting zero rows changed for a write that was correct — see
+// Generator.storedNow, which is the whole of the reasoning.
+func (g *Generator) StoredNow() string {
+	return g.storedNow()
 }

@@ -112,7 +112,7 @@ jobs:
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             echo "make unison produced a diff. Run 'make unison format' locally and commit the result."
-            echo "The schema files under migrations/schema and the generated querier packages are generated — edit the migrations or the column lists, not these."
+            echo "The schema files under migrations/schema and every internal/<pkg>db package are generated — edit the migrations or the column lists, not these."
             git status --short
             git diff
             exit 1

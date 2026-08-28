@@ -153,6 +153,36 @@ about someone it was told to forget is a bug, and quietly minting them a new key
 is how that bug goes unnoticed. Reviving a subject requires deleting the
 tombstone by hand, which is an administrative act with a person attached to it.
 
+# Where the SQL comes from
+
+Every statement this package executes is generated. The schema's facts — the
+table name, the columns in projection order, the natural key each statement
+addresses a row by — are spelled once, in
+cryptography/shredding/internal/queries. `make unison` renders them through
+database/querygen into the canonical .sql files beside that package, in sqlc's
+spelling; sqlc compiles every one of those statements against the DDL
+cryptography/shredding/migrations produces, on all three dialects; and
+sqlc-gen-unison emits cryptography/shredding/internal/shreddingdb from them,
+typed params and methods over driver placeholders, which is what the store
+executes. A renamed column is a build failure with no database running, where it
+used to be a scan error at run time.
+
+Both artifacts are committed, and the duplication is deliberate — see identity's
+package comment, which carries the long form of why. The short of it: the .sql
+is the reviewable form of the contract, it anchors a drift gate that pins the
+committed text byte for byte against the renderer, and it is exactly what the
+analyzer was handed when the analyzer rejects something.
+
+What that buys here is narrower than it is for a schema with seven tables, and
+it is the part this table could least afford to get wrong. The primary key is
+(subject_type, subject_id) rather than an id, and that pair is not a stylistic
+preference: it is the constraint enforcing one live key per subject, which is
+the difference between a shred that works and one that leaves half the
+ciphertext readable. It appears in the read's predicates, in the shred's, and in
+the conflict target of the insert — where Postgres matches it against a unique
+index the table actually has — and it is now spelled once, in one Go slice, for
+all three.
+
 # What this is not
 
 This is not a confidentiality feature and does not rest on the threat model
@@ -164,3 +194,5 @@ one. It makes erasure reach media you can no longer write to, which nothing else
 here can do.
 */
 package shredding
+
+//go:generate go run ./internal/queriesgen

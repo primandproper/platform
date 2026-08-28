@@ -199,7 +199,28 @@ func (s Status) Valid() bool {
 
 // activeStatuses are the statuses a worker can advance. Used by the claim
 // predicate and by every guarded write, which must not move a terminal row.
+//
+// The statements bind these two by name rather than as a set — see
+// saga/internal/queries — so this is what the store reads them off, and adding
+// a third advanceable status is a change to the corpus as well as to here.
 var activeStatuses = []Status{StatusRunning, StatusCompensating}
+
+// allStatuses is the whole domain, which is what a listing that narrows by
+// none of them binds.
+//
+// A status filter is not an optional predicate in the emitted statements: the
+// domain is closed, so "any of these" is always the same number of arguments
+// and an unnarrowed listing is the one that names all of them. That is what
+// keeps a listing from binding a set — the one predicate that cannot sit in a
+// paged read on every dialect this package serves. See
+// queries.StatusFilterArity, which this package's tests hold to this length.
+var allStatuses = []Status{
+	StatusRunning,
+	StatusCompleted,
+	StatusCompensating,
+	StatusCompensated,
+	StatusStuck,
+}
 
 // Step is one unit of a saga.
 type Step[T any] struct {

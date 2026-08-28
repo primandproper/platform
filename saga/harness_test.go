@@ -14,12 +14,14 @@ import (
 	"github.com/primandproper/platform-go/v13/clock"
 	clockmock "github.com/primandproper/platform-go/v13/clock/mock"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/sqlite"
 	"github.com/primandproper/platform-go/v13/distributedlock"
 	lockmemory "github.com/primandproper/platform-go/v13/distributedlock/memory"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/idempotency"
+	"github.com/primandproper/platform-go/v13/saga/internal/queries"
 	"github.com/primandproper/platform-go/v13/saga/migrations"
 
 	"github.com/shoenig/test/must"
@@ -144,6 +146,21 @@ func (e *storeEnv) newStore(t *testing.T) Store {
 	must.NoError(t, err)
 
 	return store
+}
+
+// instancesTable names the table a store's statements run against, for the
+// tests that reach past the store to set a row up or to corrupt one.
+//
+// It is assembled the way the store assembles it — the configured prefix,
+// qualified, in front of the canonical name saga/internal/queries spells — so a
+// test cannot come to name a different table than the one under test.
+func instancesTable(t *testing.T, store Store) string {
+	t.Helper()
+
+	concrete, ok := store.(*SQLStore)
+	must.True(t, ok)
+
+	return ddl.Qualify(concrete.prefix) + queries.InstancesTable
 }
 
 // newScopedLocker builds an in-process scoped locker, which is all a

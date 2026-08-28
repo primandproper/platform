@@ -976,6 +976,16 @@ WHERE identity_memberships.archived_at IS NULL
 ORDER BY identity_memberships.belongs_to_account ASC
 LIMIT 1;
 
+-- name: GetMembershipIDForUser :one
+SELECT
+	identity_memberships.id
+FROM identity_memberships
+WHERE identity_memberships.archived_at IS NULL
+	AND identity_memberships.scope = sqlc.arg(scope)
+	AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
+ORDER BY identity_memberships.id ASC
+LIMIT 1;
+
 -- name: ListUsersByIDs :many
 SELECT
 	identity_users.id,
@@ -1522,6 +1532,22 @@ WHERE archived_at IS NULL
 	AND scope = sqlc.arg(scope)
 	AND status = sqlc.arg(current_status);
 
+-- name: RecordUserTermsOfServiceAgreement :execrows
+UPDATE identity_users SET
+	last_accepted_terms_of_service = sqlc.narg(last_accepted_terms_of_service),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: RecordUserPrivacyPolicyAgreement :execrows
+UPDATE identity_users SET
+	last_accepted_privacy_policy = sqlc.narg(last_accepted_privacy_policy),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
 -- name: EraseUser :execrows
 DELETE FROM identity_users
 WHERE id = sqlc.arg(id)
@@ -1584,3 +1610,53 @@ ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET
 	default_account = EXCLUDED.default_account,
 	archived_at = NULL,
 	last_updated_at = CURRENT_TIMESTAMP;
+
+-- name: SetMembershipDefaultAccount :execrows
+UPDATE identity_memberships SET
+	default_account = sqlc.arg(default_account),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = sqlc.arg(scope)
+	AND belongs_to_user = sqlc.arg(belongs_to_user)
+	AND belongs_to_account = sqlc.arg(belongs_to_account);
+
+-- name: ClearMembershipDefaultAccountsForUser :execrows
+UPDATE identity_memberships SET
+	default_account = sqlc.arg(default_account),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = sqlc.arg(scope)
+	AND belongs_to_user = sqlc.arg(belongs_to_user)
+	AND default_account <> sqlc.arg(default_account)
+	AND belongs_to_account <> COALESCE(sqlc.narg(except_account_id), '');
+
+-- name: ClearMembershipDefaultAccountsForAccount :execrows
+UPDATE identity_memberships SET
+	default_account = sqlc.arg(default_account),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = sqlc.arg(scope)
+	AND belongs_to_account = sqlc.arg(belongs_to_account)
+	AND default_account <> sqlc.arg(default_account);
+
+-- name: ArchiveMembership :execrows
+UPDATE identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = sqlc.arg(scope)
+	AND belongs_to_user = sqlc.arg(belongs_to_user)
+	AND belongs_to_account = sqlc.arg(belongs_to_account);
+
+-- name: ArchiveMembershipsForUser :execrows
+UPDATE identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = sqlc.arg(scope)
+	AND belongs_to_user = sqlc.arg(belongs_to_user);
+
+-- name: ArchiveMembershipsForAccount :execrows
+UPDATE identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = sqlc.arg(scope)
+	AND belongs_to_account = sqlc.arg(belongs_to_account);
