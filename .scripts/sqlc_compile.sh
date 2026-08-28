@@ -28,6 +28,7 @@ SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 COMPONENTS=(
   "./dataprivacy ./internal/queriesgen internal/queries"
   "./identity ./internal/queriesgen internal/queries"
+  "./uploads/registry ./internal/queriesgen internal/queries"
   "./settings ./internal/queriesgen internal/queries"
   "./authentication/webauthn/database ./internal/queriesgen internal/queries"
   "./cryptography/shredding ./internal/queriesgen internal/queries"

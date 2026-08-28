@@ -21,6 +21,7 @@ import (
 	sagamigrations "github.com/primandproper/platform-go/v13/saga/migrations"
 	sessionsmigrations "github.com/primandproper/platform-go/v13/sessions/database/migrations"
 	timersmigrations "github.com/primandproper/platform-go/v13/timers/migrations"
+	uploadsregistrymigrations "github.com/primandproper/platform-go/v13/uploads/registry/migrations"
 	webhooksmigrations "github.com/primandproper/platform-go/v13/webhooks/migrations"
 	workqueuemigrations "github.com/primandproper/platform-go/v13/workqueue/migrations"
 
@@ -58,6 +59,7 @@ var conventional = map[string]renderer{
 	"scheduled_timers":       timersmigrations.Statements,
 	"metering_totals":        meteringmigrations.Statements,
 	"audit_log_chains":       auditmigrations.Statements,
+	"uploads_objects":        uploadsregistrymigrations.Statements,
 }
 
 // exemption is a table that deliberately carries none of the triple, and the
