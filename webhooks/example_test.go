@@ -91,11 +91,11 @@ func ExampleDispatcher_Register() {
 
 	for id, scope := range subscribers {
 		if err := dispatcher.Register(ctx, &webhooks.Endpoint{
-			ID:     id,
-			Scope:  scope,
-			URL:    "https://93.184.216.34/hooks/" + id,
-			Secret: secret,
-			Events: []webhooks.EventType{OrderUpdated},
+			ID:            id,
+			Scope:         scope,
+			URL:           "https://93.184.216.34/hooks/" + id,
+			Secret:        secret,
+			Subscriptions: webhooks.SubscribeTo(OrderUpdated),
 		}); err != nil {
 			panic(err)
 		}

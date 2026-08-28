@@ -8,6 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/querygen"
+	"github.com/primandproper/platform-go/v13/identity/migrations"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -19,6 +20,47 @@ var everyDialect = []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQ
 
 // allTables is every table declared here, emitted or not.
 var allTables = []*Table{&Users, &Accounts, &Invitations, &Memberships}
+
+// TestRender_RegistersEveryTable is the registry half of the same guarantee the
+// canonical .sql files are the query half of.
+//
+// querygen.Generator.StandardCRUD registers what it emits for, which here is
+// three tables of seven — so a consumer reading the registry back to truncate a
+// database between integration tests would leave memberships and the three role
+// tables full, and the symptom would be a different test failing later on rows
+// the previous one left behind. Render registers the whole list, and this pins
+// that it does.
+func TestRender_RegistersEveryTable(t *testing.T) {
+	t.Parallel()
+
+	for _, d := range everyDialect {
+		_ = Render(d)
+	}
+
+	for _, table := range TableNames {
+		test.True(t, querygen.TableRegistered(table), test.Sprintf("%s is not registered", table))
+	}
+}
+
+// TestTableNames_AreTheTablesTheDDLCreates is the cross-check between the two
+// halves of "what tables does identity own": the canonical spelling here, which
+// the registry and identity's prefix rendering both read, and the list
+// migrations.Tables reads out of the DDL for a consumer.
+//
+// Neither derives from the other on purpose — one is a Go constant a statement
+// interpolates, the other is read from the schema that creates the table — so
+// this is where a table added to one and not the other stops being invisible.
+func TestTableNames_AreTheTablesTheDDLCreates(t *testing.T) {
+	t.Parallel()
+
+	created, err := migrations.Tables("")
+	must.NoError(t, err)
+
+	declared := slices.Clone(TableNames)
+	slices.Sort(declared)
+
+	test.Eq(t, created, declared)
+}
 
 // TestRender_MatchesTheCommittedFiles is the regeneration gate, run locally
 // rather than only in CI.
@@ -64,8 +106,11 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt",
 		"GetUserByUsername", "GetUserByEmailAddress", "GetUserByEmailVerificationToken",
 		"GetUserIDByUsername", "GetUserIDByEmailAddress",
+		"GetOwnedAccountIDForUser",
 		"GetMembershipByUserAndAccount", "GetMembershipIDByUserAndAccount",
 		"GetMembershipFallbackAccountID",
+		"ListUsersByIDs", "ListUserRolesByUserIDs",
+		"ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
 		"ListAccountMembers", "ListAccountsForUser", "ListMembershipsForUser",
 		"SearchUsersByUsername", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
@@ -75,6 +120,10 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"RecordAccountSubscription", "SetAccountBillingStatus",
 		"SetAccountPaymentProcessorCustomerID", "MarkAccountBillingSynced",
 		"AnswerInvitation",
+		"EraseUser",
+		"DeleteUserRoles", "InsertUserRole",
+		"DeleteMembershipRoles", "InsertMembershipRole",
+		"DeleteInvitationRoles", "InsertInvitationRole",
 		"UpsertMembership",
 	}
 
@@ -159,14 +208,36 @@ func TestRender_SearchesUsernamesByPrefix(T *testing.T) {
 func TestTables_ScopeIsInEveryStatement(T *testing.T) {
 	T.Parallel()
 
-	// The three exceptions, and they are the same exception three times: the
-	// read-back of the creation time a create's own INSERT just caused, by the
-	// id that create minted, inside that create's transaction. It is the
-	// component's own machinery servicing itself rather than a read a caller
-	// reaches — the row is not visible to anything else until the transaction
-	// commits — so it keys on the id alone. Everything else, without exception,
-	// names the scope.
-	unscoped := []string{"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt"}
+	// The exceptions, in two groups, and neither is a read a caller reaches.
+	//
+	// The first is the same exception three times: the read-back of the
+	// creation time a create's own INSERT just caused, by the id that create
+	// minted, inside that create's transaction. It is the component's own
+	// machinery servicing itself — the row is not visible to anything else
+	// until the transaction commits — so it keys on the id alone.
+	//
+	// The second is the role tables' nine statements, and their exception is
+	// the schema's rather than the statements': a role table has no scope
+	// column to name. A role row carries the id of the user, membership or
+	// invitation it hangs off and nothing else, and that parent is the scoped
+	// row. The six writes bind an owner id that came back from a scoped
+	// statement, and the three batched reads key on the parent column with ids
+	// read the same way — so a scope predicate here would be a join to say what
+	// the key already says. What keeps that safe is that no statement here
+	// answers "which owners hold this role", which is the one that would need
+	// the column. That is a fact about the schema rather than a liberty these
+	// statements take — the hand-written statements they replaced omitted it
+	// too. See identity/migrations for why the tables are shaped this way, and
+	// [RoleTable].
+	//
+	// Everything else, without exception, names the scope.
+	unscoped := []string{
+		"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt",
+		"DeleteUserRoles", "InsertUserRole",
+		"DeleteMembershipRoles", "InsertMembershipRole",
+		"DeleteInvitationRoles", "InsertInvitationRole",
+		"ListUserRolesByUserIDs", "ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
+	}
 
 	for _, d := range everyDialect {
 		T.Run(string(d), func(t *testing.T) {
@@ -256,6 +327,45 @@ func TestRender_KeyedReadsAddressARowByItsKey(T *testing.T) {
 			test.StrContains(t, byName["GetMembershipFallbackAccountID"],
 				MembershipAccountColumn+" <> sqlc.arg("+MembershipAccountColumn+")")
 			test.StrContains(t, byName["GetMembershipFallbackAccountID"], "LIMIT 1")
+		})
+	}
+}
+
+// TestRender_OwnedAccountReadKeysOnTheOwner pins the read behind the guard that
+// refuses to archive a user out from under the accounts they own.
+//
+// It keys on the owner rather than on the account's id, which is the whole
+// point — the caller is holding a user and asking what they are responsible for
+// — and it is live-only, because an already-archived account is not one whose
+// ownership has to move before its owner can be archived too.
+func TestRender_OwnedAccountReadKeysOnTheOwner(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var statement string
+
+			for rendered := range strings.SplitSeq(Render(d), "-- name: ") {
+				if strings.HasPrefix(rendered, "GetOwnedAccountIDForUser ") {
+					statement = rendered
+				}
+			}
+
+			must.StrHasPrefix(t, "GetOwnedAccountIDForUser ", statement)
+
+			test.StrContains(t, statement, "sqlc.arg("+ownerUserIDColumn+")")
+			test.StrContains(t, statement, "sqlc.arg("+ScopeColumn+")")
+			test.StrNotContains(t, statement, "sqlc.arg("+querygen.IDColumn+")")
+			test.StrContains(t, statement, querygen.ArchivedAtColumn+" IS NULL")
+
+			// The id comes back, so the refusal can name the account that has
+			// to move rather than only reporting that one exists, and the order
+			// is what makes a repeated refusal name the same one twice.
+			test.StrContains(t, statement, querygen.Qualify(AccountsTable, querygen.IDColumn))
+			test.StrContains(t, statement, "ORDER BY "+querygen.Qualify(AccountsTable, querygen.IDColumn)+" ASC")
+			test.StrContains(t, statement, "LIMIT 1")
 		})
 	}
 }
@@ -672,4 +782,84 @@ func TestFieldWrites_StampLastUpdatedAt(T *testing.T) {
 			test.SliceLen(t, len(written), seen)
 		})
 	}
+}
+
+// TestRender_EraseUserIsTheOneStatementWithNoArchivedPredicate pins the shape a
+// right-to-be-forgotten request depends on.
+//
+// Every other single-row statement over the users table requires archived_at IS
+// NULL, which is what makes an archived user invisible to the reads. An erasure
+// runs after an archival — dataprivacy hides the subject and destroys them
+// afterwards — so a delete carrying that predicate would be the one write that
+// cannot reach the rows it exists for.
+func TestRender_EraseUserIsTheOneStatementWithNoArchivedPredicate(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			statement := statementNamed(t, d, "EraseUser")
+
+			must.StrContains(t, statement, "DELETE FROM "+UsersTable)
+			test.StrNotContains(t, statement, querygen.ArchivedAtColumn)
+
+			// Keyed on the row and the directory it is in, so a neighbor's
+			// erasure matches nothing rather than destroying somebody else's
+			// user.
+			test.StrContains(t, statement, querygen.IDColumn+" = sqlc.arg("+querygen.IDColumn+")")
+			test.StrContains(t, statement, ScopeColumn+" = sqlc.arg("+ScopeColumn+")")
+
+			// :execrows, because the count is what the caller reports as the
+			// number of rows the erasure destroyed.
+			test.StrContains(t, statement, ":execrows")
+		})
+	}
+}
+
+// TestRender_RoleWritesAreOneStatementPerTable pins what replaced the pair of
+// builders parameterized on the table: six statements, because a query name is
+// a Go method name and a table is not a parameter of one.
+func TestRender_RoleWritesAreOneStatementPerTable(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			for _, table := range RoleTables {
+				cleared := statementNamed(t, d, "Delete"+table.Singular+"Roles")
+
+				// Keyed on the owner alone: a clear empties the whole set, so
+				// it names the parent rather than one grant.
+				must.StrContains(t, cleared, "DELETE FROM "+table.Name)
+				test.StrContains(t, cleared, table.OwnerColumn+" = sqlc.arg("+table.OwnerColumn+")")
+				test.StrNotContains(t, cleared, RoleColumn+" = sqlc.arg("+RoleColumn+")")
+
+				insert := statementNamed(t, d, "Insert"+table.Singular+"Role")
+
+				// One row, not a VALUES list assembled per call — the shape
+				// that had no static text for sqlc to check.
+				must.StrContains(t, insert, "INSERT INTO "+table.Name)
+				test.EqOp(t, 1, strings.Count(insert, "VALUES"))
+				test.StrContains(t, insert, "sqlc.arg("+table.OwnerColumn+")")
+				test.StrContains(t, insert, "sqlc.arg("+RoleColumn+")")
+			}
+		})
+	}
+}
+
+// statementNamed returns one rendered statement, annotation line included.
+func statementNamed(tb testing.TB, d dialect.Dialect, name string) string {
+	tb.Helper()
+
+	for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+		if statement != "" && strings.Fields(statement)[0] == name {
+			return statement
+		}
+	}
+
+	tb.Fatalf("no statement named %q in the %s corpus", name, d)
+
+	return ""
 }

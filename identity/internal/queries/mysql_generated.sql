@@ -632,6 +632,16 @@ WHERE identity_users.email_address = sqlc.arg(email_address)
 	AND identity_users.scope = sqlc.arg(scope)
 	AND identity_users.id <> COALESCE(sqlc.narg(except_user_id), '');
 
+-- name: GetOwnedAccountIDForUser :one
+SELECT
+	identity_accounts.id
+FROM identity_accounts
+WHERE identity_accounts.archived_at IS NULL
+	AND identity_accounts.scope = sqlc.arg(scope)
+	AND identity_accounts.owner_user_id = sqlc.arg(owner_user_id)
+ORDER BY identity_accounts.id ASC
+LIMIT 1;
+
 -- name: GetMembershipByUserAndAccount :one
 SELECT
 	identity_memberships.id,
@@ -667,6 +677,57 @@ WHERE identity_memberships.archived_at IS NULL
 	AND identity_memberships.belongs_to_account <> sqlc.arg(belongs_to_account)
 ORDER BY identity_memberships.belongs_to_account ASC
 LIMIT 1;
+
+-- name: ListUsersByIDs :many
+SELECT
+	identity_users.id,
+	identity_users.scope,
+	identity_users.username,
+	identity_users.email_address,
+	identity_users.first_name,
+	identity_users.last_name,
+	identity_users.hashed_password,
+	identity_users.requires_password_change,
+	identity_users.password_last_changed_at,
+	identity_users.two_factor_secret,
+	identity_users.two_factor_secret_verified_at,
+	identity_users.email_address_verified_at,
+	identity_users.email_address_verification_token,
+	identity_users.account_status,
+	identity_users.account_status_explanation,
+	identity_users.last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy,
+	identity_users.created_at,
+	identity_users.last_updated_at,
+	identity_users.archived_at
+FROM identity_users
+WHERE identity_users.scope = sqlc.arg(scope)
+	AND identity_users.id IN (sqlc.slice(ids))
+ORDER BY identity_users.id ASC;
+
+-- name: ListUserRolesByUserIDs :many
+SELECT
+	identity_user_roles.user_id,
+	identity_user_roles.role
+FROM identity_user_roles
+WHERE identity_user_roles.user_id IN (sqlc.slice(ids))
+ORDER BY identity_user_roles.user_id ASC, identity_user_roles.role ASC;
+
+-- name: ListMembershipRolesByMembershipIDs :many
+SELECT
+	identity_membership_roles.membership_id,
+	identity_membership_roles.role
+FROM identity_membership_roles
+WHERE identity_membership_roles.membership_id IN (sqlc.slice(ids))
+ORDER BY identity_membership_roles.membership_id ASC, identity_membership_roles.role ASC;
+
+-- name: ListInvitationRolesByInvitationIDs :many
+SELECT
+	identity_invitation_roles.invitation_id,
+	identity_invitation_roles.role
+FROM identity_invitation_roles
+WHERE identity_invitation_roles.invitation_id IN (sqlc.slice(ids))
+ORDER BY identity_invitation_roles.invitation_id ASC, identity_invitation_roles.role ASC;
 
 -- name: ListAccountMembers :many
 SELECT
@@ -985,6 +1046,50 @@ WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope)
 	AND status = sqlc.arg(current_status);
+
+-- name: EraseUser :execrows
+DELETE FROM identity_users
+WHERE id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: DeleteUserRoles :execrows
+DELETE FROM identity_user_roles
+WHERE user_id = sqlc.arg(user_id);
+
+-- name: InsertUserRole :exec
+INSERT INTO identity_user_roles (
+	user_id,
+	role
+) VALUES (
+	sqlc.arg(user_id),
+	sqlc.arg(role)
+);
+
+-- name: DeleteMembershipRoles :execrows
+DELETE FROM identity_membership_roles
+WHERE membership_id = sqlc.arg(membership_id);
+
+-- name: InsertMembershipRole :exec
+INSERT INTO identity_membership_roles (
+	membership_id,
+	role
+) VALUES (
+	sqlc.arg(membership_id),
+	sqlc.arg(role)
+);
+
+-- name: DeleteInvitationRoles :execrows
+DELETE FROM identity_invitation_roles
+WHERE invitation_id = sqlc.arg(invitation_id);
+
+-- name: InsertInvitationRole :exec
+INSERT INTO identity_invitation_roles (
+	invitation_id,
+	role
+) VALUES (
+	sqlc.arg(invitation_id),
+	sqlc.arg(role)
+);
 
 -- name: UpsertMembership :exec
 INSERT INTO identity_memberships (

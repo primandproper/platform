@@ -66,10 +66,10 @@ func (t *Table) Immutable() []string {
 // UpdateColumns returns the columns the standard update assigns, in projection
 // order.
 //
-// Order matters because both consumers render from it: the store's Bound update
-// and the canonical .sql have to assign the same columns in the same places, and
-// deriving both from the column list is what makes that true rather than
-// remembered.
+// Order matters because the generated code reads it: the canonical .sql assigns
+// these columns in this order and the querier's parameter struct follows, so a
+// list derived from the column list stays in step with the projection rather
+// than being remembered alongside it.
 func (t *Table) UpdateColumns() []string {
 	return querygen.ForUpdate(t.Columns, append(t.Immutable(), ScopeColumn)...)
 }
@@ -84,15 +84,28 @@ func (t *Table) UpdateColumns() []string {
 // a separate list, and every keyed read below still returns the id where the
 // caller needs it.
 func (t *Table) KeyedColumns() []string {
-	keyed := make([]string, 0, len(t.Columns))
+	return t.ColumnsExcept(querygen.IDColumn)
+}
+
+// ColumnsExcept returns the table's shape without the named columns, in
+// projection order.
+//
+// It is the general form of KeyedColumns, and it is the same trick: a predicate
+// querygen renders from the column list is left off by handing over a list
+// without the column it derives from. The archived one is the other column
+// worth omitting — a read hydrating references to rows other rows already point
+// at wants the archived ones back — and what a statement projects is a separate
+// list, so leaving a column out here does not take it out of the answer.
+func (t *Table) ColumnsExcept(excluded ...string) []string {
+	kept := make([]string, 0, len(t.Columns))
 
 	for _, column := range t.Columns {
-		if column != querygen.IDColumn {
-			keyed = append(keyed, column)
+		if !slices.Contains(excluded, column) {
+			kept = append(kept, column)
 		}
 	}
 
-	return keyed
+	return kept
 }
 
 // Options renders this table's shape as the options StandardCRUD reads.

@@ -308,6 +308,66 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		must.SliceLen(t, 2, roster.Data)
 	})
 
+	t.Run("refuses a membership whose endpoints are in another directory", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+
+		neighbor := newUser("eve")
+		neighbor.Scope = otherScope
+		createUser(t, store, neighbor)
+
+		// The user exists and the foreign key is satisfied. The directory is
+		// the part that does not match, and it is the part that decides whose
+		// roster they appear on.
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateMembership(ctx, q, &Membership{
+				Scope:            testScope,
+				BelongsToUser:    neighbor.ID,
+				BelongsToAccount: account.ID,
+				Roles:            []string{"account_member"},
+			})
+		})
+		must.ErrorIs(t, err, ErrUserNotFound)
+
+		// The other endpoint, and the other sentinel — each names the endpoint
+		// this scope cannot see, and neither says it exists elsewhere.
+		neighborAccount := newAccount("Neighbor", neighbor.ID)
+		neighborAccount.Scope = otherScope
+
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateAccount(ctx, q, neighborAccount)
+		}))
+
+		err = inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateMembership(ctx, q, &Membership{
+				Scope:            testScope,
+				BelongsToUser:    owner.ID,
+				BelongsToAccount: neighborAccount.ID,
+				Roles:            []string{"account_member"},
+			})
+		})
+		must.ErrorIs(t, err, ErrAccountNotFound)
+
+		// A membership naming its own scope honestly is still written: this is
+		// a congruence check, not a ban on the neighbor having a directory.
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateMembership(ctx, q, &Membership{
+				Scope:            otherScope,
+				BelongsToUser:    neighbor.ID,
+				BelongsToAccount: neighborAccount.ID,
+				Roles:            []string{"account_admin"},
+			})
+		}))
+
+		members, err := store.ListAccountMembers(t.Context(), testScope, account.ID, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, members.Data)
+		test.EqOp(t, owner.ID, members.Data[0].User.ID)
+	})
+
 	t.Run("refuses a membership that carries no roles", func(t *testing.T) {
 		t.Parallel()
 
