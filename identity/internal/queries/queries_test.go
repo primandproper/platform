@@ -65,6 +65,8 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"GetUserByUsername", "GetUserByEmailAddress", "GetUserByEmailVerificationToken",
 		"GetMembershipByUserAndAccount", "GetMembershipIDByUserAndAccount",
 		"GetMembershipFallbackAccountID",
+		"ListUsersByIDs", "ListUserRolesByUserIDs",
+		"ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
 		"ListAccountMembers", "ListAccountsForUser", "ListMembershipsForUser",
 		"SearchUsersByUsername", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
@@ -157,14 +159,30 @@ func TestRender_SearchesUsernamesByPrefix(T *testing.T) {
 func TestTables_ScopeIsInEveryStatement(T *testing.T) {
 	T.Parallel()
 
-	// The three exceptions, and they are the same exception three times: the
-	// read-back of the creation time a create's own INSERT just caused, by the
-	// id that create minted, inside that create's transaction. It is the
-	// component's own machinery servicing itself rather than a read a caller
-	// reaches — the row is not visible to anything else until the transaction
-	// commits — so it keys on the id alone. Everything else, without exception,
-	// names the scope.
-	unscoped := []string{"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt"}
+	// The exceptions, in two groups.
+	//
+	// The first is the same exception three times: the read-back of the
+	// creation time a create's own INSERT just caused, by the id that create
+	// minted, inside that create's transaction. It is the component's own
+	// machinery servicing itself rather than a read a caller reaches — the row
+	// is not visible to anything else until the transaction commits — so it
+	// keys on the id alone.
+	//
+	// The second is the three role tables, and they are an exception because
+	// they have no scope column to name: a role row carries the id of the user,
+	// membership or invitation it hangs off and nothing else, and that parent
+	// is the scoped row. The batched reads below key on that parent column with
+	// ids the store read through a scoped statement, so a scope predicate here
+	// would be a join to say what the key already says. That is a fact about
+	// the schema rather than a liberty these statements take — the hand-written
+	// reads they replaced omitted it too — and it is the reason the parent
+	// columns are declared beside the tables rather than at the store.
+	//
+	// Everything else, without exception, names the scope.
+	unscoped := []string{
+		"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt",
+		"ListUserRolesByUserIDs", "ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
+	}
 
 	for _, d := range everyDialect {
 		T.Run(string(d), func(t *testing.T) {

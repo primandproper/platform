@@ -161,8 +161,22 @@ the row it comes back as is generated rather than paired to a Scan by eye. The
 username prefix search is a rendered pair the same way: the page and the count
 beside it, which is the one read here whose statement is not a filtered list.
 
-What remains hand-written is what querygen does not yet emit — the billing
-update's conditional SET.
+The batched reads come from the same place, and they were the last reads that
+did not. A page's rows point at users — "created by" — and a page of users,
+memberships or invitations has roles hanging off it; read one key at a time
+that is a round trip per row, and the loop converting rows is where that shape
+arrives without anybody choosing it. Each is a read keyed on a bound set, which
+querygen renders as a bound array on Postgres and a placeholder expansion on
+the other two, under one Go signature. What each still owes its caller is the
+empty batch, answered before the query rather than by it.
+
+What remains hand-written is the writes querygen does not emit — the membership
+writes keyed on the (user, account) pair, the two-factor and agreement stamps
+whose predicates and SET lists are their own, the role-set replacement behind
+SetMembershipRoles, and the outright deletion an erasure runs — and the two
+reads that answer a question rather than return a row: the uniqueness check
+behind a profile save, and the count that decides whether a membership is the
+user's first.
 */
 package identity
 

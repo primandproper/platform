@@ -22,7 +22,7 @@ var _ InvitationStore = (*SQLStore)(nil)
 const (
 	invitationFromUserColumn = queries.InvitationFromUserColumn
 	invitationToEmailColumn  = queries.InvitationToEmailColumn
-	invitationIDColumn       = "invitation_id"
+	invitationIDColumn       = queries.InvitationRoleOwnerColumn
 )
 
 // answerInvitationParams moves an invitation to a terminal status.
@@ -139,7 +139,7 @@ func (s *SQLStore) readInvitation(
 
 	invitation := invitationFromRow(&row)
 
-	byInvitation, err := s.rolesFor(ctx, q, s.tables.invitationRoles, invitationIDColumn, []string{invitation.ID})
+	byInvitation, err := s.invitationRoles(ctx, q, []string{invitation.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +147,27 @@ func (s *SQLStore) readInvitation(
 	invitation.Roles = byInvitation[invitation.ID]
 
 	return invitation, nil
+}
+
+// invitationRoles reads the roles of a batch of invitations, keyed by
+// invitation ID.
+//
+// It is the invitation half of what the roster and the directory do with
+// rolesFor: one statement per batch rather than one per invitation, and the
+// empty batch answered without a round trip.
+func (s *SQLStore) invitationRoles(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	invitationIDs []string,
+) (map[string][]string, error) {
+	return rolesFor(invitationIDs, func(ids []string) ([]ownedRole, error) {
+		rows, err := s.q.ListInvitationRolesByInvitationIDs(ctx, q, identitydb.ListInvitationRolesByInvitationIDsParams{IDs: ids})
+		if err != nil {
+			return nil, err
+		}
+
+		return invitationRolesFromRows(rows), nil
+	})
 }
 
 // GetInvitationByToken reads the invitation a link names, comparing the token.
@@ -243,7 +264,7 @@ func (s *SQLStore) pageInvitations(
 		ids = append(ids, invitation.ID)
 	}
 
-	byInvitation, err := s.rolesFor(ctx, s.client.Reader(), s.tables.invitationRoles, invitationIDColumn, ids)
+	byInvitation, err := s.invitationRoles(ctx, s.client.Reader(), ids)
 	if err != nil {
 		return nil, op.Error(err, "%s", description)
 	}

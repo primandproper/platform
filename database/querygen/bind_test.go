@@ -338,11 +338,11 @@ func TestBindArguments(T *testing.T) {
 
 		// sqlc.slice is a macro sqlc expands per call, because the arity
 		// belongs to the values. A statement carrying one has no single
-		// executable rendering, and a Bound* method written around one wants
-		// BoundIDSet instead. idSetPredicate is the only fragment that renders
-		// one, and only off Postgres.
+		// executable rendering, which is why the two statements built on
+		// setPredicate — the bulk stamp and the batched read — are corpus-only.
+		// It is the only fragment that renders one, and only off Postgres.
 		for _, d := range everyDialect() {
-			err := recovered(func() { _, _ = bindArguments(d, For(dialect.MySQL).idSetPredicate()) })
+			err := recovered(func() { _, _ = bindArguments(d, For(dialect.MySQL).setPredicate(IDColumn, IDsArg)) })
 
 			must.Error(t, err, must.Sprintf("dialect %q", d))
 			test.ErrorIs(t, err, ErrUnboundableStatement, test.Sprintf("dialect %q", d))

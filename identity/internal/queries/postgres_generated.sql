@@ -652,6 +652,57 @@ WHERE identity_memberships.archived_at IS NULL
 ORDER BY identity_memberships.belongs_to_account ASC
 LIMIT 1;
 
+-- name: ListUsersByIDs :many
+SELECT
+	identity_users.id,
+	identity_users.scope,
+	identity_users.username,
+	identity_users.email_address,
+	identity_users.first_name,
+	identity_users.last_name,
+	identity_users.hashed_password,
+	identity_users.requires_password_change,
+	identity_users.password_last_changed_at,
+	identity_users.two_factor_secret,
+	identity_users.two_factor_secret_verified_at,
+	identity_users.email_address_verified_at,
+	identity_users.email_address_verification_token,
+	identity_users.account_status,
+	identity_users.account_status_explanation,
+	identity_users.last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy,
+	identity_users.created_at,
+	identity_users.last_updated_at,
+	identity_users.archived_at
+FROM identity_users
+WHERE identity_users.scope = sqlc.arg(scope)
+	AND identity_users.id = ANY(sqlc.arg(ids)::text[])
+ORDER BY identity_users.id ASC;
+
+-- name: ListUserRolesByUserIDs :many
+SELECT
+	identity_user_roles.user_id,
+	identity_user_roles.role
+FROM identity_user_roles
+WHERE identity_user_roles.user_id = ANY(sqlc.arg(ids)::text[])
+ORDER BY identity_user_roles.user_id ASC, identity_user_roles.role ASC;
+
+-- name: ListMembershipRolesByMembershipIDs :many
+SELECT
+	identity_membership_roles.membership_id,
+	identity_membership_roles.role
+FROM identity_membership_roles
+WHERE identity_membership_roles.membership_id = ANY(sqlc.arg(ids)::text[])
+ORDER BY identity_membership_roles.membership_id ASC, identity_membership_roles.role ASC;
+
+-- name: ListInvitationRolesByInvitationIDs :many
+SELECT
+	identity_invitation_roles.invitation_id,
+	identity_invitation_roles.role
+FROM identity_invitation_roles
+WHERE identity_invitation_roles.invitation_id = ANY(sqlc.arg(ids)::text[])
+ORDER BY identity_invitation_roles.invitation_id ASC, identity_invitation_roles.role ASC;
+
 -- name: ListAccountMembers :many
 SELECT
 	identity_memberships.id,
