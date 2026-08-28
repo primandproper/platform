@@ -316,11 +316,8 @@ func TestRunner_Get(T *testing.T) {
 		store := env.newStore(t)
 		saveInstance(t, store, newRecord("i1", "elsewhere", []string{"one"}, testState{}, baseTime), baseTime)
 
-		concrete, ok := store.(*SQLStore)
-		must.True(t, ok)
-
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"UPDATE "+concrete.tables.instances+" SET state = 'not json' WHERE id = 'i1'")
+			"UPDATE "+instancesTable(t, store)+" SET state = 'not json' WHERE id = 'i1'")
 		must.NoError(t, err)
 
 		runner := newTestRunner(t, store, NewRegistry())

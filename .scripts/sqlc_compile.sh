@@ -28,6 +28,7 @@ SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 COMPONENTS=(
   "./dataprivacy ./internal/queriesgen internal/queries"
   "./identity ./internal/queriesgen internal/queries"
+  "./saga ./internal/queriesgen internal/queries"
   "./sessions/database ./internal/queriesgen internal/queries"
 )
 

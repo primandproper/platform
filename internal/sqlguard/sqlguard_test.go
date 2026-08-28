@@ -1,6 +1,7 @@
 package sqlguard
 
 import (
+	"errors"
 	"maps"
 	"net/http"
 	"sync"
@@ -251,67 +252,55 @@ func TestGuard_Exec(T *testing.T) {
 	})
 }
 
-// Report is the half of Exec that means something, applied to a count a caller
-// already has — which is every store on the generated-querier tier, since a
-// :execrows statement comes back through sqlc as an int64 rather than as a
-// sql.Result.
-//
-// What these assert is that the two paths say the same thing: the same sentinel,
-// the same wrapped reason, the same logged identifier. A store executing its SQL
-// through a querier and one still assembling it must not report a missed guard
-// two different ways, or a dashboard grouping on the attribute sees half of a
-// deployment's misses.
-func TestGuard_Report(T *testing.T) {
+func TestGuard_Count(T *testing.T) {
 	T.Parallel()
 
-	T.Run("a count above zero succeeds", func(t *testing.T) {
+	T.Run("a guard that matched a row succeeds", func(t *testing.T) {
 		t.Parallel()
 
-		test.NoError(t, testGuard().Report(t.Context(), beginOp(t), 1, "id-1", "finish"))
+		test.NoError(t, testGuard().Count(t.Context(), beginOp(t), 1, nil, "id-1", "finish", "finishing thing"))
 	})
 
-	T.Run("a count of zero is the sentinel", func(t *testing.T) {
+	T.Run("a guard that matched nothing is the sentinel", func(t *testing.T) {
 		t.Parallel()
 
-		err := testGuard().Report(t.Context(), beginOp(t), 0, "id-1", "finish")
+		err := testGuard().Count(t.Context(), beginOp(t), 0, nil, "id-1", "finish", "finishing thing")
 
 		test.ErrorIs(t, err, errNotFound)
 		test.StrContains(t, err.Error(), `thing "id-1" is no longer active`)
 	})
 
-	T.Run("a missed guard names the row it could not find", func(t *testing.T) {
+	T.Run("reports what the generated statement returned", func(t *testing.T) {
 		t.Parallel()
 
-		logger := newRecordingLogger()
+		sentinel := platformerrors.New("connection refused")
 
-		must.Error(t, testGuard().Report(t.Context(), beginOpWith(t, logger), 0, "id-1", "finish"))
+		err := testGuard().Count(t.Context(), beginOp(t), 0, sentinel, "id-1", "finish", "finishing thing")
 
-		lines := logger.recorded()
-		must.SliceLen(t, 1, lines)
-		test.EqOp(t, "thing left the active set before its outcome could be recorded", lines[0].message)
-		test.EqOp(t, "id-1", lines[0].values["things.id"])
+		// The error wins over the count: a statement that failed reports the
+		// failure rather than the zero rows it did not write.
+		test.ErrorIs(t, err, sentinel)
+		test.False(t, errors.Is(err, errNotFound))
 	})
 
-	// The path Exec takes to get here, checked against the path a querier takes:
-	// one statement, two ways of learning it moved nothing, one answer.
-	T.Run("says what Exec says about the same count", func(t *testing.T) {
+	T.Run("a missed guard says so everywhere a missed guard is said", func(t *testing.T) {
 		t.Parallel()
 
-		const query = "UPDATE things SET state = 'done' WHERE id = :1 AND state = 'running'"
+		// The same reporting Exec's miss goes through, which is the point of
+		// the two halves sharing it: a store on the generated tier and one
+		// still executing its own text log the same line and count the same
+		// series.
+		logger := newRecordingLogger()
 
-		db, mock, dbErr := sqlmock.New()
-		must.NoError(t, dbErr)
+		err := testGuard().Count(t.Context(), beginOpWith(t, logger), 0, nil, "id-9", "advance", "advancing thing")
+		test.ErrorIs(t, err, errNotFound)
 
-		t.Cleanup(func() { _ = db.Close() })
+		lines := logger.recorded()
+		must.SliceNotEmpty(t, lines)
 
-		mock.ExpectExec(query).WillReturnResult(sqlmock.NewResult(0, 0))
-
-		executed := testGuard().Exec(t.Context(), beginOp(t), db, query, nil, "id-1", "finish", "finishing thing")
-		reported := testGuard().Report(t.Context(), beginOp(t), 0, "id-1", "finish")
-
-		must.Error(t, executed)
-		must.Error(t, reported)
-		test.EqOp(t, executed.Error(), reported.Error())
+		last := lines[len(lines)-1]
+		test.EqOp(t, "thing left the active set before its outcome could be recorded", last.message)
+		test.EqOp(t, "id-9", last.values["things.id"])
 	})
 }
 

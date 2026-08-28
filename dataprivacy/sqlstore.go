@@ -521,11 +521,7 @@ func (s *SQLStore) CompleteExport(ctx context.Context, q database.Tx, req *Reque
 		ID:            req.ID,
 		CurrentStatus: string(StatusInProgress),
 	})
-	if err != nil {
-		return op.Error(err, "completing dataprivacy export")
-	}
-
-	return s.guard.Report(ctx, op, affected, req.ID, "export")
+	return s.guard.Count(ctx, op, affected, err, req.ID, "export", "completing dataprivacy export")
 }
 
 // WithTransaction delegates to the client, which begins its own span for the
@@ -578,11 +574,7 @@ func (s *SQLStore) CompleteErasure(ctx context.Context, q database.Tx, req *Requ
 		ID:             req.ID,
 		CurrentStatus:  string(StatusInProgress),
 	})
-	if err != nil {
-		return op.Error(err, "completing dataprivacy erasure")
-	}
-
-	return s.guard.Report(ctx, op, affected, req.ID, "erasure")
+	return s.guard.Count(ctx, op, affected, err, req.ID, "erasure", "completing dataprivacy erasure")
 }
 
 func (s *SQLStore) MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error {
