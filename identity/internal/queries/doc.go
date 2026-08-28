@@ -3,13 +3,13 @@ Package queries is the identity schema described as data: the canonical table
 names, each table's columns in the order every read projects them, and the two
 subsets a write may assign.
 
-It exists because those facts now have two consumers that must not disagree.
-The identity store renders them through database/querygen's Bound methods, with
-the consumer's table prefix on the name, and executes what comes back; the
-generator behind `make generate` renders the same tables through
-[querygen.Generator.StandardCRUD] into the canonical .sql files sqlc is run
-over. A column list spelled in both places could differ in one name, and the
-symptom would be a check that passes over SQL nobody executes.
+It exists because those facts have two consumers that must not disagree. The
+generator behind `make generate` renders these tables through
+[querygen.Generator.StandardCRUD] and the keyed forms beside it into the
+canonical .sql files sqlc is run over; the store reads the same table names and
+column lists to build its projections and to name what it selects. A column list
+spelled in both places could differ in one name, and the symptom would be a
+check that passes over SQL nobody executes.
 
 So it is spelled once, here, and both halves read it. The .sql files beside this
 file are the generator's output — see [Render] and identity/internal/queriesgen.
@@ -72,12 +72,12 @@ generated.
 A table's standard queries are not all of what a store runs against it, and the
 difference used to be the hand-written half. A read keyed on a reference, a read
 of one database-owned column, a read keyed on a natural key the table carries an
-id alongside — each of those was rendered by the store and by nothing else, so
-sqlc proved statements the store did not run while the store ran statements sqlc
-never saw.
+id alongside — each of those was written out by hand, so sqlc proved statements
+the store did not run while the store ran statements sqlc never saw.
 
-So they are rendered here too, through the Query forms beside querygen's Bound
-methods, which are the same statement text by construction:
+So they are rendered here too, through querygen's keyed Query forms, which are
+the standard statements with more predicates rather than a second rendering of
+them:
 
   - the two paged invitation reads, keyed on the sender or the addressee
   - the read-back of created_at, one per emitted table

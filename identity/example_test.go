@@ -117,10 +117,10 @@ func Example_registration() {
 
 // Example_authenticatedRequest shows the read every authenticated request makes.
 //
-// GetPrincipal is one round trip and, more to the point, one place where the
-// active account is checked against the user's memberships. A hand-built
-// equivalent is three queries and an easily-omitted check, and omitting it hands
-// one account's data to another account's member.
+// GetPrincipal is one call and, more to the point, one place where the active
+// account is checked against the user's memberships. A hand-built equivalent is
+// the same reads and an easily-omitted check, and omitting it hands one
+// account's data to another account's member.
 func Example_authenticatedRequest() {
 	ctx := context.Background()
 	client, store := exampleWiring()

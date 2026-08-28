@@ -66,10 +66,10 @@ func (t *Table) Immutable() []string {
 // UpdateColumns returns the columns the standard update assigns, in projection
 // order.
 //
-// Order matters because both consumers render from it: the store's Bound update
-// and the canonical .sql have to assign the same columns in the same places, and
-// deriving both from the column list is what makes that true rather than
-// remembered.
+// Order matters because the generated code reads it: the canonical .sql assigns
+// these columns in this order and the querier's parameter struct follows, so a
+// list derived from the column list stays in step with the projection rather
+// than being remembered alongside it.
 func (t *Table) UpdateColumns() []string {
 	return querygen.ForUpdate(t.Columns, append(t.Immutable(), ScopeColumn)...)
 }

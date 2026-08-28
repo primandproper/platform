@@ -19,10 +19,10 @@ and the fragment methods is text, to be written to a .sql file and fed to sqlc
 alongside the schema. Nothing here assembles a query per request, and none of it
 reads a schema.
 
-Its second consumer is a driver — see "The same statements, executed" below.
-That is the same text with the argument references rewritten into bind markers,
-not a second rendering of it: the semantics a filtered read has are subtle
-enough that two copies of them would be two chances to get them wrong.
+There is one consumer, and it is that pipeline: render the corpus, check it with
+sqlc, execute the querier sqlc-gen-unison generates from it. Nothing here renders
+a statement for a driver, and a store executing SQL this package never emitted is
+a store outside the guarantee — see "Porting a store onto this package" below.
 
 # What a caller supplies
 
@@ -90,82 +90,49 @@ The keyset position is page_cursor rather than cursor because CURSOR is a
 reserved word in MySQL — see filtering's own constants for why the name moved
 rather than the dialect being special-cased. MySQL is also the one dialect whose
 page size is bound through no name at all: its grammar takes a bare placeholder
-after LIMIT, so the emitted SQL spells the marker directly and [Bound.Args]
-still reports it as result_limit.
+after LIMIT, so the emitted SQL spells the marker directly and the generated
+parameter is still named for result_limit — see identity's unison.yaml, where
+the name converges.
 
-# The same statements, executed
+# The keyed variants
 
-Not everything that wants these statements wants to generate them. A store that
-serves many tables from one implementation knows its table and columns at
-construction rather than at build time, and there is no .sql file to write.
+[Generator.StandardCRUD] emits the set a conventional table gets: keyed on the
+row's own id and, where the caller named one, on an ownership column. A store's
+corpus is that set plus the statements its own reads need — a get keyed on a
+natural key, a list keyed on a reference, an update guarded by the value it is
+replacing, a read that projects one column.
 
-What such a caller needs is the argument references spelled as bind markers
-instead of sqlc references, and that is the only thing the [Bound] methods
-change. Each of them calls the statement function [Generator.StandardCRUD]
-calls and rewrites the references in what comes back — the same rewrite sqlc
-performs on these statements before its generated code hands one to a driver.
-So there is no second rendering to drift from the first: the archived toggle
-admits rows the same way, the counts omit the cursor the same way, the
-last_updated_at bounds admit NULL the same way, because there is one of each
-and both consumers read it.
-
-	get := querygen.For(dialect.Postgres).BoundGet("widgets", columns,
-		querygen.Match{Column: querygen.BelongsToAccountColumn})
-
-	args, err := get.Bind(map[string]any{
-		querygen.IDColumn:               id,
-		querygen.BelongsToAccountColumn: account,
-	})
-
-A [Bound] holds the statement and the names its placeholders stand for, so it is
-rendered once and bound per execution. [Match] adds an equality predicate on a
-column — a tenancy scope, an owner, the reference a child row hangs off — and
-[Generator.BindFilter] fills in the filter arguments, which is the mapping
-between filtering.QueryFilter's fields and the argument names above.
-
-Two things about arguments are worth knowing before reading Bound.Args. A name
-can appear more than once: the filter predicates are rendered once and spliced
-into the SELECT and into both counts, so on the dialects whose markers are
-positional the same value is bound once per appearance, while Postgres numbers
-its markers and binds it once. Markers are numbered where they appear in the
-finished statement, which is what makes a spliced fragment come out right. And a bound value is not always what the Go field holds — SQLite stores
-timestamps as text and compares them as text, so BindFilter hands it the shape
-time.DateTime spells rather than a time, and MySQL's LIMIT cannot
-coalesce so BindFilter supplies the default the other two coalesce to. Both are
-in BindFilter rather than in a caller for the same reason the SQL is here.
-
-# The canonical form of a keyed variant
-
-A store rendering [Bound] statements with [Match] values executes statements the
-standard set does not contain — a get keyed on a natural key, a list keyed on a
-reference, an update guarded by a status. Left there, the corpus sqlc checks and
-the set the store runs differ by exactly those variants: sqlc proves statements
-nobody executes while the store executes statements sqlc never saw, and the gap
-is invisible until one of them drifts.
-
-So every [Bound] method has a Query form beside it — [Generator.GetQuery],
-[Generator.ReadQuery], [Generator.ExistsQuery], [Generator.ListQuery],
-[Generator.UpdateQuery] and [Generator.ArchiveQuery] — which is the same
-statement in the sqlc spelling, named and annotated for a query file:
+[Generator.CreateQuery], [Generator.GetQuery], [Generator.ReadQuery],
+[Generator.ExistsQuery], [Generator.ListQuery], [Generator.UpdateQuery] and
+[Generator.ArchiveQuery] render those, each named and annotated for a query
+file:
 
 	list := querygen.For(dialect.Postgres).ListQuery(
 		"ListInvitationsByFromUser", "identity_invitations", columns,
 		querygen.Match{Column: "scope"},
 		querygen.Match{Column: "from_user"})
 
-Each calls the statement function its [Bound] counterpart calls, so the checked
-text and the executed text are the same text by construction. A consumer renders
-its variants into the canonical .sql through these and executes the methods sqlc
-generates from it, which is what closes the gap rather than narrowing it.
+Each calls the statement function StandardCRUD calls, with the matches where
+WithOwnership's column goes, so a variant is the standard statement with more
+predicates rather than a second rendering of one. The filter window, the archived
+toggle, the cursor and the two counts are the same code path: a keyed read
+filters exactly as an unkeyed one does because there is nothing that could make
+it not.
 
-[Generator.ReadQuery] and [Generator.BoundRead] are the pair the standard get
-cannot express: a [Read] says what the SELECT lists, and — where the key admits
-more than one row — the column whose order decides which one answers. The
-column list stays the table's shape, which is what the id and archived
-predicates are derived from, so a table carrying an id it does not key on leaves
-the column out of that list and names it in [Read.Projection]. A [Match] can
-also exclude rather than include, for the read looking for another row like this
-one.
+[Match] is the predicate — a tenancy scope, an owner, the reference a child row
+hangs off — and it is a column name rather than finished SQL, because the
+statements it lands in render it more than once. A list carries its predicates in
+the SELECT and again in each of the two count subqueries beside it; a caller
+handing over finished SQL would have to know how many times its argument was
+about to appear. A [Match] can also exclude rather than include, for the read
+looking for another row like this one.
+
+[Generator.ReadQuery] is the one the standard get cannot express: a [Read] says
+what the SELECT lists and — where the key admits more than one row — the column
+whose order decides which one answers. The column list stays the table's shape,
+which is what the id and archived predicates are derived from, so a table
+carrying an id it does not key on leaves the column out of that list and names it
+in [Read.Projection].
 
 # Guarded writes
 
@@ -178,8 +145,8 @@ every one of them.
 What turns a field-specific write into a safe one is a predicate naming the
 value the row must still hold:
 
-	update := querygen.For(dialect.Postgres).BoundUpdate("accounts", columns,
-		[]string{"owner_user_id"}, nil,
+	update := querygen.For(dialect.Postgres).UpdateQuery("TransferAccount",
+		"accounts", columns, []string{"owner_user_id"}, nil,
 		querygen.Match{Column: "scope"},
 		querygen.Match{Column: "owner_user_id", Arg: "current_owner_user_id"})
 
@@ -187,11 +154,8 @@ Two concurrent transfers there cannot both succeed: the second finds the owner
 already moved, matches nothing, and its row count says so. That is the whole
 mechanism, and it needs the guard and the assignment to be two arguments —
 [Match.Arg] is what separates them, since both halves are the same column and
-one name would set it to the value it was requiring it to already hold.
-
-[Generator.UpdateQuery] is the canonical form of the same statement, so a
-guarded write joins the checked corpus rather than living only in the running
-store, the way every keyed variant above does.
+one name would set it to the value it was requiring it to already hold. The
+statement is annotated :execrows for that reason: the count is the answer.
 
 # Reads that cross a junction
 
@@ -246,7 +210,7 @@ direction wants.
 
 # Tables with no id
 
-[Generator.StandardCRUD] requires an id column and the [Bound] methods do not,
+[Generator.StandardCRUD] requires an id column and the keyed forms above do not,
 and the asymmetry is the one place the two halves of this package genuinely
 disagree about what a table has to look like.
 
@@ -258,11 +222,12 @@ table whose primary key is (subject_type, subject_id) addresses one exactly by
 naming both — which is what [Match] has always been for, an equality predicate on
 a column, bound rather than interpolated. So the id predicate is rendered when
 the column list has an id and not when it does not, exactly as the archived_at
-predicate is, and [Generator.BoundGet], [Generator.BoundExists],
-[Generator.BoundUpdate] and [Generator.BoundArchive] key a row on whatever it
+predicate is, and [Generator.GetQuery], [Generator.ExistsQuery],
+[Generator.UpdateQuery] and [Generator.ArchiveQuery] key a row on whatever it
 actually keys on:
 
-	get := querygen.For(dialect.Postgres).BoundGet("shredding_subject_keys", columns,
+	get := querygen.For(dialect.Postgres).GetQuery("GetSubjectKey",
+		"shredding_subject_keys", columns,
 		querygen.Match{Column: "subject_type"},
 		querygen.Match{Column: "subject_id"})
 
@@ -273,17 +238,12 @@ enforcing one live key per subject, and so the difference between a shred that
 works and one leaving half the ciphertext readable — metering_totals on
 (subject, meter, period_start), and scheduled_timers on (timer_set, timer_key).
 
-What that costs is worth stating rather than discovering. Those four execute
-[Bound] statements and render no canonical .sql, so nothing about them passes
-through sqlc: the projection and the placeholders stop being hand-maintained,
-because this package renders both, but the statements are never checked against
-the schema at build time the way a generated one is. A column renamed in a
-migration is a runtime error on those four tables and a failed generate
-everywhere else, and the only thing that catches it first is their own container
-tests. That is a narrower guarantee than the rest of this package offers, and it
-is a gap in those four packages rather than in what this one can express — the
-Query forms above render exactly these statements for a corpus, keyed on
-whatever the table keys on.
+[Generator.CreateQuery] is here for the same table rather than for variety. An
+INSERT keys on nothing, so it is the one statement such a table wants unchanged
+from the standard set while wanting every other one keyed on its natural key —
+and StandardCRUD, which would otherwise have emitted it, cannot serve the table
+at all because of the list beside it. Without CreateQuery a natural-key corpus
+would be five statements sqlc checks and a sixth nobody could render.
 
 A statement that keys on nothing at all — no id in the column list and no [Match]
 — is [ErrUnaddressableRow] rather than a statement whose WHERE clause is the
@@ -367,11 +327,11 @@ them; a hydration read naming rows that other rows already point at hands over a
 column list without it, and keeps them, because hiding a soft-deleted user turns
 "created by a departed colleague" into "created by nobody".
 
-This is one of the two shapes with no [Bound] form. A bound statement is the
-emitted text with its argument references rewritten into markers, and a set has
-no fixed number of markers to rewrite into — see [ErrUnboundableStatement]. So
-it is corpus-only: rendered into a consumer's .sql, checked by sqlc, and
-executed through the method sqlc generates.
+It is corpus-only like everything else here — rendered into a consumer's .sql,
+checked by sqlc, and executed through the method sqlc generates — but for this
+shape that was never going to be a choice: a set reference has no fixed number
+of markers, because sqlc expands it per call, so the statement's arity belongs
+to the values and only the generated method can hold it.
 
 # The table registry
 
@@ -399,6 +359,50 @@ takes the ones it does not, and [RegisteredTables] reads the union back:
 Two sources, one list. A consumer reading that list does not have to know which
 tables came from where, and a table moving from one source to the other does not
 change what comes out.
+
+The convention for a package in this module that ships a schema, which identity
+is the worked example of: its generator registers every table it owns — the whole
+list, not the subset [Generator.StandardCRUD] happens to emit for — and its
+migrations subpackage exports a Tables(prefix) beside SQL and Statements for the
+consumer half. The two halves answer the same question for different callers.
+This one is for a generator binary reading back what it generated across
+schemas, at the canonical unprefixed names; Tables is for the consumer, at
+theirs, and reads the DDL, so neither depends on the other staying in step by
+anybody's memory.
+
+# Porting a store onto this package
+
+There is one runtime tier, and every store that owns SQL is on it or is on its
+way onto it. A store does not render statements for a driver; it renders a
+corpus, sqlc checks the corpus against the schema, and sqlc-gen-unison generates
+the typed querier the store calls. A column renamed in a migration is then a
+failed generate rather than a runtime error, on every table, in all three
+dialects.
+
+identity is the worked example, and the shape a new store copies is four pieces:
+
+	<pkg>/internal/queries      the schema as data: table names, each table's
+	                            columns in projection order, and the subsets a
+	                            write may assign — spelled once, because the
+	                            corpus and the store both read them
+	<pkg>/internal/queriesgen   a main that renders that data through this
+	                            package into one .sql per dialect, and prints
+	                            the DDL sqlc reads them against
+	<pkg>/unison.yaml           the dialect roster, the generated package's
+	                            name, and the type overrides
+	<pkg>/internal/<pkg>db      the generated querier, committed
+
+The rendered .sql is committed and nothing imports it: it exists so `sqlc
+compile` can check it with no database running, and so the generated-files job
+can diff it. `make generate` writes it, through a go:generate line on the
+package; `make unison` renders the per-dialect schema beside it and runs the
+emitter over the pair. Its script names the components it walks, and a new store
+is a line in that list.
+
+What a store writes by hand is which statements it wants, in the internal
+queries package: [Generator.StandardCRUD] for a table whose reads are the
+conventional set, and the keyed forms above for everything else. What it does not
+write is SQL.
 
 # include_archived actually includes archived rows
 

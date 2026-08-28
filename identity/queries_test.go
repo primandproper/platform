@@ -1,15 +1,18 @@
 package identity
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/identity/internal/queries"
+	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
 )
 
 // allDialects is what every rendering assertion runs against, because the
@@ -34,6 +37,37 @@ func TestTables_Naming(t *testing.T) {
 	prefixed := newTables("ddb")
 	test.EqOp(t, "ddb_identity_users", prefixed.users)
 	test.EqOp(t, "ddb", prefixed.prefix())
+}
+
+// TestTables_AreTheOnesMigrationsExports is what makes migrations.Tables
+// complete for the caller who has to act on every table identity created —
+// truncating them between integration tests, inventorying them, backing them up.
+//
+// The store addresses seven tables and renders each name itself; the exported
+// list is read out of the DDL. A table the store writes to and the list omits is
+// a table left behind by a maintenance TRUNCATE, and the failure would surface
+// as some later test finding rows it did not write.
+func TestTables_AreTheOnesMigrationsExports(t *testing.T) {
+	t.Parallel()
+
+	for _, prefix := range []string{"", "ddb"} {
+		exported, err := migrations.Tables(prefix)
+		must.NoError(t, err)
+
+		rendered := newTables(prefix)
+		addressed := []string{
+			rendered.users,
+			rendered.userRoles,
+			rendered.accounts,
+			rendered.memberships,
+			rendered.membershipRoles,
+			rendered.invitations,
+			rendered.invitationRoles,
+		}
+		slices.Sort(addressed)
+
+		test.Eq(t, exported, addressed, test.Sprintf("prefix %q", prefix))
+	}
 }
 
 // TestBinder_NeverReusesAPlaceholder is the regression guard for the mistake
@@ -142,4 +176,33 @@ func TestProjections_MatchTheColumnLists(t *testing.T) {
 	test.EqOp(t, strings.Join(queries.Accounts.Columns, ", "), accountProjection)
 	test.EqOp(t, strings.Join(queries.Memberships.Columns, ", "), membershipProjection)
 	test.EqOp(t, strings.Join(queries.Invitations.Columns, ", "), invitationProjection)
+}
+
+// TestMembershipColumns_AreTheCanonicalSpellings pins the columns the
+// archive-by-side writes name to the ones the membership table declares.
+//
+// A fresh literal here would compile, run, and — on the day a column is renamed
+// in the canonical list — archive nothing, silently, because the predicate
+// would match no row rather than fail. Two spellings of one column is the drift
+// the queries package exists to prevent, so the spelling is asserted rather than
+// trusted to two files agreeing.
+func TestMembershipColumns_AreTheCanonicalSpellings(t *testing.T) {
+	t.Parallel()
+
+	test.EqOp(t, queries.MembershipUserColumn, membershipUserColumn)
+	test.EqOp(t, queries.MembershipAccountColumn, membershipAccountColumn)
+
+	test.SliceContains(t, queries.Memberships.Columns, membershipUserColumn)
+	test.SliceContains(t, queries.Memberships.Columns, membershipAccountColumn)
+
+	// And the statement built from each side names the column it was handed,
+	// which is what makes the two assertions above reach the rendered SQL.
+	for _, d := range allDialects {
+		for _, column := range []string{membershipUserColumn, membershipAccountColumn} {
+			query, _ := newTables("").buildArchiveMembershipsBy(d, column, tenancy.Of("dir"), "id", time.Time{})
+
+			test.True(t, strings.Contains(query, " "+column+" = "),
+				test.Sprintf("query: %s", query))
+		}
+	}
 }

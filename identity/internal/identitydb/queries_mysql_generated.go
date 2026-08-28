@@ -230,6 +230,15 @@ WHERE {{prefix}}identity_memberships.archived_at IS NULL
 	AND {{prefix}}identity_memberships.belongs_to_user = ?
 	AND {{prefix}}identity_memberships.belongs_to_account = ?`
 
+const getOwnedAccountIdforUserMySQL = `SELECT
+	{{prefix}}identity_accounts.id
+FROM {{prefix}}identity_accounts
+WHERE {{prefix}}identity_accounts.archived_at IS NULL
+	AND {{prefix}}identity_accounts.scope = ?
+	AND {{prefix}}identity_accounts.owner_user_id = ?
+ORDER BY {{prefix}}identity_accounts.id ASC
+LIMIT 1`
+
 const getUserMySQL = `SELECT
 	{{prefix}}identity_users.id,
 	{{prefix}}identity_users.scope,
@@ -1014,6 +1023,7 @@ type mysqlQueries struct {
 	getMembershipByUserAndAccount        string
 	getMembershipFallbackAccountID       string
 	getMembershipIdbyUserAndAccount      string
+	getOwnedAccountIdforUser             string
 	getUser                              string
 	getUserByEmailAddress                string
 	getUserByEmailVerificationToken      string
@@ -1066,6 +1076,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		getMembershipByUserAndAccount:        strings.ReplaceAll(getMembershipByUserAndAccountMySQL, prefixMarker, prefix),
 		getMembershipFallbackAccountID:       strings.ReplaceAll(getMembershipFallbackAccountIDMySQL, prefixMarker, prefix),
 		getMembershipIdbyUserAndAccount:      strings.ReplaceAll(getMembershipIdbyUserAndAccountMySQL, prefixMarker, prefix),
+		getOwnedAccountIdforUser:             strings.ReplaceAll(getOwnedAccountIdforUserMySQL, prefixMarker, prefix),
 		getUser:                              strings.ReplaceAll(getUserMySQL, prefixMarker, prefix),
 		getUserByEmailAddress:                strings.ReplaceAll(getUserByEmailAddressMySQL, prefixMarker, prefix),
 		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenMySQL, prefixMarker, prefix),
@@ -1371,6 +1382,22 @@ func (q *mysqlQueries) GetMembershipIDByUserAndAccount(ctx context.Context, db D
 	)
 
 	var i GetMembershipIDByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// GetOwnedAccountIDForUser runs the :one query against mysql.
+func (q *mysqlQueries) GetOwnedAccountIDForUser(ctx context.Context, db DBTX, arg GetOwnedAccountIDForUserParams) (GetOwnedAccountIDForUserRow, error) {
+	row := db.QueryRowContext(ctx, q.getOwnedAccountIdforUser,
+		arg.Scope,
+		arg.OwnerUserID,
+	)
+
+	var i GetOwnedAccountIDForUserRow
 
 	err := row.Scan(
 		&i.ID,
@@ -2678,6 +2705,13 @@ var (
 	_ = struct {
 		ID string
 	}(GetMembershipIDByUserAndAccountRow{})
+	_ = struct {
+		Scope       tenancy.Scope
+		OwnerUserID string
+	}(GetOwnedAccountIDForUserParams{})
+	_ = struct {
+		ID string
+	}(GetOwnedAccountIDForUserRow{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope

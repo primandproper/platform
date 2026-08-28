@@ -21,6 +21,24 @@ Statements is the same DDL split into individually executable statements, for
 callers running it some other way — a different migration tool, or a test that
 just wants the tables.
 
+# Which tables this package creates
+
+Tables answers that, at your prefix, and the answer is complete: the names come
+out of the DDL rather than from a list beside it, so a table added to this schema
+is in that list the moment it is added.
+
+	names, err := migrations.Tables(identity.DefaultTablePrefix)
+
+Reach for it wherever the job is per-table but not per-query — the TRUNCATE
+between integration tests, a backup policy, a schema inventory, a data privacy
+audit. The alternative is copying seven names out of the .sql files, which is a
+list that goes stale silently: nothing reports a table left out of a maintenance
+TRUNCATE except a test failing somewhere else on rows the previous one left.
+
+The same seven names reach database/querygen's table registry when identity's
+generator runs, so a binary that generates for several schemas reads one list
+covering all of them.
+
 # What a consumer adds beside these tables
 
 Columns of their own, in a side table keyed by user or account ID. This package
@@ -64,6 +82,29 @@ the mistake tenancy.Scope is shaped to make unspellable in Go: an unset scope
 fails at Value rather than widening a predicate. The column enforces the same
 rule for a writer that did not come through SQLStore, and the write fails.
 
+# owner_user_id has no foreign key, and every other belongs-to column does
+
+identity_memberships references both parents, identity_invitations references
+the account, and the two role tables cascade from theirs. identity_accounts's
+owner_user_id references nothing, and that is a decision rather than the
+oversight the asymmetry looks like.
+
+Neither behavior the clause offers is the one this column wants. ON DELETE
+CASCADE would destroy an organization, its invoices and every other member's
+work because one member exercised a right to be forgotten — the erasure of a
+person taking a company with it. ON DELETE RESTRICT would refuse the erasure,
+which a right-to-be-forgotten transaction cannot survive: it spans every domain
+and has to commit, and a subject whose rights depend on an account they may not
+administer does not have them. SET NULL is not open to it either, since the
+column is NOT NULL — and it could not be otherwise, because an account with no
+owner is the state the whole guard exists to prevent.
+
+So the reference is one the application keeps. identity.Store's ArchiveUser
+refuses while a user still owns a live account, naming the account, which is the
+path that has an alternative — transfer it, or archive it. EraseUser is the path
+that does not, and it documents what it leaves behind: an account whose
+owner_user_id names an id that no longer exists anywhere.
+
 The rendering and prefix vetting live in database/ddl, shared with every other
 schema-shipping package in this module.
 */
@@ -104,6 +145,37 @@ func Statements(d dialect.Dialect, prefix string) ([]string, error) {
 // table and index this package creates.
 func ValidatePrefix(prefix string) error {
 	return schema.ValidatePrefix(prefix)
+}
+
+// Tables returns the seven table names this package creates, rendered against
+// prefix and sorted.
+//
+// It is the complete list — identity creates no table this omits, because the
+// names are read out of the DDL beside this file rather than from a list
+// maintained next to it, so a table added to the schema is in this list the
+// moment it is added. That is what a consumer needs it to be: the uses are the
+// per-table jobs that are not per-query — the TRUNCATE an integration suite runs
+// between tests, a backup policy, a schema audit, a data privacy inventory — and
+// every one of them is wrong in a way nothing reports if the list is short by
+// one. A missing table in a between-tests TRUNCATE is a different test failing
+// later, on rows the previous one left behind.
+//
+// The prefix is vetted exactly as [Statements] and [SQL] vet it, and for the
+// same reason: these names are interpolated into statement text rather than
+// bound, so a caller building a TRUNCATE out of them is building it out of
+// whatever this returns.
+//
+// It is not an ordering a caller can delete in. Foreign keys make deletion order
+// a fact about the schema — memberships reference both users and accounts, and
+// each role table references what it names — so a consumer clearing these tables
+// wants the dialect's own way of ignoring the constraints rather than a sequence
+// read off this slice.
+func Tables(prefix string) ([]string, error) {
+	if err := schema.ValidatePrefix(prefix); err != nil {
+		return nil, err
+	}
+
+	return schema.Tables(prefix), nil
 }
 
 // SQL renders the same DDL as Statements, joined back into one migration body.

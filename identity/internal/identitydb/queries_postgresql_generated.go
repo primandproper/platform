@@ -230,6 +230,15 @@ WHERE {{prefix}}identity_memberships.archived_at IS NULL
 	AND {{prefix}}identity_memberships.belongs_to_user = $2
 	AND {{prefix}}identity_memberships.belongs_to_account = $3`
 
+const getOwnedAccountIdforUserPostgreSQL = `SELECT
+	{{prefix}}identity_accounts.id
+FROM {{prefix}}identity_accounts
+WHERE {{prefix}}identity_accounts.archived_at IS NULL
+	AND {{prefix}}identity_accounts.scope = $1
+	AND {{prefix}}identity_accounts.owner_user_id = $2
+ORDER BY {{prefix}}identity_accounts.id ASC
+LIMIT 1`
+
 const getUserPostgreSQL = `SELECT
 	{{prefix}}identity_users.id,
 	{{prefix}}identity_users.scope,
@@ -1014,6 +1023,7 @@ type postgresqlQueries struct {
 	getMembershipByUserAndAccount        string
 	getMembershipFallbackAccountID       string
 	getMembershipIdbyUserAndAccount      string
+	getOwnedAccountIdforUser             string
 	getUser                              string
 	getUserByEmailAddress                string
 	getUserByEmailVerificationToken      string
@@ -1066,6 +1076,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		getMembershipByUserAndAccount:        strings.ReplaceAll(getMembershipByUserAndAccountPostgreSQL, prefixMarker, prefix),
 		getMembershipFallbackAccountID:       strings.ReplaceAll(getMembershipFallbackAccountIDPostgreSQL, prefixMarker, prefix),
 		getMembershipIdbyUserAndAccount:      strings.ReplaceAll(getMembershipIdbyUserAndAccountPostgreSQL, prefixMarker, prefix),
+		getOwnedAccountIdforUser:             strings.ReplaceAll(getOwnedAccountIdforUserPostgreSQL, prefixMarker, prefix),
 		getUser:                              strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
 		getUserByEmailAddress:                strings.ReplaceAll(getUserByEmailAddressPostgreSQL, prefixMarker, prefix),
 		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenPostgreSQL, prefixMarker, prefix),
@@ -1371,6 +1382,22 @@ func (q *postgresqlQueries) GetMembershipIDByUserAndAccount(ctx context.Context,
 	)
 
 	var i GetMembershipIDByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// GetOwnedAccountIDForUser runs the :one query against postgresql.
+func (q *postgresqlQueries) GetOwnedAccountIDForUser(ctx context.Context, db DBTX, arg GetOwnedAccountIDForUserParams) (GetOwnedAccountIDForUserRow, error) {
+	row := db.QueryRowContext(ctx, q.getOwnedAccountIdforUser,
+		arg.Scope,
+		arg.OwnerUserID,
+	)
+
+	var i GetOwnedAccountIDForUserRow
 
 	err := row.Scan(
 		&i.ID,
@@ -2577,6 +2604,13 @@ var (
 	_ = struct {
 		ID string
 	}(GetMembershipIDByUserAndAccountRow{})
+	_ = struct {
+		Scope       tenancy.Scope
+		OwnerUserID string
+	}(GetOwnedAccountIDForUserParams{})
+	_ = struct {
+		ID string
+	}(GetOwnedAccountIDForUserRow{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope

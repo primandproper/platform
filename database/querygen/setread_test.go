@@ -63,7 +63,7 @@ func TestGenerator_SetReadQuery(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range everyDialect() {
-			q := For(d).SetReadQuery("ListGadgetsByIDs", boundTable, boundColumns(),
+			q := For(d).SetReadQuery("ListGadgetsByIDs", keyedTable, keyedColumns(),
 				Read{}, SetKey{Column: IDColumn},
 				Match{Column: BelongsToAccountColumn})
 
@@ -81,24 +81,24 @@ func TestGenerator_SetReadQuery(T *testing.T) {
 		for _, d := range everyDialect() {
 			g := For(d)
 
-			withArchived := g.SetReadQuery("ListGadgetsByIDs", boundTable, boundColumns(),
+			withArchived := g.SetReadQuery("ListGadgetsByIDs", keyedTable, keyedColumns(),
 				Read{}, SetKey{Column: IDColumn})
 
-			test.StrContains(t, withArchived.Content, Qualify(boundTable, ArchivedAtColumn)+" IS NULL",
+			test.StrContains(t, withArchived.Content, Qualify(keyedTable, ArchivedAtColumn)+" IS NULL",
 				test.Sprintf("dialect %q", d))
 
 			// A hydration read — who created each of these rows — wants the
 			// archived ones too, and says so by handing over a column list
 			// without archived_at rather than by a flag on the statement.
-			hydrating := g.SetReadQuery("ListGadgetsByIDs", boundTable, without(boundColumns(), ArchivedAtColumn),
-				Read{Projection: boundColumns()}, SetKey{Column: IDColumn})
+			hydrating := g.SetReadQuery("ListGadgetsByIDs", keyedTable, without(keyedColumns(), ArchivedAtColumn),
+				Read{Projection: keyedColumns()}, SetKey{Column: IDColumn})
 
 			test.False(t, strings.Contains(hydrating.Content, "IS NULL"),
 				test.Sprintf("dialect %q", d))
 
 			// The projection is still the table's, archived_at included: what
 			// the column list decided is the predicate, not what comes back.
-			test.StrContains(t, hydrating.Content, Qualify(boundTable, ArchivedAtColumn)+"\n",
+			test.StrContains(t, hydrating.Content, Qualify(keyedTable, ArchivedAtColumn)+"\n",
 				test.Sprintf("dialect %q", d))
 		}
 	})
@@ -123,7 +123,7 @@ func TestGenerator_SetReadQuery(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range everyDialect() {
-			q := For(d).SetReadQuery("ListGadgetsByIDs", boundTable, boundColumns(),
+			q := For(d).SetReadQuery("ListGadgetsByIDs", keyedTable, keyedColumns(),
 				Read{}, SetKey{Column: IDColumn},
 				Match{Column: BelongsToAccountColumn})
 
@@ -139,12 +139,12 @@ func TestGenerator_SetReadQuery(T *testing.T) {
 
 		for _, d := range everyDialect() {
 			err := recovered(func() {
-				_ = For(d).SetReadQuery("ListGadgetsByIDs", boundTable, boundColumns(), Read{}, SetKey{})
+				_ = For(d).SetReadQuery("ListGadgetsByIDs", keyedTable, keyedColumns(), Read{}, SetKey{})
 			})
 
 			must.Error(t, err, must.Sprintf("dialect %q", d))
 			test.ErrorIs(t, err, ErrMissingSetColumn, test.Sprintf("dialect %q", d))
-			test.StrContains(t, err.Error(), boundTable, test.Sprintf("dialect %q", d))
+			test.StrContains(t, err.Error(), keyedTable, test.Sprintf("dialect %q", d))
 		}
 	})
 
@@ -156,13 +156,13 @@ func TestGenerator_SetReadQuery(T *testing.T) {
 		for _, d := range everyDialect() {
 			for _, render := range []func(){
 				func() {
-					_ = For(d).SetReadQuery("X", "gadgets; DROP TABLE gadgets", boundColumns(), Read{}, SetKey{Column: IDColumn})
+					_ = For(d).SetReadQuery("X", "gadgets; DROP TABLE gadgets", keyedColumns(), Read{}, SetKey{Column: IDColumn})
 				},
 				func() {
-					_ = For(d).SetReadQuery("X", boundTable, boundColumns(), Read{}, SetKey{Column: "id) OR (1=1"})
+					_ = For(d).SetReadQuery("X", keyedTable, keyedColumns(), Read{}, SetKey{Column: "id) OR (1=1"})
 				},
 				func() {
-					_ = For(d).SetReadQuery("X", boundTable, boundColumns(), Read{}, SetKey{Column: IDColumn, Arg: "ids)::text[]) OR (1=1"})
+					_ = For(d).SetReadQuery("X", keyedTable, keyedColumns(), Read{}, SetKey{Column: IDColumn, Arg: "ids)::text[]) OR (1=1"})
 				},
 			} {
 				err := recovered(render)

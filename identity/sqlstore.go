@@ -454,17 +454,63 @@ func (s *SQLStore) attachMembershipRoles(ctx context.Context, q database.SQLQuer
 	return nil
 }
 
+// requireMembershipEndpoints reads the user and the account a membership links,
+// in the membership's own scope.
+//
+// The foreign keys prove existence and not congruence: belongs_to_user
+// references identity_users (id) and nothing else, so a membership naming a
+// user who lives in another directory is a row the database accepts. What it
+// produces is a roster displaying a stranger — the junction join matches on the
+// user id alone, so the projected user_scope disagrees with every other column
+// around it — and a Principal assembled from memberships their own directory
+// cannot see.
+//
+// Everywhere else this store answers "exists, but in another directory" with
+// not-found, and this is the write path agreeing with the reads. It maps a miss
+// onto the entity-shaped sentinel, so a caller learns which endpoint was the
+// stranger without learning that it exists somewhere else.
+//
+// It lives at the write rather than at each of its callers because it is the
+// invariant of the row rather than of any one caller: the next thing to reach
+// writeMembership inherits it instead of having to remember it.
+func (s *SQLStore) requireMembershipEndpoints(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID, accountID string,
+) error {
+	if _, err := s.readUser(ctx, q, scope, userID); err != nil {
+		return err
+	}
+
+	if _, err := s.readAccount(ctx, q, scope, accountID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // writeMembership upserts the membership row, resolves the ID and creation time
 // the row actually carries, and replaces its roles.
 //
-// Both are read back rather than assumed, because neither is what this process
-// sent. The upsert converges on the (user, account) pair, so a user rejoining an
-// account revives the archived membership and it keeps the ID it was created
-// with — writing the roles against the ID the caller generated would attach them
-// to a membership that does not exist. And created_at is database-owned here as
-// everywhere else in this schema, so the inserting branch stores the server's
-// clock rather than the one the caller was handed.
+// Both endpoints are read in the membership's scope before anything is written;
+// see requireMembershipEndpoints for why the foreign keys are not enough.
+//
+// The ID and the creation time are read back rather than assumed, because
+// neither is what this process sent. The upsert converges on the (user,
+// account) pair, so a user rejoining an account revives the archived membership
+// and it keeps the ID it was created with — writing the roles against the ID
+// the caller generated would attach them to a membership that does not exist.
+// And created_at is database-owned here as everywhere else in this schema, so
+// the inserting branch stores the server's clock rather than the one the caller
+// was handed.
 func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error {
+	if err := s.requireMembershipEndpoints(
+		ctx, q, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount,
+	); err != nil {
+		return err
+	}
+
 	if err := s.q.UpsertMembership(ctx, q, upsertMembershipParams(membership)); err != nil {
 		return platformerrors.Wrap(err, "writing identity membership")
 	}

@@ -616,6 +616,16 @@ WHERE identity_users.archived_at IS NULL
 	AND identity_users.email_address_verification_token = sqlc.arg(email_address_verification_token)
 	AND identity_users.scope = sqlc.arg(scope);
 
+-- name: GetOwnedAccountIDForUser :one
+SELECT
+	identity_accounts.id
+FROM identity_accounts
+WHERE identity_accounts.archived_at IS NULL
+	AND identity_accounts.scope = sqlc.arg(scope)
+	AND identity_accounts.owner_user_id = sqlc.arg(owner_user_id)
+ORDER BY identity_accounts.id ASC
+LIMIT 1;
+
 -- name: GetMembershipByUserAndAccount :one
 SELECT
 	identity_memberships.id,
