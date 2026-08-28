@@ -82,7 +82,6 @@ var rulings = map[string]ruling{
 	"outbox":                           {tier: porting},
 	"retention":                        {tier: porting},
 	"timers":                           {tier: porting},
-	"webhooks":                         {tier: porting},
 	"workqueue":                        {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
