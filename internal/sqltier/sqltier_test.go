@@ -69,6 +69,7 @@ var rulings = map[string]ruling{
 	"webhooks/internal/webhooksdb":                                 {tier: unison},
 	"cryptography/shredding/internal/shreddingdb":                  {tier: unison},
 	"authentication/webauthn/database/internal/webauthndb":         {tier: unison},
+	"authorization/database/internal/authorizationdb":              {tier: unison},
 	"settings/internal/settingsdb":                                 {tier: unison},
 	"uploads/registry/internal/registrydb":                         {tier: unison},
 	"notifications/internal/notificationsdb":                       {tier: unison},
@@ -79,7 +80,6 @@ var rulings = map[string]ruling{
 	// carries a reason.
 	"audit":                        {tier: porting},
 	"authentication/passwordreset": {tier: porting},
-	"authorization/database":       {tier: porting},
 	"dataprivacy/auditerasure":     {tier: porting},
 	"metering":                     {tier: porting},
 	"outbox":                       {tier: porting},
@@ -104,8 +104,9 @@ var rulings = map[string]ruling{
 
 	// Ruled on for holding no SQL. Recorded rather than left absent, so a
 	// statement appearing here later is a failing test rather than a silence.
-	"filtering": {tier: none, why: "supplies the argument names a rendered statement binds and the conversions that bind them; the keyword a survey counted is a word in a comment"},
-	"identity":  {tier: none, why: "the store the tier was built for, and the first to finish: its statements are rendered by identity/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
+	"authorization/database": {tier: none, why: "the resolver whose thirteen fmt.Sprintf builders a survey counted as zero: its statements are rendered by authorization/database/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
+	"filtering":              {tier: none, why: "supplies the argument names a rendered statement binds and the conversions that bind them; the keyword a survey counted is a word in a comment"},
+	"identity":               {tier: none, why: "the store the tier was built for, and the first to finish: its statements are rendered by identity/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
 }
 
 // TestEverySQLPackageIsClassified is the entry this file exists to make

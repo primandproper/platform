@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/primandproper/platform-go/v13/authorization"
+	"github.com/primandproper/platform-go/v13/authorization/database/internal/authorizationdb"
 	"github.com/primandproper/platform-go/v13/authorization/database/migrations"
 	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/database/ddl"
@@ -33,15 +34,6 @@ const serviceName = "authorization_database"
 // not end in '_'; database/ddl supplies the separator.
 const DefaultTablePrefix = ""
 
-// Component-qualified table names, appended to the caller's namespace. They
-// carry the authz_ segment because the schema does: a table always says which
-// package created it, so authz_roles is legible in a shared database without
-// consulting this module.
-const (
-	rolesTable       = "authz_roles"
-	permissionsTable = "authz_permissions"
-)
-
 var _ authorization.PolicyResolver = (*Resolver)(nil)
 
 // Resolver resolves role names against policy stored in SQL tables.
@@ -57,6 +49,7 @@ var _ authorization.PolicyResolver = (*Resolver)(nil)
 // shared across every principal, rather than per-principal.
 type Resolver struct {
 	db   database.SQLQueryExecutor
+	q    authorizationdb.Querier
 	o11y observability.Observer
 
 	resolutionsCounter metrics.Int64Counter
@@ -68,13 +61,7 @@ type Resolver struct {
 	logger          logging.Logger
 	metricsProvider metrics.Provider
 	tracerProvider  tracing.Provider
-	dialect         dialect.Dialect
-	// prefix is the caller's namespace with its separator already appended —
-	// "ddb_" for a namespace of "ddb", and empty for none. Every query in
-	// queries.go interpolates it immediately before a component-qualified table
-	// name (%[1]sauthz_roles), so resolving the separator once here keeps that
-	// concatenation out of thirteen format strings.
-	prefix string
+	prefix          string
 }
 
 // Config configures a Resolver.
@@ -114,19 +101,33 @@ func NewResolver(cfg *Config, db database.SQLQueryExecutor, opts ...Option) (*Re
 		return nil, err
 	}
 
-	// The separator is appended once, here; see the field's comment.
-	r := &Resolver{db: db, dialect: cfg.Dialect, prefix: ddl.Qualify(prefix)}
+	r := &Resolver{db: db, prefix: prefix}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(r)
 		}
 	}
 
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see authorization/database/internal/authorizationdb.
+	qd, err := querierDialect(cfg.Dialect)
+	if err != nil {
+		return nil, err
+	}
+
+	q, err := authorizationdb.New(qd, ddl.Qualify(prefix))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building the authorization querier")
+	}
+
+	r.q = q
+
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 
-	var err error
 	if r.resolutionsCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_resolutions", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating policy resolutions counter")
 	}
@@ -135,6 +136,30 @@ func NewResolver(cfg *Config, db database.SQLQueryExecutor, opts ...Option) (*Re
 	}
 
 	return r, nil
+}
+
+// TablePrefix returns the namespace this resolver's tables carry, for a caller
+// that needs the rendered names — a maintenance TRUNCATE, a schema audit. Pass
+// it to migrations.Statements.
+func (r *Resolver) TablePrefix() string { return r.prefix }
+
+// querierDialect maps this module's dialect names onto the generated package's.
+// The set is closed on both sides — NewResolver has already rejected anything
+// d.Valid() declines — so the default arm is reachable only when this module
+// learns a dialect the generated package was not generated for. That is a
+// construction failure like any other, and it names the dialect, rather than
+// panicking or leaning on authorizationdb.New refusing the empty string.
+func querierDialect(d dialect.Dialect) (authorizationdb.Dialect, error) {
+	switch d {
+	case dialect.Postgres:
+		return authorizationdb.DialectPostgreSQL, nil
+	case dialect.MySQL:
+		return authorizationdb.DialectMySQL, nil
+	case dialect.SQLite:
+		return authorizationdb.DialectSQLite, nil
+	default:
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "no generated authorization queries for dialect %q", d)
+	}
 }
 
 // PermissionsForRoles resolves the named roles, expanding inheritance in SQL.
@@ -148,12 +173,7 @@ func (r *Resolver) PermissionsForRoles(ctx context.Context, roles ...string) (*a
 
 	op.Set(keys.AuthorizationRolesKey, roles)
 
-	args := make([]any, 0, len(roles))
-	for _, name := range roles {
-		args = append(args, name)
-	}
-
-	names, err := scanStrings(ctx, r.db, r.resolveQuery(len(roles)), args)
+	rows, err := r.q.ResolvePermissionsForRoles(ctx, r.db, authorizationdb.ResolvePermissionsForRolesParams{Names: roles})
 	if err != nil {
 		r.errorsCounter.Add(ctx, 1)
 
@@ -162,9 +182,9 @@ func (r *Resolver) PermissionsForRoles(ctx context.Context, roles ...string) (*a
 
 	r.resolutionsCounter.Add(ctx, 1)
 
-	perms := make([]authorization.Permission, len(names))
-	for i, n := range names {
-		perms[i] = authorization.Permission(n)
+	perms := make([]authorization.Permission, len(rows))
+	for i := range rows {
+		perms[i] = authorization.Permission(rows[i].Name)
 	}
 
 	return authorization.NewPermissionSet(perms...), nil
@@ -192,87 +212,60 @@ func (r *Resolver) Roles(ctx context.Context) ([]authorization.Role, error) {
 // holds one — which deadlocks outright against a pool of one, and reads
 // pre-transaction state against a larger pool, so the validation would be
 // checking a policy that is no longer current.
+//
+// Three reads rather than one join: the answer is two one-to-many relationships
+// hanging off the same rows, so a join would return a role with four
+// permissions and two parents eight times over and leave the de-duplication
+// here anyway.
 func (r *Resolver) rolesWith(ctx context.Context, q database.SQLQueryExecutor) ([]authorization.Role, error) {
-	type roleRow struct {
-		id, name, description string
-	}
-
-	rows, err := q.QueryContext(ctx, r.listRolesQuery())
+	roleRows, err := r.q.ListRoles(ctx, q)
 	if err != nil {
-		return nil, err
+		return nil, platformerrors.Wrap(err, "listing roles")
 	}
 
-	var roleRows []roleRow
-	if err = scanRows(rows, func() error {
-		var rr roleRow
-		if scanErr := rows.Scan(&rr.id, &rr.name, &rr.description); scanErr != nil {
-			return scanErr
-		}
-		roleRows = append(roleRows, rr)
-
-		return nil
-	}); err != nil {
-		return nil, platformerrors.Wrap(err, "scanning roles")
-	}
-
-	permsByRoleID, err := r.pairsByID(ctx, q, r.rolePermissionsQuery())
+	permissionRows, err := r.q.ListRolePermissions(ctx, q)
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "loading role permissions")
 	}
 
-	parentsByRoleID, err := r.pairsByID(ctx, q, r.roleHierarchyQuery())
+	permsByRoleID := map[string][]string{}
+	for i := range permissionRows {
+		row := &permissionRows[i]
+		permsByRoleID[row.RoleID] = append(permsByRoleID[row.RoleID], row.PermissionName)
+	}
+
+	parentRows, err := r.q.ListRoleHierarchy(ctx, q)
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "loading role hierarchy")
+	}
+
+	parentsByRoleID := map[string][]string{}
+	for i := range parentRows {
+		row := &parentRows[i]
+		parentsByRoleID[row.ChildRoleID] = append(parentsByRoleID[row.ChildRoleID], row.ParentName)
 	}
 
 	out := make([]authorization.Role, 0, len(roleRows))
 	for i := range roleRows {
 		rr := &roleRows[i]
-		permNames := permsByRoleID[rr.id]
+
+		permNames := permsByRoleID[rr.ID]
 		slices.Sort(permNames)
 
 		perms := make([]authorization.Permission, len(permNames))
-		for i, n := range permNames {
-			perms[i] = authorization.Permission(n)
+		for j, n := range permNames {
+			perms[j] = authorization.Permission(n)
 		}
 
-		parents := parentsByRoleID[rr.id]
+		parents := parentsByRoleID[rr.ID]
 		slices.Sort(parents)
 
 		out = append(out, authorization.Role{
-			Name:        rr.name,
-			Description: rr.description,
+			Name:        rr.Name,
+			Description: rr.Description,
 			Permissions: perms,
 			Inherits:    parents,
 		})
-	}
-
-	return out, nil
-}
-
-// pairsByID runs a two-column (id, value) query and groups values by id.
-func (r *Resolver) pairsByID(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	query string,
-) (map[string][]string, error) {
-	//nolint:sqlclosecheck // scanRows closes the result set in a defer; the check does not follow it into the helper.
-	rows, err := q.QueryContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	out := map[string][]string{}
-	if err = scanRows(rows, func() error {
-		var id, value string
-		if scanErr := rows.Scan(&id, &value); scanErr != nil {
-			return scanErr
-		}
-		out[id] = append(out[id], value)
-
-		return nil
-	}); err != nil {
-		return nil, err
 	}
 
 	return out, nil
@@ -311,7 +304,7 @@ func (r *Resolver) Seed(ctx context.Context, q database.SQLQueryExecutor, roles 
 		wanted[roles[i].Name] = roles[i].Description
 	}
 
-	roleIDs, err := r.resolveNamedIDs(ctx, q, rolesTable, wanted)
+	roleIDs, err := r.resolveNamedIDs(ctx, q, r.roleTable(), wanted)
 	if err != nil {
 		return op.Error(err, "upserting roles")
 	}
@@ -374,7 +367,7 @@ func (r *Resolver) UpsertRole(ctx context.Context, q database.SQLQueryExecutor, 
 		roleIDs[e.Name] = id
 	}
 
-	ids, err := r.resolveNamedIDs(ctx, q, rolesTable, map[string]string{role.Name: role.Description})
+	ids, err := r.resolveNamedIDs(ctx, q, r.roleTable(), map[string]string{role.Name: role.Description})
 	if err != nil {
 		return op.Error(err, "upserting role %q", role.Name)
 	}
@@ -394,6 +387,10 @@ func (r *Resolver) UpsertRole(ctx context.Context, q database.SQLQueryExecutor, 
 // finding it — the assignment decays to granting nothing. Freeing the name for
 // reuse would instead re-grant whatever the new role holds to everyone who
 // still carried the old assignment.
+//
+// The row count is deliberately unread. Archiving a role that is already
+// archived, or one that was never there, is a no-op rather than an error: the
+// caller asked for the role to grant nothing and it grants nothing.
 func (r *Resolver) ArchiveRole(ctx context.Context, q database.SQLQueryExecutor, name string) error {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
@@ -404,7 +401,7 @@ func (r *Resolver) ArchiveRole(ctx context.Context, q database.SQLQueryExecutor,
 
 	op.Set(keys.NameKey, name)
 
-	if _, err := q.ExecContext(ctx, r.archiveRoleQuery(), name); err != nil {
+	if _, err := r.q.ArchiveRoleByName(ctx, q, authorizationdb.ArchiveRoleByNameParams{Name: name}); err != nil {
 		return op.Error(err, "archiving role %q", name)
 	}
 
@@ -412,6 +409,16 @@ func (r *Resolver) ArchiveRole(ctx context.Context, q database.SQLQueryExecutor,
 }
 
 // writeRoleGrants replaces a role's direct permissions and declared parents.
+//
+// Clear-then-rewrite rather than diff: it makes an upsert remove grants as well
+// as add them, which a caller re-running Seed after deleting a permission from
+// a role's list is entitled to expect.
+//
+// The rewrite is one statement per grant. The multi-row VALUES list it replaces
+// had no static text — its arity was the caller's cardinality — so there was
+// nothing for sqlc to check and nothing the corpus could hold; what it costs
+// instead is a round trip per grant, inside the transaction the caller already
+// opened, at the cardinalities a role's permission list actually has.
 func (r *Resolver) writeRoleGrants(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -420,10 +427,7 @@ func (r *Resolver) writeRoleGrants(
 ) error {
 	roleID := roleIDs[role.Name]
 
-	// Clear-then-rewrite rather than diff: it makes an upsert remove grants as
-	// well as add them, which a caller re-running Seed after deleting a
-	// permission from a role's list is entitled to expect.
-	if _, err := q.ExecContext(ctx, r.deleteRolePermissionsQuery(), roleID); err != nil {
+	if _, err := r.q.DeleteRolePermissions(ctx, q, authorizationdb.DeleteRolePermissionsParams{RoleID: roleID}); err != nil {
 		return platformerrors.Wrap(err, "clearing role permissions")
 	}
 
@@ -434,173 +438,187 @@ func (r *Resolver) writeRoleGrants(
 			wanted[string(perm)] = ""
 		}
 
-		permIDs, err := r.resolveNamedIDs(ctx, q, permissionsTable, wanted)
+		permIDs, err := r.resolveNamedIDs(ctx, q, r.permissionTable(), wanted)
 		if err != nil {
 			return platformerrors.Wrap(err, "upserting permissions")
 		}
 
-		pairs := make([][]any, 0, len(perms))
 		for _, perm := range perms {
-			pairs = append(pairs, []any{roleID, permIDs[string(perm)]})
-		}
-
-		if err = r.insertPairs(ctx, q, pairs, r.insertRolePermissionsQuery); err != nil {
-			return platformerrors.Wrap(err, "granting permissions")
+			if err = r.q.CreateRolePermission(ctx, q, authorizationdb.CreateRolePermissionParams{
+				RoleID:       roleID,
+				PermissionID: permIDs[string(perm)],
+			}); err != nil {
+				return platformerrors.Wrapf(err, "granting permission %q", perm)
+			}
 		}
 	}
 
-	if _, err := q.ExecContext(ctx, r.deleteRoleHierarchyQuery(), roleID); err != nil {
+	if _, err := r.q.DeleteRoleHierarchy(ctx, q, authorizationdb.DeleteRoleHierarchyParams{ChildRoleID: roleID}); err != nil {
 		return platformerrors.Wrap(err, "clearing role hierarchy")
 	}
 
-	if len(role.Inherits) > 0 {
-		pairs := make([][]any, 0, len(role.Inherits))
-		for _, parent := range role.Inherits {
-			parentID, ok := roleIDs[parent]
-			if !ok {
-				var err error
-				if parentID, err = r.lookupRoleID(ctx, q, parent); err != nil {
-					return platformerrors.Wrapf(err, "looking up parent role %q", parent)
-				}
+	for _, parent := range role.Inherits {
+		parentID, ok := roleIDs[parent]
+		if !ok {
+			var err error
+			if parentID, err = r.lookupRoleID(ctx, q, parent); err != nil {
+				return platformerrors.Wrapf(err, "looking up parent role %q", parent)
 			}
-			pairs = append(pairs, []any{roleID, parentID})
 		}
 
-		if err := r.insertPairs(ctx, q, pairs, r.insertRoleHierarchyRowsQuery); err != nil {
-			return platformerrors.Wrap(err, "recording inheritance")
+		if err := r.q.CreateRoleHierarchyEdge(ctx, q, authorizationdb.CreateRoleHierarchyEdgeParams{
+			ChildRoleID:  roleID,
+			ParentRoleID: parentID,
+		}); err != nil {
+			return platformerrors.Wrapf(err, "recording inheritance from %q", parent)
 		}
 	}
 
 	return nil
 }
 
-// resolveNamedIDs upserts a batch of roles or permissions by name and returns
+// namedRow is what a lookup of one of the two named tables answers with, in the
+// one shape both of them return it in.
+//
+// The generated row types are the same fields under two names — a role and a
+// permission are both "a name an operator gave something, with prose beside it"
+// — and reconciling a wanted policy against what is stored is one piece of
+// reasoning rather than two, so it reads one type rather than being written out
+// once per table.
+type namedRow struct {
+	id, description string
+	archived        bool
+}
+
+// namedTable is one of the two tables whose rows are a name with prose beside
+// it, as resolveNamedIDs needs it: what to call it in an error, how to look a
+// batch of names up, and how to write one back.
+//
+// It is a struct of closures rather than an interface because the tables differ
+// only in which generated method answers for them. What is shared is the part
+// that can be got wrong twice — when a row is written, which id is bound, and
+// what an archived row means — and that lives in resolveNamedIDs alone.
+type namedTable struct {
+	lookup func(ctx context.Context, q database.SQLQueryExecutor, names []string) (map[string]namedRow, error)
+	upsert func(ctx context.Context, q database.SQLQueryExecutor, id, name, description string) error
+	name   string
+}
+
+// roleTable and permissionTable bind the generated methods for each of the two.
+func (r *Resolver) roleTable() namedTable {
+	return namedTable{
+		name: "role",
+		lookup: func(ctx context.Context, q database.SQLQueryExecutor, names []string) (map[string]namedRow, error) {
+			rows, err := r.q.ListRolesByNames(ctx, q, authorizationdb.ListRolesByNamesParams{Names: names})
+			if err != nil {
+				return nil, err
+			}
+
+			found := make(map[string]namedRow, len(rows))
+			for i := range rows {
+				row := &rows[i]
+				found[row.Name] = namedRow{id: row.ID, description: row.Description, archived: row.ArchivedAt != nil}
+			}
+
+			return found, nil
+		},
+		upsert: func(ctx context.Context, q database.SQLQueryExecutor, id, name, description string) error {
+			return r.q.UpsertRole(ctx, q, authorizationdb.UpsertRoleParams{ID: id, Name: name, Description: description})
+		},
+	}
+}
+
+func (r *Resolver) permissionTable() namedTable {
+	return namedTable{
+		name: "permission",
+		lookup: func(ctx context.Context, q database.SQLQueryExecutor, names []string) (map[string]namedRow, error) {
+			rows, err := r.q.ListPermissionsByNames(ctx, q, authorizationdb.ListPermissionsByNamesParams{Names: names})
+			if err != nil {
+				return nil, err
+			}
+
+			found := make(map[string]namedRow, len(rows))
+			for i := range rows {
+				row := &rows[i]
+				found[row.Name] = namedRow{id: row.ID, description: row.Description, archived: row.ArchivedAt != nil}
+			}
+
+			return found, nil
+		},
+		upsert: func(ctx context.Context, q database.SQLQueryExecutor, id, name, description string) error {
+			return r.q.UpsertPermission(ctx, q, authorizationdb.UpsertPermissionParams{ID: id, Name: name, Description: description})
+		},
+	}
+}
+
+// resolveNamedIDs writes a batch of roles or permissions by name and returns
 // their ids.
 //
-// It is three statements regardless of batch size — one lookup, one multi-row
-// insert of the missing, one update per row that actually changed — rather than
-// two per name. Seeding a policy with a few hundred permissions is otherwise a
-// few hundred round trips inside a single transaction, which is long enough to
-// matter for lock hold time even though it only runs at deploy.
+// One lookup for the whole batch, then a write for each row that is actually
+// missing or actually different. Seeding a policy with a few hundred
+// permissions is otherwise a lookup and a write per name inside a single
+// transaction, which is long enough to matter for lock hold time even though it
+// only runs at deploy.
 //
-// Portability is preserved: no ON CONFLICT, no RETURNING, nothing dialect
-// specific.
+// The lookup is what supplies the id, and it has to: the write converges on the
+// name, and only Postgres could return the id of the row it converged on. So an
+// existing name is written back under the id it already has — binding a fresh
+// one would leave this holding an id no row carries, since MySQL's ON DUPLICATE
+// KEY UPDATE resolves the collision on whichever unique key it hit — and only a
+// name nothing was found for is minted an id.
+//
+// A row is written only when something actually differs. Rewriting every row on
+// every seed would churn the table and its indexes for no change, and would make
+// an audit trail on these tables useless.
 func (r *Resolver) resolveNamedIDs(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
-	table string,
+	table namedTable,
 	wanted map[string]string,
 ) (map[string]string, error) {
 	names := slices.Sorted(maps.Keys(wanted))
 	if slices.Contains(names, "") {
-		return nil, platformerrors.Wrapf(platformerrors.ErrEmptyInputProvided, "%s name", table)
+		return nil, platformerrors.Wrapf(platformerrors.ErrEmptyInputProvided, "%s name", table.name)
+	}
+
+	existing, err := table.lookup(ctx, q, names)
+	if err != nil {
+		return nil, platformerrors.Wrapf(err, "looking up %ss by name", table.name)
 	}
 
 	ids := make(map[string]string, len(names))
 
-	type existingRow struct {
-		id, description string
-		archived        bool
-	}
-	existing := make(map[string]existingRow, len(names))
-
-	for chunk := range slices.Chunk(names, maxBatchRows) {
-		args := make([]any, 0, len(chunk))
-		for _, name := range chunk {
-			args = append(args, name)
-		}
-
-		rows, err := q.QueryContext(ctx, r.selectNamedByNamesQuery(table, len(chunk)), args...)
-		if err != nil {
-			return nil, platformerrors.Wrapf(err, "looking up %s by name", table)
-		}
-
-		if err = scanRows(rows, func() error {
-			var (
-				name string
-				row  existingRow
-			)
-			if scanErr := rows.Scan(&row.id, &name, &row.description, &row.archived); scanErr != nil {
-				return scanErr
-			}
-			existing[name] = row
-
-			return nil
-		}); err != nil {
-			return nil, platformerrors.Wrapf(err, "scanning %s rows", table)
-		}
-	}
-
-	var missing []string
 	for _, name := range names {
 		row, found := existing[name]
-		if !found {
-			missing = append(missing, name)
+		if found {
+			ids[name] = row.id
 
-			continue
-		}
-
-		ids[name] = row.id
-
-		// Updated only when something actually differs. Rewriting every row on
-		// every seed would churn the table and its indexes for no change, and
-		// would make an audit trail on these tables useless.
-		if row.description != wanted[name] || row.archived {
-			if _, err := q.ExecContext(ctx, r.updateNamedQuery(table), wanted[name], row.id); err != nil {
-				return nil, platformerrors.Wrapf(err, "refreshing %s %q", table, name)
+			// An archived row is revived rather than left alone: the name stays
+			// reserved once used, so a re-seed after an archival has to bring
+			// the row back rather than insert a colliding one.
+			if row.description == wanted[name] && !row.archived {
+				continue
 			}
-		}
-	}
-
-	for chunk := range slices.Chunk(missing, maxBatchRows) {
-		args := make([]any, 0, len(chunk)*3)
-		for _, name := range chunk {
-			id := identifiers.New()
-			ids[name] = id
-			args = append(args, id, name, wanted[name])
+		} else {
+			ids[name] = identifiers.New()
 		}
 
-		if _, err := q.ExecContext(ctx, r.insertNamedRowsQuery(table, len(chunk)), args...); err != nil {
-			return nil, platformerrors.Wrapf(err, "inserting %s rows", table)
+		if err = table.upsert(ctx, q, ids[name], name, wanted[name]); err != nil {
+			return nil, platformerrors.Wrapf(err, "writing %s %q", table.name, name)
 		}
 	}
 
 	return ids, nil
 }
 
-// insertPairs writes two-column rows in chunks, using the supplied query
-// builder.
-func (r *Resolver) insertPairs(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	pairs [][]any,
-	query func(count int) string,
-) error {
-	for chunk := range slices.Chunk(pairs, maxBatchRows) {
-		args := make([]any, 0, len(chunk)*2)
-		for _, pair := range chunk {
-			args = append(args, pair...)
-		}
-
-		if _, err := q.ExecContext(ctx, query(len(chunk)), args...); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // lookupRoleID finds a live or archived role's id by name. Permissions are
 // only ever resolved in bulk, through resolveNamedIDs, so this is deliberately
 // specific to roles rather than taking a table.
 func (r *Resolver) lookupRoleID(ctx context.Context, q database.SQLQueryExecutor, name string) (string, error) {
-	var (
-		id       string
-		archived bool
-	)
-	if err := q.QueryRowContext(ctx, r.selectIDByNameQuery(rolesTable), name).Scan(&id, &archived); err != nil {
-		return "", platformerrors.Wrapf(err, "looking up %s %q", rolesTable, name)
+	row, err := r.q.GetRoleIDByName(ctx, q, authorizationdb.GetRoleIDByNameParams{Name: name})
+	if err != nil {
+		return "", platformerrors.Wrapf(err, "looking up role %q", name)
 	}
 
-	return id, nil
+	return row.ID, nil
 }
