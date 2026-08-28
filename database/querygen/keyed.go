@@ -195,6 +195,35 @@ const (
 	// is a column this comparand cannot speak for, because an unset argument
 	// would then name a row.
 	OptionalArgument
+	// OptionalNarrowing compares the column against an argument the caller may
+	// leave unset, where leaving it unset narrows nothing:
+	// `(sqlc.narg(name) IS NULL OR column = sqlc.narg(name))`, or `<>` under
+	// [Match.Exclude].
+	//
+	// It is the other reading of an absent argument, and the two are not
+	// interchangeable. [OptionalArgument] answers "compare against the value,
+	// or against the sentinel no row holds", which is the collision check
+	// excluding a row that may not exist yet. This one answers "compare against
+	// the value, or do not compare at all", which is a filter a caller may
+	// leave off — one owner's rows or everybody's, one kind of work or every
+	// kind. Rendering that as OptionalArgument would filter an absent owner
+	// down to the rows whose owner is the empty string, which is a working
+	// query returning a set nobody asked for.
+	//
+	// The predicate is written as the disjunction rather than as
+	// `column = COALESCE(sqlc.narg(name), column)`, and the difference is a
+	// plan rather than a semantic. The COALESCE form mentions the column on
+	// both sides of the comparison, so no index can serve it whatever the
+	// argument turns out to be; the disjunction's second arm is an equality
+	// against a parameter, which is what a server planning the statement with
+	// the value in hand can walk an index for. A filter that quietly stops
+	// using the index the schema ships for it is the kind of regression that
+	// surfaces as a support ticket rather than as a failing test.
+	//
+	// Both arms name the same argument, so a caller binds one nullable value
+	// and the statement reads it twice. sqlc types it from the equality, which
+	// is why the IS NULL arm is never written on its own.
+	OptionalNarrowing
 )
 
 // String names the comparand, for the panic messages the misuse checks raise.
@@ -210,6 +239,8 @@ func (c Comparand) String() string {
 		return "the current time"
 	case OptionalArgument:
 		return "an optional bound argument"
+	case OptionalNarrowing:
+		return "an optional narrowing"
 	default:
 		return fmt.Sprintf("unknown comparand %d", int(c))
 	}
@@ -218,7 +249,7 @@ func (c Comparand) String() string {
 // binds reports whether this comparand takes an argument from the caller, which
 // is what decides whether [Match.Arg] means anything.
 func (c Comparand) binds() bool {
-	return c == BoundArgument || c == OptionalArgument
+	return c == BoundArgument || c == OptionalArgument || c == OptionalNarrowing
 }
 
 // operator returns the comparison this match renders for the comparands whose
@@ -331,11 +362,11 @@ func (g *Generator) ListQueries(name, table string, columns []string, matches ..
 	return []*Query{
 		{
 			Annotation: QueryAnnotation{Name: name, Type: ManyType},
-			Content:    g.listStatement(table, columns, "", nil, Ascending, matches...),
+			Content:    g.listStatement(table, columns, "", nil, nil, Ascending, matches...),
 		},
 		{
 			Annotation: QueryAnnotation{Name: DescendingName(name), Type: ManyType},
-			Content:    g.listStatement(table, columns, "", nil, Descending, matches...),
+			Content:    g.listStatement(table, columns, "", nil, nil, Descending, matches...),
 		},
 	}
 }

@@ -109,6 +109,49 @@ func (l *recordingLogger) WithResponse(*http.Response) logging.Logger { return l
 func (l *recordingLogger) WithError(error) logging.Logger             { return l.with(nil) }
 func (l *recordingLogger) WithSpan(trace.Span) logging.Logger         { return l.with(nil) }
 
+// TestGuard_Report covers the half a store on the unison tier calls directly.
+// The generated :execrows method has already run the statement and read the
+// count by the time it returns, so what is left to check here is what the count
+// meant.
+func TestGuard_Report(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a count that touched a row succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, testGuard().Report(t.Context(), beginOp(t), 1, "id-1", "finish"))
+	})
+
+	// The whole reason the guard is in the statement: zero rows is not an error
+	// the driver reports, and treating it as success has the caller report an
+	// outcome the database never recorded.
+	T.Run("a count of nothing is the sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		err := testGuard().Report(t.Context(), beginOp(t), 0, "id-1", "finish")
+
+		test.ErrorIs(t, err, errNotFound)
+		test.StrContains(t, err.Error(), `thing "id-1" is no longer active`)
+	})
+
+	// The line is worth reading rather than merely counting: the work already
+	// ran, and the row that should record it has moved on without us.
+	T.Run("a miss logs the identifier", func(t *testing.T) {
+		t.Parallel()
+
+		logger := newRecordingLogger()
+
+		_ = testGuard().Report(t.Context(), beginOpWith(t, logger), 0, "id-1", "finish")
+
+		recorded := logger.recorded()
+		must.SliceNotEmpty(t, recorded)
+
+		last := recorded[len(recorded)-1]
+		test.EqOp(t, "thing left the active set before its outcome could be recorded", last.message)
+		test.EqOp(t, "id-1", last.values["things.id"])
+	})
+}
+
 func TestGuard_Exec(T *testing.T) {
 	T.Parallel()
 

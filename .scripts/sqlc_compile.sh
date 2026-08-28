@@ -6,11 +6,11 @@ set -euo pipefail
 # Usage: sqlc_compile.sh <project_root>
 #
 # `sqlc compile` parses and type-checks the queries against the DDL and emits
-# nothing. That is the whole guarantee this module wants from sqlc: the Go it
-# would generate never executes — the stores render the same statements through
-# database/querygen's Bound methods, with the consumer's table prefix on the
-# name — so checking in a generated package nothing imports would be policing an
-# artifact with no consumer.
+# nothing, which is the half of sqlc this check wants: the answer to "does every
+# committed statement still fit the schema", with no database running and no
+# generated package to compare against. What a store executes is generated
+# separately, by `make unison`, and the generated-files job diffs that; this is
+# the faster gate that fails on a renamed column without installing a plugin.
 #
 # Neither input is written by hand. The queries come from `make generate`, and a
 # hand-edit of one is caught by the regeneration diff rather than here; the
@@ -22,21 +22,37 @@ PROJECT_ROOT="${1:-$(pwd)}"
 
 SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 
-# The components checked, as "<module-relative package> <queries directory>".
-# Each package's directory holds one <dialect>_generated.sql per dialect it claims, and
-# its `-schema <dialect>` mode prints the DDL those queries are read against.
+# The components checked, as
+# "<module-relative package> <generator> <queries directory> <dialect>...".
+# Each package's directory holds one <dialect>_generated.sql per dialect it
+# claims, and its `-schema <dialect>` mode prints the DDL those queries are read
+# against.
+#
+# The dialects are per component rather than a list of their own, because a
+# roster is a property of the package: identity serves all three, operations
+# serves Postgres alone for the reasons its own doc gives, and checking a
+# package against a dialect it refuses to run on would be checking SQL nobody
+# will ever execute. Each list has to match the keys of that package's
+# unison.yaml `schemas:` map.
 COMPONENTS=(
-  "./identity ./internal/queriesgen internal/queries"
+  "./identity ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./operations ./internal/queriesgen internal/queries postgres"
 )
 
-# The dialects checked, as "<dialect> <sqlc engine>". Every dialect
-# database/dialect names is here; a generator that emits SQL one of the three
-# cannot parse is a generator with a broken dialect, not a check with a gap.
-DIALECTS=(
-  "postgres postgresql"
-  "mysql mysql"
-  "sqlite sqlite"
-)
+# The sqlc engine each dialect this module names is analyzed by. A generator
+# that emits SQL the engine cannot parse is a generator with a broken dialect,
+# not a check with a gap.
+engine_for() {
+  case "${1}" in
+    postgres) echo "postgresql" ;;
+    mysql) echo "mysql" ;;
+    sqlite) echo "sqlite" ;;
+    *)
+      echo "unknown dialect ${1}" >&2
+      exit 1
+      ;;
+  esac
+}
 
 ensure_sqlc() {
   "${PROJECT_ROOT}/.scripts/ensure_tool_installed.sh" sqlc \
@@ -65,19 +81,17 @@ main() {
   local config="${workspace}/sqlc.yaml"
   printf 'version: "2"\nsql:\n' > "${config}"
 
-  local component package generator queries_dir pair d engine target
+  local component package generator queries_dir d engine target
   for component in "${COMPONENTS[@]}"; do
     # shellcheck disable=SC2086
     set -- ${component}
     package="${1}"
     generator="${2}"
     queries_dir="${3}"
+    shift 3
 
-    for pair in "${DIALECTS[@]}"; do
-      # shellcheck disable=SC2086
-      set -- ${pair}
-      d="${1}"
-      engine="${2}"
+    for d in "$@"; do
+      engine="$(engine_for "${d}")"
 
       target="${workspace}/${package//\//_}_${d}"
       mkdir -p "${target}"

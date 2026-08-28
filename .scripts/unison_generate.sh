@@ -39,24 +39,37 @@ fi
 mkdir -p "${BIN_DIR}"
 GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/unison@v${UNISON_VERSION}"
 
-# The components generated, as "<package dir>". Each holds a unison.yaml, and
-# its per-dialect schema files are rendered first, from the package's own
-# migrations at the empty table prefix — the single source, so there is no
-# hand-written schema copy to drift. unison substitutes the consumer's real
-# prefix at construction; sqlc analyzes the canonical names because an
-# identifier is not a bind parameter in any of the three engines.
+# The components generated, as "<package dir> <dialect>...". Each holds a
+# unison.yaml, and its per-dialect schema files are rendered first, from the
+# package's own migrations at the empty table prefix — the single source, so
+# there is no hand-written schema copy to drift. unison substitutes the
+# consumer's real prefix at construction; sqlc analyzes the canonical names
+# because an identifier is not a bind parameter in any of the three engines.
+#
+# The dialects are per component rather than a list up here, because a roster is
+# a property of the package rather than of this script: operations is
+# Postgres-only for reasons its own doc gives, and rendering it a MySQL schema
+# would be rendering a schema for a database it refuses to run against. Each
+# component's list has to match the keys of its unison.yaml `schemas:` map,
+# which is what unison itself reads the roster from.
 COMPONENTS=(
-  "identity"
+  "identity postgres mysql sqlite"
+  "operations postgres"
 )
 
 for component in "${COMPONENTS[@]}"; do
-  for d in postgres mysql sqlite; do
+  # shellcheck disable=SC2086
+  set -- ${component}
+  package="${1}"
+  shift
+
+  for d in "$@"; do
     (cd "${PROJECT_ROOT}" &&
-      go run "./${component}/internal/queriesgen" -schema "${d}" \
-        > "${component}/migrations/schema/${d}.sql")
+      go run "./${package}/internal/queriesgen" -schema "${d}" \
+        > "${package}/migrations/schema/${d}.sql")
   done
 
-  (cd "${PROJECT_ROOT}/${component}" && "${UNISON}" generate)
+  (cd "${PROJECT_ROOT}/${package}" && "${UNISON}" generate)
 done
 
 echo "unison v${UNISON_VERSION}: every generated package is current"

@@ -116,6 +116,26 @@ func (g *Guard) Exec(
 		return op.Error(err, "reading result of %s", description)
 	}
 
+	return g.Report(ctx, op, affected, id, operation)
+}
+
+// Report is Exec's second half, for a caller whose statement has already run.
+//
+// A store on the unison tier does not hold a query and its arguments: it calls a
+// generated method, and an :execrows method has already asked the driver for the
+// affected count by the time it returns. What is left is what a miss means —
+// stamp the span, count it, log the identifier, return the wrapped sentinel —
+// and that is the half worth having one home for, since it is where the four
+// copies this package replaced had begun to differ.
+//
+// So the split is between running a statement and saying what its count meant,
+// and Exec is now the first of those followed by this.
+func (g *Guard) Report(
+	ctx context.Context,
+	op observability.Operation,
+	affected int64,
+	id, operation string,
+) error {
 	op.Set(g.Namespace+rowsAffectedSuffix, affected)
 
 	if affected > 0 {

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 )
 
@@ -46,6 +47,88 @@ func (k SetKey) argument() string {
 	}
 
 	return IDsArg
+}
+
+// ErrPositionalSetInList indicates a filtered list narrowed by a bound set, on
+// a dialect with no array type.
+//
+// A list carries every predicate three times — once in the WHERE and once in
+// each of the two count subqueries beside it — and on MySQL and SQLite a bound
+// set is a sqlc.slice expansion rather than one argument. Three expansions of
+// one set in one statement is a shape neither sqlc's own generated Go nor
+// sqlc-gen-unison's renders: each substitutes the first marker it finds and
+// leaves the other two standing, so the statement reaches the server with a
+// placeholder count that no argument list matches.
+//
+// So the shape is Postgres's, where the set is a single bound array and the
+// three references are three readings of one named argument. That is a fact
+// about the other two engines rather than a decision taken here, and it is
+// raised rather than worked around because both workarounds are worse: a
+// consumer whose list silently stopped narrowing by state would be a consumer
+// listing everything, and a set materialized into a temporary table would be a
+// second statement this package has no way to make the caller run.
+//
+// A three-dialect consumer wanting this read has a portable statement available
+// and it is a different one: [Generator.ListQueries] with a [Match] per value,
+// for a set whose membership is fixed, or [Generator.SetReadQuery] where the
+// page is not what is wanted.
+//
+// It is a programming error rather than a caller's — a generator binary names
+// its dialect and its shapes as literals — so it panics like the rest of this
+// package's misuse.
+var ErrPositionalSetInList = platformerrors.New("a filtered list cannot bind a set on this dialect")
+
+// SetListQueries renders both directions of a paged list narrowed by a bound
+// set: the rows whose keyed column holds any of the values the caller binds,
+// under the same filter window, cursor and pair of counts every other list here
+// carries.
+//
+// It is the read behind "show me this owner's failed and cancelled operations":
+// a filter over a closed domain, where what the caller has is a set of values
+// rather than one. Expressed as [Match] values it would be one statement per
+// subset — eight of them for three optional narrowings, sixteen once each is
+// emitted in both directions — and a store choosing between sixteen generated
+// row types converts rows to its own type sixteen times.
+//
+// The set is not optional and the empty set matches nothing, which is the same
+// contract [Generator.SetReadQuery] carries and the same reason: the arity
+// belongs to the values. A caller whose filter is "any of them" binds the whole
+// domain rather than binding nothing — which is expressible precisely because
+// the domains this shape suits are closed ones — and a caller whose domain is
+// not closed wants [OptionalNarrowing] on a single value instead.
+//
+// # Postgres only
+//
+// The set is bound three times in one statement, and only an array-typed
+// argument can be. See [ErrPositionalSetInList], which is what this panics
+// with elsewhere.
+//
+// Both names must be unique across the consumer's whole sqlc package, as every
+// [QueryAnnotation].Name must.
+func (g *Generator) SetListQueries(name, table string, columns []string, key SetKey, matches ...Match) []*Query {
+	if g.dialect != dialect.Postgres {
+		panic(platformerrors.Wrapf(ErrPositionalSetInList, "querygen: dialect %q, table %q", g.dialect, table))
+	}
+
+	mustIdentifier("table name", table)
+
+	if key.Column == "" {
+		panic(platformerrors.Wrapf(ErrMissingSetColumn, "querygen: table %q", table))
+	}
+
+	mustIdentifier("set column", key.Column)
+	mustIdentifier("set argument", key.argument())
+
+	return []*Query{
+		{
+			Annotation: QueryAnnotation{Name: name, Type: ManyType},
+			Content:    g.listStatement(table, columns, "", nil, &key, Ascending, matches...),
+		},
+		{
+			Annotation: QueryAnnotation{Name: DescendingName(name), Type: ManyType},
+			Content:    g.listStatement(table, columns, "", nil, &key, Descending, matches...),
+		},
+	}
 }
 
 // SetReadQuery renders the read a batched consumer needs: every row whose keyed

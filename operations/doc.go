@@ -249,14 +249,34 @@ unless its own Definition overrode it, and neither is visible from inside Run.
 
 # Postgres only
 
-Deliberately, and for three reasons at once. The guarded transition is one
-UPDATE … RETURNING, which MySQL has no form of; the watch path's push half is
-LISTEN/NOTIFY; and the queue underneath is workqueue, which is Postgres-only for
-its own reasons. Any one of those would be a second implementation rather than a
-dialect switch.
+Deliberately, and the reason is one rather than the three it looks like from the
+statements.
+
+The queue underneath is workqueue, which is Postgres-only for its own reasons —
+the single-statement RETURNING claim is its concurrency contract, MySQL's
+split is a different failure model, and SQLite has no row locks to skip. This
+package inherits whatever workqueue supports, so a multi-dialect operations is a
+decision about workqueue rather than about anything here.
+
+The other two only look like constraints. The guarded transitions are UPDATE …
+RETURNING, which is legal because this package renders a single-dialect corpus
+and a roster of one cannot diverge — see operations/internal/queries. And the
+watch path's push half is LISTEN/NOTIFY, which is an optimization over a poll
+that is documented above and always available: a watcher with no wakeup wired is
+exactly as correct, just later.
 
 So the constructors return dialect.ErrUnsupported for anything else, rather than
 degrading to something that looks like it worked.
+
+# Where the SQL comes from
+
+Nothing in this package composes a statement. The queries live in
+operations/internal/queries as a rendered, committed corpus — some of it emitted
+by database/querygen, the rest written out there for the reason that file gives
+— sqlc checks that corpus against the schema operations/migrations renders with
+no database running, and what the store executes is the querier sqlc-gen-unison
+generated from it, in operations/internal/operationsdb. A column renamed in a
+migration is a failed `make unison` rather than a scan error in production.
 
 # Creating the table
 
@@ -265,3 +285,5 @@ database/migrate, hand migrations.SQL to WithGeneratedMigration and the table is
 created by your normal migration run at a version you choose.
 */
 package operations
+
+//go:generate go run ./internal/queriesgen
