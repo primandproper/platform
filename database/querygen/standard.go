@@ -532,18 +532,9 @@ func (g *Generator) listStatement(table string, columns []string, ownership stri
 }
 
 func (g *Generator) updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string, extra ...Match) string {
-	assignments := make([]string, 0, len(updateColumns)+1)
-	for _, column := range updateColumns {
-		assignments = append(assignments, fmt.Sprintf("%s = %s", column, binding(column, nullable)))
-	}
-
-	if slices.Contains(columns, LastUpdatedAtColumn) {
-		assignments = append(assignments, fmt.Sprintf("%s = %s", LastUpdatedAtColumn, g.storedNow()))
-	}
-
 	return fmt.Sprintf("UPDATE %s SET\n\t%s\nWHERE %s;",
 		table,
-		strings.Join(assignments, ",\n\t"),
+		strings.Join(g.assignments(columns, updateColumns, nullable), ",\n\t"),
 		joinPredicates(g.singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
 	)
 }

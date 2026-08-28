@@ -533,6 +533,12 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 		runGuardSuite(t, ctx, d, db)
 	})
 
+	// And the bounded passes, one of which MySQL refuses to run in its obvious
+	// spelling — see sweep_containers_test.go.
+	t.Run("the sweep suite", func(t *testing.T) {
+		runSweepSuite(t, ctx, d, db)
+	})
+
 	// And the bounded prune, whose three renderings are three statements — see
 	// prune_containers_test.go.
 	t.Run("the prune suite", func(t *testing.T) {
