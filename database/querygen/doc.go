@@ -545,6 +545,22 @@ queries package: [Generator.StandardCRUD] for a table whose reads are the
 conventional set, and the keyed forms above for everything else. What it does not
 write is SQL.
 
+Not every statement a store runs is a shape this package has, and a corpus is
+allowed to hold the rest. saga is the worked example of that half: its
+transitions assign expressions rather than bound values — an attempt counter
+incremented server-side, a lease dropped outright — and seven of them guard on a
+*set* of statuses, which a [Match] cannot say. Those are written out as complete
+named statements in that package's own internal queries, where they keep the
+whole guarantee: same committed corpus, same `sqlc compile` against the same
+schema, same generated querier, so a renamed column fails the same generate.
+
+What such a statement must not do is restate a dialect fact. The fragments are
+exported for that reason — [Generator.FilterConditions] and the two count
+selects, [Generator.CursorCondition] and [Generator.CursorLimitClause],
+[Generator.LimitClause], [Generator.SetCondition] — so an authored statement is
+this module's shape written out with this package's spelling of each server's
+differences, rather than a second copy of them that can drift.
+
 # The packages that are not on this tier
 
 The registry's problem has a larger version one level up. One tier executes this

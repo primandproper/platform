@@ -59,9 +59,10 @@ type ruling struct {
 // same sentence in every case, and a per-package copy of it would be a place for
 // a real reason to hide.
 var rulings = map[string]ruling{
-	// The tier itself. identitydb is what sqlc-gen-unison emitted from
-	// identity's corpus, which is what every port below is a port onto.
+	// The tier itself. Each is what sqlc-gen-unison emitted from its package's
+	// corpus, which is what every port below is a port onto.
 	"identity/internal/identitydb": {tier: unison},
+	"saga/internal/sagadb":         {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
@@ -78,7 +79,6 @@ var rulings = map[string]ruling{
 	"operations":                           {tier: porting},
 	"outbox":                               {tier: porting},
 	"retention":                            {tier: porting},
-	"saga":                                 {tier: porting},
 	"sessions/database":                    {tier: porting},
 	"timers":                               {tier: porting},
 	"webhooks":                             {tier: porting},
@@ -92,6 +92,7 @@ var rulings = map[string]ruling{
 	"database/mysql/tableaccess":    {tier: exempt, why: "DCL and catalog introspection: sqlc has no spelling for CREATE USER or GRANT, and information_schema is not in any schema this module ships"},
 	"database/postgres/tableaccess": {tier: exempt, why: "DCL and catalog introspection: sqlc has no spelling for CREATE USER or GRANT, and pg_roles is not in any schema this module ships"},
 	"database/querygen":             {tier: exempt, why: "the generator: its SQL literals are the statements a corpus is rendered from, not statements it executes"},
+	"saga/internal/queries":         {tier: exempt, why: "a corpus source on database/querygen's own terms: the statements it holds are rendered into saga's canonical .sql and executed from the generated package, never from here"},
 	"distributedlock/postgres":      {tier: exempt, why: "advisory-lock function calls; the lock is a number the server holds for a session, with no table, schema or projection"},
 	"search/vector/pgvector":        {tier: exempt, why: "the index table's name, dimension and metadata column are configuration, so its DDL is issued at run time and nothing committed is left for sqlc to check a statement against"},
 	"testutils/containers/pgtest":   {tier: exempt, why: "the schemas and databases a container test isolates itself with, created and dropped by the harness rather than by a store"},
