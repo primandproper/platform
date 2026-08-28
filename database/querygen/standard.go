@@ -111,8 +111,8 @@ var ErrUnaddressableRow = platformerrors.New("single-row statement keys on nothi
 
 // ErrArgumentlessMatch indicates a Match naming an argument its comparand has
 // nowhere to put: an Arg beside IS NULL, beside the empty-string guard, or
-// beside the server's clock, none of which bind anything. The bound instant is
-// the ordered comparison that does take one — see Comparand.
+// beside the server's clock, none of which bind anything. The bound time is the
+// temporal comparison that does take one — see Comparand.
 //
 // It is a panic rather than a silently ignored field because the two readings a
 // caller could have had are both wrong in a way nothing downstream would report.
@@ -655,9 +655,9 @@ func (g *Generator) equalityPredicate(table, column string, qualified bool) stri
 //
 // Three of the comparands render no argument at all, which is what makes them
 // guards: the value the predicate compares against belongs to the statement, so
-// there is nothing a caller could pass that would relax it. The bound instant is
-// the exception among the ordered comparisons, and deliberately so — a sweep run
-// at a horizon its caller names has to take the horizon from somewhere. Exclude
+// there is nothing a caller could pass that would relax it. The bound time is
+// the exception among the temporal comparisons, and deliberately so — a sweep
+// run at a horizon its caller names has to take it from somewhere. Exclude
 // complements every one of them rather than switching between unrelated
 // questions — see Match.Exclude — so there is one rendering of the boundary per
 // comparand and not one per direction.
@@ -689,7 +689,7 @@ func (g *Generator) matchPredicate(table string, match Match, qualified bool) st
 		return fmt.Sprintf("%s %s ''", name, match.operator())
 	case CurrentTime:
 		return fmt.Sprintf("%s %s %s", name, match.orderedOperator(), g.storedNow())
-	case BoundInstant:
+	case BoundTime:
 		// The same boundary as the clock's, against the caller's reading of the
 		// time rather than the server's — through the same operator, so the two
 		// cannot come to disagree about which side "exactly now" falls on.

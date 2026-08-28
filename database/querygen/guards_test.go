@@ -83,16 +83,16 @@ func TestComparand_Renders(T *testing.T) {
 			match: Match{Column: "expires_at", Against: CurrentTime, Exclude: true},
 			want:  "tokens.expires_at > " + NowExpression,
 		},
-		"a bound instant at or before the horizon is the sweep": {
-			match: Match{Column: "expires_at", Against: BoundInstant},
+		"a bound time at or before the horizon is the sweep": {
+			match: Match{Column: "expires_at", Against: BoundTime},
 			want:  "tokens.expires_at <= sqlc.arg(expires_at)",
 		},
-		"a bound instant excluded is still live at that instant": {
-			match: Match{Column: "expires_at", Against: BoundInstant, Exclude: true},
+		"a bound time excluded is still live at that instant": {
+			match: Match{Column: "expires_at", Against: BoundTime, Exclude: true},
 			want:  "tokens.expires_at > sqlc.arg(expires_at)",
 		},
-		"a bound instant takes the name the match gives it": {
-			match: Match{Column: "expires_at", Against: BoundInstant, Arg: "now"},
+		"a bound time takes the name the match gives it": {
+			match: Match{Column: "expires_at", Against: BoundTime, Arg: "now"},
 			want:  "tokens.expires_at <= sqlc.arg(now)",
 		},
 		"an optional argument coalesces to the empty string": {
@@ -178,8 +178,8 @@ func TestComparand_ClockComesFromOneScreen(T *testing.T) {
 	})
 }
 
-// TestComparand_BoundInstantIsTheClockMoved is the property that makes the two
-// time comparands one decision rather than two spellings: they render the same
+// TestComparand_BoundTimeIsTheClockMoved is the property that makes the two
+// temporal comparands one decision rather than two spellings: they render the same
 // operator on the same side of the boundary, and differ only in what stands to
 // the right of it.
 //
@@ -187,7 +187,7 @@ func TestComparand_ClockComesFromOneScreen(T *testing.T) {
 // row are written from. A bound horizon that read the boundary the other way
 // round would leave a row expired to the sweep and live to the guard at exactly
 // the instant its deadline falls on.
-func TestComparand_BoundInstantIsTheClockMoved(T *testing.T) {
+func TestComparand_BoundTimeIsTheClockMoved(T *testing.T) {
 	T.Parallel()
 
 	T.Run("the same boundary, against the caller's reading of the time", func(t *testing.T) {
@@ -200,7 +200,7 @@ func TestComparand_BoundInstantIsTheClockMoved(T *testing.T) {
 				clock := g.matchPredicate(guardTable,
 					Match{Column: "expires_at", Against: CurrentTime, Exclude: exclude}, true)
 				bound := g.matchPredicate(guardTable,
-					Match{Column: "expires_at", Against: BoundInstant, Arg: "now", Exclude: exclude}, true)
+					Match{Column: "expires_at", Against: BoundTime, Arg: "now", Exclude: exclude}, true)
 
 				test.EqOp(t, strings.Replace(clock, g.storedNow(), "sqlc.arg(now)", 1), bound,
 					test.Sprintf("dialect %q excluded %v", d, exclude))
@@ -216,7 +216,7 @@ func TestComparand_BoundInstantIsTheClockMoved(T *testing.T) {
 		t.Parallel()
 
 		got := For(dialect.Postgres).DeleteQuery("SweepTokens", guardTable, nil,
-			Match{Column: "expires_at", Against: BoundInstant, Arg: "now"})
+			Match{Column: "expires_at", Against: BoundTime, Arg: "now"})
 
 		test.StrContains(t, got.Content, "sqlc.arg(now)")
 		test.StrNotContains(t, got.Content, "sqlc.narg")
@@ -235,7 +235,7 @@ func TestComparand_ExcludeComplements(T *testing.T) {
 		// they could come to disagree about the boundary, and the rows in the
 		// gap would be neither live nor expired.
 		for _, comparand := range []Comparand{
-			BoundArgument, NoValue, EmptyString, CurrentTime, BoundInstant, OptionalArgument,
+			BoundArgument, NoValue, EmptyString, CurrentTime, BoundTime, OptionalArgument,
 		} {
 			included := guardPredicate(t, dialect.Postgres, Match{Column: "expires_at", Against: comparand})
 			excluded := guardPredicate(t, dialect.Postgres,
@@ -337,7 +337,7 @@ func TestComparand_ArgumentlessMatchPanics(T *testing.T) {
 	T.Run("the three comparands that bind take an argument name", func(t *testing.T) {
 		t.Parallel()
 
-		for _, comparand := range []Comparand{BoundArgument, BoundInstant, OptionalArgument} {
+		for _, comparand := range []Comparand{BoundArgument, BoundTime, OptionalArgument} {
 			got := guardPredicate(t, dialect.Postgres,
 				Match{Column: IDColumn, Against: comparand, Arg: "except_id"})
 
@@ -356,7 +356,7 @@ func TestComparand_String(T *testing.T) {
 		test.EqOp(t, "NULL", NoValue.String())
 		test.EqOp(t, "the empty string", EmptyString.String())
 		test.EqOp(t, "the current time", CurrentTime.String())
-		test.EqOp(t, "a bound instant", BoundInstant.String())
+		test.EqOp(t, "a bound time", BoundTime.String())
 		test.EqOp(t, "an optional bound argument", OptionalArgument.String())
 		test.StrContains(t, Comparand(99).String(), "unknown")
 	})

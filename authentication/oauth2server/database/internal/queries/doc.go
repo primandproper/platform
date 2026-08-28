@@ -65,15 +65,15 @@ them takes over another's client by guessing an identifier.
 # Which clock the deadlines are read against
 
 Every deadline comparison here binds an instant rather than asking the server
-for one, which is [querygen.BoundInstant] rather than [querygen.CurrentTime],
-and it is this store's decision rather than querygen's default. The deadlines in
+for one, which is [querygen.BoundTime] rather than [querygen.CurrentTime], and
+it is this store's decision rather than querygen's default. The deadlines in
 these columns were stamped by the authorization server's clock — the same clock
 that decided a code lives for a minute and a token for an hour — so the
 comparison that decides whether one has passed is made against that same clock.
 Read against the database's instead, "issued for fifteen minutes" and "expired"
 would be measured by two clocks that agree only by luck.
 
-Sweep is the other half of it, and there the bound instant is not even now: a
+Sweep is the other half of it, and there the bound time is not even now: a
 caller sweeping at a horizon an hour back reclaims only what nothing is still
 deciding about, which is a thing the server's clock has no argument to express.
 */

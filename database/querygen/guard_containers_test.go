@@ -87,7 +87,7 @@ func hasSecret() Match  { return Match{Column: "secret", Against: EmptyString, E
 // whose deadlines were stamped by its own clock reaches for, and the only one
 // that can be asked about an instant other than now.
 func elapsedAt() Match {
-	return Match{Column: "expires_at", Against: BoundInstant, Arg: "horizon"}
+	return Match{Column: "expires_at", Against: BoundTime, Arg: "horizon"}
 }
 
 // tokenQueries is every statement the guard suite runs: the standard set for

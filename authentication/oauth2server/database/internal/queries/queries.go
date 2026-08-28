@@ -104,7 +104,7 @@ const (
 
 // NowArg is the argument every deadline comparison in this corpus binds.
 //
-// The comparisons are against a bound instant rather than against the server's
+// The comparisons are against a bound time rather than against the server's
 // clock, and that is this store's decision rather than querygen's default: the
 // deadlines in these columns were stamped by the authorization server's clock,
 // so the comparison that decides whether one has passed has to be made against
@@ -112,7 +112,7 @@ const (
 // by two clocks that agree only by luck. Sweep binds it as well, and there the
 // instant is not even now — a caller sweeping at a horizon an hour back
 // reclaims only what nothing is still deciding about. See
-// [querygen.BoundInstant].
+// [querygen.BoundTime].
 const NowArg = "now"
 
 // The query names, which become the generated querier's method names. They are
@@ -429,7 +429,7 @@ func unrevoked() querygen.Match {
 // it matches. A resource server holding one is entitled to be told "no" rather
 // than to have its request read as carrying a token nobody ever issued.
 func elapsed() querygen.Match {
-	return querygen.Match{Column: ExpiresAtColumn, Against: querygen.BoundInstant, Arg: NowArg}
+	return querygen.Match{Column: ExpiresAtColumn, Against: querygen.BoundTime, Arg: NowArg}
 }
 
 // stillLive is elapsed's complement, and it is derived from it rather than

@@ -199,8 +199,8 @@ records that something has not happened yet — an unredeemed token, an unproven
 secret, a key not yet shredded. [EmptyString] is the sentinel a TEXT NOT NULL
 column holds when it holds nothing, so its excluded form is "this fact exists".
 [CurrentTime] is the server's clock, which is the expiry sweep uninverted and the
-still-live guard inverted. [BoundInstant] is that same pair of directions against
-a time the caller binds. [OptionalArgument] is the equality a caller may leave
+still-live guard inverted. [BoundTime] is that same boundary read from a clock
+the caller supplies. [OptionalArgument] is the equality a caller may leave
 unset.
 
 [Match.Exclude] inverts all six rather than only the first, and every inversion
@@ -217,9 +217,9 @@ one of them is [ErrArgumentlessMatch] rather than a field quietly ignored.
 
 # Which clock a deadline is read against
 
-[CurrentTime] and [BoundInstant] render the same two comparisons and differ only
-in where the right-hand side comes from, so choosing between them is choosing
-which clock decides — and the answer follows the column rather than the caller's
+[CurrentTime] and [BoundTime] render the same two comparisons and differ only in
+where the right-hand side comes from, so choosing between them is choosing which
+clock decides — and the answer follows the column rather than the caller's
 convenience. A deadline the database wrote is compared against the database's
 clock. A deadline the application stamped and handed over is compared against the
 clock that stamped it, because otherwise "issued for fifteen minutes" and
@@ -227,7 +227,7 @@ clock that stamped it, because otherwise "issued for fifteen minutes" and
 
 	sweep := querygen.For(dialect.Postgres).DeleteQuery(
 		"SweepExpiredAccessTokens", "oauth2_access_tokens", columns,
-		querygen.Match{Column: "expires_at", Against: querygen.BoundInstant, Arg: "now"})
+		querygen.Match{Column: "expires_at", Against: querygen.BoundTime, Arg: "now"})
 
 The bound form says one further thing the server's clock has no way to say: the
 instant need not be now. A sweep run at a horizon its caller chose — everything
