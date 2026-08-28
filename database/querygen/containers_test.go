@@ -538,6 +538,12 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 	t.Run("the sweep suite", func(t *testing.T) {
 		runSweepSuite(t, ctx, d, db)
 	})
+
+	// And the bounded prune, whose three renderings are three statements — see
+	// prune_containers_test.go.
+	t.Run("the prune suite", func(t *testing.T) {
+		runPruneSuite(t, ctx, d, db)
+	})
 }
 
 // prepare asks the server to plan the statement, which is the cheapest way to

@@ -38,7 +38,7 @@ regulator asks about.
 
 And a horizon comparison is inclusive. `due_at <= due_before` where the builder
 wrote `<`, so a request due at exactly the instant the gauge asks about is
-overdue rather than neither overdue nor pending — see [querygen.BoundTime], where
+overdue rather than neither overdue nor pending — see [querygen.AtMostArgument], where
 the boundary is stated once for every sweep in the module rather than per
 statement.
 

@@ -356,20 +356,20 @@ func sweeps(g *querygen.Generator) []*querygen.Query {
 		querygen.Match{Column: StatusColumn},
 		querygen.Match{Column: ArtifactRefColumn, Against: querygen.EmptyString, Exclude: true},
 		querygen.Match{Column: ExpiresAtColumn, Against: querygen.NoValue, Exclude: true},
-		querygen.Match{Column: ExpiresAtColumn, Against: querygen.BoundTime, Arg: ExpiresBeforeArg},
+		querygen.Match{Column: ExpiresAtColumn, Against: querygen.AtMostArgument, Arg: ExpiresBeforeArg},
 	)
 
 	lapse := g.SweepUpdateQuery("LapseUnconfirmedRequests", RequestsTable, Columns,
 		[]string{StatusColumn, CompletedAtColumn, ExpiresAtColumn}, Nullable, byExpiry,
 		querygen.Match{Column: StatusColumn, Arg: CurrentStatusArg},
 		querygen.Match{Column: ExpiresAtColumn, Against: querygen.NoValue, Exclude: true},
-		querygen.Match{Column: ExpiresAtColumn, Against: querygen.BoundTime, Arg: ExpiresBeforeArg},
+		querygen.Match{Column: ExpiresAtColumn, Against: querygen.AtMostArgument, Arg: ExpiresBeforeArg},
 	)
 
 	overdue := g.CountQuery("CountOverdueRequests", RequestsTable, Columns,
 		querygen.Match{Column: RequestTypeColumn},
 		querygen.Match{Column: CompletedAtColumn, Against: querygen.NoValue},
-		querygen.Match{Column: DueAtColumn, Against: querygen.BoundTime, Arg: DueBeforeArg},
+		querygen.Match{Column: DueAtColumn, Against: querygen.AtMostArgument, Arg: DueBeforeArg},
 	)
 
 	// A row whose artifact_ref is still set is never reaped, whatever its age.
@@ -386,7 +386,7 @@ func sweeps(g *querygen.Generator) []*querygen.Query {
 		[]querygen.Order{{Column: CompletedAtColumn}, {Column: querygen.IDColumn}},
 		querygen.Match{Column: ArtifactRefColumn, Against: querygen.EmptyString},
 		querygen.Match{Column: CompletedAtColumn, Against: querygen.NoValue, Exclude: true},
-		querygen.Match{Column: CompletedAtColumn, Against: querygen.BoundTime, Arg: CompletedBeforeArg},
+		querygen.Match{Column: CompletedAtColumn, Against: querygen.AtMostArgument, Arg: CompletedBeforeArg},
 	)
 
 	return []*querygen.Query{expiring, lapse, overdue, reap}

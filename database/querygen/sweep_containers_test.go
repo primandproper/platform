@@ -81,10 +81,10 @@ func leasesColumns() []string {
 const expiresBeforeArg = "expires_before"
 
 // dueByNow is the predicate all four statements share: a lease past a bound
-// instant. It is BoundTime rather than CurrentTime because the suite drives the
+// instant. It is AtMostArgument rather than CurrentTime because the suite drives the
 // clock — which is the difference the two comparands exist for.
 func dueByNow() Match {
-	return Match{Column: "expires_at", Against: BoundTime, Arg: expiresBeforeArg}
+	return Match{Column: "expires_at", Against: AtMostArgument, Arg: expiresBeforeArg}
 }
 
 // byExpiry is the order every pass walks: the deadline, then the id to settle

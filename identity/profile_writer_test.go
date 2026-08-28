@@ -122,6 +122,60 @@ func runProfileWriterSuite(t *testing.T, env *storeEnv) {
 		)
 	})
 
+	t.Run("records one agreement without touching the other", func(t *testing.T) {
+		t.Parallel()
+
+		// Each document is its own statement now, rather than a SET list
+		// assembled from the documents a caller named, so this is the case
+		// that says the two do not reach each other's column.
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.NoError(t, store.RecordAgreement(t.Context(), testScope, user.ID, PrivacyPolicy))
+
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		must.NotNil(t, read.LastAcceptedPrivacyPolicy)
+		test.Nil(t, read.LastAcceptedTermsOfService)
+
+		must.NoError(t, store.RecordAgreement(t.Context(), testScope, user.ID, TermsOfService))
+
+		both, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		must.NotNil(t, both.LastAcceptedTermsOfService)
+
+		// The second call did not move the first acceptance.
+		test.EqOp(t, *read.LastAcceptedPrivacyPolicy, *both.LastAcceptedPrivacyPolicy)
+	})
+
+	t.Run("refuses an agreement for a user it cannot see", func(t *testing.T) {
+		t.Parallel()
+
+		// Every statement is keyed on the scope, so a write aimed at another
+		// directory's user touches no row — and a write that touched no row is
+		// the entity not being there rather than a success.
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.ErrorIs(t,
+			store.RecordAgreement(t.Context(), otherScope, user.ID, TermsOfService, PrivacyPolicy),
+			ErrUserNotFound,
+		)
+
+		must.ErrorIs(t,
+			store.RecordAgreement(t.Context(), testScope, "not-a-user", TermsOfService),
+			ErrUserNotFound,
+		)
+
+		// Nothing was written on the way to the refusal: the documents are one
+		// statement each inside one transaction, so a refusal on either rolls
+		// the other back.
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.Nil(t, read.LastAcceptedTermsOfService)
+		test.Nil(t, read.LastAcceptedPrivacyPolicy)
+	})
+
 	t.Run("writes name and address but not billing or owner", func(t *testing.T) {
 		t.Parallel()
 

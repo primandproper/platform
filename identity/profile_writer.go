@@ -2,11 +2,13 @@ package identity
 
 import (
 	"context"
+	"time"
 
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v13/pointer"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
@@ -50,7 +52,7 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 
 		count, err := s.q.UpdateUser(ctx, q, params)
 
-		return guardCount(count, err, ErrUserNotFound, "updating identity user")
+		return s.guardCount(ctx, count, err, ErrUserNotFound, "updating identity user")
 	}); err != nil {
 		return op.Error(err, "updating identity user")
 	}
@@ -107,7 +109,7 @@ func (s *SQLStore) UpdateAccount(ctx context.Context, account *Account) error {
 	op.Set(accountIDKey, account.ID).Set(scopeKey, account.Scope.String())
 
 	count, err := s.q.UpdateAccount(ctx, s.client.Writer(), updateAccountParams(account))
-	if err = guardCount(count, err, ErrAccountNotFound, "updating identity account"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrAccountNotFound, "updating identity account"); err != nil {
 		return op.Error(err, "updating identity account")
 	}
 
@@ -142,11 +144,66 @@ func (s *SQLStore) RecordAgreement(ctx context.Context, scope tenancy.Scope, use
 		}
 	}
 
-	query, args := s.tables.buildRecordAgreements(s.dialect, scope, userID, agreements, s.now())
+	// One statement per document, in one transaction. The SET list was
+	// assembled from the documents a caller named until the corpus grew a
+	// statement per column — accepting the terms rendered one string and
+	// accepting both rendered another, which is dynamic SQL by construction and
+	// nothing sqlc could check. Two round trips at a cardinality of two, inside
+	// a transaction, buy a statement that is text.
+	stamp := pointer.To(s.now())
 
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrUserNotFound, "recording identity agreement"); err != nil {
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
+		for _, agreement := range agreements {
+			if err := s.recordAgreement(ctx, q, scope, userID, agreement, stamp); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
 		return op.Error(err, "recording identity agreement")
 	}
 
 	return nil
+}
+
+// recordAgreement stamps one document's acceptance.
+//
+// The agreement chooses the statement rather than a column, because a query
+// name is a Go method name: what was one write over a map from Agreement to
+// column is two writes and a switch that the compiler checks is exhaustive of
+// the ones this package defines. An unrecognized agreement cannot reach here —
+// RecordAgreement validates every one of them first — and the default arm says
+// so rather than writing nothing and reporting success.
+func (s *SQLStore) recordAgreement(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID string,
+	agreement Agreement,
+	at *time.Time,
+) error {
+	var (
+		count int64
+		err   error
+	)
+
+	switch agreement {
+	case TermsOfService:
+		count, err = s.q.RecordUserTermsOfServiceAgreement(ctx, q, identitydb.RecordUserTermsOfServiceAgreementParams{
+			ID:                         userID,
+			Scope:                      scope,
+			LastAcceptedTermsOfService: at,
+		})
+	case PrivacyPolicy:
+		count, err = s.q.RecordUserPrivacyPolicyAgreement(ctx, q, identitydb.RecordUserPrivacyPolicyAgreementParams{
+			ID:                        userID,
+			Scope:                     scope,
+			LastAcceptedPrivacyPolicy: at,
+		})
+	default:
+		return platformerrors.Wrapf(platformerrors.ErrUnrecognizedInputValue, "agreement %q", agreement)
+	}
+
+	return s.guardCount(ctx, count, err, ErrUserNotFound, "recording identity agreement")
 }

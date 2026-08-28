@@ -28,7 +28,7 @@ func dueOrder() []Order {
 func dueMatches() []Match {
 	return []Match{
 		{Column: "redeemed_at", Against: NoValue},
-		{Column: "expires_at", Against: BoundTime, Arg: "expires_before"},
+		{Column: "expires_at", Against: AtMostArgument, Arg: "expires_before"},
 	}
 }
 
@@ -326,7 +326,7 @@ func TestGenerator_CountQuery(T *testing.T) {
 	})
 }
 
-func TestMatch_BoundTime(T *testing.T) {
+func TestMatch_AtMostArgument(T *testing.T) {
 	T.Parallel()
 
 	// The complement of "at or before the bound" is "strictly after it", so the
@@ -339,11 +339,11 @@ func TestMatch_BoundTime(T *testing.T) {
 		for _, d := range everyDialect() {
 			g := For(d)
 
-			swept := g.matchPredicate(guardTable, Match{Column: "expires_at", Against: BoundTime}, true)
+			swept := g.matchPredicate(guardTable, Match{Column: "expires_at", Against: AtMostArgument}, true)
 			test.EqOp(t, Qualify(guardTable, "expires_at")+" <= sqlc.arg(expires_at)", swept)
 
 			live := g.matchPredicate(guardTable,
-				Match{Column: "expires_at", Against: BoundTime, Exclude: true}, true)
+				Match{Column: "expires_at", Against: AtMostArgument, Exclude: true}, true)
 			test.EqOp(t, Qualify(guardTable, "expires_at")+" > sqlc.arg(expires_at)", live)
 
 			_ = d
@@ -354,7 +354,7 @@ func TestMatch_BoundTime(T *testing.T) {
 		t.Parallel()
 
 		predicate := For(dialect.Postgres).matchPredicate(guardTable,
-			Match{Column: "expires_at", Against: BoundTime, Arg: "expires_before"}, false)
+			Match{Column: "expires_at", Against: AtMostArgument, Arg: "expires_before"}, false)
 
 		test.EqOp(t, "expires_at <= sqlc.arg(expires_before)", predicate)
 	})
@@ -362,7 +362,7 @@ func TestMatch_BoundTime(T *testing.T) {
 	T.Run("names itself for the misuse messages", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, "a bound instant", BoundTime.String())
+		test.EqOp(t, "a bound ceiling", AtMostArgument.String())
 	})
 }
 
