@@ -1,0 +1,315 @@
+package settings
+
+import (
+	"testing"
+
+	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v13/pointer"
+	"github.com/primandproper/platform-go/v13/tenancy"
+
+	"github.com/shoenig/test"
+	"github.com/shoenig/test/must"
+)
+
+// runDefinitionSuite is the catalog half: what an administrator can write, and
+// what the store refuses.
+func runDefinitionSuite(t *testing.T, env *storeEnv) {
+	t.Helper()
+
+	t.Run("create and read back a definition", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		created := mustCreate(t, store, testScope, stringDefinition("digest"))
+
+		test.NotEqOp(t, "", created.ID)
+		test.False(t, created.CreatedAt.IsZero())
+		test.EqOp(t, testScope, created.Scope)
+
+		// Sorted, because an enumeration is a set and the read hands it back in
+		// the option's own order. A caller holding the value it just wrote and a
+		// caller re-reading it see the same slice.
+		test.Eq(t, []string{"daily", "never", "weekly"}, created.Enumeration)
+
+		read, err := store.GetDefinition(t.Context(), testScope, created.ID)
+		must.NoError(t, err)
+		test.EqOp(t, created.ID, read.ID)
+		test.EqOp(t, "digest", read.Name)
+		test.EqOp(t, KindString, read.Kind)
+		test.EqOp(t, "weekly", pointer.Dereference(read.Default))
+		test.Eq(t, []string{"daily", "never", "weekly"}, read.Enumeration)
+		test.Nil(t, read.LastUpdatedAt)
+		test.Nil(t, read.ArchivedAt)
+
+		byName, err := store.GetDefinitionByName(t.Context(), testScope, "digest")
+		must.NoError(t, err)
+		test.EqOp(t, created.ID, byName.ID)
+		test.Eq(t, read.Enumeration, byName.Enumeration)
+	})
+
+	t.Run("a definition with no enumeration comes back with an empty one", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		created := mustCreate(t, store, testScope, intDefinition("retention.days"))
+
+		// Empty rather than nil: a nil enumeration is indistinguishable from one
+		// nothing attached, and that reading admits every value.
+		test.NotNil(t, created.Enumeration)
+		test.SliceEmpty(t, created.Enumeration)
+
+		read, err := store.GetDefinition(t.Context(), testScope, created.ID)
+		must.NoError(t, err)
+		test.NotNil(t, read.Enumeration)
+		test.SliceEmpty(t, read.Enumeration)
+	})
+
+	t.Run("a name is taken once per scope", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		mustCreate(t, store, testScope, stringDefinition("digest"))
+
+		_, err := store.CreateDefinition(t.Context(), testScope, stringDefinition("digest"))
+		test.ErrorIs(t, err, ErrDefinitionNameTaken)
+
+		// The other scope's catalog is its own.
+		other, err := store.CreateDefinition(t.Context(), otherScope, stringDefinition("digest"))
+		must.NoError(t, err)
+		test.EqOp(t, otherScope, other.Scope)
+	})
+
+	t.Run("archiving does not free the name", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		created := mustCreate(t, store, testScope, stringDefinition("digest"))
+		must.NoError(t, store.ArchiveDefinition(t.Context(), testScope, created.ID))
+
+		_, err := store.GetDefinition(t.Context(), testScope, created.ID)
+		test.ErrorIs(t, err, ErrDefinitionNotFound)
+
+		// The values written under the name are still interpreted against this
+		// definition, so a second definition must not be able to claim it.
+		_, err = store.CreateDefinition(t.Context(), testScope, stringDefinition("digest"))
+		test.ErrorIs(t, err, ErrDefinitionNameTaken)
+	})
+
+	t.Run("a definition is refused before it is written", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		cases := map[string]struct {
+			definition *Definition
+			sentinel   error
+		}{
+			"no name":                 {&Definition{Kind: KindBool}, ErrEmptyDefinitionName},
+			"unknown kind":            {&Definition{Name: "a", Kind: "date"}, ErrUnknownKind},
+			"default of another kind": {&Definition{Name: "b", Kind: KindInt, Default: pointer.To("soon")}, ErrMalformedValue},
+			"default outside the enumeration": {
+				&Definition{Name: "c", Kind: KindString, Default: pointer.To("hourly"), Enumeration: []string{"daily"}},
+				ErrNotEnumerated,
+			},
+			"empty enumeration value": {
+				&Definition{Name: "d", Kind: KindString, Enumeration: []string{"daily", ""}},
+				ErrEmptyEnumerationValue,
+			},
+			"repeated enumeration value": {
+				&Definition{Name: "e", Kind: KindString, Enumeration: []string{"daily", "daily"}},
+				ErrDuplicateEnumerationValue,
+			},
+			"enumeration value of another kind": {
+				&Definition{Name: "f", Kind: KindInt, Enumeration: []string{"1", "some"}},
+				ErrMalformedValue,
+			},
+		}
+
+		for name, c := range cases {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				created, err := store.CreateDefinition(t.Context(), testScope, c.definition)
+				test.Nil(t, created)
+				test.ErrorIs(t, err, c.sentinel)
+			})
+		}
+	})
+
+	t.Run("a nil definition is refused", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		_, err := store.CreateDefinition(t.Context(), testScope, nil)
+		test.ErrorIs(t, err, ErrNilDefinition)
+
+		test.ErrorIs(t, store.UpdateDefinition(t.Context(), testScope, nil), ErrNilDefinition)
+	})
+
+	t.Run("an unset scope reaches no statement", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// The zero Scope is the absence of a decision rather than the global
+		// scope, so every entry point rejects it before it reaches a statement.
+		var unset tenancy.Scope
+
+		_, err := store.CreateDefinition(t.Context(), unset, stringDefinition("digest"))
+		test.ErrorIs(t, err, tenancy.ErrNoScope)
+
+		_, err = store.GetDefinition(t.Context(), unset, "whatever")
+		test.ErrorIs(t, err, tenancy.ErrNoScope)
+
+		_, err = store.ListDefinitions(t.Context(), unset, nil)
+		test.ErrorIs(t, err, tenancy.ErrNoScope)
+
+		test.ErrorIs(t, store.ArchiveDefinition(t.Context(), unset, "whatever"), tenancy.ErrNoScope)
+	})
+
+	t.Run("reads are keyed on the scope", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		created := mustCreate(t, store, testScope, stringDefinition("digest"))
+
+		_, err := store.GetDefinition(t.Context(), otherScope, created.ID)
+		test.ErrorIs(t, err, ErrDefinitionNotFound)
+
+		_, err = store.GetDefinitionByName(t.Context(), otherScope, "digest")
+		test.ErrorIs(t, err, ErrDefinitionNotFound)
+
+		test.ErrorIs(t, store.ArchiveDefinition(t.Context(), otherScope, created.ID), ErrDefinitionNotFound)
+	})
+
+	t.Run("the catalog pages in both directions", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		first := mustCreate(t, store, testScope, stringDefinition("a.digest"))
+		second := mustCreate(t, store, testScope, boolDefinition("b.compact"))
+		third := mustCreate(t, store, testScope, intDefinition("c.retention"))
+
+		page, err := store.ListDefinitions(t.Context(), testScope, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 3, page.Data)
+		test.EqOp(t, first.ID, page.Data[0].ID)
+		test.EqOp(t, third.ID, page.Data[2].ID)
+
+		// The enumeration comes back on a listed definition too, in one batched
+		// read for the whole page.
+		test.Eq(t, []string{"daily", "never", "weekly"}, page.Data[0].Enumeration)
+		test.SliceEmpty(t, page.Data[2].Enumeration)
+
+		counts, total, known := page.Counts()
+		test.True(t, known)
+		test.EqOp(t, uint64(3), counts)
+		test.EqOp(t, uint64(3), total)
+
+		descending := filtering.DefaultQueryFilter()
+		descending.SortBy = filtering.SortDescending
+
+		reversed, err := store.ListDefinitions(t.Context(), testScope, descending)
+		must.NoError(t, err)
+		must.SliceLen(t, 3, reversed.Data)
+		test.EqOp(t, third.ID, reversed.Data[0].ID)
+		test.EqOp(t, second.ID, reversed.Data[1].ID)
+		test.EqOp(t, first.ID, reversed.Data[2].ID)
+	})
+
+	t.Run("an archived definition is out of the page unless asked for", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		live := mustCreate(t, store, testScope, boolDefinition("live"))
+		retired := mustCreate(t, store, testScope, boolDefinition("retired"))
+		must.NoError(t, store.ArchiveDefinition(t.Context(), testScope, retired.ID))
+
+		page, err := store.ListDefinitions(t.Context(), testScope, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, page.Data)
+		test.EqOp(t, live.ID, page.Data[0].ID)
+
+		filter := filtering.DefaultQueryFilter()
+		filter.IncludeArchived = pointer.To(true)
+
+		all, err := store.ListDefinitions(t.Context(), testScope, filter)
+		must.NoError(t, err)
+		test.SliceLen(t, 2, all.Data)
+	})
+
+	t.Run("an update rewrites what it is handed", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		created := mustCreate(t, store, testScope, stringDefinition("digest"))
+
+		created.Name = "digest.frequency"
+		created.Description = "reworded"
+		created.Default = pointer.To("never")
+		created.AdminOnly = true
+		created.Enumeration = []string{"weekly", "daily", "never", "hourly"}
+
+		must.NoError(t, store.UpdateDefinition(t.Context(), testScope, created))
+
+		read, err := store.GetDefinition(t.Context(), testScope, created.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "digest.frequency", read.Name)
+		test.EqOp(t, "reworded", read.Description)
+		test.EqOp(t, "never", pointer.Dereference(read.Default))
+		test.True(t, read.AdminOnly)
+		test.Eq(t, []string{"daily", "hourly", "never", "weekly"}, read.Enumeration)
+		test.NotNil(t, read.LastUpdatedAt)
+
+		// The name it was renamed away from is free again, because uniqueness is
+		// on the row rather than on the history.
+		_, err = store.CreateDefinition(t.Context(), testScope, stringDefinition("digest"))
+		test.NoError(t, err)
+	})
+
+	t.Run("an update refuses a name another definition holds", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		mustCreate(t, store, testScope, boolDefinition("taken"))
+		other := mustCreate(t, store, testScope, boolDefinition("free"))
+
+		other.Name = "taken"
+		test.ErrorIs(t, store.UpdateDefinition(t.Context(), testScope, other), ErrDefinitionNameTaken)
+
+		// Saving a definition under its own name is not a collision with itself.
+		other.Name = "free"
+		test.NoError(t, store.UpdateDefinition(t.Context(), testScope, other))
+	})
+
+	t.Run("an update needs a definition to update", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		test.ErrorIs(t, store.UpdateDefinition(t.Context(), testScope, &Definition{Name: "a", Kind: KindBool}),
+			platformerrors.ErrInvalidIDProvided)
+
+		test.ErrorIs(t, store.UpdateDefinition(t.Context(), testScope,
+			&Definition{ID: "no-such-row", Name: "a", Kind: KindBool}), ErrDefinitionNotFound)
+	})
+
+	t.Run("an archive needs a definition to archive", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		test.ErrorIs(t, store.ArchiveDefinition(t.Context(), testScope, "no-such-row"), ErrDefinitionNotFound)
+	})
+}

@@ -69,6 +69,7 @@ var rulings = map[string]ruling{
 	"webhooks/internal/webhooksdb":                                 {tier: unison},
 	"cryptography/shredding/internal/shreddingdb":                  {tier: unison},
 	"authentication/webauthn/database/internal/webauthndb":         {tier: unison},
+	"settings/internal/settingsdb":                                 {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
