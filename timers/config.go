@@ -5,6 +5,9 @@ import (
 	"math"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/database/ddl"
+	"github.com/primandproper/platform-go/v13/timers/internal/queries"
+
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -73,7 +76,9 @@ type Config struct {
 	TablePrefix string `env:"TABLE_PREFIX" json:"tablePrefix,omitempty" yaml:"tablePrefix,omitempty"`
 
 	// table is TablePrefix resolved to a full name, filled by EnsureDefaults so
-	// every query builder reads one already-qualified string.
+	// the identifier check has one already-qualified string to vet. Nothing
+	// interpolates it into a statement: the prefix reaches the generated querier
+	// on its own, once, at construction.
 	table string
 
 	// NotifyChannel makes Schedule emit a payload-free pg_notify on this channel
@@ -167,6 +172,14 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.WriteAttempts, validation.Required, validation.Min(uint(1))),
 		validation.Field(&cfg.MinWakeInterval, validation.Required, validation.Min(time.Millisecond)),
 	)
+}
+
+// tableFor renders the timer table name under a namespace. It is the one place
+// the component segment reaches this package's own code, and it reads it from
+// the corpus rather than restating it, so the DDL, the statements and the
+// identifier check cannot disagree about what the table is called.
+func tableFor(prefix string) string {
+	return ddl.Qualify(prefix) + queries.TimersTable
 }
 
 // resolvedTable returns the qualified table name, for the tests and the

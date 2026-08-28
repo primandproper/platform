@@ -837,6 +837,88 @@ func runTimerSuite(t *testing.T, client database.Client) {
 		test.Eq(t, []byte("last"), fired[0].Payload)
 	})
 
+	// A batch crosses the seam as one array per column rather than as a tuple
+	// per row, so the nth key, the nth instant and the nth payload have to still
+	// describe one timer at the other end. Nothing in a rendered statement can
+	// say whether they do — a pairing that slipped by one would produce a
+	// statement that runs, writes every row, and gets each one wrong.
+	t.Run("a batch pairs each key with its own instant and payload", func(t *testing.T) {
+		t.Parallel()
+
+		set := newSet(t, client, nil)
+
+		base := past()
+		scheduled := []Timer[string]{
+			{Key: "a", RunAt: base, Payload: []byte("first")},
+			{Key: "b", RunAt: base.Add(time.Minute), Payload: nil},
+			{Key: "c", RunAt: base.Add(2 * time.Minute), Payload: []byte("third")},
+			{Key: "d", RunAt: base.Add(3 * time.Minute), Payload: []byte{}},
+		}
+
+		// Deliberately out of key order: the sort and the split that follow it
+		// are what the pairing survives.
+		must.NoError(t, set.Schedule(t.Context(),
+			scheduled[2], scheduled[0], scheduled[3], scheduled[1]))
+
+		fired, err := set.Claim(t.Context(), 10, time.Minute)
+		must.NoError(t, err)
+		must.SliceLen(t, 4, fired)
+
+		byKey := map[string]Due[string]{}
+		for i := range fired {
+			byKey[fired[i].Key] = fired[i]
+		}
+
+		for i := range scheduled {
+			got, ok := byKey[scheduled[i].Key]
+			must.True(t, ok, must.Sprintf("timer %q did not come back", scheduled[i].Key))
+
+			test.True(t, scheduled[i].RunAt.Equal(got.RunAt),
+				test.Sprintf("timer %q: scheduled for %s, fired for %s",
+					scheduled[i].Key, scheduled[i].RunAt, got.RunAt))
+			test.Eq(t, scheduled[i].Payload, got.Payload,
+				test.Sprintf("timer %q payload", scheduled[i].Key))
+		}
+	})
+
+	// The same pairing, on the write that reads it back the other way: a batch
+	// of firings is a key array and an instant array, and the fence is the pair.
+	// One stale instant in the middle of a batch must retire nothing but itself
+	// — and must not shift what the entries either side of it match.
+	t.Run("one stale firing in a batch retires neither more nor less", func(t *testing.T) {
+		t.Parallel()
+
+		set := newSet(t, client, nil)
+
+		must.NoError(t, set.Schedule(t.Context(),
+			Timer[string]{Key: "a", RunAt: past()},
+			Timer[string]{Key: "b", RunAt: past()},
+			Timer[string]{Key: "c", RunAt: past()},
+		))
+
+		fired, err := set.Claim(t.Context(), 10, time.Minute)
+		must.NoError(t, err)
+		must.SliceLen(t, 3, fired)
+
+		// b moves while it is being fired, so the instant its claimant holds no
+		// longer describes the row.
+		must.NoError(t, set.ScheduleAt(t.Context(), "b", past().Add(time.Minute), nil))
+
+		must.NoError(t, set.Complete(t.Context(), fired...))
+
+		stats, err := set.Stats(t.Context())
+		must.NoError(t, err)
+		test.EqOp(t, int64(2), stats.Fired)
+		test.EqOp(t, int64(1), stats.Outstanding)
+
+		// And the survivor is b, on its new schedule rather than the one the
+		// stale firing named.
+		again, err := set.Claim(t.Context(), 10, time.Minute)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, again)
+		test.EqOp(t, "b", again[0].Key)
+	})
+
 	t.Run("a namespaced table is a different table", func(t *testing.T) {
 		t.Parallel()
 

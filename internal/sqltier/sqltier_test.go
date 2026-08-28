@@ -73,6 +73,7 @@ var rulings = map[string]ruling{
 	"uploads/registry/internal/registrydb":                         {tier: unison},
 	"notifications/internal/notificationsdb":                       {tier: unison},
 	"operations/internal/operationsdb":                             {tier: unison},
+	"timers/internal/timersdb":                                     {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
@@ -84,7 +85,6 @@ var rulings = map[string]ruling{
 	"metering":                     {tier: porting},
 	"outbox":                       {tier: porting},
 	"retention":                    {tier: porting},
-	"timers":                       {tier: porting},
 	"workqueue":                    {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
@@ -99,6 +99,7 @@ var rulings = map[string]ruling{
 	"saga/internal/queries":         {tier: exempt, why: "a corpus source on database/querygen's own terms: the statements it holds are rendered into saga's canonical .sql and executed from the generated package, never from here"},
 	"distributedlock/postgres":      {tier: exempt, why: "advisory-lock function calls; the lock is a number the server holds for a session, with no table, schema or projection"},
 	"operations/internal/queries":   {tier: exempt, why: "a corpus source, like the generator it renders through: its literals are the statements the committed .sql is rendered from, checked by sqlc and executed through operations/internal/operationsdb"},
+	"timers/internal/queries":       {tier: exempt, why: "a corpus source whose statements are written out in full rather than rendered from database/querygen, for the reason its own doc gives: every one of them assigns an expression, and each is still checked by sqlc and executed through timers/internal/timersdb"},
 	"search/vector/pgvector":        {tier: exempt, why: "the index table's name, dimension and metadata column are configuration, so its DDL is issued at run time and nothing committed is left for sqlc to check a statement against"},
 	"testutils/containers/pgtest":   {tier: exempt, why: "the schemas and databases a container test isolates itself with, created and dropped by the harness rather than by a store"},
 
@@ -106,6 +107,7 @@ var rulings = map[string]ruling{
 	// statement appearing here later is a failing test rather than a silence.
 	"filtering": {tier: none, why: "supplies the argument names a rendered statement binds and the conversions that bind them; the keyword a survey counted is a word in a comment"},
 	"identity":  {tier: none, why: "the store the tier was built for, and the first to finish: its statements are rendered by identity/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
+	"timers":    {tier: none, why: "ported: its statements are rendered by timers/internal/queries and executed through the querier above, and the one line of SQL it still names is database/dialect's NOTIFY, which is addressed to a channel rather than to a table"},
 }
 
 // TestEverySQLPackageIsClassified is the entry this file exists to make

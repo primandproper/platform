@@ -9,7 +9,16 @@ import (
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v13/timers/internal/timersdb"
 )
+
+// encodedTimer is one scheduled timer reduced to what the statement binds, with
+// the key already rendered to its stored form.
+type encodedTimer struct {
+	runAt   time.Time
+	key     string
+	payload []byte
+}
 
 // Schedule writes timers, and returns once they are durably scheduled.
 //
@@ -80,10 +89,27 @@ func (t *Timers[K]) Schedule(ctx context.Context, scheduled ...Timer[K]) error {
 
 	rows = sortAndDedupeTimers(rows)
 
-	query, args := buildSchedule(t.cfg.resolvedTable(), t.cfg.Name, rows)
+	// Three parallel arrays rather than a tuple per row: the statement is one
+	// fixed text however large the batch is, and the nth element of each is one
+	// timer. See timers/internal/queries on the ordinality join that puts them
+	// back together.
+	keys := make([]string, 0, len(rows))
+	instants := make([]time.Time, 0, len(rows))
+	payloads := make([][]byte, 0, len(rows))
+
+	for i := range rows {
+		keys = append(keys, rows[i].key)
+		instants = append(instants, rows[i].runAt)
+		payloads = append(payloads, rows[i].payload)
+	}
 
 	if err := t.retrier.Do(ctx, "schedule", func() error {
-		if _, execErr := t.client.Writer().ExecContext(ctx, query, args...); execErr != nil {
+		if execErr := t.q.ScheduleTimers(ctx, t.client.Writer(), timersdb.ScheduleTimersParams{
+			TimerSet:  t.cfg.Name,
+			TimerKeys: keys,
+			RunAts:    instants,
+			Payloads:  payloads,
+		}); execErr != nil {
 			return platformerrors.Wrap(execErr, "writing timers")
 		}
 
@@ -146,7 +172,8 @@ func (t *Timers[K]) notify(ctx context.Context) {
 // sortAndDedupeTimers puts a batch into primary-key order and collapses repeats
 // of a key onto its last occurrence.
 //
-// The sort is the lock ordering the whole design rests on; see buildSchedule.
+// The sort is the lock ordering the whole design rests on; see the schedule
+// statement in timers/internal/queries.
 // The dedupe is not optional either — ON CONFLICT DO UPDATE refuses to touch the
 // same row twice in one statement — and last-wins is the only rule consistent
 // with what a second Schedule of the same key means everywhere else: the latest
