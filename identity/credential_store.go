@@ -72,7 +72,7 @@ func (s *SQLStore) UpdateUserPassword(ctx context.Context, scope tenancy.Scope, 
 		RequiresPasswordChange: false,
 		PasswordLastChangedAt:  pointer.To(s.now()),
 	})
-	if err = guardCount(count, err, ErrUserNotFound, "updating identity user password"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "updating identity user password"); err != nil {
 		return op.Error(err, "updating identity user password")
 	}
 
@@ -97,7 +97,7 @@ func (s *SQLStore) SetUserRequiresPasswordChange(ctx context.Context, scope tena
 		Scope:                  scope,
 		RequiresPasswordChange: requires,
 	})
-	if err = guardCount(count, err, ErrUserNotFound, "setting identity password change requirement"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "setting identity password change requirement"); err != nil {
 		return op.Error(err, "setting identity password change requirement")
 	}
 
@@ -132,7 +132,7 @@ func (s *SQLStore) UpdateUserTwoFactorSecret(ctx context.Context, scope tenancy.
 		TwoFactorSecret:           secret,
 		TwoFactorSecretVerifiedAt: nil,
 	})
-	if err = guardCount(count, err, ErrUserNotFound, "updating identity two factor secret"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "updating identity two factor secret"); err != nil {
 		return op.Error(err, "updating identity two factor secret")
 	}
 
@@ -168,7 +168,7 @@ func (s *SQLStore) MarkUserTwoFactorSecretVerified(ctx context.Context, scope te
 			Scope:                     scope,
 			TwoFactorSecretVerifiedAt: pointer.To(s.now()),
 		})
-	if err = guardCount(count, err, ErrUserNotFound, "marking identity two factor secret verified"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "marking identity two factor secret verified"); err != nil {
 		return op.Error(err, "marking identity two factor secret verified")
 	}
 
@@ -205,7 +205,7 @@ func (s *SQLStore) SetUserEmailAddressVerificationToken(ctx context.Context, sco
 			Scope:                         scope,
 			EmailAddressVerificationToken: token,
 		})
-	if err = guardCount(count, err, ErrUserNotFound, "setting identity email verification token"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "setting identity email verification token"); err != nil {
 		return op.Error(err, "setting identity email verification token")
 	}
 
@@ -243,7 +243,7 @@ func (s *SQLStore) MarkUserEmailAddressVerified(ctx context.Context, scope tenan
 			EmailAddressVerificationToken:        "",
 			CurrentEmailAddressVerificationToken: token,
 		})
-	if err = guardCount(count, err, ErrUserNotFound, "marking identity email address verified"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "marking identity email address verified"); err != nil {
 		return op.Error(err, "marking identity email address verified")
 	}
 
