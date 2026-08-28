@@ -64,6 +64,8 @@ type Querier interface {
 	GetMembershipFallbackAccountID(ctx context.Context, db DBTX, arg GetMembershipFallbackAccountIDParams) (GetMembershipFallbackAccountIDRow, error)
 	// GetMembershipIDByUserAndAccount runs the :one query.
 	GetMembershipIDByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipIDByUserAndAccountParams) (GetMembershipIDByUserAndAccountRow, error)
+	// GetOwnedAccountIDForUser runs the :one query.
+	GetOwnedAccountIDForUser(ctx context.Context, db DBTX, arg GetOwnedAccountIDForUserParams) (GetOwnedAccountIDForUserRow, error)
 	// GetUser runs the :one query.
 	GetUser(ctx context.Context, db DBTX, arg GetUserParams) (GetUserRow, error)
 	// GetUserByEmailAddress runs the :one query.

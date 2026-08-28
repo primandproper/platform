@@ -216,6 +216,17 @@ type GetMembershipIDByUserAndAccountRow struct {
 	ID string
 }
 
+// GetOwnedAccountIDForUserParams are the arguments to GetOwnedAccountIDForUser.
+type GetOwnedAccountIDForUserParams struct {
+	Scope       tenancy.Scope
+	OwnerUserID string
+}
+
+// GetOwnedAccountIDForUserRow is one row of GetOwnedAccountIDForUser's result.
+type GetOwnedAccountIDForUserRow struct {
+	ID string
+}
+
 // GetUserParams are the arguments to GetUser.
 type GetUserParams struct {
 	ID    string

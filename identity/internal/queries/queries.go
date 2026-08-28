@@ -327,6 +327,7 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, keyedInvitationLists(g)...)
 	rendered = append(rendered, createdAtReads(g)...)
 	rendered = append(rendered, keyedUserReads(g)...)
+	rendered = append(rendered, keyedAccountReads(g)...)
 	rendered = append(rendered, keyedMembershipReads(g)...)
 	rendered = append(rendered, junctionLists(g)...)
 	rendered = append(rendered, usernamePrefixSearch(g)...)
@@ -559,6 +560,31 @@ func keyedUserReads(g *querygen.Generator) []*querygen.Query {
 	}
 
 	return rendered
+}
+
+// keyedAccountReads is the one account read that keys on something other than
+// the id: an account the user owns.
+//
+// It is the guard behind ArchiveUser, and it is a read rather than an existence
+// check because the answer a caller needs is which account blocked. An owner
+// archived out from under their accounts leaves them live and owned by a user
+// every scoped read reports as absent, so the refusal has to name the account
+// whose ownership has to move first — the same sentence RemoveMembership's
+// refusal already carries, which can name it because it was handed it.
+//
+// A user may own several; the ordering is what makes "one of them" a row rather
+// than whichever one the planner reached first, so a refusal repeated against
+// an unchanged directory names the same account twice.
+func keyedAccountReads(g *querygen.Generator) []*querygen.Query {
+	return []*querygen.Query{
+		g.ReadQuery("GetOwnedAccountIDForUser", AccountsTable, Accounts.KeyedColumns(),
+			querygen.Read{
+				Projection: []string{querygen.IDColumn},
+				Order:      querygen.IDColumn,
+			},
+			querygen.Match{Column: ScopeColumn},
+			querygen.Match{Column: ownerUserIDColumn}),
+	}
 }
 
 // keyedMembershipReads is the three reads over the table that has no standard

@@ -422,6 +422,14 @@ type MembershipWriter interface {
 	// membership and writes the union, which is visible in their code; a merging
 	// setter makes removing a role impossible through the same method and is the
 	// reason revocation flows end up issuing raw SQL.
+	//
+	// An empty set is refused with errors.ErrEmptyInputParameter for everybody
+	// but the account's owner, who may hold none: ownership is itself the
+	// standing, and it is the role set TransferAccountOwnership mints when it
+	// makes a non-member the owner. For anybody else a roleless membership is a
+	// user who belongs to an account and may do nothing in it, which surfaces as
+	// an authorization bug far from the call that wrote it. Removing somebody is
+	// RemoveMembership.
 	SetMembershipRoles(ctx context.Context, scope tenancy.Scope, userID, accountID string, roles []string) error
 
 	// SetDefaultAccount marks one of a user's accounts as the one they land in,
@@ -440,6 +448,11 @@ type MembershipWriter interface {
 	// The new owner must be a live user in the account's scope; one who is not
 	// returns an error wrapping ErrUserNotFound, the same answer a read of them
 	// from here would give.
+	//
+	// A minted membership carries no roles, because ownership is the standing
+	// and this package does not know what a role of yours means. A new owner who
+	// was already a member keeps the roles they had. Either way, granting them
+	// more is SetMembershipRoles.
 	TransferAccountOwnership(ctx context.Context, scope tenancy.Scope, accountID, newOwnerUserID string) error
 
 	// RemoveMembership ends a user's membership in an account.
@@ -480,6 +493,13 @@ type AdminWriter interface {
 	// one transaction. A user archived with live memberships would still appear
 	// in the accounts they belonged to, which is the state an application
 	// discovers when a deleted colleague is still on the roster.
+	//
+	// Archiving a user who still owns a live account returns an error wrapping
+	// ErrLastAccountOwner, naming the account. It is the guard RemoveMembership
+	// carries, for the identical failure: the account stays live and answers to
+	// a user every scoped read now reports as absent, and the ownership checks
+	// that resolve through it fail somewhere else entirely. Transfer the account
+	// or archive it first.
 	ArchiveUser(ctx context.Context, scope tenancy.Scope, userID string) error
 
 	// EraseUser destroys the user row through the caller's transaction, returning
@@ -491,6 +511,14 @@ type AdminWriter interface {
 	// erased from the directory and present in another domain's table has no
 	// coherent status, so the whole thing has to be able to roll back together.
 	// See this module's dataprivacy package.
+	//
+	// Unlike ArchiveUser it cannot refuse, and so it does not: accounts the
+	// subject owned survive the erasure with an owner_user_id that resolves to
+	// nothing. That is the post-condition rather than an oversight — an erasure
+	// a store could decline would make a subject's rights conditional on an
+	// account, and archiving those accounts here would take other members
+	// offline because one of them exercised a right. Resolve the subject's
+	// accounts before erasing them.
 	EraseUser(ctx context.Context, q database.Tx, scope tenancy.Scope, userID string) (int64, error)
 
 	// ArchiveAccount soft-deletes an account and ends every membership in it, in

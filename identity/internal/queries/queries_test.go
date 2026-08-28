@@ -105,6 +105,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"ListInvitationsByFromUser", "ListInvitationsByToEmail",
 		"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt",
 		"GetUserByUsername", "GetUserByEmailAddress", "GetUserByEmailVerificationToken",
+		"GetOwnedAccountIDForUser",
 		"GetMembershipByUserAndAccount", "GetMembershipIDByUserAndAccount",
 		"GetMembershipFallbackAccountID",
 		"ListAccountMembers", "ListAccountsForUser", "ListMembershipsForUser",
@@ -296,6 +297,45 @@ func TestRender_KeyedReadsAddressARowByItsKey(T *testing.T) {
 			test.StrContains(t, byName["GetMembershipFallbackAccountID"],
 				MembershipAccountColumn+" <> sqlc.arg("+MembershipAccountColumn+")")
 			test.StrContains(t, byName["GetMembershipFallbackAccountID"], "LIMIT 1")
+		})
+	}
+}
+
+// TestRender_OwnedAccountReadKeysOnTheOwner pins the read behind the guard that
+// refuses to archive a user out from under the accounts they own.
+//
+// It keys on the owner rather than on the account's id, which is the whole
+// point — the caller is holding a user and asking what they are responsible for
+// — and it is live-only, because an already-archived account is not one whose
+// ownership has to move before its owner can be archived too.
+func TestRender_OwnedAccountReadKeysOnTheOwner(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var statement string
+
+			for rendered := range strings.SplitSeq(Render(d), "-- name: ") {
+				if strings.HasPrefix(rendered, "GetOwnedAccountIDForUser ") {
+					statement = rendered
+				}
+			}
+
+			must.StrHasPrefix(t, "GetOwnedAccountIDForUser ", statement)
+
+			test.StrContains(t, statement, "sqlc.arg("+ownerUserIDColumn+")")
+			test.StrContains(t, statement, "sqlc.arg("+ScopeColumn+")")
+			test.StrNotContains(t, statement, "sqlc.arg("+querygen.IDColumn+")")
+			test.StrContains(t, statement, querygen.ArchivedAtColumn+" IS NULL")
+
+			// The id comes back, so the refusal can name the account that has
+			// to move rather than only reporting that one exists, and the order
+			// is what makes a repeated refusal name the same one twice.
+			test.StrContains(t, statement, querygen.Qualify(AccountsTable, querygen.IDColumn))
+			test.StrContains(t, statement, "ORDER BY "+querygen.Qualify(AccountsTable, querygen.IDColumn)+" ASC")
+			test.StrContains(t, statement, "LIMIT 1")
 		})
 	}
 }
