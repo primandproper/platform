@@ -14,8 +14,10 @@ import (
 	"github.com/primandproper/platform-go/v13/cryptography/encryption"
 	"github.com/primandproper/platform-go/v13/cryptography/encryption/aes"
 	"github.com/primandproper/platform-go/v13/cryptography/encryption/kms/local"
+	"github.com/primandproper/platform-go/v13/cryptography/shredding/internal/queries"
 	"github.com/primandproper/platform-go/v13/cryptography/shredding/migrations"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/sqlite"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
@@ -25,6 +27,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// allDialects is every dialect this package serves. The interesting failures
+// are the ones that are correct on two of the three.
+var allDialects = []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite}
 
 // baseTime is the instant this suite works relative to.
 var baseTime = time.Date(2026, time.August, 9, 12, 0, 0, 0, time.UTC)
@@ -117,7 +123,18 @@ func newSQLiteEnv(t *testing.T) *storeEnv {
 func (e *storeEnv) newStore(t *testing.T) Store {
 	t.Helper()
 
-	prefix := fmt.Sprintf("sh_%d", prefixCounter.Add(1))
+	store, _ := e.newPrefixedStore(t)
+
+	return store
+}
+
+// newPrefixedStore is newStore for the tests that read a column back through
+// their own SELECT — which needs the table's rendered name, and therefore the
+// prefix the store was built with.
+func (e *storeEnv) newPrefixedStore(t *testing.T) (store Store, prefix string) {
+	t.Helper()
+
+	prefix = fmt.Sprintf("sh_%d", prefixCounter.Add(1))
 
 	stmts, err := migrations.Statements(e.dialect, prefix)
 	must.NoError(t, err)
@@ -128,10 +145,16 @@ func (e *storeEnv) newStore(t *testing.T) Store {
 		must.NoError(t, execErr, must.Sprintf("executing %q", stmt))
 	}
 
-	store, err := NewSQLStore(e.client, WithTablePrefix(prefix))
+	store, err = NewSQLStore(e.client, WithTablePrefix(prefix))
 	must.NoError(t, err)
 
-	return store
+	return store, prefix
+}
+
+// keysTable renders the table name a prefixed store writes to, for the reads
+// those tests issue directly.
+func keysTable(prefix string) string {
+	return ddl.Qualify(prefix) + queries.SubjectKeysTable
 }
 
 // newTestWrapper builds the local key wrapper these tests wrap data keys with.

@@ -697,6 +697,13 @@ identity is the worked example, and the shape a new store copies is four pieces:
 	                            name, and the type overrides
 	<pkg>/internal/<pkg>db      the generated querier, committed
 
+cryptography/shredding is the second, and the shorter read: one table, three
+statements, and no id anywhere in it. What it demonstrates is that a natural key
+costs a port nothing beyond naming the key — the pair goes in [Match] values,
+the same values become the insert's conflict target, and the id predicate is
+absent because the column list has no id to render one from. It is the pattern
+the three remaining natural-key tables above follow.
+
 The rendered .sql is committed and nothing imports it: it exists so `sqlc
 compile` can check it with no database running, and so the generated-files job
 can diff it. `make generate` writes it, through a go:generate line on the
