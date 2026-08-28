@@ -62,7 +62,12 @@ func (s *SQLStore) readUser(
 	return user, nil
 }
 
-// ListUsers pages the scope's directory.
+// ListUsers pages the scope's directory, in the direction the filter names.
+//
+// The direction is a choice between two generated statements rather than an
+// argument either of them binds — see sortedRows — so what this method does
+// with filter.SortBy is pick the one whose ORDER BY and cursor comparison agree
+// with it.
 func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
@@ -73,7 +78,17 @@ func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *f
 
 	filter = pageFilter(filter)
 
-	listRows, err := s.q.ListUsers(ctx, s.client.Reader(), listUsersParams(scope, filter))
+	listRows, err := sortedRows(filter,
+		func() ([]identitydb.ListUsersRow, error) {
+			return s.q.ListUsers(ctx, s.client.Reader(), listUsersParams(scope, filter))
+		},
+		func() ([]identitydb.ListUsersDescendingRow, error) {
+			return s.q.ListUsersDescending(ctx, s.client.Reader(),
+				identitydb.ListUsersDescendingParams(listUsersParams(scope, filter)))
+		},
+		func(r identitydb.ListUsersDescendingRow) identitydb.ListUsersRow {
+			return identitydb.ListUsersRow(r)
+		})
 	if err != nil {
 		return nil, op.Error(err, "listing identity users")
 	}
@@ -157,6 +172,14 @@ func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, user
 // the caller pages, while the page is cut by a cursor over the column it is
 // ordered by. Both come from one call in identity/internal/queries — see
 // querygen.Generator.PrefixSearchQueries.
+//
+// The filter's direction is honored here too, and what it names is this read's
+// own order rather than creation order: the page is ordered by the username, so
+// the descending half walks the alphabet backwards. That is the only reading
+// available to a read whose cursor is not an id, and answering it in the
+// direction nobody asked for would be the same silent wrong order a list would
+// have. The count is one statement either way, since a count does not depend on
+// the order its rows would have arrived in.
 func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
@@ -171,7 +194,17 @@ func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scop
 	// cannot come to search for different things.
 	pattern := querygen.PrefixPattern(prefix)
 
-	searchRows, err := s.q.SearchUsersByUsername(ctx, s.client.Reader(), searchUsersParams(scope, pattern, filter))
+	searchRows, err := sortedRows(filter,
+		func() ([]identitydb.SearchUsersByUsernameRow, error) {
+			return s.q.SearchUsersByUsername(ctx, s.client.Reader(), searchUsersParams(scope, pattern, filter))
+		},
+		func() ([]identitydb.SearchUsersByUsernameDescendingRow, error) {
+			return s.q.SearchUsersByUsernameDescending(ctx, s.client.Reader(),
+				identitydb.SearchUsersByUsernameDescendingParams(searchUsersParams(scope, pattern, filter)))
+		},
+		func(r identitydb.SearchUsersByUsernameDescendingRow) identitydb.SearchUsersByUsernameRow {
+			return identitydb.SearchUsersByUsernameRow(r)
+		})
 	if err != nil {
 		return nil, op.Error(err, "searching identity users")
 	}
@@ -266,7 +299,7 @@ func (s *SQLStore) readAccount(
 	return accountFromRow(&row), nil
 }
 
-// ListAccounts pages the scope's accounts.
+// ListAccounts pages the scope's accounts, in the direction the filter names.
 func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
@@ -277,7 +310,17 @@ func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter
 
 	filter = pageFilter(filter)
 
-	listRows, err := s.q.ListAccounts(ctx, s.client.Reader(), listAccountsParams(scope, filter))
+	listRows, err := sortedRows(filter,
+		func() ([]identitydb.ListAccountsRow, error) {
+			return s.q.ListAccounts(ctx, s.client.Reader(), listAccountsParams(scope, filter))
+		},
+		func() ([]identitydb.ListAccountsDescendingRow, error) {
+			return s.q.ListAccountsDescending(ctx, s.client.Reader(),
+				identitydb.ListAccountsDescendingParams(listAccountsParams(scope, filter)))
+		},
+		func(r identitydb.ListAccountsDescendingRow) identitydb.ListAccountsRow {
+			return identitydb.ListAccountsRow(r)
+		})
 	if err != nil {
 		return nil, op.Error(err, "listing identity accounts")
 	}
@@ -293,7 +336,8 @@ func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter
 		func(a *Account) string { return a.ID }, filter), nil
 }
 
-// ListAccountsForUser pages the accounts a user is a live member of.
+// ListAccountsForUser pages the accounts a user is a live member of, in the
+// direction the filter names.
 func (s *SQLStore) ListAccountsForUser(ctx context.Context, scope tenancy.Scope, userID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -307,7 +351,17 @@ func (s *SQLStore) ListAccountsForUser(ctx context.Context, scope tenancy.Scope,
 
 	filter = pageFilter(filter)
 
-	listRows, err := s.q.ListAccountsForUser(ctx, s.client.Reader(), listAccountsForUserParams(scope, userID, filter))
+	listRows, err := sortedRows(filter,
+		func() ([]identitydb.ListAccountsForUserRow, error) {
+			return s.q.ListAccountsForUser(ctx, s.client.Reader(), listAccountsForUserParams(scope, userID, filter))
+		},
+		func() ([]identitydb.ListAccountsForUserDescendingRow, error) {
+			return s.q.ListAccountsForUserDescending(ctx, s.client.Reader(),
+				identitydb.ListAccountsForUserDescendingParams(listAccountsForUserParams(scope, userID, filter)))
+		},
+		func(r identitydb.ListAccountsForUserDescendingRow) identitydb.ListAccountsForUserRow {
+			return identitydb.ListAccountsForUserRow(r)
+		})
 	if err != nil {
 		return nil, op.Error(err, "listing identity accounts for user")
 	}
@@ -371,7 +425,12 @@ func (s *SQLStore) ListMembershipsForUser(ctx context.Context, scope tenancy.Sco
 	return memberships, nil
 }
 
-// ListAccountMembers pages an account's roster.
+// ListAccountMembers pages an account's roster, in the direction the filter
+// names.
+//
+// The roster is a page of memberships with the member attached, so the
+// direction reverses the memberships — the cursor walks their ids, and the
+// user's columns arrive beside whichever page that produces.
 func (s *SQLStore) ListAccountMembers(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[MembershipWithUser], error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -385,7 +444,17 @@ func (s *SQLStore) ListAccountMembers(ctx context.Context, scope tenancy.Scope, 
 
 	filter = pageFilter(filter)
 
-	listRows, err := s.q.ListAccountMembers(ctx, s.client.Reader(), listAccountMembersParams(scope, accountID, filter))
+	listRows, err := sortedRows(filter,
+		func() ([]identitydb.ListAccountMembersRow, error) {
+			return s.q.ListAccountMembers(ctx, s.client.Reader(), listAccountMembersParams(scope, accountID, filter))
+		},
+		func() ([]identitydb.ListAccountMembersDescendingRow, error) {
+			return s.q.ListAccountMembersDescending(ctx, s.client.Reader(),
+				identitydb.ListAccountMembersDescendingParams(listAccountMembersParams(scope, accountID, filter)))
+		},
+		func(r identitydb.ListAccountMembersDescendingRow) identitydb.ListAccountMembersRow {
+			return identitydb.ListAccountMembersRow(r)
+		})
 	if err != nil {
 		return nil, op.Error(err, "listing identity account members")
 	}

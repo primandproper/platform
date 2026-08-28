@@ -78,7 +78,7 @@ LIMIT COALESCE(sqlc.narg(result_limit), 50);
 	// last_updated_at — so what the golden shows is the join, the aliasing and
 	// the counts rather than four lines of window predicate repeated three
 	// times. The window itself is the single-table list's and is pinned there.
-	query := For(dialect.SQLite).JunctionListQuery("ListCrewMembers", crewMembersTable,
+	queries := For(dialect.SQLite).JunctionListQueries("ListCrewMembers", crewMembersTable,
 		[]string{IDColumn, crewColumn, ArchivedAtColumn},
 		&Junction{
 			Table:    peopleTable,
@@ -89,7 +89,32 @@ LIMIT COALESCE(sqlc.narg(result_limit), 50);
 		},
 		Match{Column: crewColumn})
 
-	test.EqOp(t, want, query.Render())
+	must.SliceLen(t, 2, queries)
+	test.EqOp(t, want, pagedList(queries, Ascending).Render())
+
+	// The descending half differs in the two lines a direction is: the cursor
+	// comparison and the ORDER BY. Pinning it as the ascending statement with
+	// those two lines substituted is what says so — a change reaching any other
+	// line of it fails here rather than in whichever store noticed first.
+	descending := strings.Replace(
+		strings.Replace(want,
+			"-- name: ListCrewMembers :many",
+			"-- name: ListCrewMembersDescending :many", 1),
+		"\tAND crew_members.id > COALESCE(sqlc.narg(page_cursor), '')\nORDER BY crew_members.id ASC\n",
+		"\tAND (crew_members.id <= COALESCE(sqlc.narg(page_cursor), crew_members.id) AND crew_members.id <> COALESCE(sqlc.narg(page_cursor), ''))\nORDER BY crew_members.id DESC\n", 1)
+
+	test.EqOp(t, descending, pagedList(queries, Descending).Render())
+}
+
+// pagedList picks one direction out of an emitted pair, for the assertions that
+// are about everything else the statement carries — the join, the aliasing, the
+// counts — which the two halves share.
+func pagedList(queries []*Query, direction Direction) *Query {
+	if direction == Descending {
+		return queries[1]
+	}
+
+	return queries[0]
 }
 
 // TestGenerator_JunctionListAllQuery_CanonicalForm pins the unpaged form, which
@@ -131,11 +156,18 @@ func TestGenerator_JunctionListQuery_IsTheListStatement(T *testing.T) {
 
 			match := Match{Column: crewColumn}
 
-			joined := For(d).JunctionListQuery("ListCrews", crewMembersTable, crewMemberColumns(), nil, match)
-			plain := For(d).ListQuery("ListCrews", crewMembersTable, crewMemberColumns(), match)
+			joined := For(d).JunctionListQueries("ListCrews", crewMembersTable, crewMemberColumns(), nil, match)
+			plain := For(d).ListQueries("ListCrews", crewMembersTable, crewMemberColumns(), match)
 
-			test.EqOp(t, plain.Content, joined.Content)
-			test.EqOp(t, plain.Annotation, joined.Annotation)
+			must.SliceLen(t, 2, joined)
+			must.SliceLen(t, 2, plain)
+
+			// Both directions, so a junction list cannot come to filter
+			// differently from a keyed one-table read in either of them.
+			for i := range plain {
+				test.EqOp(t, plain[i].Content, joined[i].Content)
+				test.EqOp(t, plain[i].Annotation, joined[i].Annotation)
+			}
 		})
 	}
 }
@@ -151,8 +183,8 @@ func TestGenerator_JunctionListQuery_TheJoinIsInEveryFrom(T *testing.T) {
 		T.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 
-			content := For(d).JunctionListQuery("ListCrewMembers", crewMembersTable,
-				crewMemberColumns(), rosterJunction(), Match{Column: crewColumn}).Content
+			content := pagedList(For(d).JunctionListQueries("ListCrewMembers", crewMembersTable,
+				crewMemberColumns(), rosterJunction(), Match{Column: crewColumn}), Ascending).Content
 
 			const join = "JOIN people ON crew_members.belongs_to_person=people.id"
 
@@ -169,8 +201,8 @@ func TestGenerator_JunctionListQuery_TheJoinIsInEveryFrom(T *testing.T) {
 func TestJunction_ProjectionIsAliased(t *testing.T) {
 	t.Parallel()
 
-	content := For(dialect.Postgres).JunctionListQuery("ListCrewMembers", crewMembersTable,
-		crewMemberColumns(), rosterJunction(), Match{Column: crewColumn}).Content
+	content := pagedList(For(dialect.Postgres).JunctionListQueries("ListCrewMembers", crewMembersTable,
+		crewMemberColumns(), rosterJunction(), Match{Column: crewColumn}), Ascending).Content
 
 	for _, projected := range []string{"person_id", "person_name", "person_archived_at"} {
 		test.StrContains(t, content, projected)
@@ -188,7 +220,7 @@ func TestJunction_ProjectionIsAliased(t *testing.T) {
 func TestJunction_PredicatesWithoutAProjection(t *testing.T) {
 	t.Parallel()
 
-	content := For(dialect.Postgres).JunctionListQuery("ListCrewsForPerson", "crews",
+	content := pagedList(For(dialect.Postgres).JunctionListQueries("ListCrewsForPerson", "crews",
 		[]string{IDColumn, "name", ArchivedAtColumn},
 		&Junction{
 			Table:    crewMembersTable,
@@ -196,7 +228,7 @@ func TestJunction_PredicatesWithoutAProjection(t *testing.T) {
 			OnColumn: IDColumn,
 			Columns:  crewMemberColumns(),
 			Matches:  []Match{{Column: personColumn}},
-		}).Content
+		}), Ascending).Content
 
 	// The key the far side carries, and the requirement that the row carrying
 	// it has not been archived.
@@ -217,8 +249,8 @@ func TestJunction_PredicatesWithoutAProjection(t *testing.T) {
 func TestJunction_LivenessIsNotTheArchivedToggle(t *testing.T) {
 	t.Parallel()
 
-	content := For(dialect.Postgres).JunctionListQuery("ListCrewMembers", crewMembersTable,
-		crewMemberColumns(), rosterJunction(), Match{Column: crewColumn}).Content
+	content := pagedList(For(dialect.Postgres).JunctionListQueries("ListCrewMembers", crewMembersTable,
+		crewMemberColumns(), rosterJunction(), Match{Column: crewColumn}), Ascending).Content
 
 	test.StrContains(t, content, "(COALESCE(sqlc.narg(include_archived), false)::boolean OR crew_members.archived_at IS NULL)")
 	test.StrContains(t, content, "AND people.archived_at IS NULL")
@@ -234,8 +266,8 @@ func TestJunction_LivenessFollowsTheColumnList(t *testing.T) {
 	junction := rosterJunction()
 	junction.Columns = []string{IDColumn, "name"}
 
-	content := For(dialect.Postgres).JunctionListQuery("ListCrewMembers", crewMembersTable,
-		crewMemberColumns(), junction, Match{Column: crewColumn}).Content
+	content := pagedList(For(dialect.Postgres).JunctionListQueries("ListCrewMembers", crewMembersTable,
+		crewMemberColumns(), junction, Match{Column: crewColumn}), Ascending).Content
 
 	test.StrNotContains(t, content, "people.archived_at")
 }
@@ -350,7 +382,7 @@ func TestJunction_Rejects(T *testing.T) {
 			t.Parallel()
 
 			recovered := recoverFrom(t, func() {
-				For(dialect.Postgres).JunctionListQuery("ListCrewMembers", crewMembersTable,
+				For(dialect.Postgres).JunctionListQueries("ListCrewMembers", crewMembersTable,
 					crewMemberColumns(), testCase.junction)
 			})
 

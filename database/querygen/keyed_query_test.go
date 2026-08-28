@@ -70,7 +70,7 @@ func keyedQueries(d dialect.Dialect) map[string]*Query {
 		// of it that moves a row anywhere.
 		"update":  g.UpdateQuery("UpdateGadget", keyedTable, columns, ForUpdate(columns, BelongsToAccountColumn), nil, owner),
 		"archive": g.ArchiveQuery("ArchiveGadget", keyedTable, columns, owner),
-		"list":    g.ListQuery("ListGadgets", keyedTable, columns, owner),
+		"list":    pagedList(g.ListQueries("ListGadgets", keyedTable, columns, owner), Ascending),
 	}
 }
 
@@ -471,7 +471,7 @@ func TestKeyedQueriesAreRenderedPerStatement(T *testing.T) {
 
 			before := g.getStatement(keyedTable, keyedColumns(), "", Read{})
 			_ = g.GetQuery("GetGadget", keyedTable, keyedColumns())
-			_ = g.ListQuery("ListGadgets", keyedTable, keyedColumns(), keyedMatch())
+			_ = g.ListQueries("ListGadgets", keyedTable, keyedColumns(), keyedMatch())
 			after := g.getStatement(keyedTable, keyedColumns(), "", Read{})
 
 			test.EqOp(t, before, after, test.Sprintf("dialect %q", d))

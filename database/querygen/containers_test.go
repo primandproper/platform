@@ -7,6 +7,7 @@ import (
 	"maps"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -255,7 +256,21 @@ func scanIDs(tb testing.TB, ctx context.Context, db *sql.DB, statement string, a
 func listWidgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, values map[string]any) (ids []string, filtered, total int64) {
 	tb.Helper()
 
-	statement, arguments := widgetQuery(tb, d, "ListWidgets", values)
+	return listWidgetsIn(tb, ctx, d, db, Ascending, values)
+}
+
+// listWidgetsIn is listWidgets in whichever direction the caller asked for.
+// Which statement answers is the whole of what a direction is here — there is no
+// argument for it — so the test picks a name the way a store does.
+func listWidgetsIn(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, direction Direction, values map[string]any) (ids []string, filtered, total int64) {
+	tb.Helper()
+
+	name := "ListWidgets"
+	if direction == Descending {
+		name = DescendingName(name)
+	}
+
+	statement, arguments := widgetQuery(tb, d, name, values)
 
 	rows, err := db.QueryContext(ctx, statement, arguments...)
 	must.NoError(tb, err)
@@ -306,7 +321,22 @@ func widgetSearchQueries(d dialect.Dialect) []*Query {
 func searchWidgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, values map[string]any) []string {
 	tb.Helper()
 
-	statement, order := bindArguments(d, named(tb, widgetSearchQueries(d), "SearchWidgetsByName").Content)
+	return searchWidgetsIn(tb, ctx, d, db, Ascending, values)
+}
+
+// searchWidgetsIn is searchWidgets in whichever direction the caller asked for.
+// A search takes a filter like any other paged read, and what the direction it
+// carries names here is this statement's own order — the column that was
+// searched, walked the other way.
+func searchWidgetsIn(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, direction Direction, values map[string]any) []string {
+	tb.Helper()
+
+	name := "SearchWidgetsByName"
+	if direction == Descending {
+		name = DescendingName(name)
+	}
+
+	statement, order := bindArguments(d, named(tb, widgetSearchQueries(d), name).Content)
 
 	rows, err := db.QueryContext(ctx, statement, argumentsFor(tb, order, values)...)
 	must.NoError(tb, err)
@@ -649,6 +679,61 @@ func runWidgetSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sq
 		test.Eq(t, []string{"w_001", "w_002", "w_003"}, walked)
 	})
 
+	t.Run("the descending walk reads the same rows newest first", func(t *testing.T) {
+		values := filterDefaults()
+		values[BelongsToAccountColumn] = testAccount
+
+		// The first page, with no cursor. The ascending walk coalesces an absent
+		// cursor to the empty string; the descending one has no such value to
+		// reach for and coalesces to the row's own key instead, so an empty
+		// first page is exactly what getting that wrong looks like — on
+		// whichever dialect's collation disagreed.
+		page, filtered, total := listWidgetsIn(t, ctx, d, db, Descending, values)
+
+		test.Eq(t, []string{"w_003", "w_002", "w_001"}, page)
+		test.EqOp(t, int64(3), filtered)
+		test.EqOp(t, int64(3), total)
+
+		// And the keyset walk over it reads every row exactly once. A cursor
+		// naming a position in an order the statement does not use is a page
+		// that skips rows and repeats others, which is what a descending
+		// comparison under an ascending ORDER BY would produce here.
+		values[LimitArg] = 1
+
+		var walked []string
+
+		for range 10 {
+			next, _, _ := listWidgetsIn(t, ctx, d, db, Descending, values)
+			if len(next) == 0 {
+				break
+			}
+
+			walked = append(walked, next...)
+			values[CursorArg] = next[len(next)-1]
+		}
+
+		test.Eq(t, []string{"w_003", "w_002", "w_001"}, walked)
+	})
+
+	t.Run("the two directions answer the same filter with the same rows", func(t *testing.T) {
+		// The archived toggle, the window and the counts are the same text on
+		// both statements, so the page reverses and nothing else moves. A
+		// descending list that quietly lost include_archived would pass every
+		// assertion above this one.
+		values := filterDefaults()
+		values[BelongsToAccountColumn] = testAccount
+		values[IncludeArchivedArg] = true
+
+		ascending, filtered, total := listWidgets(t, ctx, d, db, values)
+		descending, filteredAgain, totalAgain := listWidgetsIn(t, ctx, d, db, Descending, values)
+
+		slices.Reverse(descending)
+
+		test.Eq(t, ascending, descending)
+		test.EqOp(t, filtered, filteredAgain)
+		test.EqOp(t, total, totalAgain)
+	})
+
 	t.Run("the created window bounds the page and the count together", func(t *testing.T) {
 		values := filterDefaults()
 		values[BelongsToAccountColumn] = testAccount
@@ -878,5 +963,15 @@ func runWidgetSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sq
 		values[CursorArg] = nil
 		values[LimitArg] = 1
 		test.Eq(t, []string{"w_010"}, searchWidgets(t, ctx, d, db, values))
+
+		// The descending half walks the same column backwards, and its cursor
+		// is a position in that reversed order — a value the searched column
+		// actually holds rather than an id.
+		reversed := searchValues("search")
+		test.Eq(t, []string{"w_012", "w_011", "w_010"}, searchWidgetsIn(t, ctx, d, db, Descending, reversed))
+		test.EqOp(t, int64(3), countSearchedWidgets(t, ctx, d, db, reversed))
+
+		reversed[CursorArg] = "search%gamma"
+		test.Eq(t, []string{"w_011", "w_010"}, searchWidgetsIn(t, ctx, d, db, Descending, reversed))
 	})
 }

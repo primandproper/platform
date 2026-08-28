@@ -212,7 +212,7 @@ func TestComparand_ComposesWithEveryStatement(T *testing.T) {
 		rendered[string(d)+"/update"] = g.UpdateQuery("RedeemToken", guardTable, guardColumns(),
 			[]string{"redeemed_at"}, []string{"redeemed_at"}, unredeemed, live).Content
 		rendered[string(d)+"/archive"] = g.ArchiveQuery("ArchiveToken", guardTable, guardColumns(), unredeemed, live).Content
-		rendered[string(d)+"/list"] = g.ListQuery("ListTokens", guardTable, guardColumns(), unredeemed, live).Content
+		rendered[string(d)+"/list"] = pagedList(g.ListQueries("ListTokens", guardTable, guardColumns(), unredeemed, live), Ascending).Content
 	}
 
 	for name, content := range rendered {

@@ -228,7 +228,7 @@ func TestSingleRowQueriesKeyOnSomething(T *testing.T) {
 		// and the filter and the cursor are what bound it.
 		for _, d := range everyDialect() {
 			err := recovered(func() {
-				_ = For(d).ListQuery("ListSprockets", compositeTable, without(compositeColumns(), IDColumn))
+				_ = For(d).ListQueries("ListSprockets", compositeTable, without(compositeColumns(), IDColumn))
 			})
 
 			must.NoError(t, err, must.Sprintf("dialect %q", d))

@@ -7,6 +7,7 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/filtering"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -298,5 +299,48 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		none, err := store.ListInvitationsForEmailAddress(t.Context(), otherScope, "brian@example.com", nil)
 		must.NoError(t, err)
 		test.SliceEmpty(t, none.Data)
+	})
+
+	t.Run("pages pending invitations newest first when the filter says so", func(t *testing.T) {
+		t.Parallel()
+
+		// Both keyed invitation reads are list variants, so both are two
+		// statements — and a direction honored on the sender's list and dropped
+		// on the recipient's is the same wrong order in a different response.
+		store, _, owner, account, first := newInvitedStore(t)
+
+		second := newInvitation(owner, account.ID, "brian@example.com", "tok-6", baseTime.Add(time.Hour))
+		must.NoError(t, store.CreateInvitation(t.Context(), second))
+
+		newestFirst := &filtering.QueryFilter{SortBy: filtering.SortDescending}
+
+		sent, err := store.ListInvitationsFromUser(t.Context(), testScope, owner.ID, newestFirst)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, sent.Data)
+		test.EqOp(t, second.ID, sent.Data[0].ID)
+		test.EqOp(t, first.ID, sent.Data[1].ID)
+
+		// Still pending-only and still redacted: the direction chooses between
+		// two statements that share every predicate, and the redaction is the
+		// store's rule either way.
+		for _, invitation := range sent.Data {
+			test.EqOp(t, InvitationPending, invitation.Status)
+			test.EqOp(t, "", invitation.Token)
+		}
+
+		received, err := store.ListInvitationsForEmailAddress(t.Context(), testScope, "brian@example.com", newestFirst)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, received.Data)
+		test.EqOp(t, second.ID, received.Data[0].ID)
+		test.EqOp(t, first.ID, received.Data[1].ID)
+
+		// And the ascending read of the same two is the same pair the other way
+		// round, which is what says the direction did the reversing rather than
+		// the insertion order.
+		ascending, err := store.ListInvitationsForEmailAddress(t.Context(), testScope, "brian@example.com", nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, ascending.Data)
+		test.EqOp(t, first.ID, ascending.Data[0].ID)
+		test.EqOp(t, second.ID, ascending.Data[1].ID)
 	})
 }

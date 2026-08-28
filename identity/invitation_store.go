@@ -221,13 +221,14 @@ func (s *SQLStore) checkInvitationToken(invitation *Invitation, token string) er
 	return nil
 }
 
-// ListInvitationsFromUser pages the pending invitations a user has sent.
+// ListInvitationsFromUser pages the pending invitations a user has sent, in the
+// direction the filter names.
 func (s *SQLStore) ListInvitationsFromUser(ctx context.Context, scope tenancy.Scope, userID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Invitation], error) {
 	return s.pageInvitations(ctx, invitationFromUserColumn, scope, userID, filter, "listing identity invitations from user")
 }
 
 // ListInvitationsForEmailAddress pages the pending invitations addressed to an
-// email address.
+// email address, in the direction the filter names.
 func (s *SQLStore) ListInvitationsForEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Invitation], error) {
 	return s.pageInvitations(ctx, invitationToEmailColumn, scope, emailAddress, filter, "listing identity invitations for email address")
 }
@@ -288,12 +289,17 @@ func (s *SQLStore) pageInvitations(
 // listInvitationRows runs the generated list variant the column names, pending
 // invitations only.
 //
-// The switch is closed on purpose: its two arms are the two canonical
-// statements, and a third column is not a wider query — it is a statement that
-// was never rendered or checked, which is exactly what the old map of rendered
-// statements refused too. The status is bound rather than baked in, and both
-// arms bind the same one, so "paged reads return only pending" stays a fact
-// with one spelling.
+// The switch is closed on purpose: its two arms are the two canonical reads,
+// and a third column is not a wider query — it is a statement that was never
+// rendered or checked, which is exactly what the old map of rendered statements
+// refused too. The status is bound rather than baked in, and both arms bind the
+// same one, so "paged reads return only pending" stays a fact with one
+// spelling.
+//
+// Each arm is two statements rather than one, because the sort direction the
+// filter carries is answered by choosing a statement — see sortedRows. The
+// params are built once per arm and converted, since the pair differs in its
+// cursor comparison and its ORDER BY and in nothing a caller binds.
 func (s *SQLStore) listInvitationRows(
 	ctx context.Context,
 	column string,
@@ -305,7 +311,7 @@ func (s *SQLStore) listInvitationRows(
 
 	switch column {
 	case invitationFromUserColumn:
-		got, err := s.q.ListInvitationsByFromUser(ctx, s.client.Reader(), identitydb.ListInvitationsByFromUserParams{
+		params := identitydb.ListInvitationsByFromUserParams{
 			CreatedAfter:    w.createdAfter,
 			CreatedBefore:   w.createdBefore,
 			UpdatedAfter:    w.updatedAfter,
@@ -316,7 +322,19 @@ func (s *SQLStore) listInvitationRows(
 			Status:          InvitationPending.String(),
 			PageCursor:      w.pageCursor,
 			ResultLimit:     w.resultLimit,
-		})
+		}
+
+		got, err := sortedRows(filter,
+			func() ([]identitydb.ListInvitationsByFromUserRow, error) {
+				return s.q.ListInvitationsByFromUser(ctx, s.client.Reader(), params)
+			},
+			func() ([]identitydb.ListInvitationsByFromUserDescendingRow, error) {
+				return s.q.ListInvitationsByFromUserDescending(ctx, s.client.Reader(),
+					identitydb.ListInvitationsByFromUserDescendingParams(params))
+			},
+			func(r identitydb.ListInvitationsByFromUserDescendingRow) identitydb.ListInvitationsByFromUserRow {
+				return identitydb.ListInvitationsByFromUserRow(r)
+			})
 		if err != nil {
 			return nil, err
 		}
@@ -329,7 +347,7 @@ func (s *SQLStore) listInvitationRows(
 		return rows, nil
 
 	case invitationToEmailColumn:
-		got, err := s.q.ListInvitationsByToEmail(ctx, s.client.Reader(), identitydb.ListInvitationsByToEmailParams{
+		params := identitydb.ListInvitationsByToEmailParams{
 			CreatedAfter:    w.createdAfter,
 			CreatedBefore:   w.createdBefore,
 			UpdatedAfter:    w.updatedAfter,
@@ -340,7 +358,19 @@ func (s *SQLStore) listInvitationRows(
 			Status:          InvitationPending.String(),
 			PageCursor:      w.pageCursor,
 			ResultLimit:     w.resultLimit,
-		})
+		}
+
+		got, err := sortedRows(filter,
+			func() ([]identitydb.ListInvitationsByToEmailRow, error) {
+				return s.q.ListInvitationsByToEmail(ctx, s.client.Reader(), params)
+			},
+			func() ([]identitydb.ListInvitationsByToEmailDescendingRow, error) {
+				return s.q.ListInvitationsByToEmailDescending(ctx, s.client.Reader(),
+					identitydb.ListInvitationsByToEmailDescendingParams(params))
+			},
+			func(r identitydb.ListInvitationsByToEmailDescendingRow) identitydb.ListInvitationsByToEmailRow {
+				return identitydb.ListInvitationsByToEmailRow(r)
+			})
 		if err != nil {
 			return nil, err
 		}

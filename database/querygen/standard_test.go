@@ -67,6 +67,7 @@ func TestStandardCRUD(T *testing.T) {
 			"GetValidInstrument",
 			"CheckValidInstrumentExistence",
 			"ListValidInstruments",
+			"ListValidInstrumentsDescending",
 			"UpdateValidInstrument",
 			"ArchiveValidInstrument",
 			"ScanValidInstrumentIDsForReindex",
@@ -314,8 +315,10 @@ WHERE id = ANY(sqlc.arg(ids)::text[]);`
 
 		queries := pg().StandardCRUD("things", []string{IDColumn})
 
-		test.Eq(t, []string{"CreateThings", "GetThings", "CheckThingsExistence", "ListThings"}, queryNames(queries))
+		test.Eq(t, []string{"CreateThings", "GetThings", "CheckThingsExistence", "ListThings", "ListThingsDescending"}, queryNames(queries))
 		test.StrContains(t, named(t, queries, "ListThings").Content, "WHERE things.id > COALESCE(sqlc.narg(page_cursor), '')")
+		test.StrContains(t, named(t, queries, "ListThingsDescending").Content,
+			"WHERE (things.id <= COALESCE(sqlc.narg(page_cursor), things.id) AND things.id <> COALESCE(sqlc.narg(page_cursor), ''))")
 	})
 }
 
@@ -333,6 +336,7 @@ func TestStandardCRUD_options(T *testing.T) {
 			"GetValidInstrument",
 			"CheckValidInstrumentExistence",
 			"ListValidInstruments",
+			"ListValidInstrumentsDescending",
 		}, queryNames(queries))
 	})
 

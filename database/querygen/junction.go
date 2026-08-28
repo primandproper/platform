@@ -246,9 +246,10 @@ func fromClause(table string, joins []string) string {
 	return strings.Join(append([]string{"FROM " + table}, joins...), "\n")
 }
 
-// JunctionListQuery renders the paged junction list: a page of table's rows
-// reached through junction, under the same filter window, archived toggle,
-// cursor and pair of counts every other list in this package carries.
+// JunctionListQueries renders the paged junction list, in both directions: a
+// page of table's rows reached through junction, under the same filter window,
+// archived toggle, cursor and pair of counts every other list in this package
+// carries.
 //
 // It is [Generator.listStatement] with a join spliced into its FROM — the same
 // function StandardCRUD's list comes from — so there is one filtered read in
@@ -266,13 +267,25 @@ func fromClause(table string, joins []string) string {
 // The name must be unique across the consumer's whole sqlc package, as every
 // QueryAnnotation.Name must.
 //
-// A nil junction renders no join, which is exactly [Generator.ListQuery]'s
-// statement under a name of the caller's choosing. The unpaged form is where a
-// nil junction is the ordinary case.
-func (g *Generator) JunctionListQuery(name, table string, columns []string, junction *Junction, matches ...Match) *Query {
-	return &Query{
-		Annotation: QueryAnnotation{Name: name, Type: ManyType},
-		Content:    g.junctionListStatement(table, columns, junction, matches...),
+// A nil junction renders no join, which is exactly [Generator.ListQueries]'s
+// pair under names of the caller's choosing. The unpaged form is where a nil
+// junction is the ordinary case.
+//
+// It returns both directions, under name and [DescendingName] of it, as every
+// paged list in this package does — a roster answering sortBy=desc with an
+// ascending page is the same failure on two tables as on one. The join, the
+// projection, the window and the counts are identical on both; the cursor
+// comparison and the ORDER BY are what differ.
+func (g *Generator) JunctionListQueries(name, table string, columns []string, junction *Junction, matches ...Match) []*Query {
+	return []*Query{
+		{
+			Annotation: QueryAnnotation{Name: name, Type: ManyType},
+			Content:    g.junctionListStatement(table, columns, junction, Ascending, matches...),
+		},
+		{
+			Annotation: QueryAnnotation{Name: DescendingName(name), Type: ManyType},
+			Content:    g.junctionListStatement(table, columns, junction, Descending, matches...),
+		},
 	}
 }
 
@@ -299,10 +312,10 @@ func (g *Generator) JunctionListAllQuery(name, table string, columns []string, j
 }
 
 // junctionListStatement is the paged statement, which is listStatement's.
-func (g *Generator) junctionListStatement(table string, columns []string, junction *Junction, matches ...Match) string {
+func (g *Generator) junctionListStatement(table string, columns []string, junction *Junction, direction Direction, matches ...Match) string {
 	mustJunctionList(table, columns, junction)
 
-	return g.listStatement(table, columns, "", junction, matches...)
+	return g.listStatement(table, columns, "", junction, direction, matches...)
 }
 
 // junctionListAllStatement is the unpaged statement.

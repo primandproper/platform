@@ -309,17 +309,34 @@ func (g *Generator) ExistsQuery(name, table string, columns []string, extra ...M
 	}
 }
 
-// ListQuery renders a list query carrying extra equality predicates.
+// ListQueries renders both directions of a list query carrying extra equality
+// predicates.
 //
 // It is listStatement — the same function StandardCRUD's list query comes from,
 // with the matches where WithOwnership's column goes — so the filter window, the
 // archived toggle, the cursor and the two counts are not merely the same ones a
 // generated list gets, they are the same code path. A keyed read filters exactly
 // as an unkeyed one does because there is nothing that could make it not.
-func (g *Generator) ListQuery(name, table string, columns []string, matches ...Match) *Query {
-	return &Query{
-		Annotation: QueryAnnotation{Name: name, Type: ManyType},
-		Content:    g.listStatement(table, columns, "", nil, matches...),
+//
+// It returns both directions, under name and [DescendingName] of it, for the
+// reason StandardCRUD's list is one entry in its enum: a corpus carrying only
+// the ascending half of a list is a store that answers sortBy=desc with an
+// ascending page, which is the failure this pair exists to make unspellable.
+// The two statements differ in their cursor comparison and their ORDER BY and
+// in nothing else — same projection, same predicates, same counts.
+//
+// Both names must be unique across the consumer's whole sqlc package, as every
+// QueryAnnotation.Name must.
+func (g *Generator) ListQueries(name, table string, columns []string, matches ...Match) []*Query {
+	return []*Query{
+		{
+			Annotation: QueryAnnotation{Name: name, Type: ManyType},
+			Content:    g.listStatement(table, columns, "", nil, Ascending, matches...),
+		},
+		{
+			Annotation: QueryAnnotation{Name: DescendingName(name), Type: ManyType},
+			Content:    g.listStatement(table, columns, "", nil, Descending, matches...),
+		},
 	}
 }
 

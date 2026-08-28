@@ -1,7 +1,6 @@
 package querygen
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
@@ -27,12 +26,12 @@ func usernameSearch() PrefixSearch {
 func TestGenerator_PrefixSearchQueries(T *testing.T) {
 	T.Parallel()
 
-	T.Run("renders the pair", func(t *testing.T) {
+	T.Run("renders the set", func(t *testing.T) {
 		t.Parallel()
 
 		queries := pg().PrefixSearchQueries("users", searchColumns(), usernameSearch(), Match{Column: "scope"})
 
-		must.SliceLen(t, 2, queries)
+		must.SliceLen(t, 3, queries)
 
 		// The page. Every argument reference is canonical — no bind markers —
 		// because this is the text sqlc reads.
@@ -52,16 +51,36 @@ WHERE users.archived_at IS NULL
 ORDER BY users.username ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);`, queries[0].Content)
 
+		// The descending page: the same statement walking the searched column
+		// the other way. A search takes a filter like any other paged read, and
+		// the direction that filter carries is over this statement's own order.
+		test.EqOp(t, "SearchUsersByUsernameDescending", queries[1].Annotation.Name)
+		test.EqOp(t, ManyType, queries[1].Annotation.Type)
+		test.EqOp(t, `SELECT
+	users.id,
+	users.scope,
+	users.username,
+	users.created_at,
+	users.archived_at
+FROM users
+WHERE users.archived_at IS NULL
+	AND users.scope = sqlc.arg(scope)
+	AND (users.username LIKE sqlc.arg(username_prefix)::text ESCAPE '!')
+	AND (users.username <= COALESCE(sqlc.narg(page_cursor), users.username) AND users.username <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY users.username DESC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);`, queries[1].Content)
+
 		// The count: the same predicates without the cursor, so the number
 		// answers "how many rows match this prefix" rather than "how many are
-		// left after where the caller has read to".
-		test.EqOp(t, "CountSearchUsersByUsername", queries[1].Annotation.Name)
-		test.EqOp(t, OneType, queries[1].Annotation.Type)
+		// left after where the caller has read to". One of it, because a count
+		// does not depend on the order its rows would have come back in.
+		test.EqOp(t, "CountSearchUsersByUsername", queries[2].Annotation.Name)
+		test.EqOp(t, OneType, queries[2].Annotation.Type)
 		test.EqOp(t, `SELECT COUNT(*)
 FROM users
 WHERE users.archived_at IS NULL
 	AND users.scope = sqlc.arg(scope)
-	AND (users.username LIKE sqlc.arg(username_prefix)::text ESCAPE '!');`, queries[1].Content)
+	AND (users.username LIKE sqlc.arg(username_prefix)::text ESCAPE '!');`, queries[2].Content)
 	})
 
 	T.Run("orders and pages by the searched column on every dialect", func(t *testing.T) {
@@ -87,6 +106,15 @@ WHERE users.archived_at IS NULL
 				test.StrContains(t, page, "ORDER BY users.username ASC")
 				test.StrNotContains(t, page, "ORDER BY users.id")
 
+				// And the descending half pages over the same column it orders
+				// by, which is the property that makes it a keyset walk rather
+				// than a reversed ordering with somebody else's cursor on it.
+				descending := queries[1].Content
+				test.StrContains(t, descending, "(users.username LIKE "+pattern+" ESCAPE '!')")
+				test.StrContains(t, descending, "(users.username <= COALESCE(sqlc.narg(page_cursor), users.username) AND users.username <> COALESCE(sqlc.narg(page_cursor), ''))")
+				test.StrContains(t, descending, "ORDER BY users.username DESC")
+				test.StrNotContains(t, descending, "ORDER BY users.id")
+
 				// Only the page size differs by dialect here — MySQL's LIMIT
 				// takes a bare marker and nothing else.
 				if d == dialect.MySQL {
@@ -96,7 +124,7 @@ WHERE users.archived_at IS NULL
 				}
 
 				// The count is not a page: no cursor, no ordering, no limit.
-				count := queries[1].Content
+				count := queries[2].Content
 				test.StrNotContains(t, count, CursorArg)
 				test.StrNotContains(t, count, "ORDER BY")
 				test.StrNotContains(t, count, "LIMIT")
@@ -165,11 +193,17 @@ WHERE users.archived_at IS NULL
 	})
 }
 
-// TestGenerator_PrefixSearchQueries_BindsEveryArgumentOnce pins the property the
+// TestGenerator_PrefixSearchQueries_BindsEveryArgument pins the property the
 // positional dialects notice and Postgres does not: a statement's placeholders
 // and the arguments they stand for cannot disagree, whether the pattern is
-// spliced once or the scope three times.
-func TestGenerator_PrefixSearchQueries_BindsEveryArgumentOnce(T *testing.T) {
+// spliced once or the cursor twice.
+//
+// The descending page is the one that names an argument twice — it compares the
+// column against the cursor and against the cursor's absence — so the two
+// dialect readings of a repeat are both exercised here: Postgres numbers its
+// markers and binds the value once, and the positional two take it again per
+// occurrence.
+func TestGenerator_PrefixSearchQueries_BindsEveryArgument(T *testing.T) {
 	T.Parallel()
 
 	for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
@@ -179,17 +213,8 @@ func TestGenerator_PrefixSearchQueries_BindsEveryArgumentOnce(T *testing.T) {
 			for _, query := range For(d).PrefixSearchQueries("users", searchColumns(), usernameSearch(), Match{Column: "scope"}) {
 				sql, args := bindArguments(d, query.Content)
 
-				// Neither statement binds a name twice — nothing here is
-				// spliced the way the standard list splices its filter into two
-				// count subqueries — so one marker per argument holds on the
-				// numbered dialect as well as on the positional two.
-				markers := strings.Count(sql, "?")
-				if d == dialect.Postgres {
-					markers = strings.Count(sql, "$")
-				}
-
 				test.StrNotContains(t, sql, "sqlc.")
-				test.EqOp(t, markers, len(args), test.Sprintf("statement: %s", sql))
+				assertMarkersMatchArgs(t, d, sql, args)
 			}
 		})
 	}

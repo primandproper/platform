@@ -467,6 +467,53 @@ type ListAccountMembersRow struct {
 	TotalCount                        int64
 }
 
+// ListAccountMembersDescendingParams are the arguments to ListAccountMembersDescending.
+type ListAccountMembersDescendingParams struct {
+	CreatedAfter     *time.Time
+	CreatedBefore    *time.Time
+	UpdatedAfter     *time.Time
+	UpdatedBefore    *time.Time
+	IncludeArchived  bool
+	Scope            tenancy.Scope
+	BelongsToAccount string
+	PageCursor       *string
+	ResultLimit      int64
+}
+
+// ListAccountMembersDescendingRow is one row of ListAccountMembersDescending's result.
+type ListAccountMembersDescendingRow struct {
+	ID                                string
+	Scope                             tenancy.Scope
+	BelongsToUser                     string
+	BelongsToAccount                  string
+	DefaultAccount                    bool
+	CreatedAt                         time.Time
+	LastUpdatedAt                     *time.Time
+	ArchivedAt                        *time.Time
+	UserID                            string
+	UserScope                         tenancy.Scope
+	UserUsername                      string
+	UserEmailAddress                  string
+	UserFirstName                     string
+	UserLastName                      string
+	UserHashedPassword                string
+	UserRequiresPasswordChange        bool
+	UserPasswordLastChangedAt         *time.Time
+	UserTwoFactorSecret               string
+	UserTwoFactorSecretVerifiedAt     *time.Time
+	UserEmailAddressVerifiedAt        *time.Time
+	UserEmailAddressVerificationToken string
+	UserAccountStatus                 string
+	UserAccountStatusExplanation      string
+	UserLastAcceptedTermsOfService    *time.Time
+	UserLastAcceptedPrivacyPolicy     *time.Time
+	UserCreatedAt                     time.Time
+	UserLastUpdatedAt                 *time.Time
+	UserArchivedAt                    *time.Time
+	FilteredCount                     int64
+	TotalCount                        int64
+}
+
 // ListAccountsParams are the arguments to ListAccounts.
 type ListAccountsParams struct {
 	CreatedAfter    *time.Time
@@ -481,6 +528,43 @@ type ListAccountsParams struct {
 
 // ListAccountsRow is one row of ListAccounts's result.
 type ListAccountsRow struct {
+	ID                          string
+	Scope                       tenancy.Scope
+	Name                        string
+	OwnerUserID                 string
+	BillingStatus               string
+	SubscriptionPlanID          *string
+	PaymentProcessorCustomerID  string
+	LastPaymentProviderSyncedAt *time.Time
+	AddressLine1                string
+	AddressLine2                string
+	AddressCity                 string
+	AddressState                string
+	AddressPostalCode           string
+	AddressCountry              string
+	AddressPhone                string
+	TimeZone                    string
+	CreatedAt                   time.Time
+	LastUpdatedAt               *time.Time
+	ArchivedAt                  *time.Time
+	FilteredCount               int64
+	TotalCount                  int64
+}
+
+// ListAccountsDescendingParams are the arguments to ListAccountsDescending.
+type ListAccountsDescendingParams struct {
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	UpdatedAfter    *time.Time
+	UpdatedBefore   *time.Time
+	IncludeArchived bool
+	Scope           tenancy.Scope
+	PageCursor      *string
+	ResultLimit     int64
+}
+
+// ListAccountsDescendingRow is one row of ListAccountsDescending's result.
+type ListAccountsDescendingRow struct {
 	ID                          string
 	Scope                       tenancy.Scope
 	Name                        string
@@ -519,6 +603,44 @@ type ListAccountsForUserParams struct {
 
 // ListAccountsForUserRow is one row of ListAccountsForUser's result.
 type ListAccountsForUserRow struct {
+	ID                          string
+	Scope                       tenancy.Scope
+	Name                        string
+	OwnerUserID                 string
+	BillingStatus               string
+	SubscriptionPlanID          *string
+	PaymentProcessorCustomerID  string
+	LastPaymentProviderSyncedAt *time.Time
+	AddressLine1                string
+	AddressLine2                string
+	AddressCity                 string
+	AddressState                string
+	AddressPostalCode           string
+	AddressCountry              string
+	AddressPhone                string
+	TimeZone                    string
+	CreatedAt                   time.Time
+	LastUpdatedAt               *time.Time
+	ArchivedAt                  *time.Time
+	FilteredCount               int64
+	TotalCount                  int64
+}
+
+// ListAccountsForUserDescendingParams are the arguments to ListAccountsForUserDescending.
+type ListAccountsForUserDescendingParams struct {
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	UpdatedAfter    *time.Time
+	UpdatedBefore   *time.Time
+	IncludeArchived bool
+	Scope           tenancy.Scope
+	BelongsToUser   string
+	PageCursor      *string
+	ResultLimit     int64
+}
+
+// ListAccountsForUserDescendingRow is one row of ListAccountsForUserDescending's result.
+type ListAccountsForUserDescendingRow struct {
 	ID                          string
 	Scope                       tenancy.Scope
 	Name                        string
@@ -619,6 +741,40 @@ type ListInvitationsByFromUserRow struct {
 	TotalCount       int64
 }
 
+// ListInvitationsByFromUserDescendingParams are the arguments to ListInvitationsByFromUserDescending.
+type ListInvitationsByFromUserDescendingParams struct {
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	UpdatedAfter    *time.Time
+	UpdatedBefore   *time.Time
+	IncludeArchived bool
+	Scope           tenancy.Scope
+	FromUser        string
+	Status          string
+	PageCursor      *string
+	ResultLimit     int64
+}
+
+// ListInvitationsByFromUserDescendingRow is one row of ListInvitationsByFromUserDescending's result.
+type ListInvitationsByFromUserDescendingRow struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToAccount string
+	FromUser         string
+	ToEmail          string
+	ToName           string
+	ToUser           *string
+	Token            string
+	Status           string
+	Note             string
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+	LastUpdatedAt    *time.Time
+	ArchivedAt       *time.Time
+	FilteredCount    int64
+	TotalCount       int64
+}
+
 // ListInvitationsByToEmailParams are the arguments to ListInvitationsByToEmail.
 type ListInvitationsByToEmailParams struct {
 	CreatedAfter    *time.Time
@@ -635,6 +791,72 @@ type ListInvitationsByToEmailParams struct {
 
 // ListInvitationsByToEmailRow is one row of ListInvitationsByToEmail's result.
 type ListInvitationsByToEmailRow struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToAccount string
+	FromUser         string
+	ToEmail          string
+	ToName           string
+	ToUser           *string
+	Token            string
+	Status           string
+	Note             string
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+	LastUpdatedAt    *time.Time
+	ArchivedAt       *time.Time
+	FilteredCount    int64
+	TotalCount       int64
+}
+
+// ListInvitationsByToEmailDescendingParams are the arguments to ListInvitationsByToEmailDescending.
+type ListInvitationsByToEmailDescendingParams struct {
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	UpdatedAfter    *time.Time
+	UpdatedBefore   *time.Time
+	IncludeArchived bool
+	Scope           tenancy.Scope
+	ToEmail         string
+	Status          string
+	PageCursor      *string
+	ResultLimit     int64
+}
+
+// ListInvitationsByToEmailDescendingRow is one row of ListInvitationsByToEmailDescending's result.
+type ListInvitationsByToEmailDescendingRow struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToAccount string
+	FromUser         string
+	ToEmail          string
+	ToName           string
+	ToUser           *string
+	Token            string
+	Status           string
+	Note             string
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+	LastUpdatedAt    *time.Time
+	ArchivedAt       *time.Time
+	FilteredCount    int64
+	TotalCount       int64
+}
+
+// ListInvitationsDescendingParams are the arguments to ListInvitationsDescending.
+type ListInvitationsDescendingParams struct {
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	UpdatedAfter    *time.Time
+	UpdatedBefore   *time.Time
+	IncludeArchived bool
+	Scope           tenancy.Scope
+	PageCursor      *string
+	ResultLimit     int64
+}
+
+// ListInvitationsDescendingRow is one row of ListInvitationsDescending's result.
+type ListInvitationsDescendingRow struct {
 	ID               string
 	Scope            tenancy.Scope
 	BelongsToAccount string
@@ -761,6 +983,44 @@ type ListUsersByIDsRow struct {
 	ArchivedAt                    *time.Time
 }
 
+// ListUsersDescendingParams are the arguments to ListUsersDescending.
+type ListUsersDescendingParams struct {
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	UpdatedAfter    *time.Time
+	UpdatedBefore   *time.Time
+	IncludeArchived bool
+	Scope           tenancy.Scope
+	PageCursor      *string
+	ResultLimit     int64
+}
+
+// ListUsersDescendingRow is one row of ListUsersDescending's result.
+type ListUsersDescendingRow struct {
+	ID                            string
+	Scope                         tenancy.Scope
+	Username                      string
+	EmailAddress                  string
+	FirstName                     string
+	LastName                      string
+	HashedPassword                string
+	RequiresPasswordChange        bool
+	PasswordLastChangedAt         *time.Time
+	TwoFactorSecret               string
+	TwoFactorSecretVerifiedAt     *time.Time
+	EmailAddressVerifiedAt        *time.Time
+	EmailAddressVerificationToken string
+	AccountStatus                 string
+	AccountStatusExplanation      string
+	LastAcceptedTermsOfService    *time.Time
+	LastAcceptedPrivacyPolicy     *time.Time
+	CreatedAt                     time.Time
+	LastUpdatedAt                 *time.Time
+	ArchivedAt                    *time.Time
+	FilteredCount                 int64
+	TotalCount                    int64
+}
+
 // MarkAccountBillingSyncedParams are the arguments to MarkAccountBillingSynced.
 type MarkAccountBillingSyncedParams struct {
 	LastPaymentProviderSyncedAt *time.Time
@@ -803,6 +1063,38 @@ type SearchUsersByUsernameParams struct {
 
 // SearchUsersByUsernameRow is one row of SearchUsersByUsername's result.
 type SearchUsersByUsernameRow struct {
+	ID                            string
+	Scope                         tenancy.Scope
+	Username                      string
+	EmailAddress                  string
+	FirstName                     string
+	LastName                      string
+	HashedPassword                string
+	RequiresPasswordChange        bool
+	PasswordLastChangedAt         *time.Time
+	TwoFactorSecret               string
+	TwoFactorSecretVerifiedAt     *time.Time
+	EmailAddressVerifiedAt        *time.Time
+	EmailAddressVerificationToken string
+	AccountStatus                 string
+	AccountStatusExplanation      string
+	LastAcceptedTermsOfService    *time.Time
+	LastAcceptedPrivacyPolicy     *time.Time
+	CreatedAt                     time.Time
+	LastUpdatedAt                 *time.Time
+	ArchivedAt                    *time.Time
+}
+
+// SearchUsersByUsernameDescendingParams are the arguments to SearchUsersByUsernameDescending.
+type SearchUsersByUsernameDescendingParams struct {
+	Scope          tenancy.Scope
+	UsernamePrefix string
+	PageCursor     *string
+	ResultLimit    int64
+}
+
+// SearchUsersByUsernameDescendingRow is one row of SearchUsersByUsernameDescending's result.
+type SearchUsersByUsernameDescendingRow struct {
 	ID                            string
 	Scope                         tenancy.Scope
 	Username                      string

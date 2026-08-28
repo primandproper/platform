@@ -29,7 +29,7 @@ const LikeEscape = "!"
 var ErrUnknownSearchColumn = platformerrors.New("prefix search names a column the table does not have")
 
 // PrefixSearch is a paged search over the leading characters of one column: the
-// column, and the names its two statements take.
+// column, and the names its statements take.
 //
 // One column does three jobs here, which is why the shape names it once rather
 // than three times. It is what the pattern matches, what the page is ordered
@@ -44,7 +44,8 @@ type PrefixSearch struct {
 	Column string
 	// Name is the paged search's query name and CountName is the count's. Both
 	// must be unique across the consumer's whole sqlc package, as every
-	// QueryAnnotation.Name must.
+	// QueryAnnotation.Name must — and so must [DescendingName] of Name, which
+	// is what the descending half of the page is emitted under.
 	Name      string
 	CountName string
 }
@@ -53,27 +54,34 @@ type PrefixSearch struct {
 // begins with a bound pattern, and the count of everything that pattern
 // matches.
 //
-// It emits a pair because a search is one. The standard list carries its two
+// It emits a set because a search is one. The standard list carries its two
 // counts as scalar subqueries in its own SELECT list, so the page and the
 // numbers describing it come from one statement at one moment; that does not
 // carry over here, because a search's page is cut by a cursor over the same
 // column the pattern filters and the count a caller wants is of everything the
 // pattern matched rather than of what is left after the cursor. So the count is
-// a second statement, and it is emitted from the same call as the page it
+// a separate statement, and it is emitted from the same call as the page it
 // counts — a consumer that emitted one and hand-wrote the other would have half
 // its search checked by sqlc and half of it not, which is the gap the canonical
 // corpus exists to close.
 //
-// The two statements share every predicate but one. The count is the page's
-// WHERE clause without the cursor, for the same reason filtered_count omits it:
-// a count that shrank with every page is a progress bar that never fills.
+// The page is emitted in both directions, under Name and [DescendingName] of
+// it, because a search takes a filtering.QueryFilter like any other paged read
+// and that filter carries a direction. What the direction means here is this
+// statement's own order rather than creation order: a search is ordered by the
+// column it searched, so its descending half walks that column backwards —
+// which is the reading that keeps the cursor and the ORDER BY agreeing, and the
+// only one available to a statement that never orders by the id. The count is
+// direction-independent and is emitted once.
 //
-// The cursor predicate is always rendered, and an absent cursor coalesces to
-// the empty string — so the first page and the fiftieth are one statement, the
-// same way the standard list's keyset walk is. It works because no legal value
-// of a searched column is empty and because the page is ordered by that column,
-// so a comparison against the empty string admits every row the pattern
-// matched.
+// The statements share every predicate but one. The count is a page's WHERE
+// clause without the cursor, for the same reason filtered_count omits it: a
+// count that shrank with every page is a progress bar that never fills.
+//
+// The cursor predicate is always rendered, and an absent cursor is the first
+// page — so the first page and the fiftieth are one statement, the same way the
+// standard list's keyset walk is. See [Generator.CursorCondition] for how each
+// direction says that.
 //
 // Archived rows are excluded outright rather than through the include_archived
 // toggle a filtered list carries. A prefix search is a lookup — somebody is
@@ -106,7 +114,11 @@ func (g *Generator) PrefixSearchQueries(table string, columns []string, search P
 	queries := []*Query{
 		{
 			Annotation: QueryAnnotation{Name: search.Name, Type: ManyType},
-			Content:    g.prefixSearchStatement(table, columns, search.Column, matches),
+			Content:    g.prefixSearchStatement(table, columns, search.Column, Ascending, matches),
+		},
+		{
+			Annotation: QueryAnnotation{Name: DescendingName(search.Name), Type: ManyType},
+			Content:    g.prefixSearchStatement(table, columns, search.Column, Descending, matches),
 		},
 		{
 			Annotation: QueryAnnotation{Name: search.CountName, Type: OneType},
@@ -161,17 +173,17 @@ func PrefixPattern(prefix string) string {
 	return replaced + "%"
 }
 
-// prefixSearchStatement renders the page: the table's whole projection, the
-// pattern and whatever keys the search, the cursor, and the ordering the cursor
-// names.
-func (g *Generator) prefixSearchStatement(table string, columns []string, column string, matches []Match) string {
-	predicates := append(g.prefixSearchPredicates(table, columns, column, matches), g.cursorCondition(table, column))
+// prefixSearchStatement renders one direction's page: the table's whole
+// projection, the pattern and whatever keys the search, the cursor, and the
+// ordering the cursor names.
+func (g *Generator) prefixSearchStatement(table string, columns []string, column string, direction Direction, matches []Match) string {
+	predicates := append(g.prefixSearchPredicates(table, columns, column, matches), g.cursorCondition(table, column, direction))
 
 	return fmt.Sprintf("SELECT\n\t%s\nFROM %s\nWHERE %s\n%s;",
 		strings.Join(QualifyAll(table, columns), ",\n\t"),
 		table,
 		joinPredicates(predicates, "\t"),
-		g.cursorLimitClause(table, column),
+		g.cursorLimitClause(table, column, direction),
 	)
 }
 

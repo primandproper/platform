@@ -671,6 +671,11 @@ func (s *SQLStore) liveMembershipCount(ctx context.Context, q database.SQLQueryE
 // A page size that is present and zero is left alone and returns no rows, which
 // is the loud reading of an explicit zero and the same distinction
 // filtering.ClampResponseSize draws. Only absence is defaulted.
+//
+// The sort direction passes through untouched, and is read where it is used:
+// filtering.QueryFilter.SortsDescending answers an absent or unrecognized one
+// ascending, which is the reading filtering.QueryFilter.Normalize applies, so
+// there is nothing for this to correct on the way past.
 func pageFilter(filter *filtering.QueryFilter) *filtering.QueryFilter {
 	if filter == nil {
 		return filtering.DefaultQueryFilter()

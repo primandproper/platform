@@ -415,8 +415,8 @@ func TestFilterValues(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range everyDialect() {
-			_, args := bindQuery(d, For(d).ListQuery("ListGadgets", keyedTable, keyedColumns(),
-				Match{Column: BelongsToAccountColumn}))
+			_, args := bindQuery(d, pagedList(For(d).ListQueries("ListGadgets", keyedTable, keyedColumns(),
+				Match{Column: BelongsToAccountColumn}), Ascending))
 
 			values := map[string]any{BelongsToAccountColumn: "account_one"}
 			filterValues(d, values, filtering.DefaultQueryFilter())

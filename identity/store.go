@@ -306,6 +306,10 @@ type DirectoryReader interface {
 	// updated windows and its IncludeArchived flag all apply, and both counts
 	// come back with the page rather than from a second query that would be
 	// counting a table the page has already moved on from.
+	//
+	// The filter's SortBy decides which way that order runs: an id sorts by
+	// creation time, so "desc" is newest first. It reaches every paged read on
+	// this interface, and none of them defaults to anything but ascending.
 	ListUsers(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
 
 	// ListUsersByIDs reads a batch of the scope's users in one query, redacted,
@@ -325,6 +329,11 @@ type DirectoryReader interface {
 	// index on (scope, username) and a substring cannot. An application that
 	// needs fuzzy search over its directory wants this module's search package
 	// pointed at it, not a LIKE '%x%' that scans the table on every keystroke.
+	//
+	// The page is ordered by the username rather than by the id, so its cursor
+	// is a username and the filter's SortBy reverses the alphabet rather than
+	// the creation order — which is what a direction means for a read ordered by
+	// something other than an id.
 	SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
 
 	// GetAccount reads one of the scope's live accounts, returning an error
