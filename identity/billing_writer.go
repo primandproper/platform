@@ -119,7 +119,7 @@ func (s *SQLStore) recordSubscription(ctx context.Context, scope tenancy.Scope, 
 		LastPaymentProviderSyncedAt: pointer.To(s.now()),
 	})
 
-	return guardCount(count, err, ErrAccountNotFound, "recording identity account subscription")
+	return s.guardCount(ctx, count, err, ErrAccountNotFound, "recording identity account subscription")
 }
 
 // SetAccountBillingStatus moves an account between billing standings without
@@ -153,7 +153,7 @@ func (s *SQLStore) SetAccountBillingStatus(ctx context.Context, scope tenancy.Sc
 		Scope:         scope,
 		BillingStatus: status.String(),
 	})
-	if err = guardCount(count, err, ErrAccountNotFound, "setting identity account billing status"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrAccountNotFound, "setting identity account billing status"); err != nil {
 		return op.Error(err, "setting identity account billing status")
 	}
 
@@ -189,7 +189,7 @@ func (s *SQLStore) SetAccountPaymentProcessorCustomerID(ctx context.Context, sco
 			Scope:                      scope,
 			PaymentProcessorCustomerID: customerID,
 		})
-	if err = guardCount(count, err, ErrAccountNotFound, "setting identity account payment processor customer"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrAccountNotFound, "setting identity account payment processor customer"); err != nil {
 		return op.Error(err, "setting identity account payment processor customer")
 	}
 
@@ -228,7 +228,7 @@ func (s *SQLStore) MarkAccountBillingSynced(ctx context.Context, scope tenancy.S
 		Scope:                       scope,
 		LastPaymentProviderSyncedAt: pointer.To(s.now()),
 	})
-	if err = guardCount(count, err, ErrAccountNotFound, "marking identity account billing synced"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrAccountNotFound, "marking identity account billing synced"); err != nil {
 		return op.Error(err, "marking identity account billing synced")
 	}
 

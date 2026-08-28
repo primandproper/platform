@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v13/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v13/authentication/oauth2server/database/internal/oauth2serverdb"
 	"github.com/primandproper/platform-go/v13/authentication/oauth2server/database/migrations"
 	"github.com/primandproper/platform-go/v13/clock"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
@@ -39,18 +41,12 @@ var _ oauth2server.Store = (*Store)(nil)
 // hardest possible way to notice.
 type Store struct {
 	db    database.Client
+	q     oauth2serverdb.Querier
 	clock clock.Clock
 	o11y  observability.Observer
 
 	sweptCounter       metrics.Int64Counter
 	sweepErrorsCounter metrics.Int64Counter
-
-	clients string
-	codes   string
-	access  string
-	refresh string
-
-	dialect dialect.Dialect
 }
 
 // NewStore builds a Store over a database client.
@@ -82,17 +78,27 @@ func NewStore(cfg *Config, db database.Client, opts ...Option) (*Store, error) {
 	o := newOptions(opts)
 
 	s := &Store{
-		db:      db,
-		clock:   o.clock,
-		o11y:    observability.NewObserver(serviceName, o.logger, o.tracerProvider),
-		clients: tableName(cfg.TablePrefix, tableClients),
-		codes:   tableName(cfg.TablePrefix, tableCodes),
-		access:  tableName(cfg.TablePrefix, tableAccess),
-		refresh: tableName(cfg.TablePrefix, tableRefresh),
-		dialect: d,
+		db:    db,
+		clock: o.clock,
+		o11y:  observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}
 
-	var err error
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see internal/oauth2serverdb.
+	qd, err := oauth2serverdbDialect(d)
+	if err != nil {
+		return nil, err
+	}
+
+	// The four table names live nowhere else in this package: the canonical
+	// spellings are internal/queries' and the separator is database/ddl's, so a
+	// namespaced deployment cannot end up with two renderings of one name.
+	if s.q, err = oauth2serverdb.New(qd, ddl.Qualify(cfg.TablePrefix)); err != nil {
+		return nil, platformerrors.Wrap(err, "building the oauth2 querier")
+	}
+
 	if s.sweptCounter, s.sweepErrorsCounter, err = newSweepInstruments(o.metricsProvider); err != nil {
 		return nil, err
 	}
@@ -102,6 +108,24 @@ func NewStore(cfg *Config, db database.Client, opts ...Option) (*Store, error) {
 	}
 
 	return s, nil
+}
+
+// oauth2serverdbDialect maps this module's dialect names onto the generated
+// package's. The set is closed on both sides — NewStore has already rejected
+// anything d.Valid() declines — so the default arm is reachable only when this
+// module learns a dialect the generated package was not generated for. That is
+// a construction failure like any other, and it names the dialect.
+func oauth2serverdbDialect(d dialect.Dialect) (oauth2serverdb.Dialect, error) {
+	switch d {
+	case dialect.Postgres:
+		return oauth2serverdb.DialectPostgreSQL, nil
+	case dialect.MySQL:
+		return oauth2serverdb.DialectMySQL, nil
+	case dialect.SQLite:
+		return oauth2serverdb.DialectSQLite, nil
+	default:
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "no generated oauth2 queries for dialect %q", d)
+	}
 }
 
 // CreateClient records a registration.
@@ -116,13 +140,13 @@ func (s *Store) CreateClient(ctx context.Context, client *oauth2server.Client) e
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildInsertClient(s.dialect, s.clients, client)
-
-	affected, err := s.exec(ctx, s.db.Writer(), query, args)
+	affected, err := s.q.CreateClient(ctx, s.db.Writer(), createClientParams(client))
 	if err != nil {
 		return op.Error(err, "storing client registration")
 	}
 
+	// The insert skips a row already there rather than raising, so zero rows is
+	// how a duplicate is reported without parsing a dialect's SQLSTATE.
 	if affected == 0 {
 		return oauth2server.ErrClientExists
 	}
@@ -139,11 +163,14 @@ func (s *Store) GetClient(ctx context.Context, clientID string) (*oauth2server.C
 		return nil, oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildSelectClient(s.dialect, s.clients, clientID)
-
-	client, err := scanClient(s.db.Writer().QueryRowContext(ctx, query, args...))
+	row, err := s.q.GetClient(ctx, s.db.Writer(), oauth2serverdb.GetClientParams{ID: clientID})
 	if err != nil {
 		return nil, s.readError(op, err, "reading client registration")
+	}
+
+	client, err := clientFromRow(&row)
+	if err != nil {
+		return nil, op.Error(err, "reading client registration")
 	}
 
 	// A NULL expires_at reads back as the zero time and means the registration
@@ -166,9 +193,8 @@ func (s *Store) DeleteClient(ctx context.Context, clientID string) error {
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildDeleteClient(s.dialect, s.clients, clientID)
-
-	if _, err := s.exec(ctx, s.db.Writer(), query, args); err != nil {
+	if _, err := s.q.DeleteClient(ctx, s.db.Writer(),
+		oauth2serverdb.DeleteClientParams{ID: clientID}); err != nil {
 		return op.Error(err, "removing client registration")
 	}
 
@@ -187,9 +213,7 @@ func (s *Store) CreateAuthorizationCode(ctx context.Context, code *oauth2server.
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildInsertCode(s.dialect, s.codes, code)
-
-	affected, err := s.exec(ctx, s.db.Writer(), query, args)
+	affected, err := s.q.CreateAuthorizationCode(ctx, s.db.Writer(), createAuthorizationCodeParams(code))
 	if err != nil {
 		return op.Error(err, "storing authorization code")
 	}
@@ -223,24 +247,29 @@ func (s *Store) ConsumeAuthorizationCode(ctx context.Context, hash string) (*oau
 	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
 		now := s.now()
 
-		update, updateArgs := buildConsumeCode(s.dialect, s.codes, hash, now)
-
-		affected, execErr := s.exec(ctx, q, update, updateArgs)
+		affected, execErr := s.q.ConsumeAuthorizationCode(ctx, q, oauth2serverdb.ConsumeAuthorizationCodeParams{
+			RedeemedAt: stamp(now),
+			Hash:       hash,
+			Now:        now,
+		})
 		if execErr != nil {
 			return platformerrors.Wrap(execErr, "redeeming authorization code")
 		}
 
-		read, readArgs := buildSelectCode(s.dialect, s.codes, hash)
-
-		record, scanErr := scanCode(q.QueryRowContext(ctx, read, readArgs...))
-		if scanErr != nil {
-			if stderrors.Is(scanErr, sql.ErrNoRows) {
+		row, readErr := s.q.GetAuthorizationCode(ctx, q, oauth2serverdb.GetAuthorizationCodeParams{Hash: hash})
+		if readErr != nil {
+			if stderrors.Is(readErr, sql.ErrNoRows) {
 				outcome = oauth2server.ErrNotFound
 
 				return nil
 			}
 
-			return platformerrors.Wrap(scanErr, "reading authorization code")
+			return platformerrors.Wrap(readErr, "reading authorization code")
+		}
+
+		record, convertErr := codeFromRow(&row)
+		if convertErr != nil {
+			return convertErr
 		}
 
 		if affected > 0 {
@@ -277,9 +306,7 @@ func (s *Store) CreateAccessToken(ctx context.Context, token *oauth2server.Acces
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildInsertAccess(s.dialect, s.access, token)
-
-	affected, err := s.exec(ctx, s.db.Writer(), query, args)
+	affected, err := s.q.CreateAccessToken(ctx, s.db.Writer(), createAccessTokenParams(token))
 	if err != nil {
 		return op.Error(err, "storing access token")
 	}
@@ -300,11 +327,14 @@ func (s *Store) GetAccessToken(ctx context.Context, hash string) (*oauth2server.
 		return nil, oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildSelectAccess(s.dialect, s.access, hash)
-
-	token, err := scanAccess(s.db.Writer().QueryRowContext(ctx, query, args...))
+	row, err := s.q.GetAccessToken(ctx, s.db.Writer(), oauth2serverdb.GetAccessTokenParams{Hash: hash})
 	if err != nil {
 		return nil, s.readError(op, err, "reading access token")
+	}
+
+	token, err := accessTokenFromRow(&row)
+	if err != nil {
+		return nil, op.Error(err, "reading access token")
 	}
 
 	if !token.Active(s.now()) {
@@ -323,13 +353,14 @@ func (s *Store) RevokeAccessToken(ctx context.Context, hash string) error {
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildRevokeOne(s.dialect, s.access, hash, s.now())
-
 	// Zero rows affected is not reported. RFC 7009 §2.2 requires the revocation
 	// endpoint to answer 200 for a token it has never seen, so a store that
 	// distinguished absent from revoked would be inviting that endpoint to leak
 	// which tokens exist.
-	if _, err := s.exec(ctx, s.db.Writer(), query, args); err != nil {
+	if _, err := s.q.RevokeAccessToken(ctx, s.db.Writer(), oauth2serverdb.RevokeAccessTokenParams{
+		RevokedAt: stamp(s.now()),
+		Hash:      hash,
+	}); err != nil {
 		return op.Error(err, "revoking access token")
 	}
 
@@ -348,9 +379,7 @@ func (s *Store) CreateRefreshToken(ctx context.Context, token *oauth2server.Refr
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildInsertRefresh(s.dialect, s.refresh, token)
-
-	affected, err := s.exec(ctx, s.db.Writer(), query, args)
+	affected, err := s.q.CreateRefreshToken(ctx, s.db.Writer(), createRefreshTokenParams(token))
 	if err != nil {
 		return op.Error(err, "storing refresh token")
 	}
@@ -380,24 +409,29 @@ func (s *Store) ConsumeRefreshToken(ctx context.Context, hash string) (*oauth2se
 	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
 		now := s.now()
 
-		update, updateArgs := buildConsumeRefresh(s.dialect, s.refresh, hash, now)
-
-		affected, execErr := s.exec(ctx, q, update, updateArgs)
+		affected, execErr := s.q.ConsumeRefreshToken(ctx, q, oauth2serverdb.ConsumeRefreshTokenParams{
+			RedeemedAt: stamp(now),
+			Hash:       hash,
+			Now:        now,
+		})
 		if execErr != nil {
 			return platformerrors.Wrap(execErr, "rotating refresh token")
 		}
 
-		read, readArgs := buildSelectRefresh(s.dialect, s.refresh, hash)
-
-		record, scanErr := scanRefresh(q.QueryRowContext(ctx, read, readArgs...))
-		if scanErr != nil {
-			if stderrors.Is(scanErr, sql.ErrNoRows) {
+		row, readErr := s.q.GetRefreshToken(ctx, q, oauth2serverdb.GetRefreshTokenParams{Hash: hash})
+		if readErr != nil {
+			if stderrors.Is(readErr, sql.ErrNoRows) {
 				outcome = oauth2server.ErrNotFound
 
 				return nil
 			}
 
-			return platformerrors.Wrap(scanErr, "reading refresh token")
+			return platformerrors.Wrap(readErr, "reading refresh token")
+		}
+
+		record, convertErr := refreshTokenFromRow(&row)
+		if convertErr != nil {
+			return convertErr
 		}
 
 		if affected > 0 {
@@ -434,11 +468,14 @@ func (s *Store) GetRefreshToken(ctx context.Context, hash string) (*oauth2server
 		return nil, oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildSelectRefresh(s.dialect, s.refresh, hash)
-
-	token, err := scanRefresh(s.db.Writer().QueryRowContext(ctx, query, args...))
+	row, err := s.q.GetRefreshToken(ctx, s.db.Writer(), oauth2serverdb.GetRefreshTokenParams{Hash: hash})
 	if err != nil {
 		return nil, s.readError(op, err, "reading refresh token")
+	}
+
+	token, err := refreshTokenFromRow(&row)
+	if err != nil {
+		return nil, op.Error(err, "reading refresh token")
 	}
 
 	// Redeemed is deliberately not a reason to withhold it — see the interface.
@@ -458,9 +495,10 @@ func (s *Store) RevokeRefreshToken(ctx context.Context, hash string) error {
 		return oauth2server.ErrEmptyIdentifier
 	}
 
-	query, args := buildRevokeOne(s.dialect, s.refresh, hash, s.now())
-
-	if _, err := s.exec(ctx, s.db.Writer(), query, args); err != nil {
+	if _, err := s.q.RevokeRefreshToken(ctx, s.db.Writer(), oauth2serverdb.RevokeRefreshTokenParams{
+		RevokedAt: stamp(s.now()),
+		Hash:      hash,
+	}); err != nil {
 		return op.Error(err, "revoking refresh token")
 	}
 
@@ -473,6 +511,12 @@ func (s *Store) RevokeRefreshToken(ctx context.Context, hash string) error {
 // available outcome here: it is reached only by detecting a token reuse, and
 // leaving half a family live means the response to a detected theft was to
 // revoke some of what the thief holds.
+//
+// The two are separate named statements rather than one over a table name the
+// store substitutes. They are the same shape and they are checked against two
+// different tables, which is the whole reason a corpus is enumerated: a column
+// that exists on one and not the other is a failed generate rather than a
+// runtime error on whichever half ran second.
 func (s *Store) RevokeFamily(ctx context.Context, familyID string) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
@@ -484,18 +528,25 @@ func (s *Store) RevokeFamily(ctx context.Context, familyID string) (int64, error
 	var revoked int64
 
 	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
-		now := s.now()
+		now := stamp(s.now())
 
-		for _, table := range []string{s.access, s.refresh} {
-			query, args := buildRevokeFamily(s.dialect, table, familyID, now)
-
-			affected, execErr := s.exec(ctx, q, query, args)
-			if execErr != nil {
-				return platformerrors.Wrap(execErr, "revoking token family")
-			}
-
-			revoked += affected
+		access, execErr := s.q.RevokeAccessTokenFamily(ctx, q, oauth2serverdb.RevokeAccessTokenFamilyParams{
+			RevokedAt: now,
+			FamilyID:  familyID,
+		})
+		if execErr != nil {
+			return platformerrors.Wrap(execErr, "revoking access token family")
 		}
+
+		refresh, execErr := s.q.RevokeRefreshTokenFamily(ctx, q, oauth2serverdb.RevokeRefreshTokenFamilyParams{
+			RevokedAt: now,
+			FamilyID:  familyID,
+		})
+		if execErr != nil {
+			return platformerrors.Wrap(execErr, "revoking refresh token family")
+		}
+
+		revoked = access + refresh
 
 		return nil
 	}); err != nil {
@@ -511,6 +562,12 @@ func (s *Store) RevokeFamily(ctx context.Context, familyID string) (int64, error
 // and each table's expires_at index makes the delete proportional to what is
 // actually dead rather than to the table; a deployment that outgrows that wants
 // a scheduled sweep with its own batching rather than a bigger one here.
+//
+// The deadline is compared against the instant the caller passes rather than
+// against the server's clock, and that is what makes a horizon useful: a
+// scheduler sweeping at an hour back reclaims only rows nothing is still
+// deciding about, where a sweep at "whatever the database thinks now is" can
+// take a row out from under a request that has just read it.
 func (s *Store) Sweep(ctx context.Context, now time.Time) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
@@ -518,28 +575,38 @@ func (s *Store) Sweep(ctx context.Context, now time.Time) (int64, error) {
 	var swept int64
 
 	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
-		for _, table := range []string{s.codes, s.access, s.refresh} {
-			query, args := buildSweep(s.dialect, table, now)
+		horizon := now.UTC()
 
-			affected, execErr := s.exec(ctx, q, query, args)
-			if execErr != nil {
-				return platformerrors.Wrap(execErr, "sweeping expired oauth2 records")
-			}
+		codes, execErr := s.q.SweepAuthorizationCodes(ctx, q,
+			oauth2serverdb.SweepAuthorizationCodesParams{Now: horizon})
+		if execErr != nil {
+			return platformerrors.Wrap(execErr, "sweeping expired authorization codes")
+		}
 
-			swept += affected
+		access, execErr := s.q.SweepAccessTokens(ctx, q,
+			oauth2serverdb.SweepAccessTokensParams{Now: horizon})
+		if execErr != nil {
+			return platformerrors.Wrap(execErr, "sweeping expired access tokens")
+		}
+
+		refresh, execErr := s.q.SweepRefreshTokens(ctx, q,
+			oauth2serverdb.SweepRefreshTokensParams{Now: horizon})
+		if execErr != nil {
+			return platformerrors.Wrap(execErr, "sweeping expired refresh tokens")
 		}
 
 		// Clients are swept by their own statement, because a registration with
 		// no expiry stores NULL and must not be reached by a predicate that
-		// would read that as the beginning of time.
-		query, args := buildSweepClients(s.dialect, s.clients, now)
-
-		affected, execErr := s.exec(ctx, q, query, args)
+		// would read that as the beginning of time. Its horizon is a pointer
+		// for the same reason: sqlc reads an argument's nullability off the
+		// column it is compared against, and that column is the nullable one.
+		clients, execErr := s.q.SweepClients(ctx, q,
+			oauth2serverdb.SweepClientsParams{Now: &horizon})
 		if execErr != nil {
 			return platformerrors.Wrap(execErr, "sweeping lapsed client registrations")
 		}
 
-		swept += affected
+		swept = codes + access + refresh + clients
 
 		return nil
 	}); err != nil {
@@ -562,21 +629,6 @@ func (s *Store) Close() error {
 // now reads the clock at the resolution every stamped time uses.
 func (s *Store) now() time.Time {
 	return s.clock.Now().UTC().Truncate(time.Microsecond)
-}
-
-// exec runs a statement and reports how many rows it affected.
-func (s *Store) exec(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) (int64, error) {
-	result, err := q.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, platformerrors.Wrap(err, "counting affected oauth2 rows")
-	}
-
-	return affected, nil
 }
 
 // readError maps a failed single-row read onto this package's sentinels.

@@ -63,6 +63,22 @@ func ValidatePrefix(prefix string) error {
 	return schema.ValidatePrefix(prefix)
 }
 
+// Tables returns the instance table's name at the given prefix.
+//
+// It reads the DDL rather than restating the name, which is what makes it worth
+// having for one table: saga/internal/queries spells the canonical name for the
+// corpus, this reads the schema, and the two are cross-checked against each
+// other rather than one being derived from the other. A consumer truncating
+// between integration tests, or checking that every table it owns has a
+// migration, asks here.
+func Tables(prefix string) ([]string, error) {
+	if err := schema.ValidatePrefix(prefix); err != nil {
+		return nil, err
+	}
+
+	return schema.Tables(prefix), nil
+}
+
 // SQL renders the same DDL as Statements, joined back into one migration body.
 // It is what you hand to database/migrate's WithGeneratedMigration, so the
 // instance table is created by the consumer's own migration run instead of

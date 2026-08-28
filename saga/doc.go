@@ -264,5 +264,28 @@ The package ships a SQL Store (NewSQLStore) and the DDL it needs
 (saga/migrations), for Postgres, MySQL, and SQLite. Store is an interface
 because the state machine and its storage are genuinely separable; nothing about
 adopting this package requires implementing it.
+
+# Where the SQL comes from
+
+Nowhere in this package. The statements the store runs are rendered into a
+committed corpus in saga/internal/queries, one .sql per dialect; sqlc checks
+them against the schema saga/migrations renders, at build time, with no database
+running; and what executes is the querier sqlc-gen-unison generates from those
+same files, in saga/internal/sagadb, with the consumer's table prefix
+substituted once at construction.
+
+The reason it is worth the machinery is the failure it removes. A saga instance
+is a cursor into a multi-step process, and a projection that has drifted from
+the scan beside it strands one mid-step — which surfaces days later, as a
+process that neither completed nor unwound. On the corpus, a renamed column is a
+failed `make unison` on every statement that names it, in all three dialects,
+rather than a scan error under load.
+
+What is written out by hand is which statements the store wants, and — for the
+ones no generator shape covers — their text, in that same internal package,
+where they are checked exactly as the generated ones are. What is not written
+anywhere is SQL assembled at run time.
 */
 package saga
+
+//go:generate go run ./internal/queriesgen

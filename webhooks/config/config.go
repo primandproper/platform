@@ -103,11 +103,14 @@ func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...
 
 	options := newOptions(opts)
 
+	// Two of the three pillars, because the store is the one component here
+	// that registers no instruments: every row count it acts on now comes back
+	// from the statement that wrote them, so there is nothing left for it to
+	// meter. The dispatcher and the worker take all three.
 	base := []webhooks.SQLStoreOption{
 		webhooks.WithTablePrefix(cfg.TablePrefix),
 		webhooks.WithStoreLogger(options.logger),
 		webhooks.WithStoreTracerProvider(options.tracerProvider),
-		webhooks.WithStoreMetricsProvider(options.metricsProvider),
 	}
 
 	store, storeErr := webhooks.NewSQLStore(client, append(base, options.store...)...)

@@ -433,7 +433,7 @@ func (s *SQLStore) AcceptInvitation(
 	// pending and stops here.
 	count, err := s.q.AnswerInvitation(ctx, q,
 		answerInvitationParams(scope, invitationID, InvitationAccepted, note, &acceptingUserID))
-	if err = guardCount(count, err, ErrInvitationNotFound, "accepting identity invitation"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrInvitationNotFound, "accepting identity invitation"); err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
 	}
 
@@ -449,14 +449,14 @@ func (s *SQLStore) AcceptInvitation(
 		CreatedAt: now,
 	}
 
-	existing, err := s.liveMembershipCount(ctx, q, scope, acceptingUserID)
+	existing, err := s.hasLiveMembership(ctx, q, scope, acceptingUserID)
 	if err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
 	}
 
 	// Accepting into a first account makes that account the default, which is
 	// what a registration-by-invitation relies on.
-	if existing == 0 {
+	if !existing {
 		membership.DefaultAccount = true
 	}
 
@@ -499,7 +499,7 @@ func (s *SQLStore) SetInvitationStatus(ctx context.Context, scope tenancy.Scope,
 
 	count, err := s.q.AnswerInvitation(ctx, s.client.Writer(),
 		answerInvitationParams(scope, invitationID, status, note, nil))
-	if err = guardCount(count, err, ErrInvitationNotFound, "setting identity invitation status"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrInvitationNotFound, "setting identity invitation status"); err != nil {
 		return op.Error(err, "setting identity invitation status")
 	}
 

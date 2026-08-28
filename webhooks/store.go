@@ -28,7 +28,8 @@ type Dispatch struct {
 	// EndpointID is the subscriber it is being sent to.
 	EndpointID string `json:"endpointID"`
 	// OrderingKey is denormalized from the delivery so the claim predicate can
-	// enforce ordering without joining. See buildSelectClaimable.
+	// enforce ordering without joining. See the claim in
+	// webhooks/internal/queries, which is where the guarantee is written down.
 	OrderingKey string `json:"orderingKey,omitempty"`
 	// LastError is the most recent failure, rendered.
 	LastError string `json:"lastError,omitempty"`

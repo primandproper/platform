@@ -111,6 +111,15 @@ var (
 	// implements.
 	ErrUnknownRequestType = platformerrors.New("unknown dataprivacy request type")
 
+	// ErrUnknownStatus indicates a Status outside the six this package writes.
+	//
+	// It is reachable from Store.Cancel, whose source status is a caller's
+	// value bound into a guard. A status nothing writes matches no row, so
+	// without this the call would report the request as not cancellable rather
+	// than the argument as wrong — and the two are answered very differently by
+	// whoever reads the error.
+	ErrUnknownStatus = platformerrors.New("unknown dataprivacy request status")
+
 	// ErrRequestNotFound indicates a request ID that is not in the table. It may
 	// mean the request never existed, or that retention has swept it.
 	ErrRequestNotFound = platformerrors.New("dataprivacy request not found")
@@ -336,6 +345,15 @@ type Request struct {
 
 	// CompletedAt is when the request reached a terminal state. Nil until it
 	// does.
+	//
+	// It is the column the store reads terminality off. Every transition into a
+	// terminal state writes it, nothing else does, and nothing moves out of one
+	// — so "still owed to somebody" is this being nil and "settled" is its
+	// complement, which is what the overdue gauge and the retention reap ask
+	// rather than each carrying a list of statuses that could drift from
+	// Status.Terminal. A request written directly through Store.Save in a
+	// terminal status carries the instant it reached one, or it is invisible to
+	// both.
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 
 	// KeyShreddedAt is when this subject's data key was destroyed, for an
