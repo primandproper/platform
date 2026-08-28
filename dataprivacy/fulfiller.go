@@ -1033,8 +1033,7 @@ func (f *Fulfiller) stop(ctx context.Context, req *Request, format string, args 
 	now := f.clock.Now().UTC()
 
 	if err := f.store.WithTransaction(ctx, func(q database.Tx) error {
-		stopped, txErr := f.store.Transition(ctx, q, req.ID,
-			[]Status{StatusInProgress}, StatusCancelled, "", now)
+		stopped, txErr := f.store.Cancel(ctx, q, req.ID, StatusInProgress, now)
 		if txErr != nil {
 			return txErr
 		}

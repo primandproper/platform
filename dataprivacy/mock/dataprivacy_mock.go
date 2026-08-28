@@ -24,11 +24,17 @@ var _ dataprivacy.Store = &StoreMock{}
 //
 //		// make and configure a mocked dataprivacy.Store
 //		mockedStore := &StoreMock{
+//			CancelFunc: func(ctx context.Context, q database.Tx, requestID string, from dataprivacy.Status, at time.Time) (*dataprivacy.Request, error) {
+//				panic("mock out the Cancel method")
+//			},
 //			CompleteErasureFunc: func(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error {
 //				panic("mock out the CompleteErasure method")
 //			},
 //			CompleteExportFunc: func(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error {
 //				panic("mock out the CompleteExport method")
+//			},
+//			ConfirmFunc: func(ctx context.Context, q database.Tx, requestID string, operationID string) (*dataprivacy.Request, error) {
+//				panic("mock out the Confirm method")
 //			},
 //			CountOverdueFunc: func(ctx context.Context, now time.Time) (map[dataprivacy.RequestType]int64, error) {
 //				panic("mock out the CountOverdue method")
@@ -60,9 +66,6 @@ var _ dataprivacy.Store = &StoreMock{}
 //			SaveFunc: func(ctx context.Context, q database.Tx, req *dataprivacy.Request) error {
 //				panic("mock out the Save method")
 //			},
-//			TransitionFunc: func(ctx context.Context, q database.Tx, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error) {
-//				panic("mock out the Transition method")
-//			},
 //			WithTransactionFunc: func(ctx context.Context, fn func(q database.Tx) error) error {
 //				panic("mock out the WithTransaction method")
 //			},
@@ -73,11 +76,17 @@ var _ dataprivacy.Store = &StoreMock{}
 //
 //	}
 type StoreMock struct {
+	// CancelFunc mocks the Cancel method.
+	CancelFunc func(ctx context.Context, q database.Tx, requestID string, from dataprivacy.Status, at time.Time) (*dataprivacy.Request, error)
+
 	// CompleteErasureFunc mocks the CompleteErasure method.
 	CompleteErasureFunc func(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error
 
 	// CompleteExportFunc mocks the CompleteExport method.
 	CompleteExportFunc func(ctx context.Context, q database.Tx, req *dataprivacy.Request, at time.Time) error
+
+	// ConfirmFunc mocks the Confirm method.
+	ConfirmFunc func(ctx context.Context, q database.Tx, requestID string, operationID string) (*dataprivacy.Request, error)
 
 	// CountOverdueFunc mocks the CountOverdue method.
 	CountOverdueFunc func(ctx context.Context, now time.Time) (map[dataprivacy.RequestType]int64, error)
@@ -109,14 +118,24 @@ type StoreMock struct {
 	// SaveFunc mocks the Save method.
 	SaveFunc func(ctx context.Context, q database.Tx, req *dataprivacy.Request) error
 
-	// TransitionFunc mocks the Transition method.
-	TransitionFunc func(ctx context.Context, q database.Tx, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error)
-
 	// WithTransactionFunc mocks the WithTransaction method.
 	WithTransactionFunc func(ctx context.Context, fn func(q database.Tx) error) error
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Cancel holds details about calls to the Cancel method.
+		Cancel []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// RequestID is the requestID argument value.
+			RequestID string
+			// From is the from argument value.
+			From dataprivacy.Status
+			// At is the at argument value.
+			At time.Time
+		}
 		// CompleteErasure holds details about calls to the CompleteErasure method.
 		CompleteErasure []struct {
 			// Ctx is the ctx argument value.
@@ -138,6 +157,17 @@ type StoreMock struct {
 			Req *dataprivacy.Request
 			// At is the at argument value.
 			At time.Time
+		}
+		// Confirm holds details about calls to the Confirm method.
+		Confirm []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// RequestID is the requestID argument value.
+			RequestID string
+			// OperationID is the operationID argument value.
+			OperationID string
 		}
 		// CountOverdue holds details about calls to the CountOverdue method.
 		CountOverdue []struct {
@@ -227,23 +257,6 @@ type StoreMock struct {
 			// Req is the req argument value.
 			Req *dataprivacy.Request
 		}
-		// Transition holds details about calls to the Transition method.
-		Transition []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
-			// RequestID is the requestID argument value.
-			RequestID string
-			// From is the from argument value.
-			From []dataprivacy.Status
-			// To is the to argument value.
-			To dataprivacy.Status
-			// OperationID is the operationID argument value.
-			OperationID string
-			// At is the at argument value.
-			At time.Time
-		}
 		// WithTransaction holds details about calls to the WithTransaction method.
 		WithTransaction []struct {
 			// Ctx is the ctx argument value.
@@ -252,8 +265,10 @@ type StoreMock struct {
 			Fn func(q database.Tx) error
 		}
 	}
+	lockCancel            sync.RWMutex
 	lockCompleteErasure   sync.RWMutex
 	lockCompleteExport    sync.RWMutex
+	lockConfirm           sync.RWMutex
 	lockCountOverdue      sync.RWMutex
 	lockExpiringArtifacts sync.RWMutex
 	lockFail              sync.RWMutex
@@ -264,8 +279,55 @@ type StoreMock struct {
 	lockMarkKeyShredded   sync.RWMutex
 	lockReap              sync.RWMutex
 	lockSave              sync.RWMutex
-	lockTransition        sync.RWMutex
 	lockWithTransaction   sync.RWMutex
+}
+
+// Cancel calls CancelFunc.
+func (mock *StoreMock) Cancel(ctx context.Context, q database.Tx, requestID string, from dataprivacy.Status, at time.Time) (*dataprivacy.Request, error) {
+	if mock.CancelFunc == nil {
+		panic("StoreMock.CancelFunc: method is nil but Store.Cancel was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Q         database.Tx
+		RequestID string
+		From      dataprivacy.Status
+		At        time.Time
+	}{
+		Ctx:       ctx,
+		Q:         q,
+		RequestID: requestID,
+		From:      from,
+		At:        at,
+	}
+	mock.lockCancel.Lock()
+	mock.calls.Cancel = append(mock.calls.Cancel, callInfo)
+	mock.lockCancel.Unlock()
+	return mock.CancelFunc(ctx, q, requestID, from, at)
+}
+
+// CancelCalls gets all the calls that were made to Cancel.
+// Check the length with:
+//
+//	len(mockedStore.CancelCalls())
+func (mock *StoreMock) CancelCalls() []struct {
+	Ctx       context.Context
+	Q         database.Tx
+	RequestID string
+	From      dataprivacy.Status
+	At        time.Time
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Q         database.Tx
+		RequestID string
+		From      dataprivacy.Status
+		At        time.Time
+	}
+	mock.lockCancel.RLock()
+	calls = mock.calls.Cancel
+	mock.lockCancel.RUnlock()
+	return calls
 }
 
 // CompleteErasure calls CompleteErasureFunc.
@@ -353,6 +415,50 @@ func (mock *StoreMock) CompleteExportCalls() []struct {
 	mock.lockCompleteExport.RLock()
 	calls = mock.calls.CompleteExport
 	mock.lockCompleteExport.RUnlock()
+	return calls
+}
+
+// Confirm calls ConfirmFunc.
+func (mock *StoreMock) Confirm(ctx context.Context, q database.Tx, requestID string, operationID string) (*dataprivacy.Request, error) {
+	if mock.ConfirmFunc == nil {
+		panic("StoreMock.ConfirmFunc: method is nil but Store.Confirm was just called")
+	}
+	callInfo := struct {
+		Ctx         context.Context
+		Q           database.Tx
+		RequestID   string
+		OperationID string
+	}{
+		Ctx:         ctx,
+		Q:           q,
+		RequestID:   requestID,
+		OperationID: operationID,
+	}
+	mock.lockConfirm.Lock()
+	mock.calls.Confirm = append(mock.calls.Confirm, callInfo)
+	mock.lockConfirm.Unlock()
+	return mock.ConfirmFunc(ctx, q, requestID, operationID)
+}
+
+// ConfirmCalls gets all the calls that were made to Confirm.
+// Check the length with:
+//
+//	len(mockedStore.ConfirmCalls())
+func (mock *StoreMock) ConfirmCalls() []struct {
+	Ctx         context.Context
+	Q           database.Tx
+	RequestID   string
+	OperationID string
+} {
+	var calls []struct {
+		Ctx         context.Context
+		Q           database.Tx
+		RequestID   string
+		OperationID string
+	}
+	mock.lockConfirm.RLock()
+	calls = mock.calls.Confirm
+	mock.lockConfirm.RUnlock()
 	return calls
 }
 
@@ -749,62 +855,6 @@ func (mock *StoreMock) SaveCalls() []struct {
 	mock.lockSave.RLock()
 	calls = mock.calls.Save
 	mock.lockSave.RUnlock()
-	return calls
-}
-
-// Transition calls TransitionFunc.
-func (mock *StoreMock) Transition(ctx context.Context, q database.Tx, requestID string, from []dataprivacy.Status, to dataprivacy.Status, operationID string, at time.Time) (*dataprivacy.Request, error) {
-	if mock.TransitionFunc == nil {
-		panic("StoreMock.TransitionFunc: method is nil but Store.Transition was just called")
-	}
-	callInfo := struct {
-		Ctx         context.Context
-		Q           database.Tx
-		RequestID   string
-		From        []dataprivacy.Status
-		To          dataprivacy.Status
-		OperationID string
-		At          time.Time
-	}{
-		Ctx:         ctx,
-		Q:           q,
-		RequestID:   requestID,
-		From:        from,
-		To:          to,
-		OperationID: operationID,
-		At:          at,
-	}
-	mock.lockTransition.Lock()
-	mock.calls.Transition = append(mock.calls.Transition, callInfo)
-	mock.lockTransition.Unlock()
-	return mock.TransitionFunc(ctx, q, requestID, from, to, operationID, at)
-}
-
-// TransitionCalls gets all the calls that were made to Transition.
-// Check the length with:
-//
-//	len(mockedStore.TransitionCalls())
-func (mock *StoreMock) TransitionCalls() []struct {
-	Ctx         context.Context
-	Q           database.Tx
-	RequestID   string
-	From        []dataprivacy.Status
-	To          dataprivacy.Status
-	OperationID string
-	At          time.Time
-} {
-	var calls []struct {
-		Ctx         context.Context
-		Q           database.Tx
-		RequestID   string
-		From        []dataprivacy.Status
-		To          dataprivacy.Status
-		OperationID string
-		At          time.Time
-	}
-	mock.lockTransition.RLock()
-	calls = mock.calls.Transition
-	mock.lockTransition.RUnlock()
 	return calls
 }
 

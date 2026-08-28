@@ -333,8 +333,7 @@ func (s *StoreService) Confirm(ctx context.Context, requestID string) (*Request,
 			return err
 		}
 
-		if req, err = s.store.Transition(ctx, q, requestID,
-			[]Status{StatusAwaitingConfirmation}, StatusInProgress, started.ID, s.clock.Now().UTC()); err != nil {
+		if req, err = s.store.Confirm(ctx, q, requestID, started.ID); err != nil {
 			return err
 		}
 
@@ -372,8 +371,8 @@ func (s *StoreService) Cancel(ctx context.Context, requestID string) (*Request, 
 
 	if err = s.store.WithTransaction(ctx, func(q database.Tx) error {
 		var txErr error
-		if req, txErr = s.store.Transition(ctx, q, requestID,
-			[]Status{StatusAwaitingConfirmation}, StatusCancelled, "", s.clock.Now().UTC()); txErr != nil {
+		if req, txErr = s.store.Cancel(ctx, q, requestID,
+			StatusAwaitingConfirmation, s.clock.Now().UTC()); txErr != nil {
 			return txErr
 		}
 

@@ -62,6 +62,7 @@ var rulings = map[string]ruling{
 	// The tier itself. Each of these is what sqlc-gen-unison emitted from its
 	// package's corpus, which is what every port below is a port onto.
 	"authentication/oauth2server/database/internal/oauth2serverdb": {tier: unison},
+	"dataprivacy/internal/dataprivacydb":                           {tier: unison},
 	"identity/internal/identitydb":                                 {tier: unison},
 	"saga/internal/sagadb":                                         {tier: unison},
 	"sessions/database/internal/sessionsdb":                        {tier: unison},
@@ -74,7 +75,6 @@ var rulings = map[string]ruling{
 	"authentication/webauthn/database": {tier: porting},
 	"authorization/database":           {tier: porting},
 	"cryptography/shredding":           {tier: porting},
-	"dataprivacy":                      {tier: porting},
 	"dataprivacy/auditerasure":         {tier: porting},
 	"metering":                         {tier: porting},
 	"operations":                       {tier: porting},

@@ -3,13 +3,13 @@ package dataprivacy
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
+	"github.com/primandproper/platform-go/v13/dataprivacy/internal/dataprivacydb"
 	"github.com/primandproper/platform-go/v13/dataprivacy/migrations"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
@@ -45,7 +45,7 @@ var _ Store = (*SQLStore)(nil)
 // shares.
 type SQLStore struct {
 	client database.Client
-	tables *tables
+	q      dataprivacydb.Querier
 	o11y   observability.Observer
 
 	guardMissCounter metrics.Int64Counter
@@ -60,7 +60,7 @@ type SQLStore struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
-	dialect         dialect.Dialect
+	prefix          string
 }
 
 // NewSQLStore builds a Store over the given database.
@@ -83,9 +83,8 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client:  client,
-		dialect: d,
-		tables:  newTables(DefaultTablePrefix),
+		client: client,
+		prefix: DefaultTablePrefix,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -93,9 +92,25 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		}
 	}
 
-	if err := migrations.ValidatePrefix(s.tables.prefix()); err != nil {
+	if err := migrations.ValidatePrefix(s.prefix); err != nil {
 		return nil, err
 	}
+
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see dataprivacy/internal/queries.
+	qd, err := dataprivacydbDialect(d)
+	if err != nil {
+		return nil, err
+	}
+
+	q, err := dataprivacydb.New(qd, ddl.Qualify(s.prefix))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building the dataprivacy querier")
+	}
+
+	s.q = q
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
 
@@ -106,7 +121,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	// a database error, and above this layer it is indistinguishable from one.
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
-	var err error
 	if s.guardMissCounter, err = mp.NewInt64Counter(storeName + "_guard_misses"); err != nil {
 		return nil, platformerrors.Wrap(err, "creating dataprivacy store guard miss counter")
 	}
@@ -121,6 +135,25 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	return s, nil
+}
+
+// dataprivacydbDialect maps this module's dialect names onto the generated
+// package's. The set is closed on both sides — NewSQLStore has already rejected
+// anything d.Valid() declines — so the default arm is reachable only when this
+// module learns a dialect the generated package was not generated for. That is a
+// construction failure like any other, and it names the dialect rather than
+// panicking or leaning on dataprivacydb.New refusing the empty string.
+func dataprivacydbDialect(d dialect.Dialect) (dataprivacydb.Dialect, error) {
+	switch d {
+	case dialect.Postgres:
+		return dataprivacydb.DialectPostgreSQL, nil
+	case dialect.MySQL:
+		return dataprivacydb.DialectMySQL, nil
+	case dialect.SQLite:
+		return dataprivacydb.DialectSQLite, nil
+	default:
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "no generated dataprivacy queries for dialect %q", d)
+	}
 }
 
 func (s *SQLStore) Save(ctx context.Context, q database.Tx, req *Request) error {
@@ -147,9 +180,7 @@ func (s *SQLStore) Save(ctx context.Context, q database.Tx, req *Request) error 
 		return op.Error(err, "encoding dataprivacy request maps")
 	}
 
-	query, args := s.tables.buildInsertRequest(s.dialect, req, failures, retained)
-
-	if _, err = q.ExecContext(ctx, query, args...); err != nil {
+	if err = s.q.CreateRequest(ctx, q, createRequestParams(req, failures, retained)); err != nil {
 		return op.Error(err, "inserting dataprivacy request")
 	}
 
@@ -160,9 +191,7 @@ func (s *SQLStore) Get(ctx context.Context, requestID string) (*Request, error) 
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
-	query, args := s.tables.buildSelectRequest(s.dialect, requestID)
-
-	req, err := scanRequest(s.client.Reader().QueryRowContext(ctx, query, args...))
+	row, err := s.q.GetRequest(ctx, s.client.Reader(), dataprivacydb.GetRequestParams{ID: requestID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// Attached to the span but not logged as an error. A request ID that
@@ -174,6 +203,11 @@ func (s *SQLStore) Get(ctx context.Context, requestID string) (*Request, error) 
 			return nil, platformerrors.Wrapf(ErrRequestNotFound, "dataprivacy request %q", requestID)
 		}
 
+		return nil, op.Error(err, "reading dataprivacy request")
+	}
+
+	req, err := requestFromRow(&row)
+	if err != nil {
 		return nil, op.Error(err, "reading dataprivacy request")
 	}
 
@@ -194,88 +228,234 @@ func (s *SQLStore) List(
 	}))
 	defer op.End()
 
-	if filter == nil {
-		filter = filtering.DefaultQueryFilter()
-	}
+	filter = pageFilter(filter)
 
-	limit := int(filtering.DefaultQueryFilterLimit)
-	if filter.MaxResponseSize != nil && *filter.MaxResponseSize > 0 {
-		limit = int(*filter.MaxResponseSize)
-	}
+	op.Set(limitKey, int(*filter.MaxResponseSize))
 
-	var cursor string
-	if filter.Cursor != nil {
-		cursor = *filter.Cursor
-	}
-
-	// Ordering follows the filter rather than a package-local preference.
-	// filtering.DefaultQueryFilter asks for ascending, and a package that
-	// quietly reversed it would make this the one list endpoint in the module
-	// whose sort does not mean what the shared filter says it means.
-	descending := filter.SortBy != nil && *filter.SortBy == *filtering.SortDescending
-
-	op.Set(limitKey, limit)
-
-	query, args := s.tables.buildListRequests(s.dialect, subject, cursor, limit, descending)
-
-	requests, err := scanRequests(ctx, s.client.Reader(), query, args)
+	rows, err := s.subjectPage(ctx, subject, filter)
 	if err != nil {
 		return nil, op.Error(err, "listing dataprivacy requests")
 	}
 
-	countQuery, countArgs := s.tables.buildCountRequests(s.dialect, subject)
+	// The cursor is the id, because the statement orders by it. A cursor naming
+	// a position in an order the query does not use is a page that skips rows
+	// and repeats others, with nothing reporting an error.
+	page := filtering.Drain(rows, pageValue, pageCounts,
+		func(r *Request) string { return r.ID }, filter)
 
-	var total uint64
-	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, op.Error(err, "counting dataprivacy requests")
-	}
+	// Read off the result rather than off the rows, so the span reports the
+	// number the caller was handed. A page with no rows carries no counts — the
+	// counts ride on the rows — and filtering.Drain reports that as unknown
+	// rather than as zero.
+	op.Set(resultCountKey, len(rows)).Set(resultTotalKey, page.TotalCount)
 
-	op.Set(resultCountKey, len(requests)).Set(resultTotalKey, total)
-
-	return filtering.NewQueryFilteredResult(
-		requests, uint64(len(requests)), total,
-		func(r *Request) string { return r.ID },
-		filter,
-	), nil
+	return page, nil
 }
 
-func (s *SQLStore) Transition(
+// subjectPage runs whichever of the four list statements this call is: one scope
+// or every scope, ascending or descending.
+//
+// The scope reading is a statement rather than a predicate that changes shape.
+// An empty Subject.Scope means every scope the subject appears in — a subject
+// asking what has been requested in their name means all of it, and a listing
+// that quietly omitted the scoped requests would be the wrong answer to the one
+// question this endpoint exists to answer — and there is no bound value that
+// turns an equality into "any".
+func (s *SQLStore) subjectPage(
 	ctx context.Context,
-	q database.Tx,
-	requestID string,
-	from []Status,
-	to Status,
-	operationID string,
-	at time.Time,
-) (*Request, error) {
+	subject Subject,
+	filter *filtering.QueryFilter,
+) ([]pageRow, error) {
+	if subject.Scope == "" {
+		return s.anyScopePage(ctx, subject, filter)
+	}
+
+	params := listRequestsParams(subject, filter)
+
+	if !filter.SortsDescending() {
+		got, err := s.q.ListRequestsForSubject(ctx, s.client.Reader(), params)
+		if err != nil {
+			return nil, err
+		}
+
+		return pageRows(got, requestFromListRow)
+	}
+
+	got, err := s.q.ListRequestsForSubjectDescending(ctx, s.client.Reader(),
+		dataprivacydb.ListRequestsForSubjectDescendingParams(params))
+	if err != nil {
+		return nil, err
+	}
+
+	// The descending rows are converted rather than restated field by field.
+	// The two statements are one projection rendered twice, with the walk
+	// reversed and nothing else changed, so the conversion is the assertion:
+	// the day the projections stop being identical this stops building rather
+	// than filling the wrong fields.
+	ascending := make([]dataprivacydb.ListRequestsForSubjectRow, 0, len(got))
+	for i := range got {
+		ascending = append(ascending, dataprivacydb.ListRequestsForSubjectRow(got[i]))
+	}
+
+	return pageRows(ascending, requestFromListRow)
+}
+
+// anyScopePage is subjectPage's unscoped half.
+func (s *SQLStore) anyScopePage(
+	ctx context.Context,
+	subject Subject,
+	filter *filtering.QueryFilter,
+) ([]pageRow, error) {
+	params := listAnyScopeParams(subject, filter)
+
+	if !filter.SortsDescending() {
+		got, err := s.q.ListRequestsForSubjectInAnyScope(ctx, s.client.Reader(), params)
+		if err != nil {
+			return nil, err
+		}
+
+		return pageRows(got, requestFromAnyScopeRow)
+	}
+
+	got, err := s.q.ListRequestsForSubjectInAnyScopeDescending(ctx, s.client.Reader(),
+		dataprivacydb.ListRequestsForSubjectInAnyScopeDescendingParams(params))
+	if err != nil {
+		return nil, err
+	}
+
+	ascending := make([]dataprivacydb.ListRequestsForSubjectInAnyScopeRow, 0, len(got))
+	for i := range got {
+		ascending = append(ascending, dataprivacydb.ListRequestsForSubjectInAnyScopeRow(got[i]))
+	}
+
+	return pageRows(ascending, requestFromAnyScopeRow)
+}
+
+// pageRows converts a statement's rows, stopping at the first that will not
+// convert. A row that fails to decode is a row whose stored JSON is not a string
+// map, and reporting the page without it would hand a subject a history missing
+// the one request something is wrong with.
+func pageRows[R any](rows []R, convert func(*R) (pageRow, error)) ([]pageRow, error) {
+	converted := make([]pageRow, 0, len(rows))
+
+	for i := range rows {
+		row, err := convert(&rows[i])
+		if err != nil {
+			return nil, err
+		}
+
+		converted = append(converted, row)
+	}
+
+	return converted, nil
+}
+
+// pageFilter is the filter a paged read is answered under: the caller's, with
+// the page-size ceiling every other paged read in this module applies.
+//
+// It works on a copy. The clamp has to be applied to what the query binds and to
+// what the result reports, and doing that by writing through the caller's
+// pointer would hand them back a filter they did not pass.
+//
+// A page size that is present and zero is left alone and returns no rows, which
+// is the loud reading of an explicit zero. Only absence is defaulted.
+func pageFilter(filter *filtering.QueryFilter) *filtering.QueryFilter {
+	if filter == nil {
+		return filtering.DefaultQueryFilter()
+	}
+
+	bounded := *filter
+
+	size := uint16(filtering.DefaultQueryFilterLimit)
+	if bounded.MaxResponseSize != nil {
+		size = filtering.ClampResponseSize(uint64(*bounded.MaxResponseSize))
+	}
+
+	bounded.MaxResponseSize = &size
+
+	return &bounded
+}
+
+func (s *SQLStore) Confirm(ctx context.Context, q database.Tx, requestID, operationID string) (*Request, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		requestIDKey:   requestID,
-		statusKey:      string(to),
-		fromStatusKey:  statusStrings(from),
+		statusKey:      string(StatusInProgress),
 		operationIDKey: operationID,
 	}))
 	defer op.End()
 
 	if q == nil {
-		return nil, op.Error(ErrNilExecutor, "transitioning dataprivacy request")
+		return nil, op.Error(ErrNilExecutor, "confirming dataprivacy request")
 	}
 
-	if len(from) == 0 {
-		return nil, op.Error(platformerrors.ErrEmptyInputParameter, "no source statuses for dataprivacy transition")
-	}
-
-	query, args := s.tables.buildTransition(s.dialect, requestID, from, to, operationID, at)
-
-	result, err := q.ExecContext(ctx, query, args...)
+	affected, err := s.q.ConfirmRequest(ctx, q, dataprivacydb.ConfirmRequestParams{
+		Status:        string(StatusInProgress),
+		OperationID:   operationID,
+		ExpiresAt:     nil,
+		ID:            requestID,
+		CurrentStatus: string(StatusAwaitingConfirmation),
+	})
 	if err != nil {
-		return nil, op.Error(err, "transitioning dataprivacy request")
+		return nil, op.Error(err, "confirming dataprivacy request")
 	}
 
-	affected, err := result.RowsAffected()
+	return s.movedRequest(ctx, op, q, requestID, affected, "confirm")
+}
+
+func (s *SQLStore) Cancel(
+	ctx context.Context,
+	q database.Tx,
+	requestID string,
+	from Status,
+	at time.Time,
+) (*Request, error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
+		requestIDKey:  requestID,
+		statusKey:     string(StatusCancelled),
+		fromStatusKey: string(from),
+	}))
+	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "cancelling dataprivacy request")
+	}
+
+	if !from.Valid() {
+		return nil, op.Error(platformerrors.Wrapf(ErrUnknownStatus, "dataprivacy status %q", from),
+			"cancelling dataprivacy request")
+	}
+
+	completed := at.UTC()
+
+	affected, err := s.q.CancelRequest(ctx, q, dataprivacydb.CancelRequestParams{
+		Status:        string(StatusCancelled),
+		CompletedAt:   &completed,
+		ExpiresAt:     nil,
+		ID:            requestID,
+		CurrentStatus: string(from),
+	})
 	if err != nil {
-		return nil, op.Error(err, "reading dataprivacy transition result")
+		return nil, op.Error(err, "cancelling dataprivacy request")
 	}
 
+	return s.movedRequest(ctx, op, q, requestID, affected, "cancel")
+}
+
+// movedRequest reports a guarded transition that matched nothing and re-reads
+// one that did.
+//
+// The re-read goes through the caller's executor rather than through the client,
+// so the caller sees the row as its own transaction has it. Reading through the
+// client here would go to the read replica and could return the pre-transition
+// row.
+func (s *SQLStore) movedRequest(
+	ctx context.Context,
+	op observability.Operation,
+	q database.Tx,
+	requestID string,
+	affected int64,
+	operation string,
+) (*Request, error) {
 	op.Set(rowsAffectedKey, affected)
 
 	if affected == 0 {
@@ -286,17 +466,17 @@ func (s *SQLStore) Transition(
 		// distinguishable from ordinary contention, and it is the caller that
 		// knows whether losing this particular race matters.
 		op.Set(guardMissedKey, true)
-		s.guardMissCounter.Add(ctx, 1, s.guard.OpAttr("transition"))
+		s.guardMissCounter.Add(ctx, 1, s.guard.OpAttr(operation))
 
 		return nil, platformerrors.Wrapf(ErrRequestNotFound, "dataprivacy request %q in expected status", requestID)
 	}
 
-	// Re-read through the same executor, so the caller sees the row as its own
-	// transaction has it. Reading through the client here would go to the read
-	// replica and could return the pre-transition row.
-	selectQuery, selectArgs := s.tables.buildSelectRequest(s.dialect, requestID)
+	row, err := s.q.GetRequest(ctx, q, dataprivacydb.GetRequestParams{ID: requestID})
+	if err != nil {
+		return nil, op.Error(err, "reading transitioned dataprivacy request")
+	}
 
-	req, err := scanRequest(q.QueryRowContext(ctx, selectQuery, selectArgs...))
+	req, err := requestFromRow(&row)
 	if err != nil {
 		return nil, op.Error(err, "reading transitioned dataprivacy request")
 	}
@@ -328,9 +508,20 @@ func (s *SQLStore) CompleteExport(ctx context.Context, q database.Tx, req *Reque
 		return op.Error(err, "encoding dataprivacy export failures")
 	}
 
-	query, args := s.tables.buildCompleteExport(s.dialect, req, failures, at)
+	completed := at.UTC()
 
-	return s.guard.Exec(ctx, op, q, query, args, req.ID, "export", "completing dataprivacy export")
+	affected, err := s.q.CompleteExport(ctx, q, dataprivacydb.CompleteExportParams{
+		Status:        string(StatusCompleted),
+		CompletedAt:   &completed,
+		ExpiresAt:     instant(req.ExpiresAt),
+		ArtifactRef:   req.ArtifactRef,
+		ArtifactBytes: req.ArtifactBytes,
+		Failures:      failures,
+		LastError:     new(""),
+		ID:            req.ID,
+		CurrentStatus: string(StatusInProgress),
+	})
+	return s.guard.Count(ctx, op, affected, err, req.ID, "export", "completing dataprivacy export")
 }
 
 // WithTransaction delegates to the client, which begins its own span for the
@@ -365,23 +556,37 @@ func (s *SQLStore) CompleteErasure(ctx context.Context, q database.Tx, req *Requ
 		return op.Error(err, "encoding dataprivacy erasure maps")
 	}
 
-	query, args := s.tables.buildCompleteErasure(s.dialect, req, failures, retained, at)
+	completed := at.UTC()
 
-	return s.guard.Exec(ctx, op, q, query, args, req.ID, "erasure", "completing dataprivacy erasure")
+	// expires_at is cleared rather than set. An erasure has no artifact to
+	// expire, and the column held its confirmation window — leaving that behind
+	// would have the lapse sweep cancel a request that has already run.
+	affected, err := s.q.CompleteErasure(ctx, q, dataprivacydb.CompleteErasureParams{
+		Status:         string(StatusCompleted),
+		CompletedAt:    &completed,
+		ExpiresAt:      nil,
+		DeletedRows:    req.Deleted,
+		AnonymizedRows: req.Anonymized,
+		Failures:       failures,
+		Retained:       retained,
+		KeyShreddedAt:  utcPtr(req.KeyShreddedAt),
+		LastError:      new(""),
+		ID:             req.ID,
+		CurrentStatus:  string(StatusInProgress),
+	})
+	return s.guard.Count(ctx, op, affected, err, req.ID, "erasure", "completing dataprivacy erasure")
 }
 
 func (s *SQLStore) MarkKeyShredded(ctx context.Context, requestID string, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
-	query, args := s.tables.buildMarkKeyShredded(s.dialect, requestID, at)
+	shredded := at.UTC()
 
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
-	if err != nil {
-		return op.Error(err, "recording dataprivacy key destruction")
-	}
-
-	affected, err := result.RowsAffected()
+	affected, err := s.q.MarkKeyShredded(ctx, s.client.Writer(), dataprivacydb.MarkKeyShreddedParams{
+		KeyShreddedAt: &shredded,
+		ID:            requestID,
+	})
 	if err != nil {
 		return op.Error(err, "recording dataprivacy key destruction")
 	}
@@ -398,16 +603,18 @@ func (s *SQLStore) Fail(ctx context.Context, requestID, lastErr string, at time.
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
-	query, args := s.tables.buildFail(s.dialect, requestID, lastErr, at)
+	completed := at.UTC()
 
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	affected, err := s.q.FailRequest(ctx, s.client.Writer(), dataprivacydb.FailRequestParams{
+		Status:        string(StatusFailed),
+		LastError:     new(lastErr),
+		CompletedAt:   &completed,
+		ExpiresAt:     nil,
+		ID:            requestID,
+		CurrentStatus: string(StatusInProgress),
+	})
 	if err != nil {
 		return false, op.Error(err, "recording dataprivacy request failure")
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return false, op.Error(err, "reading dataprivacy request failure result")
 	}
 
 	op.Set(rowsAffectedKey, affected)
@@ -433,11 +640,25 @@ func (s *SQLStore) ExpiringArtifacts(ctx context.Context, now time.Time, limit i
 		return nil, nil
 	}
 
-	query, args := s.tables.buildSelectExpiringArtifacts(s.dialect, now, limit)
+	horizon := now.UTC()
 
-	requests, err := scanRequests(ctx, s.client.Reader(), query, args)
+	rows, err := s.q.ListExpiringArtifacts(ctx, s.client.Reader(), dataprivacydb.ListExpiringArtifactsParams{
+		Status:        string(StatusCompleted),
+		ExpiresBefore: &horizon,
+		ResultLimit:   int64(limit),
+	})
 	if err != nil {
 		return nil, op.Error(err, "selecting expiring dataprivacy artifacts")
+	}
+
+	requests := make([]*Request, 0, len(rows))
+	for i := range rows {
+		req, convErr := requestFromExpiringRow(&rows[i])
+		if convErr != nil {
+			return nil, op.Error(convErr, "selecting expiring dataprivacy artifacts")
+		}
+
+		requests = append(requests, req)
 	}
 
 	op.Set(resultCountKey, len(requests))
@@ -457,11 +678,26 @@ func (s *SQLStore) MarkExpired(ctx context.Context, requestID string, at time.Ti
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(requestIDKey, requestID))
 	defer op.End()
 
-	query, args := s.tables.buildMarkExpired(s.dialect, requestID, at)
+	expired := at.UTC()
 
-	if _, err := s.client.Writer().ExecContext(ctx, query, args...); err != nil {
+	// The reference is cleared as the status changes, so a stale path cannot
+	// outlive the object it named and be handed to a signer later.
+	affected, err := s.q.ExpireArtifact(ctx, s.client.Writer(), dataprivacydb.ExpireArtifactParams{
+		Status:        string(StatusExpired),
+		ArtifactRef:   "",
+		ExpiresAt:     &expired,
+		ID:            requestID,
+		CurrentStatus: string(StatusCompleted),
+	})
+	if err != nil {
 		return op.Error(err, "expiring dataprivacy artifact")
 	}
+
+	// Zero rows is not an error and never was. The sweeper deletes the object
+	// first and stamps afterwards, so a row that has moved on in between — a
+	// second sweeper that got there first — has already recorded what this call
+	// was going to say.
+	op.Set(rowsAffectedKey, affected)
 
 	return nil
 }
@@ -474,16 +710,18 @@ func (s *SQLStore) LapseUnconfirmed(ctx context.Context, now time.Time, limit in
 		return 0, nil
 	}
 
-	query, args := s.tables.buildLapseUnconfirmed(s.dialect, now, limit)
+	horizon := now.UTC()
 
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	lapsed, err := s.q.LapseUnconfirmedRequests(ctx, s.client.Writer(), dataprivacydb.LapseUnconfirmedRequestsParams{
+		Status:        string(StatusCancelled),
+		CompletedAt:   &horizon,
+		ExpiresAt:     nil,
+		CurrentStatus: string(StatusAwaitingConfirmation),
+		ExpiresBefore: &horizon,
+		ResultLimit:   int64(limit),
+	})
 	if err != nil {
 		return 0, op.Error(err, "lapsing unconfirmed dataprivacy erasures")
-	}
-
-	lapsed, err := result.RowsAffected()
-	if err != nil {
-		return 0, op.Error(err, "reading lapsed dataprivacy erasure count")
 	}
 
 	op.Set(lapsedKey, lapsed)
@@ -495,31 +733,27 @@ func (s *SQLStore) CountOverdue(ctx context.Context, now time.Time) (map[Request
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
-	query, args := s.tables.buildCountOverdue(s.dialect, now)
+	horizon := now.UTC()
 
-	type overdue struct {
-		requestType string
-		count       int64
-	}
-
-	rows, err := database.ScanAll(ctx, s.client.Reader(), "dataprivacy overdue count", query, args,
-		func(scanner database.Scanner) (overdue, error) {
-			var row overdue
-
-			err := scanner.Scan(&row.requestType, &row.count)
-
-			return row, err
-		})
-	if err != nil {
-		return nil, op.Error(err, "counting overdue dataprivacy requests")
-	}
-
-	// Seeded with a zero for every type, so a gauge that was reporting three
-	// overdue exports actively drops to zero when they are served rather than
-	// holding a stale reading on the dashboard forever.
+	// Seeded with a zero for every type, and asked for one type at a time. Both
+	// halves are the same decision: the gauge reports a number per request type
+	// whether or not any request of that type is overdue, so a dashboard that
+	// was reporting three overdue exports actively drops to zero when they are
+	// served rather than holding a stale reading forever. A grouped count
+	// answers only for the types that had rows, which is the reading that
+	// leaves the stale number on the screen.
 	counts := map[RequestType]int64{RequestExport: 0, RequestErasure: 0}
-	for _, row := range rows {
-		counts[RequestType(row.requestType)] = row.count
+
+	for _, requestType := range []RequestType{RequestExport, RequestErasure} {
+		row, err := s.q.CountOverdueRequests(ctx, s.client.Reader(), dataprivacydb.CountOverdueRequestsParams{
+			RequestType: string(requestType),
+			DueBefore:   horizon,
+		})
+		if err != nil {
+			return nil, op.Error(err, "counting overdue dataprivacy requests")
+		}
+
+		counts[requestType] = row.Count
 	}
 
 	op.Set(overdueKey, counts[RequestExport]+counts[RequestErasure])
@@ -535,135 +769,17 @@ func (s *SQLStore) Reap(ctx context.Context, before time.Time, limit int) (int64
 		return 0, nil
 	}
 
-	query, args := s.tables.buildReap(s.dialect, before, limit)
+	horizon := before.UTC()
 
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	reaped, err := s.q.ReapRequests(ctx, s.client.Writer(), dataprivacydb.ReapRequestsParams{
+		CompletedBefore: &horizon,
+		ResultLimit:     int64(limit),
+	})
 	if err != nil {
 		return 0, op.Error(err, "reaping dataprivacy requests")
-	}
-
-	reaped, err := result.RowsAffected()
-	if err != nil {
-		return 0, op.Error(err, "reading reaped dataprivacy request count")
 	}
 
 	op.Set(reapedKey, reaped)
 
 	return reaped, nil
-}
-
-// statusStrings renders a status set for a span attribute. Spans take scalars
-// and strings, not []Status, and the set a transition guarded on is the first
-// thing wanted when one of them matches nothing.
-func statusStrings(statuses []Status) string {
-	rendered := make([]string, 0, len(statuses))
-	for _, status := range statuses {
-		rendered = append(rendered, string(status))
-	}
-
-	return strings.Join(rendered, ",")
-}
-
-// scanRequests drains a request projection.
-func scanRequests(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]*Request, error) {
-	return database.ScanAll(ctx, q, "dataprivacy request", query, args, scanRequest)
-}
-
-// scanRequest reads one row of requestColumns.
-func scanRequest(scanner database.Scanner) (*Request, error) {
-	var (
-		req           Request
-		requestType   string
-		status        string
-		subjectType   string
-		expiresAt     sql.NullTime
-		completedAt   sql.NullTime
-		failures      []byte
-		retained      []byte
-		lastError     sql.NullString
-		keyShreddedAt sql.NullTime
-	)
-
-	if err := scanner.Scan(
-		&req.ID, &requestType, &status, &req.OperationID,
-		&req.Subject.ID, &subjectType, &req.Subject.Scope,
-		&req.CreatedAt, &req.DueAt, &expiresAt, &completedAt,
-		&req.ArtifactRef, &req.ArtifactBytes, &req.Deleted, &req.Anonymized,
-		&failures, &retained, &lastError, &keyShreddedAt,
-	); err != nil {
-		return nil, err
-	}
-
-	req.Type = RequestType(requestType)
-	req.Status = Status(status)
-	req.Subject.Type = SubjectType(subjectType)
-	req.CreatedAt = req.CreatedAt.UTC()
-	req.DueAt = req.DueAt.UTC()
-	req.ExpiresAt = database.TimeFromNullTime(expiresAt).UTC()
-	req.CompletedAt = database.TimePointerFromNullTime(completedAt)
-	req.KeyShreddedAt = database.TimePointerFromNullTime(keyShreddedAt)
-	req.LastError = database.StringFromNullString(lastError)
-
-	if req.CompletedAt != nil {
-		utc := req.CompletedAt.UTC()
-		req.CompletedAt = &utc
-	}
-
-	var err error
-	if req.Failures, err = decodeMap(failures); err != nil {
-		return nil, platformerrors.Wrap(err, "decoding dataprivacy request failures")
-	}
-
-	if req.Retained, err = decodeMap(retained); err != nil {
-		return nil, platformerrors.Wrap(err, "decoding dataprivacy request retentions")
-	}
-
-	return &req, nil
-}
-
-// encodeMaps renders both of a request's string maps for storage.
-func encodeMaps(req *Request) (failures, retained []byte, err error) {
-	if failures, err = encodeMap(req.Failures); err != nil {
-		return nil, nil, err
-	}
-
-	if retained, err = encodeMap(req.Retained); err != nil {
-		return nil, nil, err
-	}
-
-	return failures, retained, nil
-}
-
-// encodeMap renders a string map for storage, or nil for an empty one. Nil and
-// empty collapse deliberately: they say the same thing, and storing two
-// renderings would make a round trip depend on which call site wrote the row.
-func encodeMap(m map[string]string) ([]byte, error) {
-	if len(m) == 0 {
-		return nil, nil
-	}
-
-	encoded, err := json.Marshal(m)
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "encoding dataprivacy request map")
-	}
-
-	return encoded, nil
-}
-
-// decodeMap reads a stored string map back, leaving an absent one nil.
-//
-// A nil map with a nil error is the intended result for a NULL column, not a
-// missing value: "no failures" and "no retentions" are the common case, and a
-// sentinel here would make every read branch on an error that means nothing
-// went wrong.
-func decodeMap(b []byte) (m map[string]string, err error) {
-	if len(b) == 0 {
-		return nil, nil //nolint:nilnil // an absent map is the normal reading, not an error
-	}
-
-	if err = json.Unmarshal(b, &m); err != nil {
-		return nil, err
-	}
-
-	return m, nil
 }

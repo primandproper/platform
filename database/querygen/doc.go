@@ -557,6 +557,87 @@ shape that was never going to be a choice: a set reference has no fixed number
 of markers, because sqlc expands it per call, so the statement's arity belongs
 to the values and only the generated method can hold it.
 
+# The sweeps
+
+Everything above answers somebody: a page a caller is reading, a row a request
+named, a write a caller asked for. The three shapes here answer nobody. They are
+the background passes a durable-state table needs — the artifacts whose expiry
+has come, the confirmation windows that lapsed, the records past their retention
+— and what they have in common is that the rows are chosen by having become due
+rather than by anything a caller said.
+
+That is why they are not the list with different predicates. A list carries the
+filter window, which describes what a caller asked to see, and a cursor, which is
+where that caller had got to. A sweep has neither: there is no reader whose date
+range should decide which expired artifacts get collected, and no position to
+hold between passes, because the rows collected last time are no longer due. What
+it has instead is an ordering saying which rows are most overdue and a limit
+saying how much to do in one pass — both of which a list would need anyway, and
+neither of which means what a list means by them.
+
+[Generator.SweepQuery] is the read:
+
+	expiring := querygen.For(dialect.Postgres).SweepQuery(
+		"ListExpiringArtifacts", "dataprivacy_requests", columns,
+		querygen.Sweep{Order: []querygen.Order{{Column: "expires_at"}, {Column: querygen.IDColumn}}},
+		querygen.Match{Column: "status"},
+		querygen.Match{Column: "expires_at", Against: querygen.AtMostArgument, Arg: "expires_before"})
+
+[Generator.SweepDeleteQuery] and [Generator.SweepUpdateQuery] are that same scan
+with a verb on it: the rows it names, deleted or assigned, in one statement. One
+statement rather than a scan whose ids are written afterwards, because the
+predicate deciding which rows move is then evaluated by the server at the moment
+they move — a scan followed by writes decides on rows read a round trip earlier,
+and what changes in between is precisely what the predicate was asking about.
+
+The choice between the read and the writes is not a matter of taste. A sweep
+whose subject is entirely inside the database is one bounded write and its count
+is the answer. A sweep with something outside — an object in a bucket, a message
+to send — is the read, because the outside thing has to go first: a bulk UPDATE
+marking rows expired would be one round trip and would leave every artifact in
+the bucket, which is the outcome an expiry state exists to prevent.
+
+Two things about the writes are the statement's rather than a caller's. The rows
+are named through a subquery, because two of the three dialects have no LIMIT on
+a DELETE and the third spells it differently again; and the outer key is
+qualified, because SQLite resolves a bare id against both the statement's target
+and the subquery's table and calls that ambiguous. MySQL is the one shape that
+differs: it refuses a subquery reading the table being written
+(ER_UPDATE_TABLE_USED) and accepts the identical rows once materialized through a
+derived table, so its rendering wraps the scan in one. The [Generator] carries
+the dialect, so a Postgres statement cannot acquire the wrapper or a MySQL one
+lose it.
+
+All three take their predicates the way the batched read does rather than the way
+the single-row statements do: the archived clause where the column list carries
+archived_at, one predicate per [Match], and no id predicate — a sweep addresses a
+set, so a statement keyed on the row's own id would be a sweep of exactly one
+row. A sweep with no [Match] is [ErrUnpredicatedStatement] rather than a bounded
+truncate, and one naming no ordering is [ErrUnorderedSweep] rather than "whichever
+N rows the server produced first", which is a set that can differ between two
+runs over the same rows and can pass over the oldest row forever.
+
+# The count
+
+[Generator.CountQuery] is the third read that is not a page of rows, beside the
+existence check and the sweep, and it is the one a gauge wants: how many requests
+are still owed past their deadline, how many jobs are still waiting. Those are
+numbers somebody watches over time rather than pages somebody reads, and
+answering them by draining the rows and counting them in Go makes the cost of the
+measurement grow with the thing being measured.
+
+It is not the count a filtered list carries. Those ride on the page as scalar
+subqueries, so the number and the rows it describes come from one snapshot of the
+table — see [Generator.FilterCountSelect]. This one has no page to ride on, and
+asking it is the whole round trip.
+
+It takes the sweep's predicates for the sweep's reason, and refuses
+[ErrUnpredicatedStatement] for a different one: a count over no predicate is a
+number about every row a database holds for everybody, which is the one number a
+tenancy-scoped schema has no caller for. A caller counting rows in a table
+addressed by id therefore hands over a column list without the id, the same idiom
+every read keyed on something else uses.
+
 # The table registry
 
 Some of what a consumer needs per table is not a query. The TRUNCATE an
@@ -723,6 +804,16 @@ for. So they belong in that package's corpus rather than in one of its own: a
 second corpus over somebody else's schema would be a second place a column
 rename has to be noticed. It ports when the audit log does — the delete shape it
 was waiting on is [Generator.DeleteQuery] now.
+
+dataprivacy itself is on the tier. It is the second package to arrive, and the
+three shapes it needed are the sweeps above: its statements were previously
+assembled in Go, including two whose SQL differed by dialect at run time and one
+whose SET list was chosen per call. The transitions it renders now are named
+rather than parameterized — a confirmation and a cancellation, which differ by
+the column they assign rather than by the status they came from — which is the
+same substitution [Generator.UpdateQuery] made for identity's field-specific
+writes: a builder whose branches are the cases becomes one statement per case,
+each of them checked.
 
 # include_archived actually includes archived rows
 
