@@ -441,13 +441,19 @@ to, and it says so when the statement runs rather than when it is parsed. A key
 of more than one column compares as a row value, which is the queue tables'
 shape, where (queue_name, item_key) names a row and neither half of it does.
 
-Neither arm travels. MySQL refuses a subquery over the table being deleted from
-(ER_UPDATE_TABLE_USED); Postgres does not parse DELETE … LIMIT at all, and SQLite
-parses it only in builds compiled with an option most are not, which makes it a
-failure that waits for run time. So the divergence is confined to
-Generator.boundedDelete the way the upsert's is to Generator.conflictHeader, and
-the corpus above is authored once and rendered three times: one name, one
-signature, one set of arguments.
+Only one half of that is forced. Postgres does not parse DELETE … LIMIT at all,
+and SQLite parses it only in builds compiled with an option most are not, which
+makes it a failure that waits for run time — so the doomed subquery is the only
+bounded delete those two have. MySQL is the one with a choice: it refuses a
+subquery over the table being deleted from (ER_UPDATE_TABLE_USED), and accepts
+the identical rows once that scan is materialized through a derived table, which
+is what [Generator.SweepDeleteQuery] renders there. The prune declines the
+derived table because the native arm is strictly better for a statement with no
+read to keep in step with, and the three spellings and the servers that take them
+are written down once, in querygen's boundedWriteForm, which both shapes derive
+their arm from. So the divergence is confined to Generator.boundedDelete the way
+the upsert's is to Generator.conflictHeader, and the corpus above is authored
+once and rendered three times: one name, one signature, one set of arguments.
 
 The capped read takes FOR UPDATE SKIP LOCKED on Postgres, so a fleet of reapers
 takes disjoint batches instead of queueing behind each other; a row another pass
@@ -640,23 +646,77 @@ the bucket, which is the outcome an expiry state exists to prevent.
 
 Two things about the writes are the statement's rather than a caller's. The rows
 are named through a subquery, because two of the three dialects have no LIMIT on
-a DELETE and the third spells it differently again; and the outer key is
-qualified, because SQLite resolves a bare id against both the statement's target
-and the subquery's table and calls that ambiguous. MySQL is the one shape that
-differs: it refuses a subquery reading the table being written
-(ER_UPDATE_TABLE_USED) and accepts the identical rows once materialized through a
-derived table, so its rendering wraps the scan in one. The [Generator] carries
-the dialect, so a Postgres statement cannot acquire the wrapper or a MySQL one
-lose it.
+a DELETE and the third's — which the prune does take — has no read in it for the
+sweep's own read to be rendered from; and the outer key is qualified, because
+SQLite resolves a bare id against both the statement's target and the subquery's
+table and calls that ambiguous. MySQL is the one shape that differs: it refuses a
+subquery reading the table being written (ER_UPDATE_TABLE_USED) and accepts the
+identical rows once materialized through a derived table, so its rendering wraps
+the scan in one — the same boundedWriteForm table the prune reads its arm off.
+The [Generator] carries the dialect, so a Postgres statement cannot acquire the
+wrapper or a MySQL one lose it.
 
 All three take their predicates the way the batched read does rather than the way
 the single-row statements do: the archived clause where the column list carries
 archived_at, one predicate per [Match], and no id predicate — a sweep addresses a
 set, so a statement keyed on the row's own id would be a sweep of exactly one
 row. A sweep with no [Match] is [ErrUnpredicatedStatement] rather than a bounded
-truncate, and one naming no ordering is [ErrUnorderedSweep] rather than "whichever
-N rows the server produced first", which is a set that can differ between two
-runs over the same rows and can pass over the oldest row forever.
+truncate, and one naming no ordering is [ErrUnorderedBoundedStatement] rather
+than "whichever N rows the server produced first", which is a set that can differ
+between two runs over the same rows and can pass over the oldest row forever. The
+prune refuses an unordered pass under the same error, for the same reason, argued
+once where both shapes point at it.
+
+# Choosing between the prune and the sweep
+
+Two shapes above render a bounded write, and a store porting its reaper has to
+pick one. They are not variants of each other, and neither is a superset of the
+other:
+
+  - [Generator.SweepDeleteQuery] and [Generator.SweepUpdateQuery] address rows by
+    id, leave archived rows alone wherever the column list carries archived_at,
+    and render from the same scan [Generator.SweepQuery] renders — so a caller
+    can look at the rows a pass is about to take.
+  - [Generator.PruneQuery] addresses rows by any key, a natural key of several
+    columns included; dooms archived rows like any others, because retention
+    destroys rather than hides; and takes Postgres's FOR UPDATE SKIP LOCKED, so a
+    fleet of reapers divides one backlog instead of queueing on it. It renders no
+    read, which is what lets it take MySQL's native DELETE … ORDER BY … LIMIT.
+
+So: a pass over a soft-deleting table whose rows a caller could also be listing
+is the sweep. A retention pass over an append-only table, or any pass keyed on
+something other than an id, is the prune. Where both would render, the prune is
+the cheaper statement and the sweep is the one whose rows something can read
+first. Both are ordered and both are capped; that part is not a choice, for
+[ErrUnorderedBoundedStatement]'s reason.
+
+The reapers this module already has, and which shape each takes:
+
+  - dataprivacy is the sweep, and is already on it: an expiry read whose
+    artifacts leave a bucket before the row may say they are gone, a bounded
+    stamp for the confirmation windows that lapsed, and a bounded delete for the
+    requests past retention — one scan, three statements, archived requests left
+    alone.
+  - metering's ReapEvents is the prune. Its rows are addressed by the compound
+    natural key the events table is keyed on, (meter, idempotency_key), which is
+    the row-value comparison [Prune.Key] exists for. Its NOT EXISTS over the
+    totals table — the guard that keeps retention from destroying the evidence
+    behind an unflushed total — is not a [Match], so that statement is one of the
+    authored ones: written into metering's own corpus and checked by sqlc there,
+    the way the queue stores' expression writes are.
+  - outbox's reap is the prune. Its table carries no archived_at by design, so
+    the sweep's one advantage does not apply, and a fleet of relays reaping
+    concurrently is exactly what SKIP LOCKED is for.
+  - audit's prune is the prune, keyed on the pair (scope, seq). The two reads
+    computing its horizon are aggregates over a chain rather than statements this
+    package emits, and stay authored; what the port changes is that the DELETE
+    they feed gains the cap it does not have today.
+  - retention's Table is the prune's shape and cannot be a prune's caller. Its
+    table, its age column and its key column arrive from a policy a consumer
+    writes at run time, and everything here is rendered from string literals at
+    generate time against a schema sqlc has read. What it takes from this section
+    is the rules — ordered, capped, native arm on MySQL — rather than the
+    rendering.
 
 # The count
 

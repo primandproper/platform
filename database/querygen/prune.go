@@ -17,16 +17,6 @@ import (
 // package's misuse. The wrapped message says which of the two it was.
 var ErrDegeneratePrune = platformerrors.New("prune would doom rows it cannot name")
 
-// doomedAlias is what the capped read calls the table inside a prune.
-//
-// It is an alias rather than a bare self-reference because SQLite needs one:
-// a subquery selecting from the table its DELETE is deleting from leaves every
-// column name reachable from two places, and the failure is an
-// ambiguous-column error at run time rather than a parse failure a generator
-// would have seen. Postgres does not need it and gets it anyway, because one
-// rendering is one thing to get right.
-const doomedAlias = "doomed"
-
 // Prune is what a bounded delete needs beyond the predicates that doom a row:
 // the columns naming a doomed row, and the order the capped pass takes them in.
 type Prune struct {
@@ -47,18 +37,16 @@ type Prune struct {
 	// The names are interpolated, so they are restricted rather than escaped —
 	// see dialect.ValidIdentifier.
 	Key []string
-	// Order is the order the doomed rows are chosen in, and naming none is
-	// legitimate in the way an unpaged list's is: a pass then takes whichever
-	// of the matched rows the planner reached first, which for a horizon sweep
-	// costs nothing, since every row it could have taken instead is still past
-	// the horizon on the next pass.
+	// Order is the order the doomed rows are chosen in, and it is required —
+	// see [ErrUnorderedBoundedStatement], which is the same requirement the
+	// sweeps carry and is argued there once for both.
 	//
-	// Two callers want it named anyway. A sweep ordered by the column its
-	// horizon compares against takes the oldest rows first, so a backlog drains
-	// in the order it accumulated rather than in the order a plan happened to
-	// produce. And a reaper sharing its table with keyed writers wants the
-	// primary key's order, because taking row locks in the order every other
-	// writer takes them is what keeps a pass out of a deadlock.
+	// Two orderings have callers here. A pass ordered by the column its horizon
+	// compares against takes the oldest rows first, so a backlog drains in the
+	// order it accumulated and its age is a number somebody can watch. And a
+	// reaper sharing its table with keyed writers wants the primary key's
+	// order, because taking row locks in the order every other writer takes
+	// them is what keeps a pass out of a deadlock.
 	Order []Order
 }
 
@@ -74,21 +62,32 @@ type Prune struct {
 // the count says there are more. That is why this is annotated :execrows. The
 // count is not a courtesy here, it is the loop's condition.
 //
-// # Two grammars, and neither one travels
+// # Two grammars, and one of them is a choice
 //
 // MySQL caps the DELETE itself, with the ORDER BY and LIMIT its own grammar
 // takes. Postgres and SQLite have no DELETE … LIMIT, so the bound goes on a
 // read instead: a capped SELECT names the doomed rows and the DELETE removes
 // whatever it named.
 //
-// Neither arm is a preference the other dialect could adopt. MySQL refuses a
-// subquery that reads the table being deleted from — ER_UPDATE_TABLE_USED,
-// error 1093 — so the doomed-subquery form is not available there at all;
-// Postgres does not parse DELETE … LIMIT, and SQLite parses it only in builds
-// compiled with an option most are not, which is a failure that waits until run
-// time. So this is one of the places the three disagree about a statement's
-// shape rather than about an expression inside one, and it is confined to
-// Generator.boundedDelete the way the upsert's is to Generator.conflictHeader.
+// One of those arms is forced and the other is not, and it is worth being exact
+// about which. Postgres does not parse DELETE … LIMIT at all, and SQLite parses
+// it only in builds compiled with SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which most
+// are not — a failure that waits until run time — so the doomed subquery is the
+// only bounded delete those two have. MySQL is the one with a choice: it refuses
+// a subquery that reads the table being deleted from (ER_UPDATE_TABLE_USED,
+// error 1093), but it accepts the identical rows once that scan is materialized
+// through a derived table, which is the spelling [Generator.SweepDeleteQuery]
+// renders there and dataprivacy's MySQL corpus executes. boundedWriteForm is
+// where the three spellings and the servers that take them are written down.
+//
+// This shape declines the derived table because the native arm is strictly
+// better for what a prune is: no materialization, no second projection, and the
+// key columns — which on MySQL are never rendered at all — cost nothing. What it
+// gives up is the property the sweep is buying, that one scan serves a read and
+// two writes; a prune has no read to keep in step with. So the divergence is
+// confined to Generator.boundedDelete the way the upsert's is to
+// Generator.conflictHeader, and the fact underneath it is not confined at all —
+// it is one table both shapes derive from.
 //
 // # Locked where the dialect locks
 //
@@ -122,9 +121,26 @@ type Prune struct {
 //
 // The cap binds under [LimitArg] on all three dialects, and it is required. An
 // absent cap is the unbounded statement this shape exists to make unspellable,
-// so it has no default the way a page size does — see Generator.limitClause for
-// the one thing that does differ, which is that MySQL's grammar takes a bare
-// placeholder after LIMIT and has nowhere to put the name.
+// so it has no default the way a page size does — see Generator.capClause, and
+// Generator.boundedLimit beneath it for the one thing that does differ, which is
+// that MySQL's grammar takes a bare placeholder after LIMIT and has nowhere to
+// put the name.
+//
+// The ordering is required for the reason [ErrUnorderedBoundedStatement] gives,
+// which is the reason the sweeps require theirs: one answer, argued in one
+// place, for every bounded statement this package renders.
+//
+// # This or the sweep
+//
+// [Generator.SweepDeleteQuery] is the other bounded delete here. Take this one
+// for a retention pass over an append-only table, or for any pass whose rows are
+// addressed by something other than an id: the key may be a natural key of
+// several columns, archived rows are doomed like any others, and Postgres gets
+// the lock clause that lets a fleet of reapers divide a backlog. Take the sweep
+// where the rows are addressed by id, archived rows must be left alone, and the
+// same scan has to serve a read or an update as well. The package comment's
+// "Choosing between the prune and the sweep" works through the reapers this
+// module already has.
 //
 // name must be unique across the consumer's whole sqlc package, as every
 // [QueryAnnotation].Name must.
@@ -140,8 +156,9 @@ func (g *Generator) PruneQuery(name, table string, prune Prune, matches ...Match
 	}
 }
 
-// pruneStatement checks what the two arms both assume and hands the rendering
-// to the dialect, which is where the shapes part company.
+// pruneStatement checks what the two arms both assume — a key, a predicate, and
+// an ordering — and hands the rendering to the dialect, which is where the
+// shapes part company.
 func (g *Generator) pruneStatement(table string, prune Prune, matches []Match) string {
 	mustIdentifier("table name", table)
 
@@ -156,6 +173,8 @@ func (g *Generator) pruneStatement(table string, prune Prune, matches []Match) s
 	if len(matches) == 0 {
 		panic(platformerrors.Wrapf(ErrDegeneratePrune, "querygen: table %q names no predicate", table))
 	}
+
+	prune.Order = boundedOrder(table, prune.Order)
 
 	return g.boundedDelete(table, prune, matches)
 }

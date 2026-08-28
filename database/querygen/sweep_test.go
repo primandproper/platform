@@ -263,16 +263,28 @@ func TestGenerator_SweepRefusals(T *testing.T) {
 
 	// A LIMIT with no ORDER BY takes whichever rows the server produced first,
 	// which can differ between two runs over the same rows — and can pass over
-	// the oldest row forever while newer ones behind it are collected.
+	// the oldest row forever while newer ones behind it are collected. All three
+	// sweeps render through one scan, so all three refuse it: the two writes are
+	// the ones where the non-determinism leaves nothing behind to inspect.
 	T.Run("a sweep with no ordering", func(t *testing.T) {
 		t.Parallel()
 
-		err := recoverPanic(t, func() {
-			For(dialect.Postgres).SweepQuery("ListDueTokens", guardTable, guardColumns(),
-				Sweep{}, dueMatches()...)
-		})
+		for _, build := range []func(*Generator){
+			func(g *Generator) {
+				g.SweepQuery("ListDueTokens", guardTable, guardColumns(), Sweep{}, dueMatches()...)
+			},
+			func(g *Generator) {
+				g.SweepDeleteQuery("PurgeDueTokens", guardTable, guardColumns(), nil, dueMatches()...)
+			},
+			func(g *Generator) {
+				g.SweepUpdateQuery("RedeemDueTokens", guardTable, guardColumns(),
+					[]string{"redeemed_at"}, tokenNullable(), nil, dueMatches()...)
+			},
+		} {
+			err := recoverPanic(t, func() { build(For(dialect.Postgres)) })
 
-		test.ErrorIs(t, err, ErrUnorderedSweep)
+			test.ErrorIs(t, err, ErrUnorderedBoundedStatement)
+		}
 	})
 }
 
