@@ -9,7 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
-	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -17,14 +16,6 @@ import (
 // The SQLStore's AdminWriter: the operator's half, whose exposure through an
 // ordinary request handler is a privilege escalation.
 var _ AdminWriter = (*SQLStore)(nil)
-
-// The membership columns the archive-by-side writes name, spelled where every
-// other membership statement spells them: two spellings of one column is the
-// drift the rest of this package exists to prevent.
-const (
-	membershipUserColumn    = queries.MembershipUserColumn
-	membershipAccountColumn = queries.MembershipAccountColumn
-)
 
 // UpdateUserAccountStatus moves a user between statuses.
 func (s *SQLStore) UpdateUserAccountStatus(ctx context.Context, scope tenancy.Scope, userID string, status AccountStatus, explanation string) error {
@@ -51,7 +42,7 @@ func (s *SQLStore) UpdateUserAccountStatus(ctx context.Context, scope tenancy.Sc
 		AccountStatus:            status.String(),
 		AccountStatusExplanation: explanation,
 	})
-	if err = guardCount(count, err, ErrUserNotFound, "updating identity account status"); err != nil {
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "updating identity account status"); err != nil {
 		return op.Error(err, "updating identity account status")
 	}
 
@@ -111,8 +102,6 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 		return op.Error(err, "archiving identity user")
 	}
 
-	now := s.now()
-
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		// The last-owner guard, which RemoveMembership has always had and this
 		// did not. An owner archived out from under their accounts leaves them
@@ -132,7 +121,7 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 		}
 
 		count, err := s.q.ArchiveUser(ctx, q, identitydb.ArchiveUserParams{ID: userID, Scope: scope})
-		if err = guardCount(count, err, ErrUserNotFound, "archiving identity user"); err != nil {
+		if err = s.guardCount(ctx, count, err, ErrUserNotFound, "archiving identity user"); err != nil {
 			return err
 		}
 
@@ -140,9 +129,19 @@ func (s *SQLStore) ArchiveUser(ctx context.Context, scope tenancy.Scope, userID 
 		// memberships still appears on the rosters of the accounts they belonged
 		// to, which is the state an application discovers when a deleted
 		// colleague is still listed.
-		query, args := s.tables.buildArchiveMembershipsBy(s.dialect, membershipUserColumn, scope, userID, now)
-		if _, execErr := q.ExecContext(ctx, query, args...); execErr != nil {
-			return platformerrors.Wrap(execErr, "archiving identity memberships")
+		//
+		// The default flag comes off first, sparing no account, because the
+		// statement that clears it reaches live rows only and every one of this
+		// user's memberships is about to stop being one.
+		if err = s.clearDefaultAccountsForUser(ctx, q, scope, userID, ""); err != nil {
+			return err
+		}
+
+		if _, err = s.q.ArchiveMembershipsForUser(ctx, q, identitydb.ArchiveMembershipsForUserParams{
+			Scope:         scope,
+			BelongsToUser: userID,
+		}); err != nil {
+			return platformerrors.Wrap(err, "archiving identity memberships")
 		}
 
 		return nil
@@ -245,20 +244,35 @@ func (s *SQLStore) ArchiveAccount(ctx context.Context, scope tenancy.Scope, acco
 		return op.Error(err, "archiving identity account")
 	}
 
-	now := s.now()
-
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		count, err := s.q.ArchiveAccount(ctx, q, identitydb.ArchiveAccountParams{ID: accountID, Scope: scope})
-		if err = guardCount(count, err, ErrAccountNotFound, "archiving identity account"); err != nil {
+		if err = s.guardCount(ctx, count, err, ErrAccountNotFound, "archiving identity account"); err != nil {
 			return err
 		}
 
 		// The memberships go with it, in the same transaction. Members left live
 		// against an archived account keep it in their switcher and keep
 		// resolving permissions through it.
-		query, args := s.tables.buildArchiveMembershipsBy(s.dialect, membershipAccountColumn, scope, accountID, now)
-		if _, execErr := q.ExecContext(ctx, query, args...); execErr != nil {
-			return platformerrors.Wrap(execErr, "archiving identity memberships")
+		//
+		// The default flag comes off first, for the reason ArchiveUser's does:
+		// the clear reaches live rows only, and these are about to stop being
+		// live. A member whose default this account was is left with none,
+		// which is the honest state — GetPrincipal reports it rather than
+		// landing them somewhere they no longer belong.
+		if _, err = s.q.ClearMembershipDefaultAccountsForAccount(ctx, q,
+			identitydb.ClearMembershipDefaultAccountsForAccountParams{
+				Scope:            scope,
+				BelongsToAccount: accountID,
+				DefaultAccount:   false,
+			}); err != nil {
+			return platformerrors.Wrap(err, "clearing identity default accounts")
+		}
+
+		if _, err = s.q.ArchiveMembershipsForAccount(ctx, q, identitydb.ArchiveMembershipsForAccountParams{
+			Scope:            scope,
+			BelongsToAccount: accountID,
+		}); err != nil {
+			return platformerrors.Wrap(err, "archiving identity memberships")
 		}
 
 		return nil

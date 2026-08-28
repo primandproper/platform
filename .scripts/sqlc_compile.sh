@@ -28,6 +28,7 @@ SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 COMPONENTS=(
   "./identity ./internal/queriesgen internal/queries"
   "./saga ./internal/queriesgen internal/queries"
+  "./sessions/database ./internal/queriesgen internal/queries"
 )
 
 # The dialects checked, as "<dialect> <sqlc engine>". Every dialect

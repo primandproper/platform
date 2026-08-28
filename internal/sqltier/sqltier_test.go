@@ -59,27 +59,27 @@ type ruling struct {
 // same sentence in every case, and a per-package copy of it would be a place for
 // a real reason to hide.
 var rulings = map[string]ruling{
-	// The tier itself. Each is what sqlc-gen-unison emitted from its package's
-	// corpus, which is what every port below is a port onto.
-	"identity/internal/identitydb": {tier: unison},
-	"saga/internal/sagadb":         {tier: unison},
+	// The tier itself. Each of these is what sqlc-gen-unison emitted from its
+	// package's corpus, which is what every port below is a port onto.
+	"identity/internal/identitydb":          {tier: unison},
+	"saga/internal/sagadb":                  {tier: unison},
+	"sessions/database/internal/sessionsdb": {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
 	// carries a reason.
 	"audit":                                {tier: porting},
 	"authentication/oauth2server/database": {tier: porting},
+	"authentication/passwordreset":         {tier: porting},
 	"authentication/webauthn/database":     {tier: porting},
 	"authorization/database":               {tier: porting},
 	"cryptography/shredding":               {tier: porting},
 	"dataprivacy":                          {tier: porting},
 	"dataprivacy/auditerasure":             {tier: porting},
-	"identity":                             {tier: porting},
 	"metering":                             {tier: porting},
 	"operations":                           {tier: porting},
 	"outbox":                               {tier: porting},
 	"retention":                            {tier: porting},
-	"sessions/database":                    {tier: porting},
 	"timers":                               {tier: porting},
 	"webhooks":                             {tier: porting},
 	"workqueue":                            {tier: porting},
@@ -100,6 +100,7 @@ var rulings = map[string]ruling{
 	// Ruled on for holding no SQL. Recorded rather than left absent, so a
 	// statement appearing here later is a failing test rather than a silence.
 	"filtering": {tier: none, why: "supplies the argument names a rendered statement binds and the conversions that bind them; the keyword a survey counted is a word in a comment"},
+	"identity":  {tier: none, why: "the store the tier was built for, and the first to finish: its statements are rendered by identity/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
 }
 
 // TestEverySQLPackageIsClassified is the entry this file exists to make
