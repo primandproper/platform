@@ -307,6 +307,16 @@ Two sources, one list. A consumer reading that list does not have to know which
 tables came from where, and a table moving from one source to the other does not
 change what comes out.
 
+The convention for a package in this module that ships a schema, which identity
+is the worked example of: its generator registers every table it owns — the whole
+list, not the subset [Generator.StandardCRUD] happens to emit for — and its
+migrations subpackage exports a Tables(prefix) beside SQL and Statements for the
+consumer half. The two halves answer the same question for different callers.
+This one is for a generator binary reading back what it generated across
+schemas, at the canonical unprefixed names; Tables is for the consumer, at
+theirs, and reads the DDL, so neither depends on the other staying in step by
+anybody's memory.
+
 # Porting a store onto this package
 
 There is one runtime tier, and every store that owns SQL is on it or is on its

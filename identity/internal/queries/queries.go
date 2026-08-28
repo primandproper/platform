@@ -17,6 +17,28 @@ const (
 	InvitationRolesTable = "identity_invitation_roles"
 )
 
+// TableNames is every table identity owns, in the order the DDL creates them.
+//
+// Seven rather than the four declared below as [Table] values: the three role
+// tables carry no columns worth describing here and are written by hand-rendered
+// DELETE/INSERT pairs, but a table nothing generates queries for is still a
+// table with rows in it. That is the distinction the querygen registry is built
+// around, and this is the list [Render] feeds it — see the comment there.
+//
+// identity/migrations is where a consumer gets these names rendered at their
+// prefix. This list is the canonical spelling, and migrations.Tables reads the
+// DDL, so the two are cross-checked against each other in this package's tests
+// rather than one being derived from the other.
+var TableNames = []string{
+	UsersTable,
+	UserRolesTable,
+	AccountsTable,
+	MembershipsTable,
+	MembershipRolesTable,
+	InvitationsTable,
+	InvitationRolesTable,
+}
+
 // ScopeColumn is the tenancy dimension every table here carries and every
 // statement is keyed on. It is a column, not a convention: an unscoped read of
 // this schema is not expressible, because there is no statement that omits it.
@@ -287,6 +309,16 @@ var Emitted = []*Table{&Users, &Accounts, &Invitations}
 func Render(d dialect.Dialect) string {
 	g := querygen.For(d)
 
+	// Every table identity owns, not the three the loop below emits for.
+	// StandardCRUD registers what it emits, which leaves memberships and the
+	// three role tables out — and those are tables with rows in them, so a
+	// consumer reading the registry back to truncate a database would miss four
+	// of seven. Registering the whole list here is what keeps that list fed by
+	// the tables existing rather than by what currently produces their SQL: the
+	// role tables are due to join Emitted, and nothing about this line has to
+	// change when they do.
+	querygen.RegisterTable(TableNames...)
+
 	var rendered []*querygen.Query
 	for _, table := range Emitted {
 		rendered = append(rendered, g.StandardCRUD(table.Name, table.Columns, table.Options()...)...)
@@ -295,6 +327,7 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, keyedInvitationLists(g)...)
 	rendered = append(rendered, createdAtReads(g)...)
 	rendered = append(rendered, keyedUserReads(g)...)
+	rendered = append(rendered, keyedAccountReads(g)...)
 	rendered = append(rendered, keyedMembershipReads(g)...)
 	rendered = append(rendered, junctionLists(g)...)
 	rendered = append(rendered, usernamePrefixSearch(g)...)
@@ -527,6 +560,31 @@ func keyedUserReads(g *querygen.Generator) []*querygen.Query {
 	}
 
 	return rendered
+}
+
+// keyedAccountReads is the one account read that keys on something other than
+// the id: an account the user owns.
+//
+// It is the guard behind ArchiveUser, and it is a read rather than an existence
+// check because the answer a caller needs is which account blocked. An owner
+// archived out from under their accounts leaves them live and owned by a user
+// every scoped read reports as absent, so the refusal has to name the account
+// whose ownership has to move first — the same sentence RemoveMembership's
+// refusal already carries, which can name it because it was handed it.
+//
+// A user may own several; the ordering is what makes "one of them" a row rather
+// than whichever one the planner reached first, so a refusal repeated against
+// an unchanged directory names the same account twice.
+func keyedAccountReads(g *querygen.Generator) []*querygen.Query {
+	return []*querygen.Query{
+		g.ReadQuery("GetOwnedAccountIDForUser", AccountsTable, Accounts.KeyedColumns(),
+			querygen.Read{
+				Projection: []string{querygen.IDColumn},
+				Order:      querygen.IDColumn,
+			},
+			querygen.Match{Column: ScopeColumn},
+			querygen.Match{Column: ownerUserIDColumn}),
+	}
 }
 
 // keyedMembershipReads is the three reads over the table that has no standard

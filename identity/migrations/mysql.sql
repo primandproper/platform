@@ -85,6 +85,17 @@ CREATE INDEX {{PREFIX}}identity_user_roles_role_idx
 -- addressed to. Its name is deliberately not unique — two unrelated
 -- organizations may both be called Acme, and refusing the second registration
 -- fails for a reason the registrant cannot act on.
+--
+-- owner_user_id is the one belongs-to column in this schema with no REFERENCES
+-- clause, and the omission is the decision rather than the oversight it looks
+-- like. Neither behavior an FK offers is the one this column wants: ON DELETE
+-- CASCADE would destroy an organization, its invoices and every other member's
+-- work because one member exercised a right to be forgotten, and RESTRICT would
+-- refuse that erasure outright — a right-to-be-forgotten transaction spans
+-- every domain and has to commit. What is left is a reference the application
+-- keeps: identity refuses to archive a user who still owns a live account, and
+-- documents that an erasure leaves this column naming an id that no longer
+-- exists. See identity.Store's ArchiveUser and EraseUser.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_accounts (
     id                              VARCHAR(64) NOT NULL PRIMARY KEY,
     scope                           VARCHAR(255) NOT NULL,

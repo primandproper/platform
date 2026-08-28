@@ -79,17 +79,28 @@ type ClaimedDispatch struct {
 // makes Dispatch atomic with the state change that caused it. The rest own
 // their own statements.
 //
-// Every method reaching an endpoint or a delivery takes a tenancy.Scope, or
-// reads one off the value it was handed, and none of them offers an unscoped
-// variant — an implementation must filter on it rather than treat it as a hint.
+// Every method reaching an endpoint, a subscription, or a delivery takes a
+// tenancy.Scope, or reads one off the value it was handed, and none of them
+// offers an unscoped variant — an implementation must filter on it rather than
+// treat it as a hint. A subscription carries no scope of its own; its owner is
+// its endpoint's, and the scope is reached through that, the same way the
+// delivery log reaches it through the delivery.
+//
 // The exceptions are the worker's own machinery below Enqueue: Claim, Backlog,
 // and Reap deliberately span every scope, because one worker drains one queue
 // for the whole deployment, and MarkDelivered, RecordFailure, RecordAttempt, and
 // Requeue address a dispatch the worker or an operator is already holding. Those
 // are the component servicing itself, not a consumer read.
 type Store interface {
-	// SaveEndpoint creates or replaces an endpoint and its subscriptions, under
-	// the scope the endpoint carries.
+	// SaveEndpoint creates or replaces an endpoint, under the scope the endpoint
+	// carries, and reconciles its subscriptions against the set it names.
+	//
+	// Reconciles rather than replaces: a subscription the endpoint already has is
+	// kept, with its identity and its creation time; one it names for the first
+	// time is created; one it no longer names is archived rather than deleted, so
+	// that a subscription an endpoint has ended is still something the delivery
+	// log can be read against. It fills the endpoint's Subscriptions with the rows
+	// that are live afterwards, IDs included.
 	SaveEndpoint(ctx context.Context, endpoint *Endpoint) error
 	// GetEndpoint reads one of scope's endpoints, secrets included. It returns an
 	// error wrapping database/sql.ErrNoRows when the endpoint does not exist —
@@ -101,7 +112,44 @@ type Store interface {
 	// ArchiveEndpoint retires one of scope's endpoints. Its delivery history is
 	// retained: the attempts log outlives the endpoint, because "what did we send
 	// them" is asked most often after someone has been removed.
+	//
+	// Its subscriptions are left as they are. An archived endpoint is excluded
+	// from fan-out by its own archived_at, so archiving them too would buy
+	// nothing and would lose which event types it was subscribed to if it is ever
+	// re-registered.
 	ArchiveEndpoint(ctx context.Context, scope tenancy.Scope, endpointID string) error
+
+	// AddSubscription subscribes one of scope's endpoints to eventType and
+	// returns the resulting row.
+	//
+	// It is idempotent on the (endpoint, event type) pair: subscribing to
+	// something the endpoint already subscribes to returns the existing row, and
+	// re-subscribing to something it archived revives that row rather than
+	// minting a second one for the same pair. It returns an error wrapping
+	// database/sql.ErrNoRows when the endpoint does not exist in scope.
+	//
+	// The catalog is not checked here — a Store has none. StoreDispatcher.Subscribe
+	// is the entry point that gates on it, and it is the one an application should
+	// call, for the reason Register exists rather than SaveEndpoint being public
+	// API: an accepted subscription to an event type nothing publishes is an
+	// endpoint that never fires and no signal explaining why.
+	AddSubscription(ctx context.Context, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error)
+	// GetSubscription reads one of scope's subscriptions, archived ones included —
+	// "when did they stop receiving this" is a question about an archived row. It
+	// returns an error wrapping database/sql.ErrNoRows when the subscription does
+	// not exist under one of scope's endpoints.
+	GetSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*Subscription, error)
+	// ListSubscriptions pages the live subscriptions of one of scope's endpoints.
+	ListSubscriptions(ctx context.Context, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Subscription], error)
+	// ArchiveSubscription retires one of scope's subscriptions, so the endpoint
+	// stops receiving that event type without its other subscriptions, its
+	// delivery history, or its identity being touched.
+	//
+	// This is the method a flat event list cannot offer. Against one, "stop
+	// sending me order.created" can only be expressed as a rewrite of the whole
+	// set, which loses when it happened and races any concurrent edit of the same
+	// endpoint.
+	ArchiveSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
 
 	// EndpointsForEvent returns the enabled, unarchived endpoints in scope that
 	// are subscribed to eventType, using the caller's executor.

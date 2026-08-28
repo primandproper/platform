@@ -48,6 +48,7 @@ var conventional = map[string]renderer{
 	"authz_permissions":      authzmigrations.Statements,
 	"operations":             operationsmigrations.Statements,
 	"webhooks_endpoints":     webhooksmigrations.Statements,
+	"webhooks_subscriptions": webhooksmigrations.Statements,
 	"webhooks_deliveries":    webhooksmigrations.Statements,
 	"webhooks_dispatches":    webhooksmigrations.Statements,
 	"webhooks_attempts":      webhooksmigrations.Statements,
@@ -98,7 +99,6 @@ var exempt = map[string]exemption{
 	"identity_user_roles":       {identitymigrations.Statements, "mapping rows, rewritten wholesale with their user"},
 	"identity_membership_roles": {identitymigrations.Statements, "mapping rows, rewritten wholesale with their membership"},
 	"identity_invitation_roles": {identitymigrations.Statements, "mapping rows, rewritten wholesale with their invitation"},
-	"webhooks_subscriptions":    {webhooksmigrations.Statements, "mapping rows, rewritten wholesale with their endpoint"},
 
 	// The OAuth credential tables, which are the sweeper shape again: a client
 	// registration or a hashed credential lapses at its own expires_at and is
