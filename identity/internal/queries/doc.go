@@ -84,10 +84,20 @@ them:
   - the three single-user reads keyed on a username, an email address, or a
     verification token
   - the three membership reads, all keyed on the (user, account) pair
+  - the four batched reads, each keyed on a whole set of keys at once
 
 The membership ones are why Memberships is declared at all despite emitting no
 standard query, and why [Table.KeyedColumns] exists: querygen derives a
 statement's id predicate from the column list it is handed, so a read that keys
 on the natural key hands over the list without the id while still projecting it.
+
+The batched ones are the same idiom used for a different predicate. Three of
+them read a role table — the three tables here that are not declared as
+[Table]s, because a role row is two columns hanging off a parent and gets no
+standard query at all — and the fourth reads the users a page's rows refer to,
+from a column list without archived_at, because a hydration read that hides a
+soft-deleted user turns "created by a departed colleague" into "created by
+nobody". What none of them can express is the empty batch, which is why the
+store answers that before it calls: see [querygen.Generator.SetReadQuery].
 */
 package queries

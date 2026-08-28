@@ -220,6 +220,35 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		test.SliceEmpty(t, empty)
 	})
 
+	t.Run("a batch read hydrates references to archived users", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		ada := createUser(t, store, newUser("ada"))
+		gone := createUser(t, store, newUser("brian"))
+
+		must.NoError(t, store.ArchiveUser(t.Context(), testScope, gone.ID))
+
+		// The batch read is what a caller hydrates "created by" references
+		// through, so a soft-deleted author comes back rather than being
+		// silently dropped — which would turn "created by a departed
+		// colleague" into "created by nobody". Every other read of a user
+		// excludes them, so this is the one place the statement is rendered
+		// from a column list without archived_at in it.
+		users, err := store.ListUsersByIDs(t.Context(), testScope, []string{ada.ID, gone.ID})
+		must.NoError(t, err)
+		must.SliceLen(t, 2, users)
+
+		byID := map[string]*User{}
+		for _, user := range users {
+			byID[user.ID] = user
+		}
+
+		must.MapContainsKey(t, byID, gone.ID)
+		test.NotNil(t, byID[gone.ID].ArchivedAt)
+		test.Nil(t, byID[ada.ID].ArchivedAt)
+	})
+
 	t.Run("hides an account from another directory", func(t *testing.T) {
 		t.Parallel()
 

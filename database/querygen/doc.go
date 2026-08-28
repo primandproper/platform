@@ -81,8 +81,10 @@ guessed from another, so they are written down here:
 	Cursor                   cursor             page_cursor
 	MaxResponseSize          limit              result_limit
 
-The bulk stamp binds one argument that is not a filter field at all: ids, the
-list of row ids to mark as indexed.
+Two statements bind an argument that is not a filter field at all: ids, a whole
+set bound at once — the rows the bulk stamp marks as indexed, and the keys a
+batched read answers for. A [SetKey] can name it something else where the set is
+not of ids.
 
 The keyset position is page_cursor rather than cursor because CURSOR is a
 reserved word in MySQL — see filtering's own constants for why the name moved
@@ -280,6 +282,57 @@ leaves whatever wildcard somebody typed a wildcard, so a prefix of "%" returns
 every row — which reads as a working search returning too much rather than as a
 bug.
 
+# The batched read
+
+Every N+1 read has the same shape underneath: a page of rows, and a second table
+holding what hangs off each of them. Read one key at a time it is thirty round
+trips returning two rows each — a roster page whose members' roles are fetched
+inside the loop that converts rows. [Generator.SetReadQuery] is that read done
+once:
+
+	roles := querygen.For(dialect.Postgres).SetReadQuery(
+		"ListMembershipRolesByMembershipIDs", "identity_membership_roles",
+		[]string{"membership_id", "role"},
+		querygen.Read{Order: "role"},
+		querygen.SetKey{Column: "membership_id"})
+
+The set is one argument on Postgres, which has arrays, and a sqlc.slice
+expansion on the other two, which do not — the same divergence the bulk stamp
+carries, and the same []string on either side of it. What the caller writes does
+not move.
+
+Three things about it are the statement's rather than a caller's.
+
+The ordering is the keyed column's, so a consumer walks the rows once and sees
+one key's rows together. [Read.Order] is the tie-break inside a group rather
+than the order of the page.
+
+The set is rendered after every [Match], and that is a requirement rather than a
+layout choice: an expanded set is a run of bare markers, SQLite numbers a bare
+marker one past the highest it has seen, and an argument bound after one
+collides with an element of the set — matching nothing, quietly. Rendering it
+last is what keeps one argument order right on all three engines.
+
+And the empty batch is the caller's to answer before the query runs. There is no
+text to emit for a zero-length set — `IN ()` is a syntax error on two dialects —
+so what an empty slice does is a convention of whatever generated the Go, and
+the conventional answer is a NULL that matches no row. That is a round trip
+whose answer was known before it was sent, on a path whose whole purpose is
+saving round trips. Nothing here can enforce the contract, because the arity is
+the caller's and this package emits text.
+
+Whether archived rows come back is decided the way every other predicate here is
+decided — by the column list. A read whose columns carry archived_at excludes
+them; a hydration read naming rows that other rows already point at hands over a
+column list without it, and keeps them, because hiding a soft-deleted user turns
+"created by a departed colleague" into "created by nobody".
+
+It is corpus-only like everything else here — rendered into a consumer's .sql,
+checked by sqlc, and executed through the method sqlc generates — but for this
+shape that was never going to be a choice: a set reference has no fixed number
+of markers, because sqlc expands it per call, so the statement's arity belongs
+to the values and only the generated method can hold it.
+
 # The table registry
 
 Some of what a consumer needs per table is not a query. The TRUNCATE an
@@ -372,7 +425,8 @@ of the difference is a handful of expressions: the case-insensitive substring
 match, the pattern a prefix search's LIKE binds, the byte-ordered comparison the
 reindex scan walks, the sentinel an unset time bound coalesces to, the precision
 the current time is stored at, the nullable boolean the archived toggle binds,
-the page-size clause, and the set membership the bulk stamp keys on. They live
+the page-size clause, and the set membership the bulk stamp and the batched read
+key on. They live
 together in generator.go, as
 unexported methods, so that what this package assumes about a server is one
 screen rather than a grep for casts. The statement shapes those land in, the
@@ -401,9 +455,10 @@ What a consumer sees is one set of sqlc methods with one set of signatures
 whichever dialect generated them, so the application code above them is written
 once. Two exceptions, both from sqlc's own inference rather than from anything
 here: the archived toggle carries a ::boolean on Postgres and cannot elsewhere,
-because MySQL and SQLite have no boolean type to cast to; and the bulk stamp's
-id set is a bound array on Postgres and a sqlc.slice expansion on the other two,
-which changes what reaches the server and not the []string a caller passes.
+because MySQL and SQLite have no boolean type to cast to; and a bound set — the
+bulk stamp's ids, a batched read's keys — is an array on Postgres and a
+sqlc.slice expansion on the other two, which changes what reaches the server and
+not the []string a caller passes.
 
 # What each dialect asks of a schema
 

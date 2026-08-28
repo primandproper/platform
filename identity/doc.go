@@ -166,7 +166,16 @@ the row it comes back as is generated rather than paired to a Scan by eye. The
 username prefix search is a rendered pair the same way: the page and the count
 beside it, which is the one read here whose statement is not a filtered list.
 
-What remains hand-written is thirteen builders and the runtime binder they
+The batched reads come from the same place, and they were the last reads that
+did not. A page's rows point at users — "created by" — and a page of users,
+memberships or invitations has roles hanging off it; read one key at a time
+that is a round trip per row, and the loop converting rows is where that shape
+arrives without anybody choosing it. Each is a read keyed on a bound set, which
+querygen renders as a bound array on Postgres and a placeholder expansion on
+the other two, under one Go signature. What each still owes its caller is the
+empty batch, answered before the query rather than by it.
+
+What remains hand-written is eleven builders and the runtime binder they
 render through, and they are worth counting by shape rather than by name,
 because a shape is what the port still owes a generator. Three are predicates
 querygen has no form for: a guard that is an existence and an absence rather
@@ -176,14 +185,13 @@ to exclude; and the default-flag clear, whose predicate excludes the membership
 being set rather than matching one. One is an update whose SET list is chosen
 per call, the agreements a registration accepts in a single statement. Two are
 DELETEs rather than archivals — the erasure a subject can demand, and the role
-clear that a wholesale replacement runs before its insert. Three are bound to a
-slice and are therefore not a statement until the call site knows how many: the
-users behind a batch of ids and the roles behind a batch of owners, each an IN
-list as wide as its argument count, and the multi-row insert on the other side
-of that role replacement. The last four are membership statements addressed by
-the (user, account) pair — an archival, a default set, a count of what is live —
-and the archive-by-side, whose column is chosen per call because one statement
-ends a user's memberships and an account's.
+clear that a wholesale replacement runs before its insert. One is bound to a
+slice and is therefore not a statement until the call site knows how many: the
+multi-row insert on the other side of that role replacement. The last four are
+membership statements addressed by the (user, account) pair — an archival, a
+default set, a count of what is live — and the archive-by-side, whose column is
+chosen per call because one statement ends a user's memberships and an
+account's.
 */
 package identity
 

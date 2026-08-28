@@ -106,14 +106,18 @@ func (m Match) argument() string {
 // The zero value is the standard get: the whole column list projected, and no
 // ordering, because the key names one row.
 type Read struct {
-	// Order names a column the read sorts ascending by and takes the first row
-	// of.
+	// Order names a column the read sorts ascending by.
 	//
-	// It is for the key that admits more than one row — "another live
-	// membership for this user" — where without it the row answered is
-	// whichever the planner reached first, and a :one statement discards the
-	// rest after dragging them across the wire. Empty is a key that identifies
-	// a row, which needs neither.
+	// In a single-row read it is what picks the row: the statement orders by it
+	// and takes the first, which is for the key that admits more than one row —
+	// "another live membership for this user" — where without it the row
+	// answered is whichever the planner reached first, and a :one statement
+	// discards the rest after dragging them across the wire. Empty is a key
+	// that identifies a row, which needs neither.
+	//
+	// In a batched read it is the tie-break inside one key's rows, since that
+	// statement's first ordering term is the keyed column itself — see
+	// [Generator.SetReadQuery].
 	Order string
 	// Projection is the columns the SELECT lists, in order. Empty projects the
 	// column list the statement was rendered from.

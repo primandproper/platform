@@ -298,21 +298,31 @@ func (g *Generator) limitClause() string {
 	return fmt.Sprintf("LIMIT COALESCE(sqlc.narg(%s), %d)", LimitArg, filtering.DefaultQueryFilterLimit)
 }
 
-// idSetPredicate matches the id column against a bound set of ids.
+// setPredicate matches a column against a bound set of values.
 //
 // Postgres has arrays and takes the whole set as one argument, which is what
 // keeps a flush of a hundred ids a statement with one parameter rather than a
 // hundred. The other two have no array type, so the set is expanded by sqlc into
-// as many placeholders as there are ids — sqlc.slice, which sqlc documents for
-// exactly these two engines. The generated Go signature is []string either way,
-// so this is a difference in what reaches the server rather than in what a
+// as many placeholders as there are values — sqlc.slice, which sqlc documents
+// for exactly these two engines. The generated Go signature is []string either
+// way, so this is a difference in what reaches the server rather than in what a
 // caller writes.
-func (g *Generator) idSetPredicate() string {
+//
+// The Postgres cast is to text[], which makes the set a set of text on every
+// dialect. That is this module's key convention rather than a decision taken
+// here — ids are xids and natural keys are strings — and it is what
+// Generator.SetReadQuery documents to its callers.
+//
+// The column is a parameter because two statements key on a set and they key on
+// different columns: the bulk stamp keys on the row's own id, and a batched read
+// keys on whatever the child rows hang from. One rendering, so the two cannot
+// come to disagree about how a set reaches a server.
+func (g *Generator) setPredicate(column, argument string) string {
 	if g.dialect == dialect.Postgres {
-		return fmt.Sprintf("%s = ANY(sqlc.arg(%s)::text[])", IDColumn, IDsArg)
+		return fmt.Sprintf("%s = ANY(sqlc.arg(%s)::text[])", column, argument)
 	}
 
-	return fmt.Sprintf("%s IN (sqlc.slice(%s))", IDColumn, IDsArg)
+	return fmt.Sprintf("%s IN (sqlc.slice(%s))", column, argument)
 }
 
 // conflictHeader opens an upsert's conflict branch: everything between the

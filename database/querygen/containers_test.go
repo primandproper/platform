@@ -355,6 +355,62 @@ func searchValues(prefix string) map[string]any {
 	}
 }
 
+// widgetSetReads is the batched read in its two shapes: the one that leaves
+// archived rows out because the column list carries archived_at, and the
+// hydration read that keeps them because it does not.
+//
+// Both key on the owner as well as the set — a batched read is still a consumer
+// read — and both are named here so the prepare pass covers them.
+func widgetSetReads(d dialect.Dialect) []*Query {
+	g := For(d)
+
+	return []*Query{
+		g.SetReadQuery("ListWidgetsByIDs", widgetsTable, widgetsColumns(),
+			Read{}, SetKey{Column: IDColumn}, Match{Column: BelongsToAccountColumn}),
+
+		g.SetReadQuery("ListWidgetsByIDsIncludingArchived", widgetsTable, without(widgetsColumns(), ArchivedAtColumn),
+			Read{Projection: widgetsColumns()}, SetKey{Column: IDColumn}, Match{Column: BelongsToAccountColumn}),
+	}
+}
+
+// setReadWidgets runs one of the batched reads, returning the ids in the order
+// the statement produced them — which is the assertion, since a consumer
+// grouping rows by the key relies on that order.
+//
+// Both reads project the whole table, which is what a hydration read wants: the
+// rows themselves rather than a second round trip to fetch them. Every column
+// but the id is scanned into an any, for the reason listWidgets gives — the
+// three drivers hand back a stored timestamp as three different Go types and
+// none of this is about which.
+func setReadWidgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, query string, values map[string]any) []string {
+	tb.Helper()
+
+	rewritten, expanded := expandSlices(tb, named(tb, widgetSetReads(d), query).Content, values)
+	statement, order := bindArguments(d, rewritten)
+
+	rows, err := db.QueryContext(ctx, statement, argumentsFor(tb, order, expanded)...)
+	must.NoError(tb, err)
+
+	defer func() { must.NoError(tb, rows.Close()) }()
+
+	var ids []string
+
+	for rows.Next() {
+		var (
+			id                                                 string
+			name, account, indexed, created, updated, archived any
+		)
+
+		must.NoError(tb, rows.Scan(&id, &name, &account, &indexed, &created, &updated, &archived))
+
+		ids = append(ids, id)
+	}
+
+	must.NoError(tb, rows.Err())
+
+	return ids
+}
+
 func TestQuerygen_Postgres(T *testing.T) {
 	T.Parallel()
 
@@ -406,6 +462,10 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 		}
 
 		for _, query := range widgetSearchQueries(d) {
+			prepare(t, ctx, d, db, query)
+		}
+
+		for _, query := range widgetSetReads(d) {
 			prepare(t, ctx, d, db, query)
 		}
 	})
@@ -693,6 +753,35 @@ func runWidgetSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sq
 		affected, err := result.RowsAffected()
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), affected)
+	})
+
+	t.Run("the batched read answers the set it was handed, in key order", func(t *testing.T) {
+		// Four ids in the order a caller happened to collect them: two live
+		// rows of this account, the row this account does not own, and the one
+		// archived above.
+		batch := []string{"w_003", "w_001", "w_005", "w_004"}
+
+		ids := setReadWidgets(t, ctx, d, db, "ListWidgetsByIDs", map[string]any{
+			BelongsToAccountColumn: testAccount,
+			IDsArg:                 batch,
+		})
+
+		// The owner predicate leaves w_005 out and the archived predicate
+		// leaves w_004 out, and what comes back is in the key's order rather
+		// than in the caller's — which is what lets a consumer walk the rows
+		// once and group them.
+		test.Eq(t, []string{"w_001", "w_003"}, ids)
+
+		// The same batch through the read whose column list omits archived_at:
+		// the archived row comes back, because a hydration read naming rows
+		// other rows already point at turns "created by a departed colleague"
+		// into "created by nobody" when it hides them.
+		hydrated := setReadWidgets(t, ctx, d, db, "ListWidgetsByIDsIncludingArchived", map[string]any{
+			BelongsToAccountColumn: testAccount,
+			IDsArg:                 batch,
+		})
+
+		test.Eq(t, []string{"w_001", "w_003", "w_004"}, hydrated)
 	})
 
 	t.Run("create refuses to supply a database-owned column", func(t *testing.T) {

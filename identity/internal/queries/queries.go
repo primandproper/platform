@@ -62,6 +62,22 @@ const (
 	UserEmailVerificationTokenColumn = "email_address_verification_token"
 )
 
+// The role tables' columns. Each of the three is a child set of one parent row
+// — a user, a membership, an invitation — keyed on that parent and carrying one
+// role per row, with no id, no scope and no timestamps of its own.
+//
+// They carry no scope because they are not read on their own: a role row is
+// reached through the parent whose id it names, and that parent is scoped. What
+// keys the batched reads below is the parent column, which is why each is
+// spelled here rather than at the store — the read that binds it and the write
+// that assigns it are two files.
+const (
+	UserRoleOwnerColumn       = "user_id"
+	MembershipRoleOwnerColumn = "membership_id"
+	InvitationRoleOwnerColumn = "invitation_id"
+	RoleColumn                = "role"
+)
+
 // The two columns a membership is keyed on, unique on the pair live and
 // archived alike. Together they are the row's natural key — one live membership
 // per (user, account) pair — which is why every membership statement addresses
@@ -329,6 +345,7 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, keyedUserReads(g)...)
 	rendered = append(rendered, keyedAccountReads(g)...)
 	rendered = append(rendered, keyedMembershipReads(g)...)
+	rendered = append(rendered, batchedReads(g)...)
 	rendered = append(rendered, junctionLists(g)...)
 	rendered = append(rendered, usernamePrefixSearch(g)...)
 	rendered = append(rendered, fieldWrites(g)...)
@@ -625,6 +642,65 @@ func keyedMembershipReads(g *querygen.Generator) []*querygen.Query {
 			},
 			scope, user, querygen.Match{Column: MembershipAccountColumn, Exclude: true}),
 	}
+}
+
+// batchedReads is the four reads that answer for a whole batch of keys at once:
+// the users a page's rows refer to, and the roles hanging off a page of users,
+// memberships or invitations.
+//
+// Each is the read a page would otherwise make one query at a time. A roster of
+// thirty members whose roles were fetched inside the loop that converts rows is
+// thirty round trips returning two rows each, and the loop is where that shape
+// arrives without anybody choosing it — which is why the batched form is the
+// one that exists rather than an optimization applied later.
+//
+// All four were hand-assembled IN lists until querygen learned the shape, and
+// they were the last reads in this package that no generator could render. The
+// store still owes them the one thing the statement cannot express: an empty
+// batch, answered without a query rather than sent as one whose answer is
+// already known — see querygen.Generator.SetReadQuery.
+func batchedReads(g *querygen.Generator) []*querygen.Query {
+	// The users a page's rows point at, read for hydration rather than as a
+	// listing: "who created each of these rows". The column list has no
+	// archived_at in it, which is how a statement says the archived predicate
+	// does not apply — hiding a soft-deleted user here turns "created by a
+	// departed colleague" into "created by nobody". The projection is still the
+	// whole table, archived_at included, so a caller can see that they are
+	// looking at one.
+	rendered := []*querygen.Query{
+		g.SetReadQuery("ListUsersByIDs", UsersTable,
+			Users.ColumnsExcept(querygen.ArchivedAtColumn),
+			querygen.Read{Projection: Users.Columns},
+			querygen.SetKey{Column: querygen.IDColumn},
+			querygen.Match{Column: ScopeColumn}),
+	}
+
+	// Statement name to the table and the parent column it keys on, in the
+	// order the file lists them. One named read each rather than one builder
+	// over a table parameter, for the reason keyedUserReads enumerates: a query
+	// name is a Go method name, and a method name is not a parameter.
+	//
+	// None carries a scope: a role table has no scope column, because the
+	// parent whose id keys the read is the scoped row. The store reaches these
+	// with ids it read through a scoped statement.
+	named := [][3]string{
+		{"ListUserRolesByUserIDs", UserRolesTable, UserRoleOwnerColumn},
+		{"ListMembershipRolesByMembershipIDs", MembershipRolesTable, MembershipRoleOwnerColumn},
+		{"ListInvitationRolesByInvitationIDs", InvitationRolesTable, InvitationRoleOwnerColumn},
+	}
+
+	for i := range named {
+		// Ordered by the parent and then by the role, which is what makes the
+		// roles of one owner arrive together and in a stable order — a set the
+		// caller compares against another set, or renders, should not come back
+		// in whichever order the planner found convenient.
+		rendered = append(rendered, g.SetReadQuery(named[i][0], named[i][1],
+			[]string{named[i][2], RoleColumn},
+			querygen.Read{Order: RoleColumn},
+			querygen.SetKey{Column: named[i][2]}))
+	}
+
+	return rendered
 }
 
 // junctionLists is the three reads that cross the membership junction: an

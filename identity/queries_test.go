@@ -93,7 +93,6 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 		t := newTables("")
 
 		rendered := map[string]func() (string, []any){
-			"selectUsersByIDs":         func() (string, []any) { return t.buildSelectUsersByIDs(d, scope, []string{"u1", "u2"}) },
 			"selectUserIDByField":      func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "u1") },
 			"selectUserIDByFieldNoExc": func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "") },
 			"markTwoFactorVerified":    func() (string, []any) { return t.buildMarkTwoFactorVerified(d, scope, "u1", now) },
@@ -114,9 +113,6 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 			"deleteRoles": func() (string, []any) { return buildDeleteRoles(d, t.membershipRoles, membershipIDColumn, "m1") },
 			"insertRoles": func() (string, []any) {
 				return buildInsertRoles(d, t.membershipRoles, membershipIDColumn, "m1", []string{"a", "b"})
-			},
-			"selectRoles": func() (string, []any) {
-				return buildSelectRoles(d, t.membershipRoles, membershipIDColumn, []string{"m1", "m2"})
 			},
 		}
 
@@ -177,7 +173,6 @@ func ptr[T any](v T) *T { return new(v) }
 func TestProjections_MatchTheColumnLists(t *testing.T) {
 	t.Parallel()
 
-	test.EqOp(t, strings.Join(queries.Users.Columns, ", "), userProjection)
 	test.EqOp(t, strings.Join(queries.Accounts.Columns, ", "), accountProjection)
 	test.EqOp(t, strings.Join(queries.Memberships.Columns, ", "), membershipProjection)
 	test.EqOp(t, strings.Join(queries.Invitations.Columns, ", "), invitationProjection)

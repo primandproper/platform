@@ -174,40 +174,33 @@ func requireExecutor(q database.SQLQueryExecutor) error {
 	return nil
 }
 
-// rolesFor reads the roles for a batch of memberships or invitations at once,
-// keyed by owner ID.
+// rolesFor groups a batched role read by owner, and answers an empty batch
+// without running it.
 //
-// Batched deliberately: a roster page of thirty members read one query at a time
-// is thirty round trips returning two rows each, and that is the shape a page
-// read arrives at when roles are fetched inside the loop that converts rows.
-// An empty ownerIDs returns an empty map without querying, because an IN () is
-// a syntax error in two of the three dialects.
-func (s *SQLStore) rolesFor(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	table, idColumn string,
-	ownerIDs []string,
-) (map[string][]string, error) {
+// The read itself is the caller's closure rather than a table this takes, for
+// the reason the keyed user reads enumerate: a query name is a Go method name,
+// so the three role tables are three generated statements rather than one
+// parameterized by a table. What is here is what the three share — the empty
+// batch, and the grouping every caller would otherwise write.
+//
+// Batched deliberately: a roster page of thirty members read one query at a
+// time is thirty round trips returning two rows each, and that is the shape a
+// page read arrives at when roles are fetched inside the loop that converts
+// rows. The generated statement is querygen's batched read, ordered by the
+// owner and then by the role — see querygen.Generator.SetReadQuery.
+//
+// The empty batch is answered here because the statement cannot express one —
+// the SQL the corpus carries has no rendering of an empty set, and what the
+// generated code substitutes for one is a predicate matching no row. Sending it
+// is a round trip whose answer was known before it left, on the read that
+// exists to save round trips.
+func rolesFor(ownerIDs []string, read func([]string) ([]ownedRole, error)) (map[string][]string, error) {
 	byOwner := map[string][]string{}
 	if len(ownerIDs) == 0 {
 		return byOwner, nil
 	}
 
-	query, args := buildSelectRoles(s.dialect, table, idColumn, ownerIDs)
-
-	type roleRow struct {
-		ownerID string
-		role    string
-	}
-
-	rows, err := database.ScanAll(ctx, q, "identity role", query, args, func(scanner database.Scanner) (roleRow, error) {
-		var row roleRow
-		if scanErr := scanner.Scan(&row.ownerID, &row.role); scanErr != nil {
-			return roleRow{}, scanErr
-		}
-
-		return row, nil
-	})
+	rows, err := read(ownerIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -306,11 +299,13 @@ const (
 	emailAddressColumn = queries.UserEmailAddressColumn
 )
 
-// userIDColumn is what the service-role table keys on.
-const userIDColumn = "user_id"
-
-// membershipIDColumn is what the membership role table keys on.
-const membershipIDColumn = "membership_id"
+// The two columns the role tables key on, aliased from the package that
+// declares the schema as data for the reason the two above are: the write that
+// assigns a role and the statement that reads one back are two files.
+const (
+	userIDColumn       = queries.UserRoleOwnerColumn
+	membershipIDColumn = queries.MembershipRoleOwnerColumn
+)
 
 // liveUser is what the three single-user reads keyed on something other than the
 // id share: the scope check, the not-found mapping, the service roles, and the
@@ -359,7 +354,14 @@ func (s *SQLStore) attachServiceRoles(ctx context.Context, q database.SQLQueryEx
 		ids = append(ids, user.ID)
 	}
 
-	byUser, err := s.rolesFor(ctx, q, s.tables.userRoles, userIDColumn, ids)
+	byUser, err := rolesFor(ids, func(ids []string) ([]ownedRole, error) {
+		rows, err := s.q.ListUserRolesByUserIDs(ctx, q, identitydb.ListUserRolesByUserIDsParams{IDs: ids})
+		if err != nil {
+			return nil, err
+		}
+
+		return userRolesFromRows(rows), nil
+	})
 	if err != nil {
 		return err
 	}
@@ -433,7 +435,14 @@ func (s *SQLStore) attachMembershipRoles(ctx context.Context, q database.SQLQuer
 		ids = append(ids, membership.ID)
 	}
 
-	byMembership, err := s.rolesFor(ctx, q, s.tables.membershipRoles, membershipIDColumn, ids)
+	byMembership, err := rolesFor(ids, func(ids []string) ([]ownedRole, error) {
+		rows, err := s.q.ListMembershipRolesByMembershipIDs(ctx, q, identitydb.ListMembershipRolesByMembershipIDsParams{IDs: ids})
+		if err != nil {
+			return nil, err
+		}
+
+		return membershipRolesFromRows(rows), nil
+	})
 	if err != nil {
 		return err
 	}
