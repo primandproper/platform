@@ -29,11 +29,47 @@ WHERE archived_at IS NULL
 	AND id = $1
 	AND scope = $2`
 
+const archiveMembershipPostgreSQL = `UPDATE {{prefix}}identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = $1
+	AND belongs_to_user = $2
+	AND belongs_to_account = $3`
+
+const archiveMembershipsForAccountPostgreSQL = `UPDATE {{prefix}}identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = $1
+	AND belongs_to_account = $2`
+
+const archiveMembershipsForUserPostgreSQL = `UPDATE {{prefix}}identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = $1
+	AND belongs_to_user = $2`
+
 const archiveUserPostgreSQL = `UPDATE {{prefix}}identity_users SET
 	archived_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
 	AND id = $1
 	AND scope = $2`
+
+const clearMembershipDefaultAccountsForAccountPostgreSQL = `UPDATE {{prefix}}identity_memberships SET
+	default_account = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = $2
+	AND belongs_to_account = $3
+	AND default_account <> $1`
+
+const clearMembershipDefaultAccountsForUserPostgreSQL = `UPDATE {{prefix}}identity_memberships SET
+	default_account = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = $2
+	AND belongs_to_user = $3
+	AND default_account <> $1
+	AND belongs_to_account <> COALESCE($4, '')`
 
 const countSearchUsersByUsernamePostgreSQL = `SELECT COUNT(*)
 FROM {{prefix}}identity_users
@@ -242,6 +278,15 @@ WHERE {{prefix}}identity_memberships.archived_at IS NULL
 	AND {{prefix}}identity_memberships.scope = $1
 	AND {{prefix}}identity_memberships.belongs_to_user = $2
 	AND {{prefix}}identity_memberships.belongs_to_account = $3`
+
+const getMembershipIdforUserPostgreSQL = `SELECT
+	{{prefix}}identity_memberships.id
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = $1
+	AND {{prefix}}identity_memberships.belongs_to_user = $2
+ORDER BY {{prefix}}identity_memberships.id ASC
+LIMIT 1`
 
 const getOwnedAccountIdforUserPostgreSQL = `SELECT
 	{{prefix}}identity_accounts.id
@@ -1371,6 +1416,20 @@ WHERE archived_at IS NULL
 	AND id = $4
 	AND scope = $5`
 
+const recordUserPrivacyPolicyAgreementPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	last_accepted_privacy_policy = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $2
+	AND scope = $3`
+
+const recordUserTermsOfServiceAgreementPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	last_accepted_terms_of_service = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $2
+	AND scope = $3`
+
 const searchUsersByUsernamePostgreSQL = `SELECT
 	{{prefix}}identity_users.id,
 	{{prefix}}identity_users.scope,
@@ -1442,6 +1501,14 @@ const setAccountPaymentProcessorCustomerIDPostgreSQL = `UPDATE {{prefix}}identit
 WHERE archived_at IS NULL
 	AND id = $2
 	AND scope = $3`
+
+const setMembershipDefaultAccountPostgreSQL = `UPDATE {{prefix}}identity_memberships SET
+	default_account = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND scope = $2
+	AND belongs_to_user = $3
+	AND belongs_to_account = $4`
 
 const setUserEmailAddressVerificationTokenPostgreSQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = $1,
@@ -1536,142 +1603,160 @@ ON CONFLICT (belongs_to_user, belongs_to_account) DO UPDATE SET
 
 // postgresqlQueries answers every query in Querier against postgresql.
 type postgresqlQueries struct {
-	answerInvitation                     string
-	archiveAccount                       string
-	archiveUser                          string
-	countSearchUsersByUsername           string
-	createAccount                        string
-	createInvitation                     string
-	createUser                           string
-	deleteInvitationRoles                string
-	deleteMembershipRoles                string
-	deleteUserRoles                      string
-	eraseUser                            string
-	getAccount                           string
-	getAccountCreatedAt                  string
-	getInvitation                        string
-	getInvitationCreatedAt               string
-	getMembershipByUserAndAccount        string
-	getMembershipFallbackAccountID       string
-	getMembershipIdbyUserAndAccount      string
-	getOwnedAccountIdforUser             string
-	getUser                              string
-	getUserByEmailAddress                string
-	getUserByEmailVerificationToken      string
-	getUserByUsername                    string
-	getUserCreatedAt                     string
-	getUserIdbyEmailAddress              string
-	getUserIdbyUsername                  string
-	insertInvitationRole                 string
-	insertMembershipRole                 string
-	insertUserRole                       string
-	listAccountMembers                   string
-	listAccountMembersDescending         string
-	listAccounts                         string
-	listAccountsDescending               string
-	listAccountsForUser                  string
-	listAccountsForUserDescending        string
-	listInvitationRolesByInvitationIDs   string
-	listInvitations                      string
-	listInvitationsByFromUser            string
-	listInvitationsByFromUserDescending  string
-	listInvitationsByToEmail             string
-	listInvitationsByToEmailDescending   string
-	listInvitationsDescending            string
-	listMembershipRolesByMembershipIDs   string
-	listMembershipsForUser               string
-	listUserRolesByUserIDs               string
-	listUsers                            string
-	listUsersByIDs                       string
-	listUsersDescending                  string
-	markAccountBillingSynced             string
-	markUserEmailAddressVerified         string
-	markUserTwoFactorSecretVerified      string
-	recordAccountSubscription            string
-	searchUsersByUsername                string
-	searchUsersByUsernameDescending      string
-	setAccountBillingStatus              string
-	setAccountPaymentProcessorCustomerID string
-	setUserEmailAddressVerificationToken string
-	setUserRequiresPasswordChange        string
-	transferAccountOwnership             string
-	updateAccount                        string
-	updateUser                           string
-	updateUserAccountStatus              string
-	updateUserPassword                   string
-	updateUserTwoFactorSecret            string
-	upsertMembership                     string
+	answerInvitation                         string
+	archiveAccount                           string
+	archiveMembership                        string
+	archiveMembershipsForAccount             string
+	archiveMembershipsForUser                string
+	archiveUser                              string
+	clearMembershipDefaultAccountsForAccount string
+	clearMembershipDefaultAccountsForUser    string
+	countSearchUsersByUsername               string
+	createAccount                            string
+	createInvitation                         string
+	createUser                               string
+	deleteInvitationRoles                    string
+	deleteMembershipRoles                    string
+	deleteUserRoles                          string
+	eraseUser                                string
+	getAccount                               string
+	getAccountCreatedAt                      string
+	getInvitation                            string
+	getInvitationCreatedAt                   string
+	getMembershipByUserAndAccount            string
+	getMembershipFallbackAccountID           string
+	getMembershipIdbyUserAndAccount          string
+	getMembershipIdforUser                   string
+	getOwnedAccountIdforUser                 string
+	getUser                                  string
+	getUserByEmailAddress                    string
+	getUserByEmailVerificationToken          string
+	getUserByUsername                        string
+	getUserCreatedAt                         string
+	getUserIdbyEmailAddress                  string
+	getUserIdbyUsername                      string
+	insertInvitationRole                     string
+	insertMembershipRole                     string
+	insertUserRole                           string
+	listAccountMembers                       string
+	listAccountMembersDescending             string
+	listAccounts                             string
+	listAccountsDescending                   string
+	listAccountsForUser                      string
+	listAccountsForUserDescending            string
+	listInvitationRolesByInvitationIDs       string
+	listInvitations                          string
+	listInvitationsByFromUser                string
+	listInvitationsByFromUserDescending      string
+	listInvitationsByToEmail                 string
+	listInvitationsByToEmailDescending       string
+	listInvitationsDescending                string
+	listMembershipRolesByMembershipIDs       string
+	listMembershipsForUser                   string
+	listUserRolesByUserIDs                   string
+	listUsers                                string
+	listUsersByIDs                           string
+	listUsersDescending                      string
+	markAccountBillingSynced                 string
+	markUserEmailAddressVerified             string
+	markUserTwoFactorSecretVerified          string
+	recordAccountSubscription                string
+	recordUserPrivacyPolicyAgreement         string
+	recordUserTermsOfServiceAgreement        string
+	searchUsersByUsername                    string
+	searchUsersByUsernameDescending          string
+	setAccountBillingStatus                  string
+	setAccountPaymentProcessorCustomerID     string
+	setMembershipDefaultAccount              string
+	setUserEmailAddressVerificationToken     string
+	setUserRequiresPasswordChange            string
+	transferAccountOwnership                 string
+	updateAccount                            string
+	updateUser                               string
+	updateUserAccountStatus                  string
+	updateUserPassword                       string
+	updateUserTwoFactorSecret                string
+	upsertMembership                         string
 }
 
 // newPostgreSQL returns the postgresql querier with prefix substituted into every
 // table name the analyzer identified.
 func newPostgreSQL(prefix string) *postgresqlQueries {
 	return &postgresqlQueries{
-		answerInvitation:                     strings.ReplaceAll(answerInvitationPostgreSQL, prefixMarker, prefix),
-		archiveAccount:                       strings.ReplaceAll(archiveAccountPostgreSQL, prefixMarker, prefix),
-		archiveUser:                          strings.ReplaceAll(archiveUserPostgreSQL, prefixMarker, prefix),
-		countSearchUsersByUsername:           strings.ReplaceAll(countSearchUsersByUsernamePostgreSQL, prefixMarker, prefix),
-		createAccount:                        strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
-		createInvitation:                     strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
-		createUser:                           strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
-		deleteInvitationRoles:                strings.ReplaceAll(deleteInvitationRolesPostgreSQL, prefixMarker, prefix),
-		deleteMembershipRoles:                strings.ReplaceAll(deleteMembershipRolesPostgreSQL, prefixMarker, prefix),
-		deleteUserRoles:                      strings.ReplaceAll(deleteUserRolesPostgreSQL, prefixMarker, prefix),
-		eraseUser:                            strings.ReplaceAll(eraseUserPostgreSQL, prefixMarker, prefix),
-		getAccount:                           strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
-		getAccountCreatedAt:                  strings.ReplaceAll(getAccountCreatedAtPostgreSQL, prefixMarker, prefix),
-		getInvitation:                        strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
-		getInvitationCreatedAt:               strings.ReplaceAll(getInvitationCreatedAtPostgreSQL, prefixMarker, prefix),
-		getMembershipByUserAndAccount:        strings.ReplaceAll(getMembershipByUserAndAccountPostgreSQL, prefixMarker, prefix),
-		getMembershipFallbackAccountID:       strings.ReplaceAll(getMembershipFallbackAccountIDPostgreSQL, prefixMarker, prefix),
-		getMembershipIdbyUserAndAccount:      strings.ReplaceAll(getMembershipIdbyUserAndAccountPostgreSQL, prefixMarker, prefix),
-		getOwnedAccountIdforUser:             strings.ReplaceAll(getOwnedAccountIdforUserPostgreSQL, prefixMarker, prefix),
-		getUser:                              strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
-		getUserByEmailAddress:                strings.ReplaceAll(getUserByEmailAddressPostgreSQL, prefixMarker, prefix),
-		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenPostgreSQL, prefixMarker, prefix),
-		getUserByUsername:                    strings.ReplaceAll(getUserByUsernamePostgreSQL, prefixMarker, prefix),
-		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtPostgreSQL, prefixMarker, prefix),
-		getUserIdbyEmailAddress:              strings.ReplaceAll(getUserIdbyEmailAddressPostgreSQL, prefixMarker, prefix),
-		getUserIdbyUsername:                  strings.ReplaceAll(getUserIdbyUsernamePostgreSQL, prefixMarker, prefix),
-		insertInvitationRole:                 strings.ReplaceAll(insertInvitationRolePostgreSQL, prefixMarker, prefix),
-		insertMembershipRole:                 strings.ReplaceAll(insertMembershipRolePostgreSQL, prefixMarker, prefix),
-		insertUserRole:                       strings.ReplaceAll(insertUserRolePostgreSQL, prefixMarker, prefix),
-		listAccountMembers:                   strings.ReplaceAll(listAccountMembersPostgreSQL, prefixMarker, prefix),
-		listAccountMembersDescending:         strings.ReplaceAll(listAccountMembersDescendingPostgreSQL, prefixMarker, prefix),
-		listAccounts:                         strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
-		listAccountsDescending:               strings.ReplaceAll(listAccountsDescendingPostgreSQL, prefixMarker, prefix),
-		listAccountsForUser:                  strings.ReplaceAll(listAccountsForUserPostgreSQL, prefixMarker, prefix),
-		listAccountsForUserDescending:        strings.ReplaceAll(listAccountsForUserDescendingPostgreSQL, prefixMarker, prefix),
-		listInvitationRolesByInvitationIDs:   strings.ReplaceAll(listInvitationRolesByInvitationIDsPostgreSQL, prefixMarker, prefix),
-		listInvitations:                      strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
-		listInvitationsByFromUser:            strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
-		listInvitationsByFromUserDescending:  strings.ReplaceAll(listInvitationsByFromUserDescendingPostgreSQL, prefixMarker, prefix),
-		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailPostgreSQL, prefixMarker, prefix),
-		listInvitationsByToEmailDescending:   strings.ReplaceAll(listInvitationsByToEmailDescendingPostgreSQL, prefixMarker, prefix),
-		listInvitationsDescending:            strings.ReplaceAll(listInvitationsDescendingPostgreSQL, prefixMarker, prefix),
-		listMembershipRolesByMembershipIDs:   strings.ReplaceAll(listMembershipRolesByMembershipIDsPostgreSQL, prefixMarker, prefix),
-		listMembershipsForUser:               strings.ReplaceAll(listMembershipsForUserPostgreSQL, prefixMarker, prefix),
-		listUserRolesByUserIDs:               strings.ReplaceAll(listUserRolesByUserIDsPostgreSQL, prefixMarker, prefix),
-		listUsers:                            strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
-		listUsersByIDs:                       strings.ReplaceAll(listUsersByIDsPostgreSQL, prefixMarker, prefix),
-		listUsersDescending:                  strings.ReplaceAll(listUsersDescendingPostgreSQL, prefixMarker, prefix),
-		markAccountBillingSynced:             strings.ReplaceAll(markAccountBillingSyncedPostgreSQL, prefixMarker, prefix),
-		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedPostgreSQL, prefixMarker, prefix),
-		markUserTwoFactorSecretVerified:      strings.ReplaceAll(markUserTwoFactorSecretVerifiedPostgreSQL, prefixMarker, prefix),
-		recordAccountSubscription:            strings.ReplaceAll(recordAccountSubscriptionPostgreSQL, prefixMarker, prefix),
-		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernamePostgreSQL, prefixMarker, prefix),
-		searchUsersByUsernameDescending:      strings.ReplaceAll(searchUsersByUsernameDescendingPostgreSQL, prefixMarker, prefix),
-		setAccountBillingStatus:              strings.ReplaceAll(setAccountBillingStatusPostgreSQL, prefixMarker, prefix),
-		setAccountPaymentProcessorCustomerID: strings.ReplaceAll(setAccountPaymentProcessorCustomerIDPostgreSQL, prefixMarker, prefix),
-		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenPostgreSQL, prefixMarker, prefix),
-		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangePostgreSQL, prefixMarker, prefix),
-		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipPostgreSQL, prefixMarker, prefix),
-		updateAccount:                        strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
-		updateUser:                           strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
-		updateUserAccountStatus:              strings.ReplaceAll(updateUserAccountStatusPostgreSQL, prefixMarker, prefix),
-		updateUserPassword:                   strings.ReplaceAll(updateUserPasswordPostgreSQL, prefixMarker, prefix),
-		updateUserTwoFactorSecret:            strings.ReplaceAll(updateUserTwoFactorSecretPostgreSQL, prefixMarker, prefix),
-		upsertMembership:                     strings.ReplaceAll(upsertMembershipPostgreSQL, prefixMarker, prefix),
+		answerInvitation:                         strings.ReplaceAll(answerInvitationPostgreSQL, prefixMarker, prefix),
+		archiveAccount:                           strings.ReplaceAll(archiveAccountPostgreSQL, prefixMarker, prefix),
+		archiveMembership:                        strings.ReplaceAll(archiveMembershipPostgreSQL, prefixMarker, prefix),
+		archiveMembershipsForAccount:             strings.ReplaceAll(archiveMembershipsForAccountPostgreSQL, prefixMarker, prefix),
+		archiveMembershipsForUser:                strings.ReplaceAll(archiveMembershipsForUserPostgreSQL, prefixMarker, prefix),
+		archiveUser:                              strings.ReplaceAll(archiveUserPostgreSQL, prefixMarker, prefix),
+		clearMembershipDefaultAccountsForAccount: strings.ReplaceAll(clearMembershipDefaultAccountsForAccountPostgreSQL, prefixMarker, prefix),
+		clearMembershipDefaultAccountsForUser:    strings.ReplaceAll(clearMembershipDefaultAccountsForUserPostgreSQL, prefixMarker, prefix),
+		countSearchUsersByUsername:               strings.ReplaceAll(countSearchUsersByUsernamePostgreSQL, prefixMarker, prefix),
+		createAccount:                            strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
+		createInvitation:                         strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
+		createUser:                               strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
+		deleteInvitationRoles:                    strings.ReplaceAll(deleteInvitationRolesPostgreSQL, prefixMarker, prefix),
+		deleteMembershipRoles:                    strings.ReplaceAll(deleteMembershipRolesPostgreSQL, prefixMarker, prefix),
+		deleteUserRoles:                          strings.ReplaceAll(deleteUserRolesPostgreSQL, prefixMarker, prefix),
+		eraseUser:                                strings.ReplaceAll(eraseUserPostgreSQL, prefixMarker, prefix),
+		getAccount:                               strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
+		getAccountCreatedAt:                      strings.ReplaceAll(getAccountCreatedAtPostgreSQL, prefixMarker, prefix),
+		getInvitation:                            strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
+		getInvitationCreatedAt:                   strings.ReplaceAll(getInvitationCreatedAtPostgreSQL, prefixMarker, prefix),
+		getMembershipByUserAndAccount:            strings.ReplaceAll(getMembershipByUserAndAccountPostgreSQL, prefixMarker, prefix),
+		getMembershipFallbackAccountID:           strings.ReplaceAll(getMembershipFallbackAccountIDPostgreSQL, prefixMarker, prefix),
+		getMembershipIdbyUserAndAccount:          strings.ReplaceAll(getMembershipIdbyUserAndAccountPostgreSQL, prefixMarker, prefix),
+		getMembershipIdforUser:                   strings.ReplaceAll(getMembershipIdforUserPostgreSQL, prefixMarker, prefix),
+		getOwnedAccountIdforUser:                 strings.ReplaceAll(getOwnedAccountIdforUserPostgreSQL, prefixMarker, prefix),
+		getUser:                                  strings.ReplaceAll(getUserPostgreSQL, prefixMarker, prefix),
+		getUserByEmailAddress:                    strings.ReplaceAll(getUserByEmailAddressPostgreSQL, prefixMarker, prefix),
+		getUserByEmailVerificationToken:          strings.ReplaceAll(getUserByEmailVerificationTokenPostgreSQL, prefixMarker, prefix),
+		getUserByUsername:                        strings.ReplaceAll(getUserByUsernamePostgreSQL, prefixMarker, prefix),
+		getUserCreatedAt:                         strings.ReplaceAll(getUserCreatedAtPostgreSQL, prefixMarker, prefix),
+		getUserIdbyEmailAddress:                  strings.ReplaceAll(getUserIdbyEmailAddressPostgreSQL, prefixMarker, prefix),
+		getUserIdbyUsername:                      strings.ReplaceAll(getUserIdbyUsernamePostgreSQL, prefixMarker, prefix),
+		insertInvitationRole:                     strings.ReplaceAll(insertInvitationRolePostgreSQL, prefixMarker, prefix),
+		insertMembershipRole:                     strings.ReplaceAll(insertMembershipRolePostgreSQL, prefixMarker, prefix),
+		insertUserRole:                           strings.ReplaceAll(insertUserRolePostgreSQL, prefixMarker, prefix),
+		listAccountMembers:                       strings.ReplaceAll(listAccountMembersPostgreSQL, prefixMarker, prefix),
+		listAccountMembersDescending:             strings.ReplaceAll(listAccountMembersDescendingPostgreSQL, prefixMarker, prefix),
+		listAccounts:                             strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
+		listAccountsDescending:                   strings.ReplaceAll(listAccountsDescendingPostgreSQL, prefixMarker, prefix),
+		listAccountsForUser:                      strings.ReplaceAll(listAccountsForUserPostgreSQL, prefixMarker, prefix),
+		listAccountsForUserDescending:            strings.ReplaceAll(listAccountsForUserDescendingPostgreSQL, prefixMarker, prefix),
+		listInvitationRolesByInvitationIDs:       strings.ReplaceAll(listInvitationRolesByInvitationIDsPostgreSQL, prefixMarker, prefix),
+		listInvitations:                          strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
+		listInvitationsByFromUser:                strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
+		listInvitationsByFromUserDescending:      strings.ReplaceAll(listInvitationsByFromUserDescendingPostgreSQL, prefixMarker, prefix),
+		listInvitationsByToEmail:                 strings.ReplaceAll(listInvitationsByToEmailPostgreSQL, prefixMarker, prefix),
+		listInvitationsByToEmailDescending:       strings.ReplaceAll(listInvitationsByToEmailDescendingPostgreSQL, prefixMarker, prefix),
+		listInvitationsDescending:                strings.ReplaceAll(listInvitationsDescendingPostgreSQL, prefixMarker, prefix),
+		listMembershipRolesByMembershipIDs:       strings.ReplaceAll(listMembershipRolesByMembershipIDsPostgreSQL, prefixMarker, prefix),
+		listMembershipsForUser:                   strings.ReplaceAll(listMembershipsForUserPostgreSQL, prefixMarker, prefix),
+		listUserRolesByUserIDs:                   strings.ReplaceAll(listUserRolesByUserIDsPostgreSQL, prefixMarker, prefix),
+		listUsers:                                strings.ReplaceAll(listUsersPostgreSQL, prefixMarker, prefix),
+		listUsersByIDs:                           strings.ReplaceAll(listUsersByIDsPostgreSQL, prefixMarker, prefix),
+		listUsersDescending:                      strings.ReplaceAll(listUsersDescendingPostgreSQL, prefixMarker, prefix),
+		markAccountBillingSynced:                 strings.ReplaceAll(markAccountBillingSyncedPostgreSQL, prefixMarker, prefix),
+		markUserEmailAddressVerified:             strings.ReplaceAll(markUserEmailAddressVerifiedPostgreSQL, prefixMarker, prefix),
+		markUserTwoFactorSecretVerified:          strings.ReplaceAll(markUserTwoFactorSecretVerifiedPostgreSQL, prefixMarker, prefix),
+		recordAccountSubscription:                strings.ReplaceAll(recordAccountSubscriptionPostgreSQL, prefixMarker, prefix),
+		recordUserPrivacyPolicyAgreement:         strings.ReplaceAll(recordUserPrivacyPolicyAgreementPostgreSQL, prefixMarker, prefix),
+		recordUserTermsOfServiceAgreement:        strings.ReplaceAll(recordUserTermsOfServiceAgreementPostgreSQL, prefixMarker, prefix),
+		searchUsersByUsername:                    strings.ReplaceAll(searchUsersByUsernamePostgreSQL, prefixMarker, prefix),
+		searchUsersByUsernameDescending:          strings.ReplaceAll(searchUsersByUsernameDescendingPostgreSQL, prefixMarker, prefix),
+		setAccountBillingStatus:                  strings.ReplaceAll(setAccountBillingStatusPostgreSQL, prefixMarker, prefix),
+		setAccountPaymentProcessorCustomerID:     strings.ReplaceAll(setAccountPaymentProcessorCustomerIDPostgreSQL, prefixMarker, prefix),
+		setMembershipDefaultAccount:              strings.ReplaceAll(setMembershipDefaultAccountPostgreSQL, prefixMarker, prefix),
+		setUserEmailAddressVerificationToken:     strings.ReplaceAll(setUserEmailAddressVerificationTokenPostgreSQL, prefixMarker, prefix),
+		setUserRequiresPasswordChange:            strings.ReplaceAll(setUserRequiresPasswordChangePostgreSQL, prefixMarker, prefix),
+		transferAccountOwnership:                 strings.ReplaceAll(transferAccountOwnershipPostgreSQL, prefixMarker, prefix),
+		updateAccount:                            strings.ReplaceAll(updateAccountPostgreSQL, prefixMarker, prefix),
+		updateUser:                               strings.ReplaceAll(updateUserPostgreSQL, prefixMarker, prefix),
+		updateUserAccountStatus:                  strings.ReplaceAll(updateUserAccountStatusPostgreSQL, prefixMarker, prefix),
+		updateUserPassword:                       strings.ReplaceAll(updateUserPasswordPostgreSQL, prefixMarker, prefix),
+		updateUserTwoFactorSecret:                strings.ReplaceAll(updateUserTwoFactorSecretPostgreSQL, prefixMarker, prefix),
+		upsertMembership:                         strings.ReplaceAll(upsertMembershipPostgreSQL, prefixMarker, prefix),
 	}
 }
 
@@ -1705,11 +1790,80 @@ func (q *postgresqlQueries) ArchiveAccount(ctx context.Context, db DBTX, arg Arc
 	return result.RowsAffected()
 }
 
+// ArchiveMembership runs the :execrows query against postgresql.
+func (q *postgresqlQueries) ArchiveMembership(ctx context.Context, db DBTX, arg ArchiveMembershipParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.archiveMembership,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// ArchiveMembershipsForAccount runs the :execrows query against postgresql.
+func (q *postgresqlQueries) ArchiveMembershipsForAccount(ctx context.Context, db DBTX, arg ArchiveMembershipsForAccountParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.archiveMembershipsForAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// ArchiveMembershipsForUser runs the :execrows query against postgresql.
+func (q *postgresqlQueries) ArchiveMembershipsForUser(ctx context.Context, db DBTX, arg ArchiveMembershipsForUserParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.archiveMembershipsForUser,
+		arg.Scope,
+		arg.BelongsToUser,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // ArchiveUser runs the :execrows query against postgresql.
 func (q *postgresqlQueries) ArchiveUser(ctx context.Context, db DBTX, arg ArchiveUserParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.archiveUser,
 		arg.ID,
 		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// ClearMembershipDefaultAccountsForAccount runs the :execrows query against postgresql.
+func (q *postgresqlQueries) ClearMembershipDefaultAccountsForAccount(ctx context.Context, db DBTX, arg ClearMembershipDefaultAccountsForAccountParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.clearMembershipDefaultAccountsForAccount,
+		arg.DefaultAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// ClearMembershipDefaultAccountsForUser runs the :execrows query against postgresql.
+func (q *postgresqlQueries) ClearMembershipDefaultAccountsForUser(ctx context.Context, db DBTX, arg ClearMembershipDefaultAccountsForUserParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.clearMembershipDefaultAccountsForUser,
+		arg.DefaultAccount,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.ExceptAccountID,
 	)
 	if err != nil {
 		return 0, err
@@ -1994,6 +2148,22 @@ func (q *postgresqlQueries) GetMembershipIDByUserAndAccount(ctx context.Context,
 	)
 
 	var i GetMembershipIDByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// GetMembershipIDForUser runs the :one query against postgresql.
+func (q *postgresqlQueries) GetMembershipIDForUser(ctx context.Context, db DBTX, arg GetMembershipIDForUserParams) (GetMembershipIDForUserRow, error) {
+	row := db.QueryRowContext(ctx, q.getMembershipIdforUser,
+		arg.Scope,
+		arg.BelongsToUser,
+	)
+
+	var i GetMembershipIDForUserRow
 
 	err := row.Scan(
 		&i.ID,
@@ -3316,6 +3486,34 @@ func (q *postgresqlQueries) RecordAccountSubscription(ctx context.Context, db DB
 	return result.RowsAffected()
 }
 
+// RecordUserPrivacyPolicyAgreement runs the :execrows query against postgresql.
+func (q *postgresqlQueries) RecordUserPrivacyPolicyAgreement(ctx context.Context, db DBTX, arg RecordUserPrivacyPolicyAgreementParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.recordUserPrivacyPolicyAgreement,
+		arg.LastAcceptedPrivacyPolicy,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// RecordUserTermsOfServiceAgreement runs the :execrows query against postgresql.
+func (q *postgresqlQueries) RecordUserTermsOfServiceAgreement(ctx context.Context, db DBTX, arg RecordUserTermsOfServiceAgreementParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.recordUserTermsOfServiceAgreement,
+		arg.LastAcceptedTermsOfService,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // SearchUsersByUsername runs the :many query against postgresql.
 func (q *postgresqlQueries) SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error) {
 	rows, err := db.QueryContext(ctx, q.searchUsersByUsername,
@@ -3444,6 +3642,21 @@ func (q *postgresqlQueries) SetAccountPaymentProcessorCustomerID(ctx context.Con
 		arg.PaymentProcessorCustomerID,
 		arg.ID,
 		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetMembershipDefaultAccount runs the :execrows query against postgresql.
+func (q *postgresqlQueries) SetMembershipDefaultAccount(ctx context.Context, db DBTX, arg SetMembershipDefaultAccountParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setMembershipDefaultAccount,
+		arg.DefaultAccount,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
 	)
 	if err != nil {
 		return 0, err
@@ -3614,9 +3827,33 @@ var (
 		Scope tenancy.Scope
 	}(ArchiveAccountParams{})
 	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(ArchiveMembershipParams{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToAccount string
+	}(ArchiveMembershipsForAccountParams{})
+	_ = struct {
+		Scope         tenancy.Scope
+		BelongsToUser string
+	}(ArchiveMembershipsForUserParams{})
+	_ = struct {
 		ID    string
 		Scope tenancy.Scope
 	}(ArchiveUserParams{})
+	_ = struct {
+		DefaultAccount   bool
+		Scope            tenancy.Scope
+		BelongsToAccount string
+	}(ClearMembershipDefaultAccountsForAccountParams{})
+	_ = struct {
+		DefaultAccount  bool
+		Scope           tenancy.Scope
+		BelongsToUser   string
+		ExceptAccountID *string
+	}(ClearMembershipDefaultAccountsForUserParams{})
 	_ = struct {
 		Scope          tenancy.Scope
 		UsernamePrefix string
@@ -3775,6 +4012,13 @@ var (
 	_ = struct {
 		ID string
 	}(GetMembershipIDByUserAndAccountRow{})
+	_ = struct {
+		Scope         tenancy.Scope
+		BelongsToUser string
+	}(GetMembershipIDForUserParams{})
+	_ = struct {
+		ID string
+	}(GetMembershipIDForUserRow{})
 	_ = struct {
 		Scope       tenancy.Scope
 		OwnerUserID string
@@ -4470,6 +4714,16 @@ var (
 		Scope                       tenancy.Scope
 	}(RecordAccountSubscriptionParams{})
 	_ = struct {
+		LastAcceptedPrivacyPolicy *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(RecordUserPrivacyPolicyAgreementParams{})
+	_ = struct {
+		LastAcceptedTermsOfService *time.Time
+		ID                         string
+		Scope                      tenancy.Scope
+	}(RecordUserTermsOfServiceAgreementParams{})
+	_ = struct {
 		Scope          tenancy.Scope
 		UsernamePrefix string
 		PageCursor     *string
@@ -4535,6 +4789,12 @@ var (
 		ID                         string
 		Scope                      tenancy.Scope
 	}(SetAccountPaymentProcessorCustomerIDParams{})
+	_ = struct {
+		DefaultAccount   bool
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(SetMembershipDefaultAccountParams{})
 	_ = struct {
 		EmailAddressVerificationToken string
 		ID                            string

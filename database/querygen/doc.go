@@ -193,49 +193,33 @@ A secret that exists and has not been proven — and a replayed verification
 matches nothing, writes nothing, and reports the zero rows its caller reads as
 "not there" rather than moving the timestamp forward.
 
-[Comparand] holds six members. [BoundArgument] is the zero value and the
-equality every keyed read wants. [NoValue] is IS NULL, which is how this module
-records that something has not happened yet — an unredeemed token, an unproven
-secret, a key not yet shredded. [EmptyString] is the sentinel a TEXT NOT NULL
-column holds when it holds nothing, so its excluded form is "this fact exists".
-[CurrentTime] is the server's clock, which is the expiry sweep uninverted and the
-still-live guard inverted. [BoundTime] is that same boundary read from a clock
-the caller supplies. [OptionalArgument] is the equality a caller may leave
-unset.
+[Comparand] is a closed set. [BoundArgument] is the zero value and the equality
+every keyed read wants. [NoValue] is IS NULL, which is how this module records
+that something has not happened yet — an unredeemed token, an unproven secret, a
+key not yet shredded. [EmptyString] is the sentinel a TEXT NOT NULL column holds
+when it holds nothing, so its excluded form is "this fact exists". [CurrentTime]
+is the server's clock, which is the expiry sweep uninverted and the still-live
+guard inverted. [OptionalArgument] is the equality a caller may leave unset. And
+[AtMostArgument] is the ceiling a caller computed — everything recorded before
+this instant, everything sequenced at or below this number — which is what a
+retention sweep is keyed on, since the horizon it runs to is now less a window
+the configuration carries and interval arithmetic is the arithmetic the three
+dialects spell three ways.
 
-[Match.Exclude] inverts all six rather than only the first, and every inversion
-is a complement: IS NULL against IS NOT NULL, the empty-string equality against
-the not-empty guard, "at or before now" against "after now". So the sweep that
-collects expired rows and the guard that refuses to spend them are one Match
-with one bool between them, and there is no second spelling of the boundary to
-disagree with the first.
+[Match.Exclude] inverts every one of them rather than only the first, and every
+inversion is a complement: IS NULL against IS NOT NULL, the empty-string equality
+against the not-empty guard, "at or before now" against "after now", at or below
+the ceiling against above it. So the sweep that collects expired rows and the
+guard that refuses to spend them are one Match with one bool between them, and
+there is no second spelling of the boundary to disagree with the first.
 
-Three of the six bind nothing at all, and that is what makes them guards rather
+Three of them bind nothing at all, and that is what makes them guards rather
 than predicates: the value compared against belongs to the statement, so there is
 no argument a caller could leave unset to relax it. Naming a [Match.Arg] beside
 one of them is [ErrArgumentlessMatch] rather than a field quietly ignored.
 
-# Which clock a deadline is read against
-
-[CurrentTime] and [BoundTime] render the same two comparisons and differ only in
-where the right-hand side comes from, so choosing between them is choosing which
-clock decides — and the answer follows the column rather than the caller's
-convenience. A deadline the database wrote is compared against the database's
-clock. A deadline the application stamped and handed over is compared against the
-clock that stamped it, because otherwise "issued for fifteen minutes" and
-"expired" are measured by two clocks that agree only by luck.
-
-	sweep := querygen.For(dialect.Postgres).DeleteQuery(
-		"SweepExpiredAccessTokens", "oauth2_access_tokens", columns,
-		querygen.Match{Column: "expires_at", Against: querygen.BoundTime, Arg: "now"})
-
-The bound form says one further thing the server's clock has no way to say: the
-instant need not be now. A sweep run at a horizon its caller chose — everything
-dead for an hour rather than everything dead — reclaims only rows nothing is
-still deciding about, and there is no argument on [CurrentTime] to move.
-
-The presence-conditional predicate is the fifth, and it is one static statement
-rather than SQL assembled per call:
+The presence-conditional predicate is one static statement rather than SQL
+assembled per call:
 
 	free := querygen.For(dialect.Postgres).ReadQuery(
 		"GetUserIDByUsername", "users", nil,
@@ -404,6 +388,85 @@ conflict target under the upsert's rule, and the three dialects spell the shape
 three ways: Postgres appends ON CONFLICT (…) DO NOTHING, MySQL and SQLite take a
 modifier before INTO and name no target, so MySQL's skips a collision on any
 unique key rather than on the one named — the same caveat the upsert carries.
+
+# The bounded prune
+
+A retention pass is a delete with a horizon, and the horizon is the easy half.
+The hard half is the bound. A table nobody has swept for a month holds a month of
+rows past its horizon, and the DELETE that clears them in one statement holds
+locks for minutes, replicates as one transaction, and times out somewhere in the
+middle — after which the next attempt starts from the beginning.
+[Generator.PruneQuery] is that delete capped:
+
+	sweep := querygen.For(dialect.Postgres).PruneQuery(
+		"PruneMeteringEvents", "metering_events",
+		querygen.Prune{
+			Key:   []string{"idempotency_key"},
+			Order: []querygen.Order{{Column: "recorded_at"}},
+		},
+		querygen.Match{Column: "recorded_at", Arg: "horizon", Against: querygen.AtMostArgument})
+
+The pass takes as many rows as it was allowed, reports how many that was, and
+runs again while the count says there are more — which is why the annotation is
+:execrows. The count here is the loop's condition rather than a courtesy. The cap
+binds under result_limit, the same name a page size does, because "how many rows
+may this statement touch" is one question however the statement got there; unlike
+a page size it has no default, since an absent cap is the unbounded DELETE the
+shape exists to make unspellable.
+
+This is the third place the three dialects disagree about a statement's shape
+rather than about an expression inside one, and the widest of the three. MySQL
+caps the DELETE itself, with the ORDER BY and LIMIT its grammar takes. Postgres
+and SQLite have no DELETE … LIMIT, so the bound goes on a read: a capped SELECT
+names the doomed rows and the DELETE removes what it named, through an aliased
+self-reference — unaliased, SQLite cannot say which occurrence a column belongs
+to, and it says so when the statement runs rather than when it is parsed. A key
+of more than one column compares as a row value, which is the queue tables'
+shape, where (queue_name, item_key) names a row and neither half of it does.
+
+Neither arm travels. MySQL refuses a subquery over the table being deleted from
+(ER_UPDATE_TABLE_USED); Postgres does not parse DELETE … LIMIT at all, and SQLite
+parses it only in builds compiled with an option most are not, which makes it a
+failure that waits for run time. So the divergence is confined to
+Generator.boundedDelete the way the upsert's is to Generator.conflictHeader, and
+the corpus above is authored once and rendered three times: one name, one
+signature, one set of arguments.
+
+The capped read takes FOR UPDATE SKIP LOCKED on Postgres, so a fleet of reapers
+takes disjoint batches instead of queueing behind each other; a row another pass
+holds is still past the horizon next time, which is what a reaper can afford and
+a claim cannot. SQLite has no FOR UPDATE and needs none — one writer at a time is
+its storage model, so the unlocked read is correct there rather than missing —
+and MySQL's arm has nowhere to put a lock clause, since the DELETE itself carries
+the bound, so two pruners racing there serialize on the rows they both chose.
+Every pass stays bounded and correct on all three; what the grammar decides is
+throughput under contention.
+
+The horizon is a [Match] like any other predicate, and a prune handed none is
+[ErrDegeneratePrune] rather than a truncate run a batch at a time. There is no
+archived predicate, for the hard delete's reason: the row is being destroyed
+rather than hidden, and a row archived a year ago is precisely the row a
+retention pass exists to remove.
+
+# The claim that is not here
+
+The queue stores' other statement is the claim — a bounded, ordered SELECT …
+FOR UPDATE SKIP LOCKED, leasing what it selected and returning it — and this
+package deliberately does not emit one.
+
+sqlc is not the obstacle: all three analyzers parse the shape, the Postgres one
+including the lock-ordering CTE, the interval arithmetic and the multi-column
+RETURNING. The obstacle is that the statement means three different things.
+Postgres claims in one statement, MySQL has no such statement and claims with a
+SELECT followed by an UPDATE — a different concurrency shape with a different
+failure model — and SQLite, a single writer, has no row locks to skip at all.
+
+workqueue and timers answer that by being Postgres-only packages rather than by
+running three claims that promise three things, so their claims belong in their
+own single-dialect corpora, where RETURNING is legal and a roster of one cannot
+diverge. A shape emitted from here would have to promise something on all three,
+and there is nothing here it could promise. If a third queue store ever wants
+one, that is when this package grows it.
 
 # The prefix search
 

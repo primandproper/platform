@@ -112,7 +112,7 @@ const (
 // by two clocks that agree only by luck. Sweep binds it as well, and there the
 // instant is not even now — a caller sweeping at a horizon an hour back
 // reclaims only what nothing is still deciding about. See
-// [querygen.BoundTime].
+// [querygen.AtMostArgument].
 const NowArg = "now"
 
 // The query names, which become the generated querier's method names. They are
@@ -429,7 +429,7 @@ func unrevoked() querygen.Match {
 // it matches. A resource server holding one is entitled to be told "no" rather
 // than to have its request read as carrying a token nobody ever issued.
 func elapsed() querygen.Match {
-	return querygen.Match{Column: ExpiresAtColumn, Against: querygen.BoundTime, Arg: NowArg}
+	return querygen.Match{Column: ExpiresAtColumn, Against: querygen.AtMostArgument, Arg: NowArg}
 }
 
 // stillLive is elapsed's complement, and it is derived from it rather than

@@ -111,8 +111,7 @@ var ErrUnaddressableRow = platformerrors.New("single-row statement keys on nothi
 
 // ErrArgumentlessMatch indicates a Match naming an argument its comparand has
 // nowhere to put: an Arg beside IS NULL, beside the empty-string guard, or
-// beside the server's clock, none of which bind anything. The bound time is the
-// temporal comparison that does take one — see Comparand.
+// beside a clock comparison, none of which bind anything.
 //
 // It is a panic rather than a silently ignored field because the two readings a
 // caller could have had are both wrong in a way nothing downstream would report.
@@ -653,14 +652,12 @@ func (g *Generator) equalityPredicate(table, column string, qualified bool) stri
 // see Match.Arg, which is what a guard naming a column the same statement
 // assigns needs.
 //
-// Three of the comparands render no argument at all, which is what makes them
+// The guard comparands render no argument at all, which is what makes them
 // guards: the value the predicate compares against belongs to the statement, so
-// there is nothing a caller could pass that would relax it. The bound time is
-// the exception among the temporal comparisons, and deliberately so — a sweep
-// run at a horizon its caller names has to take it from somewhere. Exclude
-// complements every one of them rather than switching between unrelated
-// questions — see Match.Exclude — so there is one rendering of the boundary per
-// comparand and not one per direction.
+// there is nothing a caller could pass that would relax it. Exclude complements
+// each of them rather than switching between unrelated questions — see
+// Match.Exclude — so there is one rendering of the boundary per comparand and
+// not one per direction.
 //
 // It hangs off Generator for the clock, which is the one comparand the three
 // dialects do not spell identically. Routing it through storedNow keeps that
@@ -688,14 +685,27 @@ func (g *Generator) matchPredicate(table string, match Match, qualified bool) st
 	case EmptyString:
 		return fmt.Sprintf("%s %s ''", name, match.operator())
 	case CurrentTime:
-		return fmt.Sprintf("%s %s %s", name, match.orderedOperator(), g.storedNow())
-	case BoundTime:
-		// The same boundary as the clock's, against the caller's reading of the
-		// time rather than the server's — through the same operator, so the two
-		// cannot come to disagree about which side "exactly now" falls on.
-		return fmt.Sprintf("%s %s sqlc.arg(%s)", name, match.orderedOperator(), match.argument())
+		// The complement of "at or before now" is "strictly after now", so the
+		// two forms partition the rows rather than overlapping at the instant a
+		// deadline falls on.
+		operator := "<="
+		if match.Exclude {
+			operator = ">"
+		}
+
+		return fmt.Sprintf("%s %s %s", name, operator, g.storedNow())
 	case OptionalArgument:
 		return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), '')", name, match.operator(), match.argument())
+	case AtMostArgument:
+		// The complement of "at or below the ceiling" is "strictly above it",
+		// so the two forms partition the rows the way the clock's do rather
+		// than overlapping on the value the horizon names.
+		operator := "<="
+		if match.Exclude {
+			operator = ">"
+		}
+
+		return fmt.Sprintf("%s %s sqlc.arg(%s)", name, operator, match.argument())
 	// BoundArgument, which is the zero value and every keyed read's comparand.
 	default:
 		return fmt.Sprintf("%s %s sqlc.arg(%s)", name, match.operator(), match.argument())

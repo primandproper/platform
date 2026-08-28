@@ -174,3 +174,38 @@ func ExampleGenerator_JunctionListQueries() {
 	// JOIN users ON memberships.belongs_to_user=users.id
 	// ORDER BY memberships.id DESC
 }
+
+// The bounded prune is the one shape whose three renderings are three
+// statements. The call is the same on every dialect — one name, one key, one
+// horizon, one cap — and what differs is where the grammar will accept the
+// bound.
+func ExampleGenerator_PruneQuery() {
+	prune := querygen.Prune{
+		Key:   []string{"idempotency_key"},
+		Order: []querygen.Order{{Column: "recorded_at"}},
+	}
+	horizon := querygen.Match{Column: "recorded_at", Arg: "horizon", Against: querygen.AtMostArgument}
+
+	for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL} {
+		query := querygen.For(d).PruneQuery("PruneMeteringEvents", "metering_events", prune, horizon)
+
+		fmt.Printf("-- %s\n%s\n", d, query.Content)
+	}
+
+	// Output:
+	// -- postgres
+	// DELETE FROM metering_events
+	// WHERE idempotency_key IN (
+	//	SELECT doomed.idempotency_key
+	//	FROM metering_events AS doomed
+	//	WHERE doomed.recorded_at <= sqlc.arg(horizon)
+	//	ORDER BY doomed.recorded_at ASC
+	//	LIMIT sqlc.arg(result_limit)
+	//	FOR UPDATE SKIP LOCKED
+	// );
+	// -- mysql
+	// DELETE FROM metering_events
+	// WHERE recorded_at <= sqlc.arg(horizon)
+	// ORDER BY recorded_at ASC
+	// LIMIT ?;
+}

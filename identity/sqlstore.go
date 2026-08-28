@@ -47,20 +47,26 @@ var _ Store = (*SQLStore)(nil)
 // shares.
 type SQLStore struct {
 	client database.Client
-	tables *tables
 	q      identitydb.Querier
 	o11y   observability.Observer
 	clock  clock.Clock
 
-	unreportedRowsCounter metrics.Int64Counter
+	unmatchedWritesCounter metrics.Int64Counter
 
 	// What the options wrote, kept only until the observer is built from it.
 	// Read s.o11y.Logger() for the logger this store actually uses; this one
 	// may be nil, because supplying none is how a caller asks for no logging.
-	logger          logging.Logger
-	tracerProvider  tracing.Provider
+	logger         logging.Logger
+	tracerProvider tracing.Provider
+
 	metricsProvider metrics.Provider
-	dialect         dialect.Dialect
+
+	// tablePrefix is what the generated statements' markers are substituted
+	// with, and the only thing this store knows about the shape of its own SQL.
+	// Nothing here renders a statement any more — see identity/internal/queries
+	// — so the dialect is not kept either: it decides which generated querier is
+	// built and is not needed again.
+	tablePrefix string
 }
 
 // NewSQLStore builds a Store over the given database.
@@ -71,7 +77,7 @@ type SQLStore struct {
 // than at construction.
 //
 // Observability is optional and defaults to nothing: an unconfigured store logs
-// to a noop logger and traces to a noop provider.
+// to a noop logger, traces to a noop provider, and records to a noop meter.
 func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
 	if client == nil {
 		return nil, ErrNilDatabaseClient
@@ -83,10 +89,9 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client:  client,
-		dialect: d,
-		clock:   clock.NewClock(),
-		tables:  newTables(DefaultTablePrefix),
+		client:      client,
+		clock:       clock.NewClock(),
+		tablePrefix: DefaultTablePrefix,
 	}
 
 	for _, opt := range opts {
@@ -95,7 +100,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		}
 	}
 
-	if err := migrations.ValidatePrefix(s.tables.prefix()); err != nil {
+	if err := migrations.ValidatePrefix(s.tablePrefix); err != nil {
 		return nil, err
 	}
 
@@ -108,7 +113,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		return nil, err
 	}
 
-	q, err := identitydb.New(qd, ddl.Qualify(s.tables.prefix()))
+	q, err := identitydb.New(qd, ddl.Qualify(s.tablePrefix))
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "building the identity querier")
 	}
@@ -117,32 +122,29 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
 
-	// One counter, and it is the one nothing above this layer can see.
-	//
-	// Every write here is guarded by "did this touch a row" — that is what turns
-	// a write aimed at another directory into ErrUserNotFound instead of a
-	// success. A driver that declines to report the count leaves the guard with
-	// nothing to decide on, and the store treats that as a hit: reporting a
-	// missing row for a write that probably happened is the worse answer. But it
-	// means a genuinely missed write can be reported as applied, and that is
-	// indistinguishable from the real thing unless somebody is counting.
+	// One counter, and it is the one nothing above this layer can see. Every
+	// write here is guarded by "did this touch a row" — that is what turns a
+	// write aimed at another directory into ErrUserNotFound instead of a
+	// success — and the three reasons a write matches nothing arrive as one
+	// answer. See SQLStore.guardCount.
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
-	if s.unreportedRowsCounter, err = mp.NewInt64Counter(storeName + "_unreported_row_counts"); err != nil {
-		return nil, platformerrors.Wrap(err, "creating identity store unreported row count counter")
+	if s.unmatchedWritesCounter, err = mp.NewInt64Counter(storeName + "_unmatched_writes"); err != nil {
+		return nil, platformerrors.Wrap(err, "creating identity store unmatched write counter")
 	}
 
 	return s, nil
 }
 
-// storeOpAttr labels an unreported row count with the operation it happened in,
+// storeOpAttr labels an unmatched write with the operation it happened in,
 // since the places it can happen mean different things.
 func storeOpAttr(operation string) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String(storeOpKey, operation))
 }
 
 // now is the one clock read every write in this package goes through, in UTC —
-// see queries.go on why the location matters to SQLite.
+// see the timestamp note in identity/doc.go on why the location matters to
+// SQLite.
 func (s *SQLStore) now() time.Time { return s.clock.Now().UTC() }
 
 // notFound maps a driver's empty-result error onto this package's sentinel for
@@ -634,30 +636,82 @@ func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecu
 		return nil
 	}
 
-	// The clock, not the row's creation time. A revived membership carries the
-	// time it was first written, and stamping the *other* memberships'
-	// last_updated_at with it would date a write that is happening now.
-	query, args := s.tables.buildClearDefaultAccount(
-		s.dialect, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount, s.now(),
-	)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	return s.clearDefaultAccountsForUser(ctx, q, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount)
+}
+
+// clearDefaultAccountsForUser takes the default flag off every live membership
+// a user holds, sparing the one in exceptAccountID. That is the other half of
+// "one default per user": a caller marking one membership as the default does
+// not have to remember to unmark the rest.
+//
+// An empty exception spares nothing, which is what the archival wants — every
+// one of the user's memberships is about to stop being live, so there is no
+// membership for the flag to stay on.
+//
+// The row count is discarded. The statement only reaches memberships whose flag
+// differs from the one being assigned, so zero means the user had no other
+// default rather than that anything is missing — and every caller has already
+// established that the user exists.
+func (s *SQLStore) clearDefaultAccountsForUser(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID, exceptAccountID string,
+) error {
+	_, err := s.q.ClearMembershipDefaultAccountsForUser(ctx, q, identitydb.ClearMembershipDefaultAccountsForUserParams{
+		Scope:           scope,
+		BelongsToUser:   userID,
+		DefaultAccount:  false,
+		ExceptAccountID: sparedAccount(exceptAccountID),
+	})
+	if err != nil {
 		return platformerrors.Wrap(err, "clearing other identity default accounts")
 	}
 
 	return nil
 }
 
-// liveMembershipCount counts a user's live memberships, for deciding whether the
-// one being written is their first.
-func (s *SQLStore) liveMembershipCount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (int, error) {
-	query, args := s.tables.buildCountLiveMembershipsForUser(s.dialect, scope, userID)
-
-	var count int
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
-		return 0, platformerrors.Wrap(err, "counting identity memberships")
+// sparedAccount renders the account a default-flag clear leaves alone as the
+// argument the statement takes: absent when there is none.
+//
+// Absence is meaningful here rather than a caller forgetting to bind — an
+// archival is clearing every one of the user's memberships and has none to
+// spare — and the statement coalesces an absent argument to the empty string,
+// which is an account id no row has. See identity/internal/queries.
+func sparedAccount(accountID string) *string {
+	if accountID == "" {
+		return nil
 	}
 
-	return count, nil
+	return &accountID
+}
+
+// hasLiveMembership reports whether the user belongs to any account yet, which
+// is how a membership write finds out that the one it is making is their first
+// and therefore their default.
+//
+// It reads an id rather than a count, because the caller's question is "any"
+// and a count that answers seven has spent the server's time distinguishing
+// seven from one.
+func (s *SQLStore) hasLiveMembership(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID string,
+) (bool, error) {
+	_, err := s.q.GetMembershipIDForUser(ctx, q, identitydb.GetMembershipIDForUserParams{
+		Scope:         scope,
+		BelongsToUser: userID,
+	})
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, platformerrors.Wrap(err, "reading identity memberships")
+	}
+
+	return true, nil
 }
 
 // pageFilter is the filter a paged read is answered under: the caller's, with
@@ -713,24 +767,36 @@ func identitydbDialect(d dialect.Dialect) (identitydb.Dialect, error) {
 	}
 }
 
-// guardCount is execExpectingRow's generated-statement half. The statement ran
-// through identitydb, whose :execrows methods already asked the driver for the
-// affected count, so what is left is mapping "touched nothing" onto the
-// sentinel for the entity that was not there — every predicate here includes
-// the scope, and without this a write aimed at another directory's row reports
-// success.
+// guardCount is how every write in this store learns whether it touched a row.
+// The statement ran through identitydb, whose :execrows methods already asked
+// the driver for the affected count, so what is left is mapping "touched
+// nothing" onto the sentinel for the entity that was not there — every
+// predicate here includes the scope, and without this a write aimed at another
+// directory's row reports success.
 //
-// One narrowing against the hand-written path: a driver that declines to
-// report the count reaches this as an error rather than as an acknowledged
-// unknown, because the generated method has no seam between running the
-// statement and reading the count. None of the three supported drivers
-// declines; the old tolerance guarded a hypothetical.
-func guardCount(count int64, err, missing error, operation string) error {
+// A driver that declines to report the count reaches this as an error rather
+// than as an acknowledged unknown, because the generated method has no seam
+// between running the statement and reading the count. None of the three
+// supported drivers declines; the tolerance the hand-built path carried guarded
+// a hypothetical, and it went with the last statement this store rendered
+// itself.
+//
+// It counts the writes that matched nothing, which is the one place this store
+// collapses answers a caller might want apart. A write reaches zero rows
+// because the row is not there, because it belongs to another directory, or —
+// for the guarded ones — because it lost a race to a write that got there
+// first, and all three become the same sentinel. The counter is labeled with
+// the operation, so an application that starts serving not-founds on a write
+// path can see which one without the store having to invent an error for each
+// cause.
+func (s *SQLStore) guardCount(ctx context.Context, count int64, err, missing error, operation string) error {
 	if err != nil {
 		return platformerrors.Wrap(err, operation)
 	}
 
 	if count == 0 {
+		s.unmatchedWritesCounter.Add(ctx, 1, storeOpAttr(operation))
+
 		return missing
 	}
 
@@ -760,50 +826,6 @@ func stampCreatedAt(at *time.Time, created time.Time, err error) error {
 	}
 
 	*at = created.UTC()
-
-	return nil
-}
-
-// execExpectingRow runs a write that must touch a row, mapping "touched
-// nothing" onto the sentinel for the entity that was not there.
-//
-// It exists because an UPDATE whose predicate matched nothing is a success as
-// far as the driver is concerned, and every predicate here includes the scope.
-// Without this, a write aimed at another directory's user returns nil — the
-// caller is told their change was applied, to a row that does not exist as far
-// as they are concerned.
-//
-// A driver that declines to report the count is treated as a hit and counted,
-// because the alternative is reporting a missing row for a write that probably
-// happened. The count is the only way that assumption is visible: see
-// NewSQLStore.
-func (s *SQLStore) execExpectingRow(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	query string,
-	args []any,
-	missing error,
-	operation string,
-) error {
-	result, err := q.ExecContext(ctx, query, args...)
-	if err != nil {
-		return platformerrors.Wrap(err, operation)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		// Acknowledged rather than returned, and counted, because from here the
-		// write is indistinguishable from one that matched a row.
-		op.Acknowledge(err, "reading rows affected by %s", operation)
-		s.unreportedRowsCounter.Add(ctx, 1, storeOpAttr(operation))
-
-		return nil
-	}
-
-	if affected == 0 {
-		return missing
-	}
 
 	return nil
 }

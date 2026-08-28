@@ -65,7 +65,7 @@ them takes over another's client by guessing an identifier.
 # Which clock the deadlines are read against
 
 Every deadline comparison here binds an instant rather than asking the server
-for one, which is [querygen.BoundTime] rather than [querygen.CurrentTime], and
+for one, which is [querygen.AtMostArgument] rather than [querygen.CurrentTime], and
 it is this store's decision rather than querygen's default. The deadlines in
 these columns were stamped by the authorization server's clock — the same clock
 that decided a code lives for a minute and a token for an hour — so the

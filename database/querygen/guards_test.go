@@ -83,18 +83,6 @@ func TestComparand_Renders(T *testing.T) {
 			match: Match{Column: "expires_at", Against: CurrentTime, Exclude: true},
 			want:  "tokens.expires_at > " + NowExpression,
 		},
-		"a bound time at or before the horizon is the sweep": {
-			match: Match{Column: "expires_at", Against: BoundTime},
-			want:  "tokens.expires_at <= sqlc.arg(expires_at)",
-		},
-		"a bound time excluded is still live at that instant": {
-			match: Match{Column: "expires_at", Against: BoundTime, Exclude: true},
-			want:  "tokens.expires_at > sqlc.arg(expires_at)",
-		},
-		"a bound time takes the name the match gives it": {
-			match: Match{Column: "expires_at", Against: BoundTime, Arg: "now"},
-			want:  "tokens.expires_at <= sqlc.arg(now)",
-		},
 		"an optional argument coalesces to the empty string": {
 			match: Match{Column: IDColumn, Against: OptionalArgument, Exclude: true},
 			want:  "tokens.id <> COALESCE(sqlc.narg(id), '')",
@@ -102,6 +90,18 @@ func TestComparand_Renders(T *testing.T) {
 		"an optional argument takes the name the match gives it": {
 			match: Match{Column: IDColumn, Against: OptionalArgument, Arg: "except_id", Exclude: true},
 			want:  "tokens.id <> COALESCE(sqlc.narg(except_id), '')",
+		},
+		"a bound ceiling is the horizon a sweep runs to": {
+			match: Match{Column: "expires_at", Against: AtMostArgument, Arg: "horizon"},
+			want:  "tokens.expires_at <= sqlc.arg(horizon)",
+		},
+		"a bound ceiling excluded is everything short of it": {
+			match: Match{Column: "expires_at", Against: AtMostArgument, Arg: "horizon", Exclude: true},
+			want:  "tokens.expires_at > sqlc.arg(horizon)",
+		},
+		"a bound ceiling binds its column's name where the match gives none": {
+			match: Match{Column: "expires_at", Against: AtMostArgument},
+			want:  "tokens.expires_at <= sqlc.arg(expires_at)",
 		},
 	}
 
@@ -178,52 +178,6 @@ func TestComparand_ClockComesFromOneScreen(T *testing.T) {
 	})
 }
 
-// TestComparand_BoundTimeIsTheClockMoved is the property that makes the two
-// temporal comparands one decision rather than two spellings: they render the same
-// operator on the same side of the boundary, and differ only in what stands to
-// the right of it.
-//
-// It matters because the pair is what a sweep and the guard refusing to spend a
-// row are written from. A bound horizon that read the boundary the other way
-// round would leave a row expired to the sweep and live to the guard at exactly
-// the instant its deadline falls on.
-func TestComparand_BoundTimeIsTheClockMoved(T *testing.T) {
-	T.Parallel()
-
-	T.Run("the same boundary, against the caller's reading of the time", func(t *testing.T) {
-		t.Parallel()
-
-		for _, d := range everyDialect() {
-			g := For(d)
-
-			for _, exclude := range []bool{false, true} {
-				clock := g.matchPredicate(guardTable,
-					Match{Column: "expires_at", Against: CurrentTime, Exclude: exclude}, true)
-				bound := g.matchPredicate(guardTable,
-					Match{Column: "expires_at", Against: BoundTime, Arg: "now", Exclude: exclude}, true)
-
-				test.EqOp(t, strings.Replace(clock, g.storedNow(), "sqlc.arg(now)", 1), bound,
-					test.Sprintf("dialect %q excluded %v", d, exclude))
-			}
-		}
-	})
-
-	// Required rather than nullable, unlike the other presence-conditional
-	// binding form. An unset horizon is not a wider sweep; it is a comparison
-	// against NULL, which matches no row and reports the sweep as having found
-	// nothing to do.
-	T.Run("binds a required argument", func(t *testing.T) {
-		t.Parallel()
-
-		got := For(dialect.Postgres).DeleteQuery("SweepTokens", guardTable, nil,
-			Match{Column: "expires_at", Against: BoundTime, Arg: "now"})
-
-		test.StrContains(t, got.Content, "sqlc.arg(now)")
-		test.StrNotContains(t, got.Content, "sqlc.narg")
-		test.StrNotContains(t, got.Content, NowExpression)
-	})
-}
-
 func TestComparand_ExcludeComplements(T *testing.T) {
 	T.Parallel()
 
@@ -234,9 +188,7 @@ func TestComparand_ExcludeComplements(T *testing.T) {
 		// one bool between them. If the two spellings were written separately
 		// they could come to disagree about the boundary, and the rows in the
 		// gap would be neither live nor expired.
-		for _, comparand := range []Comparand{
-			BoundArgument, NoValue, EmptyString, CurrentTime, BoundTime, OptionalArgument,
-		} {
+		for _, comparand := range []Comparand{BoundArgument, NoValue, EmptyString, CurrentTime, OptionalArgument, AtMostArgument} {
 			included := guardPredicate(t, dialect.Postgres, Match{Column: "expires_at", Against: comparand})
 			excluded := guardPredicate(t, dialect.Postgres,
 				Match{Column: "expires_at", Against: comparand, Exclude: true})
@@ -334,10 +286,10 @@ func TestComparand_ArgumentlessMatchPanics(T *testing.T) {
 		})
 	}
 
-	T.Run("the three comparands that bind take an argument name", func(t *testing.T) {
+	T.Run("the comparands that bind take an argument name", func(t *testing.T) {
 		t.Parallel()
 
-		for _, comparand := range []Comparand{BoundArgument, BoundTime, OptionalArgument} {
+		for _, comparand := range []Comparand{BoundArgument, OptionalArgument, AtMostArgument} {
 			got := guardPredicate(t, dialect.Postgres,
 				Match{Column: IDColumn, Against: comparand, Arg: "except_id"})
 
@@ -356,8 +308,8 @@ func TestComparand_String(T *testing.T) {
 		test.EqOp(t, "NULL", NoValue.String())
 		test.EqOp(t, "the empty string", EmptyString.String())
 		test.EqOp(t, "the current time", CurrentTime.String())
-		test.EqOp(t, "a bound time", BoundTime.String())
 		test.EqOp(t, "an optional bound argument", OptionalArgument.String())
+		test.EqOp(t, "a bound ceiling", AtMostArgument.String())
 		test.StrContains(t, Comparand(99).String(), "unknown")
 	})
 }

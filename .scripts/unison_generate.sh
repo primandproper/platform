@@ -48,6 +48,7 @@ GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/unis
 COMPONENTS=(
   "identity"
   "authentication/oauth2server/database"
+  "sessions/database"
 )
 
 for component in "${COMPONENTS[@]}"; do

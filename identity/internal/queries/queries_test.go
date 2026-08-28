@@ -116,7 +116,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"GetUserIDByUsername", "GetUserIDByEmailAddress",
 		"GetOwnedAccountIDForUser",
 		"GetMembershipByUserAndAccount", "GetMembershipIDByUserAndAccount",
-		"GetMembershipFallbackAccountID",
+		"GetMembershipFallbackAccountID", "GetMembershipIDForUser",
 		"ListUsersByIDs", "ListUserRolesByUserIDs",
 		"ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
 		"ListAccountMembers", "ListAccountMembersDescending",
@@ -129,11 +129,15 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"RecordAccountSubscription", "SetAccountBillingStatus",
 		"SetAccountPaymentProcessorCustomerID", "MarkAccountBillingSynced",
 		"AnswerInvitation",
+		"RecordUserTermsOfServiceAgreement", "RecordUserPrivacyPolicyAgreement",
 		"EraseUser",
 		"DeleteUserRoles", "InsertUserRole",
 		"DeleteMembershipRoles", "InsertMembershipRole",
 		"DeleteInvitationRoles", "InsertInvitationRole",
 		"UpsertMembership",
+		"SetMembershipDefaultAccount",
+		"ClearMembershipDefaultAccountsForUser", "ClearMembershipDefaultAccountsForAccount",
+		"ArchiveMembership", "ArchiveMembershipsForUser", "ArchiveMembershipsForAccount",
 	}
 
 	for _, d := range everyDialect {
@@ -158,15 +162,16 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 			test.StrNotContains(t, rendered, "Existence")
 
 			// Memberships gets no standard query — every one of them would key
-			// on the id the table does not address rows by — but its three
-			// keyed reads, its three junction lists and its upsert are here,
-			// which is the point of the keyed, junction and upsert forms. The
-			// standard list's name is a prefix of the junction list's, so its
-			// absence rests on the exact name list above rather than on a
-			// substring check.
+			// on the id the table does not address rows by — but its keyed
+			// reads, its three junction lists, its upsert and the writes that
+			// follow it are all here, which is the point of the keyed,
+			// junction and upsert forms. The standard set's names are prefixes
+			// of the ones that are here, so their absence rests on the exact
+			// name list above rather than on a substring check: the archival
+			// that is emitted keys on the pair, and CreateMembership and
+			// UpdateMembership are absent from it entirely.
 			test.StrNotContains(t, rendered, "CreateMembership")
 			test.StrNotContains(t, rendered, "UpdateMembership")
-			test.StrNotContains(t, rendered, "ArchiveMembership")
 			test.EqOp(t, 1, strings.Count(rendered, "INSERT INTO "+MembershipsTable))
 		})
 	}
