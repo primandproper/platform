@@ -52,11 +52,36 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	ArchiveAccount(ctx context.Context, db DBTX, arg ArchiveAccountParams) (int64, error)
+	// ArchiveMembership runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	ArchiveMembership(ctx context.Context, db DBTX, arg ArchiveMembershipParams) (int64, error)
+	// ArchiveMembershipsForAccount runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	ArchiveMembershipsForAccount(ctx context.Context, db DBTX, arg ArchiveMembershipsForAccountParams) (int64, error)
+	// ArchiveMembershipsForUser runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	ArchiveMembershipsForUser(ctx context.Context, db DBTX, arg ArchiveMembershipsForUserParams) (int64, error)
 	// ArchiveUser runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note
 	// on Querier.
 	ArchiveUser(ctx context.Context, db DBTX, arg ArchiveUserParams) (int64, error)
+	// ClearMembershipDefaultAccountsForAccount runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	ClearMembershipDefaultAccountsForAccount(ctx context.Context, db DBTX, arg ClearMembershipDefaultAccountsForAccountParams) (int64, error)
+	// ClearMembershipDefaultAccountsForUser runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	ClearMembershipDefaultAccountsForUser(ctx context.Context, db DBTX, arg ClearMembershipDefaultAccountsForUserParams) (int64, error)
 	// CountSearchUsersByUsername runs the :one query.
 	CountSearchUsersByUsername(ctx context.Context, db DBTX, arg CountSearchUsersByUsernameParams) (CountSearchUsersByUsernameRow, error)
 	// CreateAccount runs the :exec query.
@@ -99,6 +124,8 @@ type Querier interface {
 	GetMembershipFallbackAccountID(ctx context.Context, db DBTX, arg GetMembershipFallbackAccountIDParams) (GetMembershipFallbackAccountIDRow, error)
 	// GetMembershipIDByUserAndAccount runs the :one query.
 	GetMembershipIDByUserAndAccount(ctx context.Context, db DBTX, arg GetMembershipIDByUserAndAccountParams) (GetMembershipIDByUserAndAccountRow, error)
+	// GetMembershipIDForUser runs the :one query.
+	GetMembershipIDForUser(ctx context.Context, db DBTX, arg GetMembershipIDForUserParams) (GetMembershipIDForUserRow, error)
 	// GetOwnedAccountIDForUser runs the :one query.
 	GetOwnedAccountIDForUser(ctx context.Context, db DBTX, arg GetOwnedAccountIDForUserParams) (GetOwnedAccountIDForUserRow, error)
 	// GetUser runs the :one query.
@@ -179,6 +206,16 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	RecordAccountSubscription(ctx context.Context, db DBTX, arg RecordAccountSubscriptionParams) (int64, error)
+	// RecordUserPrivacyPolicyAgreement runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	RecordUserPrivacyPolicyAgreement(ctx context.Context, db DBTX, arg RecordUserPrivacyPolicyAgreementParams) (int64, error)
+	// RecordUserTermsOfServiceAgreement runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	RecordUserTermsOfServiceAgreement(ctx context.Context, db DBTX, arg RecordUserTermsOfServiceAgreementParams) (int64, error)
 	// SearchUsersByUsername runs the :many query.
 	SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error)
 	// SearchUsersByUsernameDescending runs the :many query.
@@ -193,6 +230,11 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	SetAccountPaymentProcessorCustomerID(ctx context.Context, db DBTX, arg SetAccountPaymentProcessorCustomerIDParams) (int64, error)
+	// SetMembershipDefaultAccount runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	SetMembershipDefaultAccount(ctx context.Context, db DBTX, arg SetMembershipDefaultAccountParams) (int64, error)
 	// SetUserEmailAddressVerificationToken runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

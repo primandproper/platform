@@ -1,10 +1,12 @@
 package querygen
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
+	"github.com/primandproper/platform-go/v13/filtering"
 
 	"github.com/shoenig/test"
 )
@@ -41,6 +43,81 @@ func TestGenerator_ContainsCondition(T *testing.T) {
 		test.EqOp(t,
 			`things.name ILIKE '%' || sqlc.arg(name_query)::text || '%'`,
 			pg().ContainsCondition("things.name", "name_query"))
+	})
+}
+
+func TestGenerator_SetCondition(T *testing.T) {
+	T.Parallel()
+
+	T.Run("postgres binds the whole set as one array argument", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "widgets.id = ANY(sqlc.arg(ids)::text[])", pg().SetCondition("widgets.id", IDsArg))
+	})
+
+	T.Run("the other two expand the set into placeholders", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
+			test.EqOp(t, "widgets.id IN (sqlc.slice(ids))",
+				For(d).SetCondition("widgets.id", IDsArg), test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("it is the predicate the batched read is keyed on", func(t *testing.T) {
+		t.Parallel()
+
+		// One rendering, so a statement a consumer writes out and one this
+		// package emits cannot come to spell a bound set differently.
+		read := pg().SetReadQuery("ListThings", "things", []string{"parent_id", "name"},
+			Read{}, SetKey{Column: "parent_id", Arg: "parent_ids"})
+
+		test.StrContains(t, read.Content, pg().SetCondition("things.parent_id", "parent_ids"))
+	})
+
+	// The column may be qualified, because a statement joining more than one
+	// table has to qualify it. Only the argument is an identifier this package
+	// promises to have checked.
+	T.Run("it refuses an argument that is not an identifier", func(t *testing.T) {
+		t.Parallel()
+
+		defer func() {
+			raised, ok := recover().(error)
+			test.True(t, ok)
+			test.ErrorIs(t, raised, dialect.ErrInvalidIdentifier)
+		}()
+
+		_ = pg().SetCondition("widgets.id", "ids; DROP TABLE widgets")
+	})
+}
+
+func TestGenerator_LimitClause(T *testing.T) {
+	T.Parallel()
+
+	T.Run("postgres and sqlite default an absent page size", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
+			test.EqOp(t, fmt.Sprintf("LIMIT COALESCE(sqlc.narg(result_limit), %d)", filtering.DefaultQueryFilterLimit),
+				For(d).LimitClause(), test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("mysql takes a bare placeholder", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "LIMIT ?", For(dialect.MySQL).LimitClause())
+	})
+
+	T.Run("it is the clause a keyset walk ends with", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
+			g := For(d)
+
+			test.True(t, strings.HasSuffix(g.CursorLimitClause("widgets", Ascending), g.LimitClause()),
+				test.Sprintf("dialect %q", d))
+		}
 	})
 }
 
@@ -363,41 +440,6 @@ func TestJoinPredicates(T *testing.T) {
 // by hand cannot arrive at a second opinion about it — see the methods' own
 // comments for what a second opinion costs on each.
 
-func TestGenerator_SetPredicate(T *testing.T) {
-	T.Parallel()
-
-	T.Run("Postgres binds the whole set as one array", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "things.id = ANY(sqlc.arg(ids)::text[])", pg().SetPredicate("things.id", IDsArg))
-	})
-
-	// The other two have no array type, so the set is an expansion sqlc writes.
-	T.Run("the other two expand a placeholder per element", func(t *testing.T) {
-		t.Parallel()
-
-		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
-			test.EqOp(t, "things.id IN (sqlc.slice(ids))", For(d).SetPredicate("things.id", IDsArg),
-				test.Sprintf("dialect %q", d))
-		}
-	})
-
-	// The column may be qualified, because a statement joining more than one
-	// table has to qualify it. Only the argument is an identifier this package
-	// promises to have checked.
-	T.Run("it refuses an argument that is not an identifier", func(t *testing.T) {
-		t.Parallel()
-
-		defer func() {
-			raised, ok := recover().(error)
-			test.True(t, ok)
-			test.ErrorIs(t, raised, dialect.ErrInvalidIdentifier)
-		}()
-
-		_ = pg().SetPredicate("things.id", "ids; DROP TABLE things")
-	})
-}
-
 func TestGenerator_StoredNow(T *testing.T) {
 	T.Parallel()
 
@@ -416,30 +458,6 @@ func TestGenerator_StoredNow(T *testing.T) {
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
 			test.EqOp(t, NowExpression, For(d).StoredNow(), test.Sprintf("dialect %q", d))
-		}
-	})
-}
-
-func TestGenerator_LimitClause(T *testing.T) {
-	T.Parallel()
-
-	// MySQL takes an integer literal or a bare placeholder after LIMIT and
-	// nothing else: a named argument reference there is a parse error rather
-	// than a slower plan.
-	T.Run("MySQL takes a bare marker", func(t *testing.T) {
-		t.Parallel()
-
-		test.EqOp(t, "LIMIT ?", For(dialect.MySQL).LimitClause())
-	})
-
-	T.Run("the other two default an absent page size", func(t *testing.T) {
-		t.Parallel()
-
-		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
-			clause := For(d).LimitClause()
-
-			test.True(t, strings.HasPrefix(clause, "LIMIT COALESCE(sqlc.narg("+LimitArg+")"),
-				test.Sprintf("dialect %q rendered %q", d, clause))
 		}
 	})
 }

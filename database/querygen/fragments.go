@@ -26,6 +26,48 @@ func (j JoinStatement) String() string {
 	return fmt.Sprintf("JOIN %s ON %s.%s=%s.%s", j.JoinTarget, j.OnTable, j.OnColumn, j.JoinTarget, j.TargetColumn)
 }
 
+// LimitClause renders the page-size clause, for a read a consumer writes out
+// rather than one this package renders.
+//
+// It is the LIMIT [Generator.CursorLimitClause] ends with, exported on its own
+// because a keyset walk is not the only paged read: a claim reads a bounded
+// batch in an order of its own, and that read still owes its dialect the page
+// size that dialect accepts. Postgres and SQLite take an expression, so an
+// absent size coalesces to filtering.DefaultQueryFilterLimit; MySQL takes a
+// bare placeholder and nothing else, which is the one place a dialect changes
+// the generated signature rather than only the SQL — see this package's
+// comment, under "The one place a dialect changes a signature".
+//
+// A MySQL statement using it therefore has to place it last, since a bare
+// marker is positional and the generated parameter is named for whatever
+// position it landed in.
+func (g *Generator) LimitClause() string {
+	return g.limitClause()
+}
+
+// SetCondition renders a column matched against a whole set of values bound as
+// one argument, for a statement a consumer writes out rather than one this
+// package renders.
+//
+// It is the same predicate [Generator.SetReadQuery] keys on, and it is exported
+// for the same reason [Generator.FilterConditions] is: a corpus that authors a
+// statement this package has no shape for still has to spell the set the way
+// its dialect spells one. Postgres takes the whole set as an array argument and
+// the other two take a sqlc.slice expansion, which is a difference in what
+// reaches the server rather than in the []string a caller binds — and a second
+// copy of that fact in a consumer's generator is a copy that can drift.
+//
+// Where the predicate may sit in the statement is the caller's to get right,
+// and it is not free: an expansion is a run of bare markers, SQLite numbers a
+// bare marker one past the highest it has seen, and an argument bound after one
+// collides with an element of the set. So an authored statement renders its set
+// after every other bound value, exactly as SetReadQuery does.
+func (g *Generator) SetCondition(column, argument string) string {
+	mustIdentifier("set argument", argument)
+
+	return g.setPredicate(column, argument)
+}
+
 // ContainsCondition renders a case-insensitive substring match of column against
 // a bound argument, for a search query's own WHERE predicate.
 //
@@ -365,33 +407,6 @@ func joinPredicates(predicates []string, indent string) string {
 	return strings.Join(rendered, "\n"+indent)
 }
 
-// SetPredicate renders a column matched against a whole set of values bound as
-// one argument, in the spelling the dialect this Generator emits for takes.
-//
-// It is the predicate [Generator.SetReadQuery] and [Generator.IndexStampQuery]
-// are built on, exported for the statements a corpus writes out by hand. Those
-// exist: a store whose write assigns an expression rather than a bound value —
-// a claim incrementing an attempt counter, a bounded prune deleting through a
-// subquery — is outside what this package renders, and the ruling is that such
-// a statement is authored in the consumer's own queries package rather than
-// that this package grows an expression language. What it must not also be is a
-// second opinion about how a set reaches a server, which differs by dialect and
-// is silently wrong when guessed: Postgres binds one array, and the other two
-// take an expansion sqlc writes.
-//
-// The same ordering rule applies as it does to the batched read: nothing may
-// bind after this predicate, because the expansion consumes as many positional
-// markers as the set has elements and SQLite numbers a later bare marker into
-// the middle of them. See [Generator.SetReadQuery].
-// The column may be qualified — the batched read this is lifted from renders it
-// that way, and a statement joining more than one table has to — so only the
-// argument is checked against dialect.ValidIdentifier.
-func (g *Generator) SetPredicate(column, argument string) string {
-	mustIdentifier("set argument", argument)
-
-	return g.setPredicate(column, argument)
-}
-
 // StoredNow renders the current time as a statement should store it, which is
 // not the same as [NowExpression] on every dialect — MySQL's bare
 // CURRENT_TIMESTAMP is second-granular whatever precision the column declares.
@@ -404,21 +419,4 @@ func (g *Generator) SetPredicate(column, argument string) string {
 // Generator.storedNow, which is the whole of the reasoning.
 func (g *Generator) StoredNow() string {
 	return g.storedNow()
-}
-
-// LimitClause renders the page-size clause a statement ends on, in the spelling
-// the dialect this Generator emits for takes.
-//
-// It is exported for the same reason [Generator.SetPredicate] is. MySQL accepts
-// only a bare placeholder after LIMIT — a named argument reference there is a
-// parse error rather than a slower plan — so an authored statement that spells
-// its own limit works on two dialects and fails to compile on the third, which
-// is precisely the failure the corpus exists to catch early and precisely the
-// one a hand-written clause reintroduces.
-//
-// The argument binds under [LimitArg] on every dialect. On MySQL the marker
-// carries no name, so it must be the statement's last bound value; on the other
-// two an absent limit coalesces to filtering.DefaultQueryFilterLimit.
-func (g *Generator) LimitClause() string {
-	return g.limitClause()
 }

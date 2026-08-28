@@ -21,6 +21,11 @@ Statements is the same DDL split into individually executable statements, for
 callers running it some other way — a different migration tool, or a test that
 just wants the table.
 
+Tables names what the DDL creates, at your prefix, read out of the schema rather
+than listed beside it — for the TRUNCATE an integration suite runs between
+tests, and for the cross-check that the name the corpus interpolates is the name
+the schema declares.
+
 The rendering and prefix vetting live in database/ddl, shared with every other
 schema-shipping package in this module.
 */
@@ -61,6 +66,27 @@ func Statements(d dialect.Dialect, prefix string) ([]string, error) {
 // table and index this package creates.
 func ValidatePrefix(prefix string) error {
 	return schema.ValidatePrefix(prefix)
+}
+
+// Tables is every table this package's DDL creates, at the given prefix.
+//
+// It reads the DDL rather than a list written beside it, so a table added to
+// the schema is in the answer without anybody remembering to add it — which is
+// the failure mode that matters: a table missing from the TRUNCATE an
+// integration suite runs between tests is not a failure where the mistake was
+// made, but a different test failing later on rows the previous one left
+// behind.
+//
+// The prefix is vetted exactly as [Statements] and [SQL] vet it, and for the
+// same reason: these names are interpolated into statement text rather than
+// bound, so a caller building a TRUNCATE out of them is building it out of
+// whatever this returns.
+func Tables(prefix string) ([]string, error) {
+	if err := schema.ValidatePrefix(prefix); err != nil {
+		return nil, err
+	}
+
+	return schema.Tables(prefix), nil
 }
 
 // SQL renders the same DDL as Statements, joined back into one migration body.

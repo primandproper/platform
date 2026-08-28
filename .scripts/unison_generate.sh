@@ -48,6 +48,8 @@ GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/unis
 COMPONENTS=(
   "identity"
   "webhooks"
+  "saga"
+  "sessions/database"
 )
 
 for component in "${COMPONENTS[@]}"; do
