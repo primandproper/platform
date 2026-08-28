@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/notifications/mobile/internal/pushfeedback"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 
@@ -114,11 +115,50 @@ func (s *Sender) Send(ctx context.Context, deviceToken, title, body string) erro
 	messageID, err := s.client.Send(ctx, msg)
 	if err != nil {
 		s.errorCounter.Add(ctx, 1)
-		return op.Error(err, "sending fcm message")
+
+		return op.Error(markDeadToken(err, tokenIsDead(err)), "sending fcm message")
 	}
 
 	op.Set("fcm.message_id", messageID)
 
 	s.sendCounter.Add(ctx, 1)
 	return nil
+}
+
+// tokenIsDead reports whether an FCM failure means the registration token will
+// never accept another notification.
+//
+// Two of the SDK's classifications rather than every 4xx, and the line is the
+// same one the APNs sibling draws: the token is what Firebase is refusing, not
+// the request around it.
+//
+//   - UNREGISTERED: the app is gone from the device, or the token was reissued.
+//   - SENDER_ID_MISMATCH: the token was minted for a different Firebase project.
+//     It will never work here, whatever it does for whoever owns that project.
+//
+// INVALID_ARGUMENT is deliberately not among them, and it is the one worth
+// naming. Firebase reports it for a malformed token and for a malformed message
+// alike, so treating it as fatal to the token would empty a registry the first
+// time somebody shipped a notification with a bad payload — every send would
+// fail, and every token would be classified dead on the way past.
+func tokenIsDead(err error) bool {
+	return messaging.IsUnregistered(err) || messaging.IsSenderIDMismatch(err)
+}
+
+// markDeadToken marks a send failure with the sentinel a registry prunes on,
+// leaving it alone when the token is not what Firebase refused.
+//
+// It takes the classification rather than making it, and that is what makes the
+// marking testable at all: a messaging error carries its code in a struct only
+// firebase's own internal package can build, so nothing outside the SDK can
+// produce a genuine UNREGISTERED to send through here.
+//
+// Marked rather than replaced. The SDK's error is what says which of the two
+// happened, and a caller reading the message wants it.
+func markDeadToken(err error, dead bool) error {
+	if err == nil || !dead {
+		return err
+	}
+
+	return errors.Wrap(pushfeedback.ErrTokenInvalid, err.Error())
 }

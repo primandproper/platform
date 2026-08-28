@@ -48,6 +48,7 @@ GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/unis
 COMPONENTS=(
   "dataprivacy"
   "identity"
+  "notifications"
   "uploads/registry"
   "settings"
   "authentication/webauthn/database"

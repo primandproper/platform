@@ -2,16 +2,17 @@ package mobile
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 
-	"github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
 )
 
 // ErrPlatformNotSupported is returned when attempting to send to a platform
 // that has no configured sender (e.g., iOS token but APNs not configured).
-var ErrPlatformNotSupported = errors.New("push notifications not configured for this platform")
+var ErrPlatformNotSupported = platformerrors.New("push notifications not configured for this platform")
 
 const (
 	platformIOS     = "ios"
@@ -37,9 +38,10 @@ type (
 
 // MultiPlatformPushSender routes push notifications to APNs (iOS) or FCM (Android).
 type MultiPlatformPushSender struct {
-	o11y       observability.Observer
-	apnsSender APNsSender
-	fcmSender  FCMSender
+	o11y             observability.Observer
+	apnsSender       APNsSender
+	fcmSender        FCMSender
+	tokenInvalidator TokenInvalidator
 }
 
 // NewMultiPlatformPushSender creates a sender that routes by platform.
@@ -54,9 +56,10 @@ func NewMultiPlatformPushSender(
 	o := newOptions(opts)
 
 	return &MultiPlatformPushSender{
-		apnsSender: apnsSender,
-		fcmSender:  fcmSender,
-		o11y:       observability.NewObserver(o11yName, o.logger, o.tracerProvider),
+		apnsSender:       apnsSender,
+		fcmSender:        fcmSender,
+		tokenInvalidator: o.tokenInvalidator,
+		o11y:             observability.NewObserver(o11yName, o.logger, o.tracerProvider),
 	}
 }
 
@@ -96,7 +99,8 @@ func (s *MultiPlatformPushSender) SendPush(ctx context.Context, platform, token 
 		if isNil(s.apnsSender) {
 			return op.Error(ErrPlatformNotSupported, "sending apns notification")
 		}
-		return s.apnsSender.Send(ctx, token, msg.Title, msg.Body, msg.BadgeCount)
+		return s.reportInvalid(ctx, op, platform, token,
+			s.apnsSender.Send(ctx, token, msg.Title, msg.Body, msg.BadgeCount))
 	case platformAndroid:
 		if isNil(s.fcmSender) {
 			return op.Error(ErrPlatformNotSupported, "sending fcm notification")
@@ -107,8 +111,41 @@ func (s *MultiPlatformPushSender) SendPush(ctx context.Context, platform, token 
 			// it rather than silently discarding.
 			op.Logger().WithValue("badge_count", *msg.BadgeCount).Info("dropping BadgeCount: unsupported on the FCM/Android path")
 		}
-		return s.fcmSender.Send(ctx, token, msg.Title, msg.Body)
+		return s.reportInvalid(ctx, op, platform, token,
+			s.fcmSender.Send(ctx, token, msg.Title, msg.Body))
 	default:
-		return op.Error(errors.Newf("unknown platform %q", platform), "sending apns notification")
+		return op.Error(platformerrors.Newf("unknown platform %q", platform), "sending apns notification")
 	}
+}
+
+// reportInvalid passes a send's outcome through, telling the invalidator first
+// when the provider said the token is permanently dead.
+//
+// The send's error is what comes back either way. A caller asked whether the
+// push arrived, and it did not; whether the registry has since been tidied is a
+// different fact and not one that should turn a failed send into a successful
+// one, or a successful prune into a second error to handle.
+//
+// A failing invalidator is logged and swallowed for the same reason. The push
+// has already failed, the token is already known dead, and the worst outcome
+// available here is replacing that diagnosis with "the database was busy" —
+// which is what returning the prune's error would do. The row survives, the next
+// send classifies it again, and the log says the prune did not take.
+func (s *MultiPlatformPushSender) reportInvalid(
+	ctx context.Context,
+	op observability.Operation,
+	platform, token string,
+	err error,
+) error {
+	if err == nil || s.tokenInvalidator == nil || !errors.Is(err, ErrTokenInvalid) {
+		return err
+	}
+
+	op.Set("token_invalidated", true)
+
+	if invalidateErr := s.tokenInvalidator.InvalidateDeviceToken(ctx, platform, token); invalidateErr != nil {
+		op.Acknowledge(invalidateErr, "pruning the device token the provider rejected")
+	}
+
+	return err
 }

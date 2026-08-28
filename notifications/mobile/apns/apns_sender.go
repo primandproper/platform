@@ -5,6 +5,7 @@ import (
 
 	"github.com/primandproper/platform-go/v13/charset"
 	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/notifications/mobile/internal/pushfeedback"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/keys"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
@@ -135,7 +136,12 @@ func (s *Sender) Send(ctx context.Context, deviceToken, title, body string, badg
 	defer op.End()
 
 	if !apnsDeviceToken.Valid(deviceToken) {
-		return op.Error(errors.Newf("apns: invalid device token format (expected 64 hex chars, got len %d)", len(deviceToken)), "validating device token")
+		// Classified as invalid rather than merely rejected: a value that is not
+		// an APNs token will never become one, so a registry holding it should
+		// drop it on the same signal it drops a token Apple has retired.
+		return op.Error(errors.Wrapf(pushfeedback.ErrTokenInvalid,
+			"apns: invalid device token format (expected 64 hex chars, got len %d)", len(deviceToken)),
+			"validating device token")
 	}
 
 	op.Set("title", title)
@@ -167,9 +173,14 @@ func (s *Sender) Send(ctx context.Context, deviceToken, title, body string, badg
 	if !res.Sent() {
 		s.errorCounter.Add(ctx, 1)
 		err = errors.Newf("apns: %s (status %d)", res.Reason, res.StatusCode)
+		if tokenIsDead(res.Reason) {
+			err = errors.Wrapf(pushfeedback.ErrTokenInvalid, "apns: %s (status %d)", res.Reason, res.StatusCode)
+		}
+
 		op.Set("statusCode", res.StatusCode).
 			Set(keys.ReasonKey, res.Reason).
 			Set("apnsID", res.ApnsID)
+
 		return op.Error(err, "sending apns notification")
 	}
 
@@ -177,4 +188,32 @@ func (s *Sender) Send(ctx context.Context, deviceToken, title, body string, badg
 
 	s.sendCounter.Add(ctx, 1)
 	return nil
+}
+
+// tokenIsDead reports whether an APNs rejection reason means the device token
+// will never accept another notification.
+//
+// Four reasons rather than every 4xx, and the line is drawn where the token is
+// what Apple is refusing rather than the request around it. BadTopic, BadPriority
+// and their siblings are this sender's misconfiguration and would be the same for
+// every token it holds; deleting a registry on one of those would empty it.
+//
+//   - BadDeviceToken: not a token Apple will accept, now or later — including a
+//     production token presented to the sandbox gateway, which is a deployment
+//     mistake this sender cannot tell apart from a dead token and which is worth
+//     pruning either way, since the row is unusable by this deployment.
+//   - Unregistered and ExpiredToken: Apple's two spellings of "the app is gone
+//     from this device".
+//   - DeviceTokenNotForTopic: the token belongs to a different application. It
+//     will never work here, whatever it does elsewhere.
+func tokenIsDead(reason string) bool {
+	switch reason {
+	case apns2.ReasonBadDeviceToken,
+		apns2.ReasonUnregistered,
+		apns2.ReasonExpiredToken,
+		apns2.ReasonDeviceTokenNotForTopic:
+		return true
+	default:
+		return false
+	}
 }

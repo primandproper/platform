@@ -16,6 +16,7 @@ import (
 	dataprivacymigrations "github.com/primandproper/platform-go/v13/dataprivacy/migrations"
 	identitymigrations "github.com/primandproper/platform-go/v13/identity/migrations"
 	meteringmigrations "github.com/primandproper/platform-go/v13/metering/migrations"
+	notificationsmigrations "github.com/primandproper/platform-go/v13/notifications/migrations"
 	operationsmigrations "github.com/primandproper/platform-go/v13/operations/migrations"
 	outboxmigrations "github.com/primandproper/platform-go/v13/outbox/migrations"
 	sagamigrations "github.com/primandproper/platform-go/v13/saga/migrations"
@@ -59,6 +60,7 @@ var conventional = map[string]renderer{
 	"scheduled_timers":       timersmigrations.Statements,
 	"metering_totals":        meteringmigrations.Statements,
 	"audit_log_chains":       auditmigrations.Statements,
+	"notifications_inbox":    notificationsmigrations.Statements,
 	"uploads_objects":        uploadsregistrymigrations.Statements,
 }
 
@@ -84,6 +86,8 @@ var exempt = map[string]exemption{
 		"ceremony state, written once and consumed once, then swept"},
 	"metering_events": {meteringmigrations.Statements,
 		"the ingest ledger: written once, never updated, reaped by recorded_at on a retention window"},
+	"notifications_devices": {notificationsmigrations.Statements,
+		"a device token is revoked by its owner or invalidated by the provider and deleted; last_seen_at is when the handset announced itself, not a last mutation"},
 
 	// audit_log_entries is exempt for three reasons, the first fatal. recorded_at
 	// is folded into every entry's hash before the INSERT, so a database-assigned
@@ -203,20 +207,21 @@ func TestEveryTableIsClassified(T *testing.T) {
 	T.Parallel()
 
 	renderers := map[string]renderer{
-		"audit":       auditmigrations.Statements,
-		"authz":       authzmigrations.Statements,
-		"dataprivacy": dataprivacymigrations.Statements,
-		"identity":    identitymigrations.Statements,
-		"metering":    meteringmigrations.Statements,
-		"operations":  operationsmigrations.Statements,
-		"outbox":      outboxmigrations.Statements,
-		"saga":        sagamigrations.Statements,
-		"sessions":    sessionsmigrations.Statements,
-		"shredding":   shreddingmigrations.Statements,
-		"timers":      timersmigrations.Statements,
-		"webauthn":    webauthnmigrations.Statements,
-		"webhooks":    webhooksmigrations.Statements,
-		"workqueue":   workqueuemigrations.Statements,
+		"audit":         auditmigrations.Statements,
+		"authz":         authzmigrations.Statements,
+		"dataprivacy":   dataprivacymigrations.Statements,
+		"identity":      identitymigrations.Statements,
+		"metering":      meteringmigrations.Statements,
+		"notifications": notificationsmigrations.Statements,
+		"operations":    operationsmigrations.Statements,
+		"outbox":        outboxmigrations.Statements,
+		"saga":          sagamigrations.Statements,
+		"sessions":      sessionsmigrations.Statements,
+		"shredding":     shreddingmigrations.Statements,
+		"timers":        timersmigrations.Statements,
+		"webauthn":      webauthnmigrations.Statements,
+		"webhooks":      webhooksmigrations.Statements,
+		"workqueue":     workqueuemigrations.Statements,
 	}
 
 	for pkg, render := range renderers {
