@@ -59,9 +59,12 @@ type ruling struct {
 // same sentence in every case, and a per-package copy of it would be a place for
 // a real reason to hide.
 var rulings = map[string]ruling{
-	// The tier itself. identitydb is what sqlc-gen-unison emitted from
-	// identity's corpus, which is what every port below is a port onto.
-	"identity/internal/identitydb": {tier: unison},
+	// The tier itself: what sqlc-gen-unison emitted from each package's
+	// corpus, which is what every port below is a port onto. identitydb was
+	// the first; shreddingdb is the first table keyed on a natural key rather
+	// than an id, which is the pattern the remaining such tables follow.
+	"cryptography/shredding/internal/shreddingdb": {tier: unison},
+	"identity/internal/identitydb":                {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
@@ -70,7 +73,6 @@ var rulings = map[string]ruling{
 	"authentication/oauth2server/database": {tier: porting},
 	"authentication/webauthn/database":     {tier: porting},
 	"authorization/database":               {tier: porting},
-	"cryptography/shredding":               {tier: porting},
 	"dataprivacy":                          {tier: porting},
 	"dataprivacy/auditerasure":             {tier: porting},
 	"identity":                             {tier: porting},
