@@ -361,6 +361,20 @@ const getUserCreatedAtPostgreSQL = `SELECT
 FROM {{prefix}}identity_users
 WHERE {{prefix}}identity_users.id = $1`
 
+const getUserIdbyEmailAddressPostgreSQL = `SELECT
+	{{prefix}}identity_users.id
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.email_address = $1
+	AND {{prefix}}identity_users.scope = $2
+	AND {{prefix}}identity_users.id <> COALESCE($3, '')`
+
+const getUserIdbyUsernamePostgreSQL = `SELECT
+	{{prefix}}identity_users.id
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.username = $1
+	AND {{prefix}}identity_users.scope = $2
+	AND {{prefix}}identity_users.id <> COALESCE($3, '')`
+
 const insertInvitationRolePostgreSQL = `INSERT INTO {{prefix}}identity_invitation_roles (
 	invitation_id,
 	role
@@ -901,6 +915,15 @@ WHERE archived_at IS NULL
 	AND scope = $4
 	AND email_address_verification_token = $5`
 
+const markUserTwoFactorSecretVerifiedPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	two_factor_secret_verified_at = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $2
+	AND scope = $3
+	AND two_factor_secret <> ''
+	AND two_factor_secret_verified_at IS NULL`
+
 const recordAccountSubscriptionPostgreSQL = `UPDATE {{prefix}}identity_accounts SET
 	billing_status = $1,
 	subscription_plan_id = $2,
@@ -1070,6 +1093,8 @@ type postgresqlQueries struct {
 	getUserByEmailVerificationToken      string
 	getUserByUsername                    string
 	getUserCreatedAt                     string
+	getUserIdbyEmailAddress              string
+	getUserIdbyUsername                  string
 	insertInvitationRole                 string
 	insertMembershipRole                 string
 	insertUserRole                       string
@@ -1087,6 +1112,7 @@ type postgresqlQueries struct {
 	listUsersByIDs                       string
 	markAccountBillingSynced             string
 	markUserEmailAddressVerified         string
+	markUserTwoFactorSecretVerified      string
 	recordAccountSubscription            string
 	searchUsersByUsername                string
 	setAccountBillingStatus              string
@@ -1130,6 +1156,8 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenPostgreSQL, prefixMarker, prefix),
 		getUserByUsername:                    strings.ReplaceAll(getUserByUsernamePostgreSQL, prefixMarker, prefix),
 		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtPostgreSQL, prefixMarker, prefix),
+		getUserIdbyEmailAddress:              strings.ReplaceAll(getUserIdbyEmailAddressPostgreSQL, prefixMarker, prefix),
+		getUserIdbyUsername:                  strings.ReplaceAll(getUserIdbyUsernamePostgreSQL, prefixMarker, prefix),
 		insertInvitationRole:                 strings.ReplaceAll(insertInvitationRolePostgreSQL, prefixMarker, prefix),
 		insertMembershipRole:                 strings.ReplaceAll(insertMembershipRolePostgreSQL, prefixMarker, prefix),
 		insertUserRole:                       strings.ReplaceAll(insertUserRolePostgreSQL, prefixMarker, prefix),
@@ -1147,6 +1175,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		listUsersByIDs:                       strings.ReplaceAll(listUsersByIDsPostgreSQL, prefixMarker, prefix),
 		markAccountBillingSynced:             strings.ReplaceAll(markAccountBillingSyncedPostgreSQL, prefixMarker, prefix),
 		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedPostgreSQL, prefixMarker, prefix),
+		markUserTwoFactorSecretVerified:      strings.ReplaceAll(markUserTwoFactorSecretVerifiedPostgreSQL, prefixMarker, prefix),
 		recordAccountSubscription:            strings.ReplaceAll(recordAccountSubscriptionPostgreSQL, prefixMarker, prefix),
 		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernamePostgreSQL, prefixMarker, prefix),
 		setAccountBillingStatus:              strings.ReplaceAll(setAccountBillingStatusPostgreSQL, prefixMarker, prefix),
@@ -1656,6 +1685,40 @@ func (q *postgresqlQueries) GetUserCreatedAt(ctx context.Context, db DBTX, arg G
 
 	err := row.Scan(
 		&i.CreatedAt,
+	)
+
+	return i, err
+}
+
+// GetUserIDByEmailAddress runs the :one query against postgresql.
+func (q *postgresqlQueries) GetUserIDByEmailAddress(ctx context.Context, db DBTX, arg GetUserIDByEmailAddressParams) (GetUserIDByEmailAddressRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserIdbyEmailAddress,
+		arg.EmailAddress,
+		arg.Scope,
+		arg.ExceptUserID,
+	)
+
+	var i GetUserIDByEmailAddressRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// GetUserIDByUsername runs the :one query against postgresql.
+func (q *postgresqlQueries) GetUserIDByUsername(ctx context.Context, db DBTX, arg GetUserIDByUsernameParams) (GetUserIDByUsernameRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserIdbyUsername,
+		arg.Username,
+		arg.Scope,
+		arg.ExceptUserID,
+	)
+
+	var i GetUserIDByUsernameRow
+
+	err := row.Scan(
+		&i.ID,
 	)
 
 	return i, err
@@ -2326,6 +2389,20 @@ func (q *postgresqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db
 	return result.RowsAffected()
 }
 
+// MarkUserTwoFactorSecretVerified runs the :execrows query against postgresql.
+func (q *postgresqlQueries) MarkUserTwoFactorSecretVerified(ctx context.Context, db DBTX, arg MarkUserTwoFactorSecretVerifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserTwoFactorSecretVerified,
+		arg.TwoFactorSecretVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // RecordAccountSubscription runs the :execrows query against postgresql.
 func (q *postgresqlQueries) RecordAccountSubscription(ctx context.Context, db DBTX, arg RecordAccountSubscriptionParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.recordAccountSubscription,
@@ -2865,6 +2942,22 @@ var (
 		CreatedAt time.Time
 	}(GetUserCreatedAtRow{})
 	_ = struct {
+		EmailAddress string
+		Scope        tenancy.Scope
+		ExceptUserID *string
+	}(GetUserIDByEmailAddressParams{})
+	_ = struct {
+		ID string
+	}(GetUserIDByEmailAddressRow{})
+	_ = struct {
+		Username     string
+		Scope        tenancy.Scope
+		ExceptUserID *string
+	}(GetUserIDByUsernameParams{})
+	_ = struct {
+		ID string
+	}(GetUserIDByUsernameRow{})
+	_ = struct {
 		InvitationID string
 		Role         string
 	}(InsertInvitationRoleParams{})
@@ -3181,6 +3274,11 @@ var (
 		Scope                                tenancy.Scope
 		CurrentEmailAddressVerificationToken string
 	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		TwoFactorSecretVerifiedAt *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(MarkUserTwoFactorSecretVerifiedParams{})
 	_ = struct {
 		BillingStatus               string
 		SubscriptionPlanID          *string

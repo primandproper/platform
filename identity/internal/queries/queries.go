@@ -184,6 +184,13 @@ const (
 	currentInvitationStatusArg       = "current_" + InvitationStatusColumn
 )
 
+// exceptUserIDArg is the argument the collision checks exclude a row through:
+// the id of the user being updated, absent when there is not one yet.
+//
+// It is the one argument in this schema whose absence is meaningful rather than
+// a caller forgetting to bind it — see uniquenessChecks.
+const exceptUserIDArg = "except_user_id"
+
 // EmailAddressVerifiedAtColumn is the proof a user's address is reachable.
 //
 // Spelled once because three declarations below name it — it is nullable, it is
@@ -394,6 +401,7 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, keyedInvitationLists(g)...)
 	rendered = append(rendered, createdAtReads(g)...)
 	rendered = append(rendered, keyedUserReads(g)...)
+	rendered = append(rendered, uniquenessChecks(g)...)
 	rendered = append(rendered, keyedAccountReads(g)...)
 	rendered = append(rendered, keyedMembershipReads(g)...)
 	rendered = append(rendered, batchedReads(g)...)
@@ -561,6 +569,18 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 		g.UpdateQuery("UpdateUserTwoFactorSecret", UsersTable, Users.Columns,
 			[]string{twoFactorColumn, twoFactorVerifiedAtColumn}, Users.Nullable, scope),
 
+		// The proof that a secret was exercised, guarded on there being a
+		// secret and on its not having been proven already. Neither conjunct
+		// is an equality against a value the caller holds: one is the
+		// not-empty sentinel and the other is IS NULL, and together they are
+		// what makes a replayed verification write nothing and report zero
+		// rows rather than move the timestamp forward.
+		g.UpdateQuery("MarkUserTwoFactorSecretVerified", UsersTable, Users.Columns,
+			[]string{twoFactorVerifiedAtColumn}, Users.Nullable,
+			scope,
+			querygen.Match{Column: twoFactorColumn, Against: querygen.EmptyString, Exclude: true},
+			querygen.Match{Column: twoFactorVerifiedAtColumn, Against: querygen.NoValue}),
+
 		g.UpdateQuery("SetUserEmailAddressVerificationToken", UsersTable, Users.Columns,
 			[]string{UserEmailVerificationTokenColumn}, Users.Nullable, scope),
 
@@ -680,6 +700,59 @@ func keyedUserReads(g *querygen.Generator) []*querygen.Query {
 	for i := range named {
 		rendered = append(rendered, g.ReadQuery(named[i][0], UsersTable, Users.KeyedColumns(), read,
 			querygen.Match{Column: named[i][1]}, querygen.Match{Column: ScopeColumn}))
+	}
+
+	return rendered
+}
+
+// uniquenessChecks is the pair of collision reads CreateUser and UpdateUser run
+// before writing, so a taken handle reports ErrUsernameTaken or
+// ErrEmailAddressTaken rather than a driver's constraint violation.
+//
+// Two things about them are not the rest of this file's shape.
+//
+// Neither filters on archived_at, and that is the schema's requirement rather
+// than an omission. The unique indexes cover archived rows — freeing a username
+// when its owner is soft-deleted means a later registrant can take it, and every
+// audit row naming that handle then refers to two people — so a check that
+// skipped archived rows would report the handle free and hand the write to the
+// index, which is the driver error these reads exist to prevent. The column list
+// is empty for exactly that reason: querygen renders the archived predicate from
+// the column list, so a read that must see archived rows is a read rendered from
+// no columns at all, keyed entirely on its matches.
+//
+// And the row being updated is excluded through an argument the caller may
+// leave unset, which is what lets one statement serve both callers. A profile
+// save must not collide with itself; a registration has no id to exclude yet.
+// Under the presence-conditional comparand the absent argument coalesces to the
+// empty string and excludes an id no row has, so the statement a registration
+// runs is the statement a save runs, checked once.
+//
+// They are two named statements rather than one parameterized on the column, for
+// the reason keyedUserReads enumerates: a query name is a Go method name, and a
+// column is not a parameter of one.
+func uniquenessChecks(g *querygen.Generator) []*querygen.Query {
+	read := querygen.Read{Projection: []string{querygen.IDColumn}}
+
+	exceptID := querygen.Match{
+		Column:  querygen.IDColumn,
+		Against: querygen.OptionalArgument,
+		Arg:     exceptUserIDArg,
+		Exclude: true,
+	}
+
+	// Statement name to the column it keys on, in the order the file lists
+	// them — a map would lose that order, and the .sql is compared byte for
+	// byte against its committed copy.
+	named := [][2]string{
+		{"GetUserIDByUsername", UserUsernameColumn},
+		{"GetUserIDByEmailAddress", UserEmailAddressColumn},
+	}
+
+	rendered := make([]*querygen.Query, 0, len(named))
+	for i := range named {
+		rendered = append(rendered, g.ReadQuery(named[i][0], UsersTable, nil, read,
+			querygen.Match{Column: named[i][1]}, querygen.Match{Column: ScopeColumn}, exceptID))
 	}
 
 	return rendered

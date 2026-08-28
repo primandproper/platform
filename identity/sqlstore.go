@@ -14,7 +14,6 @@ import (
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identifiers"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
-	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/logging"
@@ -300,27 +299,75 @@ func (s *SQLStore) replaceRoles(
 	return nil
 }
 
-// ensureUnique runs the collision check the unique indexes back up.
+// ensureUsernameFree and ensureEmailAddressFree are the two collision checks a
+// write runs before it writes, so a taken handle reports ErrUsernameTaken or
+// ErrEmailAddressTaken rather than a driver-specific constraint violation the
+// caller would have to parse a SQLSTATE out of.
 //
-// The index is what actually guarantees uniqueness; this read is what turns the
-// ordinary case into ErrUsernameTaken instead of a driver-specific constraint
-// violation the caller would have to parse a SQLSTATE out of. Two registrations
-// racing for the same handle still reach the index, and the loser gets the
-// driver's error — which is correct, rare, and the reason this check is not
-// presented as the guarantee.
-func (s *SQLStore) ensureUnique(
+// exceptID is the row being updated, which is what lets a user save their own
+// profile without colliding with themselves, and is empty at creation because
+// there is no row yet. It reaches the statement as an argument that may be
+// absent rather than as a predicate that may be missing, so both callers run
+// the same checked statement — see the uniqueness checks in
+// identity/internal/queries.
+//
+// They enumerate rather than take a column, for the reason every other read
+// here does: a query name is a Go method name, so a check parameterized on the
+// column cannot be one generated statement.
+func (s *SQLStore) ensureUsernameFree(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
-	column string,
 	scope tenancy.Scope,
-	value, exceptID string,
-	taken error,
+	username, exceptID string,
 ) error {
-	query, args := s.tables.buildSelectUserIDByField(s.dialect, column, scope, value, exceptID)
+	_, err := s.q.GetUserIDByUsername(ctx, q, identitydb.GetUserIDByUsernameParams{
+		Username:     username,
+		Scope:        scope,
+		ExceptUserID: exceptUserID(exceptID),
+	})
 
-	var existingID string
+	return uniquenessResult(err, ErrUsernameTaken)
+}
 
-	switch err := q.QueryRowContext(ctx, query, args...).Scan(&existingID); {
+func (s *SQLStore) ensureEmailAddressFree(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	emailAddress, exceptID string,
+) error {
+	_, err := s.q.GetUserIDByEmailAddress(ctx, q, identitydb.GetUserIDByEmailAddressParams{
+		EmailAddress: emailAddress,
+		Scope:        scope,
+		ExceptUserID: exceptUserID(exceptID),
+	})
+
+	return uniquenessResult(err, ErrEmailAddressTaken)
+}
+
+// exceptUserID renders the id a collision check excludes as the argument the
+// statement takes: absent where there is no row to exclude.
+//
+// The empty string would do the same thing — the statement coalesces an absent
+// argument to it — but sending it would say the caller is excluding a row whose
+// id is empty, which is a row no write in this schema can produce. Absent says
+// what is true.
+func exceptUserID(exceptID string) *string {
+	if exceptID == "" {
+		return nil
+	}
+
+	return &exceptID
+}
+
+// uniquenessResult reads a collision check's outcome: no row is a free handle,
+// a row is taken, and anything else is the read failing.
+//
+// The index is what actually guarantees uniqueness; this read is what turns the
+// ordinary case into a sentinel. Two registrations racing for the same handle
+// still reach the index, and the loser gets the driver's error — which is
+// correct, rare, and the reason this check is not presented as the guarantee.
+func uniquenessResult(err, taken error) error {
+	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return nil
 	case err != nil:
@@ -349,17 +396,10 @@ func newID(existing string) string {
 // and the two guards every paged read and every guarded write goes through.
 // Anything reached from one file only lives in that file.
 
-// The two user columns the collision checks name, aliased from the package that
-// declares the schema as data rather than respelled here — a builder's predicate
-// and the method that calls it are two places, and a typo in one of them is a
-// query that compiles, runs, and matches nothing.
-//
-// The verification token used to be the third. Its read is a generated
-// statement now, so nothing above the SQL names the column any more.
-const (
-	usernameColumn     = queries.UserUsernameColumn
-	emailAddressColumn = queries.UserEmailAddressColumn
-)
+// The username and the email address used to be here too, aliased for the
+// collision check's hand-built predicate. Both checks are generated statements
+// now, so no column a user's uniqueness turns on is spelled above the SQL any
+// more — nor is the verification token, which went the same way.
 
 // liveUser is what the three single-user reads keyed on something other than the
 // id share: the scope check, the not-found mapping, the service roles, and the

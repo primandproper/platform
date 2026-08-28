@@ -36,7 +36,7 @@ import (
 func (g *Generator) DeleteQuery(name, table string, columns []string, extra ...Match) *Query {
 	return &Query{
 		Annotation: QueryAnnotation{Name: name, Type: ExecRowsType},
-		Content:    deleteStatement(table, columns, extra...),
+		Content:    g.deleteStatement(table, columns, extra...),
 	}
 }
 
@@ -46,9 +46,9 @@ func (g *Generator) DeleteQuery(name, table string, columns []string, extra ...M
 // DELETE accepts a qualified column on all three servers, but there is nothing
 // for the qualifier to disambiguate and the two write verbs spelling their
 // WHERE clauses differently would be a difference a reader has to account for.
-func deleteStatement(table string, columns []string, extra ...Match) string {
+func (g *Generator) deleteStatement(table string, columns []string, extra ...Match) string {
 	return fmt.Sprintf("DELETE FROM %s\nWHERE %s;",
 		table,
-		joinPredicates(keyPredicates(table, columns, "", false, extra), "\t"),
+		joinPredicates(g.keyPredicates(table, columns, "", false, extra), "\t"),
 	)
 }

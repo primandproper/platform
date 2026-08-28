@@ -140,7 +140,7 @@ func (g *Generator) setReadStatement(table string, columns []string, read Read, 
 		predicates = append(predicates, Qualify(table, ArchivedAtColumn)+" IS NULL")
 	}
 
-	predicates = append(predicates, matchPredicates(table, true, matches)...)
+	predicates = append(predicates, g.matchPredicates(table, true, matches)...)
 
 	// Last, always — see SetReadQuery on what an argument bound after an
 	// expanded set collides with.

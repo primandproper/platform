@@ -469,10 +469,10 @@ func TestKeyedQueriesAreRenderedPerStatement(T *testing.T) {
 		for _, d := range everyDialect() {
 			g := For(d)
 
-			before := getStatement(keyedTable, keyedColumns(), "", Read{})
+			before := g.getStatement(keyedTable, keyedColumns(), "", Read{})
 			_ = g.GetQuery("GetGadget", keyedTable, keyedColumns())
 			_ = g.ListQuery("ListGadgets", keyedTable, keyedColumns(), keyedMatch())
-			after := getStatement(keyedTable, keyedColumns(), "", Read{})
+			after := g.getStatement(keyedTable, keyedColumns(), "", Read{})
 
 			test.EqOp(t, before, after, test.Sprintf("dialect %q", d))
 			test.StrContains(t, after, "sqlc.arg("+IDColumn+")", test.Sprintf("dialect %q", d))

@@ -157,6 +157,71 @@ mechanism, and it needs the guard and the assignment to be two arguments —
 one name would set it to the value it was requiring it to already hold. The
 statement is annotated :execrows for that reason: the count is the answer.
 
+# What a predicate compares against
+
+Not every guard is an equality against a value the caller has. A write that must
+happen exactly once guards on the stamp recording that it already did, and a
+caller has no value to bind for "has not happened yet"; a token is spent while it
+is still live, and the value that decides is the server's clock. [Match.Against]
+names what the column is compared against, and the closed set of answers is
+[Comparand]:
+
+	verify := querygen.For(dialect.Postgres).UpdateQuery(
+		"MarkUserTwoFactorSecretVerified", "users", columns,
+		[]string{"two_factor_secret_verified_at"}, nullable,
+		querygen.Match{Column: "scope"},
+		querygen.Match{Column: "two_factor_secret", Against: querygen.EmptyString, Exclude: true},
+		querygen.Match{Column: "two_factor_secret_verified_at", Against: querygen.NoValue})
+
+A secret that exists and has not been proven — and a replayed verification
+matches nothing, writes nothing, and reports the zero rows its caller reads as
+"not there" rather than moving the timestamp forward.
+
+[Comparand] holds five members. [BoundArgument] is the zero value and the
+equality every keyed read wants. [NoValue] is IS NULL, which is how this module
+records that something has not happened yet — an unredeemed token, an unproven
+secret, a key not yet shredded. [EmptyString] is the sentinel a TEXT NOT NULL
+column holds when it holds nothing, so its excluded form is "this fact exists".
+[CurrentTime] is the server's clock, which is the expiry sweep uninverted and the
+still-live guard inverted. [OptionalArgument] is the equality a caller may leave
+unset.
+
+[Match.Exclude] inverts all five rather than only the first, and every inversion
+is a complement: IS NULL against IS NOT NULL, the empty-string equality against
+the not-empty guard, "at or before now" against "after now". So the sweep that
+collects expired rows and the guard that refuses to spend them are one Match
+with one bool between them, and there is no second spelling of the boundary to
+disagree with the first.
+
+Three of the five bind nothing at all, and that is what makes them guards rather
+than predicates: the value compared against belongs to the statement, so there is
+no argument a caller could leave unset to relax it. Naming a [Match.Arg] beside
+one of them is [ErrArgumentlessMatch] rather than a field quietly ignored.
+
+The presence-conditional predicate is the fifth, and it is one static statement
+rather than SQL assembled per call:
+
+	free := querygen.For(dialect.Postgres).ReadQuery(
+		"GetUserIDByUsername", "users", nil,
+		querygen.Read{Projection: []string{querygen.IDColumn}},
+		querygen.Match{Column: "username"},
+		querygen.Match{Column: "scope"},
+		querygen.Match{
+			Column:  querygen.IDColumn,
+			Against: querygen.OptionalArgument,
+			Arg:     "except_user_id",
+			Exclude: true,
+		})
+
+That renders
+
+	id <> COALESCE(sqlc.narg(except_user_id), '')
+
+which excludes the row being updated when the caller names one and excludes an
+id no row has when it does not — so the collision check a user's own profile
+save runs and the one a registration runs are the same checked statement. It
+rests on the same fact [Generator.CursorCondition] rests on: no id is empty.
+
 # Reads that cross a junction
 
 Everything above projects one table. The read that does not is the one a

@@ -127,9 +127,9 @@ func TestSingleRowPredicates_ArchivedStaysFirst(t *testing.T) {
 	// singleRowPredicates is keyPredicates with the archived predicate in front
 	// of it, and every statement that carries both renders them in that order.
 	// The split is what lets the delete take the key without the filter.
-	predicates := singleRowPredicates(widgetsTable, widgetsColumns(), BelongsToAccountColumn, true)
+	predicates := For(dialect.Postgres).singleRowPredicates(widgetsTable, widgetsColumns(), BelongsToAccountColumn, true)
 
 	must.SliceLen(t, 3, predicates)
 	test.EqOp(t, Qualify(widgetsTable, ArchivedAtColumn)+" IS NULL", predicates[0])
-	test.Eq(t, predicates[1:], keyPredicates(widgetsTable, widgetsColumns(), BelongsToAccountColumn, true, nil))
+	test.Eq(t, predicates[1:], For(dialect.Postgres).keyPredicates(widgetsTable, widgetsColumns(), BelongsToAccountColumn, true, nil))
 }

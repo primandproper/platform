@@ -111,6 +111,10 @@ type Querier interface {
 	GetUserByUsername(ctx context.Context, db DBTX, arg GetUserByUsernameParams) (GetUserByUsernameRow, error)
 	// GetUserCreatedAt runs the :one query.
 	GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUserCreatedAtParams) (GetUserCreatedAtRow, error)
+	// GetUserIDByEmailAddress runs the :one query.
+	GetUserIDByEmailAddress(ctx context.Context, db DBTX, arg GetUserIDByEmailAddressParams) (GetUserIDByEmailAddressRow, error)
+	// GetUserIDByUsername runs the :one query.
+	GetUserIDByUsername(ctx context.Context, db DBTX, arg GetUserIDByUsernameParams) (GetUserIDByUsernameRow, error)
 	// InsertInvitationRole runs the :exec query.
 	InsertInvitationRole(ctx context.Context, db DBTX, arg InsertInvitationRoleParams) error
 	// InsertMembershipRole runs the :exec query.
@@ -151,6 +155,11 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error)
+	// MarkUserTwoFactorSecretVerified runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	MarkUserTwoFactorSecretVerified(ctx context.Context, db DBTX, arg MarkUserTwoFactorSecretVerifiedParams) (int64, error)
 	// RecordAccountSubscription runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

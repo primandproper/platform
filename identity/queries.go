@@ -108,19 +108,25 @@ func projection(columns []string) string {
 // querygen.Generator.UpdateQuery statements in the canonical .sql, executed
 // through the generated querier.
 //
-// What is left is eight builders, and the ones below are the shapes among
+// What is left is six builders, and the ones below are the shapes among
 // them that the epic behind this port still owes a generator — the rest are
 // conventional statements against tables the emitted corpus has yet to reach,
 // or ones addressed by a pair of columns rather than by id:
 //
-//	buildMarkTwoFactorVerified     an update whose guard is not an equality —
-//	                               a secret that exists and has not been
-//	                               proven, which is a `<> ''` and an IS NULL
-//	buildSelectUserIDByField       a predicate present only when the caller
-//	                               has a row to exclude from the collision
 //	buildRecordAgreements          an update whose SET list is chosen per call
 //	the default-flag maintenance   a clear whose predicate excludes a row
 //	                               rather than matching one
+//
+// Two left that list together with the guard comparands, and they are the two
+// this file stamped last_updated_at by hand for. The two-factor verification
+// guarded on a secret that exists and has not been proven — a not-empty guard
+// and an IS NULL, neither an equality against anything a caller holds — and the
+// collision check appended an id exclusion only when there was a row to
+// exclude. querygen says
+// both now: the guards are Match values naming what they compare against, and
+// the conditional exclusion is one static COALESCE over an argument that may be
+// absent. Nothing here stamps last_updated_at any more; the statements do,
+// from the server's clock.
 //
 // The membership upsert used to be on that list and is not any more: querygen
 // renders it, sqlc checks it, and the store executes the generated method. The
@@ -152,38 +158,6 @@ func (b *binder) bind(value any) string {
 }
 
 // ---------------------------------------------------------------- users
-
-// buildSelectUserIDByField renders the collision check CreateUser and UpdateUser
-// run before writing, so a taken username reports ErrUsernameTaken rather than a
-// driver's constraint violation.
-//
-// exceptID excludes the row being updated, which is what lets a user save their
-// profile without colliding with themselves.
-func (t *tables) buildSelectUserIDByField(d dialect.Dialect, column string, scope tenancy.Scope, value, exceptID string) (query string, args []any) {
-	args = []any{value, scope}
-
-	where := fmt.Sprintf("%s = %s AND scope = %s", column, d.Placeholder(1), d.Placeholder(2))
-	if exceptID != "" {
-		args = append(args, exceptID)
-		where += " AND id <> " + d.Placeholder(len(args))
-	}
-
-	return fmt.Sprintf("SELECT id FROM %s WHERE %s", t.users, where), args
-}
-
-// buildMarkTwoFactorVerified stamps a secret as proven, only where one exists
-// and has not already been proven — so a replayed verification writes nothing
-// and reports zero rows rather than moving the timestamp forward.
-func (t *tables) buildMarkTwoFactorVerified(d dialect.Dialect, scope tenancy.Scope, userID string, now time.Time) (query string, args []any) {
-	b := newBinder(d)
-
-	return fmt.Sprintf(
-		"UPDATE %s SET two_factor_secret_verified_at = %s, last_updated_at = %s "+
-			"WHERE id = %s AND scope = %s AND archived_at IS NULL "+
-			"AND two_factor_secret <> '' AND two_factor_secret_verified_at IS NULL",
-		t.users, b.bind(now), b.bind(now), b.bind(userID), b.bind(scope),
-	), b.args
-}
 
 // agreementColumns maps each agreement to the column that records it. It is a
 // map rather than a switch at the call site so that adding a document means

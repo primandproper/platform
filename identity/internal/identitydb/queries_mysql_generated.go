@@ -361,6 +361,20 @@ const getUserCreatedAtMySQL = `SELECT
 FROM {{prefix}}identity_users
 WHERE {{prefix}}identity_users.id = ?`
 
+const getUserIdbyEmailAddressMySQL = `SELECT
+	{{prefix}}identity_users.id
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.email_address = ?
+	AND {{prefix}}identity_users.scope = ?
+	AND {{prefix}}identity_users.id <> COALESCE(?, '')`
+
+const getUserIdbyUsernameMySQL = `SELECT
+	{{prefix}}identity_users.id
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.username = ?
+	AND {{prefix}}identity_users.scope = ?
+	AND {{prefix}}identity_users.id <> COALESCE(?, '')`
+
 const insertInvitationRoleMySQL = `INSERT INTO {{prefix}}identity_invitation_roles (
 	invitation_id,
 	role
@@ -901,6 +915,15 @@ WHERE archived_at IS NULL
 	AND scope = ?
 	AND email_address_verification_token = ?`
 
+const markUserTwoFactorSecretVerifiedMySQL = `UPDATE {{prefix}}identity_users SET
+	two_factor_secret_verified_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?
+	AND two_factor_secret <> ''
+	AND two_factor_secret_verified_at IS NULL`
+
 const recordAccountSubscriptionMySQL = `UPDATE {{prefix}}identity_accounts SET
 	billing_status = ?,
 	subscription_plan_id = ?,
@@ -1070,6 +1093,8 @@ type mysqlQueries struct {
 	getUserByEmailVerificationToken      string
 	getUserByUsername                    string
 	getUserCreatedAt                     string
+	getUserIdbyEmailAddress              string
+	getUserIdbyUsername                  string
 	insertInvitationRole                 string
 	insertMembershipRole                 string
 	insertUserRole                       string
@@ -1087,6 +1112,7 @@ type mysqlQueries struct {
 	listUsersByIDs                       string
 	markAccountBillingSynced             string
 	markUserEmailAddressVerified         string
+	markUserTwoFactorSecretVerified      string
 	recordAccountSubscription            string
 	searchUsersByUsername                string
 	setAccountBillingStatus              string
@@ -1130,6 +1156,8 @@ func newMySQL(prefix string) *mysqlQueries {
 		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenMySQL, prefixMarker, prefix),
 		getUserByUsername:                    strings.ReplaceAll(getUserByUsernameMySQL, prefixMarker, prefix),
 		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtMySQL, prefixMarker, prefix),
+		getUserIdbyEmailAddress:              strings.ReplaceAll(getUserIdbyEmailAddressMySQL, prefixMarker, prefix),
+		getUserIdbyUsername:                  strings.ReplaceAll(getUserIdbyUsernameMySQL, prefixMarker, prefix),
 		insertInvitationRole:                 strings.ReplaceAll(insertInvitationRoleMySQL, prefixMarker, prefix),
 		insertMembershipRole:                 strings.ReplaceAll(insertMembershipRoleMySQL, prefixMarker, prefix),
 		insertUserRole:                       strings.ReplaceAll(insertUserRoleMySQL, prefixMarker, prefix),
@@ -1147,6 +1175,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		listUsersByIDs:                       strings.ReplaceAll(listUsersByIDsMySQL, prefixMarker, prefix),
 		markAccountBillingSynced:             strings.ReplaceAll(markAccountBillingSyncedMySQL, prefixMarker, prefix),
 		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
+		markUserTwoFactorSecretVerified:      strings.ReplaceAll(markUserTwoFactorSecretVerifiedMySQL, prefixMarker, prefix),
 		recordAccountSubscription:            strings.ReplaceAll(recordAccountSubscriptionMySQL, prefixMarker, prefix),
 		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernameMySQL, prefixMarker, prefix),
 		setAccountBillingStatus:              strings.ReplaceAll(setAccountBillingStatusMySQL, prefixMarker, prefix),
@@ -1656,6 +1685,40 @@ func (q *mysqlQueries) GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUse
 
 	err := row.Scan(
 		&i.CreatedAt,
+	)
+
+	return i, err
+}
+
+// GetUserIDByEmailAddress runs the :one query against mysql.
+func (q *mysqlQueries) GetUserIDByEmailAddress(ctx context.Context, db DBTX, arg GetUserIDByEmailAddressParams) (GetUserIDByEmailAddressRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserIdbyEmailAddress,
+		arg.EmailAddress,
+		arg.Scope,
+		arg.ExceptUserID,
+	)
+
+	var i GetUserIDByEmailAddressRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// GetUserIDByUsername runs the :one query against mysql.
+func (q *mysqlQueries) GetUserIDByUsername(ctx context.Context, db DBTX, arg GetUserIDByUsernameParams) (GetUserIDByUsernameRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserIdbyUsername,
+		arg.Username,
+		arg.Scope,
+		arg.ExceptUserID,
+	)
+
+	var i GetUserIDByUsernameRow
+
+	err := row.Scan(
+		&i.ID,
 	)
 
 	return i, err
@@ -2427,6 +2490,20 @@ func (q *mysqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX
 	return result.RowsAffected()
 }
 
+// MarkUserTwoFactorSecretVerified runs the :execrows query against mysql.
+func (q *mysqlQueries) MarkUserTwoFactorSecretVerified(ctx context.Context, db DBTX, arg MarkUserTwoFactorSecretVerifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserTwoFactorSecretVerified,
+		arg.TwoFactorSecretVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // RecordAccountSubscription runs the :execrows query against mysql.
 func (q *mysqlQueries) RecordAccountSubscription(ctx context.Context, db DBTX, arg RecordAccountSubscriptionParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.recordAccountSubscription,
@@ -2966,6 +3043,22 @@ var (
 		CreatedAt time.Time
 	}(GetUserCreatedAtRow{})
 	_ = struct {
+		EmailAddress string
+		Scope        tenancy.Scope
+		ExceptUserID *string
+	}(GetUserIDByEmailAddressParams{})
+	_ = struct {
+		ID string
+	}(GetUserIDByEmailAddressRow{})
+	_ = struct {
+		Username     string
+		Scope        tenancy.Scope
+		ExceptUserID *string
+	}(GetUserIDByUsernameParams{})
+	_ = struct {
+		ID string
+	}(GetUserIDByUsernameRow{})
+	_ = struct {
 		InvitationID string
 		Role         string
 	}(InsertInvitationRoleParams{})
@@ -3282,6 +3375,11 @@ var (
 		Scope                                tenancy.Scope
 		CurrentEmailAddressVerificationToken string
 	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		TwoFactorSecretVerifiedAt *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(MarkUserTwoFactorSecretVerifiedParams{})
 	_ = struct {
 		BillingStatus               string
 		SubscriptionPlanID          *string

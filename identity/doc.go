@@ -175,13 +175,17 @@ querygen renders as a bound array on Postgres and a placeholder expansion on
 the other two, under one Go signature. What each still owes its caller is the
 empty batch, answered before the query rather than by it.
 
-What remains hand-written is eight builders and the runtime binder they
-render through, and they are worth counting by shape rather than by name,
-because a shape is what the port still owes a generator. Three are predicates
-querygen has no form for: a guard that is an existence and an absence rather
-than an equality, the two-factor secret that is present and unproven; a
-collision check whose "and not this row" clause appears only when there is a row
-to exclude; and the default-flag clear, whose predicate excludes the membership
+The two writes whose guards are not equalities came the same way once querygen
+learned to say them: the two-factor verification, which stamps a proof only
+where a secret exists and has not been proven, and the collision check behind
+ErrUsernameTaken, which excludes the row being updated through an argument a
+registration simply does not send. Both were hand-built for exactly as long as a
+predicate meant "this column equals a bound value".
+
+What remains hand-written is six builders and the runtime binder they render
+through, and they are worth counting by shape rather than by name, because a
+shape is what the port still owes a generator. One is a predicate querygen has
+no form for: the default-flag clear, whose predicate excludes the membership
 being set rather than matching one. One is an update whose SET list is chosen
 per call, the agreements a registration accepts in a single statement. The last
 four are membership statements addressed by the (user, account) pair — an
