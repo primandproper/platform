@@ -68,21 +68,21 @@ var rulings = map[string]ruling{
 	"sessions/database/internal/sessionsdb":                        {tier: unison},
 	"webhooks/internal/webhooksdb":                                 {tier: unison},
 	"cryptography/shredding/internal/shreddingdb":                  {tier: unison},
+	"authentication/webauthn/database/internal/webauthndb":         {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
 	// carries a reason.
-	"audit":                            {tier: porting},
-	"authentication/passwordreset":     {tier: porting},
-	"authentication/webauthn/database": {tier: porting},
-	"authorization/database":           {tier: porting},
-	"dataprivacy/auditerasure":         {tier: porting},
-	"metering":                         {tier: porting},
-	"operations":                       {tier: porting},
-	"outbox":                           {tier: porting},
-	"retention":                        {tier: porting},
-	"timers":                           {tier: porting},
-	"workqueue":                        {tier: porting},
+	"audit":                        {tier: porting},
+	"authentication/passwordreset": {tier: porting},
+	"authorization/database":       {tier: porting},
+	"dataprivacy/auditerasure":     {tier: porting},
+	"metering":                     {tier: porting},
+	"operations":                   {tier: porting},
+	"outbox":                       {tier: porting},
+	"retention":                    {tier: porting},
+	"timers":                       {tier: porting},
+	"workqueue":                    {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
 	// this module ships, and none of these is one.

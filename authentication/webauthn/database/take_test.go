@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	stderrors "errors"
+	"regexp"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestSessionStore_Consume_transactionFailures(T *testing.T) {
 		store, mock := newMockStore(t)
 
 		mock.ExpectBegin()
-		mock.ExpectQuery("SELECT session_data, expires_at FROM webauthn_sessions").
+		mock.ExpectQuery(sessionRead).
 			WithArgs("chal").
 			WillReturnRows(sqlmock.NewRows([]string{"session_data", "expires_at"}).
 				AddRow([]byte(`{"challenge":"chal"}`), time.Now().Add(time.Hour)))
@@ -63,7 +64,7 @@ func TestSessionStore_Consume_transactionFailures(T *testing.T) {
 		store, mock := newMockStore(t)
 
 		mock.ExpectBegin()
-		mock.ExpectQuery("SELECT session_data, expires_at FROM webauthn_sessions").
+		mock.ExpectQuery(sessionRead).
 			WithArgs("chal").
 			WillReturnRows(sqlmock.NewRows([]string{"session_data", "expires_at"}).
 				AddRow([]byte(`{"challenge":"chal"}`), time.Now().Add(time.Hour)))
@@ -89,7 +90,7 @@ func TestSessionStore_Consume_transactionFailures(T *testing.T) {
 		store, mock := newMockStore(t)
 
 		mock.ExpectBegin()
-		mock.ExpectQuery("SELECT session_data, expires_at FROM webauthn_sessions").
+		mock.ExpectQuery(sessionRead).
 			WithArgs("chal").
 			WillReturnRows(sqlmock.NewRows([]string{"session_data", "expires_at"}).
 				AddRow([]byte(`{"challenge":"chal"}`), time.Now().Add(time.Hour)))
@@ -108,6 +109,12 @@ func TestSessionStore_Consume_transactionFailures(T *testing.T) {
 
 // errServerGone is the failure the mocked driver injects.
 var errServerGone = platformerrors.New("the database went away")
+
+// sessionRead matches the read half of Consume's transaction, which is the
+// generated statement rather than one this file spells: the projection is
+// qualified and the columns are one per line, so a matcher written as a single
+// line would match nothing and the expectation would fail for the wrong reason.
+var sessionRead = regexp.QuoteMeta("FROM webauthn_sessions\nWHERE webauthn_sessions.challenge")
 
 // mockClient is a database.Client over a mocked driver, for the failures a
 // real server will not produce on request. It is a test double of the seam
