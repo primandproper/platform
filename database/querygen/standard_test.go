@@ -544,7 +544,7 @@ func TestStandardCRUD_panics(T *testing.T) {
 		must.ErrorIs(t, err, ErrMissingIDColumn)
 	})
 
-	T.Run("a column set with no id, which the bound statements accept", func(t *testing.T) {
+	T.Run("a column set with no id, which the keyed statements accept", func(t *testing.T) {
 		t.Parallel()
 
 		// The asymmetry is deliberate and it is this package's one genuine
@@ -559,7 +559,7 @@ func TestStandardCRUD_panics(T *testing.T) {
 		must.ErrorIs(t, err, ErrMissingIDColumn)
 		test.False(t, errors.Is(err, ErrUnaddressableRow))
 
-		err = recovered(func() { _ = pg().BoundGet(compositeTable, columns, compositeKey()...) })
+		err = recovered(func() { _ = pg().GetQuery("GetSprocket", compositeTable, columns, compositeKey()...) })
 
 		must.NoError(t, err)
 	})
