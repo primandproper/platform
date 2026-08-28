@@ -193,29 +193,41 @@ A secret that exists and has not been proven — and a replayed verification
 matches nothing, writes nothing, and reports the zero rows its caller reads as
 "not there" rather than moving the timestamp forward.
 
-[Comparand] holds five members. [BoundArgument] is the zero value and the
+[Comparand] holds six members. [BoundArgument] is the zero value and the
 equality every keyed read wants. [NoValue] is IS NULL, which is how this module
 records that something has not happened yet — an unredeemed token, an unproven
 secret, a key not yet shredded. [EmptyString] is the sentinel a TEXT NOT NULL
 column holds when it holds nothing, so its excluded form is "this fact exists".
 [CurrentTime] is the server's clock, which is the expiry sweep uninverted and the
-still-live guard inverted. [OptionalArgument] is the equality a caller may leave
-unset.
+still-live guard inverted. [BoundTime] is that same boundary read from a clock
+the caller supplies. [OptionalArgument] is the equality a caller may leave unset.
 
-[Match.Exclude] inverts all five rather than only the first, and every inversion
+The two temporal ones are alternatives rather than a preference, and which is
+right is decided by where the column they compare was written from. CurrentTime
+is for a deadline the server stamped, so one clock answers both halves.
+BoundTime is for a deadline an application stamped from a clock it was handed —
+sessions writes expires_at as now-plus-a-TTL from the clock its backend was
+constructed with, and under test that clock only moves when a test moves it, so
+a sweep asking the server for the time would be comparing two clocks years
+apart. Binding the same clock's reading puts the comparison back inside one
+clock, which is the property CurrentTime's doc asks for rather than an exception
+to it.
+
+[Match.Exclude] inverts all six rather than only the first, and every inversion
 is a complement: IS NULL against IS NOT NULL, the empty-string equality against
-the not-empty guard, "at or before now" against "after now". So the sweep that
-collects expired rows and the guard that refuses to spend them are one Match
-with one bool between them, and there is no second spelling of the boundary to
-disagree with the first.
+the not-empty guard, "at or before the instant" against "after" it. So the sweep
+that collects expired rows and the guard that refuses to spend them are one
+Match with one bool between them, and there is no second spelling of the
+boundary to disagree with the first — including between the two temporal
+comparands, which render one operator pair between them.
 
-Three of the five bind nothing at all, and that is what makes them guards rather
+Three of the six bind nothing at all, and that is what makes them guards rather
 than predicates: the value compared against belongs to the statement, so there is
 no argument a caller could leave unset to relax it. Naming a [Match.Arg] beside
 one of them is [ErrArgumentlessMatch] rather than a field quietly ignored.
 
-The presence-conditional predicate is the fifth, and it is one static statement
-rather than SQL assembled per call:
+The presence-conditional predicate is the last of them, and it is one static
+statement rather than SQL assembled per call:
 
 	free := querygen.For(dialect.Postgres).ReadQuery(
 		"GetUserIDByUsername", "users", nil,

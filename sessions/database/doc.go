@@ -56,6 +56,38 @@ created_at appears in no UPDATE. It anchors the absolute timeout, and leaving it
 out of the statement makes "an update never extends a session's total lifetime"
 structural rather than a rule somebody has to remember.
 
+# Where the SQL comes from
+
+Nothing in this package composes a statement. The six it executes — the create,
+the read, the overwrite, the existence check, the delete, and the sweep — are
+rendered from sessions/database/internal/queries into one canonical .sql per
+dialect, checked against this package's own schema by sqlc with no database
+running, and executed through the querier sqlc-gen-unison generates from those
+same files. A column renamed in migrations is then a failed `make unison` rather
+than a runtime scan error on whichever dialect noticed first.
+
+The rendered .sql is committed even though nothing imports it, for the reasons
+identity's is: it is what `sqlc compile` is handed, it anchors the drift gate a
+test states byte for byte against the renderer, and it is what a reviewer reads
+when they want to see a statement in the spelling its arguments still have
+names in. `make generate` writes it; `make unison` renders the per-dialect
+schema beside it and runs the emitter over the pair.
+
+The sweep is the one statement worth stopping at, because it is the only one
+here whose predicate is not an equality and the only one that reads a clock. Its
+deadline is bound rather than read off the server: expires_at is stamped as
+now-plus-a-TTL from the clock this backend was constructed with — the interface
+hands this layer a duration, not an instant — so a comparison against the
+server's CURRENT_TIMESTAMP would be two clocks deciding one row, and under the
+injected clock a test controls the two are years apart. See querygen.BoundTime.
+
+One consequence of the tier is visible on SQLite and nowhere else. That engine
+has no date type, so a timestamp is text, and the generated querier binds one in
+the shape the engine's own CURRENT_TIMESTAMP writes — whole seconds. A session's
+three stamps are therefore stored truncated to the second there, which moves
+every deadline computed from them at most one second earlier. Earlier is the
+safe direction, and the other two dialects store what they are given.
+
 # Encoding
 
 Payloads go into the data column through an encoding.Codec, CBOR by default. A
@@ -68,3 +100,5 @@ everybody out. Record.Version cannot soften that: it is a column, not part of
 the blob, so it catches a changed payload shape and not a changed encoding.
 */
 package database
+
+//go:generate go run ./internal/queriesgen

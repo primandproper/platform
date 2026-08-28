@@ -7,6 +7,7 @@ import (
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
+	"github.com/primandproper/platform-go/v13/sessions/database/internal/sessionsdb"
 )
 
 // sweptKey is this backend's one observability key.
@@ -27,9 +28,12 @@ func (b *Backend[T]) Sweep(ctx context.Context) (int64, error) {
 	ctx, op := b.o11y.Begin(ctx)
 	defer op.End()
 
-	query, args := buildSweep(b.dialect, b.table, b.clock.Now())
-
-	swept, err := b.exec(ctx, b.db.Writer(), query, args)
+	// The cutoff is this backend's own clock, which is the clock expires_at was
+	// stamped from. Asking the server for the time instead would put two clocks
+	// on the two sides of one comparison — see querygen.BoundTime, and the
+	// sweep statement in sessions/database/internal/queries.
+	swept, err := b.q.SweepSessions(ctx, b.db.Writer(),
+		sessionsdb.SweepSessionsParams{Cutoff: b.clock.Now().UTC()})
 	if err != nil {
 		b.sweepErrorsCounter.Add(ctx, 1)
 

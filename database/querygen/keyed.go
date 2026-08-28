@@ -75,9 +75,9 @@ type Match struct {
 	// It is a name rather than a value, and it is interpolated into the
 	// statement the way Column is, so it is restricted the same way.
 	//
-	// Only the two comparands that bind anything read it — see [Comparand].
-	// Naming an argument that a NULL, empty-string or clock comparison has
-	// nowhere to put is ErrArgumentlessMatch rather than dead text in a
+	// Only the comparands that bind anything read it — see [Comparand].
+	// Naming an argument that a NULL, empty-string or server-clock comparison
+	// has nowhere to put is ErrArgumentlessMatch rather than dead text in a
 	// statement.
 	Arg string
 	// Against is what Column is compared against. The zero value is the bound
@@ -179,6 +179,24 @@ const (
 	// exactly now is past it. That is the reading that leaves no instant at
 	// which a row is neither live nor expired.
 	CurrentTime
+	// BoundTime compares the column against a time the caller binds: `column
+	// <= sqlc.arg(name)`, or `column > sqlc.arg(name)` under [Match.Exclude].
+	//
+	// It is [CurrentTime] with the clock supplied from outside, and the two are
+	// alternatives rather than a preference. CurrentTime is right whenever the
+	// column it compares was written by the same server that answers the
+	// comparison, which is what makes one clock decide both halves. It is wrong
+	// for a store whose stamps come from a clock the application injected: a
+	// deadline written as now-plus-a-TTL from that clock, compared against the
+	// server's, is two clocks deciding one row — and under a test clock that
+	// only moves when a test moves it, the two are years apart. Such a store
+	// binds its own reading here, and the comparison is back inside one clock.
+	//
+	// The boundary is inclusive on the same side CurrentTime's is, and
+	// [Match.Exclude] complements it the same way, so the sweep that collects
+	// rows past a deadline and the guard that refuses to spend them cannot come
+	// to disagree about the instant the deadline falls on.
+	BoundTime
 	// OptionalArgument compares the column against an argument the caller may
 	// leave unset: `column = COALESCE(sqlc.narg(name), '')`, or `<>` under
 	// [Match.Exclude].
@@ -208,6 +226,8 @@ func (c Comparand) String() string {
 		return "the empty string"
 	case CurrentTime:
 		return "the current time"
+	case BoundTime:
+		return "a bound time"
 	case OptionalArgument:
 		return "an optional bound argument"
 	default:
@@ -218,12 +238,12 @@ func (c Comparand) String() string {
 // binds reports whether this comparand takes an argument from the caller, which
 // is what decides whether [Match.Arg] means anything.
 func (c Comparand) binds() bool {
-	return c == BoundArgument || c == OptionalArgument
+	return c == BoundArgument || c == BoundTime || c == OptionalArgument
 }
 
 // operator returns the comparison this match renders for the comparands whose
 // two directions are spelled `=` and `<>`, which is every one of them but NULL
-// and the clock.
+// and the two temporal ones.
 func (m Match) operator() string {
 	if m.Exclude {
 		return "<>"

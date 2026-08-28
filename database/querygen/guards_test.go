@@ -83,6 +83,18 @@ func TestComparand_Renders(T *testing.T) {
 			match: Match{Column: "expires_at", Against: CurrentTime, Exclude: true},
 			want:  "tokens.expires_at > " + NowExpression,
 		},
+		"a bound time at or before the instant is the sweep": {
+			match: Match{Column: "expires_at", Against: BoundTime, Arg: "cutoff"},
+			want:  "tokens.expires_at <= sqlc.arg(cutoff)",
+		},
+		"a bound time excluded is still live at the instant": {
+			match: Match{Column: "expires_at", Against: BoundTime, Arg: "cutoff", Exclude: true},
+			want:  "tokens.expires_at > sqlc.arg(cutoff)",
+		},
+		"a bound time defaults its argument to the column": {
+			match: Match{Column: "expires_at", Against: BoundTime},
+			want:  "tokens.expires_at <= sqlc.arg(expires_at)",
+		},
 		"an optional argument coalesces to the empty string": {
 			match: Match{Column: IDColumn, Against: OptionalArgument, Exclude: true},
 			want:  "tokens.id <> COALESCE(sqlc.narg(id), '')",
@@ -176,7 +188,7 @@ func TestComparand_ExcludeComplements(T *testing.T) {
 		// one bool between them. If the two spellings were written separately
 		// they could come to disagree about the boundary, and the rows in the
 		// gap would be neither live nor expired.
-		for _, comparand := range []Comparand{BoundArgument, NoValue, EmptyString, CurrentTime, OptionalArgument} {
+		for _, comparand := range []Comparand{BoundArgument, NoValue, EmptyString, CurrentTime, BoundTime, OptionalArgument} {
 			included := guardPredicate(t, dialect.Postgres, Match{Column: "expires_at", Against: comparand})
 			excluded := guardPredicate(t, dialect.Postgres,
 				Match{Column: "expires_at", Against: comparand, Exclude: true})
@@ -274,15 +286,74 @@ func TestComparand_ArgumentlessMatchPanics(T *testing.T) {
 		})
 	}
 
-	T.Run("the two comparands that bind take an argument name", func(t *testing.T) {
+	T.Run("the comparands that bind take an argument name", func(t *testing.T) {
 		t.Parallel()
 
-		for _, comparand := range []Comparand{BoundArgument, OptionalArgument} {
+		for _, comparand := range []Comparand{BoundArgument, BoundTime, OptionalArgument} {
 			got := guardPredicate(t, dialect.Postgres,
 				Match{Column: IDColumn, Against: comparand, Arg: "except_id"})
 
 			test.StrContains(t, got, "except_id", test.Sprintf("comparand %q", comparand))
 		}
+	})
+}
+
+// TestComparand_TemporalPairSharesOneBoundary is what keeps the two temporal
+// comparands from becoming two spellings of one idea.
+//
+// They differ in where the instant comes from — the server's clock, or a clock
+// the caller read — and in nothing else. A store on one and a store on the other
+// have to agree about which side of a deadline a row falls on, and the only way
+// to guarantee that is for the operator pair to be the same operator pair.
+func TestComparand_TemporalPairSharesOneBoundary(T *testing.T) {
+	T.Parallel()
+
+	T.Run("the bound instant and the server clock compare the same way", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			g := For(d)
+
+			server := g.matchPredicate(guardTable, Match{Column: "expires_at", Against: CurrentTime}, true)
+			bound := g.matchPredicate(guardTable, Match{Column: "expires_at", Against: BoundTime, Arg: "cutoff"}, true)
+
+			// Same column, same operator, and the only difference is the right
+			// hand side: the server's clock or the caller's bound reading.
+			test.EqOp(t,
+				strings.Replace(server, g.storedNow(), "sqlc.arg(cutoff)", 1), bound,
+				test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("and invert the same way", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect() {
+			g := For(d)
+
+			server := g.matchPredicate(guardTable,
+				Match{Column: "expires_at", Against: CurrentTime, Exclude: true}, true)
+			bound := g.matchPredicate(guardTable,
+				Match{Column: "expires_at", Against: BoundTime, Arg: "cutoff", Exclude: true}, true)
+
+			test.EqOp(t,
+				strings.Replace(server, g.storedNow(), "sqlc.arg(cutoff)", 1), bound,
+				test.Sprintf("dialect %q", d))
+		}
+	})
+
+	// The bound half is the one a caller could get wrong by leaving the
+	// argument unset, which is why it is a comparand rather than a Match whose
+	// operator the caller supplies: there is one name, and it is required.
+	T.Run("the bound instant binds a required argument", func(t *testing.T) {
+		t.Parallel()
+
+		got := For(dialect.Postgres).DeleteQuery("SweepTokens", guardTable, nil,
+			Match{Column: "expires_at", Against: BoundTime, Arg: "cutoff"})
+
+		test.StrContains(t, got.Content, "sqlc.arg(cutoff)")
+		test.StrNotContains(t, got.Content, "sqlc.narg(cutoff)")
+		test.EqOp(t, ExecRowsType, got.Annotation.Type)
 	})
 }
 
@@ -296,6 +367,7 @@ func TestComparand_String(T *testing.T) {
 		test.EqOp(t, "NULL", NoValue.String())
 		test.EqOp(t, "the empty string", EmptyString.String())
 		test.EqOp(t, "the current time", CurrentTime.String())
+		test.EqOp(t, "a bound time", BoundTime.String())
 		test.EqOp(t, "an optional bound argument", OptionalArgument.String())
 		test.StrContains(t, Comparand(99).String(), "unknown")
 	})
