@@ -50,6 +50,26 @@ type Querier interface {
 	CreateInvitation(ctx context.Context, db DBTX, arg CreateInvitationParams) error
 	// CreateUser runs the :exec query.
 	CreateUser(ctx context.Context, db DBTX, arg CreateUserParams) error
+	// DeleteInvitationRoles runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	DeleteInvitationRoles(ctx context.Context, db DBTX, arg DeleteInvitationRolesParams) (int64, error)
+	// DeleteMembershipRoles runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	DeleteMembershipRoles(ctx context.Context, db DBTX, arg DeleteMembershipRolesParams) (int64, error)
+	// DeleteUserRoles runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	DeleteUserRoles(ctx context.Context, db DBTX, arg DeleteUserRolesParams) (int64, error)
+	// EraseUser runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	EraseUser(ctx context.Context, db DBTX, arg EraseUserParams) (int64, error)
 	// GetAccount runs the :one query.
 	GetAccount(ctx context.Context, db DBTX, arg GetAccountParams) (GetAccountRow, error)
 	// GetAccountCreatedAt runs the :one query.
@@ -74,6 +94,12 @@ type Querier interface {
 	GetUserByUsername(ctx context.Context, db DBTX, arg GetUserByUsernameParams) (GetUserByUsernameRow, error)
 	// GetUserCreatedAt runs the :one query.
 	GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUserCreatedAtParams) (GetUserCreatedAtRow, error)
+	// InsertInvitationRole runs the :exec query.
+	InsertInvitationRole(ctx context.Context, db DBTX, arg InsertInvitationRoleParams) error
+	// InsertMembershipRole runs the :exec query.
+	InsertMembershipRole(ctx context.Context, db DBTX, arg InsertMembershipRoleParams) error
+	// InsertUserRole runs the :exec query.
+	InsertUserRole(ctx context.Context, db DBTX, arg InsertUserRoleParams) error
 	// ListAccountMembers runs the :many query.
 	ListAccountMembers(ctx context.Context, db DBTX, arg ListAccountMembersParams) ([]ListAccountMembersRow, error)
 	// ListAccounts runs the :many query.

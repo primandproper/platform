@@ -47,7 +47,7 @@ func (s *SQLStore) SetMembershipRoles(ctx context.Context, scope tenancy.Scope, 
 			return err
 		}
 
-		return s.replaceRoles(ctx, q, s.tables.membershipRoles, membershipIDColumn, membership.ID, roles)
+		return s.replaceRoles(ctx, q, s.membershipRoles(), membership.ID, roles)
 	}); err != nil {
 		return op.Error(err, "setting identity membership roles")
 	}

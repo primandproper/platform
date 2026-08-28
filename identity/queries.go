@@ -117,7 +117,6 @@ func projection(columns []string) string {
 //	                               a secret that exists and has not been
 //	                               proven, which is a `<> ''` and an IS NULL
 //	buildRecordAgreements          an update whose SET list is chosen per call
-//	buildEraseUser                 a hard DELETE rather than an update
 //	the default-flag maintenance   a clear whose predicate excludes a row
 //	                               rather than matching one
 //	the prefix search              a LIKE with an ESCAPE and one conditional
@@ -128,6 +127,14 @@ func projection(columns []string) string {
 // membership reads left with it — querygen renders a junction list, so the
 // roster, the accounts a user belongs to, and the user's own membership list
 // all come from the generated package.
+//
+// The erasure and the two role writes left the same way, and they took the last
+// tables in this schema that had no generated statement at all with them. A
+// hard DELETE is querygen.Generator.DeleteQuery, and it is what EraseUser and
+// both halves of a role-set rewrite now run; the grant an owner is given back
+// is a querygen.Generator.InsertQuery executed once per role, in place of a
+// multi-row VALUES list assembled from the caller's cardinality — which had no
+// static text for sqlc to check.
 type binder struct {
 	d    dialect.Dialect
 	args []any
@@ -205,44 +212,7 @@ func (t *tables) buildRecordAgreements(d dialect.Dialect, scope tenancy.Scope, u
 	), b.args
 }
 
-// buildEraseUser destroys the row. Memberships and their roles go with it
-// through ON DELETE CASCADE, which is the one place this schema relies on the
-// database to finish a deletion — an erasure that left a membership behind
-// would leave the subject's account list intact.
-func (t *tables) buildEraseUser(d dialect.Dialect, scope tenancy.Scope, userID string) (query string, args []any) {
-	return fmt.Sprintf("DELETE FROM %s WHERE id = %s AND scope = %s", t.users, d.Placeholder(1), d.Placeholder(2)),
-		[]any{userID, scope}
-}
-
 // ------------------------------------------------------------ memberships
-
-// buildDeleteRoles clears an owner's roles against either role table, so a role
-// set can be replaced wholesale rather than diffed. Diffing would mean reading
-// the current set first and computing two statements from it, which is three
-// round trips to express "these are the roles now".
-func buildDeleteRoles(d dialect.Dialect, table, idColumn, ownerID string) (query string, args []any) {
-	return fmt.Sprintf("DELETE FROM %s WHERE %s = %s", table, idColumn, d.Placeholder(1)),
-		[]any{ownerID}
-}
-
-// buildInsertRoles renders one multi-row INSERT for a set of roles against
-// either role table, so granting six roles costs one round trip rather than six.
-func buildInsertRoles(d dialect.Dialect, table, idColumn, ownerID string, roles []string) (query string, args []any) {
-	const columnsPerRow = 2
-
-	args = make([]any, 0, len(roles)*columnsPerRow)
-	tuples := make([]string, 0, len(roles))
-
-	for _, role := range roles {
-		tuples = append(tuples, "("+d.Placeholders(len(args)+1, columnsPerRow)+")")
-		args = append(args, ownerID, role)
-	}
-
-	return fmt.Sprintf(
-		"INSERT INTO %s (%s, role) VALUES %s",
-		table, idColumn, strings.Join(tuples, ", "),
-	), args
-}
 
 // buildSelectRoles reads the roles for a batch of owners at once.
 //

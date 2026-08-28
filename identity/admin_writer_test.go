@@ -159,6 +159,53 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 		createUser(t, store, newUser("brian"))
 	})
 
+	t.Run("erases a user who was archived first", func(t *testing.T) {
+		t.Parallel()
+
+		// The order a right-to-be-forgotten request actually runs in: the
+		// subject is hidden, and destroyed afterwards. Every other single-row
+		// statement in this package requires archived_at IS NULL, so the
+		// erasure is the one that must not — and it is now a generated DELETE,
+		// where the predicate's absence is a property of the emitted text
+		// rather than of a hand-written string.
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.NoError(t, store.ArchiveUser(t.Context(), testScope, user.ID))
+
+		var erased int64
+
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			var err error
+			erased, err = store.EraseUser(ctx, q, testScope, user.ID)
+
+			return err
+		}))
+		test.EqOp(t, int64(1), erased)
+	})
+
+	t.Run("refuses to erase a user in another directory", func(t *testing.T) {
+		t.Parallel()
+
+		// The scope is a predicate on the delete rather than a check above it,
+		// so a neighbor's erasure matches nothing and reports zero.
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		var erased int64
+
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			var err error
+			erased, err = store.EraseUser(ctx, q, otherScope, user.ID)
+
+			return err
+		}))
+		test.EqOp(t, int64(0), erased)
+
+		_, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+	})
+
 	t.Run("ends memberships when an account is archived", func(t *testing.T) {
 		t.Parallel()
 

@@ -69,18 +69,12 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 			"recordAgreementsBoth": func() (string, []any) {
 				return t.buildRecordAgreements(d, scope, "u1", []Agreement{TermsOfService, PrivacyPolicy}, now)
 			},
-			"eraseUser": func() (string, []any) { return t.buildEraseUser(d, scope, "u1") },
-
 			"countLiveMemberships": func() (string, []any) { return t.buildCountLiveMembershipsForUser(d, scope, "u1") },
 			"clearDefaultAccount":  func() (string, []any) { return t.buildClearDefaultAccount(d, scope, "u1", "a1", now) },
 			"setDefaultAccount":    func() (string, []any) { return t.buildSetDefaultAccount(d, scope, "u1", "a1", now) },
 			"archiveMembership":    func() (string, []any) { return t.buildArchiveMembership(d, scope, "u1", "a1", now) },
 			"archiveMembershipsBy": func() (string, []any) { return t.buildArchiveMembershipsBy(d, membershipUserColumn, scope, "u1", now) },
 
-			"deleteRoles": func() (string, []any) { return buildDeleteRoles(d, t.membershipRoles, membershipIDColumn, "m1") },
-			"insertRoles": func() (string, []any) {
-				return buildInsertRoles(d, t.membershipRoles, membershipIDColumn, "m1", []string{"a", "b"})
-			},
 			"selectRoles": func() (string, []any) {
 				return buildSelectRoles(d, t.membershipRoles, membershipIDColumn, []string{"m1", "m2"})
 			},

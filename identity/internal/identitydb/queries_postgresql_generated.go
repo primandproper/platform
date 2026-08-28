@@ -142,6 +142,19 @@ INSERT INTO {{prefix}}identity_users (
 	$17
 )`
 
+const deleteInvitationRolesPostgreSQL = `DELETE FROM {{prefix}}identity_invitation_roles
+WHERE invitation_id = $1`
+
+const deleteMembershipRolesPostgreSQL = `DELETE FROM {{prefix}}identity_membership_roles
+WHERE membership_id = $1`
+
+const deleteUserRolesPostgreSQL = `DELETE FROM {{prefix}}identity_user_roles
+WHERE user_id = $1`
+
+const eraseUserPostgreSQL = `DELETE FROM {{prefix}}identity_users
+WHERE id = $1
+	AND scope = $2`
+
 const getAccountPostgreSQL = `SELECT
 	{{prefix}}identity_accounts.id,
 	{{prefix}}identity_accounts.scope,
@@ -338,6 +351,30 @@ const getUserCreatedAtPostgreSQL = `SELECT
 	{{prefix}}identity_users.created_at
 FROM {{prefix}}identity_users
 WHERE {{prefix}}identity_users.id = $1`
+
+const insertInvitationRolePostgreSQL = `INSERT INTO {{prefix}}identity_invitation_roles (
+	invitation_id,
+	role
+) VALUES (
+	$1,
+	$2
+)`
+
+const insertMembershipRolePostgreSQL = `INSERT INTO {{prefix}}identity_membership_roles (
+	membership_id,
+	role
+) VALUES (
+	$1,
+	$2
+)`
+
+const insertUserRolePostgreSQL = `INSERT INTO {{prefix}}identity_user_roles (
+	user_id,
+	role
+) VALUES (
+	$1,
+	$2
+)`
 
 const listAccountMembersPostgreSQL = `SELECT
 	{{prefix}}identity_memberships.id,
@@ -960,6 +997,10 @@ type postgresqlQueries struct {
 	createAccount                        string
 	createInvitation                     string
 	createUser                           string
+	deleteInvitationRoles                string
+	deleteMembershipRoles                string
+	deleteUserRoles                      string
+	eraseUser                            string
 	getAccount                           string
 	getAccountCreatedAt                  string
 	getInvitation                        string
@@ -972,6 +1013,9 @@ type postgresqlQueries struct {
 	getUserByEmailVerificationToken      string
 	getUserByUsername                    string
 	getUserCreatedAt                     string
+	insertInvitationRole                 string
+	insertMembershipRole                 string
+	insertUserRole                       string
 	listAccountMembers                   string
 	listAccounts                         string
 	listAccountsForUser                  string
@@ -1008,6 +1052,10 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		createAccount:                        strings.ReplaceAll(createAccountPostgreSQL, prefixMarker, prefix),
 		createInvitation:                     strings.ReplaceAll(createInvitationPostgreSQL, prefixMarker, prefix),
 		createUser:                           strings.ReplaceAll(createUserPostgreSQL, prefixMarker, prefix),
+		deleteInvitationRoles:                strings.ReplaceAll(deleteInvitationRolesPostgreSQL, prefixMarker, prefix),
+		deleteMembershipRoles:                strings.ReplaceAll(deleteMembershipRolesPostgreSQL, prefixMarker, prefix),
+		deleteUserRoles:                      strings.ReplaceAll(deleteUserRolesPostgreSQL, prefixMarker, prefix),
+		eraseUser:                            strings.ReplaceAll(eraseUserPostgreSQL, prefixMarker, prefix),
 		getAccount:                           strings.ReplaceAll(getAccountPostgreSQL, prefixMarker, prefix),
 		getAccountCreatedAt:                  strings.ReplaceAll(getAccountCreatedAtPostgreSQL, prefixMarker, prefix),
 		getInvitation:                        strings.ReplaceAll(getInvitationPostgreSQL, prefixMarker, prefix),
@@ -1020,6 +1068,9 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenPostgreSQL, prefixMarker, prefix),
 		getUserByUsername:                    strings.ReplaceAll(getUserByUsernamePostgreSQL, prefixMarker, prefix),
 		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtPostgreSQL, prefixMarker, prefix),
+		insertInvitationRole:                 strings.ReplaceAll(insertInvitationRolePostgreSQL, prefixMarker, prefix),
+		insertMembershipRole:                 strings.ReplaceAll(insertMembershipRolePostgreSQL, prefixMarker, prefix),
+		insertUserRole:                       strings.ReplaceAll(insertUserRolePostgreSQL, prefixMarker, prefix),
 		listAccountMembers:                   strings.ReplaceAll(listAccountMembersPostgreSQL, prefixMarker, prefix),
 		listAccounts:                         strings.ReplaceAll(listAccountsPostgreSQL, prefixMarker, prefix),
 		listAccountsForUser:                  strings.ReplaceAll(listAccountsForUserPostgreSQL, prefixMarker, prefix),
@@ -1171,6 +1222,55 @@ func (q *postgresqlQueries) CreateUser(ctx context.Context, db DBTX, arg CreateU
 	)
 
 	return err
+}
+
+// DeleteInvitationRoles runs the :execrows query against postgresql.
+func (q *postgresqlQueries) DeleteInvitationRoles(ctx context.Context, db DBTX, arg DeleteInvitationRolesParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteInvitationRoles,
+		arg.InvitationID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteMembershipRoles runs the :execrows query against postgresql.
+func (q *postgresqlQueries) DeleteMembershipRoles(ctx context.Context, db DBTX, arg DeleteMembershipRolesParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteMembershipRoles,
+		arg.MembershipID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteUserRoles runs the :execrows query against postgresql.
+func (q *postgresqlQueries) DeleteUserRoles(ctx context.Context, db DBTX, arg DeleteUserRolesParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteUserRoles,
+		arg.UserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// EraseUser runs the :execrows query against postgresql.
+func (q *postgresqlQueries) EraseUser(ctx context.Context, db DBTX, arg EraseUserParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.eraseUser,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
 
 // GetAccount runs the :one query against postgresql.
@@ -1477,6 +1577,36 @@ func (q *postgresqlQueries) GetUserCreatedAt(ctx context.Context, db DBTX, arg G
 	)
 
 	return i, err
+}
+
+// InsertInvitationRole runs the :exec query against postgresql.
+func (q *postgresqlQueries) InsertInvitationRole(ctx context.Context, db DBTX, arg InsertInvitationRoleParams) error {
+	_, err := db.ExecContext(ctx, q.insertInvitationRole,
+		arg.InvitationID,
+		arg.Role,
+	)
+
+	return err
+}
+
+// InsertMembershipRole runs the :exec query against postgresql.
+func (q *postgresqlQueries) InsertMembershipRole(ctx context.Context, db DBTX, arg InsertMembershipRoleParams) error {
+	_, err := db.ExecContext(ctx, q.insertMembershipRole,
+		arg.MembershipID,
+		arg.Role,
+	)
+
+	return err
+}
+
+// InsertUserRole runs the :exec query against postgresql.
+func (q *postgresqlQueries) InsertUserRole(ctx context.Context, db DBTX, arg InsertUserRoleParams) error {
+	_, err := db.ExecContext(ctx, q.insertUserRole,
+		arg.UserID,
+		arg.Role,
+	)
+
+	return err
 }
 
 // ListAccountMembers runs the :many query against postgresql.
@@ -2284,6 +2414,19 @@ var (
 		LastAcceptedPrivacyPolicy     *time.Time
 	}(CreateUserParams{})
 	_ = struct {
+		InvitationID string
+	}(DeleteInvitationRolesParams{})
+	_ = struct {
+		MembershipID string
+	}(DeleteMembershipRolesParams{})
+	_ = struct {
+		UserID string
+	}(DeleteUserRolesParams{})
+	_ = struct {
+		ID    string
+		Scope tenancy.Scope
+	}(EraseUserParams{})
+	_ = struct {
 		ID    string
 		Scope tenancy.Scope
 	}(GetAccountParams{})
@@ -2481,6 +2624,18 @@ var (
 	_ = struct {
 		CreatedAt time.Time
 	}(GetUserCreatedAtRow{})
+	_ = struct {
+		InvitationID string
+		Role         string
+	}(InsertInvitationRoleParams{})
+	_ = struct {
+		MembershipID string
+		Role         string
+	}(InsertMembershipRoleParams{})
+	_ = struct {
+		UserID string
+		Role   string
+	}(InsertUserRoleParams{})
 	_ = struct {
 		CreatedAfter     *time.Time
 		CreatedBefore    *time.Time

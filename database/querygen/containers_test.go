@@ -430,6 +430,12 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 	t.Run("the junction suite", func(t *testing.T) {
 		runJunctionSuite(t, ctx, d, db)
 	})
+
+	// And the three writes a table with no id needs — see
+	// write_containers_test.go.
+	t.Run("the id-less write suite", func(t *testing.T) {
+		runIDLessWriteSuite(t, ctx, d, db)
+	})
 }
 
 // prepare asks the server to plan the statement, which is the cheapest way to

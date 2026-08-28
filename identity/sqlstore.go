@@ -219,27 +219,89 @@ func (s *SQLStore) rolesFor(
 	return byOwner, nil
 }
 
-// replaceRoles clears an owner's roles and writes the new set, which is how both
-// role tables are written — SetMembershipRoles replaces rather than merges, and
-// so does the write behind an accepted invitation.
+// roleStatements is one role table's pair of generated writes, with the owner
+// column each binds already chosen: the clear, and the insert of one grant.
+//
+// A query name is a Go method name, so the three role tables cannot share a
+// statement the way they shared a builder that took the table as an argument —
+// there are six methods where there were two. What they can share is the
+// operation, which is the part that can be got wrong: clear first, then write
+// the set back, because an insert running first collides with the grants it is
+// replacing. That lives once, in replaceRoles, and this is what differs per
+// table.
+type roleStatements struct {
+	clear  func(ctx context.Context, db identitydb.DBTX, ownerID string) (int64, error)
+	insert func(ctx context.Context, db identitydb.DBTX, ownerID, role string) error
+}
+
+// userRoles is the service-role table's pair: the roles a user holds outside
+// any account.
+func (s *SQLStore) userRoles() roleStatements {
+	return roleStatements{
+		clear: func(ctx context.Context, db identitydb.DBTX, ownerID string) (int64, error) {
+			return s.q.DeleteUserRoles(ctx, db, identitydb.DeleteUserRolesParams{UserID: ownerID})
+		},
+		insert: func(ctx context.Context, db identitydb.DBTX, ownerID, role string) error {
+			return s.q.InsertUserRole(ctx, db, identitydb.InsertUserRoleParams{UserID: ownerID, Role: role})
+		},
+	}
+}
+
+// membershipRoles is the pair for what a member may do inside one account.
+func (s *SQLStore) membershipRoles() roleStatements {
+	return roleStatements{
+		clear: func(ctx context.Context, db identitydb.DBTX, ownerID string) (int64, error) {
+			return s.q.DeleteMembershipRoles(ctx, db, identitydb.DeleteMembershipRolesParams{MembershipID: ownerID})
+		},
+		insert: func(ctx context.Context, db identitydb.DBTX, ownerID, role string) error {
+			return s.q.InsertMembershipRole(ctx, db,
+				identitydb.InsertMembershipRoleParams{MembershipID: ownerID, Role: role})
+		},
+	}
+}
+
+// invitationRoles is the pair for what an invitation promises.
+func (s *SQLStore) invitationRoles() roleStatements {
+	return roleStatements{
+		clear: func(ctx context.Context, db identitydb.DBTX, ownerID string) (int64, error) {
+			return s.q.DeleteInvitationRoles(ctx, db, identitydb.DeleteInvitationRolesParams{InvitationID: ownerID})
+		},
+		insert: func(ctx context.Context, db identitydb.DBTX, ownerID, role string) error {
+			return s.q.InsertInvitationRole(ctx, db,
+				identitydb.InsertInvitationRoleParams{InvitationID: ownerID, Role: role})
+		},
+	}
+}
+
+// replaceRoles clears an owner's roles and writes the new set, which is how all
+// three role tables are written — SetMembershipRoles replaces rather than
+// merges, and so do the writes behind a registration and an accepted invitation.
+//
+// The clear's row count is discarded on purpose. An owner with no grants yet is
+// the ordinary case — a registration, a first invitation — so zero means "there
+// was nothing to clear" rather than "the row was not found", and there is no
+// caller for whom the two differ.
+//
+// The insert runs once per role rather than once per call. The multi-row VALUES
+// list it replaced was assembled from the caller's cardinality, which is dynamic
+// SQL by construction: no static text for sqlc to check and none for querygen to
+// emit. What it costs is a round trip per role, inside the transaction the
+// parent's write already opened, at cardinalities that are single-digit.
 func (s *SQLStore) replaceRoles(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
-	table, idColumn, ownerID string,
+	statements roleStatements,
+	ownerID string,
 	roles []string,
 ) error {
-	query, args := buildDeleteRoles(s.dialect, table, idColumn, ownerID)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	if _, err := statements.clear(ctx, q, ownerID); err != nil {
 		return platformerrors.Wrap(err, "clearing identity roles")
 	}
 
-	if len(roles) == 0 {
-		return nil
-	}
-
-	query, args = buildInsertRoles(s.dialect, table, idColumn, ownerID, roles)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
-		return platformerrors.Wrap(err, "writing identity roles")
+	for _, role := range roles {
+		if err := statements.insert(ctx, q, ownerID, role); err != nil {
+			return platformerrors.Wrap(err, "writing identity roles")
+		}
 	}
 
 	return nil
@@ -306,11 +368,13 @@ const (
 	emailAddressColumn = queries.UserEmailAddressColumn
 )
 
-// userIDColumn is what the service-role table keys on.
-const userIDColumn = "user_id"
-
-// membershipIDColumn is what the membership role table keys on.
-const membershipIDColumn = "membership_id"
+// The two role tables the store names outside their own writes: the batched
+// read that fetches a set of owners' grants at once still keys on the column,
+// so it is spelled where the emitted statements spell it.
+const (
+	userIDColumn       = queries.UserRoleOwnerColumn
+	membershipIDColumn = queries.MembershipRoleOwnerColumn
+)
 
 // liveUser is what the three single-user reads keyed on something other than the
 // id share: the scope check, the not-found mapping, the service roles, and the
@@ -477,7 +541,7 @@ func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecu
 	membership.ID = row.ID
 	membership.CreatedAt = row.CreatedAt.UTC()
 
-	if err := s.replaceRoles(ctx, q, s.tables.membershipRoles, membershipIDColumn, membership.ID, membership.Roles); err != nil {
+	if err := s.replaceRoles(ctx, q, s.membershipRoles(), membership.ID, membership.Roles); err != nil {
 		return err
 	}
 

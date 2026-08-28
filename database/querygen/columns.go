@@ -25,7 +25,14 @@ const (
 	// every predicate over it admits NULL explicitly.
 	LastUpdatedAtColumn = "last_updated_at"
 	// ArchivedAtColumn is the soft delete. Rows are archived rather than
-	// deleted, so every read filters on it and no write removes a row.
+	// deleted, so every read filters on it and nothing in the standard set
+	// removes a row.
+	//
+	// The hard delete [Generator.DeleteQuery] renders is the named exception
+	// rather than a second convention, and it carries no predicate over this
+	// column at all: an erasure runs against a subject who was archived first,
+	// so a delete that excluded archived rows would be the one write unable to
+	// reach the rows it exists for.
 	ArchivedAtColumn = "archived_at"
 	// LastIndexedAtColumn records when a row was last written to a search
 	// index. Its presence is what marks a table as one search/sync mirrors,

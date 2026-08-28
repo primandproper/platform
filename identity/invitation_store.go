@@ -22,7 +22,7 @@ var _ InvitationStore = (*SQLStore)(nil)
 const (
 	invitationFromUserColumn = queries.InvitationFromUserColumn
 	invitationToEmailColumn  = queries.InvitationToEmailColumn
-	invitationIDColumn       = "invitation_id"
+	invitationIDColumn       = queries.InvitationRoleOwnerColumn
 )
 
 // answerInvitationParams moves an invitation to a terminal status.
@@ -96,7 +96,7 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 			return err
 		}
 
-		return s.replaceRoles(ctx, q, s.tables.invitationRoles, invitationIDColumn, invitation.ID, invitation.Roles)
+		return s.replaceRoles(ctx, q, s.invitationRoles(), invitation.ID, invitation.Roles)
 	}); err != nil {
 		return op.Error(err, "creating identity invitation")
 	}

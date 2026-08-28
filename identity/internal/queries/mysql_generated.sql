@@ -960,6 +960,50 @@ WHERE archived_at IS NULL
 	AND scope = sqlc.arg(scope)
 	AND status = sqlc.arg(current_status);
 
+-- name: EraseUser :execrows
+DELETE FROM identity_users
+WHERE id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
+
+-- name: DeleteUserRoles :execrows
+DELETE FROM identity_user_roles
+WHERE user_id = sqlc.arg(user_id);
+
+-- name: InsertUserRole :exec
+INSERT INTO identity_user_roles (
+	user_id,
+	role
+) VALUES (
+	sqlc.arg(user_id),
+	sqlc.arg(role)
+);
+
+-- name: DeleteMembershipRoles :execrows
+DELETE FROM identity_membership_roles
+WHERE membership_id = sqlc.arg(membership_id);
+
+-- name: InsertMembershipRole :exec
+INSERT INTO identity_membership_roles (
+	membership_id,
+	role
+) VALUES (
+	sqlc.arg(membership_id),
+	sqlc.arg(role)
+);
+
+-- name: DeleteInvitationRoles :execrows
+DELETE FROM identity_invitation_roles
+WHERE invitation_id = sqlc.arg(invitation_id);
+
+-- name: InsertInvitationRole :exec
+INSERT INTO identity_invitation_roles (
+	invitation_id,
+	role
+) VALUES (
+	sqlc.arg(invitation_id),
+	sqlc.arg(role)
+);
+
 -- name: UpsertMembership :exec
 INSERT INTO identity_memberships (
 	id,

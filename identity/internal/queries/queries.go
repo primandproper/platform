@@ -59,6 +59,70 @@ const (
 	MembershipDefaultColumn = "default_account"
 )
 
+// RoleColumn is the grant itself, and the second half of every role table's
+// primary key. The first half is the parent the grant hangs off — see
+// [RoleTable].
+const RoleColumn = "role"
+
+// The three role tables' owner columns: the parent a grant belongs to, which is
+// what a clear is keyed on and what an insert writes beside the role. Exported
+// for the reason every other column in this file is — the store binds them, and
+// a column spelled in two files is a column that can be spelled two ways.
+const (
+	UserRoleOwnerColumn       = "user_id"
+	MembershipRoleOwnerColumn = "membership_id"
+	InvitationRoleOwnerColumn = "invitation_id"
+)
+
+// RoleTable is one of the three tables a role grant lands in, and it is not a
+// [Table]: it has no id, no scope, no convention triple, and no standard query
+// of any kind. What it has is a parent, a grant, and the two writes that
+// rewrite a role set wholesale.
+//
+// It is a type of its own rather than a Table with most of its fields empty,
+// because every one of those fields decides something for a table that has a
+// caller reading it on its own — and none of these does. A grant is read
+// through its parent, filtered by nothing, and archived by the parent being
+// archived; see identity/migrations on why the triple is absent from the
+// schema too.
+type RoleTable struct {
+	// Name is the canonical, unprefixed table name.
+	Name string
+	// OwnerColumn is the parent the grant hangs off.
+	OwnerColumn string
+	// Singular names the entity the two statement names are built from:
+	// InsertUserRole and DeleteUserRoles.
+	Singular string
+}
+
+// Columns is the whole of the row, which is also its primary key.
+func (t *RoleTable) Columns() []string {
+	return []string{t.OwnerColumn, RoleColumn}
+}
+
+// The three of them, in the order the emitted .sql lists their statements.
+var (
+	// UserRoles is the roles a user holds outside any account — operator,
+	// support, service administrator.
+	UserRoles = RoleTable{Name: UserRolesTable, OwnerColumn: UserRoleOwnerColumn, Singular: "User"}
+	// MembershipRoles is what a member may do inside one account.
+	MembershipRoles = RoleTable{
+		Name:        MembershipRolesTable,
+		OwnerColumn: MembershipRoleOwnerColumn,
+		Singular:    "Membership",
+	}
+	// InvitationRoles is what an invitation promises, fixed at invitation time
+	// so that what somebody was invited to is what they get.
+	InvitationRoles = RoleTable{
+		Name:        InvitationRolesTable,
+		OwnerColumn: InvitationRoleOwnerColumn,
+		Singular:    "Invitation",
+	}
+)
+
+// RoleTables is the three of them, in the order Render emits their statements.
+var RoleTables = []*RoleTable{&UserRoles, &MembershipRoles, &InvitationRoles}
+
 // The columns the field-specific writes assign, and the arguments the guarded
 // ones compare against.
 //
@@ -299,6 +363,8 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, junctionLists(g)...)
 	rendered = append(rendered, usernamePrefixSearch(g)...)
 	rendered = append(rendered, fieldWrites(g)...)
+	rendered = append(rendered, userErasure(g))
+	rendered = append(rendered, roleWrites(g)...)
 	rendered = append(rendered, membershipUpsert(g))
 
 	return querygen.RenderFile(rendered)
@@ -354,6 +420,59 @@ func membershipUpsert(g *querygen.Generator) *querygen.Query {
 		querygen.Match{Column: MembershipUserColumn},
 		querygen.Match{Column: MembershipAccountColumn},
 	)
+}
+
+// userErasure is the one statement in this schema that destroys a row rather
+// than stamping it: the hard DELETE a right-to-be-forgotten request runs.
+//
+// It is keyed on the id and the scope, and on nothing else. The archived
+// predicate every other single-row statement here carries would make this the
+// one write unable to reach the rows it exists for, since an erasure follows an
+// archival: dataprivacy hides the subject first and destroys them afterwards.
+// querygen's delete renders no such predicate — see [querygen.Generator.DeleteQuery].
+//
+// The user's memberships and every role hanging off them go with the row,
+// through ON DELETE CASCADE. That is the one place this schema asks the
+// database to finish a deletion, and it is deliberate: an erasure that left a
+// membership behind would leave the subject on the rosters of the accounts they
+// belonged to.
+func userErasure(g *querygen.Generator) *querygen.Query {
+	return g.DeleteQuery("EraseUser", UsersTable, Users.Columns, querygen.Match{Column: ScopeColumn})
+}
+
+// roleWrites is the pair of statements each of the three role tables needs: the
+// clear that empties an owner's grants, and the insert that writes one back.
+//
+// Together they are how a role set is replaced wholesale rather than diffed.
+// Diffing means reading the current set first and computing two statements from
+// it, which is three round trips to express "these are the roles now" and a
+// read-modify-write besides.
+//
+// The insert is one statement per role rather than one multi-row INSERT per
+// call. The multi-row form was assembled per call from the caller's cardinality,
+// so it had no static text — nothing for sqlc to check and nothing for this
+// package to emit, which is the same objection that retired the conditional
+// billing SET. What replaces it costs a round trip per role, inside the
+// transaction the parent's write already opened, at the cardinalities a role set
+// actually has.
+//
+// Neither statement is scoped, and neither can be: a role table carries no scope
+// column, because a grant is reached only through the parent whose own
+// statements are all keyed on one. The owner id these bind is a value the store
+// read back from a scoped statement.
+func roleWrites(g *querygen.Generator) []*querygen.Query {
+	rendered := make([]*querygen.Query, 0, len(RoleTables)*2)
+
+	for _, table := range RoleTables {
+		owner := querygen.Match{Column: table.OwnerColumn}
+
+		rendered = append(rendered,
+			g.DeleteQuery("Delete"+table.Singular+"Roles", table.Name, table.Columns(), owner),
+			g.InsertQuery("Insert"+table.Singular+"Role", table.Name, table.Columns(), nil),
+		)
+	}
+
+	return rendered
 }
 
 // fieldWrites is the writes that assign one fact about a row rather than the
