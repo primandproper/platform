@@ -78,6 +78,58 @@ func TestSchema_Identifiers(T *testing.T) {
 	})
 }
 
+func TestSchema_Tables(T *testing.T) {
+	T.Parallel()
+
+	T.Run("collects every table across all dialects, sorted and deduplicated", func(t *testing.T) {
+		t.Parallel()
+
+		// The index is the point: it names widget_items too, so a reader that
+		// took every placeholder token would report an index as a table.
+		test.Eq(t, []string{"widget_items", "widget_totals"}, testSchema.Tables(""))
+	})
+
+	T.Run("qualifies every name with the namespace", func(t *testing.T) {
+		t.Parallel()
+
+		test.Eq(t, []string{"ddb_widget_items", "ddb_widget_totals"}, testSchema.Tables("ddb"))
+	})
+
+	T.Run("a schema with no tables yields nothing", func(t *testing.T) {
+		t.Parallel()
+
+		test.SliceEmpty(t, Schema{Component: "empty"}.Tables("ddb"))
+	})
+
+	T.Run("reads the statement rather than a line's shape", func(t *testing.T) {
+		t.Parallel()
+
+		// One CREATE TABLE per line with the conditional spelled the same way
+		// is the habit rather than the rule, so the reader is not allowed to
+		// depend on it: a name on the next line, an unconditional create, and a
+		// lowercase keyword are all the same statement.
+		wrapped := Schema{
+			Component: "widget",
+			Postgres: "create table\n  {{PREFIX}}widget_items (id TEXT);\n" +
+				"CREATE TABLE {{PREFIX}}widget_totals (id TEXT);",
+		}
+
+		test.Eq(t, []string{"widget_items", "widget_totals"}, wrapped.Tables(""))
+	})
+
+	T.Run("is a subset of the identifiers the same schema renders", func(t *testing.T) {
+		t.Parallel()
+
+		// The two readers share the prefix and the namespace rendering, so a
+		// table this reports and ValidatePrefix never vets would be a name
+		// nobody checked before it reached statement text.
+		identifiers := testSchema.Identifiers("ddb")
+		for _, table := range testSchema.Tables("ddb") {
+			test.SliceContainsOp(t, identifiers, table)
+		}
+	})
+}
+
 func TestValidNamespace(T *testing.T) {
 	T.Parallel()
 
