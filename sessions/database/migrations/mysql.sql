@@ -1,10 +1,16 @@
--- MySQL has no CREATE INDEX IF NOT EXISTS, so the sweeper's index is declared
--- inline. See postgres.sql for what expires_at is and is not used for.
+-- MySQL has no CREATE INDEX IF NOT EXISTS, so both indexes are declared inline.
+-- See postgres.sql for what expires_at is and is not used for, for what scope,
+-- principal and the four device columns are, and for why the first two carry no
+-- default.
 --
 -- id is VARCHAR(255) rather than TEXT because MySQL cannot index a TEXT column
 -- without a prefix length, and the primary key is the whole point of this
 -- table. A base64url identifier of DefaultIDByteLength bytes is 43 characters,
 -- so the declared width is room to grow rather than a limit anyone will reach.
+-- scope and principal are VARCHAR for the same reason — they are the other
+-- indexed key here — and so are the two short metadata columns beside them, for
+-- consistency rather than necessity. user_agent is a client's own string, is in
+-- no index, and is therefore TEXT.
 --
 -- No convention triple, and that is deliberate. A sweeper deletes expired rows
 -- outright to keep this table sized by live sessions rather than by every
@@ -14,11 +20,18 @@
 -- of the row's last mutation.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}sessions (
     id           VARCHAR(255) NOT NULL PRIMARY KEY,
+    scope        VARCHAR(255) NOT NULL,
+    principal    VARCHAR(255) NOT NULL,
     data         LONGBLOB     NULL,
+    device_name  VARCHAR(255) NOT NULL,
+    ip_address   VARCHAR(255) NOT NULL,
+    user_agent   TEXT         NOT NULL,
+    login_method VARCHAR(255) NOT NULL,
     created_at   DATETIME(6)  NOT NULL,
     last_seen_at DATETIME(6)  NOT NULL,
     expires_at   DATETIME(6)  NOT NULL,
     version      INT          NOT NULL,
 
-    KEY {{PREFIX}}sessions_expires_at_idx (expires_at)
+    KEY {{PREFIX}}sessions_expires_at_idx (expires_at),
+    KEY {{PREFIX}}sessions_principal_idx (scope, principal, created_at)
 );

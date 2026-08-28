@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v13/sessions"
+	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -102,6 +103,7 @@ func wallRecord() *sessions.Record[principal] {
 		CreatedAt:  now,
 		LastSeenAt: now,
 		Data:       &principal{UserID: "u_1"},
+		Holder:     sessions.Holder{Scope: tenancy.Global()},
 		Version:    1,
 	}
 }

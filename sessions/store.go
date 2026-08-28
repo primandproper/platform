@@ -10,6 +10,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
+	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -29,6 +30,7 @@ type BackendStore[T any] struct {
 	renewedCounter       metrics.Int64Counter
 	endedCounter         metrics.Int64Counter
 	expiredCounter       metrics.Int64Counter
+	revokedCounter       metrics.Int64Counter
 	touchCounter         metrics.Int64Counter
 	touchFailureCounter  metrics.Int64Counter
 	staleRecordCounter   metrics.Int64Counter
@@ -98,6 +100,9 @@ func NewStore[T any](backend Backend[T], opts ...Option) (*BackendStore[T], erro
 	if s.expiredCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_expired", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating sessions expired counter")
 	}
+	if s.revokedCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_revoked", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating sessions revoked counter")
+	}
 	if s.touchCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_touches", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating session touches counter")
 	}
@@ -122,12 +127,55 @@ func (s *BackendStore[T]) Policy() Policy {
 	return s.policy
 }
 
-// New establishes a session around data.
+// New establishes a session around data, attributed to nobody.
 func (s *BackendStore[T]) New(ctx context.Context, data *T) (*Session[T], error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 	defer s.observe(ctx, operationNew, s.clock.Now())
 
+	// The global scope rather than the zero one: an anonymous session belongs
+	// to no tenant, which is a decision, where the zero Scope is the absence of
+	// one and no query accepts it.
+	return s.create(ctx, op, Holder{Scope: tenancy.Global()}, Metadata{}, data)
+}
+
+// NewFor establishes a session held by somebody.
+//
+// The holder is validated before anything is written, because the failure it
+// guards against is not a failed write: a session established under an unset
+// scope or an empty principal is a session that stores fine, reads fine by its
+// identifier, and appears in no list — so the sign-out control the holder was
+// recorded for silently does not cover it.
+func (s *BackendStore[T]) NewFor(
+	ctx context.Context,
+	holder Holder,
+	metadata Metadata,
+	data *T,
+) (*Session[T], error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+	defer s.observe(ctx, operationNew, s.clock.Now())
+
+	if err := holder.validate(); err != nil {
+		return nil, op.Error(err, "establishing session")
+	}
+
+	return s.create(ctx, op, holder, metadata, data)
+}
+
+// create mints an identifier and stores the record behind it.
+//
+// It is the one place a session comes into existence, so that the two doors
+// into it cannot come to disagree about what a new record holds — which
+// deadline it is written under, which version stamps it, whether the two
+// anchors start equal.
+func (s *BackendStore[T]) create(
+	ctx context.Context,
+	op observability.Operation,
+	holder Holder,
+	metadata Metadata,
+	data *T,
+) (*Session[T], error) {
 	id, err := NewID(ctx)
 	if err != nil {
 		return nil, op.Error(err, "minting session identifier")
@@ -138,6 +186,8 @@ func (s *BackendStore[T]) New(ctx context.Context, data *T) (*Session[T], error)
 		CreatedAt:  now,
 		LastSeenAt: now,
 		Data:       data,
+		Holder:     holder,
+		Metadata:   metadata,
 		Version:    recordVersion,
 	}
 
@@ -150,7 +200,10 @@ func (s *BackendStore[T]) New(ctx context.Context, data *T) (*Session[T], error)
 	s.createdCounter.Add(ctx, 1)
 
 	session := s.session(id, record)
-	op.Set(createdAtKey, session.CreatedAt).Set(expiresAtKey, session.ExpiresAt)
+	op.Set(createdAtKey, session.CreatedAt).
+		Set(expiresAtKey, session.ExpiresAt).
+		Set(scopeKey, holder.Scope.String()).
+		Set(principalKey, holder.Principal)
 
 	return session, nil
 }

@@ -1,6 +1,12 @@
 CREATE TABLE IF NOT EXISTS sessions (
     id           TEXT PRIMARY KEY,
+    scope        TEXT NOT NULL,
+    principal    TEXT NOT NULL,
     data         BYTEA,
+    device_name  TEXT NOT NULL,
+    ip_address   TEXT NOT NULL,
+    user_agent   TEXT NOT NULL,
+    login_method TEXT NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL,
     last_seen_at TIMESTAMPTZ NOT NULL,
     expires_at   TIMESTAMPTZ NOT NULL,
@@ -9,4 +15,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx
     ON sessions (expires_at);
+
+CREATE INDEX IF NOT EXISTS sessions_principal_idx
+    ON sessions (scope, principal, created_at);
 

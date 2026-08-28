@@ -12,6 +12,7 @@ attacker who reads it nothing, and never grows.
 
 	session, _ := store.New(ctx, &Principal{UserID: "u_123"})
 	// hand session.ID to the client; sessions/http puts it in a signed cookie
+	// — and see below for NewFor, which is the one a sign-in should call
 
 	session, err := store.Get(ctx, id)   // ErrNotFound / ErrExpired if it is over
 
@@ -67,6 +68,48 @@ the same answer. The grace period costs retained bytes for expired sessions and
 buys all three back. Set it to zero with WithRetentionGrace to give up the
 distinction and reclaim at the deadline.
 
+# Which sessions do I hold, and how do I end the others
+
+A session established through New is held by nobody: it is reachable by its
+identifier and by nothing else, which is what an anonymous session is. NewFor
+establishes one held by somebody, and that is what a sign-in should call.
+
+	holder := sessions.Holder{Scope: tenancy.Of(accountID), Principal: userID}
+
+	session, _ := store.NewFor(ctx, holder, sessions.Metadata{
+		DeviceName:  "Jeffrey's laptop",
+		IPAddress:   req.RemoteAddr,
+		UserAgent:   req.UserAgent(),
+		LoginMethod: "passkey",
+	}, &Principal{UserID: userID})
+
+	// the security page
+	listed, _ := store.List(ctx, holder, session.ID)      // IsCurrent set on one
+	_, _ = store.RevokeAllExcept(ctx, holder, session.ID) // "sign out my other devices"
+
+The holder is the scope and the principal together, and it is one value because
+neither half is a key on its own: a revocation keyed on the principal alone
+reaches into every tenant that spells an identifier the same way, and one keyed
+on the scope alone signs out everybody in it. Both are working SQL, which is why
+they are not spellable here.
+
+The principal is an opaque string. This package does not know what a user is,
+and a session store that could not be used without this module's identity store
+would be a session store nobody could use with their own.
+
+Revocation lands on the same rows the by-identifier read answers from, because
+there is only one place a session lives. That is the whole reason this surface
+is here rather than in a table beside it: a session table maintained alongside
+the platform's is a second account of which sessions are live, and the moment
+the two disagree, a revocation has not taken.
+
+Enumeration needs an index on the holder, and only sessions/database has one.
+sessions/cache reports ErrNoPrincipalIndex from all three — a key-value store
+answers what is under a key, and the second structure needed to answer which
+keys are somebody's would be the second source of truth this surface exists to
+avoid. A deployment that needs "sign out other devices" needs the database
+backend, and finds that out from an error rather than from an empty list.
+
 # Renewal is not optional
 
 Renew rotates a session's identifier and carries the payload across. Call it on
@@ -107,6 +150,9 @@ before it was signed out cannot write it back afterwards. The cache backend
 checks first and then writes, which narrows that window to two adjacent round
 trips rather than closing it.
 
+And it is the only backend that can answer which sessions a principal holds. See
+above: that is a column on the row, which a table has and a keyspace does not.
+
 # What T must be
 
 Whatever the chosen backend can round-trip: a concrete struct with exported
@@ -119,6 +165,11 @@ wave of re-logins rather than users holding somebody else's fields. Bump
 recordVersion when Record itself changes shape; sessions_stale_records counts
 what that discards.
 
+Record grew a holder, so the current version is 2 and every session written by
+an earlier build reads as absent. A record from before the change carries no
+holder at all, and decoding one would produce a session that works, belongs to
+nobody, and cannot be found by the person trying to end it.
+
 # Watching it
 
 	sessions_expired          by reason: absolute or idle. A shift toward
@@ -128,14 +179,22 @@ what that discards.
 	                          reads still succeeded; the sessions will expire on
 	                          their old schedule.
 	sessions_backend_errors   backend health. Absent sessions are not counted
-	                          here — they are not errors.
+	                          here — they are not errors — and neither is a
+	                          backend that keeps no principal index, which is a
+	                          wiring decision rather than a store that is
+	                          unwell.
 	sessions_stale_records    records discarded for carrying another version;
 	                          expected to spike once after a shape change.
 	sessions_created          new sessions.
 	sessions_renewed          identifier rotations. Should track sign-ins; if it
 	                          does not, something is not renewing.
 	sessions_ended            explicit sign-outs.
+	sessions_revoked          sessions ended through the revocation surface, by
+	                          reason: one, all, all_but_kept. A deployment where
+	                          "all" climbs is a deployment where something is
+	                          scaring people.
 	sessions_touches          idle deadline refreshes.
-	sessions_latency_ms       by operation: new, get, save, renew, delete.
+	sessions_latency_ms       by operation: new, get, save, renew, delete, list,
+	                          revoke.
 */
 package sessions

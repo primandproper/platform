@@ -26,8 +26,23 @@ conditional write spans two keys — that needs a transaction, which is what
 sessions/database has and this does not. A sign-out landing mid-renewal can
 therefore still leave the renewed session alive.
 
-Where renewal has to be atomic, or where flushing the cache must not sign
-everybody out, use sessions/database.
+Neither is the enumeration. ListHeld, DeleteHeld and DeleteAllHeld all report
+sessions.ErrNoPrincipalIndex: a key-value store answers what is under a key, and
+"which keys belong to this person" needs a second structure maintained beside
+the records — which is a second account of which sessions are live, and the
+moment it disagrees with the first, a revocation has removed a session the list
+still shows or spared one it does not. So this backend does not keep one and
+says so, rather than answering an empty list that reads as "you are signed in
+nowhere else" to somebody who is.
+
+The attribution itself does round-trip: a session established through
+sessions.Store.NewFor comes back from Get carrying its holder and its metadata,
+because those travel in the record. It is only the read that starts from a
+person rather than from an identifier that a cache cannot serve.
+
+Where renewal has to be atomic, where flushing the cache must not sign everybody
+out, or where a user has to be able to see and end their own sessions, use
+sessions/database.
 
 # Choosing the cache
 

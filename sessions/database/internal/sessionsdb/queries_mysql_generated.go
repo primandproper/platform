@@ -9,17 +9,31 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
 const createSessionMySQL = `
 INSERT IGNORE INTO {{prefix}}sessions (
 	id,
+	scope,
+	principal,
 	data,
+	device_name,
+	ip_address,
+	user_agent,
+	login_method,
 	created_at,
 	last_seen_at,
 	expires_at,
 	version
 ) VALUES (
+	?,
+	?,
+	?,
+	?,
+	?,
+	?,
 	?,
 	?,
 	?,
@@ -31,13 +45,44 @@ INSERT IGNORE INTO {{prefix}}sessions (
 const deleteSessionMySQL = `DELETE FROM {{prefix}}sessions
 WHERE id = ?`
 
+const deleteSessionForPrincipalMySQL = `DELETE FROM {{prefix}}sessions
+WHERE id = ?
+	AND scope = ?
+	AND principal = ?`
+
+const deleteSessionsForPrincipalMySQL = `DELETE FROM {{prefix}}sessions
+WHERE scope = ?
+	AND principal = ?
+	AND id <> COALESCE(?, '')`
+
 const getSessionMySQL = `SELECT
+	{{prefix}}sessions.scope,
+	{{prefix}}sessions.principal,
 	{{prefix}}sessions.data,
+	{{prefix}}sessions.device_name,
+	{{prefix}}sessions.ip_address,
+	{{prefix}}sessions.user_agent,
+	{{prefix}}sessions.login_method,
 	{{prefix}}sessions.created_at,
 	{{prefix}}sessions.last_seen_at,
 	{{prefix}}sessions.version
 FROM {{prefix}}sessions
 WHERE {{prefix}}sessions.id = ?`
+
+const listSessionsForPrincipalMySQL = `SELECT
+	{{prefix}}sessions.id,
+	{{prefix}}sessions.data,
+	{{prefix}}sessions.device_name,
+	{{prefix}}sessions.ip_address,
+	{{prefix}}sessions.user_agent,
+	{{prefix}}sessions.login_method,
+	{{prefix}}sessions.created_at,
+	{{prefix}}sessions.last_seen_at,
+	{{prefix}}sessions.version
+FROM {{prefix}}sessions
+WHERE {{prefix}}sessions.scope = ?
+	AND {{prefix}}sessions.principal = ?
+ORDER BY {{prefix}}sessions.created_at DESC, {{prefix}}sessions.id DESC`
 
 const sessionExistsMySQL = `SELECT EXISTS (
 	SELECT {{prefix}}sessions.id
@@ -57,24 +102,30 @@ WHERE id = ?`
 
 // mysqlQueries answers every query in Querier against mysql.
 type mysqlQueries struct {
-	createSession string
-	deleteSession string
-	getSession    string
-	sessionExists string
-	sweepSessions string
-	updateSession string
+	createSession              string
+	deleteSession              string
+	deleteSessionForPrincipal  string
+	deleteSessionsForPrincipal string
+	getSession                 string
+	listSessionsForPrincipal   string
+	sessionExists              string
+	sweepSessions              string
+	updateSession              string
 }
 
 // newMySQL returns the mysql querier with prefix substituted into every
 // table name the analyzer identified.
 func newMySQL(prefix string) *mysqlQueries {
 	return &mysqlQueries{
-		createSession: strings.ReplaceAll(createSessionMySQL, prefixMarker, prefix),
-		deleteSession: strings.ReplaceAll(deleteSessionMySQL, prefixMarker, prefix),
-		getSession:    strings.ReplaceAll(getSessionMySQL, prefixMarker, prefix),
-		sessionExists: strings.ReplaceAll(sessionExistsMySQL, prefixMarker, prefix),
-		sweepSessions: strings.ReplaceAll(sweepSessionsMySQL, prefixMarker, prefix),
-		updateSession: strings.ReplaceAll(updateSessionMySQL, prefixMarker, prefix),
+		createSession:              strings.ReplaceAll(createSessionMySQL, prefixMarker, prefix),
+		deleteSession:              strings.ReplaceAll(deleteSessionMySQL, prefixMarker, prefix),
+		deleteSessionForPrincipal:  strings.ReplaceAll(deleteSessionForPrincipalMySQL, prefixMarker, prefix),
+		deleteSessionsForPrincipal: strings.ReplaceAll(deleteSessionsForPrincipalMySQL, prefixMarker, prefix),
+		getSession:                 strings.ReplaceAll(getSessionMySQL, prefixMarker, prefix),
+		listSessionsForPrincipal:   strings.ReplaceAll(listSessionsForPrincipalMySQL, prefixMarker, prefix),
+		sessionExists:              strings.ReplaceAll(sessionExistsMySQL, prefixMarker, prefix),
+		sweepSessions:              strings.ReplaceAll(sweepSessionsMySQL, prefixMarker, prefix),
+		updateSession:              strings.ReplaceAll(updateSessionMySQL, prefixMarker, prefix),
 	}
 }
 
@@ -82,7 +133,13 @@ func newMySQL(prefix string) *mysqlQueries {
 func (q *mysqlQueries) CreateSession(ctx context.Context, db DBTX, arg CreateSessionParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.createSession,
 		arg.ID,
+		arg.Scope,
+		arg.Principal,
 		arg.Data,
+		arg.DeviceName,
+		arg.IPAddress,
+		arg.UserAgent,
+		arg.LoginMethod,
 		arg.CreatedAt,
 		arg.LastSeenAt,
 		arg.ExpiresAt,
@@ -107,6 +164,34 @@ func (q *mysqlQueries) DeleteSession(ctx context.Context, db DBTX, arg DeleteSes
 	return result.RowsAffected()
 }
 
+// DeleteSessionForPrincipal runs the :execrows query against mysql.
+func (q *mysqlQueries) DeleteSessionForPrincipal(ctx context.Context, db DBTX, arg DeleteSessionForPrincipalParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteSessionForPrincipal,
+		arg.ID,
+		arg.Scope,
+		arg.Principal,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteSessionsForPrincipal runs the :execrows query against mysql.
+func (q *mysqlQueries) DeleteSessionsForPrincipal(ctx context.Context, db DBTX, arg DeleteSessionsForPrincipalParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteSessionsForPrincipal,
+		arg.Scope,
+		arg.Principal,
+		arg.KeptSessionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // GetSession runs the :one query against mysql.
 func (q *mysqlQueries) GetSession(ctx context.Context, db DBTX, arg GetSessionParams) (GetSessionRow, error) {
 	row := db.QueryRowContext(ctx, q.getSession,
@@ -116,13 +201,60 @@ func (q *mysqlQueries) GetSession(ctx context.Context, db DBTX, arg GetSessionPa
 	var i GetSessionRow
 
 	err := row.Scan(
+		&i.Scope,
+		&i.Principal,
 		&i.Data,
+		&i.DeviceName,
+		&i.IPAddress,
+		&i.UserAgent,
+		&i.LoginMethod,
 		&i.CreatedAt,
 		&i.LastSeenAt,
 		&i.Version,
 	)
 
 	return i, err
+}
+
+// ListSessionsForPrincipal runs the :many query against mysql.
+func (q *mysqlQueries) ListSessionsForPrincipal(ctx context.Context, db DBTX, arg ListSessionsForPrincipalParams) ([]ListSessionsForPrincipalRow, error) {
+	rows, err := db.QueryContext(ctx, q.listSessionsForPrincipal,
+		arg.Scope,
+		arg.Principal,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListSessionsForPrincipalRow
+
+	for rows.Next() {
+		var i ListSessionsForPrincipalRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Data,
+			&i.DeviceName,
+			&i.IPAddress,
+			&i.UserAgent,
+			&i.LoginMethod,
+			&i.CreatedAt,
+			&i.LastSeenAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
 }
 
 // SessionExists runs the :one query against mysql.
@@ -176,25 +308,62 @@ func (q *mysqlQueries) UpdateSession(ctx context.Context, db DBTX, arg UpdateSes
 // transposition at run time.
 var (
 	_ = struct {
-		ID         string
-		Data       []byte
-		CreatedAt  time.Time
-		LastSeenAt time.Time
-		ExpiresAt  time.Time
-		Version    int64
+		ID          string
+		Scope       tenancy.Scope
+		Principal   string
+		Data        []byte
+		DeviceName  string
+		IPAddress   string
+		UserAgent   string
+		LoginMethod string
+		CreatedAt   time.Time
+		LastSeenAt  time.Time
+		ExpiresAt   time.Time
+		Version     int64
 	}(CreateSessionParams{})
 	_ = struct {
 		ID string
 	}(DeleteSessionParams{})
 	_ = struct {
+		ID        string
+		Scope     tenancy.Scope
+		Principal string
+	}(DeleteSessionForPrincipalParams{})
+	_ = struct {
+		Scope         tenancy.Scope
+		Principal     string
+		KeptSessionID *string
+	}(DeleteSessionsForPrincipalParams{})
+	_ = struct {
 		ID string
 	}(GetSessionParams{})
 	_ = struct {
-		Data       []byte
-		CreatedAt  time.Time
-		LastSeenAt time.Time
-		Version    int64
+		Scope       tenancy.Scope
+		Principal   string
+		Data        []byte
+		DeviceName  string
+		IPAddress   string
+		UserAgent   string
+		LoginMethod string
+		CreatedAt   time.Time
+		LastSeenAt  time.Time
+		Version     int64
 	}(GetSessionRow{})
+	_ = struct {
+		Scope     tenancy.Scope
+		Principal string
+	}(ListSessionsForPrincipalParams{})
+	_ = struct {
+		ID          string
+		Data        []byte
+		DeviceName  string
+		IPAddress   string
+		UserAgent   string
+		LoginMethod string
+		CreatedAt   time.Time
+		LastSeenAt  time.Time
+		Version     int64
+	}(ListSessionsForPrincipalRow{})
 	_ = struct {
 		ID string
 	}(SessionExistsParams{})

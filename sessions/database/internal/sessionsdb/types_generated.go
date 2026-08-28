@@ -7,21 +7,43 @@ package sessionsdb
 
 import (
 	"time"
+
+	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
 // CreateSessionParams are the arguments to CreateSession.
 type CreateSessionParams struct {
-	ID         string
-	Data       []byte
-	CreatedAt  time.Time
-	LastSeenAt time.Time
-	ExpiresAt  time.Time
-	Version    int64
+	ID          string
+	Scope       tenancy.Scope
+	Principal   string
+	Data        []byte
+	DeviceName  string
+	IPAddress   string
+	UserAgent   string
+	LoginMethod string
+	CreatedAt   time.Time
+	LastSeenAt  time.Time
+	ExpiresAt   time.Time
+	Version     int64
 }
 
 // DeleteSessionParams are the arguments to DeleteSession.
 type DeleteSessionParams struct {
 	ID string
+}
+
+// DeleteSessionForPrincipalParams are the arguments to DeleteSessionForPrincipal.
+type DeleteSessionForPrincipalParams struct {
+	ID        string
+	Scope     tenancy.Scope
+	Principal string
+}
+
+// DeleteSessionsForPrincipalParams are the arguments to DeleteSessionsForPrincipal.
+type DeleteSessionsForPrincipalParams struct {
+	Scope         tenancy.Scope
+	Principal     string
+	KeptSessionID *string
 }
 
 // GetSessionParams are the arguments to GetSession.
@@ -31,10 +53,35 @@ type GetSessionParams struct {
 
 // GetSessionRow is one row of GetSession's result.
 type GetSessionRow struct {
-	Data       []byte
-	CreatedAt  time.Time
-	LastSeenAt time.Time
-	Version    int64
+	Scope       tenancy.Scope
+	Principal   string
+	Data        []byte
+	DeviceName  string
+	IPAddress   string
+	UserAgent   string
+	LoginMethod string
+	CreatedAt   time.Time
+	LastSeenAt  time.Time
+	Version     int64
+}
+
+// ListSessionsForPrincipalParams are the arguments to ListSessionsForPrincipal.
+type ListSessionsForPrincipalParams struct {
+	Scope     tenancy.Scope
+	Principal string
+}
+
+// ListSessionsForPrincipalRow is one row of ListSessionsForPrincipal's result.
+type ListSessionsForPrincipalRow struct {
+	ID          string
+	Data        []byte
+	DeviceName  string
+	IPAddress   string
+	UserAgent   string
+	LoginMethod string
+	CreatedAt   time.Time
+	LastSeenAt  time.Time
+	Version     int64
 }
 
 // SessionExistsParams are the arguments to SessionExists.
