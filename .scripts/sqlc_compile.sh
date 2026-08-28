@@ -27,6 +27,7 @@ SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 # its `-schema <dialect>` mode prints the DDL those queries are read against.
 COMPONENTS=(
   "./identity ./internal/queriesgen internal/queries"
+  "./saga ./internal/queriesgen internal/queries"
   "./sessions/database ./internal/queriesgen internal/queries"
 )
 

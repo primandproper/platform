@@ -3,12 +3,13 @@ package saga
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
@@ -17,6 +18,8 @@ import (
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v13/saga/internal/queries"
+	"github.com/primandproper/platform-go/v13/saga/internal/sagadb"
 	"github.com/primandproper/platform-go/v13/saga/migrations"
 )
 
@@ -42,10 +45,21 @@ var _ Store = (*SQLStore)(nil)
 // It is exported, and returned by NewSQLStore, so a caller who has chosen SQL
 // storage can depend on that choice rather than on the Store seam every backing
 // shares.
+//
+// Every statement it runs comes from saga/internal/queries, is checked by sqlc
+// against that same schema on each of the three dialects, and is executed
+// through the querier sqlc-gen-unison generated from it. There is no SQL in
+// this file.
 type SQLStore struct {
 	client database.Client
-	tables *tables
-	o11y   observability.Observer
+
+	// q is the generated querier, instantiated for the client's dialect at the
+	// configured prefix. It takes the executor per call, so a statement running
+	// inside a caller's transaction is a different argument rather than a
+	// different querier.
+	q sagadb.Querier
+
+	o11y observability.Observer
 
 	guardMissCounter metrics.Int64Counter
 
@@ -59,7 +73,7 @@ type SQLStore struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
-	dialect         dialect.Dialect
+	prefix          string
 }
 
 // NewSQLStore builds a Store over the given database.
@@ -82,9 +96,8 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client:  client,
-		dialect: d,
-		tables:  newTables(DefaultTablePrefix),
+		client: client,
+		prefix: DefaultTablePrefix,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -92,9 +105,25 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		}
 	}
 
-	if err := migrations.ValidatePrefix(s.tables.prefix()); err != nil {
+	if err := migrations.ValidatePrefix(s.prefix); err != nil {
 		return nil, err
 	}
+
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see saga/internal/sagadb.
+	qd, err := sagadbDialect(d)
+	if err != nil {
+		return nil, err
+	}
+
+	q, err := sagadb.New(qd, ddl.Qualify(s.prefix))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building the saga querier")
+	}
+
+	s.q = q
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
 
@@ -105,7 +134,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	// this layer it is indistinguishable from one.
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
-	var err error
 	if s.guardMissCounter, err = mp.NewInt64Counter(storeName + "_guard_misses"); err != nil {
 		return nil, platformerrors.Wrap(err, "creating saga store guard miss counter")
 	}
@@ -120,6 +148,25 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	return s, nil
+}
+
+// sagadbDialect maps this module's dialect names onto the generated package's.
+// The set is closed on both sides — NewSQLStore has already rejected anything
+// d.Valid() declines — so the default arm is reachable only when this module
+// learns a dialect the generated package was not generated for. That is a
+// construction failure like any other, and it names the dialect rather than
+// leaning on sagadb.New refusing the empty string.
+func sagadbDialect(d dialect.Dialect) (sagadb.Dialect, error) {
+	switch d {
+	case dialect.Postgres:
+		return sagadb.DialectPostgreSQL, nil
+	case dialect.MySQL:
+		return sagadb.DialectMySQL, nil
+	case dialect.SQLite:
+		return sagadb.DialectSQLite, nil
+	default:
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "no generated saga queries for dialect %q", d)
+	}
 }
 
 func (s *SQLStore) Save(ctx context.Context, q database.Tx, inst *Record, nextAttempt time.Time) error {
@@ -142,35 +189,18 @@ func (s *SQLStore) Save(ctx context.Context, q database.Tx, inst *Record, nextAt
 		nextAttemptKey: nextAttempt,
 	})
 
-	query, args := s.tables.buildInsertInstance(s.dialect, inst, encodeStepNames(inst.StepNames), nextAttempt)
-
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	if err := s.q.InsertSagaInstance(ctx, q, insertParams(inst, nextAttempt)); err != nil {
 		return op.Error(err, "inserting saga instance")
 	}
 
 	return nil
 }
 
-// encodeStepNames renders a step list for storage.
-//
-// It returns no error because it cannot produce one. json.Marshal fails on
-// cycles, channels, funcs, and NaNs; a []string is none of those, and an error
-// branch here would be one nothing can reach and no test can cover. The
-// decode side does return an error, because a column can be edited by hand.
-func encodeStepNames(names []string) []byte {
-	//nolint:errcheck,errchkjson // a []string always marshals; see the comment above.
-	encoded, _ := json.Marshal(names)
-
-	return encoded
-}
-
 func (s *SQLStore) Get(ctx context.Context, instanceID string) (*Record, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(instanceIDKey, instanceID))
 	defer op.End()
 
-	query, args := s.tables.buildSelectInstance(s.dialect, instanceID)
-
-	inst, err := scanInstance(s.client.Reader().QueryRowContext(ctx, query, args...))
+	row, err := s.q.GetSagaInstance(ctx, s.client.Reader(), sagadb.GetSagaInstanceParams{ID: instanceID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// Attached to the span but not logged as an error. An instance ID
@@ -182,6 +212,11 @@ func (s *SQLStore) Get(ctx context.Context, instanceID string) (*Record, error) 
 			return nil, platformerrors.Wrapf(ErrInstanceNotFound, "saga instance %q", instanceID)
 		}
 
+		return nil, op.Error(err, "reading saga instance")
+	}
+
+	inst, err := recordFromRow(&row)
+	if err != nil {
 		return nil, op.Error(err, "reading saga instance")
 	}
 
@@ -199,54 +234,113 @@ func (s *SQLStore) List(
 	defer op.End()
 
 	if scope != nil {
-		op.Set(definitionKey, scope.Definition).Set(statusKey, statusStrings(scope.Statuses))
+		op.Set(definitionKey, scope.Definition).Set(statusKey, statusAttribute(scope.Statuses))
 	}
 
-	if filter == nil {
-		filter = filtering.DefaultQueryFilter()
-	}
+	filter = pageFilter(filter)
 
-	limit := int(filtering.DefaultQueryFilterLimit)
-	if filter.MaxResponseSize != nil && *filter.MaxResponseSize > 0 {
-		limit = int(*filter.MaxResponseSize)
-	}
+	op.Set(limitKey, int(*filter.MaxResponseSize))
 
-	var cursor string
-	if filter.Cursor != nil {
-		cursor = *filter.Cursor
-	}
-
-	// Ordering follows the filter rather than a package-local preference.
-	// filtering.DefaultQueryFilter asks for ascending, and a package that
-	// quietly reversed it would make this the one list endpoint in the module
-	// whose sort does not mean what the shared filter says it means. The
-	// reading of the field is filtering's — one home for it, so a store cannot
-	// come to differ from the generated statements about what "desc" is.
-	descending := filter.SortsDescending()
-
-	op.Set(limitKey, limit)
-
-	query, args := s.tables.buildListInstances(s.dialect, scope, cursor, limit, descending)
-
-	instances, err := scanInstances(ctx, s.client.Reader(), query, args)
+	rows, err := s.listRows(ctx, scope, filter)
 	if err != nil {
 		return nil, op.Error(err, "listing saga instances")
 	}
 
-	countQuery, countArgs := s.tables.buildCountInstances(s.dialect, scope)
+	op.Set(resultCountKey, len(rows))
 
-	var total uint64
-	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, op.Error(err, "counting saga instances")
+	// The counts ride on the rows, from the one snapshot the page was read
+	// from, so an empty page has none to read — which filtering.Drain reports
+	// as unknown rather than as zero.
+	if len(rows) > 0 {
+		op.Set(resultTotalKey, rows[0].total)
 	}
 
-	op.Set(resultCountKey, len(instances)).Set(resultTotalKey, total)
+	return filtering.Drain(rows, pageValue, pageCounts,
+		func(r *Record) string { return r.ID }, filter), nil
+}
 
-	return filtering.NewQueryFilteredResult(
-		instances, uint64(len(instances)), total,
-		func(r *Record) string { return r.ID },
-		filter,
-	), nil
+// listRows runs whichever of the two listings the scope names, in whichever
+// direction the filter asks for.
+//
+// The definition filter is a statement rather than an argument, because an
+// optional equality is not a predicate a caller can relax: a listing asked for
+// nothing in particular must not come back with the rows whose definition is
+// the empty string. The status filter is an argument in both, because its
+// domain is closed — see statusFilterValues.
+func (s *SQLStore) listRows(
+	ctx context.Context,
+	scope *ListScope,
+	filter *filtering.QueryFilter,
+) ([]pageRow, error) {
+	w := windowFrom(filter)
+	statuses := statusFilterValues(scope)
+
+	if scope != nil && scope.Definition != "" {
+		params := sagadb.ListSagaInstancesByDefinitionParams{
+			CreatedAfter:    w.createdAfter,
+			CreatedBefore:   w.createdBefore,
+			UpdatedAfter:    w.updatedAfter,
+			UpdatedBefore:   w.updatedBefore,
+			IncludeArchived: w.includeArchived,
+			Status1:         statuses[0],
+			Status2:         statuses[1],
+			Status3:         statuses[2],
+			Status4:         statuses[3],
+			Status5:         statuses[4],
+			Definition:      scope.Definition,
+			PageCursor:      w.pageCursor,
+			ResultLimit:     w.resultLimit,
+		}
+
+		got, err := sortedRows(filter,
+			func() ([]sagadb.ListSagaInstancesByDefinitionRow, error) {
+				return s.q.ListSagaInstancesByDefinition(ctx, s.client.Reader(), params)
+			},
+			func() ([]sagadb.ListSagaInstancesByDefinitionDescendingRow, error) {
+				return s.q.ListSagaInstancesByDefinitionDescending(ctx, s.client.Reader(),
+					sagadb.ListSagaInstancesByDefinitionDescendingParams(params))
+			},
+			func(r sagadb.ListSagaInstancesByDefinitionDescendingRow) sagadb.ListSagaInstancesByDefinitionRow {
+				return sagadb.ListSagaInstancesByDefinitionRow(r)
+			})
+		if err != nil {
+			return nil, err
+		}
+
+		return convertRows(got, instancePageRowByDefinition)
+	}
+
+	params := sagadb.ListSagaInstancesParams{
+		CreatedAfter:    w.createdAfter,
+		CreatedBefore:   w.createdBefore,
+		UpdatedAfter:    w.updatedAfter,
+		UpdatedBefore:   w.updatedBefore,
+		IncludeArchived: w.includeArchived,
+		Status1:         statuses[0],
+		Status2:         statuses[1],
+		Status3:         statuses[2],
+		Status4:         statuses[3],
+		Status5:         statuses[4],
+		PageCursor:      w.pageCursor,
+		ResultLimit:     w.resultLimit,
+	}
+
+	got, err := sortedRows(filter,
+		func() ([]sagadb.ListSagaInstancesRow, error) {
+			return s.q.ListSagaInstances(ctx, s.client.Reader(), params)
+		},
+		func() ([]sagadb.ListSagaInstancesDescendingRow, error) {
+			return s.q.ListSagaInstancesDescending(ctx, s.client.Reader(),
+				sagadb.ListSagaInstancesDescendingParams(params))
+		},
+		func(r sagadb.ListSagaInstancesDescendingRow) sagadb.ListSagaInstancesRow {
+			return sagadb.ListSagaInstancesRow(r)
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	return convertRows(got, instancePageRow)
 }
 
 func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]*Record, error) {
@@ -266,9 +360,7 @@ func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 	// LOCKED means anything. Without it the lock is released before the update,
 	// and two workers select the same rows.
 	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		selectQuery, selectArgs := s.tables.buildSelectClaimable(s.dialect, now, limit, true)
-
-		ids, err := scanIDs(ctx, q, selectQuery, selectArgs)
+		ids, err := s.claimable(ctx, q, now, limit)
 		if err != nil {
 			return op.Error(err, "selecting claimable saga instances")
 		}
@@ -280,18 +372,36 @@ func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 			return nil
 		}
 
-		claimQuery, claimArgs := s.tables.buildClaim(s.dialect, ids, leaseUntil, now)
-		if _, err = q.ExecContext(ctx, claimQuery, claimArgs...); err != nil {
+		lease := leaseUntil.UTC()
+		stamp := now.UTC()
+
+		affected, err := s.q.ClaimSagaInstances(ctx, q, sagadb.ClaimSagaInstancesParams{
+			ClaimedUntil:       &lease,
+			LastUpdatedAt:      &stamp,
+			RunningStatus:      string(StatusRunning),
+			CompensatingStatus: string(StatusCompensating),
+			IDs:                ids,
+		})
+		if err != nil {
 			return op.Error(err, "claiming saga instances")
 		}
+
+		op.Set(rowsAffectedKey, affected)
 
 		// Re-read rather than project from the select, so the attempt counts the
 		// worker sees are the ones the claim just wrote. A worker deciding
 		// whether a step has exhausted its budget from a pre-increment count
 		// would grant every step one attempt more than configured.
-		fetchQuery, fetchArgs := s.tables.buildFetchByIDs(s.dialect, ids)
+		rows, err := s.q.ListSagaInstancesByIDs(ctx, q, sagadb.ListSagaInstancesByIDsParams{
+			RunningStatus:      string(StatusRunning),
+			CompensatingStatus: string(StatusCompensating),
+			IDs:                ids,
+		})
+		if err != nil {
+			return op.Error(err, "reading claimed saga instances")
+		}
 
-		if claimed, err = scanInstances(ctx, q, fetchQuery, fetchArgs); err != nil {
+		if claimed, err = convertRows(rows, recordFromBatchRow); err != nil {
 			return op.Error(err, "reading claimed saga instances")
 		}
 
@@ -304,7 +414,7 @@ func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 	op.Set(claimedKey, len(claimed))
 
 	// Selected as active, gone by the time the guarded UPDATE ran: another
-	// worker's advance finished the saga in between. buildClaim repeats the
+	// worker's advance finished the saga in between. The claim repeats the
 	// status guard for exactly this case, and without this line the batch would
 	// simply come back smaller with nothing to say why.
 	if selected != len(claimed) {
@@ -315,6 +425,34 @@ func (s *SQLStore) Claim(ctx context.Context, now time.Time, limit int, leaseUnt
 	}
 
 	return claimed, nil
+}
+
+// claimable names the next batch of instances to lease: advanceable, due, and
+// not currently held by another worker.
+//
+// The same instant answers both time comparisons, because one cycle asks one
+// question about one moment: which instances are due *now*, and whose lease has
+// lapsed *by now*.
+func (s *SQLStore) claimable(ctx context.Context, q database.Tx, now time.Time, limit int) ([]string, error) {
+	at := now.UTC()
+
+	rows, err := s.q.ClaimableSagaInstanceIDs(ctx, q, sagadb.ClaimableSagaInstanceIDsParams{
+		RunningStatus:      string(StatusRunning),
+		CompensatingStatus: string(StatusCompensating),
+		DueAt:              at,
+		LeaseExpiredBy:     &at,
+		ResultLimit:        int64(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+
+	return ids, nil
 }
 
 func (s *SQLStore) Advance(ctx context.Context, q database.Tx, inst *Record, nextAttempt, at time.Time) error {
@@ -337,9 +475,26 @@ func (s *SQLStore) Advance(ctx context.Context, q database.Tx, inst *Record, nex
 		nextAttemptKey: nextAttempt,
 	})
 
-	query, args := s.tables.buildAdvance(s.dialect, inst, nextAttempt, at)
+	params := advanceParams(inst, nextAttempt, at)
 
-	return s.guard.Exec(ctx, op, q, query, args, inst.ID, "advance", "advancing saga instance")
+	// The lease is dropped whenever the pass is over: the instance is finished,
+	// or it is waiting out a step's delay. Holding it through a delay shorter
+	// than the lease would make the lease, not the delay, decide when the next
+	// step runs. A mid-pass advance keeps it, because this worker is about to
+	// run the next step itself.
+	//
+	// That is a SET list that differs by one assignment, so it is two checked
+	// statements and this is the choice between them.
+	if inst.Status.Terminal() || nextAttempt.After(at) {
+		affected, err := s.q.AdvanceSagaInstanceAndClearLease(ctx, q,
+			sagadb.AdvanceSagaInstanceAndClearLeaseParams(params))
+
+		return s.guard.Count(ctx, op, affected, err, inst.ID, "advance", "advancing saga instance")
+	}
+
+	affected, err := s.q.AdvanceSagaInstance(ctx, q, params)
+
+	return s.guard.Count(ctx, op, affected, err, inst.ID, "advance", "advancing saga instance")
 }
 
 func (s *SQLStore) Reschedule(
@@ -357,20 +512,41 @@ func (s *SQLStore) Reschedule(
 	}))
 	defer op.End()
 
-	query, args := s.tables.buildReschedule(s.dialect, instanceID, attempts, nextAttempt, lastErr, at)
+	stamp := at.UTC()
 
-	return s.guard.Exec(ctx, op, s.client.Writer(), query, args, instanceID, "reschedule", "rescheduling saga instance")
+	affected, err := s.q.RescheduleSagaInstance(ctx, s.client.Writer(), sagadb.RescheduleSagaInstanceParams{
+		Attempts:           int64(attempts),
+		NextAttempt:        nextAttempt.UTC(),
+		LastError:          lastErr,
+		LastUpdatedAt:      &stamp,
+		ID:                 instanceID,
+		RunningStatus:      string(StatusRunning),
+		CompensatingStatus: string(StatusCompensating),
+	})
+
+	return s.guard.Count(ctx, op, affected, err, instanceID, "reschedule", "rescheduling saga instance")
 }
 
 func (s *SQLStore) Release(ctx context.Context, instanceID string, at time.Time) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(instanceIDKey, instanceID))
 	defer op.End()
 
-	query, args := s.tables.buildRelease(s.dialect, instanceID, at)
+	stamp := at.UTC()
 
-	if _, err := s.client.Writer().ExecContext(ctx, query, args...); err != nil {
+	// The only write here that is not guarded, and the count is recorded rather
+	// than acted on. Handing back a lease on an instance that has since finished
+	// is not a lost race — there is nothing left to record — so a caller has
+	// nothing to do about it, while an operator watching a worker shed its whole
+	// batch does.
+	affected, err := s.q.ReleaseSagaInstance(ctx, s.client.Writer(), sagadb.ReleaseSagaInstanceParams{
+		LastUpdatedAt: &stamp,
+		ID:            instanceID,
+	})
+	if err != nil {
 		return op.Error(err, "releasing saga instance lease")
 	}
+
+	op.Set(rowsAffectedKey, affected)
 
 	return nil
 }
@@ -385,7 +561,7 @@ func (s *SQLStore) Requeue(
 	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		instanceIDKey: instanceID,
 		statusKey:     string(to),
-		fromStatusKey: statusStrings(from),
+		fromStatusKey: statusAttribute(from),
 	}))
 	defer op.End()
 
@@ -393,29 +569,21 @@ func (s *SQLStore) Requeue(
 		return nil, op.Error(platformerrors.ErrEmptyInputParameter, "no source statuses for saga requeue")
 	}
 
-	query, args := s.tables.buildRequeue(s.dialect, instanceID, from, to, at)
+	stamp := at.UTC()
 
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
-	if err != nil {
-		return nil, op.Error(err, "requeuing saga instance")
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return nil, op.Error(err, "reading saga requeue result")
-	}
-
-	op.Set(rowsAffectedKey, affected)
-
-	if affected == 0 {
-		// The guard in the predicate did its job and nothing moved: the instance
-		// is gone, or somebody resumed it a moment ago. Counted rather than
-		// logged as an error, because from here the two are indistinguishable
-		// and it is the caller that knows whether losing this race matters.
-		op.Set(guardMissedKey, true)
-		s.guardMissCounter.Add(ctx, 1, s.guard.OpAttr("requeue"))
-
-		return nil, platformerrors.Wrapf(ErrInstanceNotFound, "saga instance %q in expected status", instanceID)
+	// The guard is in the predicate rather than in a read-then-write, which is
+	// what makes Resume safe against being clicked twice: the second writer
+	// matches no rows and is told so, instead of both succeeding and handing two
+	// workers the same half-compensated saga.
+	affected, err := s.q.RequeueSagaInstance(ctx, s.client.Writer(), sagadb.RequeueSagaInstanceParams{
+		Status:        string(to),
+		NextAttempt:   stamp,
+		LastUpdatedAt: &stamp,
+		ID:            instanceID,
+		FromStatuses:  statusStrings(from),
+	})
+	if err = s.guard.Count(ctx, op, affected, err, instanceID, "requeue", "requeuing saga instance"); err != nil {
+		return nil, err
 	}
 
 	return s.Get(ctx, instanceID)
@@ -428,68 +596,154 @@ func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.Tx) e
 	return s.client.WithTransaction(ctx, fn)
 }
 
-// statusStrings renders a status set for a span attribute. Spans take scalars
-// and strings, not []Status, and the set a write guarded on is the first thing
-// wanted when one of them matches nothing.
-func statusStrings(statuses []Status) string {
+// convertRows turns a page of generated rows into whatever this package reads
+// them as, failing on the first row it cannot.
+//
+// It is one loop rather than four because what differs between the reads is the
+// conversion, which is the argument.
+func convertRows[Row, T any](rows []Row, convert func(*Row) (T, error)) ([]T, error) {
+	converted := make([]T, 0, len(rows))
+
+	for i := range rows {
+		value, err := convert(&rows[i])
+		if err != nil {
+			return nil, err
+		}
+
+		converted = append(converted, value)
+	}
+
+	return converted, nil
+}
+
+// listWindow is the filter window every listing binds, in the shape the
+// generated params carry it. One reading of the filter, restated into each
+// nominal params type by listRows.
+type listWindow struct {
+	createdAfter    *time.Time
+	createdBefore   *time.Time
+	updatedAfter    *time.Time
+	updatedBefore   *time.Time
+	pageCursor      *string
+	resultLimit     int64
+	includeArchived bool
+}
+
+// windowFrom reads the window off a page filter. The filter has been through
+// pageFilter, so MaxResponseSize is set; only IncludeArchived defaults here,
+// and it defaults to excluding, which is what the statement's COALESCE would
+// have done with a NULL anyway — bound explicitly so the parameter is a bool
+// rather than a pointer whose nil means the same thing.
+//
+// The UTC normalization on the four times is load-bearing on SQLite, where a
+// timestamp column compares as text: the stored shape is UTC, and a bound value
+// in any other zone compares against it with the wrong clock in the comparing
+// prefix. The generated SQLite bindings format times into the stored shape
+// themselves, so this is belt and braces rather than the only thing making it
+// so — and it is also what makes what comes back match what a caller passed.
+func windowFrom(filter *filtering.QueryFilter) listWindow {
+	w := listWindow{
+		createdAfter:  utcPtr(filter.CreatedAfter),
+		createdBefore: utcPtr(filter.CreatedBefore),
+		updatedAfter:  utcPtr(filter.UpdatedAfter),
+		updatedBefore: utcPtr(filter.UpdatedBefore),
+		pageCursor:    filter.Cursor,
+		resultLimit:   int64(*filter.MaxResponseSize),
+	}
+
+	if filter.IncludeArchived != nil {
+		w.includeArchived = *filter.IncludeArchived
+	}
+
+	return w
+}
+
+// pageFilter is the filter a paged read is answered under: the caller's, with
+// the page-size ceiling every other paged read in this module applies.
+//
+// It works on a copy. The clamp has to be applied to what the query binds and
+// to what the result reports, and doing that by writing through the caller's
+// pointer would hand them back a filter they did not pass — a store that
+// rewrites its argument is a store whose caller cannot reuse one.
+//
+// The sort direction passes through untouched, and is read where it is used:
+// filtering.QueryFilter.SortsDescending answers an absent or unrecognized one
+// ascending, which is the reading the shared filter applies everywhere.
+func pageFilter(filter *filtering.QueryFilter) *filtering.QueryFilter {
+	if filter == nil {
+		return filtering.DefaultQueryFilter()
+	}
+
+	bounded := *filter
+
+	size := uint16(filtering.DefaultQueryFilterLimit)
+	if bounded.MaxResponseSize != nil {
+		size = filtering.ClampResponseSize(uint64(*bounded.MaxResponseSize))
+	}
+
+	bounded.MaxResponseSize = &size
+
+	return &bounded
+}
+
+// statusFilterValues renders a listing's status narrowing as the fixed number
+// of arguments the statements bind.
+//
+// The domain is closed at five, so "any of these" is always five arguments and
+// the store decides which five. A scope naming none of them is every status,
+// which is the same rows an absent predicate would have returned; a scope
+// naming fewer than five repeats one, and a duplicate in an IN list matches
+// exactly the rows the original did.
+//
+// A scope naming only statuses this package does not write is the one case
+// worth spelling out: it leaves every slot empty, and no row's status is the
+// empty string, so it matches nothing — which is what asking for rows in a
+// status that cannot exist should answer.
+func statusFilterValues(scope *ListScope) [queries.StatusFilterArity]string {
+	var bound [queries.StatusFilterArity]string
+
+	if scope == nil || len(scope.Statuses) == 0 {
+		for i, status := range allStatuses {
+			bound[i] = string(status)
+		}
+
+		return bound
+	}
+
+	// Intersected with the domain rather than copied, which deduplicates the
+	// caller's set and drops anything that is not a status — both of which are
+	// what keeps the count at five.
+	wanted := make([]Status, 0, len(allStatuses))
+	for _, status := range allStatuses {
+		if slices.Contains(scope.Statuses, status) {
+			wanted = append(wanted, status)
+		}
+	}
+
+	for i := range bound {
+		if len(wanted) == 0 {
+			break
+		}
+
+		bound[i] = string(wanted[min(i, len(wanted)-1)])
+	}
+
+	return bound
+}
+
+// statusStrings renders a status set as the []string a bound set binds through.
+func statusStrings(statuses []Status) []string {
 	rendered := make([]string, 0, len(statuses))
 	for _, status := range statuses {
 		rendered = append(rendered, string(status))
 	}
 
-	return strings.Join(rendered, ",")
+	return rendered
 }
 
-// scanIDs drains a single-column ID projection.
-func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]string, error) {
-	return database.ScanStrings(ctx, q, "saga instance ID", query, args)
-}
-
-// scanInstances drains an instance projection.
-func scanInstances(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]*Record, error) {
-	return database.ScanAll(ctx, q, "saga instance", query, args, scanInstance)
-}
-
-// scanInstance reads one row of instanceColumns.
-func scanInstance(scanner database.Scanner) (*Record, error) {
-	var (
-		inst          Record
-		status        string
-		resumeStatus  string
-		stepNames     string
-		state         []byte
-		lastError     sql.NullString
-		lastUpdatedAt sql.NullTime
-	)
-
-	if err := scanner.Scan(
-		&inst.ID, &inst.Definition, &status, &inst.CurrentStep, &stepNames, &state,
-		&inst.Attempts, &lastError, &resumeStatus, &inst.CreatedAt, &lastUpdatedAt,
-	); err != nil {
-		return nil, err
-	}
-
-	inst.Status = Status(status)
-	inst.ResumeStatus = Status(resumeStatus)
-	inst.LastError = database.StringFromNullString(lastError)
-	inst.CreatedAt = inst.CreatedAt.UTC()
-
-	if lastUpdatedAt.Valid {
-		at := lastUpdatedAt.Time.UTC()
-		inst.LastUpdatedAt = &at
-	}
-
-	if len(state) > 0 {
-		// Copied out of the driver's buffer. database/sql reuses the byte slice
-		// backing a []byte destination across Next calls, so a claimed batch
-		// would otherwise come back with every instance holding the last row's
-		// state.
-		inst.State = json.RawMessage(append([]byte(nil), state...))
-	}
-
-	if err := json.Unmarshal([]byte(stepNames), &inst.StepNames); err != nil {
-		return nil, platformerrors.Wrap(err, "decoding saga step names")
-	}
-
-	return &inst, nil
+// statusAttribute renders a status set for a span attribute. Spans take scalars
+// and strings, not []Status, and the set a write guarded on is the first thing
+// wanted when one of them matches nothing.
+func statusAttribute(statuses []Status) string {
+	return strings.Join(statusStrings(statuses), ",")
 }
