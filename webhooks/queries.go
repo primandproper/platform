@@ -53,13 +53,21 @@ func (t *tables) prefix() string {
 
 // endpointColumns is the projection every endpoint read scans. Declared once so
 // the SELECTs and the Scan cannot drift apart.
-const endpointColumns = "id, scope, url, content_type, secret_current, secret_previous, headers, disabled"
+const endpointColumns = "id, scope, created_by, name, url, content_type, secret_current, secret_previous, headers, " +
+	"disabled, created_at, last_updated_at, archived_at"
+
+// subscriptionColumns is the projection every subscription read scans.
+const subscriptionColumns = "id, endpoint_id, event_type, created_at, last_updated_at, archived_at"
 
 // dispatchColumns is the projection a claimed dispatch scans, joined across
 // dispatches, deliveries, and endpoints.
-const dispatchColumns = "d.id, d.delivery_id, d.endpoint_id, d.ordering_key, d.attempts, " +
-	"v.event_type, v.payload, v.scope, " +
-	"e.id, e.scope, e.url, e.content_type, e.secret_current, e.secret_previous, e.headers, e.disabled"
+//
+// It is a var rather than a const because its endpoint half is endpointColumns
+// qualified, and qualifying is a function call. Writing the qualified list out
+// again would make it a const and make it a second copy — which is the thing
+// endpointColumns is declared once to avoid.
+var dispatchColumns = "d.id, d.delivery_id, d.endpoint_id, d.ordering_key, d.attempts, " +
+	"v.event_type, v.payload, v.scope, " + prefixedEndpointColumns
 
 // attemptColumns is the projection an attempt read scans.
 const attemptColumns = "id, delivery_id, endpoint_id, attempt_count, status_code, error, duration_ms, created_at"
@@ -75,26 +83,31 @@ const attemptColumns = "id, delivery_id, endpoint_id, attempt_count, status_code
 // would overwrite that subscriber's URL and signing secret, which is a
 // cross-tenant write dressed as a re-registration.
 func (t *tables) buildUpsertEndpoint(d dialect.Dialect, e *Endpoint, headers []byte, now time.Time) (query string, args []any) {
-	args = []any{e.ID, e.Scope, e.URL, e.ContentType, e.Secret.Current, secretOrNil(e.Secret.Previous), headers, e.Disabled, now}
+	args = []any{
+		e.ID, e.Scope, ownerOrNil(e.CreatedBy), e.Name, e.URL, e.ContentType,
+		e.Secret.Current, secretOrNil(e.Secret.Previous), headers, e.Disabled, now,
+	}
 
 	base := fmt.Sprintf(
-		"INSERT INTO %s (id, scope, url, content_type, secret_current, secret_previous, headers, disabled, created_at) VALUES (%s)",
+		"INSERT INTO %s (id, scope, created_by, name, url, content_type, secret_current, secret_previous, headers, disabled, created_at) VALUES (%s)",
 		t.endpoints, d.Placeholders(1, len(args)),
 	)
 
 	// The conflict target is the primary key in every dialect; only the syntax
 	// differs. created_at is deliberately not updated — re-registering an
-	// endpoint does not make it new.
+	// endpoint does not make it new — and neither is created_by: an endpoint does
+	// not change hands, so its provenance is written once, with the row, for the
+	// same reason scope is.
 	switch d {
 	case dialect.MySQL:
 		return base + " ON DUPLICATE KEY UPDATE" +
-			" url = VALUES(url), content_type = VALUES(content_type)," +
+			" name = VALUES(name), url = VALUES(url), content_type = VALUES(content_type)," +
 			" secret_current = VALUES(secret_current), secret_previous = VALUES(secret_previous)," +
 			" headers = VALUES(headers), disabled = VALUES(disabled)," +
 			" archived_at = NULL, last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
 	case dialect.Postgres, dialect.SQLite:
 		return base + " ON CONFLICT (id) DO UPDATE SET" +
-			" url = EXCLUDED.url, content_type = EXCLUDED.content_type," +
+			" name = EXCLUDED.name, url = EXCLUDED.url, content_type = EXCLUDED.content_type," +
 			" secret_current = EXCLUDED.secret_current, secret_previous = EXCLUDED.secret_previous," +
 			" headers = EXCLUDED.headers, disabled = EXCLUDED.disabled," +
 			" archived_at = NULL, last_updated_at = " + d.Placeholder(len(args)+1), append(args, now)
@@ -103,31 +116,187 @@ func (t *tables) buildUpsertEndpoint(d dialect.Dialect, e *Endpoint, headers []b
 	}
 }
 
-// buildDeleteSubscriptions removes an endpoint's subscriptions, so SaveEndpoint
-// can replace the set wholesale rather than diffing it.
-func (t *tables) buildDeleteSubscriptions(d dialect.Dialect, endpointID string) (query string, args []any) {
-	return fmt.Sprintf("DELETE FROM %s WHERE endpoint_id = %s", t.subscriptions, d.Placeholder(1)),
-		[]any{endpointID}
+// buildUpsertSubscriptions renders one multi-row upsert for an endpoint's
+// subscriptions. Registering an endpoint with thirty event types costs one round
+// trip, not thirty.
+//
+// It is an upsert rather than the delete-and-reinsert this replaced, and that is
+// what makes a subscription an identity rather than a position in a list.
+// Re-registering an endpoint used to drop every subscription row and write fresh
+// ones, so an ID handed out by one save named nothing after the next — and an
+// archived subscription came back as a live one. Here a row that already names
+// this (endpoint, event type) is revived in place, keeping its ID and its
+// created_at, and only a pair that has never existed is inserted.
+//
+// rows carry freshly generated IDs rather than whatever the caller had on the
+// Subscription. The pair is what identifies a subscription to this statement, so
+// a supplied ID could only ever be ignored (the pair exists) or believed for a
+// row it does not describe (it does not, and the ID belongs to another
+// endpoint's row) — and under MySQL's ON DUPLICATE KEY, which matches any unique
+// key, the second of those would revive somebody else's subscription.
+func (t *tables) buildUpsertSubscriptions(d dialect.Dialect, rows []subscriptionRow, now time.Time) (query string, args []any) {
+	const columnsPerRow = 4
+
+	args = make([]any, 0, len(rows)*columnsPerRow+1)
+	tuples := make([]string, 0, len(rows))
+
+	for i := range rows {
+		tuples = append(tuples, "("+d.Placeholders(len(args)+1, columnsPerRow)+")")
+		args = append(args, rows[i].id, rows[i].endpointID, rows[i].eventType.String(), now)
+	}
+
+	base := fmt.Sprintf(
+		"INSERT INTO %s (id, endpoint_id, event_type, created_at) VALUES %s",
+		t.subscriptions, strings.Join(tuples, ", "),
+	)
+
+	switch d {
+	case dialect.MySQL:
+		return base + " ON DUPLICATE KEY UPDATE archived_at = NULL, last_updated_at = " +
+			d.Placeholder(len(args)+1), append(args, now)
+	case dialect.Postgres, dialect.SQLite:
+		return base + " ON CONFLICT (endpoint_id, event_type) DO UPDATE SET archived_at = NULL, last_updated_at = " +
+			d.Placeholder(len(args)+1), append(args, now)
+	default:
+		return base, args
+	}
 }
 
-// buildInsertSubscriptions renders one multi-row INSERT for an endpoint's
-// subscriptions. Registering an endpoint with thirty event types costs one
-// round trip, not thirty.
-func (t *tables) buildInsertSubscriptions(d dialect.Dialect, endpointID string, events []EventType) (query string, args []any) {
-	const columnsPerRow = 2
+// subscriptionRow is one subscription's worth of bound parameters.
+type subscriptionRow struct {
+	id         string
+	endpointID string
+	eventType  EventType
+}
 
-	args = make([]any, 0, len(events)*columnsPerRow)
-	tuples := make([]string, 0, len(events))
+// buildArchiveUnnamedSubscriptions renders the other half of SaveEndpoint's
+// reconciliation: retire every live subscription the save did not name.
+//
+// They are archived rather than deleted, which is the difference between "this
+// endpoint no longer receives order.created" and "this endpoint never did". The
+// second is not true, and the delivery log that says otherwise outlives the
+// subscription.
+//
+// An empty events list archives all of them. That is not the same as doing
+// nothing: a caller saving an endpoint with no subscriptions is refused by
+// Validate long before this, but a Store implementation is not the place to
+// re-derive that, and "the set is empty" has one honest meaning here.
+func (t *tables) buildArchiveUnnamedSubscriptions(d dialect.Dialect, endpointID string, events []EventType, at time.Time) (query string, args []any) {
+	args = make([]any, 0, len(events)+3)
+	args = append(args, at, at, endpointID)
 
-	for _, event := range events {
-		tuples = append(tuples, "("+d.Placeholders(len(args)+1, columnsPerRow)+")")
-		args = append(args, endpointID, event.String())
+	where := "endpoint_id = " + d.Placeholder(3) + " AND archived_at IS NULL"
+	if len(events) > 0 {
+		first := len(args) + 1
+		for _, event := range events {
+			args = append(args, event.String())
+		}
+
+		where += " AND event_type NOT IN (" + d.Placeholders(first, len(events)) + ")"
 	}
 
 	return fmt.Sprintf(
-		"INSERT INTO %s (endpoint_id, event_type) VALUES %s",
-		t.subscriptions, strings.Join(tuples, ", "),
+		"UPDATE %s SET archived_at = %s, last_updated_at = %s WHERE %s",
+		t.subscriptions, d.Placeholder(1), d.Placeholder(2), where,
 	), args
+}
+
+// buildSelectSubscriptions renders the read that fills an Endpoint's
+// Subscriptions: its live rows, ordered by event type so a rendered endpoint
+// lists them the same way twice.
+//
+// It takes no scope. Its caller has already read the endpoint within one — this
+// is the second half of a read that was scoped, not a read of its own — and the
+// endpoint ID it is given came out of that first query rather than off the wire.
+func (t *tables) buildSelectSubscriptions(d dialect.Dialect, endpointID string) (query string, args []any) {
+	return fmt.Sprintf(
+		"SELECT %s FROM %s WHERE endpoint_id = %s AND archived_at IS NULL ORDER BY event_type",
+		subscriptionColumns, t.subscriptions, d.Placeholder(1),
+	), []any{endpointID}
+}
+
+// buildSelectSubscriptionByPair renders the read AddSubscription uses to learn
+// what it just wrote.
+//
+// The upsert cannot say: a revived row keeps the ID it already had, which is not
+// the one the INSERT bound, and no dialect this package supports reports that
+// back portably. The pair is what was written, so the pair is what reads it.
+func (t *tables) buildSelectSubscriptionByPair(d dialect.Dialect, endpointID string, eventType EventType) (query string, args []any) {
+	return fmt.Sprintf(
+		"SELECT %s FROM %s WHERE endpoint_id = %s AND event_type = %s",
+		subscriptionColumns, t.subscriptions, d.Placeholder(1), d.Placeholder(2),
+	), []any{endpointID, eventType.String()}
+}
+
+// buildSelectSubscription renders the single-subscription read, within one scope.
+//
+// The scope is reached through the endpoint rather than stored on the
+// subscription, for the reason buildListAttempts reaches it through the delivery:
+// a subscription's owner is its endpoint's, and a second copy of that fact on
+// every row here is a copy that can disagree with the first. The join is to a
+// primary key.
+//
+// Archived subscriptions are returned. "When did they stop receiving this" is a
+// question about a row that is archived by definition, and an archived
+// subscription reading as absent would leave it unanswerable.
+func (t *tables) buildSelectSubscription(d dialect.Dialect, scope tenancy.Scope, subscriptionID string) (query string, args []any) {
+	return fmt.Sprintf(
+		"SELECT %s FROM %s AS s INNER JOIN %s AS e ON e.id = s.endpoint_id "+
+			"WHERE s.id = %s AND e.scope = %s",
+		prefixColumns("s.", subscriptionColumns), t.subscriptions, t.endpoints,
+		d.Placeholder(1), d.Placeholder(2),
+	), []any{subscriptionID, scope}
+}
+
+// buildListSubscriptions renders the paged read of one of a scope's endpoints'
+// live subscriptions, cursor-paginated on id.
+func (t *tables) buildListSubscriptions(d dialect.Dialect, scope tenancy.Scope, endpointID, cursor string, limit int) (query string, args []any) {
+	args = make([]any, 0, 4)
+	args = append(args, endpointID, scope)
+
+	where := "s.endpoint_id = " + d.Placeholder(1) + " AND e.scope = " + d.Placeholder(2) +
+		" AND s.archived_at IS NULL"
+	if cursor != "" {
+		args = append(args, cursor)
+		where += " AND s.id > " + d.Placeholder(len(args))
+	}
+
+	args = append(args, limit)
+
+	return fmt.Sprintf(
+		"SELECT %s FROM %s AS s INNER JOIN %s AS e ON e.id = s.endpoint_id "+
+			"WHERE %s ORDER BY s.id LIMIT %s",
+		prefixColumns("s.", subscriptionColumns), t.subscriptions, t.endpoints,
+		where, d.Placeholder(len(args)),
+	), args
+}
+
+// buildCountSubscriptions renders the total for the paged read's Pagination,
+// over the same scope and endpoint the page came from.
+func (t *tables) buildCountSubscriptions(d dialect.Dialect, scope tenancy.Scope, endpointID string) (query string, args []any) {
+	return fmt.Sprintf(
+		"SELECT COUNT(*) FROM %s AS s INNER JOIN %s AS e ON e.id = s.endpoint_id "+
+			"WHERE s.endpoint_id = %s AND e.scope = %s AND s.archived_at IS NULL",
+		t.subscriptions, t.endpoints, d.Placeholder(1), d.Placeholder(2),
+	), []any{endpointID, scope}
+}
+
+// buildArchiveSubscription renders the retirement of one subscription, within
+// one scope.
+//
+// The scope is a subquery over the endpoints rather than a join, because MySQL
+// will not UPDATE a table it is also selecting from — but it will read another
+// table, and the endpoint is another table. Archiving a subscription whose
+// endpoint is in a different scope matches nothing, which is what a read in the
+// wrong scope gets too.
+func (t *tables) buildArchiveSubscription(d dialect.Dialect, scope tenancy.Scope, subscriptionID string, at time.Time) (query string, args []any) {
+	return fmt.Sprintf(
+		"UPDATE %s SET archived_at = %s, last_updated_at = %s "+
+			"WHERE id = %s AND archived_at IS NULL "+
+			"AND endpoint_id IN (SELECT e.id FROM %s AS e WHERE e.scope = %s)",
+		t.subscriptions, d.Placeholder(1), d.Placeholder(2), d.Placeholder(3),
+		t.endpoints, d.Placeholder(4),
+	), []any{at, at, subscriptionID, scope}
 }
 
 // buildSelectEndpointScope renders the read SaveEndpoint uses to find out
@@ -168,9 +337,10 @@ func (t *tables) buildSelectEndpointsForEvent(d dialect.Dialect, scope tenancy.S
 	return fmt.Sprintf(
 		"SELECT %s FROM %s AS e "+
 			"INNER JOIN %s AS s ON s.endpoint_id = e.id "+
-			"WHERE s.event_type = %s AND e.scope = %s AND e.disabled = FALSE AND e.archived_at IS NULL "+
+			"WHERE s.event_type = %s AND s.archived_at IS NULL "+
+			"AND e.scope = %s AND e.disabled = FALSE AND e.archived_at IS NULL "+
 			"ORDER BY e.id",
-		prefixColumns("e.", endpointColumns), t.endpoints, t.subscriptions,
+		prefixedEndpointColumns, t.endpoints, t.subscriptions,
 		d.Placeholder(1), d.Placeholder(2),
 	), []any{eventType.String(), scope}
 }
@@ -540,6 +710,28 @@ func prefixColumns(prefix, columns string) string {
 	}
 
 	return strings.Join(parts, ", ")
+}
+
+// prefixedEndpointColumns is endpointColumns qualified for the two queries that
+// read an endpoint out of a join. It is computed once rather than at each call:
+// the alias is "e." in both, and a second spelling of the same projection is the
+// drift prefixColumns exists to prevent.
+var prefixedEndpointColumns = prefixColumns("e.", endpointColumns)
+
+// ownerOrNil maps an unset CreatedBy to a SQL NULL rather than to the empty
+// identifier.
+//
+// The empty identifier is tenancy.Global(), a scope like any other, so binding
+// the Scope directly would record "no principal registered this" and "the global
+// principal registered this" in the same column value — and Scope.Value refuses
+// the unset one outright, which is right for a required column and wrong for an
+// optional one. NULL is the absence, and Scan maps it back.
+func ownerOrNil(scope tenancy.Scope) any {
+	if scope.Validate() != nil {
+		return nil
+	}
+
+	return scope.Owner()
 }
 
 // secretOrNil maps an empty previous secret to a SQL NULL rather than an empty

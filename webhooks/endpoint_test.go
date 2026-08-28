@@ -104,17 +104,113 @@ func TestCheckEndpointURL(T *testing.T) {
 	})
 }
 
+func TestSubscribeTo(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		subscriptions := SubscribeTo(orderCreated, orderUpdated)
+
+		must.SliceLen(t, 2, subscriptions)
+		test.EqOp(t, orderCreated, subscriptions[0].EventType)
+		test.EqOp(t, orderUpdated, subscriptions[1].EventType)
+
+		// No IDs: the store mints them, because the pair is what identifies a
+		// subscription and a caller has nothing to name yet.
+		test.EqOp(t, "", subscriptions[0].ID)
+	})
+
+	// Not filtered, deliberately: the store reconciles by event type, so a repeat
+	// is one row either way, and dropping it silently would hide a caller whose
+	// list-building had a bug in it.
+	T.Run("keeps a repeated event type", func(t *testing.T) {
+		t.Parallel()
+
+		test.SliceLen(t, 2, SubscribeTo(orderCreated, orderCreated))
+	})
+
+	T.Run("no events", func(t *testing.T) {
+		t.Parallel()
+
+		test.SliceEmpty(t, SubscribeTo())
+	})
+}
+
+func TestEndpoint_EventTypes(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		endpoint := &Endpoint{Subscriptions: SubscribeTo(orderCreated, orderUpdated)}
+
+		test.Eq(t, []EventType{orderCreated, orderUpdated}, endpoint.EventTypes())
+	})
+
+	// The derivation is what keeps the flat form from being a second copy of the
+	// set, so it has to agree with what fan-out will do — and fan-out skips an
+	// archived subscription.
+	T.Run("skips archived subscriptions", func(t *testing.T) {
+		t.Parallel()
+
+		archivedAt := time.Now().UTC()
+
+		endpoint := &Endpoint{Subscriptions: []Subscription{
+			{EventType: orderCreated, ArchivedAt: &archivedAt},
+			{EventType: orderUpdated},
+		}}
+
+		test.Eq(t, []EventType{orderUpdated}, endpoint.EventTypes())
+	})
+
+	T.Run("nil endpoint", func(t *testing.T) {
+		t.Parallel()
+
+		var endpoint *Endpoint
+		test.Nil(t, endpoint.EventTypes())
+	})
+}
+
+func TestArchived(T *testing.T) {
+	T.Parallel()
+
+	T.Run("standard", func(t *testing.T) {
+		t.Parallel()
+
+		at := time.Now().UTC()
+
+		test.False(t, (&Endpoint{}).Archived())
+		test.True(t, (&Endpoint{ArchivedAt: &at}).Archived())
+
+		test.False(t, (&Subscription{}).Archived())
+		test.True(t, (&Subscription{ArchivedAt: &at}).Archived())
+	})
+
+	T.Run("nil receivers", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			endpoint     *Endpoint
+			subscription *Subscription
+		)
+
+		test.False(t, endpoint.Archived())
+		test.False(t, subscription.Archived())
+	})
+}
+
 func TestEndpoint_Validate(T *testing.T) {
 	T.Parallel()
 
 	valid := func() *Endpoint {
 		return &Endpoint{
-			ID:          "endpoint-1",
-			Scope:       testScope,
-			URL:         "https://93.184.216.34/hooks",
-			ContentType: DefaultContentType,
-			Secret:      Secret{Current: []byte("secret")},
-			Events:      []EventType{orderCreated},
+			ID:            "endpoint-1",
+			Scope:         testScope,
+			URL:           "https://93.184.216.34/hooks",
+			ContentType:   DefaultContentType,
+			Secret:        Secret{Current: []byte("secret")},
+			Subscriptions: SubscribeTo(orderCreated),
 		}
 	}
 
@@ -165,9 +261,31 @@ func TestEndpoint_Validate(T *testing.T) {
 		t.Parallel()
 
 		endpoint := valid()
-		endpoint.Events = nil
+		endpoint.Subscriptions = nil
 
 		test.ErrorIs(t, endpoint.Validate(t.Context(), testCatalog, nil), ErrNoEvents)
+	})
+
+	// An endpoint whose every subscription has been archived is a subscriber
+	// that will never receive anything, which is the same mistake as naming none.
+	T.Run("subscribing only to archived event types", func(t *testing.T) {
+		t.Parallel()
+
+		archivedAt := time.Now().UTC()
+
+		endpoint := valid()
+		endpoint.Subscriptions = []Subscription{{EventType: orderCreated, ArchivedAt: &archivedAt}}
+
+		test.ErrorIs(t, endpoint.Validate(t.Context(), testCatalog, nil), ErrNoEvents)
+	})
+
+	T.Run("subscribing to an empty event type", func(t *testing.T) {
+		t.Parallel()
+
+		endpoint := valid()
+		endpoint.Subscriptions = SubscribeTo("")
+
+		test.ErrorIs(t, endpoint.Validate(t.Context(), testCatalog, nil), ErrEmptyEventType)
 	})
 
 	// The typo case the catalog exists to catch. Without this check the endpoint
@@ -176,7 +294,7 @@ func TestEndpoint_Validate(T *testing.T) {
 		t.Parallel()
 
 		endpoint := valid()
-		endpoint.Events = []EventType{orderCreated, "odrer.updated"}
+		endpoint.Subscriptions = SubscribeTo(orderCreated, "odrer.updated")
 
 		test.ErrorIs(t, endpoint.Validate(t.Context(), testCatalog, nil), ErrUnknownEventType)
 	})
@@ -317,9 +435,10 @@ func TestEventType(T *testing.T) {
 	T.Run("marshals as a plain string", func(t *testing.T) {
 		t.Parallel()
 
-		endpoint, err := json.Marshal(&Endpoint{Events: []EventType{orderCreated, orderUpdated}})
+		endpoint, err := json.Marshal(&Endpoint{Subscriptions: SubscribeTo(orderCreated, orderUpdated)})
 		must.NoError(t, err)
-		test.StrContains(t, string(endpoint), `"events":["order.created","order.updated"]`)
+		test.StrContains(t, string(endpoint), `"eventType":"order.created"`)
+		test.StrContains(t, string(endpoint), `"eventType":"order.updated"`)
 
 		delivery, err := json.Marshal(&Delivery{EventType: orderCreated})
 		must.NoError(t, err)
@@ -338,8 +457,8 @@ func TestEventType(T *testing.T) {
 		t.Parallel()
 
 		var endpoint Endpoint
-		must.NoError(t, json.Unmarshal([]byte(`{"events":["order.created"]}`), &endpoint))
-		test.Eq(t, []EventType{orderCreated}, endpoint.Events)
+		must.NoError(t, json.Unmarshal([]byte(`{"subscriptions":[{"eventType":"order.created"}]}`), &endpoint))
+		test.Eq(t, []EventType{orderCreated}, endpoint.EventTypes())
 
 		var delivery Delivery
 		must.NoError(t, json.Unmarshal([]byte(`{"eventType":"order.created"}`), &delivery))
@@ -365,11 +484,14 @@ func TestQueries_BindEventTypesAsStrings(T *testing.T) {
 	T.Run("subscription inserts", func(t2 *testing.T) {
 		t2.Parallel()
 
-		_, args := t.buildInsertSubscriptions(dialect.SQLite, "endpoint-1", []EventType{orderCreated, orderUpdated})
+		_, args := t.buildUpsertSubscriptions(dialect.SQLite, []subscriptionRow{
+			{id: "sub-1", endpointID: "endpoint-1", eventType: orderCreated},
+			{id: "sub-2", endpointID: "endpoint-1", eventType: orderUpdated},
+		}, time.Now().UTC())
 
-		must.SliceLen(t2, 4, args)
-		test.EqOp(t2, "order.created", mustBeString(t2, args[1]))
-		test.EqOp(t2, "order.updated", mustBeString(t2, args[3]))
+		must.SliceLen(t2, 9, args)
+		test.EqOp(t2, "order.created", mustBeString(t2, args[2]))
+		test.EqOp(t2, "order.updated", mustBeString(t2, args[6]))
 	})
 
 	T.Run("the fan-out lookup", func(t2 *testing.T) {

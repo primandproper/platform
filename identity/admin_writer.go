@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
+	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/tenancy"
 )
@@ -15,10 +16,12 @@ import (
 // ordinary request handler is a privilege escalation.
 var _ AdminWriter = (*SQLStore)(nil)
 
-// The membership columns the archive-by-side writes name.
+// The membership columns the archive-by-side writes name, spelled where every
+// other membership statement spells them: two spellings of one column is the
+// drift the rest of this package exists to prevent.
 const (
-	membershipUserColumn    = "belongs_to_user"
-	membershipAccountColumn = "belongs_to_account"
+	membershipUserColumn    = queries.MembershipUserColumn
+	membershipAccountColumn = queries.MembershipAccountColumn
 )
 
 // UpdateUserAccountStatus moves a user between statuses.

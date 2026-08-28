@@ -17,6 +17,28 @@ const (
 	InvitationRolesTable = "identity_invitation_roles"
 )
 
+// TableNames is every table identity owns, in the order the DDL creates them.
+//
+// Seven rather than the four declared below as [Table] values: the three role
+// tables carry no columns worth describing here and are written by hand-rendered
+// DELETE/INSERT pairs, but a table nothing generates queries for is still a
+// table with rows in it. That is the distinction the querygen registry is built
+// around, and this is the list [Render] feeds it — see the comment there.
+//
+// identity/migrations is where a consumer gets these names rendered at their
+// prefix. This list is the canonical spelling, and migrations.Tables reads the
+// DDL, so the two are cross-checked against each other in this package's tests
+// rather than one being derived from the other.
+var TableNames = []string{
+	UsersTable,
+	UserRolesTable,
+	AccountsTable,
+	MembershipsTable,
+	MembershipRolesTable,
+	InvitationsTable,
+	InvitationRolesTable,
+}
+
 // ScopeColumn is the tenancy dimension every table here carries and every
 // statement is keyed on. It is a column, not a convention: an unscoped read of
 // this schema is not expressible, because there is no statement that omits it.
@@ -286,6 +308,16 @@ var Emitted = []*Table{&Users, &Accounts, &Invitations}
 // table prefix substituted once at construction.
 func Render(d dialect.Dialect) string {
 	g := querygen.For(d)
+
+	// Every table identity owns, not the three the loop below emits for.
+	// StandardCRUD registers what it emits, which leaves memberships and the
+	// three role tables out — and those are tables with rows in them, so a
+	// consumer reading the registry back to truncate a database would miss four
+	// of seven. Registering the whole list here is what keeps that list fed by
+	// the tables existing rather than by what currently produces their SQL: the
+	// role tables are due to join Emitted, and nothing about this line has to
+	// change when they do.
+	querygen.RegisterTable(TableNames...)
 
 	var rendered []*querygen.Query
 	for _, table := range Emitted {

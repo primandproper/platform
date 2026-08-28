@@ -3,6 +3,7 @@ package migrations
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -111,6 +112,70 @@ func TestStatements(T *testing.T) {
 
 		_, err := Statements(dialect.Dialect("oracle"), "")
 		must.Error(t, err)
+	})
+}
+
+func TestTables(T *testing.T) {
+	T.Parallel()
+
+	T.Run("is every table the schema creates", func(t *testing.T) {
+		t.Parallel()
+
+		// Against the same hand-written list every other assertion in this file
+		// runs against, sorted: complete is the property this list is exported
+		// for, so it is pinned rather than derived from the thing it reads.
+		want := slices.Clone(tableNames)
+		slices.Sort(want)
+
+		names, err := Tables("")
+		must.NoError(t, err)
+		test.Eq(t, want, names)
+	})
+
+	T.Run("renders at the prefix", func(t *testing.T) {
+		t.Parallel()
+
+		names, err := Tables("ddb")
+		must.NoError(t, err)
+		must.SliceLen(t, len(tableNames), names)
+
+		for _, name := range names {
+			test.StrHasPrefix(t, "ddb_identity_", name)
+		}
+	})
+
+	T.Run("names what the DDL creates, at the same prefix", func(t *testing.T) {
+		t.Parallel()
+
+		// The list a consumer truncates by has to agree with the statements
+		// that created the tables, and agreeing at the empty prefix is not the
+		// same as agreeing at theirs.
+		for _, d := range allDialects {
+			stmts, err := Statements(d, "ddb")
+			must.NoError(t, err)
+
+			joined := strings.Join(stmts, "\n")
+
+			names, err := Tables("ddb")
+			must.NoError(t, err)
+
+			for _, name := range names {
+				test.StrContains(t, joined, "CREATE TABLE IF NOT EXISTS "+name+" ",
+					test.Sprintf("%s does not create %s", d, name))
+			}
+		}
+	})
+
+	T.Run("rejects a prefix that cannot render", func(t *testing.T) {
+		t.Parallel()
+
+		// The names are interpolated into whatever the caller builds out of
+		// them, so an unvetted prefix would leave this the one door into the
+		// package that hands back an identifier nothing checked.
+		for _, prefix := range []string{"has space", "trailing_", strings.Repeat("x", 200)} {
+			_, err := Tables(prefix)
+			test.Error(t, err, test.Sprintf("prefix %q", prefix))
+		}
 	})
 }
 

@@ -99,6 +99,11 @@ rendered per dialect and table prefix, and hands to database/migrate's
 WithGeneratedMigration so nothing is copied into a consumer's repository. See
 that package for why no numbered migration file ships.
 
+That package also answers which tables exist, at your prefix, through its Tables
+function — the list is complete and read from the DDL, so a between-tests
+TRUNCATE, a backup policy or a privacy inventory names every one of them without
+anybody copying seven names out of the schema.
+
 # What a consumer still writes
 
 The service layer, and that is the point of the split. Registration policy —
@@ -161,8 +166,24 @@ the row it comes back as is generated rather than paired to a Scan by eye. The
 username prefix search is a rendered pair the same way: the page and the count
 beside it, which is the one read here whose statement is not a filtered list.
 
-What remains hand-written is what querygen does not yet emit — the billing
-update's conditional SET.
+What remains hand-written is thirteen builders and the runtime binder they
+render through, and they are worth counting by shape rather than by name,
+because a shape is what the port still owes a generator. Three are predicates
+querygen has no form for: a guard that is an existence and an absence rather
+than an equality, the two-factor secret that is present and unproven; a
+collision check whose "and not this row" clause appears only when there is a row
+to exclude; and the default-flag clear, whose predicate excludes the membership
+being set rather than matching one. One is an update whose SET list is chosen
+per call, the agreements a registration accepts in a single statement. Two are
+DELETEs rather than archivals — the erasure a subject can demand, and the role
+clear that a wholesale replacement runs before its insert. Three are bound to a
+slice and are therefore not a statement until the call site knows how many: the
+users behind a batch of ids and the roles behind a batch of owners, each an IN
+list as wide as its argument count, and the multi-row insert on the other side
+of that role replacement. The last four are membership statements addressed by
+the (user, account) pair — an archival, a default set, a count of what is live —
+and the archive-by-side, whose column is chosen per call because one statement
+ends a user's memberships and an account's.
 */
 package identity
 
