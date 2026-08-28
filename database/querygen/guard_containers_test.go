@@ -82,6 +82,14 @@ func stillLive() Match  { return Match{Column: "expires_at", Against: CurrentTim
 func expired() Match    { return Match{Column: "expires_at", Against: CurrentTime} }
 func hasSecret() Match  { return Match{Column: "secret", Against: EmptyString, Exclude: true} }
 
+// elapsedAt is the same boundary as expired, read against an instant the caller
+// binds instead of against the server's clock. It is the comparand a store
+// whose deadlines were stamped by its own clock reaches for, and the only one
+// that can be asked about an instant other than now.
+func elapsedAt() Match {
+	return Match{Column: "expires_at", Against: BoundInstant, Arg: "horizon"}
+}
+
 // tokenQueries is every statement the guard suite runs: the standard set for
 // the create, and the four guarded ones beside it.
 func tokenQueries(d dialect.Dialect) []*Query {
@@ -112,6 +120,13 @@ func tokenQueries(d dialect.Dialect) []*Query {
 		// the uninverted half of the guard above.
 		g.ArchiveQuery("ArchiveExpiredTokens", guardTable,
 			without(guardColumns(), IDColumn), expired()),
+
+		// The same sweep against a horizon the caller names. Worth running
+		// rather than reading on all three: this is the one comparand that puts
+		// a Go time on one side of a comparison and a stored one on the other,
+		// and SQLite compares both as text.
+		g.ArchiveQuery("ArchiveTokensElapsedAt", guardTable,
+			without(guardColumns(), IDColumn), elapsedAt()),
 
 		// The collision check's shape: a read excluding a row the caller may
 		// not have. It is rendered from no columns at all, so it sees archived
@@ -236,6 +251,38 @@ func runGuardSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		// And it is idempotent, because the archived predicate the column list
 		// contributes has already excluded what the last run took.
 		test.EqOp(t, int64(0), affected(t, ctx, db, statement, arguments))
+	})
+
+	t.Run("the bound horizon collects what elapsed by the instant it names", func(t *testing.T) {
+		// Two rows dead by different amounts, so the horizon has something to
+		// discriminate. Fresh ids, because the sweep above has already archived
+		// what it took and the archived predicate excludes it.
+		insertToken(t, ctx, d, db, "t_long_dead", "secret_long_dead", now.Add(-2*time.Hour))
+		insertToken(t, ctx, d, db, "t_just_dead", "secret_just_dead", now.Add(-30*time.Minute))
+
+		sweep := func(horizon time.Time) int64 {
+			statement, arguments := tokenQuery(t, d, "ArchiveTokensElapsedAt", map[string]any{
+				"horizon": timeArg(d, horizon),
+			})
+
+			return affected(t, ctx, db, statement, arguments)
+		}
+
+		// An hour back reaches the row that died two hours ago and leaves the
+		// one that died half an hour ago — which is the whole point of a bound
+		// horizon, and the thing the server's clock has no argument to say.
+		test.EqOp(t, int64(1), sweep(now.Add(-time.Hour)))
+		test.Eq(t, []string{"t_elapsed", "t_long_dead"}, archivedTokenIDs(t, ctx, db))
+
+		// And at now it reaches the other one, so the two calls together
+		// partition the dead rows rather than one of them taking both.
+		test.EqOp(t, int64(1), sweep(now))
+		test.Eq(t, []string{"t_elapsed", "t_just_dead", "t_long_dead"}, archivedTokenIDs(t, ctx, db))
+
+		// The boundary is inclusive on the elapsed side, matching the clock's,
+		// so a row whose deadline is exactly the horizon is past it.
+		insertToken(t, ctx, d, db, "t_on_the_boundary", "secret_boundary", now)
+		test.EqOp(t, int64(1), sweep(now))
 	})
 
 	t.Run("the optional argument excludes a row only when the caller names one", func(t *testing.T) {

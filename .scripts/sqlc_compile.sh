@@ -27,6 +27,7 @@ SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 # its `-schema <dialect>` mode prints the DDL those queries are read against.
 COMPONENTS=(
   "./identity ./internal/queriesgen internal/queries"
+  "./authentication/oauth2server/database ./internal/queriesgen internal/queries"
 )
 
 # The dialects checked, as "<dialect> <sqlc engine>". Every dialect

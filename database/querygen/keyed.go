@@ -75,9 +75,9 @@ type Match struct {
 	// It is a name rather than a value, and it is interpolated into the
 	// statement the way Column is, so it is restricted the same way.
 	//
-	// Only the two comparands that bind anything read it — see [Comparand].
-	// Naming an argument that a NULL, empty-string or clock comparison has
-	// nowhere to put is ErrArgumentlessMatch rather than dead text in a
+	// Only the three comparands that bind anything read it — see [Comparand].
+	// Naming an argument that a NULL, empty-string or server-clock comparison
+	// has nowhere to put is ErrArgumentlessMatch rather than dead text in a
 	// statement.
 	Arg string
 	// Against is what Column is compared against. The zero value is the bound
@@ -179,6 +179,28 @@ const (
 	// exactly now is past it. That is the reading that leaves no instant at
 	// which a row is neither live nor expired.
 	CurrentTime
+	// BoundInstant compares the column against an instant the caller binds:
+	// `column <= sqlc.arg(name)`, or `column > sqlc.arg(name)` under
+	// [Match.Exclude].
+	//
+	// It is [CurrentTime] with the clock moved, and nothing else: the same two
+	// directions, the same inclusive boundary on the elapsed side, the same
+	// complement between them. What differs is whose reading of the time
+	// decides, and that is a decision about the column rather than a
+	// convenience. A deadline the database wrote is compared against the
+	// database's clock; a deadline the application stamped and handed over is
+	// compared against the clock that stamped it, or "issued for fifteen
+	// minutes" and "expired" measure two different fifteen minutes.
+	//
+	// The instant is also not always now. A sweep run at a horizon its caller
+	// chose — everything dead for an hour, rather than everything dead —
+	// collects only rows nothing is still deciding about, which is the one
+	// thing [CurrentTime] cannot say: there is no argument to move.
+	//
+	// It binds a required argument rather than a nullable one, because an
+	// unset horizon is not a wider sweep or a relaxed guard, it is a
+	// comparison against NULL that matches no row at all.
+	BoundInstant
 	// OptionalArgument compares the column against an argument the caller may
 	// leave unset: `column = COALESCE(sqlc.narg(name), '')`, or `<>` under
 	// [Match.Exclude].
@@ -208,6 +230,8 @@ func (c Comparand) String() string {
 		return "the empty string"
 	case CurrentTime:
 		return "the current time"
+	case BoundInstant:
+		return "a bound instant"
 	case OptionalArgument:
 		return "an optional bound argument"
 	default:
@@ -218,18 +242,35 @@ func (c Comparand) String() string {
 // binds reports whether this comparand takes an argument from the caller, which
 // is what decides whether [Match.Arg] means anything.
 func (c Comparand) binds() bool {
-	return c == BoundArgument || c == OptionalArgument
+	return c == BoundArgument || c == BoundInstant || c == OptionalArgument
 }
 
 // operator returns the comparison this match renders for the comparands whose
 // two directions are spelled `=` and `<>`, which is every one of them but NULL
-// and the clock.
+// and the two that compare against a time.
 func (m Match) operator() string {
 	if m.Exclude {
 		return "<>"
 	}
 
 	return "="
+}
+
+// orderedOperator returns the comparison the two time comparands render, which
+// is an ordering rather than an equality: at or before the instant, and its
+// complement, strictly after it.
+//
+// One function for both of them, because where the boundary falls is one
+// decision — a row whose deadline is exactly the instant has elapsed — and a
+// second copy of it could come to put it on the other side for whichever
+// comparand nobody was looking at. That is a gap in which a row is neither
+// live nor collectable, and it is one row wide.
+func (m Match) orderedOperator() string {
+	if m.Exclude {
+		return ">"
+	}
+
+	return "<="
 }
 
 // Read is what a keyed read returns, and how it chooses when the key admits
