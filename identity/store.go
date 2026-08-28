@@ -176,6 +176,12 @@ type Registrar interface {
 	// land — a state that is easy to write and confusing to debug. A subsequent
 	// membership marked default moves the flag, which is what SetDefaultAccount
 	// does and what accepting an invitation into a first account relies on.
+	//
+	// Both endpoints must live in the membership's own scope, and a user or an
+	// account that does not returns an error wrapping ErrUserNotFound or
+	// ErrAccountNotFound. The foreign keys prove that the ids exist somewhere,
+	// which for a multi-directory deployment is not the question being asked —
+	// a membership across two directories puts a stranger on a roster.
 	CreateMembership(ctx context.Context, q database.Tx, membership *Membership) error
 }
 
@@ -430,6 +436,10 @@ type MembershipWriter interface {
 	// and ejecting somebody are different acts, and doing both here would make
 	// the common case — handing over to a colleague and staying on — impossible
 	// to express.
+	//
+	// The new owner must be a live user in the account's scope; one who is not
+	// returns an error wrapping ErrUserNotFound, the same answer a read of them
+	// from here would give.
 	TransferAccountOwnership(ctx context.Context, scope tenancy.Scope, accountID, newOwnerUserID string) error
 
 	// RemoveMembership ends a user's membership in an account.
@@ -592,6 +602,10 @@ type InvitationStore interface {
 	// The roles come from the invitation rather than from a parameter: what
 	// somebody was invited to is what they get, and a parameter here is where an
 	// escalation goes in.
+	//
+	// The accepting user must be a live user in the invitation's scope, and one
+	// who is not returns an error wrapping ErrUserNotFound rather than a
+	// membership spanning two directories.
 	AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID, token, acceptingUserID, note string) (*Membership, error)
 
 	// SetInvitationStatus answers an invitation without producing a membership:
