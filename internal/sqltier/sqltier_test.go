@@ -66,6 +66,7 @@ var rulings = map[string]ruling{
 	"identity/internal/identitydb":                                 {tier: unison},
 	"saga/internal/sagadb":                                         {tier: unison},
 	"sessions/database/internal/sessionsdb":                        {tier: unison},
+	"webhooks/internal/webhooksdb":                                 {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
@@ -81,7 +82,6 @@ var rulings = map[string]ruling{
 	"outbox":                           {tier: porting},
 	"retention":                        {tier: porting},
 	"timers":                           {tier: porting},
-	"webhooks":                         {tier: porting},
 	"workqueue":                        {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
@@ -91,6 +91,7 @@ var rulings = map[string]ruling{
 	"database/migrate":              {tier: exempt, why: "asks a connection which schema it resolves to; goose owns the bookkeeping table and ships its DDL"},
 	"database/mysql/tableaccess":    {tier: exempt, why: "DCL and catalog introspection: sqlc has no spelling for CREATE USER or GRANT, and information_schema is not in any schema this module ships"},
 	"database/postgres/tableaccess": {tier: exempt, why: "DCL and catalog introspection: sqlc has no spelling for CREATE USER or GRANT, and pg_roles is not in any schema this module ships"},
+	"webhooks/internal/queries":     {tier: exempt, why: "a corpus source rather than a store: the statements here are rendered into the committed .sql that sqlc checks and unison emits from, and the eleven this package writes out in full are the shapes database/querygen's doc rules out of it"},
 	"database/querygen":             {tier: exempt, why: "the generator: its SQL literals are the statements a corpus is rendered from, not statements it executes"},
 	"saga/internal/queries":         {tier: exempt, why: "a corpus source on database/querygen's own terms: the statements it holds are rendered into saga's canonical .sql and executed from the generated package, never from here"},
 	"distributedlock/postgres":      {tier: exempt, why: "advisory-lock function calls; the lock is a number the server holds for a session, with no table, schema or projection"},

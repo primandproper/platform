@@ -63,6 +63,8 @@ func (g *Generator) LimitClause() string {
 // collides with an element of the set. So an authored statement renders its set
 // after every other bound value, exactly as SetReadQuery does.
 func (g *Generator) SetCondition(column, argument string) string {
+	mustIdentifier("set argument", argument)
+
 	return g.setPredicate(column, argument)
 }
 
@@ -403,4 +405,18 @@ func joinPredicates(predicates []string, indent string) string {
 	}
 
 	return strings.Join(rendered, "\n"+indent)
+}
+
+// StoredNow renders the current time as a statement should store it, which is
+// not the same as [NowExpression] on every dialect — MySQL's bare
+// CURRENT_TIMESTAMP is second-granular whatever precision the column declares.
+//
+// It is what the generated writes assign last_updated_at from, exported for the
+// hand-authored ones beside them: a corpus with a generated update stamping
+// CURRENT_TIMESTAMP(6) and an authored one stamping CURRENT_TIMESTAMP has two
+// answers to the same question, and the difference only shows up as MySQL
+// reporting zero rows changed for a write that was correct — see
+// Generator.storedNow, which is the whole of the reasoning.
+func (g *Generator) StoredNow() string {
+	return g.storedNow()
 }

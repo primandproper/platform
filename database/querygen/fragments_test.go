@@ -74,6 +74,21 @@ func TestGenerator_SetCondition(T *testing.T) {
 
 		test.StrContains(t, read.Content, pg().SetCondition("things.parent_id", "parent_ids"))
 	})
+
+	// The column may be qualified, because a statement joining more than one
+	// table has to qualify it. Only the argument is an identifier this package
+	// promises to have checked.
+	T.Run("it refuses an argument that is not an identifier", func(t *testing.T) {
+		t.Parallel()
+
+		defer func() {
+			raised, ok := recover().(error)
+			test.True(t, ok)
+			test.ErrorIs(t, raised, dialect.ErrInvalidIdentifier)
+		}()
+
+		_ = pg().SetCondition("widgets.id", "ids; DROP TABLE widgets")
+	})
 }
 
 func TestGenerator_LimitClause(T *testing.T) {
@@ -417,5 +432,32 @@ func TestJoinPredicates(T *testing.T) {
 		t.Parallel()
 
 		test.EqOp(t, "", joinPredicates(nil, "\t"))
+	})
+}
+
+// The three fragments an authored statement borrows. Each is the same rendering
+// the emitted statements use, exported so that a corpus writing a statement out
+// by hand cannot arrive at a second opinion about it — see the methods' own
+// comments for what a second opinion costs on each.
+
+func TestGenerator_StoredNow(T *testing.T) {
+	T.Parallel()
+
+	// MySQL's bare CURRENT_TIMESTAMP is second-granular whatever the column
+	// declares, and an update that writes the value a row already holds reports
+	// zero rows changed there. The fractional form is what keeps a correct write
+	// from reading as a missing row.
+	T.Run("MySQL asks for the fractional form", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "CURRENT_TIMESTAMP(6)", For(dialect.MySQL).StoredNow())
+	})
+
+	T.Run("the other two need nothing", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
+			test.EqOp(t, NowExpression, For(d).StoredNow(), test.Sprintf("dialect %q", d))
+		}
 	})
 }
