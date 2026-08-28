@@ -53,8 +53,14 @@ than a column on one, each has a lifecycle of its own (a credential is
 registered and revoked, a reset token is issued and burned, a session expires),
 and each is consumed by exactly one engine. Their home is beside that engine —
 the same rule that put the password hash here, applied to a fact that is not a
-column. Sessions already live in
-[github.com/primandproper/platform-go/v13/sessions] and demonstrate the shape.
+column. Sessions live in [github.com/primandproper/platform-go/v13/sessions],
+WebAuthn credentials and ceremonies in
+[github.com/primandproper/platform-go/v13/authentication/webauthn/database], and
+password reset tokens in
+[github.com/primandproper/platform-go/v13/authentication/passwordreset], which
+also owns the two properties a consumer writing that table by hand gets wrong:
+the token is stored as a digest, and single use is enforced by the store rather
+than by whoever called it.
 
 # Scope is not the account
 

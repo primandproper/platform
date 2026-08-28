@@ -68,6 +68,7 @@ var rulings = map[string]ruling{
 	// carries a reason.
 	"audit":                                {tier: porting},
 	"authentication/oauth2server/database": {tier: porting},
+	"authentication/passwordreset":         {tier: porting},
 	"authentication/webauthn/database":     {tier: porting},
 	"authorization/database":               {tier: porting},
 	"cryptography/shredding":               {tier: porting},
