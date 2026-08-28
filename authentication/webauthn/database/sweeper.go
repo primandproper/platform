@@ -25,6 +25,13 @@ const backgroundSweepFailure = "background sweep of expired webauthn ceremony se
 // is stop the table growing by a row for every ceremony ever begun, including
 // the ones the user walked away from, which are the ones nothing else deletes.
 //
+// The deadline it compares against is the server's clock rather than the
+// store's, and the difference only matters here: Consume decides expiry against
+// the injected clock and does so before this ever reaches the row, so a clock
+// skew between the application and its database changes when a dead row is
+// reclaimed and never whether a live ceremony is answerable. What it buys is a
+// comparison the three dialects spell one way — see internal/queries.
+//
 // One statement, no batching. Ceremony rows are small and the index on
 // expires_at makes the delete proportional to what is actually dead rather than
 // to the table.
@@ -32,20 +39,11 @@ func (s *SessionStore) Sweep(ctx context.Context) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
-	query, args := buildSweep(s.dialect, s.table, s.clock.Now())
-
-	result, err := s.db.Writer().ExecContext(ctx, query, args...)
+	swept, err := s.q.SweepExpiredSessions(ctx, s.db.Writer())
 	if err != nil {
 		s.sweepErrorsCounter.Add(ctx, 1)
 
 		return 0, op.Error(err, "sweeping expired webauthn ceremony session rows")
-	}
-
-	swept, err := result.RowsAffected()
-	if err != nil {
-		s.sweepErrorsCounter.Add(ctx, 1)
-
-		return 0, op.Error(err, "counting swept webauthn ceremony session rows")
 	}
 
 	s.sweptCounter.Add(ctx, swept)

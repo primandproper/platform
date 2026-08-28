@@ -1,6 +1,7 @@
 package sqlguard
 
 import (
+	"errors"
 	"maps"
 	"net/http"
 	"sync"
@@ -248,6 +249,58 @@ func TestGuard_Exec(T *testing.T) {
 
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), `thing "id-1" is no longer active`)
+	})
+}
+
+func TestGuard_Count(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a guard that matched a row succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, testGuard().Count(t.Context(), beginOp(t), 1, nil, "id-1", "finish", "finishing thing"))
+	})
+
+	T.Run("a guard that matched nothing is the sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		err := testGuard().Count(t.Context(), beginOp(t), 0, nil, "id-1", "finish", "finishing thing")
+
+		test.ErrorIs(t, err, errNotFound)
+		test.StrContains(t, err.Error(), `thing "id-1" is no longer active`)
+	})
+
+	T.Run("reports what the generated statement returned", func(t *testing.T) {
+		t.Parallel()
+
+		sentinel := platformerrors.New("connection refused")
+
+		err := testGuard().Count(t.Context(), beginOp(t), 0, sentinel, "id-1", "finish", "finishing thing")
+
+		// The error wins over the count: a statement that failed reports the
+		// failure rather than the zero rows it did not write.
+		test.ErrorIs(t, err, sentinel)
+		test.False(t, errors.Is(err, errNotFound))
+	})
+
+	T.Run("a missed guard says so everywhere a missed guard is said", func(t *testing.T) {
+		t.Parallel()
+
+		// The same reporting Exec's miss goes through, which is the point of
+		// the two halves sharing it: a store on the generated tier and one
+		// still executing its own text log the same line and count the same
+		// series.
+		logger := newRecordingLogger()
+
+		err := testGuard().Count(t.Context(), beginOpWith(t, logger), 0, nil, "id-9", "advance", "advancing thing")
+		test.ErrorIs(t, err, errNotFound)
+
+		lines := logger.recorded()
+		must.SliceNotEmpty(t, lines)
+
+		last := lines[len(lines)-1]
+		test.EqOp(t, "thing left the active set before its outcome could be recorded", last.message)
+		test.EqOp(t, "id-9", last.values["things.id"])
 	})
 }
 

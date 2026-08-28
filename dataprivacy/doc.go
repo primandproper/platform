@@ -340,6 +340,51 @@ Alerting on that gauge is left to the operator. The number is a fact; what
 counts as an incident is a policy, and this package has no business holding an
 opinion about which of a consumer's jurisdictions applies.
 
+# Where the SQL comes from
+
+Every statement this package executes is generated, through the pipeline
+identity is the worked example of, with two committed artifacts.
+
+The schema's facts — the table name, its columns in projection order, the
+argument names its guards bind — are spelled once, in
+dataprivacy/internal/queries. `make generate` renders them through
+database/querygen into the canonical .sql files beside that package, in sqlc's
+spelling: named statements whose arguments are sqlc.arg references. sqlc compiles
+every one of those against the DDL dataprivacy/migrations produces, on all three
+dialects, and sqlc-gen-unison emits dataprivacy/internal/dataprivacydb from
+them — typed params and methods over driver placeholders — which is what the
+store executes. A column renamed in a migration is then a failed generate with no
+database running, where it used to be a scan error at runtime, or worse, a
+transposition between two columns of the same type.
+
+The .sql is committed and nothing imports it. It is the reviewable form of the
+contract: the generated Go carries the same statements with their argument names
+erased into positional markers, where the .sql's
+sqlc.arg(current_status) is the spelling in which a reviewer can see that a
+guard and the status it assigns are two arguments. A test pins the committed text
+byte for byte against the renderer, so "the SQL sqlc checks is the SQL the store
+runs" is something a test states rather than a property of a pipeline taken on
+trust.
+
+Three of this package's statements are shapes the generator learned for it, and
+each is a background pass rather than a request path. The artifact expiry sweep
+is a bounded ordered read — the rows a predicate names, most overdue first, no
+more than a batch of them — because the object has to be deleted before the row
+may say it is gone. The confirmation-window lapse and the retention reap are the
+same scan with a verb: one statement each, so the predicate deciding which rows
+move is evaluated by the server at the moment they move rather than against ids
+read a round trip earlier. And the overdue gauge is a count, asked once per
+request type, because a number somebody watches over time should not cost a page
+of rows to compute.
+
+What none of them names is a list of statuses, and completed_at is why. Every
+transition into a terminal state writes it, nothing writes it otherwise, and
+nothing moves out of a terminal state — so "still owed to somebody" is
+completed_at IS NULL and "settled, and reapable once its artifact is gone" is its
+complement. A Store implementation of this package's own is held to that: a
+completed request carries the instant it completed, as Request.CompletedAt says
+it does.
+
 # Upgrading
 
 There is no migration from a dataprivacy_requests row that was mid-processing
@@ -362,3 +407,5 @@ already exists needs the columns added and dropped by hand, because this package
 ships no numbered migrations — see that package for why.
 */
 package dataprivacy
+
+//go:generate go run ./internal/queriesgen

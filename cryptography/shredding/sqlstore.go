@@ -6,8 +6,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/cryptography/shredding/internal/shreddingdb"
 	"github.com/primandproper/platform-go/v13/cryptography/shredding/migrations"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
@@ -50,7 +52,7 @@ var _ Store = (*SQLStore)(nil)
 // rather than on the Store seam every backing shares.
 type SQLStore struct {
 	client database.Client
-	tables *tables
+	q      shreddingdb.Querier
 	o11y   observability.Observer
 
 	mintConflictCounter metrics.Int64Counter
@@ -61,7 +63,11 @@ type SQLStore struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
-	dialect         dialect.Dialect
+
+	// prefix is the namespace the table name carries. It is kept because the
+	// generated querier was built from it and the migrations are validated
+	// against it, not because anything here renders a name from it any more.
+	prefix string
 }
 
 // NewSQLStore builds a Store over the given database.
@@ -87,9 +93,8 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client:  client,
-		dialect: d,
-		tables:  newTables(DefaultTablePrefix),
+		client: client,
+		prefix: DefaultTablePrefix,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -97,9 +102,25 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		}
 	}
 
-	if err := migrations.ValidatePrefix(s.tables.prefix()); err != nil {
+	if err := migrations.ValidatePrefix(s.prefix); err != nil {
 		return nil, err
 	}
+
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see cryptography/shredding/internal/queries.
+	qd, err := shreddingdbDialect(d)
+	if err != nil {
+		return nil, err
+	}
+
+	q, err := shreddingdb.New(qd, ddl.Qualify(s.prefix))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building the shredding querier")
+	}
+
+	s.q = q
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
 
@@ -111,12 +132,30 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	// knowing before the KMS bill says so.
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
-	var err error
 	if s.mintConflictCounter, err = mp.NewInt64Counter(storeName + "_mint_conflicts"); err != nil {
 		return nil, platformerrors.Wrap(err, "creating shredding store mint conflict counter")
 	}
 
 	return s, nil
+}
+
+// shreddingdbDialect maps this module's dialect names onto the generated
+// package's. The set is closed on both sides — NewSQLStore has already rejected
+// anything d.Valid() declines — so the default arm is reachable only when this
+// module learns a dialect the generated package was not generated for. That is
+// a construction failure like any other, and it names the dialect, rather than
+// panicking or leaning on shreddingdb.New refusing the empty string.
+func shreddingdbDialect(d dialect.Dialect) (shreddingdb.Dialect, error) {
+	switch d {
+	case dialect.Postgres:
+		return shreddingdb.DialectPostgreSQL, nil
+	case dialect.MySQL:
+		return shreddingdb.DialectMySQL, nil
+	case dialect.SQLite:
+		return shreddingdb.DialectSQLite, nil
+	default:
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "shredding dialect %q", d)
+	}
 }
 
 func (s *SQLStore) Load(ctx context.Context, subject Subject) (*Record, error) {
@@ -130,9 +169,10 @@ func (s *SQLStore) Load(ctx context.Context, subject Subject) (*Record, error) {
 		return nil, op.Error(err, "loading shredding key")
 	}
 
-	query, args := s.tables.buildSelectRecord(s.dialect, subject)
-
-	record, err := scanRecord(s.client.Reader().QueryRowContext(ctx, query, args...))
+	row, err := s.q.GetSubjectKey(ctx, s.client.Reader(), shreddingdb.GetSubjectKeyParams{
+		SubjectType: subject.Type,
+		SubjectID:   subject.ID,
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// Not an error at this layer. A subject with no row is the normal
@@ -143,6 +183,8 @@ func (s *SQLStore) Load(ctx context.Context, subject Subject) (*Record, error) {
 
 		return nil, op.Error(err, "loading shredding key")
 	}
+
+	record := recordFrom(&row)
 
 	op.Set(shreddedAtKey, record.Shredded())
 
@@ -167,9 +209,16 @@ func (s *SQLStore) Insert(ctx context.Context, record *Record) (bool, error) {
 		return false, op.Error(ErrKeyMaterialMissing, "inserting shredding key")
 	}
 
-	query, args := s.tables.buildInsertRecord(s.dialect, record)
-
-	affected, err := s.exec(ctx, query, args)
+	// A mint: key material, and no destruction time. The statement is the one
+	// the tombstone below runs, because writing a row for a subject who has
+	// none is the same write either way — see internal/queries.
+	affected, err := s.q.InsertSubjectKey(ctx, s.client.Writer(), shreddingdb.InsertSubjectKeyParams{
+		SubjectType: record.Subject.Type,
+		SubjectID:   record.Subject.ID,
+		WrappedKey:  record.Wrapped,
+		CreatedAt:   record.CreatedAt.UTC(),
+		ShreddedAt:  nil,
+	})
 	if err != nil {
 		return false, op.Error(err, "inserting shredding key")
 	}
@@ -216,28 +265,53 @@ func (s *SQLStore) Shred(ctx context.Context, subject Subject, at time.Time) (Re
 // and the tombstone insert. The next pass finds that row and destroys it, and
 // no third mint can intervene because the loser of an insert race never retries.
 func (s *SQLStore) shredOnce(ctx context.Context, subject Subject, at time.Time) (Receipt, bool, error) {
-	query, args := s.tables.buildShred(s.dialect, subject, at)
+	destroyedAt := at.UTC()
 
-	affected, err := s.exec(ctx, query, args)
+	// The key material goes and the row stays. Both timestamps are bound to the
+	// one instant rather than to two clock reads: this is the only statement
+	// that rewrites a key row, so last_updated_at and shredded_at describe one
+	// event and there is nothing for them to disagree about.
+	//
+	// The wrapped key is bound nil rather than written as a literal NULL, which
+	// is the one thing the generated statement says less forcefully than the
+	// text it replaced. Nothing else calls it, and what makes the destruction
+	// once-only is the statement's own guard on shredded_at IS NULL, which no
+	// argument can relax.
+	affected, err := s.q.ShredSubjectKey(ctx, s.client.Writer(), shreddingdb.ShredSubjectKeyParams{
+		WrappedKey:    nil,
+		ShreddedAt:    &destroyedAt,
+		LastUpdatedAt: &destroyedAt,
+		SubjectType:   subject.Type,
+		SubjectID:     subject.ID,
+	})
 	if err != nil {
 		return Receipt{}, false, platformerrors.Wrap(err, "destroying key material")
 	}
 
 	if affected > 0 {
-		return Receipt{Subject: subject, ShreddedAt: at.UTC(), Destroyed: true}, true, nil
+		return Receipt{Subject: subject, ShreddedAt: destroyedAt, Destroyed: true}, true, nil
 	}
 
 	// No live row. Either the subject never had a key, or it has already been
 	// shredded; a tombstone that inserts cleanly settles the first case.
-	query, args = s.tables.buildInsertTombstone(s.dialect, subject, at)
-
-	affected, err = s.exec(ctx, query, args)
+	//
+	// Shredding somebody nothing was ever encrypted for still writes a row,
+	// because the tombstone is what stops a key being minted for them
+	// afterwards. Erasure that only works for subjects who happened to have
+	// data already is erasure that fails in exactly the case nobody tests.
+	affected, err = s.q.InsertSubjectKey(ctx, s.client.Writer(), shreddingdb.InsertSubjectKeyParams{
+		SubjectType: subject.Type,
+		SubjectID:   subject.ID,
+		WrappedKey:  nil,
+		CreatedAt:   destroyedAt,
+		ShreddedAt:  &destroyedAt,
+	})
 	if err != nil {
 		return Receipt{}, false, platformerrors.Wrap(err, "writing shredding tombstone")
 	}
 
 	if affected > 0 {
-		return Receipt{Subject: subject, ShreddedAt: at.UTC(), Destroyed: false}, true, nil
+		return Receipt{Subject: subject, ShreddedAt: destroyedAt, Destroyed: false}, true, nil
 	}
 
 	record, err := s.Load(ctx, subject)
@@ -260,45 +334,30 @@ func (s *SQLStore) shredOnce(ctx context.Context, subject Subject, at time.Time)
 	return Receipt{Subject: subject, ShreddedAt: *record.ShreddedAt, Destroyed: false}, true, nil
 }
 
-// exec runs a write and reports the rows it touched.
-func (s *SQLStore) exec(ctx context.Context, query string, args []any) (int64, error) {
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
+// recordFrom converts the generated row into this package's Record.
+//
+// It is a struct literal on purpose, and it is the whole of what this package
+// does with the generated types. A renamed or retyped column changes the
+// generated struct and this function stops compiling; the scan-by-position
+// pairing it replaced reported the same mistake as a runtime scan error, or
+// worse, as two same-typed columns silently transposed.
+//
+// The two timestamps are normalized to UTC because every one this package
+// writes is UTC and so every one it hands back should be: Postgres returns a
+// time in the session's zone, MySQL in the server's, and SQLite whatever the
+// stored text parsed as, so a caller comparing two of those, or rendering one
+// into JSON, would get an answer that depends on where the row was read.
+func recordFrom(row *shreddingdb.GetSubjectKeyRow) *Record {
+	record := &Record{
+		CreatedAt: row.CreatedAt.UTC(),
+		Subject:   Subject{Type: row.SubjectType, ID: row.SubjectID},
+		Wrapped:   row.WrappedKey,
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, platformerrors.Wrap(err, "reading rows affected")
+	if row.ShreddedAt != nil {
+		shreddedAt := row.ShreddedAt.UTC()
+		record.ShreddedAt = &shreddedAt
 	}
 
-	return affected, nil
-}
-
-// scanRecord reads one row in the order recordColumns declares.
-func scanRecord(scanner database.Scanner) (*Record, error) {
-	var (
-		record     Record
-		wrapped    []byte
-		shreddedAt sql.NullTime
-	)
-
-	if err := scanner.Scan(
-		&record.Subject.Type,
-		&record.Subject.ID,
-		&wrapped,
-		&record.CreatedAt,
-		&shreddedAt,
-	); err != nil {
-		return nil, err
-	}
-
-	record.Wrapped = wrapped
-
-	if shreddedAt.Valid {
-		at := shreddedAt.Time.UTC()
-		record.ShreddedAt = &at
-	}
-
-	return &record, nil
+	return record
 }

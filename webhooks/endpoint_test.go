@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/cryptography/requestsigning"
-	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v13/webhooks/internal/webhooksdb"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -471,60 +472,36 @@ func TestEventType(T *testing.T) {
 }
 
 // The event type reaches the driver as a string rather than as an EventType.
+//
 // Both work against most drivers — a defined string type goes through their
 // reflective fallback — but "most" is a property of whichever driver a consumer
 // wired up, and a Store implementation is allowed to be one this package has
-// never seen. The conversion is at the boundary so that it is this package's
-// decision rather than a driver's.
+// never seen. So the conversion happens at this package's own boundary, and
+// since the port it is the compiler that requires it: every generated params
+// struct carrying an event type declares the field as a plain string, so a
+// store assigning an EventType to one does not build.
+//
+// What this pins is that those fields have not quietly become defined types —
+// which would make the conversions at the call sites redundant, and the next
+// person to add a statement would leave one out without anything saying so.
 func TestQueries_BindEventTypesAsStrings(T *testing.T) {
 	T.Parallel()
 
-	t := newTables(DefaultTablePrefix)
+	fields := map[string]any{
+		"UpsertSubscriptionParams":    webhooksdb.UpsertSubscriptionParams{EventType: orderCreated.String()}.EventType,
+		"GetSubscriptionByPairParams": webhooksdb.GetSubscriptionByPairParams{EventType: orderCreated.String()}.EventType,
+		"ListEndpointsForEventParams": webhooksdb.ListEndpointsForEventParams{EventType: orderCreated.String()}.EventType,
+		"InsertDeliveryParams":        webhooksdb.InsertDeliveryParams{EventType: orderCreated.String()}.EventType,
+	}
 
-	T.Run("subscription inserts", func(t2 *testing.T) {
-		t2.Parallel()
+	for name, bound := range fields {
+		T.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-		_, args := t.buildUpsertSubscriptions(dialect.SQLite, []subscriptionRow{
-			{id: "sub-1", endpointID: "endpoint-1", eventType: orderCreated},
-			{id: "sub-2", endpointID: "endpoint-1", eventType: orderUpdated},
-		}, time.Now().UTC())
-
-		must.SliceLen(t2, 9, args)
-		test.EqOp(t2, "order.created", mustBeString(t2, args[2]))
-		test.EqOp(t2, "order.updated", mustBeString(t2, args[6]))
-	})
-
-	T.Run("the fan-out lookup", func(t2 *testing.T) {
-		t2.Parallel()
-
-		_, args := t.buildSelectEndpointsForEvent(dialect.SQLite, testScope, orderCreated)
-
-		must.SliceNotEmpty(t2, args)
-		test.EqOp(t2, "order.created", mustBeString(t2, args[0]))
-	})
-
-	T.Run("delivery inserts", func(t2 *testing.T) {
-		t2.Parallel()
-
-		_, args := t.buildInsertDelivery(dialect.SQLite, &Delivery{
-			ID: "d", Scope: testScope, EventType: orderCreated, Payload: testBody,
-		}, time.Now().UTC())
-
-		must.SliceLen(t2, 6, args)
-		test.EqOp(t2, "order.created", mustBeString(t2, args[2]))
-	})
-}
-
-// mustBeString fails unless the bound argument is a string. A test that only
-// compared values would pass on an EventType too, since the comparison would be
-// against an untyped constant.
-func mustBeString(t *testing.T, arg any) string {
-	t.Helper()
-
-	bound, ok := arg.(string)
-	must.True(t, ok, must.Sprintf("bound argument %#v is %T, want string", arg, arg))
-
-	return bound
+			test.EqOp(t, reflect.TypeFor[string](), reflect.TypeOf(bound), test.Sprintf("%s.EventType", name))
+			test.EqOp(t, "order.created", bound)
+		})
+	}
 }
 
 func TestAttempt_Succeeded(T *testing.T) {

@@ -94,6 +94,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 |------------------|-------------------------------------|--------------------------------|
 | `authentication` | Password hashing, TOTP, tokens      | argon2, totp, tokens           |
 | `authentication/webauthn` | Passkey registration & login, with ceremony state that outlives one replica | database, cache |
+| `authentication/passwordreset` | Password reset tokens: digest at rest, single use enforced by the store | postgres, mysql, sqlite |
 | `sessions`       | Server-side sessions over cookies   | cache, database (+ http)       |
 | `authorization`  | Role/permission policy, enforcement | static (default), database     |
 | `links`          | Signed, expiring, single-use action links | cache + distributedlock  |
@@ -120,6 +121,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 |-------------------|----------------------------|-------------------------|
 | `capitalism`      | Payments                   | stripe                  |
 | `entitlements`    | Feature access & remaining quota | —                 |
+| `settings`        | Per-user and per-account runtime settings: admin-defined definitions, per-subject values | postgres, mysql, sqlite |
 | `saga`            | Linear durable sagas with compensations | postgres, mysql, sqlite |
 | `distributedlock` | Distributed locking        | memory, postgres, redis |
 | `workqueue`       | Leased work queue (`SKIP LOCKED` claim/complete/expire) | postgres |

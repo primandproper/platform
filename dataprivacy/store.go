@@ -22,11 +22,21 @@ import (
 // resolve those races by whichever transaction was slower. The predicates are
 // in the queries for that reason, and a transition that matched nothing returns
 // an error rather than silently succeeding.
+//
+// The two transitions are named rather than parameterized, and the difference
+// between them is one column rather than the source status. A confirmation
+// records the operation now doing the work; a cancellation must not touch that
+// column, because blanking it would lose the pointer to an operation that is
+// still running. A single method taking a destination status would have to
+// decide which of those to do from the shape of its arguments.
 type Store interface {
 	// Save inserts a new request using the caller's transaction. It does not
 	// update: a request row's history is the thing being recorded, and an upsert
 	// here would let a resubmission quietly overwrite the timestamp the
 	// statutory clock runs from.
+	//
+	// A request saved in a terminal status carries its CompletedAt, which is
+	// what CountOverdue and Reap read terminality off — see that field.
 	//
 	// It takes a transaction for the same reason audit.Recorder.Record does. "Who
 	// asked for this person's data" is itself an auditable event, and an audit
@@ -39,28 +49,48 @@ type Store interface {
 	Get(ctx context.Context, requestID string) (*Request, error)
 
 	// List pages through a subject's requests, ordered by ID in the direction
-	// the filter's SortBy asks for.
+	// the filter's SortBy asks for, under the rest of the filter's window.
+	//
+	// An empty Subject.Scope matches every scope rather than only the unscoped
+	// requests. A subject asking what has been requested in their name means all
+	// of it, and a listing that silently omitted the scoped requests would be
+	// the wrong answer to the one question this endpoint exists to answer.
 	List(ctx context.Context, subject Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Request], error)
 
-	// Transition moves a request from any of the `from` statuses to `to` using
-	// the caller's transaction, returning the updated request. It returns an error
-	// wrapping ErrRequestNotFound when no row matched — which covers both "no
-	// such request" and "the request was not in a state this transition applies
-	// to", so callers wrap it into whichever of the two their API means.
+	// Confirm moves a request out of StatusAwaitingConfirmation and into
+	// StatusInProgress using the caller's transaction, recording the operation
+	// that will fulfill it, and returns the updated request.
 	//
-	// operationID is recorded alongside the new status when it is non-empty,
-	// because the one transition that sets it — a confirmation, which starts the
-	// operation as it moves the row — must not be able to commit the status
-	// without the pointer to the thing now doing the work.
-	Transition(
-		ctx context.Context,
-		q database.Tx,
-		requestID string,
-		from []Status,
-		to Status,
-		operationID string,
-		at time.Time,
-	) (*Request, error)
+	// The operation is written by the same statement as the status, because a
+	// row that became in-progress without saying what is doing the work is a
+	// request nothing is fulfilling and nothing can be asked about.
+	//
+	// It returns an error wrapping ErrRequestNotFound when no row matched, which
+	// covers both "no such request" and "the request was not awaiting
+	// confirmation" — a subject clicking confirm twice, or clicking it at the
+	// instant the lapse sweep cancelled it. Callers wrap it into whichever of
+	// the two their API means.
+	Confirm(ctx context.Context, q database.Tx, requestID, operationID string) (*Request, error)
+
+	// Cancel moves a request from the named status to StatusCancelled using the
+	// caller's transaction, stamping at as its completion, and returns the
+	// updated request.
+	//
+	// The source status is the caller's because there are two of them and they
+	// mean different things: an unconfirmed erasure the subject withdrew, and an
+	// in-flight one whose runner was told to stop. Binding it as a guard is what
+	// keeps a cancellation from moving a request that has since gone somewhere
+	// else.
+	//
+	// It leaves the operation reference alone. A request cancelled while its
+	// operation is still running is a row that has to keep pointing at the thing
+	// being stopped, which is the whole difference between this statement and
+	// Confirm's.
+	//
+	// It returns an error wrapping ErrRequestNotFound when no row matched, and
+	// one wrapping ErrUnknownStatus when from is not a status this package
+	// writes.
+	Cancel(ctx context.Context, q database.Tx, requestID string, from Status, at time.Time) (*Request, error)
 
 	// CompleteExport records a fulfilled export using the caller's transaction: its
 	// artifact, that artifact's expiry, and any per-section failures.
@@ -127,6 +157,10 @@ type Store interface {
 
 	// CountOverdue counts unfulfilled requests past their statutory deadline,
 	// by request type, for the sweeper's gauge.
+	//
+	// Every type is in the result whether or not any request of that type is
+	// overdue, so a gauge that was reporting three overdue exports actively
+	// drops to zero when they are served rather than holding a stale reading.
 	CountOverdue(ctx context.Context, now time.Time) (map[RequestType]int64, error)
 
 	// Reap deletes terminal request records completed before the given time, up

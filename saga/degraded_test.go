@@ -98,11 +98,8 @@ func TestRunner_Degraded(T *testing.T) {
 			return store.Advance(t.Context(), q, inst, baseTime, baseTime)
 		}))
 
-		concrete, ok := store.(*SQLStore)
-		must.True(t, ok)
-
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"UPDATE "+concrete.tables.instances+" SET state = 'not json' WHERE id = 'i1'")
+			"UPDATE "+instancesTable(t, store)+" SET state = 'not json' WHERE id = 'i1'")
 		must.NoError(t, err)
 
 		runner := newTestRunner(t, store, registry)

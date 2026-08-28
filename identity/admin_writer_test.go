@@ -126,6 +126,49 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t, store.ArchiveUser(t.Context(), testScope, member.ID), ErrUserNotFound)
 	})
 
+	t.Run("ends only the archived user's memberships", func(t *testing.T) {
+		t.Parallel()
+
+		// The archival clears the default flag across the user's memberships
+		// and then archives them, both keyed on the user. A clear keyed on the
+		// account instead would take the flag off everybody else in the
+		// accounts they belonged to, which is what this pins.
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		first := createAccountFor(t, store, owner, "First")
+		second := createAccountFor(t, store, owner, "Second")
+
+		leaving := registerInto(t, store, newUser("brian"), first.ID)
+		staying := registerInto(t, store, newUser("carol"), first.ID)
+
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateMembership(ctx, q, &Membership{
+				Scope:            testScope,
+				BelongsToUser:    leaving.ID,
+				BelongsToAccount: second.ID,
+				Roles:            []string{"account_member"},
+			})
+		}))
+
+		must.NoError(t, store.ArchiveUser(t.Context(), testScope, leaving.ID))
+
+		gone, err := store.ListMembershipsForUser(t.Context(), testScope, leaving.ID)
+		must.NoError(t, err)
+		test.SliceEmpty(t, gone)
+
+		// The other member of the account they shared is untouched, flag and
+		// all.
+		kept, err := store.ListMembershipsForUser(t.Context(), testScope, staying.ID)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, kept)
+		test.True(t, kept[0].DefaultAccount)
+
+		// So is the owner, who belongs to both accounts.
+		owned, err := store.ListMembershipsForUser(t.Context(), testScope, owner.ID)
+		must.NoError(t, err)
+		test.SliceLen(t, 2, owned)
+	})
+
 	t.Run("refuses to archive an owner out from under their accounts", func(t *testing.T) {
 		t.Parallel()
 
@@ -338,5 +381,50 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 		test.SliceEmpty(t, mine.Data)
 
 		must.ErrorIs(t, store.ArchiveAccount(t.Context(), testScope, account.ID), ErrAccountNotFound)
+	})
+
+	t.Run("ends only the archived account's memberships", func(t *testing.T) {
+		t.Parallel()
+
+		// The account's archival clears the default flag across its
+		// memberships and then archives them, both keyed on the account. A
+		// clear keyed on the user instead would take the flag off the members'
+		// other accounts, leaving them with memberships and nowhere to land.
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		closing := createAccountFor(t, store, owner, "Closing")
+		surviving := createAccountFor(t, store, owner, "Surviving")
+
+		member := registerInto(t, store, newUser("brian"), closing.ID)
+
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateMembership(ctx, q, &Membership{
+				Scope:            testScope,
+				BelongsToUser:    member.ID,
+				BelongsToAccount: surviving.ID,
+				Roles:            []string{"account_member"},
+			})
+		}))
+
+		// The first membership is the default; the second is not.
+		before, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, before)
+		test.EqOp(t, closing.ID, before[0].BelongsToAccount)
+		test.True(t, before[0].DefaultAccount)
+
+		must.NoError(t, store.ArchiveAccount(t.Context(), testScope, closing.ID))
+
+		// The surviving membership is still there and still not the default —
+		// nothing moves it, because archiving an account is not the store
+		// choosing where its members land next.
+		after, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, after)
+		test.EqOp(t, surviving.ID, after[0].BelongsToAccount)
+		test.False(t, after[0].DefaultAccount)
+
+		_, err = store.GetPrincipal(t.Context(), testScope, member.ID, "")
+		must.ErrorIs(t, err, ErrNoDefaultAccount)
 	})
 }

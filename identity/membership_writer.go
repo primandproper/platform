@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/primandproper/platform-go/v13/database"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
@@ -101,23 +100,16 @@ func (s *SQLStore) SetDefaultAccount(ctx context.Context, scope tenancy.Scope, u
 		return op.Error(err, "setting identity default account")
 	}
 
-	now := s.now()
-
 	// Both writes share a transaction, so "one default per user" cannot be left
 	// half-applied: clearing without setting leaves the user with none, and
 	// setting without clearing leaves them with two.
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		query, args := s.tables.buildSetDefaultAccount(s.dialect, scope, userID, accountID, now)
-		if err := s.execExpectingRow(ctx, op, q, query, args, ErrMembershipNotFound, "setting identity default account"); err != nil {
+		count, err := s.writeDefaultAccountFlag(ctx, q, scope, userID, accountID, true)
+		if err = s.guardCount(ctx, count, err, ErrMembershipNotFound, "setting identity default account"); err != nil {
 			return err
 		}
 
-		query, args = s.tables.buildClearDefaultAccount(s.dialect, scope, userID, accountID, now)
-		if _, err := q.ExecContext(ctx, query, args...); err != nil {
-			return platformerrors.Wrap(err, "clearing other identity default accounts")
-		}
-
-		return nil
+		return s.clearDefaultAccountsForUser(ctx, q, scope, userID, accountID)
 	}); err != nil {
 		return op.Error(err, "setting identity default account")
 	}
@@ -206,7 +198,7 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 			CurrentOwnerUserID: account.OwnerUserID,
 		})
 
-		return guardCount(count, err, ErrAccountNotFound, "transferring identity account ownership")
+		return s.guardCount(ctx, count, err, ErrAccountNotFound, "transferring identity account ownership")
 	}); err != nil {
 		return op.Error(err, "transferring identity account ownership")
 	}
@@ -227,8 +219,6 @@ func (s *SQLStore) RemoveMembership(ctx context.Context, scope tenancy.Scope, us
 		return op.Error(err, "removing identity membership")
 	}
 
-	now := s.now()
-
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
 		account, err := s.readAccount(ctx, q, scope, accountID)
 		if err != nil {
@@ -239,8 +229,22 @@ func (s *SQLStore) RemoveMembership(ctx context.Context, scope tenancy.Scope, us
 			return platformerrors.Wrapf(ErrLastAccountOwner, "account %q", accountID)
 		}
 
-		query, args := s.tables.buildArchiveMembership(s.dialect, scope, userID, accountID, now)
-		if err = s.execExpectingRow(ctx, op, q, query, args, ErrMembershipNotFound, "removing identity membership"); err != nil {
+		// The flag comes off before the row is archived, because the statement
+		// that clears it reaches live rows only — an archived membership is
+		// nobody's default, and the soft delete stamps archived_at and nothing
+		// else, here as everywhere else in this schema. Its row count says
+		// nothing the archival's does not say better: a membership that was not
+		// the default is a row this write correctly leaves alone.
+		if _, err = s.writeDefaultAccountFlag(ctx, q, scope, userID, accountID, false); err != nil {
+			return err
+		}
+
+		count, err := s.q.ArchiveMembership(ctx, q, identitydb.ArchiveMembershipParams{
+			Scope:            scope,
+			BelongsToUser:    userID,
+			BelongsToAccount: accountID,
+		})
+		if err = s.guardCount(ctx, count, err, ErrMembershipNotFound, "removing identity membership"); err != nil {
 			return err
 		}
 
@@ -248,7 +252,7 @@ func (s *SQLStore) RemoveMembership(ctx context.Context, scope tenancy.Scope, us
 		// vanishing — a user with memberships and nowhere to land cannot build a
 		// Principal, and the failure surfaces at their next request rather than
 		// at the removal that caused it.
-		return s.moveDefaultAccount(ctx, q, scope, userID, accountID, now)
+		return s.moveDefaultAccount(ctx, q, scope, userID, accountID)
 	}); err != nil {
 		return op.Error(err, "removing identity membership")
 	}
@@ -264,7 +268,6 @@ func (s *SQLStore) moveDefaultAccount(
 	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	userID, removedAccountID string,
-	now time.Time,
 ) error {
 	fallback, readErr := s.q.GetMembershipFallbackAccountID(ctx, q, identitydb.GetMembershipFallbackAccountIDParams{
 		Scope:            scope,
@@ -279,10 +282,37 @@ func (s *SQLStore) moveDefaultAccount(
 		return platformerrors.Wrap(readErr, "reading identity fallback account")
 	}
 
-	query, args := s.tables.buildSetDefaultAccount(s.dialect, scope, userID, fallback.BelongsToAccount, now)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	if _, err := s.writeDefaultAccountFlag(ctx, q, scope, userID, fallback.BelongsToAccount, true); err != nil {
 		return platformerrors.Wrap(err, "moving identity default account")
 	}
 
 	return nil
+}
+
+// writeDefaultAccountFlag assigns the flag on one live membership and hands
+// back the row count rather than deciding what it means.
+//
+// The three callers read it differently. SetDefaultAccount treats zero as the
+// membership not being there, which is how a stranger's account is answered.
+// The removal and the fallback do not: the first is clearing a flag that may
+// already be false, and the second names a membership it read out of this same
+// transaction a statement ago.
+func (s *SQLStore) writeDefaultAccountFlag(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID, accountID string,
+	isDefault bool,
+) (int64, error) {
+	count, err := s.q.SetMembershipDefaultAccount(ctx, q, identitydb.SetMembershipDefaultAccountParams{
+		Scope:            scope,
+		BelongsToUser:    userID,
+		BelongsToAccount: accountID,
+		DefaultAccount:   isDefault,
+	})
+	if err != nil {
+		return 0, platformerrors.Wrap(err, "setting identity membership default account")
+	}
+
+	return count, nil
 }

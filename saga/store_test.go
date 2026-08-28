@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/pointer"
+	"github.com/primandproper/platform-go/v13/saga/internal/queries"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -92,6 +93,34 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.Eq(t, []string{"a", "b"}, got.StepNames)
 		test.EqOp(t, baseTime, got.CreatedAt)
 		test.Eq(t, []byte(`{"trail":null,"amount":3}`), []byte(got.State))
+	})
+
+	// The generated SQLite bindings format a bound time into the shape SQLite's
+	// own CURRENT_TIMESTAMP writes, which is whole seconds — so a sub-second
+	// stamp is floored on that dialect and kept on the other two. What this
+	// asserts is the direction, because that is what decides whether the
+	// truncation is safe: a stamp never reads back later than it was written,
+	// so a lease expires early rather than late and a retry fires early rather
+	// than late. See saga/internal/queries on where that leaves a sub-second
+	// step delay.
+	t.Run("a sub-second stamp never reads back later than it was written", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		at := baseTime.Add(1500 * time.Millisecond)
+		inst := saveInstance(t, store, newRecord("i1", "orders", []string{"a"}, testState{}, at), at)
+
+		got, err := store.Get(t.Context(), inst.ID)
+		must.NoError(t, err)
+
+		test.False(t, got.CreatedAt.After(at))
+
+		// And an instance due at a sub-second next_attempt is claimable at that
+		// instant, rather than a second after it.
+		claimed, err := store.Claim(t.Context(), at, 10, at.Add(time.Hour))
+		must.NoError(t, err)
+		must.SliceLen(t, 1, claimed)
 	})
 
 	t.Run("get reports a missing instance", func(t *testing.T) {
@@ -493,11 +522,8 @@ func TestSQLStore_Errors(T *testing.T) {
 		// Reaching past the store to corrupt the column, which is the only way
 		// this row ever gets written: nothing in the package writes a non-JSON
 		// step list.
-		concrete, ok := store.(*SQLStore)
-		must.True(t, ok)
-
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"UPDATE "+concrete.tables.instances+" SET step_names = 'not json' WHERE id = 'i1'")
+			"UPDATE "+instancesTable(t, store)+" SET step_names = 'not json' WHERE id = 'i1'")
 		must.NoError(t, err)
 
 		_, err = store.Get(t.Context(), "i1")
@@ -551,10 +577,80 @@ func TestStatus(T *testing.T) {
 func TestStatusStrings(T *testing.T) {
 	T.Parallel()
 
+	T.Run("renders a status set for binding", func(t *testing.T) {
+		t.Parallel()
+
+		test.Eq(t, []string{"running", "compensating"}, statusStrings(activeStatuses))
+		test.SliceEmpty(t, statusStrings(nil))
+	})
+
 	T.Run("renders a status set for a span", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, "running,compensating", statusStrings(activeStatuses))
-		test.EqOp(t, "", statusStrings(nil))
+		test.EqOp(t, "running,compensating", statusAttribute(activeStatuses))
+		test.EqOp(t, "", statusAttribute(nil))
+	})
+}
+
+func TestStatusFilterValues(T *testing.T) {
+	T.Parallel()
+
+	T.Run("the arity is the size of the domain", func(t *testing.T) {
+		t.Parallel()
+
+		// The listings bind one argument per status because the domain is
+		// closed. A sixth status added to allStatuses without widening the
+		// statements would be silently unaskable-for; this is what says so.
+		test.EqOp(t, queries.StatusFilterArity, len(allStatuses))
+
+		for _, status := range allStatuses {
+			test.True(t, status.Valid(), test.Sprintf("status %q", status))
+		}
+	})
+
+	T.Run("an unnarrowed scope binds the whole domain", func(t *testing.T) {
+		t.Parallel()
+
+		want := [queries.StatusFilterArity]string{}
+		for i, status := range allStatuses {
+			want[i] = string(status)
+		}
+
+		test.EqOp(t, want, statusFilterValues(nil))
+		test.EqOp(t, want, statusFilterValues(&ListScope{}))
+		test.EqOp(t, want, statusFilterValues(&ListScope{Definition: "orders"}))
+	})
+
+	T.Run("a shorter set repeats its last entry", func(t *testing.T) {
+		t.Parallel()
+
+		// A duplicate in an IN list matches exactly the rows the original did,
+		// which is what makes the padding invisible to the answer.
+		test.EqOp(t,
+			[queries.StatusFilterArity]string{"stuck", "stuck", "stuck", "stuck", "stuck"},
+			statusFilterValues(&ListScope{Statuses: []Status{StatusStuck}}))
+
+		test.EqOp(t,
+			[queries.StatusFilterArity]string{"running", "compensating", "compensating", "compensating", "compensating"},
+			statusFilterValues(&ListScope{Statuses: activeStatuses}))
+	})
+
+	T.Run("a duplicated status does not consume two slots", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t,
+			statusFilterValues(&ListScope{Statuses: []Status{StatusStuck}}),
+			statusFilterValues(&ListScope{Statuses: []Status{StatusStuck, StatusStuck, StatusStuck}}))
+	})
+
+	T.Run("a scope naming no status this package writes matches nothing", func(t *testing.T) {
+		t.Parallel()
+
+		// Every slot empty, and no row's status is the empty string. Asking for
+		// rows in a status that cannot exist answers with none of them rather
+		// than with all of them, which is what the unnarrowed reading would do.
+		test.EqOp(t,
+			[queries.StatusFilterArity]string{},
+			statusFilterValues(&ListScope{Statuses: []Status{"bogus"}}))
 	})
 }
