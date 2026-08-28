@@ -54,10 +54,6 @@ const (
 	deadKey           = "webhooks.dead"
 	limitKey          = "webhooks.limit"
 
-	// storeOpKey names which of the store's methods a measurement came from,
-	// for the one counter that can be reached from more than one of them.
-	storeOpKey = "webhooks.store_operation"
-
 	// The row counts a store read produced, which are what distinguish an empty
 	// page from a query that never ran.
 	endpointCountKey     = "webhooks.endpoint_count"

@@ -47,6 +47,7 @@ GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/unis
 # identifier is not a bind parameter in any of the three engines.
 COMPONENTS=(
   "identity"
+  "webhooks"
 )
 
 for component in "${COMPONENTS[@]}"; do

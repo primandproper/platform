@@ -57,7 +57,27 @@ var prefixCounter atomic.Uint64
 // storeEnv is one live database plus the dialect to emit SQL for.
 type storeEnv struct {
 	client  database.Client
+	fresh   func(t *testing.T) database.Client
 	dialect dialect.Dialect
+}
+
+// clientFor returns the database one subtest's tables live in.
+//
+// The two servers hand back the shared client: a subtest's prefix keeps its
+// rows away from every other subtest's, and that is all it needs. SQLite gets a
+// database of its own, because there a prefix is not enough — DDL invalidates
+// every prepared statement on the whole database, so one subtest creating its
+// tables makes a parallel subtest's next read fail with "database schema has
+// changed" whatever prefix either of them is using. Prefixes keep their rows
+// apart; only a separate file keeps their schema changes apart.
+func (e *storeEnv) clientFor(t *testing.T) database.Client {
+	t.Helper()
+
+	if e.fresh == nil {
+		return e.client
+	}
+
+	return e.fresh(t)
 }
 
 // newStore migrates a uniquely prefixed set of webhook tables and returns a
@@ -65,15 +85,27 @@ type storeEnv struct {
 func (e *storeEnv) newStore(t *testing.T) Store {
 	t.Helper()
 
-	store, err := NewSQLStore(e.client, WithTablePrefix(e.migrate(t)))
+	client, prefix := e.database(t)
+
+	store, err := NewSQLStore(client, WithTablePrefix(prefix))
 	must.NoError(t, err)
 
 	return store
 }
 
-// migrate renders a uniquely prefixed set of webhook tables and returns the
-// prefix, for a test that wants to build the store over them itself.
-func (e *storeEnv) migrate(t *testing.T) string {
+// database migrates a uniquely prefixed set of webhook tables and returns the
+// database they are in along with the prefix, for a test that wants to build
+// the store over them itself.
+func (e *storeEnv) database(t *testing.T) (client database.Client, prefix string) {
+	t.Helper()
+
+	client = e.clientFor(t)
+
+	return client, e.migrateOn(t, client)
+}
+
+// migrateOn renders a uniquely prefixed set of webhook tables in one database.
+func (e *storeEnv) migrateOn(t *testing.T, client database.Client) string {
 	t.Helper()
 
 	prefix := fmt.Sprintf("wh_%d", prefixCounter.Add(1))
@@ -83,11 +115,26 @@ func (e *storeEnv) migrate(t *testing.T) string {
 	must.SliceNotEmpty(t, stmts)
 
 	for _, stmt := range stmts {
-		_, execErr := e.client.Writer().ExecContext(t.Context(), stmt)
+		_, execErr := client.Writer().ExecContext(t.Context(), stmt)
 		must.NoError(t, execErr, must.Sprintf("executing %q", stmt))
 	}
 
 	return prefix
+}
+
+// clientOf reads the database a store is running against, for the helpers that
+// have to open a transaction of their own around a Store method.
+//
+// It is an assertion rather than a parameter because the store and its database
+// are one fact: a helper handed both could be handed a mismatched pair, and the
+// symptom would be a transaction that sees none of the rows the test wrote.
+func clientOf(t *testing.T, store Store) database.Client {
+	t.Helper()
+
+	backed, ok := store.(*SQLStore)
+	must.True(t, ok, must.Sprintf("store is %T, want *SQLStore", store))
+
+	return backed.client
 }
 
 // newSQLiteEnv builds a SQLite-backed environment. SQLite exercises the real
@@ -96,12 +143,25 @@ func (e *storeEnv) migrate(t *testing.T) string {
 func newSQLiteEnv(t *testing.T) *storeEnv {
 	t.Helper()
 
+	return &storeEnv{
+		client:  newSQLiteClient(t),
+		fresh:   newSQLiteClient,
+		dialect: dialect.SQLite,
+	}
+}
+
+// newSQLiteClient opens one database, in a directory the test owns. Each call
+// is a database of its own — see storeEnv.clientFor for why a subtest needs
+// one.
+func newSQLiteClient(t *testing.T) database.Client {
+	t.Helper()
+
 	client, err := sqlite.NewDatabaseClient(t.Context(),
 		&testClientConfig{connectionString: filepath.Join(t.TempDir(), "webhooks.db")})
 	must.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	return &storeEnv{client: client, dialect: dialect.SQLite}
+	return client
 }
 
 // registerEndpoint saves an endpoint in testScope, subscribed to the given
@@ -133,7 +193,7 @@ func registerScopedEndpoint(t *testing.T, store Store, scope tenancy.Scope, id s
 
 // dispatchTo writes a delivery and fans it out to the named endpoints, the way
 // Dispatch would.
-func dispatchTo(t *testing.T, env *storeEnv, store Store, delivery *Delivery, at time.Time, endpointIDs ...string) *Delivery {
+func dispatchTo(t *testing.T, store Store, delivery *Delivery, at time.Time, endpointIDs ...string) *Delivery {
 	t.Helper()
 
 	if delivery.ID == "" {
@@ -144,7 +204,7 @@ func dispatchTo(t *testing.T, env *storeEnv, store Store, delivery *Delivery, at
 		delivery.Scope = testScope
 	}
 
-	must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
+	must.NoError(t, clientOf(t, store).WithTransaction(t.Context(), func(q database.Tx) error {
 		return store.Enqueue(t.Context(), q, delivery, endpointIDs, at)
 	}))
 
@@ -164,19 +224,19 @@ func claimAll(t *testing.T, store Store, now time.Time) []ClaimedDispatch {
 
 // endpointsFor resolves testScope's fan-out set through a transaction, as
 // Dispatch does.
-func endpointsFor(t *testing.T, env *storeEnv, store Store, eventType EventType) []*Endpoint {
+func endpointsFor(t *testing.T, store Store, eventType EventType) []*Endpoint {
 	t.Helper()
 
-	return scopedEndpointsFor(t, env, store, testScope, eventType)
+	return scopedEndpointsFor(t, store, testScope, eventType)
 }
 
 // scopedEndpointsFor resolves one scope's fan-out set through a transaction.
-func scopedEndpointsFor(t *testing.T, env *storeEnv, store Store, scope tenancy.Scope, eventType EventType) []*Endpoint {
+func scopedEndpointsFor(t *testing.T, store Store, scope tenancy.Scope, eventType EventType) []*Endpoint {
 	t.Helper()
 
 	var endpoints []*Endpoint
 
-	must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
+	must.NoError(t, clientOf(t, store).WithTransaction(t.Context(), func(q database.Tx) error {
 		var err error
 		endpoints, err = store.EndpointsForEvent(t.Context(), q, scope, eventType)
 
