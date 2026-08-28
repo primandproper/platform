@@ -60,8 +60,11 @@ type ruling struct {
 // a real reason to hide.
 var rulings = map[string]ruling{
 	// The tier itself. identitydb is what sqlc-gen-unison emitted from
-	// identity's corpus, which is what every port below is a port onto.
+	// identity's corpus, which is what every port below is a port onto;
+	// settingsdb is the same pipeline for a package that was written on it
+	// rather than ported onto it.
 	"identity/internal/identitydb": {tier: unison},
+	"settings/internal/settingsdb": {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
